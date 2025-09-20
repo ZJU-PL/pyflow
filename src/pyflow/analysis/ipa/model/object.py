@@ -1,7 +1,7 @@
 from pyflow.language.python import program
-from ..constraints import node, qualifiers
+from pyflow.analysis.ipa.constraints import node, qualifiers
 
-from ..escape import objectescape
+from pyflow.analysis.ipa.escape import objectescape
 
 
 class Object(object):

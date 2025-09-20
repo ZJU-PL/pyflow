@@ -2,18 +2,15 @@ import itertools
 from pyflow.analysis.storegraph import storegraph
 from pyflow.analysis.storegraph import canonicalobjects
 from pyflow.analysis.storegraph import extendedtypes
-
-from pyflow.util.python import calling
-
-# HACK to testing if a object is a bool True/False...
-from pyflow.language.python import ast, program
-
-from pyflow.util import tvl
-
 from pyflow.analysis import cpasignature
 from pyflow import analysis  # ensure 'analysis.cpasignature' references resolve
 
+from pyflow.util.python import calling
+from pyflow.util import tvl
 from pyflow.util.monkeypatch import xtypes
+
+# HACK to testing if a object is a bool True/False...
+from pyflow.language.python import ast, program
 
 
 def slotRefs(slot):

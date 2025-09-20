@@ -1,9 +1,9 @@
 from pyflow.util.typedispatch import *
+from pyflow.util.graphalgorithim.dominator import dominatorTree
 
 from pyflow.analysis.dataflowIR import graph
 
 from .traverse import dfs
-from pyflow.util.graphalgorithim.dominator import dominatorTree
 
 
 class PredicateGraph(object):

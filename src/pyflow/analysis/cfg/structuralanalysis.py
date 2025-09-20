@@ -1,6 +1,6 @@
 from pyflow.util.typedispatch import *
 from pyflow.language.python import ast
-from pyflow.analysis.cfg import graph, dom
+from . import graph, dom
 
 import pyflow.util.pydot as pydot
 

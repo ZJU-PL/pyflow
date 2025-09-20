@@ -1,10 +1,25 @@
 # PyFlow CLI Options
 
-This document describes the new CLI options added to PyFlow, following the style of clang.
+This document describes the CLI options available in PyFlow, following the style of clang.
 
-## AST and CFG Dumping
+## Commands
 
-### --dump-ast FUNCTION
+PyFlow provides two main commands:
+- `optimize`: Run static analysis and optimization on Python code
+- `callgraph`: Build and visualize call graphs from Python code
+
+## Optimize Command
+
+### Basic Usage
+```bash
+pyflow optimize [OPTIONS] INPUT_PATH
+```
+
+Where `INPUT_PATH` is a Python file, directory, or library to optimize.
+
+### AST and CFG Dumping
+
+#### --dump-ast FUNCTION
 Dump the Abstract Syntax Tree (AST) for the specified function name.
 
 **Example:**
@@ -12,7 +27,7 @@ Dump the Abstract Syntax Tree (AST) for the specified function name.
 pyflow optimize examples/test_function.py --dump-ast fibonacci
 ```
 
-### --dump-cfg FUNCTION
+#### --dump-cfg FUNCTION
 Dump the Control Flow Graph (CFG) for the specified function name.
 
 **Example:**
@@ -20,7 +35,7 @@ Dump the Control Flow Graph (CFG) for the specified function name.
 pyflow optimize examples/test_function.py --dump-cfg quicksort
 ```
 
-### --dump-format FORMAT
+#### --dump-format FORMAT
 Specify the output format for AST/CFG dumps. Available formats:
 - `text` (default): Human-readable text format
 - `dot`: Graphviz DOT format for visualization
@@ -31,7 +46,7 @@ Specify the output format for AST/CFG dumps. Available formats:
 pyflow optimize examples/test_function.py --dump-ast fibonacci --dump-format dot
 ```
 
-### --dump-output DIRECTORY
+#### --dump-output DIRECTORY
 Specify the output directory for AST/CFG dumps. Defaults to the current directory.
 
 **Example:**
@@ -39,9 +54,9 @@ Specify the output directory for AST/CFG dumps. Defaults to the current director
 pyflow optimize examples/test_function.py --dump-ast fibonacci --dump-output ./output/
 ```
 
-## Optimization Passes Selection
+### Optimization Passes Selection
 
-### --passes PASS1 [PASS2 ...]
+#### --opt-passes PASS1 [PASS2 ...]
 Run only the specified optimization passes. Available passes:
 - `methodcall`: Fuse method calls and optimize method dispatch
 - `lifetime`: Lifetime analysis for variables and objects
@@ -57,69 +72,95 @@ Run only the specified optimization passes. Available passes:
 **Examples:**
 ```bash
 # Run only specific passes
-pyflow optimize examples/test_function.py --passes methodcall inlining
+pyflow optimize examples/test_function.py --opt-passes methodcall inlining
 
 # Run multiple passes
-pyflow optimize examples/test_function.py --passes simplify dce storeelimination
+pyflow optimize examples/test_function.py --opt-passes simplify dce storeelimination
 ```
 
-### --list-passes
+#### --list-opt-passes
 List all available optimization passes and their descriptions.
 
 **Example:**
 ```bash
-pyflow optimize --list-passes
+pyflow optimize --list-opt-passes
 ```
 
-### --no-passes
+#### --no-opt-passes
 Skip all optimization passes and run only analysis (no optimization).
 
 **Example:**
 ```bash
-pyflow optimize examples/test_function.py --no-passes
+pyflow optimize examples/test_function.py --no-opt-passes
 ```
 
-## Combined Usage Examples
+### General Options
 
-### Dump AST and CFG for multiple functions
+#### --verbose, -v
+Enable verbose output during analysis and optimization.
+
+#### --analysis, -a
+Type of analysis to run. Choices:
+- `all` (default): Run all analysis types
+- `cpa`: Control flow analysis
+- `ipa`: Inter-procedural analysis  
+- `shape`: Shape analysis
+- `lifetime`: Lifetime analysis
+
+#### --dump, -d
+Dump analysis results to files.
+
+#### --output, -o
+Output file for results.
+
+#### --recursive, -r
+Recursively analyze subdirectories.
+
+#### --exclude
+Patterns to exclude from analysis (e.g., 'test_*', '__pycache__').
+
+#### --include
+File patterns to include in analysis (default: *.py).
+
+## Callgraph Command
+
+### Basic Usage
 ```bash
-pyflow optimize examples/test_function.py \
-  --dump-ast fibonacci \
-  --dump-ast quicksort \
-  --dump-cfg binary_search \
-  --dump-format dot \
-  --dump-output ./graphs/
+pyflow callgraph [OPTIONS] INPUT_FILE
 ```
 
-### Run specific optimization passes with AST dumping
+Where `INPUT_FILE` is a Python file to analyze for call graph generation.
+
+### Options
+
+#### --format, -f
+Output format for the call graph. Choices:
+- `text` (default): Human-readable text format
+- `dot`: Graphviz DOT format for visualization
+- `json`: JSON format for programmatic processing
+
+#### --output, -o
+Output file for the call graph (default: stdout).
+
+#### --max-depth, -d
+Maximum call depth to analyze.
+
+#### --show-cycles
+Detect and show cycles in the call graph.
+
+#### --verbose, -v
+Enable verbose output.
+
+### Examples
+
 ```bash
-pyflow optimize examples/test_function.py \
-  --passes inlining simplify dce \
-  --dump-ast fibonacci \
-  --verbose
+# Generate text call graph
+pyflow callgraph examples/test_function.py
+
+# Generate DOT format for visualization
+pyflow callgraph examples/test_function.py --format dot --output callgraph.dot
+
+# Find cycles with limited depth
+pyflow callgraph examples/test_function.py --show-cycles --max-depth 5
 ```
 
-### Analysis-only mode with CFG dumping
-```bash
-pyflow optimize examples/test_function.py \
-  --no-passes \
-  --dump-cfg quicksort \
-  --dump-format json
-```
-
-## Integration with Existing Options
-
-These new options work seamlessly with existing PyFlow CLI options:
-
-- `--verbose`: Shows detailed output during AST/CFG dumping and pass execution
-- `--analysis`: Controls which analysis types to run
-- `--dump`: Still works for dumping general analysis results
-- `--recursive`: Applies to directory analysis with the new options
-
-## Output Files
-
-When using dump options, PyFlow creates files with the following naming convention:
-- AST dumps: `{function_name}_ast.{format}`
-- CFG dumps: `{function_name}_cfg.{format}`
-
-For example, dumping the AST of the `fibonacci` function in DOT format creates: `fibonacci_ast.dot`

@@ -1,7 +1,7 @@
 from pyflow.util.typedispatch import *
 from pyflow.util.monkeypatch import xcollections
-from pyflow.analysis.dataflowIR import graph
 
+from pyflow.analysis.dataflowIR import graph
 from pyflow.analysis.cfgIR import cfg
 from pyflow.analysis.cfgIR import dumpcfgir
 from pyflow.analysis.cfgIR import structuralanalysis

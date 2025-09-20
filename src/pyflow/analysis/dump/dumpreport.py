@@ -1,29 +1,28 @@
-from pyflow.util.io.xmloutput import XMLOutput
+
+import os.path
+import collections
+import urllib
+
 from pyflow.language.python import simplecodegen
+
+from pyflow.util.io.xmloutput import XMLOutput
 from pyflow.util.asttools import astpprint
+import pyflow.util as util
 from pyflow.util.asttools.origin import originString
+import pyflow.util.graphalgorithim.dominator as dominator
+from pyflow.util.application.async_utils import *
+from pyflow.util.io.filesystem import ensureDirectoryExists
 
 from ... import config
-import os.path
-from pyflow.util.io.filesystem import ensureDirectoryExists
 
 from .. import programculler
 from ..programextractor import Extractor
 
 from pyflow.analysis.dump import dumpgraphs
 from pyflow.analysis.dump import dumputil
-
-import collections
 from pyflow.analysis import tools
 
-from pyflow.util.graphalgorithim import dominator
-
-import pyflow.util as util
-import urllib
-
 from pyflow.language.python import ast
-
-from pyflow.util.application.async_utils import *
 
 
 # Filter an iterable into keys and values, and collect
@@ -527,8 +526,8 @@ def makeHeapTree(liveHeap, heapContexts):
                         ogroup = ref.xtype.group()
                         points[heap].add(ogroup)
 
-    util.graphalgorithim.dominator.makeSingleHead(points, head)
-    tree, _idoms = util.graphalgorithim.dominator.dominatorTree(points, head)
+    dominator.makeSingleHead(points, head)
+    tree, _idoms = dominator.dominatorTree(points, head)
     return tree, head
 
 

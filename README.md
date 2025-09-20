@@ -1,8 +1,5 @@
-# Copyright 2025 rainoftime
 
-A static compiler for Python.
-
-## Description
+# pyflow
 
 PyFlow is a static analysis and compilation tool for Python code. It provides various analysis capabilities including:
 
@@ -55,16 +52,19 @@ pyflow optimize input.py --dump-ast function_name
 pyflow optimize input.py --dump-cfg function_name
 
 # Run specific optimization passes
-pyflow optimize input.py --passes inlining simplify dce
+pyflow optimize input.py --opt-passes inlining simplify dce
 
 # List all available passes
-pyflow optimize --list-passes
+pyflow optimize --list-opt-passes
 
 # Analysis only (no optimization)
-pyflow optimize input.py --no-passes
+pyflow optimize input.py --no-opt-passes
+
+# Generate call graph
+pyflow callgraph input.py --format dot --output callgraph.dot
 ```
 
-See [CLI_OPTIONS.md](CLI_OPTIONS.md) for detailed documentation of all CLI options.
+See [CLI.md](CLI.md) for detailed documentation of all CLI options.
 
 ### Running Tests
 
@@ -100,9 +100,9 @@ context = Context()
 ```
 pyflow/
 ├── src/pyflow/          # Main source code
-│   ├── analysis/          # Static analysis modules
+│   ├── analysis/ 
+│   ├── decompiler/        # Bytecode decompilation         # Static analysis modules
 │   ├── application/       # Application layer
-│   ├── decompiler/        # Bytecode decompilation
 │   ├── language/          # Language-specific modules
 │   ├── optimization/      # Optimization passes
 │   └── util/              # Utility modules

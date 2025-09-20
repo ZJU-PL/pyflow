@@ -1,11 +1,12 @@
 from pyflow.language.python import program, ast
 
 import pyflow.util as util
+# from pyflow.util.python import calling
+import pyflow.util.canonical as canonical
+
 import pyflow.analysis as analysis  # for analysis.cpasignature references
 import pyflow.analysis.cpasignature as cpasignature
 
-# from pyflow.util.python import calling
-import pyflow.util.canonical as canonical
 
 CanonicalObject = canonical.CanonicalObject
 

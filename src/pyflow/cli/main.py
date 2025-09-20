@@ -7,7 +7,7 @@ from pathlib import Path
 # Add the src directory to the path so we can import pyflow modules
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from .analysis import run_analysis
+from .optimize import run_analysis
 from pyflow.analysis.callgraph import run_callgraph, add_callgraph_parser
 
 
@@ -118,17 +118,17 @@ def main():
 
     # Optimization passes selection
     analysis_parser.add_argument(
-        "--passes",
+        "--opt-passes",
         nargs="*",
         help="Specific optimization passes to run (e.g., 'methodcall', 'inlining', 'dce')",
     )
     analysis_parser.add_argument(
-        "--list-passes",
+        "--list-opt-passes",
         action="store_true",
         help="List all available optimization passes",
     )
     analysis_parser.add_argument(
-        "--no-passes",
+        "--no-opt-passes",
         action="store_true",
         help="Skip all optimization passes (analysis only)",
     )
@@ -139,7 +139,7 @@ def main():
     args = parser.parse_args()
 
     # Handle special commands that don't require input
-    if args.command == "optimize" and hasattr(args, "list_passes") and args.list_passes:
+    if args.command == "optimize" and hasattr(args, "list_opt_passes") and args.list_opt_passes:
         list_optimization_passes()
         return 0
 

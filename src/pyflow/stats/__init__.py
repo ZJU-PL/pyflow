@@ -3,16 +3,12 @@ from pyflow.analysis import astcollector
 import collections
 import sys
 import os.path
+import subprocess
 
 from pyflow import config
 from pyflow.util.io.filesystem import ensureDirectoryExists
-
-import subprocess
-
 from pyflow.util.io.report import *
-
 from pyflow.optimization import cullprogram
-
 from pyflow import config
 
 

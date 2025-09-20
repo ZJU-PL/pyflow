@@ -1,4 +1,4 @@
-import pydot
+import pyflow.util.pydot as pydot
 from pyflow.util.io import filesystem
 from pyflow.util.typedispatch import *
 from pyflow.util.asttools import astpprint

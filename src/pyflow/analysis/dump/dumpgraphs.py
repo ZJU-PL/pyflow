@@ -2,9 +2,9 @@ import os.path
 import pyflow.util as util
 import pyflow.util.pydot as pydot
 from pyflow.util.graphalgorithim import dominator
-from pyflow.analysis.dump import dumputil
 from pyflow.util.application.async_utils import *
 from pyflow.util.io import filesystem
+from pyflow.analysis.dump import dumputil
 
 
 def dumpGraph(directory, name, format, g, prog="dot"):
