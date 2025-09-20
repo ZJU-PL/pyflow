@@ -13,8 +13,7 @@ class singletonMetaclass(type):
         return cls()
 
 
-class singleton(object):
-    __metaclass__ = singletonMetaclass
+class singleton(object, metaclass=singletonMetaclass):
     __slots__ = ()
 
 

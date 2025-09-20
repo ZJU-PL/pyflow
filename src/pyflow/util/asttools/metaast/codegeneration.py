@@ -119,7 +119,7 @@ def makeRepr(name, desc):
     fields = " ".join("self.%s," % field.internalname for field in desc)
 
     code = """def __repr__(self):
-	return "%s(%s)" %% (%s)
+    return "%s(%s)" %% (%s)
 """ % (
         name,
         interp,
@@ -132,7 +132,7 @@ def makeRepr(name, desc):
 # To prevent possible recursion, shared node do NOT print(their children.)
 def makeSharedRepr(name, desc):
     code = """def __repr__(self):
-	return "%s(%%d)" %% (id(self),)
+    return "%s(%%d)" %% (id(self),)
 """ % (
         name
     )
@@ -142,7 +142,7 @@ def makeSharedRepr(name, desc):
 
 def makeAccept(name):
     code = """def accept(self, visitor, *args):
-	return visitor.visit%s(self, *args)
+    return visitor.visit%s(self, *args)
 """ % (
         name
     )
@@ -153,7 +153,7 @@ def makeAccept(name):
 def makeGetChildren(desc):
     children = " ".join(["self.%s," % field.internalname for field in desc])
     code = """def children(self):
-	return (%s)
+    return (%s)
 """ % (
         children
     )
@@ -166,7 +166,7 @@ def makeGetFields(desc):
         ["(%r, self.%s)," % (field.name, field.internalname) for field in desc]
     )
     code = """def fields(self):
-	return (%s)
+    return (%s)
 """ % (
         children
     )

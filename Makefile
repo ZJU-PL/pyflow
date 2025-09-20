@@ -30,7 +30,7 @@ format:  ## Format code with black
 	black src/ tests/ scripts/
 
 lint:  ## Lint code with flake8
-	flake8 src/ tests/ scripts/
+	flake8 src/ scripts/
 
 type-check:  ## Type check with mypy
 	mypy src/

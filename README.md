@@ -24,7 +24,7 @@ PyFlow is a static analysis and compilation tool for Python code. It provides va
 
 ```bash
 # Clone the repository
-git clone https://github.com/ncbray/pyflow.git
+git clone https://github.com/ZJU-Automated-Reasoning-Group/pyflow.git
 cd pyflow
 
 # Create and activate virtual environment

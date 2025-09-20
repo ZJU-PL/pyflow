@@ -1,5 +1,4 @@
 # Copyright 2025 rainoftime
--r requirements.txt
 
 pytest>=6.0.0
 pytest-cov>=2.0.0

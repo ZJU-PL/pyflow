@@ -460,9 +460,9 @@ ParameterDecl = (Local, DoNotCare)
 class CodeParameters(PythonASTNode):
     # TODO support paramnames:str?* (different than paramnames:str*?)
     __fields__ = """selfparam:ParameterDecl?
-			params:ParameterDecl* paramnames:str?* defaults:Existing*
-			vparam:ParameterDecl? kparam:ParameterDecl?
-			returnparams:ParameterDecl*"""
+            params:ParameterDecl* paramnames:str?* defaults:Existing*
+            vparam:ParameterDecl? kparam:ParameterDecl?
+            returnparams:ParameterDecl*"""
 
     def codeParameters(self):
         return util.python.calling.CalleeParams(
@@ -478,8 +478,8 @@ class CodeParameters(PythonASTNode):
 
 class Code(BaseCode):
     __fields__ = """name:str
-			codeparameters:CodeParameters
-			ast:Suite"""
+            codeparameters:CodeParameters
+            ast:Suite"""
     __shared__ = True
 
     __emptyAnnotation__ = annotations.emptyCodeAnnotation

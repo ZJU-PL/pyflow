@@ -89,9 +89,9 @@ def makeInterpreterStubs(collector):
         assert isinstance(argnames, (tuple, list)), argnames
 
         template = """def %(name)s(%(args)s):
-	clsDict = load(load(%(self)s, 'type'), 'dictionary')
-	meth = loadDict(clsDict, %(attr)r)
-	return meth(%(args)s)
+    clsDict = load(load(%(self)s, 'type'), 'dictionary')
+    meth = loadDict(clsDict, %(attr)r)
+    return meth(%(args)s)
 """ % {
             "name": name,
             "attr": attr,
@@ -108,20 +108,20 @@ def makeInterpreterStubs(collector):
         assert isinstance(rattr, str), rattr
 
         template = """def %(name)s(self, other):
-	result = NotImplemented
+    result = NotImplemented
 
-	clsDict = load(load(self, 'type'), 'dictionary')
-	if checkDict(clsDict, %(attr)r):
-		meth = loadDict(clsDict, %(attr)r)
-		result = meth(self, other)
+    clsDict = load(load(self, 'type'), 'dictionary')
+    if checkDict(clsDict, %(attr)r):
+        meth = loadDict(clsDict, %(attr)r)
+        result = meth(self, other)
 
-	if result is NotImplemented:
-		clsDict = load(load(other, 'type'), 'dictionary')
-		if checkDict(clsDict, %(rattr)r):
-			meth = loadDict(clsDict, %(rattr)r)
-			result = meth(other, self)
+    if result is NotImplemented:
+        clsDict = load(load(other, 'type'), 'dictionary')
+        if checkDict(clsDict, %(rattr)r):
+            meth = loadDict(clsDict, %(rattr)r)
+            result = meth(other, self)
 
-	return result
+    return result
 """ % {
             "name": name,
             "attr": attr,
@@ -138,25 +138,25 @@ def makeInterpreterStubs(collector):
         assert isinstance(rattr, str), rattr
 
         template = """def %(name)s(self, other):
-	result = NotImplemented
+    result = NotImplemented
 
-	clsDict = load(load(self, 'type'), 'dictionary')
-	if checkDict(clsDict, %(iattr)r):
-		meth = loadDict(clsDict, %(iattr)r)
-		result = meth(self, other)
+    clsDict = load(load(self, 'type'), 'dictionary')
+    if checkDict(clsDict, %(iattr)r):
+        meth = loadDict(clsDict, %(iattr)r)
+        result = meth(self, other)
 
-	if result is NotImplemented:
-		if checkDict(clsDict, %(attr)r):
-			meth = loadDict(clsDict, %(attr)r)
-			result = meth(self, other)
+    if result is NotImplemented:
+        if checkDict(clsDict, %(attr)r):
+            meth = loadDict(clsDict, %(attr)r)
+            result = meth(self, other)
 
-	if result is NotImplemented:
-		clsDict = load(load(other, 'type'), 'dictionary')
-		if checkDict(clsDict, %(rattr)r):
-			meth = loadDict(clsDict, %(rattr)r)
-			result = meth(other, self)
+    if result is NotImplemented:
+        clsDict = load(load(other, 'type'), 'dictionary')
+        if checkDict(clsDict, %(rattr)r):
+            meth = loadDict(clsDict, %(rattr)r)
+            result = meth(other, self)
 
-	return result
+    return result
 """ % {
             "name": name,
             "iattr": iattr,

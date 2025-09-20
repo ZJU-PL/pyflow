@@ -2,8 +2,7 @@ from pyflow.util.typedispatch import *
 from pyflow.language.python import ast
 from pyflow.analysis.cfg import graph, dom
 
-import pydot
-
+import pyflow.util.pydot as pydot
 
 class Search(object):
     def __init__(self):

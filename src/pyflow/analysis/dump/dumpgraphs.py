@@ -1,5 +1,6 @@
 import os.path
-import pydot
+import pyflow.util as util
+import pyflow.util.pydot as pydot
 from pyflow.util.graphalgorithim import dominator
 from pyflow.analysis.dump import dumputil
 from pyflow.util.application.async_utils import *

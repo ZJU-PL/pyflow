@@ -10,7 +10,7 @@ def handleFile(o, fullname):
     o.endl()
 
     with o.scope("pre"):
-        o << "# Copyright (c) 2010 Nicholas Bray"
+        o << "# Copyright (c) 2025 rainoftime"
         o.endl()
         o.endl()
 

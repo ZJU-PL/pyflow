@@ -70,38 +70,38 @@ def namedtuple(typename, field_names, namespaceaugment={}, verbose=False):
     )
     template = (
         """class %(typename)s(tuple):
-		'%(typename)s(%(argtxt)s)' \n
-		__slots__ = () \n
-		_fields = %(field_names)r \n
-		def __new__(cls, %(argtxt)s):
-			return tuple.__new__(cls, (%(argtxt)s)) \n
-		@classmethod
-		def _make(cls, iterable, new=tuple.__new__, len=len):
-			'Make a new %(typename)s object from a sequence or iterable'
-			result = new(cls, iterable)
-			if len(result) != %(numfields)d:
-				raise TypeError('Expected %(numfields)d arguments, got %%d' %% len(result))
-			return result \n
-		def __repr__(self):
-			return '%(typename)s(%(reprtxt)s)' %% self \n
-		def _asdict(t):
-			'Return a new dict which maps field names to their values'
-			return {%(dicttxt)s} \n
-		def _replace(self, **kwds):
-			'Return a new %(typename)s object replacing specified fields with new values'
-			result = self._make(map(kwds.pop, %(field_names)r, self))
-			if kwds:
-				raise ValueError('Got unexpected field names: %%r' %% kwds.keys())
-			return result \n
-		def __getnewargs__(self):
-			return tuple(self) \n\n"""
+        '%(typename)s(%(argtxt)s)' \n
+        __slots__ = () \n
+        _fields = %(field_names)r \n
+        def __new__(cls, %(argtxt)s):
+            return tuple.__new__(cls, (%(argtxt)s)) \n
+        @classmethod
+        def _make(cls, iterable, new=tuple.__new__, len=len):
+            'Make a new %(typename)s object from a sequence or iterable'
+            result = new(cls, iterable)
+            if len(result) != %(numfields)d:
+                raise TypeError('Expected %(numfields)d arguments, got %%d' %% len(result))
+            return result \n
+        def __repr__(self):
+            return '%(typename)s(%(reprtxt)s)' %% self \n
+        def _asdict(t):
+            'Return a new dict which maps field names to their values'
+            return {%(dicttxt)s} \n
+        def _replace(self, **kwds):
+            'Return a new %(typename)s object replacing specified fields with new values'
+            result = self._make(map(kwds.pop, %(field_names)r, self))
+            if kwds:
+                raise ValueError('Got unexpected field names: %%r' %% kwds.keys())
+            return result \n
+        def __getnewargs__(self):
+            return tuple(self) \n\n"""
         % locals()
     )
     for i, name in enumerate(field_names):
-        template += "		%s = property(itemgetter(%d))\n" % (name, i)
+        template += "        %s = property(itemgetter(%d))\n" % (name, i)
 
     for name in namespaceaugment.keys():
-        template += "		%s = %s\n" % (name, name)
+        template += "        %s = %s\n" % (name, name)
 
     if verbose:
         print(template)
