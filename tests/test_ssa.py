@@ -2,7 +2,7 @@ import unittest
 
 from pyflow.util.asttools.astpprint import pprint
 from pyflow.application import context
-from pyflow.analysis.programextractor import Extractor
+from pyflow.frontend.programextractor import Extractor
 from pyflow.analysis.cfg import (
     transform,
     dump,
@@ -113,7 +113,7 @@ class TestSSA(unittest.TestCase):
         self.compiler.extractor = Extractor(self.compiler)
 
     def decompile(self, func):
-        return self.compiler.extractor.decompileFunction(func, ssa=False)
+        return self.compiler.extractor.convertFunction(func, ssa=False)
 
     def runFunction(self, func, trace=False):
         code = self.decompile(func)

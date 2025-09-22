@@ -4,13 +4,13 @@ import unittest
 import pyflow.analysis.cpa
 import pyflow.application.makefile
 import pyflow.application.program
-from pyflow.analysis.programextractor import extractProgram
+from pyflow.frontend.programextractor import extractProgram
 
 
 from pyflow.util.application.console import Console
 from pyflow.application.context import CompilerContext
 
-from pyflow.analysis.programextractor import Extractor
+from pyflow.frontend.programextractor import Extractor
 from pyflow.util.python import replaceGlobals
 
 
@@ -50,7 +50,7 @@ class TestCPA(unittest.TestCase):
         )
 
         compiler.program = program
-        compiler.extractor = pyflow.analysis.programextractor.Extractor(compiler)
+        compiler.extractor = pyflow.frontend.programextractor.Extractor(compiler)
 
         extractProgram(compiler, program)
         result = pyflow.analysis.cpa.evaluate(compiler, program)

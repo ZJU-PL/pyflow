@@ -13,7 +13,7 @@ from pyflow.language.python import ast
 from pyflow.analysis.storegraph import storegraph, canonicalobjects, setmanager
 
 import pyflow.application.context
-import pyflow.analysis.programextractor
+import pyflow.frontend.programextractor
 
 from pyflow.util.tvl import *
 
@@ -35,7 +35,7 @@ class MockInformationProvider(object):
 class TestConstraintBase(unittest.TestCase):
     def setUp(self):
         compiler = pyflow.application.context.CompilerContext(None)
-        self.extractor = pyflow.analysis.programextractor.Extractor(compiler)
+        self.extractor = pyflow.frontend.programextractor.Extractor(compiler)
         compiler.extractor = self.extractor
 
         cpacanonical = pyflow.analysis.storegraph.canonicalobjects.CanonicalObjects()

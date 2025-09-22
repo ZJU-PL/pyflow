@@ -13,7 +13,7 @@ from pathlib import Path
 from pyflow.application.context import CompilerContext
 from pyflow.application.program import Program
 from pyflow.application.pipeline import evaluate
-from pyflow.analysis.programextractor import extractProgram
+from pyflow.frontend.programextractor import extractProgram
 from pyflow.util.application.console import Console
 import pyflow.util.pydot as pydot
 
@@ -322,7 +322,7 @@ def run_ir_dump(input_path: Path, args):
         program = Program()
         program.interface, all_source_code = create_interface_from_paths(python_files, args)
 
-        from pyflow.analysis.programextractor import Extractor
+        from pyflow.frontend.programextractor import Extractor
         compiler.extractor = Extractor(compiler, verbose=args.verbose, source_code=all_source_code)
 
         # Extract and analyze

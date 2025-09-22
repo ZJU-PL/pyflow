@@ -1,4 +1,4 @@
-import antlr3
+import pyflow.lib.antlr3 as antlr3
 from .origin import Origin
 
 

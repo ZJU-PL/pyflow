@@ -11,7 +11,7 @@ from pathlib import Path
 from pyflow.application.context import CompilerContext, Context
 from pyflow.application.program import Program
 from pyflow.application.pipeline import evaluate
-from pyflow.analysis.programextractor import extractProgram
+from pyflow.frontend.programextractor import extractProgram
 from pyflow.util.application.console import Console
 
 
@@ -42,7 +42,7 @@ def run_analysis(input_path, args):
         )
 
         # Initialize extractor
-        from pyflow.analysis.programextractor import Extractor
+        from pyflow.frontend.programextractor import Extractor
 
         compiler.extractor = Extractor(
             compiler, verbose=args.verbose, source_code=all_source_code

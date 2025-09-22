@@ -1,7 +1,7 @@
 import sys
 import os.path
 
-from pyflow.analysis.programextractor import extractProgram
+from pyflow.frontend.programextractor import extractProgram
 import pyflow.application.pipeline as pipeline
 from pyflow.util.application.console import Console
 
