@@ -190,8 +190,6 @@ class Extractor(object):
 				o = self.constpool[type(o)][o]
 		return o
 
-
-
 	def contains(self, o):
 		return id(self.getCanonical(o)) in self.objcache
 

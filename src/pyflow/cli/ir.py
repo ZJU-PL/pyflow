@@ -20,31 +20,16 @@ import pyflow.util.pydot as pydot
 
 def find_function_in_live_code(liveCode, function_name: str, program=None):
     """Find a function by name in live code."""
-    # print(f"DEBUG: Looking for function '{function_name}' in {len(liveCode)} live code objects")
-    for i, code in enumerate(liveCode):
-        if hasattr(code, 'codeName'):
-            code_name = code.codeName()
-            # print(f"DEBUG: Live code {i}: {code_name} (type: {type(code)})")
-            if code_name == function_name:
-                # print(f"DEBUG: Found function '{function_name}'")
-                return code
-        # else:
-        #     print(f"DEBUG: Live code {i}: no codeName method (type: {type(code)})")
+    for code in liveCode:
+        if hasattr(code, 'codeName') and code.codeName() == function_name:
+            return code
     
-    # If not found in live code, try looking in entry points
+    # Check entry points if not found in live code
     if program and hasattr(program, 'interface') and hasattr(program.interface, 'entryPoint'):
-        # print(f"DEBUG: Function '{function_name}' not found in live code, checking entry points")
-        for i, ep in enumerate(program.interface.entryPoint):
-            if hasattr(ep.code, 'codeName'):
-                code_name = ep.code.codeName()
-                # print(f"DEBUG: Entry point {i}: {code_name} (type: {type(ep.code)})")
-                if code_name == function_name:
-                    # print(f"DEBUG: Found function '{function_name}' in entry points")
-                    return ep.code
-            # else:
-            #     print(f"DEBUG: Entry point {i}: no codeName method (type: {type(ep.code)})")
+        for ep in program.interface.entryPoint:
+            if hasattr(ep.code, 'codeName') and ep.code.codeName() == function_name:
+                return ep.code
     
-    # print(f"DEBUG: Function '{function_name}' not found")
     return None
 
 
@@ -57,6 +42,16 @@ def write_ir_file(output_file: str, function_name: str, ir_type: str, content: s
     print(f"{ir_type} dumped to: {output_file}")
 
 
+def _get_ast_content(func, function_name: str):
+    """Extract AST content from function object."""
+    if hasattr(func, 'ast') and func.ast:
+        return str(func.ast)
+    elif hasattr(func, 'code') and hasattr(func.code, 'ast') and func.code.ast:
+        return str(func.code.ast)
+    else:
+        raise ValueError(f"No AST available for function '{function_name}'")
+
+
 def dump_ast(compiler, liveCode, function_name: str, output_dir: str, format: str = "text", program=None):
     """Dump the AST for a specific function."""
     func = find_function_in_live_code(liveCode, function_name, program)
@@ -65,24 +60,22 @@ def dump_ast(compiler, liveCode, function_name: str, output_dir: str, format: st
         return False
     
     try:
-        # Check if the function has an ast attribute
-        if hasattr(func, 'ast') and func.ast:
-            ast_content = str(func.ast)
-        elif hasattr(func, 'code') and hasattr(func.code, 'ast') and func.code.ast:
-            ast_content = str(func.code.ast)
-        else:
-            print(f"Error: No AST available for function '{function_name}'", file=sys.stderr)
-            return False
-        
+        ast_content = _get_ast_content(func, function_name)
         os.makedirs(output_dir, exist_ok=True)
         output_file = os.path.join(output_dir, f"{function_name}_ast.{format}")
         write_ir_file(output_file, function_name, "AST", ast_content)
         return True
-        
     except Exception as e:
         print(f"Error dumping AST: {e}", file=sys.stderr)
-        import traceback
-        traceback.print_exc()
+        return False
+
+
+def _dump_with_error_handling(func_name: str, dump_func, *args, **kwargs):
+    """Helper to handle common error patterns in dump functions."""
+    try:
+        return dump_func(*args, **kwargs)
+    except Exception as e:
+        print(f"Error dumping {func_name}: {e}", file=sys.stderr)
         return False
 
 
@@ -93,11 +86,10 @@ def dump_cfg(compiler, liveCode, function_name: str, output_dir: str, format: st
         print(f"Error: Function '{function_name}' not found in live code", file=sys.stderr)
         return False
     
-    try:
+    def _dump_cfg_impl():
         from pyflow.analysis.cfg import transform, dump as cfg_dump
         
         cfg = transform.evaluate(compiler, func)
-        
         os.makedirs(output_dir, exist_ok=True)
         output_file = os.path.join(output_dir, f"{function_name}_cfg.{format}")
         
@@ -114,17 +106,11 @@ def dump_cfg(compiler, liveCode, function_name: str, output_dir: str, format: st
                 print(f"Warning: DOT generation failed, falling back to text format: {e}")
                 write_ir_file(output_file, function_name, "CFG", str(cfg))
         else:
-            # Clang-style CFG representation
             content = _generate_clang_style_cfg(cfg)
             write_ir_file(output_file, function_name, "CFG", content)
-        
         return True
-        
-    except Exception as e:
-        print(f"Error dumping CFG: {e}", file=sys.stderr)
-        import traceback
-        traceback.print_exc()
-        return False
+    
+    return _dump_with_error_handling("CFG", _dump_cfg_impl)
 
 
 def _generate_clang_style_cfg(cfg):
@@ -218,7 +204,7 @@ def dump_ssa(compiler, liveCode, function_name: str, output_dir: str, format: st
         print(f"Error: Function '{function_name}' not found in live code", file=sys.stderr)
         return False
     
-    try:
+    def _dump_ssa_impl():
         from pyflow.analysis.cfg import transform, ssa
         
         cfg = transform.evaluate(compiler, func)
@@ -232,17 +218,11 @@ def dump_ssa(compiler, liveCode, function_name: str, output_dir: str, format: st
             cfg_dump.evaluate(compiler, cfg)
             print(f"SSA form dumped to: {output_file}")
         else:
-            # Use the same clang-style CFG representation for SSA
             content = _generate_clang_style_cfg(cfg)
             write_ir_file(output_file, function_name, "SSA form", content)
-        
         return True
-        
-    except Exception as e:
-        print(f"Error dumping SSA: {e}", file=sys.stderr)
-        import traceback
-        traceback.print_exc()
-        return False
+    
+    return _dump_with_error_handling("SSA", _dump_ssa_impl)
 
 
 def find_python_files(directory, args):
@@ -329,29 +309,31 @@ def run_ir_dump(input_path: Path, args):
         with console.scope("extraction"):
             extractProgram(compiler, program)
 
+        # Always translate the interface for the analysis pipeline
         program.interface.translate(compiler.extractor)
-        if program.interface.func:
+        
+        # Use the extracted functions directly for IR dumping
+        if program.liveCode:
+            print(f"Created {len(program.liveCode)} entry points from {len(program.liveCode)} functions")
+        elif program.interface.func:
             print(f"Created {len(program.interface.entryPoint)} entry points from {len(program.interface.func)} functions")
-            
-        # print(f"DEBUG: Entry points:")
-        # for i, ep in enumerate(program.interface.entryPoint):
-        #     if hasattr(ep.code, 'codeName'):
-        #         print(f"DEBUG: Entry point {i}: {ep.code.codeName()} (type: {type(ep.code)})")
-        #     else:
-        #         print(f"DEBUG: Entry point {i}: no codeName method (type: {type(ep.code)})")
 
-        with console.scope("analysis"):
-            evaluate(compiler, program, str(input_path))
+        # Skip the analysis pipeline for IR dumping since it clears the AST blocks
+        # We only need the AST/CFG, not the full analysis
+        if args.dump_ast or args.dump_cfg:
+            print("Skipping analysis pipeline for IR dumping")
+        else:
+            with console.scope("analysis"):
+                evaluate(compiler, program, str(input_path))
 
         from pyflow.analysis.programculler import findLiveCode
-        liveCode, liveInvocations = findLiveCode(program)
         
-        # print(f"DEBUG: After findLiveCode, liveCode has {len(liveCode)} objects")
-        # for i, code in enumerate(liveCode):
-        #     if hasattr(code, 'codeName'):
-        #         print(f"DEBUG: Live code {i}: {code.codeName()} (type: {type(code)})")
-        #     else:
-        #         print(f"DEBUG: Live code {i}: no codeName method (type: {type(code)})")
+        # Use program.liveCode directly if available, otherwise use findLiveCode
+        if program.liveCode:
+            liveCode = program.liveCode
+            liveInvocations = {}  # Empty for now, could be populated if needed
+        else:
+            liveCode, liveInvocations = findLiveCode(program)
         
         output_dir = args.dump_output or "."
         
