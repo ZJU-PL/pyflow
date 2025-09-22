@@ -9,13 +9,37 @@ import sys
 import os
 import fnmatch
 from pathlib import Path
+import argparse
 
 from pyflow.application.context import CompilerContext
 from pyflow.application.program import Program
 from pyflow.application.pipeline import evaluate
-from pyflow.frontend.programextractor import extractProgram
+from pyflow.frontend.programextractor import extractProgram, Extractor
 from pyflow.util.application.console import Console
+from pyflow.analysis.cfg import transform, dump as cfg_dump, ssa
+from pyflow.analysis.programculler import findLiveCode
 import pyflow.util.pydot as pydot
+
+
+def add_ir_parser(subparsers):
+    """Add IR dumping command parser to the main CLI."""
+    parser = subparsers.add_parser("ir", help="Dump AST, CFG, and SSA forms for specific functions")
+    
+    # Input arguments
+    parser.add_argument("input_path", help="Python file or directory to analyze")
+    parser.add_argument("--verbose", "-v", action="store_true", help="Enable verbose output")
+    parser.add_argument("--recursive", "-r", action="store_true", help="Recursively analyze subdirectories")
+    parser.add_argument("--exclude", nargs="*", default=[], help="Patterns to exclude from analysis")
+    parser.add_argument("--include", nargs="*", default=["*.py"], help="File patterns to include in analysis")
+    
+    # Dump arguments
+    parser.add_argument("--dump-ast", metavar="FUNCTION", help="Dump AST for the specified function name")
+    parser.add_argument("--dump-cfg", metavar="FUNCTION", help="Dump CFG for the specified function name")
+    parser.add_argument("--dump-ssa", metavar="FUNCTION", help="Dump SSA form for the specified function name")
+    parser.add_argument("--dump-format", choices=["text", "dot", "json"], default="text", help="Format for IR dumps")
+    parser.add_argument("--dump-output", help="Output directory for IR dumps")
+    
+    return parser
 
 
 def find_function_in_live_code(liveCode, function_name: str, program=None):
@@ -52,22 +76,49 @@ def _get_ast_content(func, function_name: str):
         raise ValueError(f"No AST available for function '{function_name}'")
 
 
-def dump_ast(compiler, liveCode, function_name: str, output_dir: str, format: str = "text", program=None):
-    """Dump the AST for a specific function."""
+def dump_ir(compiler, liveCode, function_name: str, output_dir: str, ir_type: str, format: str = "text", program=None):
+    """Generic IR dumping function for AST, CFG, and SSA."""
     func = find_function_in_live_code(liveCode, function_name, program)
     if not func:
         print(f"Error: Function '{function_name}' not found in live code", file=sys.stderr)
         return False
     
-    try:
-        ast_content = _get_ast_content(func, function_name)
+    def _dump_impl():
         os.makedirs(output_dir, exist_ok=True)
-        output_file = os.path.join(output_dir, f"{function_name}_ast.{format}")
-        write_ir_file(output_file, function_name, "AST", ast_content)
+        output_file = os.path.join(output_dir, f"{function_name}_{ir_type.lower()}.{format}")
+        
+        if ir_type == "AST":
+            content = _get_ast_content(func, function_name)
+            write_ir_file(output_file, function_name, "AST", content)
+        elif ir_type == "CFG":
+            cfg = transform.evaluate(compiler, func)
+            if format == "dot":
+                try:
+                    g = pydot.Dot(graph_type="digraph")
+                    ctd = cfg_dump.CFGToDot(g)
+                    ctd.process(cfg)
+                    with open(output_file, 'w') as f:
+                        f.write(f"// CFG for function: {function_name}\n")
+                        f.write(g.to_string())
+                    print(f"CFG dumped to: {output_file}")
+                except Exception as e:
+                    print(f"Warning: DOT generation failed, falling back to text format: {e}")
+                    write_ir_file(output_file, function_name, "CFG", str(cfg))
+            else:
+                content = _generate_clang_style_cfg(cfg)
+                write_ir_file(output_file, function_name, "CFG", content)
+        elif ir_type == "SSA":
+            cfg = transform.evaluate(compiler, func)
+            ssa.evaluate(compiler, cfg)
+            if format == "dot":
+                cfg_dump.evaluate(compiler, cfg)
+                print(f"SSA form dumped to: {output_file}")
+            else:
+                content = _generate_clang_style_cfg(cfg)
+                write_ir_file(output_file, function_name, "SSA form", content)
         return True
-    except Exception as e:
-        print(f"Error dumping AST: {e}", file=sys.stderr)
-        return False
+    
+    return _dump_with_error_handling(ir_type, _dump_impl)
 
 
 def _dump_with_error_handling(func_name: str, dump_func, *args, **kwargs):
@@ -79,65 +130,30 @@ def _dump_with_error_handling(func_name: str, dump_func, *args, **kwargs):
         return False
 
 
+def dump_ast(compiler, liveCode, function_name: str, output_dir: str, format: str = "text", program=None):
+    """Dump the AST for a specific function."""
+    return dump_ir(compiler, liveCode, function_name, output_dir, "AST", format, program)
+
 def dump_cfg(compiler, liveCode, function_name: str, output_dir: str, format: str = "text", program=None):
     """Dump the CFG for a specific function."""
-    func = find_function_in_live_code(liveCode, function_name, program)
-    if not func:
-        print(f"Error: Function '{function_name}' not found in live code", file=sys.stderr)
-        return False
-    
-    def _dump_cfg_impl():
-        from pyflow.analysis.cfg import transform, dump as cfg_dump
-        
-        cfg = transform.evaluate(compiler, func)
-        os.makedirs(output_dir, exist_ok=True)
-        output_file = os.path.join(output_dir, f"{function_name}_cfg.{format}")
-        
-        if format == "dot":
-            try:
-                g = pydot.Dot(graph_type="digraph")
-                ctd = cfg_dump.CFGToDot(g)
-                ctd.process(cfg)
-                with open(output_file, 'w') as f:
-                    f.write(f"// CFG for function: {function_name}\n")
-                    f.write(g.to_string())
-                print(f"CFG dumped to: {output_file}")
-            except Exception as e:
-                print(f"Warning: DOT generation failed, falling back to text format: {e}")
-                write_ir_file(output_file, function_name, "CFG", str(cfg))
-        else:
-            content = _generate_clang_style_cfg(cfg)
-            write_ir_file(output_file, function_name, "CFG", content)
-        return True
-    
-    return _dump_with_error_handling("CFG", _dump_cfg_impl)
+    return dump_ir(compiler, liveCode, function_name, output_dir, "CFG", format, program)
 
 
 def _generate_clang_style_cfg(cfg):
     """Generate clang-style CFG representation."""
     try:
-        # Collect all nodes and assign block numbers
-        visited = set()
-        queue = [cfg.entryTerminal]
-        all_nodes = []
-        node_to_block = {}
-        
-        # BFS to collect all nodes
+        # Collect all nodes using BFS
+        visited, queue, all_nodes = set(), [cfg.entryTerminal], []
         while queue:
             node = queue.pop(0)
             if node in visited:
                 continue
             visited.add(node)
             all_nodes.append(node)
-            
             if hasattr(node, 'next'):
-                for name, next_node in node.next.items():
-                    if next_node and next_node not in visited:
-                        queue.append(next_node)
+                queue.extend(next_node for next_node in node.next.values() if next_node and next_node not in visited)
         
-        # Assign block numbers
-        for i, node in enumerate(all_nodes):
-            node_to_block[node] = f"B{i}"
+        node_to_block = {node: f"B{i}" for i, node in enumerate(all_nodes)}
         
         # Generate CFG content
         content = "CFG:\n"
@@ -146,7 +162,7 @@ def _generate_clang_style_cfg(cfg):
                 block_id = f"B{i}"
                 content += f"\n{block_id}:\n"
                 
-                # Determine block type
+                # Block type
                 if node == cfg.entryTerminal:
                     content += "  [ENTRY]\n"
                 elif node == cfg.normalTerminal:
@@ -158,35 +174,21 @@ def _generate_clang_style_cfg(cfg):
                 else:
                     content += f"  [{type(node).__name__}]\n"
                 
-                # Show statements/operations in this block
+                # Node content
                 if hasattr(node, 'ops') and node.ops:
                     for op in node.ops:
-                        try:
-                            content += f"    {op}\n"
-                        except Exception:
-                            # Fallback to repr if str() fails
-                            content += f"    {repr(op)}\n"
+                        content += f"    {op}\n"
                 elif hasattr(node, 'condition') and node.condition:
-                    try:
-                        content += f"    Condition: {node.condition}\n"
-                    except Exception:
-                        content += f"    Condition: {repr(node.condition)}\n"
+                    content += f"    Condition: {node.condition}\n"
                 elif hasattr(node, 'phi') and node.phi:
                     for phi in node.phi:
-                        try:
-                            content += f"    Phi: {phi}\n"
-                        except Exception:
-                            content += f"    Phi: {repr(phi)}\n"
+                        content += f"    Phi: {phi}\n"
                 
-                # Show outgoing edges
+                # Outgoing edges
                 if hasattr(node, 'next') and node.next:
-                    content += "  Succs ("
-                    edges = []
-                    for name, next_node in node.next.items():
-                        if next_node and next_node in node_to_block:
-                            edges.append(f"{name} -> {node_to_block[next_node]}")
-                    content += ", ".join(edges)
-                    content += ")\n"
+                    edges = [f"{name} -> {node_to_block[next_node]}" for name, next_node in node.next.items() 
+                            if next_node and next_node in node_to_block]
+                    content += f"  Succs ({", ".join(edges)})\n"
                 else:
                     content += "  Succs ()\n"
             except Exception as e:
@@ -199,36 +201,11 @@ def _generate_clang_style_cfg(cfg):
 
 def dump_ssa(compiler, liveCode, function_name: str, output_dir: str, format: str = "text", program=None):
     """Dump the SSA form for a specific function."""
-    func = find_function_in_live_code(liveCode, function_name, program)
-    if not func:
-        print(f"Error: Function '{function_name}' not found in live code", file=sys.stderr)
-        return False
-    
-    def _dump_ssa_impl():
-        from pyflow.analysis.cfg import transform, ssa
-        
-        cfg = transform.evaluate(compiler, func)
-        ssa.evaluate(compiler, cfg)
-        
-        os.makedirs(output_dir, exist_ok=True)
-        output_file = os.path.join(output_dir, f"{function_name}_ssa.{format}")
-        
-        if format == "dot":
-            from pyflow.analysis.cfg import dump as cfg_dump
-            cfg_dump.evaluate(compiler, cfg)
-            print(f"SSA form dumped to: {output_file}")
-        else:
-            content = _generate_clang_style_cfg(cfg)
-            write_ir_file(output_file, function_name, "SSA form", content)
-        return True
-    
-    return _dump_with_error_handling("SSA", _dump_ssa_impl)
+    return dump_ir(compiler, liveCode, function_name, output_dir, "SSA", format, program)
 
 
 def find_python_files(directory, args):
     """Find Python files in a directory based on include/exclude patterns."""
-    python_files = []
-
     def should_include(file_path):
         if file_path.suffix != ".py":
             return False
@@ -238,18 +215,13 @@ def find_python_files(directory, args):
         return include_match and not exclude_match
 
     if args.recursive:
-        for root, dirs, files in os.walk(directory):
+        files = []
+        for root, dirs, filenames in os.walk(directory):
             dirs[:] = [d for d in dirs if not any(fnmatch.fnmatch(d, pattern) for pattern in args.exclude)]
-            for file in files:
-                file_path = Path(root) / file
-                if should_include(file_path):
-                    python_files.append(file_path)
+            files.extend(Path(root) / f for f in filenames if should_include(Path(root) / f))
+        return sorted(files)
     else:
-        for item in directory.iterdir():
-            if item.is_file() and should_include(item):
-                python_files.append(item)
-
-    return sorted(python_files)
+        return sorted(item for item in directory.iterdir() if item.is_file() and should_include(item))
 
 
 def create_interface_from_paths(python_files, args):
@@ -273,7 +245,6 @@ def create_interface_from_paths(python_files, args):
                     interface_decl.func.append((obj, []))
                     if args.verbose:
                         print(f"Added function '{name}' from {file_path}")
-
         except Exception as e:
             if args.verbose:
                 print(f"Warning: Could not parse file {file_path}: {e}")
@@ -301,48 +272,30 @@ def run_ir_dump(input_path: Path, args):
         compiler = CompilerContext(console)
         program = Program()
         program.interface, all_source_code = create_interface_from_paths(python_files, args)
-
-        from pyflow.frontend.programextractor import Extractor
         compiler.extractor = Extractor(compiler, verbose=args.verbose, source_code=all_source_code)
 
         # Extract and analyze
         with console.scope("extraction"):
             extractProgram(compiler, program)
 
-        # Interface translation is now handled by extractProgram
-        
         # Use the extracted functions directly for IR dumping
         if program.liveCode:
             print(f"Created {len(program.liveCode)} entry points from {len(program.liveCode)} functions")
         elif program.interface.func:
             print(f"Created {len(program.interface.entryPoint)} entry points from {len(program.interface.func)} functions")
 
-        # Skip the analysis pipeline for IR dumping since it clears the AST blocks
-        # We only need the AST/CFG, not the full analysis
-        if args.dump_ast or args.dump_cfg:
-            print("Skipping analysis pipeline for IR dumping")
-        else:
+        # Skip analysis pipeline for AST/CFG dumping since it clears AST blocks
+        if not (args.dump_ast or args.dump_cfg):
             with console.scope("analysis"):
                 evaluate(compiler, program, str(input_path))
 
-        from pyflow.analysis.programculler import findLiveCode
-        
-        # Use program.liveCode directly if available, otherwise use findLiveCode
-        if program.liveCode:
-            liveCode = program.liveCode
-            liveInvocations = {}  # Empty for now, could be populated if needed
-        else:
-            liveCode, liveInvocations = findLiveCode(program)
-        
+        # Get live code
+        liveCode = program.liveCode if program.liveCode else findLiveCode(program)[0]
         output_dir = args.dump_output or "."
         
         # Dump requested forms
         success = True
-        dump_functions = {
-            'dump_ast': dump_ast,
-            'dump_cfg': dump_cfg,
-            'dump_ssa': dump_ssa
-        }
+        dump_functions = {'dump_ast': dump_ast, 'dump_cfg': dump_cfg, 'dump_ssa': dump_ssa}
         
         for dump_arg, dump_func in dump_functions.items():
             if hasattr(args, dump_arg) and getattr(args, dump_arg):
