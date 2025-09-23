@@ -1,5 +1,5 @@
 """
-AST-based security checker CLI.
+AST-based security checker CLI. (Current, it does not use the facilities in pyflow.)
 """
 import argparse
 import logging

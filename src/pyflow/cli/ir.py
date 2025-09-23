@@ -17,6 +17,7 @@ from pyflow.application.pipeline import evaluate
 from pyflow.frontend.programextractor import extractProgram, Extractor
 from pyflow.util.application.console import Console
 from pyflow.analysis.cfg import transform, dump as cfg_dump, ssa
+from pyflow.analysis.cdg import construct_cdg, dump_cdg
 from pyflow.analysis.programculler import findLiveCode
 import pyflow.util.pydot as pydot
 
@@ -36,6 +37,7 @@ def add_ir_parser(subparsers):
     parser.add_argument("--dump-ast", metavar="FUNCTION", help="Dump AST for the specified function name")
     parser.add_argument("--dump-cfg", metavar="FUNCTION", help="Dump CFG for the specified function name")
     parser.add_argument("--dump-ssa", metavar="FUNCTION", help="Dump SSA form for the specified function name")
+    parser.add_argument("--dump-cdg", metavar="FUNCTION", help="Dump Control Dependence Graph for the specified function name")
     parser.add_argument("--dump-format", choices=["text", "dot", "json"], default="text", help="Format for IR dumps")
     parser.add_argument("--dump-output", help="Output directory for IR dumps")
     
@@ -204,6 +206,38 @@ def dump_ssa(compiler, liveCode, function_name: str, output_dir: str, format: st
     return dump_ir(compiler, liveCode, function_name, output_dir, "SSA", format, program)
 
 
+def dump_cdg_func(compiler, liveCode, function_name: str, output_dir: str, format: str = "text", program=None):
+    """Dump the Control Dependence Graph for a specific function."""
+    func = find_function_in_live_code(liveCode, function_name, program)
+    if not func:
+        print(f"Error: Function '{function_name}' not found in live code", file=sys.stderr)
+        return False
+    
+    try:
+        os.makedirs(output_dir, exist_ok=True)
+        output_file = os.path.join(output_dir, f"{function_name}_cdg.{format}")
+        
+        # Build CFG first - this should give us the full CFG before optimization
+        cfg = transform.evaluate(compiler, func)
+        
+        # Debug: Print CFG structure (commented out for production)
+        # print(f"Debug: CFG has entry: {type(cfg.entryTerminal).__name__}, normal exit: {type(cfg.normalTerminal).__name__}")
+        
+        # Construct CDG from CFG
+        cdg = construct_cdg(cfg)
+        
+        # Dump CDG
+        dump_cdg(cdg, output_file, format, function_name)
+        print(f"CDG dumped to: {output_file}")
+        return True
+        
+    except Exception as e:
+        print(f"Error dumping CDG: {e}", file=sys.stderr)
+        import traceback
+        traceback.print_exc()
+        return False
+
+
 def find_python_files(directory, args):
     """Find Python files in a directory based on include/exclude patterns."""
     def should_include(file_path):
@@ -284,8 +318,8 @@ def run_ir_dump(input_path: Path, args):
         elif program.interface.func:
             print(f"Created {len(program.interface.entryPoint)} entry points from {len(program.interface.func)} functions")
 
-        # Skip analysis pipeline for AST/CFG dumping since it clears AST blocks
-        if not (args.dump_ast or args.dump_cfg):
+        # Skip analysis pipeline for AST/CFG/CDG dumping since it clears AST blocks
+        if not (args.dump_ast or args.dump_cfg or args.dump_cdg):
             with console.scope("analysis"):
                 evaluate(compiler, program, str(input_path))
 
@@ -295,7 +329,7 @@ def run_ir_dump(input_path: Path, args):
         
         # Dump requested forms
         success = True
-        dump_functions = {'dump_ast': dump_ast, 'dump_cfg': dump_cfg, 'dump_ssa': dump_ssa}
+        dump_functions = {'dump_ast': dump_ast, 'dump_cfg': dump_cfg, 'dump_ssa': dump_ssa, 'dump_cdg': dump_cdg_func}
         
         for dump_arg, dump_func in dump_functions.items():
             if hasattr(args, dump_arg) and getattr(args, dump_arg):

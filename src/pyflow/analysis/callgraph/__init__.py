@@ -12,15 +12,14 @@ from .algorithms.registry import registry
 
 # Import specific algorithms
 from .algorithms.ast_based import ASTBasedAlgorithm
-try:
-    from .algorithms.pycg_based import PyCGBasedAlgorithm
-    PYCG_AVAILABLE = True
-except ImportError:
-    PYCG_AVAILABLE = False
+from .algorithms.pycg_based import PyCGBasedAlgorithm
 
 # Import utilities
 from .formats import generate_dot_output, generate_json_output, generate_text_output
-from .cli import run_callgraph, add_callgraph_parser
+
+# Import CLI functions
+from pyflow.cli.callgraph import run_callgraph, add_callgraph_parser
+
 
 __all__ = [
     # Core components
@@ -28,17 +27,15 @@ __all__ = [
     "CallGraphAlgorithm", 
     "AlgorithmRegistry",
     "registry",
-    
     # Algorithms
     "ASTBasedAlgorithm",
-    
     # PyCG algorithm (if available)
-    *(["PyCGBasedAlgorithm"] if PYCG_AVAILABLE else []),
-    
+    "PyCGBasedAlgorithm",
     # Utilities
     "generate_dot_output",
     "generate_json_output", 
     "generate_text_output",
+    # CLI functions
     "run_callgraph",
-    "add_callgraph_parser",
+    "add_callgraph_parser"
 ]

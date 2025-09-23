@@ -5,8 +5,8 @@ CLI functionality for call graph analysis.
 import sys
 from pathlib import Path
 
-from .algorithms.registry import registry
-from .formats import generate_text_output, generate_dot_output, generate_json_output
+from pyflow.analysis.callgraph.algorithms.registry import registry
+from pyflow.analysis.callgraph.formats import generate_text_output, generate_dot_output, generate_json_output
 
 
 def run_callgraph(input_path, args):
