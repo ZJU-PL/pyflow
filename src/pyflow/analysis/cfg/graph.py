@@ -1,19 +1,57 @@
+"""Control Flow Graph (CFG) representation.
+
+This module provides the core data structures for representing control flow
+graphs in PyFlow, including CFG blocks and their relationships.
+"""
+
 class NoNormalFlow(Exception):
+    """Exception raised when no normal control flow path exists."""
     pass
 
 
 class CFGBlock(object):
+    """Represents a basic block in a Control Flow Graph.
+    
+    A CFGBlock represents a sequence of instructions with a single entry point
+    and potentially multiple exit points. It maintains connections to successor
+    and predecessor blocks.
+    
+    Attributes:
+        region: The region of code this block represents.
+        next: Dictionary mapping exit names to successor blocks.
+        data: Additional data associated with this block.
+        exitNames: Tuple of valid exit names for this block type.
+    """
     __slots__ = "region", "next", "data"
     exitNames = ()
 
     def __init__(self, region):
+        """Initialize a CFG block.
+        
+        Args:
+            region: The code region this block represents.
+        """
         self.region = region
         self.next = {}
 
     def validExitName(self, name):
+        """Check if an exit name is valid for this block type.
+        
+        Args:
+            name: Exit name to validate.
+            
+        Returns:
+            bool: True if the exit name is valid.
+        """
         return name in self.exitNames
 
     def setExit(self, name, other):
+        """Set the successor block for a given exit name.
+        
+        Args:
+            name: Exit name.
+            other: Successor block (can be None).
+        """
         assert self.validExitName(name)
         assert name not in self.next
 
@@ -22,27 +60,75 @@ class CFGBlock(object):
             other.addPrev(self, name)
 
     def getExit(self, name):
+        """Get the successor block for a given exit name.
+        
+        Args:
+            name: Exit name.
+            
+        Returns:
+            CFGBlock or None: The successor block, if it exists.
+        """
         assert self.validExitName(name)
         return self.next.get(name)
 
     def killExit(self, name):
+        """Remove the exit connection for a given name.
+        
+        Args:
+            name: Exit name to remove.
+        """
         if name in self.next:
             self.next[name].removePrev(self, name)
             del self.next[name]
 
     def addPrev(self, other, name):
+        """Add a predecessor block.
+        
+        Args:
+            other: Predecessor block.
+            name: Exit name from the predecessor.
+            
+        Note:
+            This method should be implemented by subclasses.
+        """
         raise NotImplementedError
 
     def removePrev(self, other):
+        """Remove a predecessor block.
+        
+        Args:
+            other: Predecessor block to remove.
+            
+        Note:
+            This method should be implemented by subclasses.
+        """
         raise NotImplementedError
 
     def replacePrev(self, other):
+        """Replace a predecessor block.
+        
+        Args:
+            other: New predecessor block.
+            
+        Note:
+            This method should be implemented by subclasses.
+        """
         raise NotImplementedError
 
     def forward(self):
+        """Get all successor blocks.
+        
+        Returns:
+            list: List of all successor blocks.
+        """
         return self.next.values()
 
     def normalForward(self):
+        """Get normal flow successor blocks (excluding exceptional exits).
+        
+        Returns:
+            list: List of normal flow successor blocks.
+        """
         result = []
         for name, next in self.next.items():
             if name not in ("error", "fail", "yield"):

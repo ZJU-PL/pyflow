@@ -1,3 +1,9 @@
+"""Static Single Assignment (SSA) form conversion for CFGs.
+
+This module implements the conversion of control flow graphs to SSA form,
+including phi function insertion and variable renaming.
+"""
+
 from pyflow.util.typedispatch import *
 from pyflow.language.python import ast
 
@@ -7,15 +13,37 @@ from . import dom
 
 
 class CollectModifies(TypeDispatcher):
+    """Collects variable modifications for SSA construction.
+    
+    This class traverses CFG blocks to identify where variables are modified,
+    which is needed to determine where phi functions should be inserted.
+    
+    Attributes:
+        mod: Dictionary mapping variables to sets of blocks that modify them.
+        order: List of blocks in traversal order.
+    """
+    
     def __init__(self):
+        """Initialize the modifier collector."""
         self.mod = {}
         self.order = []
 
     def modified(self, node):
+        """Mark a variable as modified in the current block.
+        
+        Args:
+            node: AST node representing the modified variable.
+        """
         assert isinstance(node, ast.Local)
         self._modified(node, self.current)
 
     def _modified(self, node, block):
+        """Record a variable modification in a specific block.
+        
+        Args:
+            node: AST node representing the modified variable.
+            block: CFG block where the modification occurs.
+        """
         if not node in self.mod:
             self.mod[node] = set()
 

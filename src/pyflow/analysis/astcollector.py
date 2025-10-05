@@ -1,15 +1,34 @@
+"""AST collector for extracting operations and locals from Python AST.
+
+This module provides functionality to collect operations and local variables
+from Python AST nodes for analysis purposes.
+"""
+
 from pyflow.util.typedispatch import *
 from pyflow.language.python import ast
 
 
 class GetOps(TypeDispatcher):
+    """Collects operations and local variables from AST nodes.
+    
+    This class traverses AST nodes to extract operations, local variables,
+    and copy operations for analysis.
+    
+    Attributes:
+        ops: List of collected operations.
+        locals: Set of collected local variables.
+        copies: List of copy operations found.
+    """
+    
     def __init__(self):
+        """Initialize the AST collector."""
         self.ops = []
         self.locals = set()
         self.copies = []
 
     @dispatch(ast.leafTypes, ast.Break, ast.Continue, ast.Code, ast.DoNotCare)
     def visitLeaf(self, node):
+        """Visit leaf nodes (no action needed)."""
         pass
 
     @dispatch(
@@ -25,10 +44,20 @@ class GetOps(TypeDispatcher):
         ast.Return,
     )
     def visitOK(self, node):
+        """Visit nodes that contain child nodes.
+        
+        Args:
+            node: AST node to visit.
+        """
         node.visitChildren(self)
 
     @dispatch(ast.Assign)
     def visitAssign(self, node):
+        """Visit assignment nodes.
+        
+        Args:
+            node: Assignment AST node.
+        """
         if isinstance(node.expr, ast.Local):
             self.copies.append(node)
 
@@ -36,16 +65,31 @@ class GetOps(TypeDispatcher):
 
     @dispatch(ast.InputBlock)
     def visitInputBlock(self, node):
+        """Visit input block nodes.
+        
+        Args:
+            node: Input block AST node.
+        """
         for input in node.inputs:
             self(input.lcl)
 
     @dispatch(ast.OutputBlock)
     def visitOutputBlock(self, node):
+        """Visit output block nodes.
+        
+        Args:
+            node: Output block AST node.
+        """
         for output in node.outputs:
             self(output.expr)
 
     @dispatch(ast.Local, ast.Existing)
     def visitLocal(self, node):
+        """Visit local variable nodes.
+        
+        Args:
+            node: Local variable AST node.
+        """
         self.locals.add(node)
 
     @dispatch(

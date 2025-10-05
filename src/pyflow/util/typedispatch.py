@@ -1,3 +1,10 @@
+"""Type-based dispatch system for PyFlow.
+
+This module provides a type-based dispatch system that allows methods to be
+selected based on the runtime type of their arguments, similar to multiple
+dispatch or method overloading in other languages.
+"""
+
 from __future__ import print_function
 
 __all__ = [
@@ -12,6 +19,15 @@ import inspect
 
 
 def flattenTypesInto(l, result):
+    """Flatten nested type lists into a flat list.
+    
+    Args:
+        l: List of types (can contain nested lists/tuples).
+        result: List to append flattened types to.
+        
+    Raises:
+        TypeDispatchDeclarationError: If non-type objects are found.
+    """
     for child in l:
         if isinstance(child, (list, tuple)):
             flattenTypesInto(child, result)
@@ -24,6 +40,18 @@ def flattenTypesInto(l, result):
 
 
 def dispatch(*types):
+    """Decorator for type-based method dispatch.
+    
+    Marks a method as handling dispatch for the specified types. When the
+    TypeDispatcher calls the method, it will select the appropriate overload
+    based on the runtime types of the arguments.
+    
+    Args:
+        *types: Type objects that this method handles.
+        
+    Returns:
+        Decorated function with dispatch metadata.
+    """
     def dispatchF(f):
         def dispatchWrap(*args, **kargs):
             return f(*args, **kargs)
@@ -37,6 +65,17 @@ def dispatch(*types):
 
 
 def defaultdispatch(f):
+    """Decorator for default dispatch method.
+    
+    Marks a method as the default handler when no specific type dispatch
+    method matches the arguments.
+    
+    Args:
+        f: Function to mark as default dispatch handler.
+        
+    Returns:
+        Decorated function with default dispatch metadata.
+    """
     def defaultWrap(*args, **kargs):
         return f(*args, **kargs)
 

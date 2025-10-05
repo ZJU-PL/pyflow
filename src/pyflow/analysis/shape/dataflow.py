@@ -1,14 +1,37 @@
+"""Dataflow analysis framework for shape analysis.
+
+This module provides the dataflow analysis framework used by shape analysis,
+including worklist algorithms and dataflow environments.
+"""
+
 from __future__ import absolute_import
 
 
 class DataflowEnvironment(object):
+    """Dataflow environment for shape analysis.
+    
+    This class manages the dataflow state and observers for shape analysis,
+    tracking information flow through the program and managing constraint
+    propagation.
+    
+    Attributes:
+        _secondary: Dictionary mapping (point, context, index) to secondary info.
+        observers: Dictionary mapping points to lists of observing constraints.
+    """
     __slots__ = "_secondary", "observers"
 
     def __init__(self):
+        """Initialize the dataflow environment."""
         self._secondary = {}
         self.observers = {}
 
     def addObserver(self, index, constraint):
+        """Add a constraint as an observer of a specific index.
+        
+        Args:
+            index: The index to observe.
+            constraint: The constraint to add as an observer.
+        """
         if not index in self.observers:
             self.observers[index] = [constraint]
         else:
@@ -16,6 +39,19 @@ class DataflowEnvironment(object):
             self.observers[index].append(constraint)
 
     def merge(self, sys, point, context, index, secondary, canSteal=False):
+        """Merge secondary information at a specific point.
+        
+        Args:
+            sys: The analysis system.
+            point: Program point where merge occurs.
+            context: Analysis context.
+            index: Index for the merge.
+            secondary: Secondary information to merge.
+            canSteal: Whether the secondary information can be stolen.
+            
+        Returns:
+            bool: True if the merge resulted in changes.
+        """
         assert not secondary.paths.containsAged()
 
         # Do the merge
@@ -33,10 +69,21 @@ class DataflowEnvironment(object):
                 sys.worklist.addDirty(observer, key)
 
     def secondary(self, point, context, index):
+        """Get secondary information for a specific key.
+        
+        Args:
+            point: Program point.
+            context: Analysis context.
+            index: Index.
+            
+        Returns:
+            Secondary information or None if not found.
+        """
         key = (point, context, index)
         return self._secondary.get(key)
 
     def clear(self):
+        """Clear all secondary information."""
         self._secondary.clear()
 
 

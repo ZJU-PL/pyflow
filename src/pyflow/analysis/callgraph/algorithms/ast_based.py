@@ -1,9 +1,9 @@
-"""
-AST-based call graph extraction algorithm.
+"""AST-based call graph extraction algorithm.
 
 This algorithm parses Python source code directly using Python's AST module.
 It's simple and doesn't require external dependencies, but may miss some
-complex call patterns.
+complex call patterns that require runtime analysis or more sophisticated
+static analysis techniques.
 """
 
 import ast as python_ast
@@ -13,22 +13,54 @@ from .base import CallGraphAlgorithm, CallGraphData
 
 
 class ASTBasedAlgorithm(CallGraphAlgorithm):
-    """Extracts call graphs using Python's AST module."""
+    """Extracts call graphs using Python's AST module.
+    
+    This algorithm uses Python's built-in AST parser to analyze source code
+    and extract function definitions and call relationships. It's suitable
+    for basic call graph extraction but may miss dynamic dispatch patterns.
+    """
 
     @property
     def name(self) -> str:
+        """Return the algorithm name.
+        
+        Returns:
+            str: Algorithm identifier "ast".
+        """
         return "ast"
 
     @property
     def description(self) -> str:
+        """Return a description of the algorithm.
+        
+        Returns:
+            str: Human-readable description of the AST-based approach.
+        """
         return "AST-based call graph extraction using Python's built-in AST module"
 
     def extract_from_program(self, program, compiler, args) -> CallGraphData:
-        """Extract call graph from a pyflow program."""
+        """Extract call graph from a pyflow program.
+        
+        Args:
+            program: PyFlow program object to analyze.
+            compiler: Compiler context containing source code.
+            args: Command-line arguments for configuration.
+            
+        Returns:
+            CallGraphData: Extracted call graph information.
+        """
         return self.extract_from_source(compiler.extractor.source_code, args)
 
     def extract_from_source(self, source_code: str, args) -> CallGraphData:
-        """Extract call graph directly from Python source code."""
+        """Extract call graph directly from Python source code.
+        
+        Args:
+            source_code: Python source code as a string.
+            args: Command-line arguments for configuration.
+            
+        Returns:
+            CallGraphData: Extracted call graph with functions and call relationships.
+        """
         call_graph = CallGraphData()
         call_graph.functions = set()
         call_graph.invocations = {}

@@ -1,3 +1,9 @@
+"""Constraint-based Analysis (CPA) for PyFlow.
+
+This package provides constraint-based analysis capabilities that use constraint
+solving to perform precise inter-procedural analysis of Python programs.
+"""
+
 import collections
 import itertools
 from pyflow.util.io import formatting
@@ -39,6 +45,17 @@ import types
 
 
 def foldFunctionIR(extractor, func, vargs=(), kargs={}):
+    """Fold a function call with constant arguments.
+    
+    Args:
+        extractor: Program extractor for accessing objects.
+        func: Function to fold.
+        vargs: Variable arguments.
+        kargs: Keyword arguments.
+        
+    Returns:
+        Result of the function call.
+    """
     newvargs = [arg.pyobj for arg in vargs]
 
     assert not kargs, kargs

@@ -1,21 +1,59 @@
+"""Analysis tools and utilities for PyFlow.
+
+This module provides utility functions for analyzing Python programs,
+including operations extraction, side effect detection, and call analysis.
+"""
+
 from pyflow.analysis.astcollector import getOps
 
 
 def codeOps(code):
+    """Extract operations from a code object.
+    
+    Args:
+        code: Code object to extract operations from.
+        
+    Returns:
+        List of operations in the code.
+    """
     ops, lcls = getOps(code)
     return ops
 
 
 def codeLocals(code):
+    """Extract local variables from a code object.
+    
+    Args:
+        code: Code object to extract locals from.
+        
+    Returns:
+        List of local variables in the code.
+    """
     ops, lcls = getOps(code)
     return lcls
 
 
 def codeOpsLocals(code):
+    """Extract both operations and locals from a code object.
+    
+    Args:
+        code: Code object to extract from.
+        
+    Returns:
+        Tuple of (operations, locals).
+    """
     return getOps(code)
 
 
 def mightHaveSideEffect(op):
+    """Check if an operation might have side effects.
+    
+    Args:
+        op: Operation to check.
+        
+    Returns:
+        bool: True if the operation might have side effects.
+    """
     modifies = op.annotation.modifies
     if modifies and not modifies[0]:
         return False
@@ -23,6 +61,14 @@ def mightHaveSideEffect(op):
 
 
 def singleObject(lcl):
+    """Check if a local variable references a single preexisting object.
+    
+    Args:
+        lcl: Local variable to check.
+        
+    Returns:
+        Object if the local references exactly one preexisting object, None otherwise.
+    """
     references = lcl.annotation.references
     if references:
         refs = references[0]
@@ -34,6 +80,14 @@ def singleObject(lcl):
 
 
 def singleCall(op):
+    """Check if an operation makes a single function call.
+    
+    Args:
+        op: Operation to check.
+        
+    Returns:
+        Code object if the operation calls exactly one function, None otherwise.
+    """
     invokes = op.annotation.invokes
 
     if invokes and invokes[0]:

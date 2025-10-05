@@ -1,4 +1,9 @@
-"""Main CLI dispatcher for PyFlow."""
+"""Main CLI dispatcher for PyFlow.
+
+This module provides the main command-line interface for PyFlow, dispatching
+commands to appropriate sub-modules for optimization, analysis, and other
+operations.
+"""
 
 import sys
 import argparse
@@ -15,7 +20,14 @@ from pyflow.analysis.callgraph import run_callgraph, add_callgraph_parser
 
 
 def main():
-    """Main entry point for the PyFlow CLI."""
+    """Main entry point for the PyFlow CLI.
+    
+    Parses command-line arguments and dispatches to appropriate sub-commands
+    for optimization, call graph analysis, IR dumping, and security analysis.
+    
+    Returns:
+        int: Exit code (0 for success, non-zero for error).
+    """
     parser = argparse.ArgumentParser(
         description="PyFlow - A static compiler for Python", prog="pyflow"
     )

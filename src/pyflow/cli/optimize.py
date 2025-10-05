@@ -1,4 +1,8 @@
-"""Optimization passes for Python code."""
+"""CLI module for running optimization passes on Python code.
+
+This module provides command-line interface functionality for running various
+static analysis and optimization passes on Python code using PyFlow.
+"""
 
 import sys
 import os
@@ -34,6 +38,14 @@ ANALYSIS_MODULES = {
 
 
 def add_optimize_parser(subparsers):
+    """Add optimization subcommand parser to the main argument parser.
+    
+    Args:
+        subparsers: ArgumentParser subparsers object to add the optimize command to.
+        
+    Returns:
+        argparse.ArgumentParser: The created optimize subparser.
+    """
     parser = subparsers.add_parser("optimize", help="Run static analysis and optimization")
     
     # Input/Output

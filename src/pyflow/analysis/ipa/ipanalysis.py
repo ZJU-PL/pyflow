@@ -1,3 +1,9 @@
+"""Main inter-procedural analysis implementation.
+
+This module contains the core IPAnalysis class that orchestrates inter-procedural
+analysis across function boundaries with context-sensitive precision.
+"""
+
 import time
 
 from pyflow.optimization.callconverter import callConverter
@@ -14,7 +20,39 @@ from . import summary
 
 
 class IPAnalysis(object):
+    """Main class for inter-procedural analysis.
+    
+    This class performs context-sensitive inter-procedural analysis by maintaining
+    separate contexts for different calling patterns and propagating information
+    between function calls and returns.
+    
+    Attributes:
+        compiler: Compiler context for the analysis.
+        extractor: Program extractor for accessing source code.
+        canonical: Canonical store graph for object relationships.
+        existingPolicy: Policy for handling existing objects.
+        externalPolicy: Policy for handling external objects.
+        objs: Dictionary of analyzed objects.
+        contexts: Dictionary of analysis contexts.
+        root: Root context for external analysis.
+        liveCode: Set of live code elements.
+        valuemanager: Manager for value sets.
+        criticalmanager: Manager for critical sets.
+        dirtySlots: List of slots that need reprocessing.
+        decompileTime: Time spent on decompilation.
+        trace: Whether to enable tracing output.
+        funcDefaultName: Name for function default parameters.
+    """
+    
     def __init__(self, compiler, canonical, existingPolicy, externalPolicy):
+        """Initialize the inter-procedural analysis.
+        
+        Args:
+            compiler: Compiler context for the analysis.
+            canonical: Canonical store graph.
+            existingPolicy: Policy for existing objects.
+            externalPolicy: Policy for external objects.
+        """
         self.compiler = compiler
         self.extractor = compiler.extractor
         self.canonical = canonical

@@ -1,8 +1,11 @@
-"""
-Program extractor for static analysis.
+"""Program extractor for static analysis.
 
 This module provides functionality to extract program information
 from Python source code for static analysis purposes.
+
+The Extractor class processes Python source code and builds internal
+representations suitable for static analysis, including function and
+class extraction, AST processing, and object management.
 
 FIXME: very likely to be buggy (Maybe we need to repalce it with
 the dir in src/pyflow/decompile)
@@ -22,11 +25,39 @@ from .stub_manager import StubManager
 
 
 class Extractor:
-    """Extracts program information from Python code for static analysis."""
+    """Extracts program information from Python code for static analysis.
+    
+    The Extractor class is responsible for processing Python source code and
+    building internal representations suitable for static analysis. It handles
+    function and class extraction, AST processing, and object management.
+    
+    Attributes:
+        compiler: CompilerContext for compilation state.
+        verbose: Whether to output verbose information during extraction.
+        source_code: Source code to process (string or dict of filename->source).
+        functions: List of extracted functions.
+        builtin: Count of builtin functions encountered.
+        errors: Count of errors during extraction.
+        failures: Count of failures during extraction.
+        _source_files: Dictionary tracking source files for error reporting.
+        desc: ProgramDescription object for program metadata.
+        stub_manager: Manager for handling stub files.
+        function_extractor: Extractor for functions and classes.
+        object_manager: Manager for object representations.
+        stubs: Stub files for backward compatibility.
+    """
 
     def __init__(
         self, compiler: CompilerContext, verbose: bool = True, source_code: str = None
     ):
+        """Initialize the program extractor.
+        
+        Args:
+            compiler: CompilerContext for compilation state.
+            verbose: Whether to output verbose information during extraction.
+            source_code: Source code to process. Can be a single string or
+                        dict mapping filenames to source code.
+        """
         self.compiler = compiler
         self.verbose = verbose
         self.source_code = (
@@ -52,7 +83,15 @@ class Extractor:
         self.stubs = self.stub_manager.stubs
 
     def extract_from_source(self, source: str, filename: str = "<string>") -> Program:
-        """Extract program information from Python source code."""
+        """Extract program information from Python source code.
+        
+        Args:
+            source: Python source code as a string.
+            filename: Name of the source file (for error reporting).
+            
+        Returns:
+            Program: Program object containing extracted information.
+        """
         try:
             tree = ast.parse(source, filename)
             return self._extract_from_ast(tree, filename)
@@ -63,7 +102,14 @@ class Extractor:
             return Program()
 
     def extract_from_file(self, filename: str) -> Program:
-        """Extract program information from a Python file."""
+        """Extract program information from a Python file.
+        
+        Args:
+            filename: Path to the Python file to process.
+            
+        Returns:
+            Program: Program object containing extracted information.
+        """
         try:
             with open(filename, "r", encoding="utf-8") as f:
                 source = f.read()

@@ -1,3 +1,9 @@
+"""Dead Code Elimination (DCE) optimization pass.
+
+This module implements dead code elimination for PyFlow, removing code that
+does not affect the program's output or side effects.
+"""
+
 from pyflow.util.typedispatch import *
 from pyflow.language.python import ast
 
@@ -8,34 +14,64 @@ from pyflow.analysis import tools
 
 
 def liveMeet(values):
+    """Meet function for liveness analysis.
+    
+    Args:
+        values: Set of liveness values.
+        
+    Returns:
+        top: If any values are present (variable is live).
+        undefined: If no values are present (variable is dead).
+    """
     if values:
         return top
     else:
         return undefined
 
 
-# Mark a locals in an AST subtree as used.
 class MarkLocals(TypeDispatcher):
+    """Marks local variables as used in an AST subtree.
+    
+    This dispatcher traverses the AST and marks local variables as live
+    when they are referenced, enabling dead code elimination.
+    """
     @dispatch(ast.leafTypes)
     def visitLeaf(self, node):
+        """Visit leaf nodes (no action needed)."""
         pass
 
     @dispatch(ast.Local)
     def visitLocal(self, node):
+        """Mark a local variable as live when referenced.
+        
+        Args:
+            node: Local variable node being referenced.
+        """
         if self.flow._current is not None:
             self.flow.define(node, top)
 
     @dispatch(ast.GetGlobal, ast.SetGlobal)
     def visitGlobalOp(self, node):
+        """Handle global variable operations.
+        
+        Args:
+            node: Global variable operation node.
+        """
         if self.flow._current is not None:
             self.flow.define(self.selfparam, top)
         node.visitChildren(self)
 
     @defaultdispatch
     def default(self, node):
+        """Default handler for unhandled node types.
+        
+        Args:
+            node: AST node to process.
+        """
         node.visitChildren(self)
 
 
+# AST node types that have no side effects and can be safely eliminated
 nodesWithNoSideEffects = (
     ast.GetGlobal,
     ast.Existing,
@@ -50,11 +86,34 @@ nodesWithNoSideEffects = (
 
 
 class MarkLive(TypeDispatcher):
+    """Performs live variable analysis and marks code for elimination.
+    
+    This class implements the core dead code elimination logic by analyzing
+    which variables are live and which statements can be safely removed.
+    
+    Attributes:
+        code: Code object being analyzed.
+        marker: MarkLocals instance for marking variable usage.
+    """
+    
     def __init__(self, code):
+        """Initialize the live variable marker.
+        
+        Args:
+            code: Code object to analyze for liveness.
+        """
         self.code = code
         self.marker = MarkLocals()
 
     def hasNoSideEffects(self, node):
+        """Check if a node has no side effects and can be eliminated.
+        
+        Args:
+            node: AST node to check.
+            
+        Returns:
+            bool: True if the node has no side effects.
+        """
         if self.descriptive():
             return isinstance(node, (ast.Local, ast.Existing))
         else:
@@ -63,6 +122,11 @@ class MarkLive(TypeDispatcher):
             ) or not tools.mightHaveSideEffect(node)
 
     def descriptive(self):
+        """Check if we're in descriptive mode.
+        
+        Returns:
+            bool: True if in descriptive mode.
+        """
         return self.code.annotation.descriptive
 
     @dispatch(ast.Condition)
@@ -160,10 +224,23 @@ class MarkLive(TypeDispatcher):
 
 
 def evaluateCode(compiler, node, initialLive=None):
+    """Evaluate code for dead code elimination.
+    
+    Performs live variable analysis and eliminates dead code from the given
+    AST node.
+    
+    Args:
+        compiler: Compiler context.
+        node: AST node to analyze and optimize.
+        initialLive: Set of initially live variables (optional).
+        
+    Returns:
+        AST node with dead code eliminated.
+    """
     rewrite = MarkLive(node)
     traverse = ReverseFlowTraverse(liveMeet, rewrite)
 
-    # HACK
+    # HACK: Set up flow analysis
     rewrite.flow = traverse.flow
     rewrite.marker.flow = traverse.flow
     rewrite.marker.selfparam = node.codeparameters.selfparam

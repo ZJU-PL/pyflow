@@ -1,3 +1,10 @@
+"""Shape analysis for PyFlow.
+
+This package provides shape analysis capabilities that analyze the shapes and
+properties of data structures in Python programs, including region-based
+analysis and constraint-based shape inference.
+"""
+
 from __future__ import absolute_import
 
 # The model for the analysis
@@ -11,19 +18,60 @@ from . import dataflow
 
 
 class HeapInformationProvider(object):
+    """Provides heap information for shape analysis.
+    
+    This class extracts heap-related information from the store graph and
+    regions to support shape analysis operations.
+    
+    Attributes:
+        storeGraph: Store graph containing object relationships.
+        regions: Region information for heap analysis.
+    """
+    
     def __init__(self, storeGraph, regions):
+        """Initialize the heap information provider.
+        
+        Args:
+            storeGraph: Store graph containing object relationships.
+            regions: Region information for heap analysis.
+        """
         self.storeGraph = storeGraph
         self.regions = regions
 
     def loadSlotName(self, node):
+        """Get the slot name for a load operation.
+        
+        Args:
+            node: Node representing the load operation.
+            
+        Returns:
+            Slot name for the load operation.
+        """
         return node.annotation.reads[0][0]
         # return (node.fieldtype, node.name.object)
 
     def storeSlotName(self, node):
+        """Get the slot name for a store operation.
+        
+        Args:
+            node: Node representing the store operation.
+            
+        Returns:
+            Slot name for the store operation.
+        """
         return node.annotation.modifies[0][0]
         # return (node.fieldtype, node.name.object)
 
     def indexSlotName(self, lcl, i):
+        """Get the slot name for an indexed access.
+        
+        Args:
+            lcl: Local variable being indexed.
+            i: Index value.
+            
+        Returns:
+            Slot name for the indexed access.
+        """
         iobj = self.storeGraph.extractor.getObject(i)
         fieldName = self.storeGraph.canonical.fieldName("Array", iobj)
         for ref in lcl.annotation.references[0]:

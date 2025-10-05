@@ -1,3 +1,9 @@
+"""CFG transformation utilities.
+
+This module provides functionality to transform AST nodes into CFG structures,
+handling control flow constructs like returns, breaks, and yields.
+"""
+
 from pyflow.util.typedispatch import *
 from pyflow.analysis.cfg import simplify
 from pyflow.analysis.cfg import dump
@@ -9,10 +15,31 @@ NoNormalFlow = cfg.NoNormalFlow
 
 
 class CFGTransformer(TypeDispatcher):
+    """Transforms AST nodes into CFG structures.
+    
+    This class handles the transformation of Python AST nodes into control
+    flow graph structures, managing control flow constructs and basic blocks.
+    
+    Attributes:
+        current: Current CFG node being built.
+        handler: Function to get control flow handlers.
+        makeNewSuite: Function to create new suite nodes.
+    """
+    
     def emit(self, stmt):
+        """Emit a statement to the current CFG node.
+        
+        Args:
+            stmt: AST statement to emit.
+        """
         self.current.ops.append(stmt)
 
     def attachCurrent(self, child):
+        """Attach the current node to a child node.
+        
+        Args:
+            child: Child CFG node to attach to.
+        """
         if not self.current.ops:
             # Avoid creating empty nodes
             self.current.redirectEntries(child)
@@ -21,29 +48,50 @@ class CFGTransformer(TypeDispatcher):
         self.current = None
 
     def flowReturn(self):
+        """Handle return flow control."""
         assert self.current is not None
         self.attachCurrent(self.handler("return"))
         raise NoNormalFlow
 
     @dispatch(ast.Return)
     def visitReturn(self, node):
+        """Visit return statements.
+        
+        Args:
+            node: Return AST node.
+        """
         self.emit(node)
         self.flowReturn()
 
     @dispatch(ast.Continue)
     def visitContinue(self, node):
+        """Visit continue statements.
+        
+        Args:
+            node: Continue AST node.
+        """
         assert self.current is not None
         self.attachCurrent(self.handler("continue"))
         raise NoNormalFlow
 
     @dispatch(ast.Break)
     def visitBreak(self, node):
+        """Visit break statements.
+        
+        Args:
+            node: Break AST node.
+        """
         assert self.current is not None
         self.attachCurrent(self.handler("break"))
         raise NoNormalFlow
 
     @dispatch(ast.Yield)
     def visitYield(self, node):
+        """Visit yield statements.
+        
+        Args:
+            node: Yield AST node.
+        """
         y = cfg.Yield()
         self.attachCurrent(y)
         y.setExit("normal", self.makeNewSuite())

@@ -1,4 +1,10 @@
 
+"""CFG dumping and visualization utilities.
+
+This module provides functionality to dump and visualize control flow graphs
+in various formats including DOT graphs for visualization.
+"""
+
 import pyflow.util.pydot as pydot
 from pyflow.util.typedispatch import *
 from pyflow.util.io import filesystem
@@ -6,12 +12,33 @@ from pyflow.analysis.cfg import graph as cfg
 
 
 def makeStr(s):
+    """Escape string for use in DOT graph labels.
+    
+    Args:
+        s: String to escape.
+        
+    Returns:
+        str: Escaped string suitable for DOT graphs.
+    """
     s = s.replace('"', '\\"')
     s = s.replace("\n", "\\n")
     return '"%s"' % s
 
 
 class NodeStyle(TypeDispatcher):
+    """Provides styling information for CFG nodes in visualizations.
+    
+    This class defines colors and shapes for different types of CFG nodes
+    when generating visual representations.
+    
+    Attributes:
+        suiteColor: Color for suite nodes.
+        switchColor: Color for switch nodes.
+        mergeColor: Color for merge nodes.
+        yieldColor: Color for yield nodes.
+        stateColor: Color for state nodes.
+    """
+    
     suiteColor = "lightyellow"
     switchColor = "cyan"
     mergeColor = "magenta"
@@ -21,10 +48,26 @@ class NodeStyle(TypeDispatcher):
 
     @dispatch(cfg.Entry, cfg.Exit)
     def handleTerminal(self, node):
+        """Handle terminal nodes (entry/exit).
+        
+        Args:
+            node: Terminal CFG node.
+            
+        Returns:
+            dict: Styling information for terminal nodes.
+        """
         return dict(shape="point", fontsize=8)
 
     @dispatch(cfg.Suite)
     def handleSuite(self, node):
+        """Handle suite nodes.
+        
+        Args:
+            node: Suite CFG node.
+            
+        Returns:
+            dict: Styling information for suite nodes.
+        """
         label = makeStr("\n".join([repr(op) for op in node.ops]))
         return dict(
             label=label,
@@ -36,6 +79,14 @@ class NodeStyle(TypeDispatcher):
 
     @dispatch(cfg.Switch)
     def handleSwitch(self, node):
+        """Handle switch nodes.
+        
+        Args:
+            node: Switch CFG node.
+            
+        Returns:
+            dict: Styling information for switch nodes.
+        """
         label = makeStr(repr(node.condition))
         return dict(
             label=label,
@@ -47,6 +98,14 @@ class NodeStyle(TypeDispatcher):
 
     @dispatch(cfg.Merge)
     def handleMerge(self, node):
+        """Handle merge nodes.
+        
+        Args:
+            node: Merge CFG node.
+            
+        Returns:
+            dict: Styling information for merge nodes.
+        """
         label = makeStr("\n".join([repr(phi) for phi in node.phi]))
         return dict(
             label=label,

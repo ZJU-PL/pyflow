@@ -3,8 +3,7 @@
 
 FIXME: the curretn analysis/proogramextractor is very likely to be buggy (Maybe we need to repalce it with
 the dir in src/pyflow/decompile)!!!
-E.g., the dumped AST/CFG can be incomplete (e.g., examples/recursive_functions.py,  binary_search)
-)
+E.g., the dumped AST/CFG can be incomplete.
 
 
 PyFlow is a static analysis and compilation tool for Python code. It provides various analysis capabilities including:

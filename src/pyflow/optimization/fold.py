@@ -1,3 +1,9 @@
+"""Constant folding optimization pass.
+
+This module implements constant folding optimization, which evaluates constant
+expressions at compile time and replaces them with their computed values.
+"""
+
 from pyflow.util.typedispatch import *
 from pyflow.util.asttools import annotation
 
@@ -13,6 +19,16 @@ from . import rewrite
 
 
 def floatMulRewrite(self, node):
+    """Rewrite float multiplication with constant optimization.
+    
+    Optimizes multiplication by 0, 1, or -1 for floating point operations.
+    
+    Args:
+        node: AST node representing the multiplication operation.
+        
+    Returns:
+        AST node: Optimized node or None if no optimization applies.
+    """
     if not termrewrite.hasNumArgs(node, 2):
         return
 

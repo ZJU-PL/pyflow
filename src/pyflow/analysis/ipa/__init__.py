@@ -1,3 +1,10 @@
+"""Inter-procedural Analysis (IPA) for PyFlow.
+
+This package provides inter-procedural analysis capabilities that perform
+context-sensitive analysis across function boundaries, enabling precise
+modeling of function calls and returns in Python programs.
+"""
+
 from pyflow.analysis.cpa import simpleimagebuilder
 from .entrypointbuilder import buildEntryPoint
 from .dump import Dumper
@@ -9,6 +16,11 @@ from .memory.storegraphpolicy import DefaultStoreGraphPolicy
 
 
 def dumpAnalysisResults(analysis):
+    """Dump IPA analysis results to files.
+    
+    Args:
+        analysis: IPAnalysis object containing analysis results.
+    """
     dumper = Dumper("summaries/ipa")
 
     dumper.index(analysis.contexts.values(), analysis.root)
@@ -18,6 +30,15 @@ def dumpAnalysisResults(analysis):
 
 
 def evaluateWithImage(compiler, prgm):
+    """Run IPA analysis with existing store graph image.
+    
+    Args:
+        compiler: Compiler context for the analysis.
+        prgm: Program object to analyze.
+        
+    Returns:
+        Result of the IPA analysis.
+    """
     with compiler.console.scope("ipa analysis"):
         analysis = IPAnalysis(
             compiler,
@@ -43,6 +64,15 @@ def evaluateWithImage(compiler, prgm):
 
 
 def evaluate(compiler, prgm):
+    """Run complete IPA analysis including store graph construction.
+    
+    Args:
+        compiler: Compiler context for the analysis.
+        prgm: Program object to analyze.
+        
+    Returns:
+        Result of the IPA analysis.
+    """
     simpleimagebuilder.build(compiler, prgm)
     result = evaluateWithImage(compiler, prgm)
     return result

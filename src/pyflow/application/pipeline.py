@@ -1,3 +1,10 @@
+"""Analysis pipeline for PyFlow static analysis.
+
+This module defines the main analysis pipeline that orchestrates various
+static analysis passes including inter-procedural analysis, constraint-based
+analysis, and optimization passes.
+"""
+
 import time
 import pyflow.util as util
 
@@ -29,14 +36,26 @@ from . import errors
 
 
 class Pipeline(object):
-    """A simple pipeline class for PyFlow analysis."""
+    """Main analysis pipeline for PyFlow static analysis.
+    
+    The Pipeline class orchestrates the execution of various analysis passes
+    including inter-procedural analysis, constraint-based analysis, and
+    optimization passes on Python programs.
+    """
 
     def __init__(self):
-        """Initialize the pipeline."""
+        """Initialize the analysis pipeline."""
         pass
 
     def run(self, program):
-        """Run the analysis pipeline on a program."""
+        """Run the analysis pipeline on a program.
+        
+        Args:
+            program: Program object to analyze.
+            
+        Note:
+            This is a placeholder implementation that needs to be completed.
+        """
         # This is a placeholder implementation
         pass
 
