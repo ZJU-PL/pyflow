@@ -35,6 +35,8 @@ class GetOps(TypeDispatcher):
         ast.Suite,
         ast.Condition,
         ast.Switch,
+        ast.ExceptionHandler,
+        ast.TryExceptFinally,
         ast.Discard,
         ast.For,
         ast.While,
@@ -61,6 +63,16 @@ class GetOps(TypeDispatcher):
         if isinstance(node.expr, ast.Local):
             self.copies.append(node)
 
+        node.visitChildren(self)
+
+    @dispatch(ast.Assert)
+    def visitAssert(self, node):
+        """Visit assert statement nodes.
+
+        Args:
+            node: Assert AST node.
+        """
+        # Handle assert statements by visiting children (test and message)
         node.visitChildren(self)
 
     @dispatch(ast.InputBlock)
@@ -114,6 +126,7 @@ class GetOps(TypeDispatcher):
         ast.Not,
         ast.BuildTuple,
         ast.BuildList,
+        ast.BuildMap,
         ast.GetIter,
     )
     def visitOp(self, node):

@@ -107,6 +107,18 @@ class FindReadModify(TypeDispatcher):
         self.lut[node] = info
         return info
 
+    @dispatch(ast.Assert)
+    def visitAssert(self, node):
+        info = ReadModifyInfo()
+        # Assert statements read the test condition
+        if node.test:
+            info.localRead.add(node.test)
+        # Visit message if present
+        if node.message:
+            info.update(self(node.message))
+        self.lut[node] = info
+        return info
+
     @dispatch(ast.Condition)
     def visitCondition(self, node):
         info = ReadModifyInfo()

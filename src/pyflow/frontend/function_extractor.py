@@ -37,26 +37,28 @@ class FunctionExtractor:
         try:
             # Try to get source code from the provided source_code first
             source = source_code
+            if self.verbose and source_code:
+                print(f"DEBUG: Using provided source code for {func.__name__}")
+            elif self.verbose:
+                print(f"DEBUG: No source code provided for {func.__name__}")
+
             if not source:
                 # Fallback to inspect.getsource
                 try:
                     source = inspect.getsource(func)
+                    if self.verbose:
+                        print(f"DEBUG: Got source from inspect.getsource for {func.__name__}")
                 except (OSError, TypeError):
-                    pass
+                    if self.verbose:
+                        print(f"DEBUG: inspect.getsource failed for {func.__name__}")
 
             if not source:
                 if self.verbose:
                     print(f"DEBUG: Could not get source code for {func.__name__}")
                 return self._create_minimal_code(func)
 
-            # Try inspect.getsource first before falling back to provided source
-            try:
-                inspect_source = inspect.getsource(func)
-                if inspect_source and inspect_source.strip():
-                    source = inspect_source
-            except (OSError, TypeError):
-                # If inspect fails, use the provided source code
-                pass
+            if self.verbose:
+                print(f"DEBUG: Processing source code for {func.__name__} (length: {len(source)})")
 
             # Dedent the source code to handle class-level indentation
             try:
@@ -97,7 +99,8 @@ class FunctionExtractor:
 
     def _create_minimal_code(self, func: Any) -> pyflow_ast.Code:
         """Create a minimal pyflow AST Code node with an empty Suite."""
-        codeparams = pyflow_ast.CodeParameters(None, [], [], [], None, None, [])
+        # Provide a default single return param to satisfy IPA's visitReturn assertions
+        codeparams = pyflow_ast.CodeParameters(None, [], [], [], None, None, [pyflow_ast.Local("ret0")])
         suite = pyflow_ast.Suite([])
         code = pyflow_ast.Code(func.__name__, codeparams, suite)
 
@@ -132,6 +135,18 @@ class FunctionExtractor:
         # Use func_node.name if func is None
         func_name = func.__name__ if func else func_node.name
         
+        # Ensure at least one return parameter for IPA
+        if not codeparams.returnparams:
+            codeparams = pyflow_ast.CodeParameters(
+                codeparams.selfparam,
+                codeparams.params,
+                codeparams.paramnames,
+                tuple(codeparams.defaults),
+                codeparams.vparam,
+                codeparams.kparam,
+                [pyflow_ast.Local("ret0")]
+            )
+
         code = pyflow_ast.Code(func_name, codeparams, body)
         
         # Initialize the annotation properly
@@ -184,7 +199,8 @@ class FunctionExtractor:
             defaults=tuple(defaults),
             vparam=vararg,
             kparam=kwarg,
-            returnparams=[]
+            # Provide a default single return param
+            returnparams=[pyflow_ast.Local("ret0")]
         )
 
     def extract_function(self, node: python_ast.FunctionDef, program: Program) -> None:

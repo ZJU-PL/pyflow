@@ -145,6 +145,19 @@ class ExtractDataflow(TypeDispatcher):
     def visitOK(self, node):
         node.visitChildren(self)
 
+    @dispatch(ast.Assert)
+    def visitAssert(self, node, targets=None):
+        # Evaluate assert test and optional message for side effects
+        if node.test:
+            self(node.test)
+        if node.message:
+            self(node.message)
+        if targets is not None:
+            assert len(targets) == 1
+            # No assignment semantics for assert; just ignore
+            pass
+        return None
+
     @dispatch(list)
     def visitList(self, node):
         return [self(child) for child in node if child is not None]
@@ -167,6 +180,121 @@ class ExtractDataflow(TypeDispatcher):
             self(node.kargs),
             targets,
         )
+
+    @dispatch(ast.BuildList)
+    def visitBuildList(self, node, targets=None):
+        # Evaluate list elements for side effects; then assign a simple placeholder slot
+        _ = self(node.args)
+        if targets is not None:
+            assert len(targets) == 1
+            placeholder_local = ast.Local("tmp_list")
+            src_slot = self.localSlot(placeholder_local)
+            self.assign(src_slot, targets[0])
+        else:
+            return None
+
+    @dispatch(ast.BuildTuple)
+    def visitBuildTuple(self, node, targets=None):
+        # Evaluate tuple elements for side effects; then assign a simple placeholder slot
+        _ = self(node.args)
+        if targets is not None:
+            assert len(targets) == 1
+            placeholder_local = ast.Local("tmp_tuple")
+            src_slot = self.localSlot(placeholder_local)
+            self.assign(src_slot, targets[0])
+        else:
+            return None
+
+    @dispatch(ast.BuildMap)
+    def visitBuildMap(self, node, targets=None):
+        # Evaluate map elements for side effects; maps themselves are pure values
+        if targets is not None:
+            assert len(targets) == 1
+            # For maps, we don't have direct access to keys/values, just pass
+            pass
+        else:
+            # Return None for maps
+            return None
+
+    @dispatch(ast.FunctionDef)
+    def visitFunctionDef(self, node, targets=None):
+        # Function definitions don't need complex analysis for data flow
+        if targets is not None:
+            assert len(targets) == 1
+            # Just return None for function definitions
+            pass
+        return None
+
+    @dispatch(ast.ClassDef)
+    def visitClassDef(self, node, targets=None):
+        # Class definitions don't need complex analysis for data flow
+        if targets is not None:
+            assert len(targets) == 1
+            # Just return None for class definitions
+            pass
+        return None
+
+    @dispatch(ast.TryExceptFinally)
+    def visitTryExceptFinally(self, node, targets=None):
+        # Evaluate try block and handlers for side effects
+        self(node.body)
+        for handler in node.handlers:
+            self(handler)
+        if node.else_:
+            self(node.else_)
+        if node.finally_:
+            self(node.finally_)
+        if targets is not None:
+            assert len(targets) == 1
+            # Just pass for try/except blocks
+            pass
+        return None
+
+    @dispatch(ast.ExceptionHandler)
+    def visitExceptionHandler(self, node, targets=None):
+        # Evaluate exception handler for side effects
+        self(node.preamble)
+        self(node.body)
+        if targets is not None:
+            assert len(targets) == 1
+            # Just pass for exception handlers
+            pass
+        return None
+
+    @dispatch(ast.Raise)
+    def visitRaise(self, node, targets=None):
+        # Evaluate raise expression for side effects
+        if node.exception:
+            self(node.exception)
+        if node.parameter:
+            self(node.parameter)
+        if node.traceback:
+            self(node.traceback)
+        if targets is not None:
+            assert len(targets) == 1
+            # Just pass for raise statements
+            pass
+        return None
+
+    @dispatch(ast.GetAttr)
+    def visitGetAttr(self, node, targets=None):
+        obj = self(node.expr)
+        name = self(node.name)
+        if targets is not None:
+            assert len(targets) == 1
+            # For attribute access, we need to load from the object
+            # This is a simplified version - in practice this would need more complex handling
+            pass
+        return obj
+
+    @dispatch(ast.SetAttr)
+    def visitSetAttr(self, node):
+        obj = self(node.expr)
+        name = self(node.name)
+        value = self(node.value)
+        # For attribute assignment, we need to store to the object
+        # This is a simplified version - in practice this would need more complex handling
+        pass
 
     @dispatch(ast.DirectCall)
     def visitDirectCall(self, node, targets=None):
@@ -200,10 +328,19 @@ class ExtractDataflow(TypeDispatcher):
                 for expr, param in zip(
                     node.exprs[:min_len], callee.returnparams[:min_len]
                 ):
-                    self.assign(self(expr), self(param))
+                    # Prefer evaluating expression into the return slot when possible
+                    dst = self(param)
+                    if dst is not None:
+                        self(expr, [dst])
+                    else:
+                        self.assign(self(expr), dst)
             else:
                 for expr, param in zip(node.exprs, callee.returnparams):
-                    self.assign(self(expr), self(param))
+                    dst = self(param)
+                    if dst is not None:
+                        self(expr, [dst])
+                    else:
+                        self.assign(self(expr), dst)
 
     @dispatch(ast.Local)
     def visitLocal(self, node, targets=None):

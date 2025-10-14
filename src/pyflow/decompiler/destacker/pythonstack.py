@@ -86,26 +86,27 @@ class PythonStack(object):
 		assert len(self.stack) >= 1
 		self.stack.pop()
 
-	def dup(self):
-		assert len(self.stack) >= 1
-		self.push(self.stack[-1])
+	# These stack manipulation methods are no longer used in Python 3
+	# def dup(self):
+	#     assert len(self.stack) >= 1
+	#     self.push(self.stack[-1])
 
-	def dupx(self, count):
-		assert len(self.stack) >= count
-		self.stack.extend(self.stack[-count:])
+	# def dupx(self, count):
+	#     assert len(self.stack) >= count
+	#     self.stack.extend(self.stack[-count:])
 
-	def rot2(self):
-		assert len(self.stack) >= 2
-		top = self.stack[-1]
-		self.stack[-1] = self.stack[-2]
-		self.stack[-2] = top
+	# def rot2(self):
+	#     assert len(self.stack) >= 2
+	#     top = self.stack[-1]
+	#     self.stack[-1] = self.stack[-2]
+	#     self.stack[-2] = top
 
-	def rot3(self):
-		assert len(self.stack) >= 3
-		top = self.stack[-1]
-		self.stack[-1] = self.stack[-2]
-		self.stack[-2] = self.stack[-3]
-		self.stack[-3] = top
+	# def rot3(self):
+	#     assert len(self.stack) >= 3
+	#     top = self.stack[-1]
+	#     self.stack[-1] = self.stack[-2]
+	#     self.stack[-2] = self.stack[-3]
+	#     self.stack[-3] = top
 
 	# TODO badly named, similar to "dup"
 	def duplicate(self):

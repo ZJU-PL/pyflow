@@ -59,8 +59,7 @@ def evaluateWithImage(compiler, prgm):
         print("%5d contexts" % len(analysis.contexts))
         print("%.2f ms decompile" % (analysis.decompileTime * 1000.0))
 
-    with compiler.console.scope("ipa dump"):
-        dumpAnalysisResults(analysis)
+    return analysis
 
 
 def evaluate(compiler, prgm):

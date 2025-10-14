@@ -28,6 +28,11 @@ class ObjectManager:
             pyflow_obj = Object(obj)
             # Ensure the object is properly loaded with its type
             self.ensure_loaded(pyflow_obj)
+
+            # Initialize data structures for the object (required for IPA analysis)
+            if hasattr(pyflow_obj, 'type') and pyflow_obj.type is not None:
+                pyflow_obj.allocateDatastructures(pyflow_obj.type)
+
             self._object_cache[obj] = pyflow_obj
             return pyflow_obj
         except Exception as e:
@@ -36,12 +41,56 @@ class ObjectManager:
             # Return a fallback object
             return obj
 
-    def get_object_call(self, func: Any) -> tuple:
+    def get_object_call(self, func: Any, source_code: Any = None) -> tuple:
         """Get object call information for a function."""
         if hasattr(func, "__name__"):
             # Use the function extractor if available
             if self.function_extractor:
-                code_obj = self.function_extractor.convert_function(func)
+                # Get source code for this function if available
+                func_source = None
+                if source_code:
+                    if self.verbose:
+                        print(f"DEBUG: Source code provided, type: {type(source_code)}")
+                        if isinstance(source_code, dict):
+                            print(f"DEBUG: Source code keys: {list(source_code.keys())}")
+
+                    if hasattr(func, '__code__') and func.__code__.co_filename:
+                        filename = func.__code__.co_filename
+                        if isinstance(source_code, dict):
+                            # Try exact match first
+                            if filename in source_code:
+                                func_source = source_code[filename]
+                                if self.verbose:
+                                    print(f"DEBUG: Found exact source match for '{filename}'")
+                            # Special case: if filename is '<string>' and we have source code, use it
+                            elif filename == '<string>':
+                                # For functions created by exec(), use the corresponding source file
+                                # We need to find which source file this function came from
+                                # For now, use the first available .py file
+                                for src_filename, src_content in source_code.items():
+                                    if src_filename.endswith('.py'):
+                                        func_source = src_content
+                                        if self.verbose:
+                                            print(f"DEBUG: Using source for '<string>' filename from '{src_filename}'")
+                                        break
+                            else:
+                                if self.verbose:
+                                    print(f"DEBUG: No source found for filename '{filename}'")
+                        elif isinstance(source_code, str):
+                            func_source = source_code
+                else:
+                    if self.verbose:
+                        print(f"DEBUG: No source code provided for {func.__name__}")
+
+                if self.verbose:
+                    print(f"DEBUG: Calling convert_function for {func.__name__} with source_code type: {type(func_source)}")
+                    if func_source:
+                        print(f"DEBUG: Source code length: {len(func_source)}")
+                        print(f"DEBUG: Source code preview: {repr(func_source[:100])}")
+                    else:
+                        print(f"DEBUG: No source code for {func.__name__}")
+
+                code_obj = self.function_extractor.convert_function(func, func_source)
                 return func, code_obj
             return func, None
         return func, None
@@ -81,12 +130,25 @@ class ObjectManager:
             )
             obj.typeinfo.abstractInstance = abstract_instance
 
+        # Ensure container datastructures exist for existing objects
+        try:
+            from pyflow.language.python.program import Object as ProgramObject
+        except Exception:
+            ProgramObject = None
+
+        if ProgramObject is not None and isinstance(obj, ProgramObject):
+            # Allocate internal dicts if missing
+            has_slot = hasattr(obj, "slot")
+            # obj.type may be None for special cases; guard before allocation
+            if (not has_slot) and getattr(obj, "type", None) is not None:
+                obj.allocateDatastructures(obj.type)
+
         return None
 
-    def get_call(self, obj: Any) -> Optional[Any]:
+    def get_call(self, obj: Any, source_code: Any = None) -> Optional[Any]:
         """Get call information for an object."""
         if hasattr(obj, "pyobj") and callable(obj.pyobj):
             # For callable objects, return the second element from getObjectCall
-            func_obj, code_obj = self.get_object_call(obj.pyobj)
+            func_obj, code_obj = self.get_object_call(obj.pyobj, source_code)
             return code_obj
         return None

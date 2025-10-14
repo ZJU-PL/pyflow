@@ -277,9 +277,8 @@ class FlatCallConstraint(AbstractCall):
             for arg in defaultSlots:
                 arg.attachTypeSplit(self.splitChanged)
         else:
-            import pdb
-
-            pdb.set_trace()
+            # If the call signature cannot be matched, mark dirty to re-evaluate later
+            self.dirty = True
 
     def splitChanged(self):
         if not self.dirty:

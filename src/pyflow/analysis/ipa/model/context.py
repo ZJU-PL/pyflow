@@ -134,6 +134,8 @@ class Context(object):
                 self, op, code, selfarg, args, kwds, varg, karg, targets
             )
             self.calls.append(call)
+            # Ensure the newly created direct call is processed by the callgraph
+            self.dirtyCCall(call)
             return call
 
     # 	def ccall(self, op, code, selfarg, args, kwds, varg, karg, targets):
@@ -146,6 +148,8 @@ class Context(object):
             self, op, code, selfarg, args, vargSlots, defaultSlots, targets
         )
         self.fcalls.append(call)
+        # Ensure the newly created flat call is processed by the callgraph
+        self.dirtyFCall(call)
         return call
 
     def local(self, lcl):

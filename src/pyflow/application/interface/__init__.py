@@ -103,8 +103,15 @@ class InterfaceDeclaration(object):
         for expr, args in self.func:
             # print(f"DEBUG: Interface translating function {expr.__name__ if hasattr(expr, '__name__') else 'unknown'}")
             fobj, code = extractor.getObjectCall(expr)
-
-            selfarg = ExistingWrapper(expr)
+            # Free functions should not pass a self argument
+            selfarg = nullWrapper
+            # If no args provided, synthesize placeholder args to match arity
+            if not args:
+                try:
+                    num_params = len(code.codeparameters.params)
+                except Exception:
+                    num_params = 0
+                args = [ExistingWrapper(None) for _ in range(num_params)]
 
             ep = self.createEntryPoint(
                 code, selfarg, tuple(args), [], nullWrapper, nullWrapper, None

@@ -58,6 +58,8 @@ class ForwardFlowTraverse(TypeDispatcher):
         ast.DeleteSlice,
         ast.DeleteSubscript,
         ast.SetCellDeref,
+        ast.Assert,
+        ast.DirectCall,
     )
     def visitOK(self, node):
         return self.processExpr(node)
@@ -442,6 +444,27 @@ class ForwardFlowTraverse(TypeDispatcher):
         result = self.processExpr(node)
         self.flow.save("continue")
         return result
+
+    @dispatch(ast.Call)
+    def visitCall(self, node):
+        # Handle function calls in dataflow
+        expr = self(node.expr)
+        args = self(node.args)
+        # For now, just return the call with processed children
+        return ast.Call(expr, args, node.kwds, node.vargs, node.kargs)
+
+    def visitDirectCall(self, node):
+        # Process direct calls similarly: rewrite selfarg and args
+        selfarg = self(node.selfarg)
+        args = self(node.args)
+        vargs = self(node.vargs)
+        kargs = self(node.kargs)
+        return ast.DirectCall(node.code, selfarg, args, node.kwds, vargs, kargs)
+
+    @dispatch(ast.Existing)
+    def visitExisting(self, node):
+        # Handle existing objects (literals, globals, etc.)
+        return node
 
     @dispatch(ast.InputBlock)
     def visitInputBlock(self, node):

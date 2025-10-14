@@ -1,8 +1,4 @@
-"""CLI module for running optimization passes on Python code.
-
-This module provides command-line interface functionality for running various
-static analysis and optimization passes on Python code using PyFlow.
-"""
+"""CLI module for running optimization passes on Python code."""
 
 import sys
 import os
@@ -38,42 +34,34 @@ ANALYSIS_MODULES = {
 
 
 def add_optimize_parser(subparsers):
-    """Add optimization subcommand parser to the main argument parser.
-    
-    Args:
-        subparsers: ArgumentParser subparsers object to add the optimize command to.
-        
-    Returns:
-        argparse.ArgumentParser: The created optimize subparser.
-    """
+    """Add optimization subcommand parser."""
     parser = subparsers.add_parser("optimize", help="Run static analysis and optimization")
-    
-    # Input/Output
+
+    # Input/Output options
     parser.add_argument("input_path", nargs="?", help="Python file, directory, or library to optimize")
     parser.add_argument("--output", "-o", help="Output file for results")
     parser.add_argument("--verbose", "-v", action="store_true", help="Enable verbose output")
     parser.add_argument("--dump", "-d", action="store_true", help="Dump analysis results")
-    
+    parser.add_argument("--dump-ipa", action="store_true", help="Dump IPA analysis results")
+    parser.add_argument("--dump-shape", action="store_true", help="Dump Shape analysis results")
+
     # Analysis options
     parser.add_argument("--analysis", "-a", choices=["all", "cpa", "ipa", "shape", "lifetime"],
                        default="all", help="Analysis type (default: all)")
-
-    # Dependency resolution
     parser.add_argument("--dependency-strategy",
                        choices=["auto", "stubs", "noop", "strict", "ast_only"],
-                       default="auto",
-                       help="How to handle import dependencies (default: auto)")
+                       default="auto", help="Dependency handling strategy")
 
-    # File discovery
+    # File discovery options
     parser.add_argument("--recursive", "-r", action="store_true", help="Recursively analyze subdirectories")
-    parser.add_argument("--exclude", nargs="*", default=[], help="Exclude patterns (e.g., 'test_*', '__pycache__')")
-    parser.add_argument("--include", nargs="*", default=["*.py"], help="Include patterns (default: *.py)")
-    
-    # Optimization
-    parser.add_argument("--opt-passes", nargs="*", help="Specific passes (e.g., 'methodcall', 'inlining')")
+    parser.add_argument("--exclude", nargs="*", default=[], help="Exclude patterns")
+    parser.add_argument("--include", nargs="*", default=["*.py"], help="Include patterns")
+
+    # Optimization options
+    parser.add_argument("--opt-passes", nargs="*", help="Specific optimization passes")
     parser.add_argument("--list-opt-passes", action="store_true", help="List available passes")
     parser.add_argument("--no-opt-passes", action="store_true", help="Analysis only")
-    
+
     return parser
 
 
@@ -82,7 +70,6 @@ def list_optimization_passes():
     print("Available optimization passes:")
     for name, desc in OPTIMIZATION_PASSES.items():
         print(f"  {name:<25} - {desc}")
-    print("\nUsage: pyflow optimize --opt-passes methodcall inlining")
 
     
 def run_analysis(input_path, args):
@@ -104,27 +91,20 @@ def run_analysis(input_path, args):
         console = Console(verbose=args.verbose)
         compiler = CompilerContext(console)
         program = Program()
-        program.interface, all_source_code = create_interface_from_paths(python_files, args)
 
-        # Initialize extractor
-        from pyflow.frontend.programextractor import Extractor
+        # Extract program
+        from pyflow.frontend.programextractor import create_interface_from_paths, Extractor
+        program.interface, all_source_code = create_interface_from_paths(python_files, args)
         compiler.extractor = Extractor(compiler, verbose=args.verbose, source_code=all_source_code)
 
-        print(f"DEBUG: Interface has {len(program.interface.func)} functions before extraction")
-        # Extract and analyze
         with console.scope("extraction"):
             extractProgram(compiler, program)
 
-        print(f"DEBUG: Interface has {len(program.interface.func)} functions after extraction")
-        print(f"DEBUG: Interface entryPoints: {len(program.interface.entryPoint)}")
-        print(f"DEBUG: Program liveCode: {len(program.liveCode)}")
-        print(f"Found {len(program.interface.func)} functions in interface")
-        if program.interface.func:
-            print(f"Created {len(program.interface.entryPoint)} entry points from {len(program.interface.func)} functions")
-        else:
-            print("Warning: No functions found in interface - analysis may produce no results")
+        if not program.interface.func:
+            print("Warning: No functions found in interface")
+            return
 
-        # Run analysis
+        # Run analysis based on type
         with console.scope("analysis"):
             if args.analysis == "all":
                 if getattr(args, "no_opt_passes", False):
@@ -133,10 +113,22 @@ def run_analysis(input_path, args):
                     run_optimization_passes(compiler, program, args.opt_passes)
                 else:
                     evaluate(compiler, program, str(input_path))
+            elif args.analysis == "ipa":
+                # Run only IPA analysis (skip CPA and later passes)
+                from pyflow.analysis import ipa as ipa_module
+                with console.scope("ipa-only"):
+                    result = ipa_module.evaluate(compiler, program)
+                    if result:
+                        program.ipa_analysis = result
             else:
                 run_analysis_passes(compiler, program, args.analysis)
 
-        if args.dump:
+        # Handle result dumping
+        if args.dump_ipa:
+            dump_ipa_results(compiler, program, input_path, args.output)
+        elif args.dump_shape:
+            dump_shape_results(compiler, program, input_path, args.output)
+        elif args.dump:
             dump_results(compiler, program, input_path, args.output)
 
         print("Analysis complete!")
@@ -168,43 +160,6 @@ def find_python_files(directory, args):
         return sorted(f for f in directory.iterdir() if f.is_file() and should_include(f))
 
 
-def create_interface_from_paths(python_files, args):
-    """Create a basic interface from multiple Python files using dependency resolver."""
-    from pyflow.application import interface
-    from pyflow.frontend.dependency_resolver import DependencyResolver
-
-    interface_decl = interface.InterfaceDeclaration()
-    all_source_code = {}
-
-    # Create dependency resolver with user-specified strategy
-    resolver = DependencyResolver(
-        strategy=getattr(args, 'dependency_strategy', 'auto'),
-        verbose=args.verbose,
-        safe_modules=['math', 'os', 'sys', 're', 'json', 'datetime', 'collections']
-    )
-
-    for file_path in python_files:
-        try:
-            with open(file_path, "r", encoding="utf-8") as f:
-                source = f.read()
-            all_source_code[str(file_path)] = source
-
-            # Use dependency resolver to extract functions
-            functions = resolver.extract_functions(source, file_path)
-
-            for func_name, func_obj in functions.items():
-                interface_decl.func.append((func_obj, []))
-                if args.verbose:
-                    print(f"Added function '{func_name}' from {file_path}")
-
-            if args.verbose:
-                print(f"Found {len(functions)} callable objects in {file_path}: {list(functions.keys())}")
-
-        except Exception as e:
-            if args.verbose:
-                print(f"Warning: Could not parse file {file_path}: {e}")
-
-    return interface_decl, all_source_code
 
 
 
@@ -213,17 +168,94 @@ def run_analysis_passes(compiler, program, analysis_type):
     if analysis_type not in ANALYSIS_MODULES:
         print(f"Unknown analysis type: {analysis_type}")
         return
-    
-    module_name, func_name = ANALYSIS_MODULES[analysis_type]
-    module = __import__(module_name, fromlist=[func_name])
-    func = getattr(module, func_name)
-    
-    if analysis_type == "shape":
+
+    # For IPA and Shape analysis, run the full pipeline to ensure proper setup
+    if analysis_type in ["ipa", "shape"]:
         from pyflow.application.pipeline import evaluate as pipeline_evaluate
-        pipeline_evaluate(compiler, program, "shape_analysis")
-        print("Shape analysis completed as part of full pipeline")
+        pipeline_evaluate(compiler, program, f"dummy_{analysis_type}")
+        print(f"{analysis_type.upper()} analysis completed as part of full pipeline")
+
+        if analysis_type == "ipa" and not (hasattr(program, 'ipa_analysis') and program.ipa_analysis):
+            print("Warning: IPA analysis results not available from pipeline run")
     else:
-        func(compiler, program)
+        module_name, func_name = ANALYSIS_MODULES[analysis_type]
+        module = __import__(module_name, fromlist=[func_name])
+        func = getattr(module, func_name)
+
+        if analysis_type == "shape":
+            from pyflow.application.pipeline import evaluate as pipeline_evaluate
+            pipeline_evaluate(compiler, program, "shape_analysis")
+        else:
+            # Store analysis result in program for later dumping
+            analysis_result = func(compiler, program)
+            if analysis_result and hasattr(analysis_result, 'contexts'):
+                setattr(program, f'{analysis_type}_analysis', analysis_result)
+
+
+def dump_specific_results(compiler, program, input_path, args):
+    """Dump specific analysis results (IPA, Shape) to files."""
+    try:
+        if args.dump_ipa:
+            dump_ipa_results(compiler, program, input_path, args.output)
+        if args.dump_shape:
+            dump_shape_results(compiler, program, input_path, args.output)
+    except Exception as e:
+        print(f"Warning: Could not dump specific results: {e}")
+
+
+def dump_ipa_results(compiler, program, input_path, output_file):
+    """Dump IPA analysis results."""
+    try:
+        from pyflow.analysis.ipa.dump import Dumper
+
+        if not (hasattr(program, 'ipa_analysis') and program.ipa_analysis):
+            print("IPA analysis results not available for dumping")
+            return
+
+        output_path = get_output_path(output_file, input_path, "ipa_results")
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+
+        dumper = Dumper(str(output_path))
+        dumper.index(program.ipa_analysis.contexts.values(), program.ipa_analysis.root)
+
+        for context in program.ipa_analysis.contexts.values():
+            dumper.dumpContext(context)
+
+        print(f"IPA analysis results dumped to: {output_path}")
+    except Exception as e:
+        print(f"Warning: Could not dump IPA results: {e}")
+
+
+def dump_shape_results(compiler, program, input_path, output_file):
+    """Dump Shape analysis results."""
+    try:
+        if not (hasattr(program, 'shape_analysis') and program.shape_analysis):
+            print("Shape analysis results not available for dumping")
+            return
+
+        output_path = get_output_path(output_file, input_path, "shape_results")
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Capture statistics output to file
+        import io
+        from contextlib import redirect_stdout
+
+        with redirect_stdout(io.StringIO()) as output_buffer:
+            program.shape_analysis.dumpStatistics()
+
+        with open(output_path, 'w') as f:
+            f.write(output_buffer.getvalue())
+
+        print(f"Shape analysis results dumped to: {output_path}")
+    except Exception as e:
+        print(f"Warning: Could not dump shape results: {e}")
+
+
+def get_output_path(output_file, input_path, default_suffix):
+    """Get output path for dumping results."""
+    if output_file:
+        return Path(output_file)
+    return input_path.with_suffix(f".{default_suffix}") if input_path.is_file() else input_path / default_suffix
 
 
 def dump_results(compiler, program, input_path, output_file):
@@ -231,28 +263,24 @@ def dump_results(compiler, program, input_path, output_file):
     try:
         from pyflow.analysis.dump import dumpreport
 
-        if output_file:
-            output_path = Path(output_file)
-        else:
-            output_path = input_path.with_suffix(".analysis") if input_path.is_file() else input_path / "analysis_results"
-
+        output_path = Path(output_file) if output_file else (
+            input_path.with_suffix(".analysis") if input_path.is_file()
+            else input_path / "analysis_results"
+        )
         output_path.parent.mkdir(parents=True, exist_ok=True)
         dumpreport.evaluate(compiler, program, str(output_path))
         print(f"Results dumped to: {output_path}")
-
     except Exception as e:
         print(f"Warning: Could not dump results: {e}")
 
 
 def run_analysis_only(compiler, program):
     """Run only analysis passes, no optimization."""
-    from pyflow.analysis import cpa, ipa, lifetimeanalysis
+    from pyflow.analysis import cpa, lifetimeanalysis
 
     with compiler.console.scope("analysis-only"):
-        # Run core analysis passes
         cpa.evaluate(compiler, program)
         lifetimeanalysis.evaluate(compiler, program)
-
         compiler.console.output("Analysis-only mode completed")
 
 

@@ -112,7 +112,7 @@ def codeConditioning(compiler, prgm, firstPass, dumpStats=False):
         # basically, DCE improves read modify information, which in turn allows better DCE
         # NOTE that this doesn't work very well without path sensitivity
         # "modifies" are quite imprecise without it, hence DCE doesn't do much.
-        if False:
+        if False:  # Temporarily disable brute force simplification
             bruteForceSimplification(compiler, prgm)
 
 
@@ -125,8 +125,10 @@ def bruteForceSimplification(compiler, prgm):
 
 def depythonPass(compiler, prgm, opPathLength=0, firstPass=True):
     with compiler.console.scope("depython"):
-        # analysis.ipa.evaluate(compiler, prgm)
-        # assert False, "abort"
+        # Run IPA analysis and store results for later access
+        ipa_result = ipa.evaluate(compiler, prgm)
+        if ipa_result:
+            prgm.ipa_analysis = ipa_result
 
         cpa.evaluate(compiler, prgm, opPathLength, firstPass=firstPass)
 

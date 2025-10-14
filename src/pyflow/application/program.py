@@ -21,16 +21,17 @@ class Program(object):
         liveCode: Set of live code elements (functions, classes).
         stats: Statistics about the program (optional).
     """
-    __slots__ = "interface", "storeGraph", "entryPoints", "liveCode", "stats"
+    __slots__ = "interface", "storeGraph", "entryPoints", "liveCode", "stats", "ipa_analysis"
 
     def __init__(self):
         """Initialize a new Program instance.
-        
+
         Creates a new program with empty interface, no store graph, empty entry
-        points list, empty live code set, and no statistics.
+        points list, empty live code set, no statistics, and no IPA analysis results.
         """
         self.interface = interface.InterfaceDeclaration()
         self.storeGraph = None
         self.entryPoints = []
         self.liveCode = set()
         self.stats = None
+        self.ipa_analysis = None

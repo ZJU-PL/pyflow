@@ -52,6 +52,9 @@ class ReverseFlowTraverse(TypeDispatcher):
 
     @dispatch(ast.Suite)
     def visitFlow(self, node):
+        # Ensure there is a current flow contour; some functions may lack an explicit return
+        if self.flow._current is None:
+            self.flow.restore(base.DynamicDict())
         return node.rewriteChildrenReversed(self)
 
     @dispatch(ast.Condition)

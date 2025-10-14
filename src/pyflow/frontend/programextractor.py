@@ -179,7 +179,8 @@ class Extractor:
 
     def getObjectCall(self, func: Any) -> tuple:
         """Get object call information for a function."""
-        return self.object_manager.get_object_call(func)
+        # Provide source_code mapping so downstream conversion can resolve bodies
+        return self.object_manager.get_object_call(func, self.source_code)
 
     def makeImaginary(
         self, name: str, t: AbstractObject, preexisting: bool
@@ -192,7 +193,11 @@ class Extractor:
 
     def getCall(self, obj):
         """Get call information for an object."""
-        return self.object_manager.get_call(obj)
+        if self.verbose:
+            print(f"DEBUG: getCall called for {obj}, source_code type: {type(self.source_code)}")
+            if isinstance(self.source_code, dict):
+                print(f"DEBUG: source_code keys: {list(self.source_code.keys())}")
+        return self.object_manager.get_call(obj, self.source_code)
 
     def convertFunction(
         self,
@@ -271,10 +276,99 @@ def extractProgram(compiler: CompilerContext, program: Program) -> None:
         # Single file extraction (existing behavior)
         if compiler.console:
             compiler.console.output("Program extraction complete")
-    
+
     # Process the interface declarations (functions and classes)
     if hasattr(program, 'interface') and program.interface:
         if not program.interface.translated:
             program.interface.translate(compiler.extractor)
             # Set entry points from the interface
             program.entryPoints = program.interface.entryPoint
+
+
+def create_interface_from_paths(python_files, args):
+    """Create a basic interface from multiple Python files using dependency resolver."""
+    from pyflow.application import interface
+    from pyflow.frontend.dependency_resolver import DependencyResolver
+
+    interface_decl = interface.InterfaceDeclaration()
+    all_source_code = {}
+
+    for file_path in python_files:
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                source = f.read()
+            all_source_code[str(file_path)] = source
+
+            # Try to get real function objects by executing the source in a controlled environment
+            try:
+                import builtins
+
+                # Create a safe globals dict with builtins
+                exec_globals = dict(vars(builtins))
+
+                # Set the __file__ variable so functions get the correct filename
+                exec_globals['__file__'] = str(file_path)
+
+                # Add safe modules
+                safe_modules = ['math', 'os', 'sys', 're', 'json', 'datetime', 'collections']
+                for mod_name in safe_modules:
+                    try:
+                        exec_globals[mod_name] = __import__(mod_name)
+                    except ImportError:
+                        pass
+
+                # Execute the source code with filename preserved in code objects
+                compiled = compile(source, str(file_path), 'exec')
+                exec(compiled, exec_globals)
+
+                # Extract functions that were defined in this file
+                functions = {}
+                for name, obj in exec_globals.items():
+                    if not name.startswith('_') and callable(obj) and hasattr(obj, '__code__'):
+                        if args.verbose:
+                            print(f"DEBUG: Function '{name}' has code with filename: '{obj.__code__.co_filename}' (expected: '{file_path}')")
+                        # Accept functions with either the correct filename or '<string>' (from exec)
+                        # Since we executed this specific source file, any function found here came from it
+                        functions[name] = obj
+
+                if args.verbose:
+                    print(f"DEBUG: Successfully executed source and found {len(functions)} functions with correct code objects")
+
+            except Exception as exec_error:
+                if args.verbose:
+                    print(f"DEBUG: Source execution failed: {exec_error}, using dependency resolver")
+
+                # Fallback to dependency resolver
+                resolver = DependencyResolver(
+                    strategy='stubs',  # Try stubs strategy which should give better results
+                    verbose=args.verbose,
+                    safe_modules=['math', 'os', 'sys', 're', 'json', 'datetime', 'collections']
+                )
+                functions = resolver.extract_functions(source, file_path)
+
+            for func_name, func_obj in functions.items():
+                # Skip driver/main function from being treated as analysis entry point
+                if func_name == 'main':
+                    if args.verbose:
+                        print(f"DEBUG: Skipping '{func_name}' as an entry point")
+                    continue
+                # Debug: check if function has code object
+                if hasattr(func_obj, '__code__') and func_obj.__code__:
+                    if args.verbose:
+                        print(f"DEBUG: Function '{func_name}' has code object with filename: {func_obj.__code__.co_filename}")
+                else:
+                    if args.verbose:
+                        print(f"DEBUG: Function '{func_name}' has no code object or it's None")
+
+                interface_decl.func.append((func_obj, []))
+                if args.verbose:
+                    print(f"Added function '{func_name}' from {file_path}")
+
+            if args.verbose:
+                print(f"Found {len(functions)} callable objects in {file_path}: {list(functions.keys())}")
+
+        except Exception as e:
+            if args.verbose:
+                print(f"Warning: Could not parse file {file_path}: {e}")
+
+    return interface_decl, all_source_code

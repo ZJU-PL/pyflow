@@ -255,24 +255,25 @@ class ForwardESSA(TypeDispatcher):
         # Kill the flow
         self.returns.append(self.popState())
 
-    # 	@dispatch(ast.For)
-    # 	def processFor(self, node):
-    # 		# Only valid without breaks/continues
+    @dispatch(ast.For)
+    def processFor(self, node):
+        info = self.rm[node]
 
-    # 		self(node.loopPreamble)
+        # Handle loop preamble
+        self(node.loopPreamble)
 
-    # 		# TODO mark iterator/index?
-    # 		#info.localRead.add(node.iterator)
-    # 		#info.localModify.add(node.index)
+        # Mark iterator as read
+        if node.iterator:
+            self.logRead(node, node.iterator)
 
-    # 		# TODO is this sound?
-    # 		self(node.bodyPreamble)
+        # Process body preamble
+        self(node.bodyPreamble)
 
-    # 		self.renameModified(node.body)
-    # 		self(node.body)
-    # 		self.renameModified(node.body)
+        # Process the loop body
+        self(node.body)
 
-    # 		self(node.else_)
+        # Process else clause
+        self(node.else_)
 
     @dispatch(ast.While)
     def processWhile(self, node):

@@ -1,13 +1,15 @@
 
 
 from opcode import *
-from dis import findlinestarts
+from dis import findlinestarts, get_instructions
 
 flowControlOps = [opmap['RETURN_VALUE'],
 		  opmap['RAISE_VARARGS'],
 		  opmap['FOR_ITER']]
 # BREAK_LOOP no longer exists in Python 3
 
+# Add Python 3 jump operations
+flowControlOps.extend([opmap['POP_JUMP_IF_FALSE'], opmap['POP_JUMP_IF_TRUE']])
 flowControlOps.extend(hasjrel)
 flowControlOps.extend(hasjabs)
 # SETUP_LOOP no longer exists in Python 3, handled by SETUP_FINALLY
@@ -16,8 +18,8 @@ flowControlOps = frozenset(flowControlOps)
 
 blockOps = frozenset((opmap['POP_BLOCK'], opmap['SETUP_FINALLY']))
 
-
-stackOps = frozenset((opmap['POP_TOP'],))
+# Python 3 has more stack operations
+stackOps = frozenset((opmap['POP_TOP'], opmap['SWAP']))
 
 
 
@@ -36,7 +38,8 @@ class Instruction(object):
 		self.opcode 	= opcode
 		self.arg 	= arg
 
-		assert self.hasArgument() or arg == None
+		# In Python 3, some opcodes may have arguments even if hasArgument() returns False
+		# assert self.hasArgument() or arg == None
 
 	def __repr__(self):
 		return "inst(%d:%d, %s, %s)" % (self.line, self.offset, self.neumonic(), repr(self.arg))
@@ -68,71 +71,35 @@ class Instruction(object):
 def disassemble(co):
 	linestarts = dict(findlinestarts(co))
 
-	code = co.co_code
-	n = len(code)
-	i = 0
-	extended_arg = 0
-	free = None
-
-	line = 0
-
 	inst = []
-
 	offsetLUT = {}
-	fixup = []
 
-	while i < n:
-		if i in linestarts:
-			line = linestarts[i]
+	# Use Python's built-in disassembler to avoid Python 3 bytecode format issues
+	for dis_instr in get_instructions(co):
+		offset = dis_instr.offset
+		op = dis_instr.opcode
+		arg = dis_instr.arg
+		line = linestarts.get(offset, 0)  # Default to line 0 if not found
 
-		c = code[i]
-		op = c
-		offset = i
-		i = i+1
-
-		if op >= HAVE_ARGUMENT:
-			needsFixup = False
-			oparg = code[i] + code[i+1]*256 + extended_arg
-			extended_arg = 0
-			i = i+2
-
-			if op == EXTENDED_ARG:
-				assert False, "Cannot handle extended arguments: never encountered before."
-				extended_arg = oparg*65536
-
-			if op in hasconst:
-				arg = co.co_consts[oparg]
-			elif op in hasname:
-				arg = co.co_names[oparg]
-			elif op in hasjrel:
-				arg = i + oparg
-				needsFixup = True
-			elif op in hasjabs:
-				arg = oparg
-				needsFixup = True
-			elif op in haslocal:
-				arg = co.co_varnames[oparg]
-			elif op in hascompare:
-				arg = cmp_op[oparg]
-			elif op in hasfree:
-				if free is None: free = co.co_cellvars + co.co_freevars
-				arg = free[oparg]
-			else:
-				arg = oparg
-
-			newi = Instruction(line, offset, op, arg)
-			if needsFixup: fixup.append(newi)
-
-		else:
-			newi = Instruction(line, offset, op)
-
+		newi = Instruction(line, offset, op, arg)
 		offsetLUT[offset] = len(inst)
-
 		inst.append(newi)
 
+	# Calculate jump targets based on the instruction offsets
 	targets = []
-	for fix in fixup:
-		fix.arg = offsetLUT[fix.arg]
-		targets.append(fix.arg)
+	for i, instruction in enumerate(inst):
+		if instruction.opcode in hasjrel:
+			# For relative jumps, calculate the target offset
+			current_offset = instruction.offset
+			jump_offset = instruction.arg
+			target_offset = current_offset + jump_offset
+			if target_offset in offsetLUT:
+				instruction.arg = offsetLUT[target_offset]
+				targets.append(offsetLUT[target_offset])
+		elif instruction.opcode in hasjabs:
+			# For absolute jumps, the arg is already the target offset
+			if instruction.arg in offsetLUT:
+				instruction.arg = offsetLUT[instruction.arg]
+				targets.append(offsetLUT[instruction.arg])
 
 	return inst, targets

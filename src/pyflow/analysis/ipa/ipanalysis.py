@@ -151,8 +151,10 @@ class IPAnalysis(object):
         while self.dirtySlots:
             slot = self.dirtySlots.pop()
             slot.propagate()
-        # if self.trace: print(def topDown(self):)
-        print("top down")
+
+    def topDown(self):
+        if self.trace:
+            print("top down")
         dirty = True
         while dirty:
             self.updateConstraints()

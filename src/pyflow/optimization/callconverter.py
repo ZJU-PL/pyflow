@@ -1,5 +1,5 @@
 from pyflow.util.typedispatch import *
-from pyflow.language.python import ast
+from pyflow.language.python import ast, annotations
 from pyflow.util.python import opnames
 
 
@@ -40,6 +40,9 @@ class ConvertCalls(TypeDispatcher):
     @dispatch(
         ast.Suite,
         ast.Condition,
+        ast.ExceptionHandler,
+        ast.TryExceptFinally,
+        ast.Assert,
         ast.Assign,
         ast.Discard,
         ast.Return,
@@ -123,13 +126,29 @@ class ConvertCalls(TypeDispatcher):
 
     @dispatch(ast.BuildList)
     def visitBuildList(self, node):
-        return self.directCall(node, self.exports["buildList"], None, self(node.args))
+        code = self.exports.get("buildList") or self.exports.get("interpreter_buildList")
+        if code is None:
+            # Fallback: leave node shape but convert children
+            return node.rewriteChildren(self)
+        return self.directCall(node, code, None, self(node.args))
 
     @dispatch(ast.BuildTuple)
     def visitBuildTuple(self, node):
-        # code = self.exports['buildTuple']
-        code = self.exports["interpreter_buildTuple%d" % len(node.args)]
+        # Prefer arity-specific builder when available; otherwise fall back to generic buildTuple
+        sized_name = "interpreter_buildTuple%d" % len(node.args)
+        code = self.exports.get(sized_name)
+        if code is None:
+            code = self.exports.get("buildTuple")
+        if code is None:
+            # Fallback: leave node shape but convert children (no lowering)
+            return node.rewriteChildren(self)
         return self.directCall(node, code, None, self(node.args))
+
+    @dispatch(ast.BuildMap)
+    def visitBuildMap(self, node):
+        # For now, just return the node with processed children
+        # In a full implementation, this would handle dict literal creation
+        return node.rewriteChildren(self)
 
     @dispatch(ast.UnpackSequence)
     def visitUnpackSequence(self, node):
@@ -199,6 +218,12 @@ class ConvertCalls(TypeDispatcher):
 
 
 def callConverter(extractor, node):
+    # Ensure the node has a CodeAnnotation with a 'lowered' field
+    if not hasattr(node, "annotation") or not hasattr(node.annotation, "lowered"):
+        # Replace with a compatible default CodeAnnotation preserving origin if possible
+        origin = getattr(node.annotation, "origin", None) if hasattr(node, "annotation") else None
+        node.annotation = annotations.emptyCodeAnnotation.rewrite(origin=origin, lowered=False)
+
     if not node.annotation.lowered:
         converter = ConvertCalls(extractor, node)
         node.replaceChildren(converter)

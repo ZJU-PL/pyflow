@@ -63,7 +63,8 @@ class InstructionTranslator(object):
 				member = getattr(self, name)
 				if isinstance(member, self.__init__.__class__):
 					neumonic = name[3:]
-					self.ophandler[mungedopmap[neumonic]] = member
+					if neumonic in mungedopmap:
+						self.ophandler[mungedopmap[neumonic]] = member
 
 	def writeLocal(self, name, value):
 		if hasattr(value, 'name') and not value.name and isIdentifier.match(name):
@@ -102,21 +103,21 @@ class InstructionTranslator(object):
 	def push(self, node):
 		self.stack.push(node)
 
-	# Stack management
-	def op_DUP_TOP(self):
-		self.stack.dup()
+	# Stack management - Python 3 removed most stack manipulation opcodes
+	# def op_DUP_TOP(self):
+	#     self.stack.dup()
 
-	def op_DUP_TOPX(self, count):
-		self.stack.dupx(count)
+	# def op_DUP_TOPX(self, count):
+	#     self.stack.dupx(count)
 
 	def op_POP_TOP(self):
 		self.stack.discard()
 
-	def op_ROT_THREE(self):
-		self.stack.rot3()
+	# def op_ROT_THREE(self):
+	#     self.stack.rot3()
 
-	def op_ROT_TWO(self):
-		self.stack.rot2()
+	# def op_ROT_TWO(self):
+	#     self.stack.rot2()
 
 
 	# Load
@@ -134,7 +135,12 @@ class InstructionTranslator(object):
 
 
 	def makeConstant(self, value):
-		return Existing(self.compiler.extractor.getObject(value))
+		if self.compiler and hasattr(self.compiler, 'extractor'):
+			return Existing(self.compiler.extractor.getObject(value))
+		else:
+			# Fallback for when compiler is None
+			from pyflow.language.python.simplecodegen import SimpleCodeGen
+			return Existing(value)
 
 	def pushConstant(self, value):
 		#self.pushOp(self.makeConstant(value))
@@ -240,7 +246,15 @@ class InstructionTranslator(object):
 		self.emit(DeleteSubscript(expr, subscript))
 
 
-	# Binary Ops
+	# Binary Ops - Python 3 consolidated most binary operations into BINARY_OP
+	def op_BINARY_OP(self, op_index):
+		# In Python 3, BINARY_OP takes an argument that specifies the operation
+		# Common binary operations mapping (based on Python 3.8+)
+		binary_ops = ['+', '-', '*', '/', '//', '%', '**', '<<', '>>', '&', '|', '^', '<', '>', '<=', '>=', '==', '!=', 'is', 'is not', 'in', 'not in']
+		op = binary_ops[op_index] if op_index < len(binary_ops) else str(op_index)
+		self.emitBinaryOp(op)
+
+	# Keep individual binary op handlers for Python 2 compatibility
 	def op_BINARY_ADD(self):
 		self.emitBinaryOp('+')
 
@@ -456,7 +470,11 @@ class InstructionTranslator(object):
 	def op_BUILD_LIST(self, count):
 		args = self.getArgs(count)
 
-		self.pushOp(Allocate(Existing(self.compiler.extractor.getObject(list))))
+		if self.compiler and hasattr(self.compiler, 'extractor'):
+			obj = self.compiler.extractor.getObject(list)
+		else:
+			obj = list
+		self.pushOp(Allocate(Existing(obj)))
 
 		# HACK Append the arguments
 		target = self.peek()
@@ -607,10 +625,13 @@ class InstructionTranslator(object):
 
 
 	def op_SETUP_LOOP(self, jmp):
-		pass # HACK, should use the information?
+		pass # HACK, SETUP_LOOP removed in Python 3, should use the information?
 
 	def op_POP_BLOCK(self):
 		pass # HACK, should use the information?
+
+	def op_RESUME(self, arg):
+		pass # HACK, RESUME is a Python 3.8+ opcode for coroutines/generators
 
 	def readCell(self, name):
 		assert isinstance(name, str)

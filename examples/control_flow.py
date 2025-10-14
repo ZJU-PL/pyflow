@@ -70,15 +70,28 @@ def classify_temperature(temp):
     else:
         return "hot"
 
-if __name__ == "__main__":
-    # Example usage
+def main():
+    """Main entry point that calls all functions to make them reachable for IPA analysis."""
+    # Test data that exercises all code paths
     numbers = [1, 2, 3, 4, 5, -1, 0, 6]
+
+    # Call all functions to ensure they're reachable
     processed = process_numbers(numbers)
     maximum = find_maximum(numbers)
     temp_class = classify_temperature(25)
-    
+
     print(f"Processed numbers: {processed}")
     print(f"Maximum: {maximum}")
     print(f"Temperature 25°C is: {temp_class}")
-    
+
     count_to_limit(3)
+
+    # Additional test cases to exercise more paths
+    print(f"Is 4 even? {is_even(4)}")
+    print(f"Is 5 even? {is_even(5)}")
+    print(f"Max of [10, 5, 8]: {find_maximum([10, 5, 8])}")
+    print(f"Temperature -5°C is: {classify_temperature(-5)}")
+    print(f"Temperature 15°C is: {classify_temperature(15)}")
+
+if __name__ == "__main__":
+    main()

@@ -6,6 +6,8 @@
 
 ### The Constraint-based Analysis 
 
+Context-Sensitive, Flow-Sensitive
+
 Workflow:
 
 ~~~~
@@ -17,7 +19,9 @@ AST/Code → Store Graph → CPA (Interprocedural) → Shape Analysis (uses CPA 
 - Results flow downstream - Shape analysis uses CPA's points-to/type information, and Lifetime analysis uses both CPA and shape analysis results
 
 
-### What about the CFG
+### What about the  Dataflow Analsyis over CFG
+
+Flow-Sensitive
 
 - The CFG module itself contains several analyses that operate directly on control flow graphs
   + CFG Optimization (cfg/optimize.py) - Optimizes CFG nodes including constant folding, dead code elimination, and control flow simplification

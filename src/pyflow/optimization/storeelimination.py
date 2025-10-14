@@ -13,10 +13,12 @@ def evaluate(compiler, prgm, simplify=False):
 
         # Analysis pass
         for code in prgm.liveCode:
-            live.update(code.annotation.codeReads[0])
+            if code.annotation.codeReads:
+                live.update(code.annotation.codeReads[0])
 
             for op in codeOps(code):
-                live.update(op.annotation.reads[0])
+                if op.annotation.reads:
+                    live.update(op.annotation.reads[0])
                 if isinstance(op, ast.Store):
                     stores[code].append(op)
 
@@ -39,14 +41,18 @@ def evaluate(compiler, prgm, simplify=False):
 
             # Look for dead stores
             for store in stores[code]:
-                for modify in store.annotation.modifies[0]:
-                    if modify in live:
-                        break
-                    if modify.object.leaks:
-                        break
+                if store.annotation.modifies:
+                    for modify in store.annotation.modifies[0]:
+                        if modify in live:
+                            break
+                        if modify.object.leaks:
+                            break
+                    else:
+                        replace[store] = []
+                        eliminated += 1
                 else:
-                    replace[store] = []
-                    eliminated += 1
+                    # If no modifies info, assume it's live
+                    pass
 
             # Rewrite the code without the dead stores
             if replace:

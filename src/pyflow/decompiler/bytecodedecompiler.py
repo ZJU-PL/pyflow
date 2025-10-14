@@ -164,21 +164,22 @@ class BlockBuilder(object):
 		op = inst.opcode
 
 		# JUMP_IF_FALSE and JUMP_IF_TRUE don't exist in Python 3, use POP_JUMP variants
-		if op == opmap.get('JUMP_IF_FALSE', -1):
+		if op == opmap.get('JUMP_IF_FALSE', -1) or op == opmap.get('POP_JUMP_IF_FALSE', -1):
 			block = Switch(region, origin)
 			self.makeLink(i, i+1, region)
 			self.makeLink(i, inst.arg, region)
-		elif op == opmap.get('JUMP_IF_TRUE', -1):
+		elif op == opmap.get('JUMP_IF_TRUE', -1) or op == opmap.get('POP_JUMP_IF_TRUE', -1):
 			block = Switch(region, origin)
 			self.makeLink(i, inst.arg, region)
 			self.makeLink(i, i+1, region)
 		elif op == opmap['RETURN_VALUE']:
 			block = Return(region, origin)
-		# BREAK_LOOP no longer exists in Python 3, break statements are handled differently
+		# BREAK_LOOP no longer exists in Python 3, break statements are handled by JUMP instructions
+		# For now, we'll treat break as a simple jump that exits the current region
 		elif op == opmap.get('BREAK_LOOP', -1):
 			block = Break(region, origin)
-		# JUMP_ABSOLUTE no longer exists in Python 3
-		elif op == opmap['JUMP_FORWARD'] or op == opmap.get('JUMP_ABSOLUTE', -1):
+		# JUMP_ABSOLUTE no longer exists in Python 3, replaced with JUMP
+		elif op == opmap['JUMP_FORWARD'] or op == opmap.get('JUMP_ABSOLUTE', -1) or op == opmap.get('JUMP', -1):
 			block = None # Eliminate this block.
 			self.makeLink(i, inst.arg, region)
 		elif op == opmap['FOR_ITER']:
@@ -186,6 +187,7 @@ class BlockBuilder(object):
 			self.makeLink(i, i+1, region)
 			self.makeLink(i, inst.arg, region)
 		# SETUP_LOOP no longer exists in Python 3, loops use SETUP_FINALLY for exception handling
+		# For now, we'll skip this as loops are handled differently in Python 3
 		elif op == opmap.get('SETUP_LOOP', -1):
 			block = LoopRegion(region, origin)
 			self.makeLink(i, i+1, block)
@@ -197,6 +199,7 @@ class BlockBuilder(object):
 			self.makeLink(i, inst.arg, region)
 			#region = block
 		# SETUP_EXCEPT no longer exists in Python 3, exception handling uses SETUP_FINALLY
+		# For now, we'll skip this as exception handling is handled differently in Python 3
 		elif op == opmap.get('SETUP_EXCEPT', -1):
 			block = ExceptRegion(region, origin)
 			self.makeLink(i, i+1, block)
@@ -215,6 +218,7 @@ class BlockBuilder(object):
 			self.regionExit[region] = (i, i+1)
 
 		# END_FINALLY no longer exists in Python 3, handled by SETUP_FINALLY cleanup
+		# For now, we'll skip this as it's handled differently in Python 3
 		elif op == opmap.get('END_FINALLY', -1):
 			block = EndFinally(region, origin)
 			self.makeLink(i, i+1, region)
