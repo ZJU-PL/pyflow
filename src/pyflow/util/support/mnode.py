@@ -9,11 +9,11 @@ It extracts information about the node, such as its id, its statements, function
 """
 import ast
 
-from pyflow.support.util import UnitWalker
+from .util import UnitWalker
 
 # from ..cfg.builder import CFGBuilder
-from pyflow.support.func_call_visitor import get_func_calls
-from pyflow.support.vars_visitor import get_vars
+from .func_call_visitor import get_func_calls
+from .vars_visitor import get_vars
 
 
 def get_attr_name(node):

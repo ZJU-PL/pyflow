@@ -1,4 +1,13 @@
 
+"""
+Import management and module loading for PyFlow.
+
+This module provides functionality for tracking module imports, managing import
+graphs, and handling dynamic module loading during analysis. It includes custom
+import hooks and loaders to intercept import operations and build dependency
+graphs.
+"""
+
 import copy
 import importlib
 import os
@@ -9,49 +18,132 @@ from pyflow.machinery.utils import join_ns, to_mod_name
 
 def get_custom_loader(ig_obj):
     """
-    Closure which returns a custom loader
-    that modifies an ImportManager object
+    Create a custom loader factory that modifies an ImportManager object.
+    
+    This function returns a custom SourceLoader class that intercepts module
+    loading operations to track import dependencies in the import graph.
+    
+    Args:
+        ig_obj (ImportManager): The import manager to track imports in.
+        
+    Returns:
+        type: A custom loader class.
     """
 
     class CustomLoader(abc.SourceLoader):
+        """
+        Custom loader that tracks module imports in the import graph.
+        
+        This loader intercepts module loading to build dependency relationships
+        and track file paths for each imported module.
+        """
+        
         def __init__(self, fullname, path):
+            """
+            Initialize the custom loader.
+            
+            Args:
+                fullname (str): The full module name being loaded.
+                path (str): The file path of the module.
+            """
             self.fullname = fullname
             self.path = path
 
+            # Track the import in the import graph
             ig_obj.create_edge(self.fullname)
             if not ig_obj.get_node(self.fullname):
                 ig_obj.create_node(self.fullname)
                 ig_obj.set_filepath(self.fullname, self.path)
 
         def get_filename(self, fullname):
+            """
+            Get the filename for the module.
+            
+            Args:
+                fullname (str): The full module name.
+                
+            Returns:
+                str: The file path.
+            """
             return self.path
 
         def get_data(self, filename):
+            """
+            Get the data for the module (empty for tracking purposes).
+            
+            Args:
+                filename (str): The filename.
+                
+            Returns:
+                str: Empty string (we don't actually load the module content).
+            """
             return ""
 
     return CustomLoader
 
 
 class ImportManager(object):
+    """
+    Manages module imports and tracks import dependencies.
+    
+    This class provides functionality for tracking module imports, building
+    import graphs, and managing custom import hooks. It can intercept import
+    operations to build comprehensive dependency graphs for analysis.
+    """
+    
     def __init__(self):
-        self.import_graph = dict()
-        self.current_module = ""
-        self.input_file = ""
-        self.mod_dir = None
-        self.old_path_hooks = None
-        self.old_path = None
+        """Initialize the import manager with empty state."""
+        self.import_graph = dict()  # Maps module names to import information
+        self.current_module = ""    # Currently being processed module
+        self.input_file = ""        # Currently being processed file
+        self.mod_dir = None         # Module directory being analyzed
+        self.old_path_hooks = None  # Backup of original path hooks
+        self.old_path = None        # Backup of original sys.path
 
     def set_pkg(self, input_pkg):
+        """
+        Set the package directory being analyzed.
+        
+        Args:
+            input_pkg (str): The package directory path.
+        """
         self.mod_dir = input_pkg
 
     def get_mod_dir(self):
+        """
+        Get the package directory being analyzed.
+        
+        Returns:
+            str: The package directory path.
+        """
         return self.mod_dir
 
     def get_node(self, name):
+        """
+        Get a module node from the import graph.
+        
+        Args:
+            name (str): The module name to look up.
+            
+        Returns:
+            dict or None: The module information if found, None otherwise.
+        """
         if name in self.import_graph:
             return self.import_graph[name]
 
     def create_node(self, name):
+        """
+        Create a new module node in the import graph.
+        
+        Args:
+            name (str): The module name to create.
+            
+        Returns:
+            dict: The created module node.
+            
+        Raises:
+            ImportManagerError: If name is invalid or node already exists.
+        """
         if not name or not isinstance(name, str):
             raise ImportManagerError("Invalid node name")
 
@@ -62,6 +154,15 @@ class ImportManager(object):
         return self.import_graph[name]
 
     def create_edge(self, dest):
+        """
+        Create an import edge from current module to destination.
+        
+        Args:
+            dest (str): The destination module name.
+            
+        Raises:
+            ImportManagerError: If dest is invalid or current module doesn't exist.
+        """
         if not dest or not isinstance(dest, str):
             raise ImportManagerError("Invalid node name")
 
@@ -192,6 +293,12 @@ class ImportManager(object):
         return self.import_graph
 
     def install_hooks(self):
+        """
+        Install custom import hooks to intercept module loading.
+        
+        This method sets up custom import hooks that will track all module
+        imports during analysis, building the import graph automatically.
+        """
         loader = get_custom_loader(self)
         self.old_path_hooks = copy.deepcopy(sys.path_hooks)
         self.old_path = copy.deepcopy(sys.path)
@@ -205,6 +312,12 @@ class ImportManager(object):
         self._clear_caches()
 
     def remove_hooks(self):
+        """
+        Remove custom import hooks and restore original state.
+        
+        This method restores the original import system state after analysis
+        is complete, ensuring no side effects remain.
+        """
         sys.path_hooks = self.old_path_hooks
         sys.path = self.old_path
 
@@ -212,4 +325,5 @@ class ImportManager(object):
 
 
 class ImportManagerError(Exception):
+    """Exception raised for import manager related errors."""
     pass
