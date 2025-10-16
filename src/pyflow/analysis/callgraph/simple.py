@@ -31,9 +31,7 @@ def extract_call_graph(source_code: str) -> CallGraphData:
             if isinstance(node, ast.FunctionDef):
                 func = SimpleFunction(node.name)
                 function_map[node.name] = func
-                graph.functions.add(func)
-                graph.invocations[func] = set()
-                graph.function_contexts[func] = {None}
+                graph.add_function(func)
 
         # Second pass: find calls within functions
         for node in ast.walk(tree):
@@ -49,7 +47,7 @@ def extract_call_graph(source_code: str) -> CallGraphData:
                             callee_name = child.func.id
                             callee = function_map.get(callee_name)
                             if callee:
-                                graph.invocations[caller].add(callee)
+                                graph.add_call(caller, callee)
 
     except SyntaxError:
         # If parsing fails, return empty graph

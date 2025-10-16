@@ -1,9 +1,12 @@
 """
-Output format generators for call graphs.
+Call graph output format generators.
+
+This module provides functions to generate call graphs in various output
+formats: text, DOT (Graphviz), and JSON.
 """
 
 import json
-from typing import Any, Dict, Set, List
+from typing import Any
 
 
 def generate_text_output(call_graph, args) -> str:
@@ -13,28 +16,27 @@ def generate_text_output(call_graph, args) -> str:
     output.append("=" * 50)
     output.append("")
 
+    # Get the underlying CallGraph data
+    cg_data = call_graph.get_callgraph().get()
+    modules = call_graph.get_callgraph().get_modules()
+
     # List all functions
-    output.append(f"Functions ({len(call_graph.functions)}):")
-    for func in sorted(
-        call_graph.functions, key=lambda x: getattr(x, "codeName", lambda: str(x))()
-    ):
-        func_name = getattr(func, "codeName", lambda: str(func))()
-        output.append(f"  - {func_name}")
+    output.append(f"Functions ({len(cg_data)}):")
+    for func_name in sorted(cg_data.keys()):
+        modname = modules.get(func_name, "")
+        if modname:
+            output.append(f"  - {func_name} (from {modname})")
+        else:
+            output.append(f"  - {func_name}")
     output.append("")
 
     # Show call relationships
     output.append("Call Relationships:")
-    for caller in sorted(
-        call_graph.functions, key=lambda x: getattr(x, "codeName", lambda: str(x))()
-    ):
-        caller_name = getattr(caller, "codeName", lambda: str(caller))()
-        callees = call_graph.invocations.get(caller, set())
-
+    for caller_name in sorted(cg_data.keys()):
+        callees = cg_data.get(caller_name, set())
         if callees:
-            callee_names = [
-                getattr(callee, "codeName", lambda: str(callee))() for callee in callees
-            ]
-            output.append(f"  {caller_name} -> {', '.join(sorted(callee_names))}")
+            callee_names = sorted(callees)
+            output.append(f"  {caller_name} -> {', '.join(callee_names)}")
         else:
             output.append(f"  {caller_name} -> (no calls)")
 
@@ -59,9 +61,11 @@ def generate_dot_output(call_graph, args) -> str:
     lines.append("    node [shape=box, style=filled, fillcolor=lightblue];")
     lines.append("")
 
+    # Get the underlying CallGraph data
+    cg_data = call_graph.get_callgraph().get()
+
     # Add nodes
-    for func in call_graph.functions:
-        func_name = getattr(func, "codeName", lambda: str(func))()
+    for func_name in cg_data.keys():
         # Escape special characters for DOT
         safe_name = func_name.replace('"', '\\"')
         lines.append(f'    "{safe_name}" [label="{safe_name}"];')
@@ -69,12 +73,8 @@ def generate_dot_output(call_graph, args) -> str:
     lines.append("")
 
     # Add edges
-    for caller in call_graph.functions:
-        caller_name = getattr(caller, "codeName", lambda: str(caller))()
-        callees = call_graph.invocations.get(caller, set())
-
-        for callee in callees:
-            callee_name = getattr(callee, "codeName", lambda: str(callee))()
+    for caller_name, callees in cg_data.items():
+        for callee_name in callees:
             caller_safe = caller_name.replace('"', '\\"')
             callee_safe = callee_name.replace('"', '\\"')
             lines.append(f'    "{caller_safe}" -> "{callee_safe}";')
@@ -85,24 +85,26 @@ def generate_dot_output(call_graph, args) -> str:
 
 def generate_json_output(call_graph, args) -> str:
     """Generate JSON output for the call graph."""
+    # Get the underlying CallGraph data
+    cg_data = call_graph.get_callgraph().get()
+    modules = call_graph.get_callgraph().get_modules()
+    
     data = {
         "functions": [],
         "invocations": {},
+        "modules": {},
         "cycles": getattr(call_graph, "cycles", []),
     }
 
     # Convert functions to serializable format
-    for func in call_graph.functions:
-        func_name = getattr(func, "codeName", lambda: str(func))()
+    for func_name in cg_data.keys():
         data["functions"].append(func_name)
+        modname = modules.get(func_name, "")
+        if modname:
+            data["modules"][func_name] = modname
 
     # Convert invocations to serializable format
-    for caller in call_graph.functions:
-        caller_name = getattr(caller, "codeName", lambda: str(caller))()
-        callees = call_graph.invocations.get(caller, set())
-        callee_names = [
-            getattr(callee, "codeName", lambda: str(callee))() for callee in callees
-        ]
-        data["invocations"][caller_name] = callee_names
+    for caller_name, callees in cg_data.items():
+        data["invocations"][caller_name] = list(callees)
 
     return json.dumps(data, indent=2)

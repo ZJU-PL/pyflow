@@ -48,9 +48,7 @@ def extract_call_graph_pycg(source_code: str, verbose: bool = False) -> CallGrap
                 if caller not in function_map:
                     func = SimpleFunction(caller)
                     function_map[caller] = func
-                    graph.functions.add(func)
-                    graph.invocations[func] = set()
-                    graph.function_contexts[func] = {None}
+                    graph.add_function(func)
 
                 caller_func = function_map[caller]
 
@@ -58,12 +56,10 @@ def extract_call_graph_pycg(source_code: str, verbose: bool = False) -> CallGrap
                     if callee not in function_map:
                         callee_func = SimpleFunction(callee)
                         function_map[callee] = callee_func
-                        graph.functions.add(callee_func)
-                        graph.invocations[callee_func] = set()
-                        graph.function_contexts[callee_func] = {None}
+                        graph.add_function(callee_func)
 
                     callee_func = function_map[callee]
-                    graph.invocations[caller_func].add(callee_func)
+                    graph.add_call(caller_func, callee_func)
 
         finally:
             # Clean up temporary file
