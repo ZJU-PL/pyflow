@@ -60,7 +60,7 @@ pyflow = ["lib/**/*", "stubs/**/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-python_files = ["test_*.py"]
+python_files = ["test_*.py", "*_test.py"]
 python_classes = ["Test*"]
 python_functions = ["test*"]
 norecursedirs = ["tests/full"]

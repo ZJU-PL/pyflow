@@ -4,7 +4,7 @@ This module provides call graph analysis for Python code with multiple algorithm
 
 ## Available Algorithms
 
-- **simple**: Fast, lightweight AST-based analysis using Python's `ast` module
+- **ast_based**: Fast, lightweight AST-based analysis using Python's `ast` module
 - **pycg**: More sophisticated analysis using the PyCG library (if available)
 
 ## Module Structure
@@ -12,10 +12,9 @@ This module provides call graph analysis for Python code with multiple algorithm
 ```
 callgraph/
 ├── __init__.py          # Main module exports
-├── simple.py            # Simple AST-based algorithm
+├── ast_based.py         # AST-based algorithm
 ├── pycg_based.py        # PyCG-based algorithm
 ├── formats.py           # Output format generators
-├── types.py             # Shared data types and classes
 └── README.md            # This file
 ```
 
@@ -25,7 +24,7 @@ callgraph/
 ```python
 from pyflow.analysis.callgraph import extract_call_graph, analyze_file
 
-# Simple analysis
+# AST-based analysis
 graph = extract_call_graph(source_code)
 output = analyze_file("example.py")
 ```
@@ -52,7 +51,7 @@ json_output = generate_json_output(graph, None)
 ## CLI Usage
 
 ```bash
-# Simple algorithm (default)
+# AST-based algorithm (default)
 pyflow callgraph example.py
 
 # PyCG algorithm
@@ -65,14 +64,6 @@ pyflow callgraph --output graph.txt example.py
 ## Current Limitations
 
 - No IPA/CPA integration
-- Basic AST parsing (not pyflow AST)
 - Limited to single-file analysis
 
-## Future Integration Steps
 
-1. **Fix Program class** - store compiler context (`src/pyflow/application/program.py`)
-2. **Add CPA integration** - populate call annotations via `ExtractDataflow`
-3. **Add IPA integration** - use `CallGraphFinder` for context-sensitive analysis
-4. **Use pyflow AST** - convert via `src/pyflow/language/python/parser.py`
-5. **Add context tracking** - use `liveFuncContext` and `invokesContext`
-6. **Multi-file analysis** - handle imports and cross-file dependencies

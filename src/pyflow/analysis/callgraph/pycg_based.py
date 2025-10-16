@@ -5,10 +5,10 @@ This algorithm uses the PyCG library for more sophisticated call graph analysis.
 It can handle more complex Python constructs and provides better accuracy.
 """
 
-from typing import Set, Dict, Any, Optional, List
 import os
 
-from .types import SimpleFunction, CallGraphData
+from typing import Set, Dict, Any, Optional, List
+from pyflow.machinery.callgraph import CallGraph
 
 try:
     import pycg  # type: ignore
@@ -18,7 +18,7 @@ except ImportError:
     PYCG_AVAILABLE = False
 
 
-def extract_call_graph_pycg(source_code: str, verbose: bool = False) -> CallGraphData:
+def extract_call_graph_pycg(source_code: str, verbose: bool = False) -> CallGraph:
     """
     Extract call graph from Python source code using PyCG.
 
@@ -27,8 +27,7 @@ def extract_call_graph_pycg(source_code: str, verbose: bool = False) -> CallGrap
     if not PYCG_AVAILABLE:
         raise ImportError("PyCG library is not available. Install it with: pip install pycg")
 
-    graph = CallGraphData()
-    function_map = {}  # name -> function object
+    graph = CallGraph()
 
     try:
         import tempfile
@@ -45,21 +44,9 @@ def extract_call_graph_pycg(source_code: str, verbose: bool = False) -> CallGrap
 
             # Process PyCG results
             for caller, callees in pycg_calls.items():
-                if caller not in function_map:
-                    func = SimpleFunction(caller)
-                    function_map[caller] = func
-                    graph.add_function(func)
-
-                caller_func = function_map[caller]
-
+                graph.add_node(caller)
                 for callee in callees:
-                    if callee not in function_map:
-                        callee_func = SimpleFunction(callee)
-                        function_map[callee] = callee_func
-                        graph.add_function(callee_func)
-
-                    callee_func = function_map[callee]
-                    graph.add_call(caller_func, callee_func)
+                    graph.add_edge(caller, callee)
 
         finally:
             # Clean up temporary file

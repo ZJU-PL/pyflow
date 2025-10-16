@@ -1,0 +1,7 @@
+{
+    "main": [
+        "from_module.func"
+    ],
+    "from_module.func": [],
+    "from_module": []
+}

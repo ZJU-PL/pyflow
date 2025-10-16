@@ -16,9 +16,9 @@ def generate_text_output(call_graph, args) -> str:
     output.append("=" * 50)
     output.append("")
 
-    # Get the underlying CallGraph data
-    cg_data = call_graph.get_callgraph().get()
-    modules = call_graph.get_callgraph().get_modules()
+    # Get the CallGraph data directly
+    cg_data = call_graph.get()
+    modules = call_graph.get_modules()
 
     # List all functions
     output.append(f"Functions ({len(cg_data)}):")
@@ -40,16 +40,6 @@ def generate_text_output(call_graph, args) -> str:
         else:
             output.append(f"  {caller_name} -> (no calls)")
 
-    # Show cycles if detected
-    if hasattr(call_graph, "cycles") and call_graph.cycles:
-        output.append("")
-        output.append("Cycles detected:")
-        for i, cycle in enumerate(call_graph.cycles):
-            cycle_names = [
-                getattr(func, "codeName", lambda: str(func))() for func in cycle
-            ]
-            output.append(f"  Cycle {i+1}: {' -> '.join(cycle_names)}")
-
     return "\n".join(output)
 
 
@@ -61,8 +51,8 @@ def generate_dot_output(call_graph, args) -> str:
     lines.append("    node [shape=box, style=filled, fillcolor=lightblue];")
     lines.append("")
 
-    # Get the underlying CallGraph data
-    cg_data = call_graph.get_callgraph().get()
+    # Get the CallGraph data directly
+    cg_data = call_graph.get()
 
     # Add nodes
     for func_name in cg_data.keys():
@@ -85,15 +75,14 @@ def generate_dot_output(call_graph, args) -> str:
 
 def generate_json_output(call_graph, args) -> str:
     """Generate JSON output for the call graph."""
-    # Get the underlying CallGraph data
-    cg_data = call_graph.get_callgraph().get()
-    modules = call_graph.get_callgraph().get_modules()
+    # Get the CallGraph data directly
+    cg_data = call_graph.get()
+    modules = call_graph.get_modules()
     
     data = {
         "functions": [],
         "invocations": {},
         "modules": {},
-        "cycles": getattr(call_graph, "cycles", []),
     }
 
     # Convert functions to serializable format

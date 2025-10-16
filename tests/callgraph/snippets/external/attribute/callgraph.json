@@ -1,0 +1,8 @@
+{
+    "main": [
+        "ext.Cls",
+        "ext.Cls.fun"
+    ],
+    "ext.Cls": [],
+    "ext.Cls.fun": []
+}
