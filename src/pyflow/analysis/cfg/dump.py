@@ -247,3 +247,70 @@ def evaluate(compiler, cfg):
     name = cfg.code.name
 
     dumpGraph(directory, name, "svg", g)
+
+
+def generate_clang_style_cfg(cfg):
+    """Generate clang-style CFG representation.
+
+    Args:
+        cfg: Control flow graph to generate representation for.
+
+    Returns:
+        str: Text representation of the CFG in clang-style format.
+    """
+    try:
+        # Collect all nodes using BFS
+        visited, queue, all_nodes = set(), [cfg.entryTerminal], []
+        while queue:
+            node = queue.pop(0)
+            if node in visited:
+                continue
+            visited.add(node)
+            all_nodes.append(node)
+            if hasattr(node, 'next'):
+                queue.extend(next_node for next_node in node.next.values() if next_node and next_node not in visited)
+
+        node_to_block = {node: f"B{i}" for i, node in enumerate(all_nodes)}
+
+        # Generate CFG content
+        content = "CFG:\n"
+        for i, node in enumerate(all_nodes):
+            try:
+                block_id = f"B{i}"
+                content += f"\n{block_id}:\n"
+
+                # Block type
+                if node == cfg.entryTerminal:
+                    content += "  [ENTRY]\n"
+                elif node == cfg.normalTerminal:
+                    content += "  [EXIT]\n"
+                elif node == cfg.failTerminal:
+                    content += "  [FAIL EXIT]\n"
+                elif node == cfg.errorTerminal:
+                    content += "  [ERROR EXIT]\n"
+                else:
+                    content += f"  [{type(node).__name__}]\n"
+
+                # Node content
+                if hasattr(node, 'ops') and node.ops:
+                    for op in node.ops:
+                        content += f"    {op}\n"
+                elif hasattr(node, 'condition') and node.condition:
+                    content += f"    Condition: {node.condition}\n"
+                elif hasattr(node, 'phi') and node.phi:
+                    for phi in node.phi:
+                        content += f"    Phi: {phi}\n"
+
+                # Outgoing edges
+                if hasattr(node, 'next') and node.next:
+                    edges = [f"{name} -> {node_to_block[next_node]}" for name, next_node in node.next.items()
+                            if next_node and next_node in node_to_block]
+                    content += f"  Succs ({", ".join(edges)})\n"
+                else:
+                    content += "  Succs ()\n"
+            except Exception as e:
+                content += f"  Error processing node {i}: {e}\n"
+
+        return content
+    except Exception as e:
+        return f"Error generating CFG: {e}"

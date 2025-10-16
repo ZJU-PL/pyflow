@@ -4,10 +4,11 @@ This document describes the CLI options available in PyFlow, following the style
 
 ## Commands
 
-PyFlow provides three main commands:
+PyFlow provides four main commands:
 - `optimize`: Run static analysis and optimization on Python code
 - `callgraph`: Build and visualize call graphs from Python code
 - `ir`: Dump AST, CFG, and SSA forms for specific functions
+- `security`: Check security bugs
 
 ## Optimize Command
 

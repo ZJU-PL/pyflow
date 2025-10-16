@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from .optimize import run_analysis, list_optimization_passes, add_optimize_parser
 from .ir import run_ir_dump, add_ir_parser
 from .security import run_security_analysis, add_security_parser
-from pyflow.analysis.callgraph import run_callgraph, add_callgraph_parser
+from . import callgraph
 
 
 
@@ -42,7 +42,7 @@ def main():
     add_optimize_parser(subparsers)
 
     # Call graph command - use the modular parser
-    add_callgraph_parser(subparsers)
+    callgraph.add_callgraph_parser(subparsers)
     
     # IR dumping command - use the modular parser
     add_ir_parser(subparsers)
@@ -85,7 +85,7 @@ def main():
     if args.command == "optimize":
         run_analysis(input_path, args)
     elif args.command == "callgraph":
-        return run_callgraph(input_path, args)
+        return callgraph.run_callgraph(input_path, args)
     elif args.command == "ir":
         run_ir_dump(input_path, args)
     elif args.command == "security":
