@@ -2,11 +2,28 @@
 Node visitors used for type Inference and other utilities. The abstract class is extracted from mypy project at [here](https://github.com/python/mypy/blob/master/mypy/visitor.py). 
 This module is not intended for creating APIs. 
 """
+from __future__ import annotations
+
 
 import ast
 from collections import deque
 from copy import deepcopy
 import mypy
+
+
+from abc import abstractmethod
+from typing import TYPE_CHECKING, Generic, TypeVar
+
+from mypy_extensions import mypyc_attr, trait
+
+if TYPE_CHECKING:
+    # break import cycle only needed for mypy
+    import mypy.nodes
+    import mypy.patterns
+
+
+T = TypeVar("T")
+
 
 
 class FuncCallVisitor(ast.NodeVisitor):
@@ -139,22 +156,7 @@ def get_call_type(tree):
     return func_calls
 
 
-"""Generic abstract syntax tree node visitor"""
 
-from __future__ import annotations
-
-from abc import abstractmethod
-from typing import TYPE_CHECKING, Generic, TypeVar
-
-from mypy_extensions import mypyc_attr, trait
-
-if TYPE_CHECKING:
-    # break import cycle only needed for mypy
-    import mypy.nodes
-    import mypy.patterns
-
-
-T = TypeVar("T")
 
 
 @trait

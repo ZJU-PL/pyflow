@@ -164,6 +164,11 @@ class ShapeConstraintBuilder(TypeDispatcher):
         return self.sys.canonical.fieldExpr(self.localExpr(expr), slot)
 
     def assign(self, source, destination):
+        # Perform a strong update: forget stale destination information first,
+        # then emit the assignment so the newly written facts are preserved.
+        if destination is not None and hasattr(destination, "slot"):
+            self.forgetAll((destination.slot,))
+
         pre = self.current
         post = self.advance()
         constraint = constraints.AssignmentConstraint(
@@ -175,9 +180,6 @@ class ShapeConstraintBuilder(TypeDispatcher):
             print("ASSIGN")
             print(pre)
             print(post)
-        # Forget any stale information about the destination slot
-        if destination is not None and hasattr(destination, "slot"):
-            self.forgetAll((destination.slot,))
 
     def forgetAll(self, slots, post=None):
         pre = self.current
@@ -404,7 +406,27 @@ class ShapeConstraintBuilder(TypeDispatcher):
         splitMergeInfo.srcLocals = self.functionLocalSlots[self.function]
         # splitMergeInfo.dstLocals = self.functionLocalSlots[dstFunc]
 
-        # Create a mapping to transfer the return value.
+        # Create a mapping to transfer parameters and return values back to the caller.
+        # 1) Map callee positional parameters (numbered 0..N-1) to caller argument slots
+        for i, arg in enumerate(callerargs.args):
+            paramSlot = self.sys.canonical.localSlot(i)
+            splitMergeInfo.mapping[paramSlot] = arg.slot
+
+        # 2) Map callee self parameter if present
+        if callerargs.selfarg is not None and calleeparams.selfparam is not None:
+            paramSlot = self.sys.canonical.localSlot("self")
+            splitMergeInfo.mapping[paramSlot] = callerargs.selfarg.slot
+
+        # 3) Map varargs parameters to the corresponding caller vargs element slots
+        if callerargs.vargs is not None and calleeparams.vparam is not None:
+            base = len(callerargs.args)
+            for i in range(self.maxVArgLength()):
+                paramSlot = self.sys.canonical.localSlot(base + i)
+                idxName = self.sys.info.indexSlotName(callerargs.vargs.slot.lcl, i)
+                fieldSlot = self.sys.canonical.fieldSlot(None, idxName)
+                splitMergeInfo.mapping[paramSlot] = fieldSlot
+
+        # 4) Return value transfer mapping
 
         params = calleeparams.returnparams
         args = callerargs.returnargs

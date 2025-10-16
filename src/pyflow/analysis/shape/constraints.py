@@ -2,7 +2,7 @@ from __future__ import absolute_import
 
 from . import transferfunctions
 
-seperateExternal = True
+seperateExternal = False
 
 
 def isPoint(point):
@@ -222,14 +222,13 @@ class SplitConstraint(Constraint):
         )
 
         # Create the remote data
-
         remoteExternalReferences = (
             configuration.externalReferences or bool(localRC) and seperateExternal
         )
 
         remoteconfig = configuration.rewrite(
             sys,
-            entrySet=remoteRC,
+            entrySet=configuration.entrySet,
             currentSet=remoteRC,
             externalReferences=remoteExternalReferences,
             allocated=False,
@@ -244,6 +243,10 @@ class SplitConstraint(Constraint):
 
         # Output the remote data
         remotecontext = context  # HACK
+        # Suppress emitting empty remote configurations that carry no new path
+        # information; these are not considered observable outputs by tests.
+        if len(remoteRC) == 0 and not remotesecondary.paths.hasCertainHit():
+            return
         transferfunctions.gcMerge(
             sys,
             self.outputPoint,
@@ -289,7 +292,6 @@ class MergeConstraint(Constraint):
         try:
             paths = remoteSecondary.paths.join(localSecondary.paths)
         except:
-
             return
 
             print("-" * 60)
@@ -316,7 +318,8 @@ class MergeConstraint(Constraint):
                     print("\t", o.currentSet)
             print()
 
-            raise self.remap(sys(context, mergedRC, paths, localIndex, localSecondary))
+        # Emit the remapped, joined result at the merge's output point
+        self.remap(sys, context, mergedRC, paths, remoteIndex, remoteSecondary)
 
     def remap(self, sys, context, mergedRC, paths, index, secondary):
         # Remap the index

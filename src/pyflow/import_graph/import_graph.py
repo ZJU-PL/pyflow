@@ -5,7 +5,7 @@ The module provides  data structure to build import graph of a python project wh
 import ast
 import os
 
-from pyflow.util.support.visitors import SourceVisitor
+from pyflow.util.support.source_visitor import SourceVisitor
 
 
 class Tree:

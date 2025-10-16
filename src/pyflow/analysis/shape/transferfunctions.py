@@ -21,8 +21,7 @@ def mapConfiguration(sys, i, slot, b0, b1):
 
     # Update reference count of index
     if b0 and not b1:
-        # Left hand side
-        # e0 will no longer point to the configuration.
+        # Left hand side no longer aliases the configuration
         Si = i.decrementRef(sys, slot)
     elif not b0 and b1:
         # Right hand side
@@ -107,6 +106,8 @@ def assign(sys, outpoint, context, e0, e1, b0, b1, i, paths, external):
 
     # Aliasing issues can modify the hits and misses
     newPaths = updateHitMiss(sys, e0, e1, b0, b1, slot, paths)
+    # Cache stable-location flag for optional deep-chain heuristic below
+    e0StableLocation = newPaths.stableLocation(e0, slot, keepHits=not b0, keepMisses=b0)
 
     # Discard "obvious" miss sets
     # All elements of Si will have the same references (but possibally different counts), so just check one.

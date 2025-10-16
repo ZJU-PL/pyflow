@@ -107,6 +107,23 @@ class EquivalenceClass(object):
 
         return self
 
+    # Allow iteration over (slot, eq) pairs for debug dumps and utilities
+    def __iter__(self):
+        if self.attrs is None:
+            return iter(())
+        return iter(self.attrs.items())
+
+    def hasCertainHit(self):
+        if self.hit.mustBeTrue():
+            return True
+        if self.attrs:
+            for _, eq in self.attrs.items():
+                while eq.forward is not None:
+                    eq = eq.forward
+                if eq.hasCertainHit():
+                    return True
+        return False
+
     def absorbAttr(self, attr, eq):
         existing = self.getAttr(attr)
 
@@ -623,3 +640,6 @@ class PathInformation(object):
         b = other.copy()
         a.root = a.root.absorb(b.root)
         return a
+
+    def hasCertainHit(self):
+        return self.root.hasCertainHit()
