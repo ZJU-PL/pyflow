@@ -1,7 +1,7 @@
 Import Graph
 ============
 
-:py:mod:`pyflow.import_graph` creates a data structure for describing import relationships of a Python project.
+:py:mod:`pyflow.machinery.import_graph` creates a data structure for describing import relationships of a Python project.
 An import graph represents the dependency relationship of module files in the given project.
 This information can be important to understand the import flow, hierarchy, encapsulation as well as software architecture.
 Each node in the import graph data structure is a module file that can be manipulated to extract statements and function calls.
@@ -48,11 +48,11 @@ Given three example Python modules in the following example folder where three P
        def foo(self):
            return
 
-To build the import graph of the package, import and use :class:`Tree` and :class:`ImportGraph` in :py:mod:`pyflow.import_graph`.
+To build the import graph of the package, import and use :class:`Tree` and :class:`ImportGraph` in :py:mod:`pyflow.machinery.import_graph`.
 
 .. code-block:: python
 
-   from pyflow.import_graph import Tree, ImportGraph
+   from pyflow.machinery.import_graph import Tree, ImportGraph
 
    root_node = Tree("import_graph_example_pkg")
    import_graph = ImportGraph()
@@ -67,7 +67,7 @@ For each of leaf nodes, we can further extract its type information, function de
 APIs
 ----
 
-Please refer to the API documentation: :py:mod:`pyflow.import_graph`
+Please refer to the API documentation: :py:mod:`pyflow.machinery.import_graph`
 
 Reference
 ---------

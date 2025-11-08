@@ -1,10 +1,10 @@
 """
-Unit tests for pyflow.import_graph module
+Unit tests for pyflow.machinery.import_graph module
 """
 import ast
 import unittest
 
-from pyflow.import_graph.import_graph import Tree, ImportGraph
+from pyflow.machinery.import_graph import Tree, ImportGraph
 
 
 class TestTree(unittest.TestCase):

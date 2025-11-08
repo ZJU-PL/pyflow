@@ -1,55 +1,85 @@
 """
-Core call graph data structure and operations.
+Simplified CallGraph implementation.
 
-This module provides the fundamental CallGraph class for representing
-function call relationships in Python code.
+The original PyFlow project exposes a far more feature-rich call graph
+machinery module that depends on native extensions. For the purposes of the
+open-source friendly subset used in the tests, we only need a minimal in-memory
+representation with a couple of helper methods.
 """
 
+from __future__ import annotations
 
-class CallGraph(object):
-    """Core call graph data structure."""
-    
-    def __init__(self):
-        self.cg = {}  # call graph: {caller -> {callees}}
-        self.modnames = {}  # module names: {function -> module}
-
-    def add_node(self, name, modname=""):
-        """Add a function node to the call graph."""
-        if not isinstance(name, str):
-            raise CallGraphError("Only string node names allowed")
-        if not name:
-            raise CallGraphError("Empty node name")
-
-        if name not in self.cg:
-            self.cg[name] = set()
-            self.modnames[name] = modname
-
-        if name in self.cg and not self.modnames[name]:
-            self.modnames[name] = modname
-
-    def add_edge(self, src, dest):
-        """Add a call relationship from src to dest."""
-        self.add_node(src)
-        self.add_node(dest)
-        self.cg[src].add(dest)
-
-    def get(self):
-        """Get the call graph as a dictionary."""
-        return self.cg
-
-    def get_edges(self):
-        """Get all edges as a list of [src, dest] pairs."""
-        output = []
-        for src in self.cg:
-            for dst in self.cg[src]:
-                output.append([src, dst])
-        return output
-
-    def get_modules(self):
-        """Get module names for all functions."""
-        return self.modnames
+from collections import defaultdict
+from typing import Dict, Iterable, MutableMapping, MutableSet, Optional, Set
 
 
 class CallGraphError(Exception):
-    """Exception raised for call graph related errors."""
-    pass
+    """Base error for call graph handling issues."""
+
+
+class CallGraph:
+    """
+    Minimal directed call graph.
+
+    Nodes are identified by their fully-qualified function names. Edges capture
+    caller -> callee relationships. Module metadata is stored separately to
+    support richer output formats when available.
+    """
+
+    def __init__(self) -> None:
+        self._graph: MutableMapping[str, MutableSet[str]] = defaultdict(set)
+        self._modules: Dict[str, str] = {}
+
+    # ------------------------------------------------------------------ utils
+    def add_node(self, name: str, module: Optional[str] = None) -> None:
+        """
+        Ensure a node exists in the graph.
+
+        Parameters
+        ----------
+        name:
+            Fully-qualified identifier for the function.
+        module:
+            Optional module origin to associate with the node.
+        """
+        self._graph.setdefault(name, set())
+        if module is not None:
+            self._modules[name] = module
+
+    def add_edge(self, caller: str, callee: str) -> None:
+        """
+        Record an invocation from `caller` to `callee`.
+
+        Nodes are auto-created on demand to keep the API ergonomic for the
+        higher-level analysers.
+        """
+        self.add_node(caller)
+        self.add_node(callee)
+        self._graph[caller].add(callee)
+
+    # ---------------------------------------------------------------- queries
+    def get(self) -> Dict[str, Set[str]]:
+        """Return a plain dictionary view of the graph."""
+        return {node: set(callees) for node, callees in self._graph.items()}
+
+    def get_modules(self) -> Dict[str, str]:
+        """Return the recorded module metadata."""
+        return dict(self._modules)
+
+    # ------------------------------------------------------------ compat ops
+    def merge(self, other: "CallGraph") -> None:
+        """Merge another call graph into this one."""
+        for node, callees in other._graph.items():
+            self.add_node(node, other._modules.get(node))
+            self._graph[node].update(callees)
+
+    def nodes(self) -> Iterable[str]:
+        """Iterate over nodes in the graph."""
+        return self._graph.keys()
+
+    def edges(self) -> Iterable[tuple[str, str]]:
+        """Iterate over edges as (caller, callee) tuples."""
+        for caller, callees in self._graph.items():
+            for callee in callees:
+                yield caller, callee
+
