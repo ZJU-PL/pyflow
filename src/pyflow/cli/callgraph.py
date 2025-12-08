@@ -7,7 +7,6 @@ from pathlib import Path
 
 from pyflow.analysis.callgraph.ast_based import analyze_file as analyze_file_ast
 from pyflow.analysis.callgraph.pycg_based import analyze_file_pycg
-from pyflow.analysis.callgraph.constraint_based import analyze_file_constraint
 
 
 def run_callgraph(input_path, args):
@@ -27,8 +26,6 @@ def run_callgraph(input_path, args):
             except ImportError:
                 print("Error: PyCG algorithm not available. Install pycg package.", file=sys.stderr)
                 return 1
-        elif args.algorithm == "constraint":
-            output = analyze_file_constraint(str(input_path))
         else:
             print(f"Error: Unknown algorithm '{args.algorithm}'", file=sys.stderr)
             return 1
