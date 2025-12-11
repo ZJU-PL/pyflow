@@ -1,17 +1,5 @@
 # Overview
 
-pyflow is a program analysis and optimization framework for Python.
-
-If you use pyflow in your research or work, please cite the following:
-~~~~
-@misc{pyflow2025,
-  title = {pyflow: A Program Analysis and Optimization Framework for Python},
-  author = {ZJU Programming Languages and Automated Reasoning Group},
-  year = {2025},
-  url = {https://github.com/ZJU-PL/pyflow},
-  note = {Program analysis, compiler}
-}
-~~~~
 
 ## The Dataflow Analsyis
 
