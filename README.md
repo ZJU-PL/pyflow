@@ -11,7 +11,7 @@
 
 ### Install from source
 ```bash
-git clone https://github.com/ZJU-Automated-Reasoning-Group/pyflow.git
+git clone https://github.com/ZJU-PL/pyflow.git
 cd pyflow
 pip install -e .
 ```

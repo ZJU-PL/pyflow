@@ -241,11 +241,12 @@ class Compactor(TypeDispatcher):
             preamble = node.getExit("normal")
 
             if isinstance(preamble, graph.Switch):
-                assert False
+                # No preamble code, the switch is directly connected
+                switch = preamble
+                preamble = graph.Suite(switch.region)
             else:
                 assert isinstance(preamble, graph.Suite)
-
-            switch = preamble.getExit("normal")
+                switch = preamble.getExit("normal")
 
             # 			print(preamble.ops)
             # 			print(switch)
