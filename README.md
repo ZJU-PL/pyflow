@@ -47,8 +47,8 @@ pytest tests/integration/
 
 ```
 pyflow/
-├── src/pyflow/                           # Main source code
-│   ├── analysis/                         # Core analysis modules
+├── src/pyflow/                          # Main source code
+│   ├── analysis/                        # Core analysis modules
 │   │   ├── astcollector.py              # AST collection utilities
 │   │   ├── callgraph/                   # Call graph analysis
 │   │   ├── cdg/                         # Control Dependence Graph
@@ -67,7 +67,7 @@ pyflow/
 │   │   ├── shape/                       # Shape analysis
 │   │   ├── storegraph/                  # Store graph analysis
 │   │   └── tools.py                     # Analysis tools
-│   ├── application/                      # Application layer
+│   ├── application/                     # Application layer
 │   │   ├── context.py                   # Analysis context management
 │   │   ├── errors.py                    # Error handling
 │   │   ├── interface/                   # User interface components
@@ -76,44 +76,33 @@ pyflow/
 │   │   ├── passmanager.py               # Pass management system
 │   │   ├── pipeline.py                  # Analysis pipeline
 │   │   └── program.py                   # Program representation
-│   ├── checker/                         # Code checking and validation
-│   │   ├── checkers/                    # Individual checkers
-│   │   ├── core/                        # Core checking infrastructure
-│   │   ├── formatters/                  # Output formatters
-│   │   └── llm/                         # LLM integration
-│   ├── cli/                            # Command-line interface
-│   │   ├── callgraph.py                # Call graph CLI commands
-│   │   ├── ir.py                       # IR visualization commands
-│   │   ├── main.py                     # Main CLI entry point
-│   │   ├── optimize.py                 # Optimization commands
-│   │   └── security.py                 # Security analysis commands
-│   ├── config.py                        # Configuration management
-│   ├── decompiler/                      # Bytecode decompilation (legacy support)
-│   │   ├── bytecodedecompiler.py       # Main decompiler
-│   │   ├── destacker/                  # Stack destacking
-│   │   ├── disassembler.py             # Code disassembly
-│   │   ├── errors.py                   # Decompiler errors
-│   │   ├── flowblockdump.py            # Flow block dumping
-│   │   ├── flowblocks.py               # Flow block analysis
-│   │   ├── programextractor_v2.py      # Program extraction v2
-│   │   ├── README.md                   # Decompiler documentation
-│   │   ├── ssitransform/               # SSI transformation
-│   │   └── structuralanalyzer.py       # Structural analysis
-│   ├── frontend/                        # Frontend processing
-│   ├── import_graph/                    # Import graph analysis
-│   │   └── import_graph.py             # Import relationship analysis
-│   ├── language/                        # Language-specific modules
-│   │   └── python/                     # Python-specific analysis
-│   ├── lib/                            # Third-party libraries
-│   │   ├── antlr3/                     # ANTLR3 runtime
-│   │   └── PADS/                       # Basic data structures and alg.
-│   ├── optimization/                    # Optimization passes
-│   ├── stats/                          # Statistics collection
-│   │   └── stats.py                    # Statistics utilities
-│   ├── stubs/                          # Type stub files
-│   ├── testspider.py                   # Test spider utilities
-│   └── util/                           # Utility modules
-├── tests/                              # Test suite
+│   ├── checker/                       # Code checking and validation
+│   │   ├── checkers/                  # Individual checkers
+│   │   ├── core/                      # Core checking infrastructure
+│   │   ├── formatters/                # Output formatters
+│   │   └── llm/                       # LLM integration
+│   ├── cli/                           # Command-line interface
+│   │   ├── callgraph.py               # Call graph CLI commands
+│   │   ├── ir.py                      # IR visualization commands
+│   │   ├── main.py                    # Main CLI entry point
+│   │   ├── optimize.py                # Optimization commands
+│   │   └── security.py                # Security analysis commands
+│   ├── config.py                      # Configuration management
+│   ├── frontend/                      # Frontend processing
+│   ├── import_graph/                  # Import graph analysis
+│   │   └── import_graph.py            # Import relationship analysis
+│   ├── language/                      # Language-specific modules
+│   │   └── python/                    # Python-specific analysis
+│   ├── lib/                           # Third-party libraries
+│   │   ├── antlr3/                    # ANTLR3 runtime
+│   │   └── PADS/                      # Basic data structures and alg.
+│   ├── optimization/                  # Optimization passes
+│   ├── stats/                         # Statistics collection
+│   │   └── stats.py                   # Statistics utilities
+│   ├── stubs/                         # Type stub files
+│   ├── testspider.py                  # Test spider utilities
+│   └── util/                          # Utility modules
+├── tests/                             # Test suite
 │   ├── cpa/                           # CPA-specific tests
 │   ├── full/                          # Full program tests
 │   ├── fullcompiler.py                # Full compiler tests
