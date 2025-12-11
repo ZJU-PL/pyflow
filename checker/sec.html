@@ -1,0 +1,249 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Security Analysis and Checking &mdash; pyflow 0.1.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=01f34227"></script>
+      <script src="../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="prev" title="Optimizing Python Programs" href="../optimization/index.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            pyflow
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../overview.html">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html">Command Line Interface</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html#main-commands">Main Commands</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html#global-options">Global Options</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html#configuration">Configuration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html#integration">Integration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html">Analysis Modules</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html">Optimizing Python Programs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#optimization-categories">Optimization Categories</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#optimization-pipeline">Optimization Pipeline</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Security Analysis and Checking</a></li>
+<li class="toctree-l1"><a class="reference internal" href="#checker-categories">Checker Categories</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#injection-vulnerabilities">Injection Vulnerabilities</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#authentication-and-authorization">Authentication and Authorization</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#code-safety">Code Safety</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#object-oriented-safety">Object-Oriented Safety</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="#analysis-framework">Analysis Framework</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#core-infrastructure">Core Infrastructure</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#output-formatters">Output Formatters</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#llm-integration">LLM Integration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#configuration-and-testing">Configuration and Testing</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="#usage">Usage</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#command-line">Command Line</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#configuration-file">Configuration File</a></li>
+</ul>
+</li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">pyflow</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">Security Analysis and Checking</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/checker/sec.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="security-analysis-and-checking">
+<h1>Security Analysis and Checking<a class="headerlink" href="#security-analysis-and-checking" title="Link to this heading"></a></h1>
+<p>PyFlow’s security checker identifies potential security vulnerabilities and unsafe coding patterns in Python applications.</p>
+</section>
+<section id="checker-categories">
+<h1>Checker Categories<a class="headerlink" href="#checker-categories" title="Link to this heading"></a></h1>
+<section id="injection-vulnerabilities">
+<h2>Injection Vulnerabilities<a class="headerlink" href="#injection-vulnerabilities" title="Link to this heading"></a></h2>
+<p><strong>sql_injection.py</strong>: SQL injection detection
+- Identifies string formatting used in SQL queries
+- Detects unsafe database query construction
+- Flags potential injection points</p>
+<p><strong>shell_injection.py</strong>: Command injection detection
+- Identifies shell command construction
+- Detects unsafe subprocess calls
+- Flags potential command injection vulnerabilities</p>
+</section>
+<section id="authentication-and-authorization">
+<h2>Authentication and Authorization<a class="headerlink" href="#authentication-and-authorization" title="Link to this heading"></a></h2>
+<p><strong>hardcoded_password.py</strong>: Hardcoded credentials detection
+- Identifies hardcoded passwords and secrets
+- Detects embedded authentication tokens
+- Flags insecure credential storage</p>
+<p><strong>weak_crypto.py</strong>: Weak cryptography detection
+- Identifies deprecated cryptographic functions
+- Detects weak encryption algorithms
+- Flags insecure random number generation</p>
+</section>
+<section id="code-safety">
+<h2>Code Safety<a class="headerlink" href="#code-safety" title="Link to this heading"></a></h2>
+<p><strong>exec_use.py</strong>: Dangerous code execution
+- Identifies use of exec() and eval()
+- Detects dynamic code execution patterns
+- Flags potential code injection vulnerabilities</p>
+<p><strong>blacklist_calls.py</strong>: Blacklisted function calls
+- Identifies calls to dangerous functions
+- Configurable blacklist of unsafe operations
+- Flags potentially harmful API usage</p>
+<p><strong>blacklist_imports.py</strong>: Blacklisted module imports
+- Identifies imports of unsafe modules
+- Detects potentially dangerous library usage
+- Configurable import restrictions</p>
+</section>
+<section id="object-oriented-safety">
+<h2>Object-Oriented Safety<a class="headerlink" href="#object-oriented-safety" title="Link to this heading"></a></h2>
+<p><strong>class_pollution.py</strong>: Class pollution detection
+- Identifies unsafe attribute manipulation
+- Detects potential prototype pollution
+- Flags dangerous class attribute access</p>
+</section>
+</section>
+<section id="analysis-framework">
+<h1>Analysis Framework<a class="headerlink" href="#analysis-framework" title="Link to this heading"></a></h1>
+<section id="core-infrastructure">
+<h2>Core Infrastructure<a class="headerlink" href="#core-infrastructure" title="Link to this heading"></a></h2>
+<p><strong>core/manager.py</strong>: Checker management system
+- Orchestrates security analysis
+- Manages checker registration and execution
+- Handles analysis configuration</p>
+<p><strong>core/context.py</strong>: Analysis context management
+- Maintains analysis state during checking
+- Tracks file and module information
+- Manages issue reporting</p>
+<p><strong>core/issue.py</strong>: Issue representation
+- Standardizes security issue reporting
+- Provides severity levels and categories
+- Supports issue metadata and location tracking</p>
+</section>
+<section id="output-formatters">
+<h2>Output Formatters<a class="headerlink" href="#output-formatters" title="Link to this heading"></a></h2>
+<p><strong>formatters/text.py</strong>: Human-readable text output</p>
+<p><strong>formatters/json.py</strong>: Structured JSON output</p>
+<p><strong>formatters/sarif.py</strong>: SARIF format output</p>
+</section>
+<section id="llm-integration">
+<h2>LLM Integration<a class="headerlink" href="#llm-integration" title="Link to this heading"></a></h2>
+<p><strong>llm/check.py</strong>: LLM-assisted security checking
+- Uses language models for vulnerability detection
+- Pattern recognition beyond rule-based checking
+- Contextual vulnerability assessment</p>
+<p><strong>llm/exploit.py</strong>: Exploit generation and testing
+- Generates potential exploit payloads
+- Tests vulnerability hypotheses
+- Validates security issue impact</p>
+</section>
+<section id="configuration-and-testing">
+<h2>Configuration and Testing<a class="headerlink" href="#configuration-and-testing" title="Link to this heading"></a></h2>
+<p><strong>core/config.py</strong>: Configuration management
+- Checker enable/disable settings
+- Severity threshold configuration
+- Custom rule definitions</p>
+<p><strong>core/test_loader.py</strong>: Test case management
+- Loads security test cases
+- Manages false positive/negative testing
+- Benchmarking and validation</p>
+</section>
+</section>
+<section id="usage">
+<h1>Usage<a class="headerlink" href="#usage" title="Link to this heading"></a></h1>
+<section id="command-line">
+<h2>Command Line<a class="headerlink" href="#command-line" title="Link to this heading"></a></h2>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">pyflow</span> <span class="n">check</span> <span class="nb">input</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="nb">format</span> <span class="n">json</span> <span class="o">--</span><span class="n">severity</span> <span class="n">high</span>
+</pre></div>
+</div>
+</section>
+<section id="configuration-file">
+<h2>Configuration File<a class="headerlink" href="#configuration-file" title="Link to this heading"></a></h2>
+<p>Security checkers can be configured via YAML/JSON configuration files to customize:</p>
+<ul class="simple">
+<li><p>Enabled checkers</p></li>
+<li><p>Severity thresholds</p></li>
+<li><p>Custom rules</p></li>
+<li><p>Output preferences</p></li>
+</ul>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="../optimization/index.html" class="btn btn-neutral float-left" title="Optimizing Python Programs" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, rainoftime.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

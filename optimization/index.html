@@ -1,0 +1,216 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Optimizing Python Programs &mdash; pyflow 0.1.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=01f34227"></script>
+      <script src="../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Security Analysis and Checking" href="../checker/sec.html" />
+    <link rel="prev" title="Analysis Modules" href="../analysis/index.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            pyflow
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../overview.html">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html">Command Line Interface</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html#main-commands">Main Commands</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html#global-options">Global Options</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html#configuration">Configuration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html#integration">Integration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html">Analysis Modules</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Optimizing Python Programs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="#optimization-categories">Optimization Categories</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#constant-folding-and-propagation">Constant Folding and Propagation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#data-flow-optimizations">Data Flow Optimizations</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#control-flow-optimizations">Control Flow Optimizations</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#function-and-method-optimizations">Function and Method Optimizations</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#advanced-optimizations">Advanced Optimizations</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="#optimization-pipeline">Optimization Pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html">Security Analysis and Checking</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#checker-categories">Checker Categories</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#analysis-framework">Analysis Framework</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#usage">Usage</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">pyflow</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">Optimizing Python Programs</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/optimization/index.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="optimizing-python-programs">
+<h1>Optimizing Python Programs<a class="headerlink" href="#optimizing-python-programs" title="Link to this heading"></a></h1>
+<p>PyFlow provides a comprehensive suite of optimization passes that transform Python code for better performance, smaller size, and improved efficiency.</p>
+</section>
+<section id="optimization-categories">
+<h1>Optimization Categories<a class="headerlink" href="#optimization-categories" title="Link to this heading"></a></h1>
+<section id="constant-folding-and-propagation">
+<h2>Constant Folding and Propagation<a class="headerlink" href="#constant-folding-and-propagation" title="Link to this heading"></a></h2>
+<p><strong>fold.py</strong>: Compile-time evaluation of constant expressions
+- Arithmetic operations on constants
+- String concatenation and manipulation
+- Boolean expression simplification
+- Built-in function evaluation</p>
+<p><strong>dce.py</strong>: Dead code elimination
+- Removal of unreachable code blocks
+- Elimination of unused variable assignments
+- Conditional dead code removal</p>
+</section>
+<section id="data-flow-optimizations">
+<h2>Data Flow Optimizations<a class="headerlink" href="#data-flow-optimizations" title="Link to this heading"></a></h2>
+<p><strong>dataflow/base.py, forward.py, reverse.py</strong>: Data flow analysis framework
+- Forward data flow analysis for reaching definitions
+- Backward data flow analysis for live variables
+- Configurable meet functions and transfer functions</p>
+<p><strong>loadelimination.py</strong>: Redundant load elimination
+- Common subexpression elimination for loads
+- Store-load forwarding
+- Memory access optimization</p>
+<p><strong>storeelimination.py</strong>: Dead store elimination
+- Removal of stores to dead variables
+- Store-load dependency analysis
+- Memory write optimization</p>
+</section>
+<section id="control-flow-optimizations">
+<h2>Control Flow Optimizations<a class="headerlink" href="#control-flow-optimizations" title="Link to this heading"></a></h2>
+<p><strong>simplify.py</strong>: Control flow simplification
+- Basic block merging
+- Jump optimization
+- Conditional simplification</p>
+<p><strong>cullprogram.py</strong>: Program culling
+- Removal of unused functions and classes
+- Dead module elimination
+- Import optimization</p>
+</section>
+<section id="function-and-method-optimizations">
+<h2>Function and Method Optimizations<a class="headerlink" href="#function-and-method-optimizations" title="Link to this heading"></a></h2>
+<p><strong>codeinlining.py</strong>: Function inlining
+- Small function inlining for performance
+- Context-sensitive inlining decisions
+- Recursion handling</p>
+<p><strong>methodcall.py</strong>: Method call optimization
+- Virtual method call elimination
+- Direct call conversion
+- Polymorphism optimization</p>
+<p><strong>argumentnormalization.py</strong>: Argument handling optimization
+- Default argument optimization
+- Keyword argument normalization
+- Call site optimization</p>
+</section>
+<section id="advanced-optimizations">
+<h2>Advanced Optimizations<a class="headerlink" href="#advanced-optimizations" title="Link to this heading"></a></h2>
+<p><strong>callconverter.py</strong>: Call conversion
+- Builtin function call optimization
+- Library call specialization
+- Foreign function interface optimization</p>
+<p><strong>convertboolelimination.py</strong>: Boolean conversion elimination
+- Unnecessary boolean conversions
+- Type coercion optimization</p>
+<p><strong>rewrite.py</strong>: General code rewriting
+- Pattern-based transformations
+- AST-level code modifications</p>
+<p><strong>termrewrite.py</strong>: Term rewriting
+- Algebraic simplifications
+- Expression normalization</p>
+<p><strong>clone.py</strong>: Code cloning for specialization
+- Function specialization
+- Context-specific code generation</p>
+</section>
+</section>
+<section id="optimization-pipeline">
+<h1>Optimization Pipeline<a class="headerlink" href="#optimization-pipeline" title="Link to this heading"></a></h1>
+<p>PyFlow’s optimization pipeline applies transformations in phases:</p>
+<ol class="arabic simple">
+<li><p><strong>Analysis Phase</strong>: Gather information about the program</p></li>
+<li><p><strong>Simplification Phase</strong>: Basic optimizations and cleanup</p></li>
+<li><p><strong>Advanced Phase</strong>: Complex transformations requiring analysis</p></li>
+<li><p><strong>Finalization Phase</strong>: Code generation and output</p></li>
+</ol>
+<p>Each optimization pass can be enabled/disabled and configured independently.</p>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="../analysis/index.html" class="btn btn-neutral float-left" title="Analysis Modules" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="../checker/sec.html" class="btn btn-neutral float-right" title="Security Analysis and Checking" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, rainoftime.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

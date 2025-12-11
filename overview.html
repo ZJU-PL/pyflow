@@ -1,0 +1,257 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="./">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Overview &mdash; pyflow 0.1.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="_static/jquery.js?v=5d32c60e"></script>
+      <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="_static/documentation_options.js?v=01f34227"></script>
+      <script src="_static/doctools.js?v=9bcbadda"></script>
+      <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Command Line Interface" href="cli.html" />
+    <link rel="prev" title="Welcome to PyFlow’s Documentation!" href="index.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="index.html" class="icon icon-home">
+            pyflow
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul class="current">
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Overview</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#what-is-pyflow">What is PyFlow?</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#key-features">Key Features</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#static-analysis-capabilities">Static Analysis Capabilities</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#optimization-capabilities">Optimization Capabilities</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#architecture">Architecture</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="cli.html">Command Line Interface</a></li>
+<li class="toctree-l1"><a class="reference internal" href="cli.html#main-commands">Main Commands</a></li>
+<li class="toctree-l1"><a class="reference internal" href="cli.html#global-options">Global Options</a></li>
+<li class="toctree-l1"><a class="reference internal" href="cli.html#configuration">Configuration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="cli.html#integration">Integration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="analysis/index.html">Analysis Modules</a></li>
+<li class="toctree-l1"><a class="reference internal" href="optimization/index.html">Optimizing Python Programs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="optimization/index.html#optimization-categories">Optimization Categories</a></li>
+<li class="toctree-l1"><a class="reference internal" href="optimization/index.html#optimization-pipeline">Optimization Pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="checker/sec.html">Security Analysis and Checking</a></li>
+<li class="toctree-l1"><a class="reference internal" href="checker/sec.html#checker-categories">Checker Categories</a></li>
+<li class="toctree-l1"><a class="reference internal" href="checker/sec.html#analysis-framework">Analysis Framework</a></li>
+<li class="toctree-l1"><a class="reference internal" href="checker/sec.html#usage">Usage</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">pyflow</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">Overview</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/overview.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="overview">
+<h1>Overview<a class="headerlink" href="#overview" title="Link to this heading"></a></h1>
+<section id="what-is-pyflow">
+<h2>What is PyFlow?<a class="headerlink" href="#what-is-pyflow" title="Link to this heading"></a></h2>
+<p>PyFlow is a comprehensive static analysis and compilation framework for Python code. It provides a rich set of analysis capabilities that enable deep understanding and optimization of Python programs without requiring their execution.</p>
+<p>PyFlow is built around a modular architecture that separates concerns into distinct analysis domains, making it both powerful and extensible for research and practical applications.</p>
+</section>
+<section id="key-features">
+<h2>Key Features<a class="headerlink" href="#key-features" title="Link to this heading"></a></h2>
+<section id="static-analysis-capabilities">
+<h3>Static Analysis Capabilities<a class="headerlink" href="#static-analysis-capabilities" title="Link to this heading"></a></h3>
+<dl class="simple">
+<dt><strong>Control Flow Analysis</strong></dt><dd><ul class="simple">
+<li><p>Constructs precise Control Flow Graphs (CFGs) from Python AST</p></li>
+<li><p>Handles complex control structures including loops, conditionals, and exception handling</p></li>
+<li><p>Provides dominance analysis and loop detection</p></li>
+</ul>
+</dd>
+<dt><strong>Data Flow Analysis</strong></dt><dd><ul class="simple">
+<li><p>Forward and backward data flow analysis with configurable meet functions</p></li>
+<li><p>Support for various analysis domains (constants, types, shapes)</p></li>
+<li><p>Flow-sensitive analysis with precise modeling of Python semantics</p></li>
+</ul>
+</dd>
+<dt><strong>Inter-procedural Analysis (IPA)</strong></dt><dd><ul class="simple">
+<li><p>Context-sensitive analysis across function boundaries</p></li>
+<li><p>Precise modeling of function calls and returns</p></li>
+<li><p>Support for complex calling patterns including closures and generators</p></li>
+</ul>
+</dd>
+<dt><strong>Constraint-based Analysis (CPA)</strong></dt><dd><ul class="simple">
+<li><p>Constraint-based analysis using constraint solving for Python objects</p></li>
+<li><p>Precise modeling of object aliasing and sharing through constraint propagation</p></li>
+<li><p>Support for complex object relationships and inheritance via constraint relationships</p></li>
+</ul>
+</dd>
+<dt><strong>Shape Analysis</strong></dt><dd><ul class="simple">
+<li><p>Analysis of data structure shapes and properties</p></li>
+<li><p>Region-based shape analysis for complex data structures</p></li>
+<li><p>Support for list, dictionary, and custom object shapes</p></li>
+</ul>
+</dd>
+<dt><strong>Call Graph Analysis</strong></dt><dd><ul class="simple">
+<li><p>Multiple algorithms for call graph construction</p></li>
+<li><p>AST-based and PyCG-based approaches</p></li>
+<li><p>Support for dynamic dispatch and complex calling patterns</p></li>
+</ul>
+</dd>
+</dl>
+</section>
+<section id="optimization-capabilities">
+<h3>Optimization Capabilities<a class="headerlink" href="#optimization-capabilities" title="Link to this heading"></a></h3>
+<dl class="simple">
+<dt><strong>Constant Folding</strong></dt><dd><ul class="simple">
+<li><p>Compile-time evaluation of constant expressions</p></li>
+<li><p>Elimination of redundant computations</p></li>
+<li><p>Support for complex constant propagation</p></li>
+</ul>
+</dd>
+<dt><strong>Dead Code Elimination</strong></dt><dd><ul class="simple">
+<li><p>Removal of unreachable code</p></li>
+<li><p>Elimination of unused variables and assignments</p></li>
+<li><p>Support for complex control flow patterns</p></li>
+</ul>
+</dd>
+<dt><strong>Function Inlining</strong></dt><dd><ul class="simple">
+<li><p>Inlining of small functions to reduce call overhead</p></li>
+<li><p>Context-sensitive inlining decisions</p></li>
+<li><p>Support for complex inlining scenarios</p></li>
+</ul>
+</dd>
+<dt><strong>Load/Store Elimination</strong></dt><dd><ul class="simple">
+<li><p>Elimination of redundant memory operations</p></li>
+<li><p>Optimization of object attribute access</p></li>
+<li><p>Support for complex data flow patterns</p></li>
+</ul>
+</dd>
+<dt><strong>Method Call Optimization</strong></dt><dd><ul class="simple">
+<li><p>Optimization of method dispatch</p></li>
+<li><p>Elimination of indirect calls where possible</p></li>
+<li><p>Support for complex inheritance hierarchies</p></li>
+</ul>
+</dd>
+</dl>
+</section>
+</section>
+<section id="architecture">
+<h2>Architecture<a class="headerlink" href="#architecture" title="Link to this heading"></a></h2>
+<p>PyFlow is built around a modular architecture with clear separation of concerns:</p>
+<dl class="simple">
+<dt><strong>Analysis Layer</strong> (<cite>src/pyflow/analysis/</cite>)</dt><dd><ul class="simple">
+<li><p>Core analysis algorithms and data structures</p></li>
+<li><p>Modular design allowing easy extension</p></li>
+<li><p>Support for various analysis domains</p></li>
+</ul>
+</dd>
+<dt><strong>Optimization Layer</strong> (<cite>src/pyflow/optimization/</cite>)</dt><dd><ul class="simple">
+<li><p>Compiler optimization passes</p></li>
+<li><p>Data flow-based optimizations</p></li>
+<li><p>Integration with analysis results</p></li>
+</ul>
+</dd>
+<dt><strong>Decompiler Layer</strong> (<cite>src/pyflow/decompiler/</cite>)</dt><dd><ul class="simple">
+<li><p>Bytecode analysis and decompilation</p></li>
+<li><p>AST reconstruction from bytecode</p></li>
+<li><p>Integration with analysis pipeline</p></li>
+</ul>
+</dd>
+<dt><strong>Application Layer</strong> (<cite>src/pyflow/application/</cite>)</dt><dd><ul class="simple">
+<li><p>High-level program representation</p></li>
+<li><p>Analysis pipeline orchestration</p></li>
+<li><p>Context management</p></li>
+</ul>
+</dd>
+<dt><strong>Language Layer</strong> (<cite>src/pyflow/language/</cite>)</dt><dd><ul class="simple">
+<li><p>Python-specific language constructs</p></li>
+<li><p>AST representation and manipulation</p></li>
+<li><p>Language-specific analysis support</p></li>
+</ul>
+</dd>
+<dt><strong>CLI Layer</strong> (<cite>src/pyflow/cli/</cite>)</dt><dd><ul class="simple">
+<li><p>Command-line interface</p></li>
+<li><p>Integration with analysis and optimization</p></li>
+<li><p>Support for various output formats</p></li>
+</ul>
+</dd>
+</dl>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="index.html" class="btn btn-neutral float-left" title="Welcome to PyFlow’s Documentation!" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="cli.html" class="btn btn-neutral float-right" title="Command Line Interface" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, rainoftime.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

@@ -1,0 +1,221 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Constraint-based Analysis (CPA) &mdash; pyflow 0.1.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=01f34227"></script>
+      <script src="../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            pyflow
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html">Command Line Interface</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html#main-commands">Main Commands</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html#global-options">Global Options</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html#configuration">Configuration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html#integration">Integration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="index.html">Analysis Modules</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html">Optimizing Python Programs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#optimization-categories">Optimization Categories</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#optimization-pipeline">Optimization Pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html">Security Analysis and Checking</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#checker-categories">Checker Categories</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#analysis-framework">Analysis Framework</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#usage">Usage</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">pyflow</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">Constraint-based Analysis (CPA)</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/analysis/cpa.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="constraint-based-analysis-cpa">
+<h1>Constraint-based Analysis (CPA)<a class="headerlink" href="#constraint-based-analysis-cpa" title="Link to this heading"></a></h1>
+<p>PyFlow’s Constraint-based Analysis (CPA) is a sophisticated inter-procedural analysis system that uses constraint solving to perform precise analysis of Python objects, types, and their relationships. Unlike traditional points-to analysis, CPA models program behavior through a system of constraints that are iteratively solved to determine object aliasing, type information, and data flow properties.</p>
+<section id="overview">
+<h2>Overview<a class="headerlink" href="#overview" title="Link to this heading"></a></h2>
+<p>CPA operates by:</p>
+<ol class="arabic simple">
+<li><p><strong>Constraint Generation</strong>: Analyzing Python code to generate constraints representing relationships between variables, objects, and types</p></li>
+<li><p><strong>Constraint Solving</strong>: Using a worklist algorithm to iteratively solve constraints until a fixed point is reached</p></li>
+<li><p><strong>Context Management</strong>: Maintaining separate analysis contexts for different calling situations</p></li>
+<li><p><strong>Result Annotation</strong>: Annotating the original code with analysis results</p></li>
+</ol>
+<p>This constraint-based approach allows PyFlow to handle Python’s dynamic nature while providing precise static analysis information.</p>
+</section>
+<section id="core-concepts">
+<h2>Core Concepts<a class="headerlink" href="#core-concepts" title="Link to this heading"></a></h2>
+<section id="constraint-system">
+<h3>Constraint System<a class="headerlink" href="#constraint-system" title="Link to this heading"></a></h3>
+<p>CPA uses a constraint-based approach where program operations are modeled as constraints between abstract values:</p>
+<ul class="simple">
+<li><p><strong>Assignment Constraints</strong>: Model variable assignments and data flow</p></li>
+<li><p><strong>Type Constraints</strong>: Model type relationships and inheritance</p></li>
+<li><p><strong>Object Constraints</strong>: Model object creation, field access, and method calls</p></li>
+<li><p><strong>Call Constraints</strong>: Model function calls and returns with context sensitivity</p></li>
+</ul>
+</section>
+<section id="worklist-algorithm">
+<h3>Worklist Algorithm<a class="headerlink" href="#worklist-algorithm" title="Link to this heading"></a></h3>
+<p>The analysis uses a worklist-based constraint solver:</p>
+<ol class="arabic simple">
+<li><p>Constraints are added to a worklist when they become “dirty” (need re-evaluation)</p></li>
+<li><p>The solver processes constraints from the worklist iteratively</p></li>
+<li><p>When a constraint is processed, it may mark other constraints as dirty</p></li>
+<li><p>The process continues until no more constraints are dirty (fixed point reached)</p></li>
+</ol>
+</section>
+<section id="context-sensitivity">
+<h3>Context Sensitivity<a class="headerlink" href="#context-sensitivity" title="Link to this heading"></a></h3>
+<p>CPA maintains separate analysis contexts for different calling situations:</p>
+<ul class="simple">
+<li><p><strong>Calling Context</strong>: Tracks the sequence of function calls leading to a particular analysis point</p></li>
+<li><p><strong>Context-sensitive Analysis</strong>: Distinguishes between different calling contexts to provide precise analysis</p></li>
+<li><p><strong>Context Merging</strong>: Combines information from multiple contexts when appropriate</p></li>
+</ul>
+</section>
+</section>
+<section id="constraint-types">
+<h2>Constraint Types<a class="headerlink" href="#constraint-types" title="Link to this heading"></a></h2>
+<section id="assignmentconstraint">
+<h3>AssignmentConstraint<a class="headerlink" href="#assignmentconstraint" title="Link to this heading"></a></h3>
+<p>Models variable assignments and data flow between program variables:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">x</span> <span class="o">=</span> <span class="n">y</span>  <span class="c1"># Creates AssignmentConstraint(source=y, dest=x)</span>
+</pre></div>
+</div>
+</section>
+<section id="isconstraint">
+<h3>IsConstraint<a class="headerlink" href="#isconstraint" title="Link to this heading"></a></h3>
+<p>Models type checking and conditional operations:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="nb">int</span><span class="p">):</span>  <span class="c1"># Creates IsConstraint for type checking</span>
+</pre></div>
+</div>
+</section>
+<section id="loadconstraint-storeconstraint">
+<h3>LoadConstraint/StoreConstraint<a class="headerlink" href="#loadconstraint-storeconstraint" title="Link to this heading"></a></h3>
+<p>Model memory operations and object field access:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">obj</span><span class="o">.</span><span class="n">field</span> <span class="o">=</span> <span class="n">value</span>  <span class="c1"># Creates StoreConstraint</span>
+<span class="n">x</span> <span class="o">=</span> <span class="n">obj</span><span class="o">.</span><span class="n">field</span>      <span class="c1"># Creates LoadConstraint</span>
+</pre></div>
+</div>
+</section>
+<section id="allocateconstraint">
+<h3>AllocateConstraint<a class="headerlink" href="#allocateconstraint" title="Link to this heading"></a></h3>
+<p>Models object creation and allocation:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">obj</span> <span class="o">=</span> <span class="n">MyClass</span><span class="p">()</span>  <span class="c1"># Creates AllocateConstraint</span>
+</pre></div>
+</div>
+</section>
+<section id="callconstraint">
+<h3>CallConstraint<a class="headerlink" href="#callconstraint" title="Link to this heading"></a></h3>
+<p>Models function calls with context sensitivity:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">result</span> <span class="o">=</span> <span class="n">func</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">)</span>  <span class="c1"># Creates CallConstraint with context information</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="analysis-process">
+<h2>Analysis Process<a class="headerlink" href="#analysis-process" title="Link to this heading"></a></h2>
+<ol class="arabic simple">
+<li><p><strong>Program Extraction</strong>
+- Parse Python code into AST representation
+- Extract function definitions and entry points</p></li>
+<li><p><strong>Constraint Generation</strong>
+- Traverse AST to generate constraints
+- Create constraint relationships between variables and objects
+- Handle complex Python constructs (closures, generators, etc.)</p></li>
+<li><p><strong>Context Initialization</strong>
+- Create analysis contexts for entry points
+- Initialize constraint system with entry point constraints</p></li>
+<li><p><strong>Constraint Solving</strong>
+- Process constraints using worklist algorithm
+- Propagate information through constraint graph
+- Maintain context sensitivity throughout analysis (?)</p></li>
+<li><p><strong>Result Annotation</strong> (?)
+- Annotate original code with analysis results</p></li>
+</ol>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, rainoftime.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

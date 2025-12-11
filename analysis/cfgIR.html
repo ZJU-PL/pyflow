@@ -1,0 +1,158 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Control Flow Graph Intermediate Representation (CFG-IR) &mdash; pyflow 0.1.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=01f34227"></script>
+      <script src="../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            pyflow
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html">Command Line Interface</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html#main-commands">Main Commands</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html#global-options">Global Options</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html#configuration">Configuration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html#integration">Integration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="index.html">Analysis Modules</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html">Optimizing Python Programs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#optimization-categories">Optimization Categories</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#optimization-pipeline">Optimization Pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html">Security Analysis and Checking</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#checker-categories">Checker Categories</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#analysis-framework">Analysis Framework</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#usage">Usage</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">pyflow</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">Control Flow Graph Intermediate Representation (CFG-IR)</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/analysis/cfgIR.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="control-flow-graph-intermediate-representation-cfg-ir">
+<h1>Control Flow Graph Intermediate Representation (CFG-IR)<a class="headerlink" href="#control-flow-graph-intermediate-representation-cfg-ir" title="Link to this heading"></a></h1>
+<p>CFG-IR provides an intermediate representation specifically designed for control flow analysis, bridging AST and lower-level analysis representations.</p>
+<section id="purpose">
+<h2>Purpose<a class="headerlink" href="#purpose" title="Link to this heading"></a></h2>
+<p>CFG-IR serves as a bridge between Python AST and analysis-specific representations:</p>
+<ul class="simple">
+<li><p><strong>Unified Representation</strong>: Standardizes control flow constructs for analysis</p></li>
+<li><p><strong>Optimization Ready</strong>: Prepares CFGs for optimization passes</p></li>
+<li><p><strong>Analysis Integration</strong>: Provides common interface for various analysis modules</p></li>
+<li><p><strong>Structural Analysis</strong>: Enables deep analysis of control flow patterns</p></li>
+</ul>
+</section>
+<section id="key-components">
+<h2>Key Components<a class="headerlink" href="#key-components" title="Link to this heading"></a></h2>
+<section id="data-flow-synthesis">
+<h3>Data Flow Synthesis<a class="headerlink" href="#data-flow-synthesis" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p>Converts AST operations to data flow operations</p></li>
+<li><p>Handles variable assignments and expressions</p></li>
+<li><p>Manages control flow dependencies</p></li>
+<li><p>Prepares for inter-procedural analysis</p></li>
+</ul>
+</section>
+<section id="structural-analysis">
+<h3>Structural Analysis<a class="headerlink" href="#structural-analysis" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p>Analyzes loop structures and nesting</p></li>
+<li><p>Identifies conditional patterns</p></li>
+<li><p>Detects unreachable code</p></li>
+<li><p>Provides structural metrics for optimization</p></li>
+</ul>
+</section>
+<section id="cfg-ir-operations">
+<h3>CFG-IR Operations<a class="headerlink" href="#cfg-ir-operations" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p><strong>Basic Blocks</strong>: Group operations into atomic units</p></li>
+<li><p><strong>Control Edges</strong>: Represent control flow transfers</p></li>
+<li><p><strong>Data Dependencies</strong>: Track value flow between operations</p></li>
+<li><p><strong>Optimization Hooks</strong>: Enable analysis-driven transformations</p></li>
+</ul>
+</section>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, rainoftime.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

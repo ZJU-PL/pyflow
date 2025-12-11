@@ -1,0 +1,264 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="./">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Command Line Interface &mdash; pyflow 0.1.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="_static/jquery.js?v=5d32c60e"></script>
+      <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="_static/documentation_options.js?v=01f34227"></script>
+      <script src="_static/doctools.js?v=9bcbadda"></script>
+      <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Analysis Modules" href="analysis/index.html" />
+    <link rel="prev" title="Overview" href="overview.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="index.html" class="icon icon-home">
+            pyflow
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="overview.html">Overview</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Command Line Interface</a></li>
+<li class="toctree-l1"><a class="reference internal" href="#main-commands">Main Commands</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#analysis-commands">Analysis Commands</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#pyflow-callgraph"><strong>pyflow callgraph</strong></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#pyflow-ir"><strong>pyflow ir</strong></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#optimization-commands">Optimization Commands</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#pyflow-optimize"><strong>pyflow optimize</strong></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#security-commands">Security Commands</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#pyflow-check"><strong>pyflow check</strong></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="#global-options">Global Options</a></li>
+<li class="toctree-l1"><a class="reference internal" href="#configuration">Configuration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="#integration">Integration</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#ci-cd-integration">CI/CD Integration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#ide-integration">IDE Integration</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="analysis/index.html">Analysis Modules</a></li>
+<li class="toctree-l1"><a class="reference internal" href="optimization/index.html">Optimizing Python Programs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="optimization/index.html#optimization-categories">Optimization Categories</a></li>
+<li class="toctree-l1"><a class="reference internal" href="optimization/index.html#optimization-pipeline">Optimization Pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="checker/sec.html">Security Analysis and Checking</a></li>
+<li class="toctree-l1"><a class="reference internal" href="checker/sec.html#checker-categories">Checker Categories</a></li>
+<li class="toctree-l1"><a class="reference internal" href="checker/sec.html#analysis-framework">Analysis Framework</a></li>
+<li class="toctree-l1"><a class="reference internal" href="checker/sec.html#usage">Usage</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">pyflow</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">Command Line Interface</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/cli.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="command-line-interface">
+<h1>Command Line Interface<a class="headerlink" href="#command-line-interface" title="Link to this heading"></a></h1>
+<p>PyFlow provides a comprehensive CLI for static analysis, optimization, and security checking of Python code.</p>
+</section>
+<section id="main-commands">
+<h1>Main Commands<a class="headerlink" href="#main-commands" title="Link to this heading"></a></h1>
+<section id="analysis-commands">
+<h2>Analysis Commands<a class="headerlink" href="#analysis-commands" title="Link to this heading"></a></h2>
+<section id="pyflow-callgraph">
+<h3><strong>pyflow callgraph</strong><a class="headerlink" href="#pyflow-callgraph" title="Link to this heading"></a></h3>
+<p>Generate and analyze call graphs from Python code.</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">pyflow</span> <span class="n">callgraph</span> <span class="nb">input</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="nb">format</span> <span class="n">dot</span> <span class="o">--</span><span class="n">output</span> <span class="n">callgraph</span><span class="o">.</span><span class="n">dot</span>
+<span class="n">pyflow</span> <span class="n">callgraph</span> <span class="n">package</span><span class="o">/</span> <span class="o">--</span><span class="n">recursive</span> <span class="o">--</span><span class="n">algorithm</span> <span class="n">pycg</span>
+</pre></div>
+</div>
+<p>Options:
+- <code class="docutils literal notranslate"><span class="pre">--format</span></code>: Output format (dot, json, text)
+- <code class="docutils literal notranslate"><span class="pre">--output</span></code>: Output file path
+- <code class="docutils literal notranslate"><span class="pre">--algorithm</span></code>: Call graph algorithm (ast, pycg)
+- <code class="docutils literal notranslate"><span class="pre">--recursive</span></code>: Analyze directories recursively</p>
+</section>
+<section id="pyflow-ir">
+<h3><strong>pyflow ir</strong><a class="headerlink" href="#pyflow-ir" title="Link to this heading"></a></h3>
+<p>Visualize intermediate representations and analysis results.</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">pyflow</span> <span class="n">ir</span> <span class="nb">input</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">dump</span><span class="o">-</span><span class="n">cfg</span> <span class="o">--</span><span class="n">output</span> <span class="n">cfg</span><span class="o">.</span><span class="n">dot</span>
+<span class="n">pyflow</span> <span class="n">ir</span> <span class="nb">input</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">dump</span><span class="o">-</span><span class="n">ssa</span> <span class="o">--</span><span class="n">function</span> <span class="n">main</span>
+</pre></div>
+</div>
+<p>Options:
+- <code class="docutils literal notranslate"><span class="pre">--dump-cfg</span></code>: Dump control flow graph
+- <code class="docutils literal notranslate"><span class="pre">--dump-ssa</span></code>: Dump SSA form
+- <code class="docutils literal notranslate"><span class="pre">--dump-analysis</span></code>: Dump analysis results
+- <code class="docutils literal notranslate"><span class="pre">--function</span></code>: Focus on specific function</p>
+</section>
+</section>
+<section id="optimization-commands">
+<h2>Optimization Commands<a class="headerlink" href="#optimization-commands" title="Link to this heading"></a></h2>
+<section id="pyflow-optimize">
+<h3><strong>pyflow optimize</strong><a class="headerlink" href="#pyflow-optimize" title="Link to this heading"></a></h3>
+<p>Apply optimization passes to Python code.</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">pyflow</span> <span class="n">optimize</span> <span class="nb">input</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">passes</span> <span class="n">fold</span><span class="p">,</span><span class="n">dce</span> <span class="o">--</span><span class="n">output</span> <span class="n">optimized</span><span class="o">.</span><span class="n">py</span>
+<span class="n">pyflow</span> <span class="n">optimize</span> <span class="nb">input</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="nb">all</span><span class="o">-</span><span class="n">passes</span> <span class="o">--</span><span class="n">benchmark</span>
+</pre></div>
+</div>
+<p>Options:
+- <code class="docutils literal notranslate"><span class="pre">--passes</span></code>: Comma-separated list of optimization passes
+- <code class="docutils literal notranslate"><span class="pre">--all-passes</span></code>: Apply all available optimizations
+- <code class="docutils literal notranslate"><span class="pre">--output</span></code>: Output file for optimized code
+- <code class="docutils literal notranslate"><span class="pre">--benchmark</span></code>: Show optimization timing and effects</p>
+<p>Available passes: fold, dce, inline, simplify, loadelim, storeelim, etc.</p>
+</section>
+</section>
+<section id="security-commands">
+<h2>Security Commands<a class="headerlink" href="#security-commands" title="Link to this heading"></a></h2>
+<section id="pyflow-check">
+<h3><strong>pyflow check</strong><a class="headerlink" href="#pyflow-check" title="Link to this heading"></a></h3>
+<p>Run security analysis on Python code.</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">pyflow</span> <span class="n">check</span> <span class="nb">input</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="nb">format</span> <span class="n">sarif</span> <span class="o">--</span><span class="n">output</span> <span class="n">security</span><span class="o">.</span><span class="n">sarif</span>
+<span class="n">pyflow</span> <span class="n">check</span> <span class="n">package</span><span class="o">/</span> <span class="o">--</span><span class="n">severity</span> <span class="n">high</span> <span class="o">--</span><span class="n">recursive</span>
+</pre></div>
+</div>
+<p>Options:
+- <code class="docutils literal notranslate"><span class="pre">--format</span></code>: Output format (text, json, sarif)
+- <code class="docutils literal notranslate"><span class="pre">--severity</span></code>: Minimum severity level (low, medium, high, critical)
+- <code class="docutils literal notranslate"><span class="pre">--output</span></code>: Output file path
+- <code class="docutils literal notranslate"><span class="pre">--config</span></code>: Configuration file path</p>
+</section>
+</section>
+</section>
+<section id="global-options">
+<h1>Global Options<a class="headerlink" href="#global-options" title="Link to this heading"></a></h1>
+<p>Common options available across all commands:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">--verbose,</span> <span class="pre">-v</span></code>: Increase verbosity</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--quiet,</span> <span class="pre">-q</span></code>: Suppress output</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--help</span></code>: Show help information</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--version</span></code>: Show version information</p></li>
+</ul>
+</section>
+<section id="configuration">
+<h1>Configuration<a class="headerlink" href="#configuration" title="Link to this heading"></a></h1>
+<p>PyFlow can be configured via:</p>
+<ol class="arabic simple">
+<li><p><strong>Command line options</strong>: Direct configuration per command</p></li>
+<li><p><strong>Configuration files</strong>: YAML/JSON files for persistent settings</p></li>
+<li><p><strong>Environment variables</strong>: PYFLOW_* prefixed variables</p></li>
+</ol>
+<p>Example configuration file:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">analysis</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">callgraph</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">algorithm</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pycg</span>
+<span class="w">    </span><span class="nt">format</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">json</span>
+<span class="nt">optimization</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">passes</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">fold</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">dce</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">inline</span><span class="p p-Indicator">]</span>
+<span class="w">  </span><span class="nt">benchmark</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="nt">security</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">severity</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">high</span>
+<span class="w">  </span><span class="nt">format</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">sarif</span>
+</pre></div>
+</div>
+</section>
+<section id="integration">
+<h1>Integration<a class="headerlink" href="#integration" title="Link to this heading"></a></h1>
+<section id="ci-cd-integration">
+<h2>CI/CD Integration<a class="headerlink" href="#ci-cd-integration" title="Link to this heading"></a></h2>
+<p>PyFlow integrates with CI/CD pipelines:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># GitHub Actions example</span>
+-<span class="w"> </span>name:<span class="w"> </span>Run<span class="w"> </span>PyFlow<span class="w"> </span>analysis
+<span class="w">  </span>run:<span class="w"> </span><span class="p">|</span>
+<span class="w">    </span>pyflow<span class="w"> </span>callgraph<span class="w"> </span>src/<span class="w"> </span>--format<span class="w"> </span>json<span class="w"> </span>--output<span class="w"> </span>callgraph.json
+<span class="w">    </span>pyflow<span class="w"> </span>check<span class="w"> </span>src/<span class="w"> </span>--format<span class="w"> </span>sarif<span class="w"> </span>--output<span class="w"> </span>security.sarif
+<span class="w">    </span>pyflow<span class="w"> </span>optimize<span class="w"> </span>src/main.py<span class="w"> </span>--all-passes<span class="w"> </span>--output<span class="w"> </span>optimized.py
+</pre></div>
+</div>
+</section>
+<section id="ide-integration">
+<h2>IDE Integration<a class="headerlink" href="#ide-integration" title="Link to this heading"></a></h2>
+<p>PyFlow results can be integrated with IDEs through:</p>
+<ul class="simple">
+<li><p>SARIF format for security issues</p></li>
+<li><p>JSON output for custom integrations</p></li>
+<li><p>GraphViz DOT files for visualization</p></li>
+<li><p>Standard error formats for editor integration</p></li>
+</ul>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="overview.html" class="btn btn-neutral float-left" title="Overview" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="analysis/index.html" class="btn btn-neutral float-right" title="Analysis Modules" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, rainoftime.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

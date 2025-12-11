@@ -1,0 +1,157 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Variable Lifetime Analysis &mdash; pyflow 0.1.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=01f34227"></script>
+      <script src="../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            pyflow
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html">Command Line Interface</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html#main-commands">Main Commands</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html#global-options">Global Options</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html#configuration">Configuration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html#integration">Integration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="index.html">Analysis Modules</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html">Optimizing Python Programs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#optimization-categories">Optimization Categories</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#optimization-pipeline">Optimization Pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html">Security Analysis and Checking</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#checker-categories">Checker Categories</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#analysis-framework">Analysis Framework</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#usage">Usage</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">pyflow</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">Variable Lifetime Analysis</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/analysis/lifetimeanalysis.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="variable-lifetime-analysis">
+<h1>Variable Lifetime Analysis<a class="headerlink" href="#variable-lifetime-analysis" title="Link to this heading"></a></h1>
+<p>Lifetime analysis tracks when variables are created, used, and destroyed, enabling memory management and optimization.</p>
+<section id="analysis-domains">
+<h2>Analysis Domains<a class="headerlink" href="#analysis-domains" title="Link to this heading"></a></h2>
+<section id="read-modify-analysis">
+<h3>Read/Modify Analysis<a class="headerlink" href="#read-modify-analysis" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p><strong>Read Operations</strong>: Identifies variable read points</p></li>
+<li><p><strong>Modify Operations</strong>: Tracks variable write operations</p></li>
+<li><p><strong>Lifetime Ranges</strong>: Determines variable live ranges</p></li>
+<li><p><strong>Dead Store Detection</strong>: Finds unnecessary assignments</p></li>
+</ul>
+</section>
+<section id="database-structure">
+<h3>Database Structure<a class="headerlink" href="#database-structure" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p><strong>Lattice-based Analysis</strong>: Uses lattice theory for precision</p></li>
+<li><p><strong>Mapping Structures</strong>: Efficient storage of lifetime information</p></li>
+<li><p><strong>Tuple Sets</strong>: Complex lifetime relationship tracking</p></li>
+<li><p><strong>Incremental Updates</strong>: Updates analysis as code changes</p></li>
+</ul>
+</section>
+</section>
+<section id="lifetime-properties">
+<h2>Lifetime Properties<a class="headerlink" href="#lifetime-properties" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p><strong>Live Variables</strong>: Variables that may be read before reassignment</p></li>
+<li><p><strong>Dead Variables</strong>: Variables that are no longer needed</p></li>
+<li><p><strong>Lifetime Holes</strong>: Gaps in variable lifetime due to control flow</p></li>
+<li><p><strong>Escaping Variables</strong>: Variables that outlive their scope</p></li>
+</ul>
+</section>
+<section id="applications">
+<h2>Applications<a class="headerlink" href="#applications" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p><strong>Memory Management</strong>: Optimize heap allocations</p></li>
+<li><p><strong>Register Allocation</strong>: Compiler register assignment</p></li>
+<li><p><strong>Dead Code Elimination</strong>: Remove unused variable operations</p></li>
+<li><p><strong>Optimization</strong>: Lifetime-aware code transformations</p></li>
+</ul>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, rainoftime.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>
