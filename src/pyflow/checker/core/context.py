@@ -74,6 +74,9 @@ class Context:
         literal_map = {
             ast.Num: lambda x: x.n,
             ast.Str: lambda x: x.s,
+            # Python 3.8+ folds several literal nodes into `ast.Constant`.
+            # This keeps keyword/arg extraction working across versions.
+            ast.Constant: lambda x: x.value,
             ast.List: lambda x: [self._get_literal_value(li) for li in x.elts],
             ast.Tuple: lambda x: tuple(self._get_literal_value(ti) for ti in x.elts),
             ast.Set: lambda x: {self._get_literal_value(si) for si in x.elts},

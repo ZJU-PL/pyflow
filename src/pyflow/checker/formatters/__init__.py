@@ -1,6 +1,4 @@
-#
-# Copyright 2014 Hewlett-Packard Development Company, L.P.
-#
+
 # SPDX-License-Identifier: Apache-2.0
 
 """

@@ -76,20 +76,25 @@ class SecurityNodeVisitor:
     def visit_Constant(self, node):
         """Visitor for AST Constant nodes (Python 3.8+)"""
         if isinstance(node.value, str):
+            # `ast.Str` was folded into `ast.Constant` in Python 3.8+.
+            # Keep running the `Str` checks, but tolerate `ast.Constant`.
             self.visit_Str(node)
         elif isinstance(node.value, bytes):
+            # `ast.Bytes` was folded into `ast.Constant` in Python 3.8+.
             self.visit_Bytes(node)
 
     def visit_Str(self, node):
         """Visitor for AST String nodes"""
-        self.context["str"] = node.s
+        # `ast.Str` has `.s`; `ast.Constant` stores strings in `.value`.
+        self.context["str"] = node.s if hasattr(node, "s") else node.value
         if not isinstance(node._bandit_parent, ast.Expr):  # docstring
             self.context["linerange"] = b_utils.linerange(node._bandit_parent)
             self.update_scores(self.tester.run_tests(self.context, "Str"))
 
     def visit_Bytes(self, node):
         """Visitor for AST Bytes nodes"""
-        self.context["bytes"] = node.s
+        # `ast.Bytes` has `.s`; `ast.Constant` stores bytes in `.value`.
+        self.context["bytes"] = node.s if hasattr(node, "s") else node.value
         if not isinstance(node._bandit_parent, ast.Expr):  # docstring
             self.context["linerange"] = b_utils.linerange(node._bandit_parent)
             self.update_scores(self.tester.run_tests(self.context, "Bytes"))

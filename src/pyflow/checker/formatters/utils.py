@@ -1,6 +1,4 @@
-# Copyright (c) 2016 Rackspace, Inc.
-#
-# SPDX-License-Identifier: Apache-2.0
+
 """Utility functions for formatting plugins for PyFlow Checker."""
 import io
 

@@ -9,6 +9,15 @@ RE_WORDS = "(pas+wo?r?d|pass(phrase)?|pwd|token|secrete?)"
 RE_CANDIDATES = re.compile(f"(^{RE_WORDS}$|_{RE_WORDS}_|^{RE_WORDS}_|_{RE_WORDS}$)", re.IGNORECASE)
 
 
+def _get_string(node):
+    """Extract a string value from ast.Str or ast.Constant(str)."""
+    if isinstance(node, ast.Str):
+        return node.s
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    return None
+
+
 def _report(value):
     """Create a hardcoded password issue"""
     return issue.Issue(
@@ -25,27 +34,34 @@ def hardcoded_password_string(context):
     """Check for hardcoded password strings"""
     node = context.node
     parent = getattr(node, '_bandit_parent', None)
+    node_str = _get_string(node)
+    if node_str is None:
+        return None
     
     if isinstance(parent, ast.Assign):
         # Look for "candidate='some_string'"
         for targ in parent.targets:
             if isinstance(targ, ast.Name) and RE_CANDIDATES.search(targ.id):
-                return _report(node.s)
+                return _report(node_str)
             elif isinstance(targ, ast.Attribute) and RE_CANDIDATES.search(targ.attr):
-                return _report(node.s)
+                return _report(node_str)
 
-    elif isinstance(parent, (ast.Subscript, ast.Index)) and RE_CANDIDATES.search(node.s):
+    elif isinstance(parent, ast.Subscript) and RE_CANDIDATES.search(node_str):
         # Look for "dict[candidate]='some_string'"
         grandparent = getattr(parent, '_bandit_parent', None)
-        if isinstance(grandparent, ast.Assign) and isinstance(grandparent.value, ast.Str):
-            return _report(grandparent.value.s)
+        if isinstance(grandparent, ast.Assign):
+            value_str = _get_string(grandparent.value)
+            if value_str is not None:
+                return _report(value_str)
 
     elif isinstance(parent, ast.Compare):
         # Look for "candidate == 'some_string'"
         left = parent.left
         if isinstance(left, (ast.Name, ast.Attribute)) and RE_CANDIDATES.search(left.id if isinstance(left, ast.Name) else left.attr):
-            if parent.comparators and isinstance(parent.comparators[0], ast.Str):
-                return _report(parent.comparators[0].s)
+            if parent.comparators:
+                comp_str = _get_string(parent.comparators[0])
+                if comp_str is not None:
+                    return _report(comp_str)
 
 
 @test.checks("Call")
@@ -54,8 +70,9 @@ def hardcoded_password_funcarg(context):
     """Check for hardcoded password function arguments"""
     # Look for "function(candidate='some_string')"
     for kw in context.node.keywords:
-        if isinstance(kw.value, ast.Str) and RE_CANDIDATES.search(kw.arg):
-            return _report(kw.value.s)
+        val_str = _get_string(kw.value)
+        if val_str is not None and RE_CANDIDATES.search(kw.arg):
+            return _report(val_str)
 
 
 @test.checks("FunctionDef")
@@ -77,5 +94,6 @@ def hardcoded_password_default(context):
                 and val.value is None
             ):
                 continue
-            if isinstance(val, ast.Str) and RE_CANDIDATES.search(key.arg):
-                return _report(val.s)
+            val_str = _get_string(val)
+            if val_str is not None and RE_CANDIDATES.search(key.arg):
+                return _report(val_str)

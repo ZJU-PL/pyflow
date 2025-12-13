@@ -1,5 +1,4 @@
-# Copyright (c) 2015 Hewlett Packard Enterprise
-#
+
 # SPDX-License-Identifier: Apache-2.0
 r"""
 ==============
