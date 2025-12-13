@@ -1,6 +1,8 @@
 from __future__ import absolute_import
 
 from . import transferfunctions
+import json
+import time
 
 seperateExternal = False
 
@@ -237,6 +239,7 @@ class SplitConstraint(Constraint):
         remoteExternalReferences = secondary.externalReferences or bool(localRC)
         remotesecondary = sys.canonical.secondary(remotepaths, remoteExternalReferences)
 
+
         # Output the local data
         key = self.info.makeKey(sys, remoteconfig)
         self.info.registerLocal(sys, key, localconfig, localsecondary)
@@ -247,6 +250,7 @@ class SplitConstraint(Constraint):
         # information; these are not considered observable outputs by tests.
         if len(remoteRC) == 0 and not remotesecondary.paths.hasCertainHit():
             return
+
         transferfunctions.gcMerge(
             sys,
             self.outputPoint,
@@ -331,6 +335,7 @@ class MergeConstraint(Constraint):
         paths = paths.remap(self.info.mapping)
         paths.unageExtended()
         mergedSecondary = sys.canonical.secondary(paths, secondary.externalReferences)
+
 
         if True:
             # Output

@@ -19,4 +19,5 @@ TypeNeedsStub = (MethodDescriptorType, WrapperDescriptorType, BuiltinFunctionTyp
 TypeNeedsHiddenStub = (MethodDescriptorType, WrapperDescriptorType)
 
 
-ConstantTypes = set((str, int, float, NoneType, bool, CodeType))
+ConstantTypes = set((str, int, float, type(None), bool, CodeType))
+# "NoneType" is not a valid type in Python 3.8, etc, so we use type(None) instead.

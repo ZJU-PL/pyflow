@@ -78,7 +78,9 @@ class Extractor:
         # Initialize component managers
         self.stub_manager = StubManager(compiler)
         self.function_extractor = FunctionExtractor(verbose)
-        self.object_manager = ObjectManager(verbose, self.function_extractor)
+        self.object_manager = ObjectManager(
+            verbose, self.function_extractor, self.stub_manager
+        )
         
         # Expose stubs for backward compatibility
         self.stubs = self.stub_manager.stubs

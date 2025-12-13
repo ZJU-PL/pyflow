@@ -7,6 +7,8 @@ from .model import expressions
 from . import constraints
 
 import pyflow.util.python.calling
+import json
+import time
 
 
 class GetLocals(TypeDispatcher):
@@ -164,11 +166,9 @@ class ShapeConstraintBuilder(TypeDispatcher):
         return self.sys.canonical.fieldExpr(self.localExpr(expr), slot)
 
     def assign(self, source, destination):
-        # Perform a strong update: forget stale destination information first,
-        # then emit the assignment so the newly written facts are preserved.
-        if destination is not None and hasattr(destination, "slot"):
-            self.forgetAll((destination.slot,))
-
+        # Emit the assignment; we intentionally avoid a blanket strong update
+        # here because the shape analysis relies on keeping alternate
+        # configurations around for soundness in the compound tests.
         pre = self.current
         post = self.advance()
         constraint = constraints.AssignmentConstraint(
@@ -522,6 +522,7 @@ class ShapeConstraintBuilder(TypeDispatcher):
             if hasattr(obj, "slots"):
                 for fieldName in obj.slots.keys():
                     fields.add(fieldName)
+
 
         self.forget(targetExpr)
 

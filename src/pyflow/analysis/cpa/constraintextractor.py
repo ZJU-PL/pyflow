@@ -88,6 +88,24 @@ class ExtractDataflow(TypeDispatcher):
         # In the future this may not be the case.
         # Note: Removed assertion that required firstPass=True as it prevented second pass from working
 
+        # Fast path: if the callee is an Existing object we can resolve up-front,
+        # treat it as a direct call so folding and stub resolution work.
+        if isinstance(node.expr, ast.Existing):
+            target_code = self.system.getCall(node.expr.object)
+            if target_code is not None:
+                constraints.DirectCallConstraint(
+                    self.system,
+                    self.contextOp(node),
+                    target_code,
+                    None,
+                    args,
+                    [],
+                    vargs,
+                    kargs,
+                    targets,
+                )
+                return targets
+
         if self.doOnce(node):
             op = self.contextOp(node)
             # Filter out None values from kwds

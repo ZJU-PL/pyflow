@@ -305,7 +305,7 @@ def generate_clang_style_cfg(cfg):
                 if hasattr(node, 'next') and node.next:
                     edges = [f"{name} -> {node_to_block[next_node]}" for name, next_node in node.next.items()
                             if next_node and next_node in node_to_block]
-                    content += f"  Succs ({", ".join(edges)})\n"
+                    content += f"  Succs ({', '.join(edges)})\n"
                 else:
                     content += "  Succs ()\n"
             except Exception as e:

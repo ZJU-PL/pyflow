@@ -13,10 +13,13 @@ from pyflow.language.python.program import Object, ImaginaryObject, AbstractObje
 class ObjectManager:
     """Manages Python objects and their PyFlow representations."""
 
-    def __init__(self, verbose: bool = True, function_extractor=None):
+    def __init__(
+        self, verbose: bool = True, function_extractor=None, stub_manager=None
+    ):
         self.verbose = verbose
         self._object_cache: Dict[Any, Object] = {}
         self.function_extractor = function_extractor
+        self.stub_manager = stub_manager
 
     def get_object(self, obj: Any) -> Object:
         """Get or create an object representation for static analysis."""
@@ -91,6 +94,11 @@ class ObjectManager:
                         print(f"DEBUG: No source code for {func.__name__}")
 
                 code_obj = self.function_extractor.convert_function(func, func_source)
+                # Allow small functions to fold concretely using their Python implementation.
+                try:
+                    code_obj.annotation.dynamicFold = func
+                except Exception:
+                    pass
                 return func, code_obj
             return func, None
         return func, None
@@ -147,8 +155,17 @@ class ObjectManager:
 
     def get_call(self, obj: Any, source_code: Any = None) -> Optional[Any]:
         """Get call information for an object."""
-        if hasattr(obj, "pyobj") and callable(obj.pyobj):
-            # For callable objects, return the second element from getObjectCall
-            func_obj, code_obj = self.get_object_call(obj.pyobj, source_code)
-            return code_obj
+        if hasattr(obj, "pyobj"):
+            pyobj = obj.pyobj
+
+            # Resolve stubbed interpreter/helper functions by name.
+            if isinstance(pyobj, str) and self.stub_manager:
+                exports = getattr(self.stub_manager.stubs, "exports", {})
+                if pyobj in exports:
+                    return exports[pyobj]
+
+            if callable(pyobj):
+                # For callable objects, return the second element from getObjectCall
+                func_obj, code_obj = self.get_object_call(pyobj, source_code)
+                return code_obj
         return None

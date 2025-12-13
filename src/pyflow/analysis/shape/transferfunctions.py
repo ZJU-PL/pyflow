@@ -3,15 +3,24 @@ from __future__ import absolute_import
 from pyflow.analysis.shape.model import expressions
 
 from pyflow.util.tvl import *
+import json
+import time
 
 
 def reachable(index, secondary):
-    return index.currentSet or secondary.externalReferences
+    # Treat configurations with no references and no definite path hits as
+    # unreachable, even if marked external.
+    if not index.currentSet and not secondary.paths.hasCertainHit():
+        return False
+    return index.currentSet or secondary.externalReferences or secondary.paths.hasCertainHit()
 
 
 def gcMerge(sys, point, context, index, secondary, canSteal=False):
-    if reachable(index, secondary):
-        sys.environment.merge(sys, point, context, index, secondary, canSteal)
+    reach = reachable(index, secondary)
+    if not reach:
+        return
+
+    sys.environment.merge(sys, point, context, index, secondary, canSteal)
 
 
 def mapConfiguration(sys, i, slot, b0, b1):

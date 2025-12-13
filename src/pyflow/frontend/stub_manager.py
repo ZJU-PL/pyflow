@@ -5,7 +5,11 @@ This module manages the creation and handling of stub functions
 for built-in Python operations and interpreter functions.
 """
 
+import operator
+
 from pyflow.language.python import ast as pyflow_ast
+# Expose makeStubs at module scope so tests can patch it directly.
+from pyflow.stubs.stubcollector import makeStubs
 
 
 class StubManager:
@@ -25,14 +29,71 @@ class StubManager:
             return self._create_minimal_stubs()
 
     def _create_minimal_stubs(self):
-        """Create minimal stub functions as fallback."""
+        """Create minimal stub functions as fallback.
+
+        These stubs include lightweight dynamic folding so arithmetic and
+        comparison operators still propagate concrete return types during
+        analysis. The goal is to keep the fallback fast while maintaining
+        enough fidelity for downstream tests.
+        """
+
+        def params_for(op_name):
+            """Return CodeParameters tailored to the stub signature."""
+            # Most interpreter_* operations are binary; interpreter_call accepts vargs/kargs.
+            if op_name == "interpreter_call":
+                return pyflow_ast.CodeParameters(
+                    None,
+                    [pyflow_ast.Local("func")],
+                    [],
+                    [],
+                    pyflow_ast.Local("vargs"),
+                    pyflow_ast.Local("kargs"),
+                    [pyflow_ast.Local("internal_return")],
+                )
+
+            # Default to two positional params so binary ops bind correctly.
+            return pyflow_ast.CodeParameters(
+                None,
+                [pyflow_ast.Local("a"), pyflow_ast.Local("b")],
+                [],
+                [],
+                None,
+                None,
+                [pyflow_ast.Local("internal_return")],
+            )
+
+        # Map stub names to simple Python callables used for dynamic folding.
+        dynfold = {
+            "interpreter_getattribute": getattr,
+            "interpreter__mul__": operator.mul,
+            "interpreter__add__": operator.add,
+            "interpreter__sub__": operator.sub,
+            "interpreter__div__": operator.truediv,
+            "interpreter__mod__": operator.mod,
+            "interpreter__pow__": operator.pow,
+            "interpreter__and__": operator.and_,
+            "interpreter__or__": operator.or_,
+            "interpreter__xor__": operator.xor,
+            "interpreter__lshift__": operator.lshift,
+            "interpreter__rshift__": operator.rshift,
+            "interpreter__floordiv__": operator.floordiv,
+            "interpreter__eq__": operator.eq,
+            "interpreter__ne__": operator.ne,
+            "interpreter__lt__": operator.lt,
+            "interpreter__le__": operator.le,
+            "interpreter__gt__": operator.gt,
+            "interpreter__ge__": operator.ge,
+            "interpreter_getitem": operator.getitem,
+            "interpreter_call": lambda func, *args, **kwargs: func(*args, **kwargs),
+            "object__getattribute__": getattr,
+        }
+
         def create_stub_code(name):
             # Create a minimal code object that satisfies the type requirements
-            params = pyflow_ast.CodeParameters(
-                None, [], [], [], None, None, [pyflow_ast.Local("internal_return")]
-            )
+            params = params_for(name)
             body = pyflow_ast.Suite([])
             code = pyflow_ast.Code(name, params, body)
+            dyn_fold = dynfold.get(name)
             code.annotation = type(
                 "Annotation",
                 (),
@@ -41,7 +102,7 @@ class StubManager:
                     "interpreter": True,
                     "runtime": False,
                     "staticFold": None,
-                    "dynamicFold": None,
+                    "dynamicFold": dyn_fold,
                     "primitive": False,
                     "descriptive": False,
                 },
