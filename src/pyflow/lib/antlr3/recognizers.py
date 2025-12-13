@@ -523,7 +523,7 @@ class BaseRecognizer(object):
         and, hence, the follow context stack is:
 
         depth  local follow set     after call to rule
-          0         r"\<EOF>"                    a (from main())
+          0         r"\\<EOF>"                    a (from main())
           1          ']'                     b
           3          '^'                     c
 

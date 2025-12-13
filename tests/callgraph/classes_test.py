@@ -37,7 +37,7 @@ class ClassesTest(PyFlowTestBase):
         self.validate_snippet(self.get_snippet_path("imported_nested_attr_access"))
 
     def test_instance(self):
-        self.validate_snippet(self.get_snippet_path("instance"))
+        self.validate_snippet(self.get_snippet_path("instance_call"))
 
     def test_nested_call(self):
         self.validate_snippet(self.get_snippet_path("nested_call"))
