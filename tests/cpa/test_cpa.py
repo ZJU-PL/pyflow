@@ -1,5 +1,6 @@
 from __future__ import absolute_import
 import unittest
+import builtins
 
 import pyflow.analysis.cpa
 import pyflow.application.makefile
@@ -114,7 +115,7 @@ class TestCPA(unittest.TestCase):
                 total += i
             return total
 
-        func = replaceGlobals(func, {})
+        func = replaceGlobals(func, dict(vars(builtins)))
 
         compiler = CompilerContext(Console())
         program = pyflow.application.program.Program()
@@ -142,7 +143,7 @@ class TestCPA(unittest.TestCase):
             x = "hello"
             return len(x)
 
-        func = replaceGlobals(func, {})
+        func = replaceGlobals(func, dict(vars(builtins)))
 
         compiler = CompilerContext(Console())
         program = pyflow.application.program.Program()

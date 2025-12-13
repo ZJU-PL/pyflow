@@ -131,7 +131,7 @@ class StatCollector(object):
 
 
 def opRatios(collect, classOK):
-    builder = TableBuilder("ops", "\%", "c ops", "\%", "ratio")
+    builder = TableBuilder("ops", "\\%", "c ops", "\\%", "ratio")
     builder.setFormats("%d", "%.1f", "%d", "%.1f", "%.1f")
 
     totalCode = 0
@@ -193,7 +193,7 @@ def ratio(top, bottom):
 
 
 def functionRatios(collect, classOK):
-    builder = TableBuilder("functions", "\%", "contexts", "\%", "ratio")
+    builder = TableBuilder("functions", "\\%", "contexts", "\\%", "ratio")
     builder.setFormats("%d", "%.1f", "%d", "%.1f", "%.1f")
 
     totalCode = 0
@@ -240,7 +240,7 @@ def functionRatios(collect, classOK):
 
 
 def opsRemoved(current, old):
-    builder = TableBuilder("previous", "current", "\% removed")
+    builder = TableBuilder("previous", "current", "\\% removed")
     builder.setFormats("%d", "%d", "%.1f")
 
     totalCode = 0
