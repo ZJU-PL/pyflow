@@ -1,3 +1,18 @@
+"""
+Dead Store Elimination Optimization for PyFlow.
+
+This module implements dead store elimination (DSE), an optimization that
+removes store operations whose values are never subsequently read.
+
+The optimization:
+- Performs liveness analysis to identify dead stores
+- Removes stores to memory locations that are not live
+- Preserves stores that may have side effects or leak memory
+- Works on both object field stores and array element stores
+
+This is a whole-program optimization that requires inter-procedural liveness.
+"""
+
 from pyflow.language.python import ast
 
 from pyflow.analysis.tools import codeOps
@@ -7,6 +22,16 @@ from pyflow.optimization import rewrite
 
 
 def evaluate(compiler, prgm, simplify=False):
+    """Main entry point for dead store elimination.
+    
+    Args:
+        compiler: Compiler context
+        prgm: Program to optimize
+        simplify: Whether to run simplification after rewriting
+        
+    Returns:
+        bool: True if any stores were eliminated, False otherwise
+    """
     with compiler.console.scope("dead store elimination"):
         live = set()
         stores = collections.defaultdict(list)

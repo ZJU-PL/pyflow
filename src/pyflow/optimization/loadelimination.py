@@ -1,3 +1,18 @@
+"""
+Redundant Load Elimination Optimization for PyFlow.
+
+This module implements redundant load elimination (RLE), an optimization that
+removes redundant memory load operations by reusing values from dominating stores.
+
+The optimization:
+- Uses SSA form and dominance analysis to identify redundant loads
+- Finds loads that are dominated by stores to the same memory location
+- Replaces redundant loads with references to the dominating store's value
+- Works on both object field loads and array element loads
+
+This is a local optimization that operates on individual functions.
+"""
+
 from pyflow.language.python import ast
 
 from pyflow.analysis.numbering.readmodify import FindReadModify
@@ -13,6 +28,18 @@ import collections
 
 
 class RedundantLoadEliminator(object):
+    """Eliminates redundant load operations from code.
+    
+    Uses SSA numbering and dominance information to identify loads that can
+    be replaced with values from dominating stores.
+    
+    Args:
+        compiler: Compiler context
+        prgm: Program being optimized
+        readNumbers: SSA read numbers for each (node, variable) pair
+        writeNumbers: SSA write numbers for each (node, variable) pair
+        dom: Dominance information for nodes
+    """
     def __init__(self, compiler, prgm, readNumbers, writeNumbers, dom):
         self.compiler = compiler
         self.prgm = prgm
@@ -158,6 +185,17 @@ class RedundantLoadEliminator(object):
 
 
 def evaluateCode(compiler, prgm, code, simplify=True):
+    """Eliminate redundant loads in a single code unit.
+    
+    Args:
+        compiler: Compiler context
+        prgm: Program being optimized
+        code: Code unit to optimize
+        simplify: Whether to run simplification after rewriting
+        
+    Returns:
+        int: Number of loads eliminated
+    """
     rm = FindReadModify().processCode(code)
 
     dom = MakeForwardDominance().processCode(code)
@@ -174,6 +212,15 @@ def evaluateCode(compiler, prgm, code, simplify=True):
 
 
 def evaluate(compiler, prgm):
+    """Main entry point for redundant load elimination.
+    
+    Args:
+        compiler: Compiler context
+        prgm: Program to optimize
+        
+    Returns:
+        bool: True if any loads were eliminated, False otherwise
+    """
     with compiler.console.scope("redundant load elimination"):
         totalEliminated = 0
         totalLoads = 0

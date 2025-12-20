@@ -1,3 +1,18 @@
+"""
+Boolean Conversion Elimination Optimization for PyFlow.
+
+This module eliminates redundant boolean conversions by tracking which
+expressions are known to return boolean values.
+
+The optimization:
+- Tracks boolean values through assignments
+- Identifies ConvertToBool operations on boolean expressions
+- Eliminates redundant conversions
+- Note: This is a simple analysis that doesn't propagate through all assignments
+
+TODO: This should be a proper dataflow analysis for better precision.
+"""
+
 from pyflow.util.typedispatch import *
 
 from pyflow.language.python import ast
@@ -8,6 +23,12 @@ from pyflow.optimization.rewrite import rewrite
 # TODO this does not propagate through assignments.
 # This should be a proper dataflow analysis?
 class InferBoolean(TypeDispatcher):
+    """Infers which expressions are boolean values.
+    
+    Tracks boolean values through assignments to identify redundant
+    ConvertToBool operations. This is a simple analysis that doesn't
+    handle all cases (e.g., propagation through assignments).
+    """
     def __init__(self):
         self.lut = {}
         self.converts = []
@@ -53,9 +74,17 @@ class InferBoolean(TypeDispatcher):
         return self.lut.get(expr, False)
 
 
-# This transformation is slightly unsound, as conversions of
-# possibly undefined locals will be eliminated
 def evaluateCode(compiler, code):
+    """Eliminate redundant boolean conversions in code.
+    
+    Args:
+        compiler: Compiler context
+        code: Code node to optimize
+        
+    Note: This transformation is slightly unsound, as conversions of
+    possibly undefined locals will be eliminated. A proper dataflow
+    analysis would be needed for full soundness.
+    """
     infer = InferBoolean()
     infer.process(code)
 

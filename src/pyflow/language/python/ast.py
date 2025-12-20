@@ -1,3 +1,25 @@
+"""
+Abstract Syntax Tree (AST) Node Definitions for PyFlow Python Language.
+
+This module defines the AST node classes used to represent Python code in PyFlow's
+intermediate representation. The AST is used throughout analysis and optimization.
+
+Key Concepts:
+- Reference nodes: Represent values (Existing, Local, DoNotCare)
+- Expression nodes: Compute values (Call, BinaryOp, GetAttr, etc.)
+- Statement nodes: Perform actions (Assign, Return, Discard, etc.)
+- Control flow nodes: Direct execution (Switch, For, While, etc.)
+- Code nodes: Represent functions and methods (Code, FunctionDef, ClassDef)
+
+Fields in AST nodes should be in order of evaluation to ensure correct
+semantics during traversal and transformation.
+
+The AST supports:
+- Context-sensitive annotations for analysis results
+- Cloning and rewriting for transformations
+- Type dispatch for visitor patterns
+"""
+
 ### Objects for representing decompiled code. ###
 # Fields should be in order of evaluation.
 
@@ -16,6 +38,11 @@ leafTypes = (str, int, bool, float, type(None), AbstractObject)
 
 
 class Existing(Reference):
+    """Represents an existing Python object (constant value).
+    
+    Used for literals and constants that are known at compile time.
+    The object field contains the actual Python value.
+    """
     __fields__ = "object:AbstractObject"
     __leaf__ = True
 
@@ -23,13 +50,21 @@ class Existing(Reference):
         return True
 
     def constantValue(self):
+        """Get the constant Python value represented by this node."""
         return self.object.pyobj
 
     def alwaysReturnsBoolean(self):
+        """Check if this constant is a boolean value."""
         return isinstance(self.constantValue(), bool)
 
 
 class Local(Reference):
+    """Represents a local variable reference.
+    
+    Used for function parameters, local variables, and other named values.
+    The name field may be None for anonymous locals. Local nodes are shared
+    across the AST (same Local object represents the same variable).
+    """
     __fields__ = "name:str?"
     __shared__ = True
     __leaf__ = True
@@ -51,12 +86,18 @@ class Local(Reference):
         return True
 
     def clone(self):
+        """Create a new Local node with the same name and annotation."""
         result = Local(self.name)
         result.annotation = self.annotation
         return result
 
 
 class DoNotCare(Reference):
+    """Represents a "don't care" value (wildcard).
+    
+    Used when a value is needed but its specific value doesn't matter,
+    such as in pattern matching or when discarding values.
+    """
     __slots__ = ()
     __leaf__ = True
 
@@ -216,17 +257,33 @@ class DeleteSlice(SimpleStatement):
 
 
 class Call(Expression):
+    """Represents a function call: expr(args, **kwargs).
+    
+    Generic call node for indirect calls where the target function is
+    determined at runtime. For direct calls with known targets, use DirectCall.
+    """
     __fields__ = (
         "expr:Expression args:Expression* kwds* vargs:Expression? kargs:Expression?"
     )
 
 
 class MethodCall(Expression):
+    """Represents a method call: expr.name(args, **kwargs).
+    
+    Direct method call where the method name is known. This is typically
+    created by method call optimization from Call nodes.
+    """
     # TODO kwds type?
     __fields__ = "expr:Expression name:Expression args:Expression* kwds* vargs:Expression? kargs:Expression?"
 
 
 class DirectCall(Expression):
+    """Represents a direct function call with known target.
+    
+    Direct call to a specific function code. The code field may be None
+    for cloned "dead" direct calls that have no corresponding code.
+    This is created by call conversion and optimization passes.
+    """
     # TODO kwds type?
     # HACK code is optional, as cloned "dead" direct calls may have no corresponding code.
     __fields__ = "code:BaseCode? selfarg:Expression? args:Expression* kwds* vargs:Expression? kargs:Expression?"
@@ -477,6 +534,12 @@ class CodeParameters(PythonASTNode):
 
 
 class Code(BaseCode):
+    """Represents a function or method definition.
+    
+    Contains the function name, parameters, and body (AST). This is the
+    primary representation of executable code in PyFlow. Code nodes are
+    shared across the program (same Code object represents the same function).
+    """
     __fields__ = """name:str
             codeparameters:CodeParameters
             ast:Suite"""
@@ -489,24 +552,31 @@ class Code(BaseCode):
 
     ### The abstract code interface ###
     def isStandardCode(self):
+        """Check if this is standard user code (not abstract/descriptive)."""
         return True
 
     def codeName(self):
+        """Get the function name."""
         return self.name
 
     def setCodeName(self, name):
+        """Set the function name."""
         self.name = name
 
     def codeParameters(self):
+        """Get the code parameters as a CalleeParams object."""
         return self.codeparameters.codeParameters()
 
     def abstractReads(self):
+        """Get abstract reads information (returns None for standard code)."""
         return None
 
     def abstractModifies(self):
+        """Get abstract modifies information (returns None for standard code)."""
         return None
 
     def abstractAllocates(self):
+        """Get abstract allocates information (returns None for standard code)."""
         return None
 
 

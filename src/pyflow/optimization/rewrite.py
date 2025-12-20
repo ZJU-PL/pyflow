@@ -1,3 +1,16 @@
+"""
+AST Rewriting Utilities for PyFlow.
+
+This module provides utilities for rewriting AST nodes, allowing optimizations
+to replace nodes with optimized versions while preserving the tree structure.
+
+The rewriter:
+- Traverses the AST using type dispatch
+- Replaces nodes according to a replacement map
+- Prevents infinite recursion from circular replacements
+- Supports both simple replacement and replacement with simplification
+"""
+
 from pyflow.optimization import simplify
 from pyflow.util.typedispatch import *
 
@@ -6,6 +19,14 @@ from pyflow.language.python import ast
 
 
 class Rewriter(TypeDispatcher):
+    """Rewrites AST nodes according to a replacement map.
+    
+    Traverses the AST and replaces nodes that appear in the replacement map
+    with their replacements, recursively processing replacement nodes.
+    
+    Args:
+        replacements: Dictionary mapping original nodes to replacement nodes
+    """
     def __init__(self, replacements):
         TypeDispatcher.__init__(self)
         self.replacements = replacements
@@ -53,18 +74,51 @@ class Rewriter(TypeDispatcher):
 
 
 def rewriteTerm(term, replace):
+    """Rewrite a single term according to replacement map.
+    
+    Args:
+        term: AST node to rewrite
+        replace: Dictionary of node replacements
+        
+    Returns:
+        Rewritten term, or original if no replacement applies
+    """
     if replace:
         term = Rewriter(replace)(term)
     return term
 
 
 def rewrite(compiler, code, replace):
+    """Rewrite code according to replacement map.
+    
+    Args:
+        compiler: Compiler context (unused, kept for API compatibility)
+        code: Code node to rewrite
+        replace: Dictionary of node replacements
+        
+    Returns:
+        Rewritten code node
+    """
     if replace:
         Rewriter(replace).processCode(code)
     return code
 
 
 def rewriteAndSimplify(compiler, prgm, code, replace):
+    """Rewrite code and then simplify it.
+    
+    Args:
+        compiler: Compiler context
+        prgm: Program being optimized
+        code: Code node to rewrite and simplify
+        replace: Dictionary of node replacements
+        
+    Returns:
+        Rewritten and simplified code node
+        
+    This is a common pattern: rewrite nodes, then simplify the result
+    to take advantage of new optimization opportunities.
+    """
     if replace:
         Rewriter(replace).processCode(code)
         simplify.evaluateCode(compiler, prgm, code)

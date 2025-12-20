@@ -1,3 +1,19 @@
+"""
+Code Inlining Optimization for PyFlow.
+
+This module implements function inlining, replacing function calls with the
+function body at the call site to eliminate call overhead and enable further
+optimizations.
+
+The optimization:
+- Analyzes functions to determine if they can be inlined
+- Checks for constraints like returns in loops, variable arguments, etc.
+- Inlines small, frequently-called functions
+- Performs inlining in reverse postorder to handle dependencies correctly
+
+This is a whole-program optimization that requires call graph information.
+"""
+
 from pyflow.util.typedispatch import *
 from pyflow.language.python import ast
 
@@ -6,8 +22,12 @@ import pyflow.optimization.simplify as simplify
 from pyflow.analysis.astcollector import getOps
 
 
-# Determines the technical feasibility of inlining
 class CodeInliningAnalysis(TypeDispatcher):
+    """Determines the technical feasibility of inlining functions.
+    
+    Analyzes functions to check if they can be safely inlined, considering
+    factors like control flow, variable arguments, and complexity.
+    """
     def __init__(self):
         self.canInline = {}
         self.invokeCount = {}
@@ -116,9 +136,15 @@ class CodeInliningAnalysis(TypeDispatcher):
         self.numOps[node] = self.ops
 
 
-# Emulates calling convention assignments
-# Clones the code and translates the inlined contexts
 class OpInliningTransform(TypeDispatcher):
+    """Transforms code for inlining at a specific call site.
+    
+    Emulates calling convention assignments by cloning the code and translating
+    the inlined contexts. Handles argument passing and return value handling.
+    
+    Args:
+        analysis: CodeInliningAnalysis instance with feasibility information
+    """
     def __init__(self, analysis):
         self.analysis = analysis
 
@@ -215,9 +241,19 @@ class OpInliningTransform(TypeDispatcher):
         return outp
 
 
-# Performs depth-first traversal of call graph,
-# inlines code in reverse postorder.
 class CodeInliningTransform(TypeDispatcher):
+    """Performs code inlining transformation.
+    
+    Performs depth-first traversal of call graph, inlining code in reverse
+    postorder to handle dependencies correctly. Only inlines functions that
+    meet size and call frequency criteria.
+    
+    Args:
+        analysis: CodeInliningAnalysis instance
+        compiler: Compiler context
+        prgm: Program being optimized
+        intrinsics: Intrinsic rewriter (for future use)
+    """
     def __init__(self, analysis, compiler, prgm, intrinsics):
         self.analysis = analysis
         self.compiler = compiler
@@ -421,6 +457,15 @@ class CodeInliningTransform(TypeDispatcher):
 
 
 def evaluate(compiler, prgm):
+    """Main entry point for code inlining optimization.
+    
+    Args:
+        compiler: Compiler context
+        prgm: Program to optimize
+        
+    Performs analysis to determine inlining feasibility, then transforms
+    the program by inlining eligible functions.
+    """
     with compiler.console.scope("code inlining"):
         analysis = CodeInliningAnalysis()
         for code in prgm.liveCode:

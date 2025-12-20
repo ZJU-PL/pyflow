@@ -1,9 +1,33 @@
+"""
+Argument Normalization Optimization for PyFlow.
+
+This module normalizes function arguments by eliminating *args (variable
+positional arguments) when their length is statically known.
+
+The optimization:
+- Analyzes functions with *args to determine if length is constant
+- Checks if *args is used in ways that allow normalization
+- Transforms *args into explicit positional parameters
+- Updates all call sites to use the new parameter list
+
+This enables better optimization by making argument passing explicit.
+"""
+
 from pyflow.util.typedispatch import *
 from pyflow.language.python import ast
 from pyflow.language.python import annotations
 
 
 class ArgumentNormalizationAnalysis(TypeDispatcher):
+    """Analyzes whether argument normalization is applicable.
+    
+    Checks if a function's *args parameter can be normalized into explicit
+    positional parameters by verifying the length is constant and usage
+    patterns allow transformation.
+    
+    Args:
+        storeGraph: Store graph for analyzing object relationships
+    """
     def __init__(self, storeGraph):
         TypeDispatcher.__init__(self)
         self.storeGraph = storeGraph
@@ -90,6 +114,14 @@ class ArgumentNormalizationAnalysis(TypeDispatcher):
 
 
 class ArgumentNormalizationTransform(TypeDispatcher):
+    """Transforms code to normalize arguments.
+    
+    Replaces *args with explicit positional parameters and updates all
+    call sites accordingly.
+    
+    Args:
+        storeGraph: Store graph for analyzing object relationships
+    """
     def __init__(self, storeGraph):
         self.storeGraph = storeGraph
 
@@ -209,6 +241,14 @@ class ArgumentNormalizationTransform(TypeDispatcher):
 
 
 def evaluate(compiler, prgm):
+    """Main entry point for argument normalization.
+    
+    Args:
+        compiler: Compiler context
+        prgm: Program to optimize
+        
+    Analyzes functions and transforms those where normalization is applicable.
+    """
     with compiler.console.scope("argument normalization"):
         analysis = ArgumentNormalizationAnalysis(prgm.storeGraph)
         transform = ArgumentNormalizationTransform(prgm.storeGraph)

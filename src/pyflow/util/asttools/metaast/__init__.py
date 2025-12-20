@@ -1,6 +1,15 @@
-__all__ = ["ASTNode", "SymbolBase"]
+"""
+Metaclass-based AST node generation.
 
-# A metaclass for generating AST node classes.
+This module provides a metaclass system for automatically generating AST node
+classes from field specifications. It handles code generation for common
+methods like __init__, __repr__, visitChildren, rewriteChildren, etc.
+
+The ASTNode base class uses the 'astnode' metaclass to automatically generate
+methods based on the __fields__ specification in subclasses.
+"""
+
+__all__ = ["ASTNode", "SymbolBase"]
 
 import sys
 import re

@@ -1,3 +1,19 @@
+"""
+Code Cloning Optimization for PyFlow.
+
+This module implements function cloning optimization, which creates separate
+implementations of functions for different calling contexts to improve
+optimization opportunities and code realizability.
+
+The cloning optimization:
+- Analyzes function call patterns and context differences
+- Identifies contexts that should have separate implementations
+- Creates cloned versions of functions optimized for specific contexts
+- Unifies contexts that can share the same implementation
+
+This is a whole-program optimization that requires inter-procedural analysis.
+"""
+
 # Split contexts unless types match
 # Add type-switched dispatch where cloning does not work?
 
@@ -13,6 +29,11 @@ from pyflow.analysis import tools
 
 
 class GroupUnifier(object):
+    """Manages unification of execution contexts using Union-Find data structure.
+    
+    Groups contexts that can share the same function implementation, tracking
+    which contexts have been unified and which need processing.
+    """
     def __init__(self):
         self.unify = UnionFind()
         self.unifyGroups = {}
@@ -58,9 +79,14 @@ class GroupUnifier(object):
         return self.unifyGroups[context]
 
 
-# Figures out what functions should have separate implementations,
-# to improve optimization / realizability
 class ProgramCloner(object):
+    """Determines which functions should have separate implementations.
+    
+    Analyzes the program to identify contexts that require different function
+    implementations to improve optimization opportunities and code realizability.
+    Uses data flow analysis to detect when different calling contexts access
+    different fields, invoke different functions, or allocate different types.
+    """
     def __init__(self, liveContexts):
         self.liveFunctions = set(liveContexts.keys())
         self.liveContexts = liveContexts
@@ -487,6 +513,11 @@ class ProgramCloner(object):
 
 
 class FunctionCloner(TypeDispatcher):
+    """Clones a function for a specific context group.
+    
+    Translates AST nodes from the original function to the cloned version,
+    remapping contexts and local variables appropriately.
+    """
     def __init__(self, newfuncLUT, groupLUT, code, group):
         self.newfuncLUT = newfuncLUT
         self.groupLUT = groupLUT
@@ -590,6 +621,16 @@ class FunctionCloner(TypeDispatcher):
 
 
 def rewriteProgram(compiler, prgm, cloner):
+    """Rewrite the program with cloned functions if beneficial.
+    
+    Args:
+        compiler: Compiler context
+        prgm: Program to rewrite
+        cloner: ProgramCloner instance with analysis results
+        
+    Only performs cloning if it results in more function groups than the original,
+    indicating that the optimization is worthwhile.
+    """
     liveCode = cloner.liveFunctions
 
     # Is cloning worthwhile?
@@ -602,6 +643,15 @@ def rewriteProgram(compiler, prgm, cloner):
 
 
 def evaluate(compiler, prgm):
+    """Main entry point for code cloning optimization.
+    
+    Args:
+        compiler: Compiler context
+        prgm: Program to optimize
+        
+    Performs whole-program analysis to identify cloning opportunities,
+    then rewrites the program with cloned functions if beneficial.
+    """
     with compiler.console.scope("clone"):
         with compiler.console.scope("analysis"):
 

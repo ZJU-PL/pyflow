@@ -1,3 +1,18 @@
+"""
+Method Call Optimization for PyFlow.
+
+This module optimizes method calls by fusing attribute access and call patterns
+into direct method calls, reducing indirection and improving optimization opportunities.
+
+The optimization:
+- Identifies patterns like obj.attr() that can become method calls
+- Tracks method getter patterns through the call chain
+- Rewrites indirect calls to direct method calls where possible
+- Uses forward data flow analysis to track method bindings
+
+This enables better optimization by making call targets more explicit.
+"""
+
 from pyflow.util.typedispatch import *
 from pyflow.language.python import ast
 from pyflow.language.python import annotations
@@ -9,6 +24,15 @@ from pyflow.optimization import simplify
 
 
 def contextsThatOnlyInvoke(funcs, invocations):
+    """Find contexts that only invoke specific functions.
+    
+    Args:
+        funcs: Set of functions to check
+        invocations: Set of (function, context) pairs that must be invoked
+        
+    Returns:
+        Set of (function, context) pairs that only invoke the specified invocations
+    """
     output = set()
 
     # HACK There's only one op in the object getter that will invoke?
@@ -29,6 +53,17 @@ def contextsThatOnlyInvoke(funcs, invocations):
 
 
 def opThatInvokes(func):
+    """Find the operation in a function that performs invocation.
+    
+    Args:
+        func: Function code to search
+        
+    Returns:
+        AST node that performs the invocation
+        
+    Raises:
+        AssertionError: If no or multiple invoke operations found
+    """
     # Find the single op in the function that invokes.
     invokeOp = None
     for op in tools.codeOps(func):
@@ -41,6 +76,11 @@ def opThatInvokes(func):
 
 
 class MethodPatternFinder(TypeDispatcher):
+    """Finds method call patterns in the program.
+    
+    Identifies sequences of attribute access and calls that can be optimized
+    into direct method calls, such as obj.attr() patterns.
+    """
     def findOriginals(self, extractor):
         exports = extractor.stubs.exports
         self.iget = exports["interpreter_getattribute"]
@@ -184,6 +224,14 @@ class MethodPatternFinder(TypeDispatcher):
 
 
 class MethodAnalysis(TypeDispatcher):
+    """Forward data flow analysis for method call optimization.
+    
+    Tracks method bindings through assignments to identify when method calls
+    can be optimized. Uses forward flow analysis to propagate method information.
+    
+    Args:
+        pattern: MethodPatternFinder instance with pattern information
+    """
     def __init__(self, pattern):
         self.pattern = pattern
 
@@ -304,6 +352,14 @@ class MethodAnalysis(TypeDispatcher):
 
 
 class MethodRewrite(TypeDispatcher):
+    """Rewrites calls to use direct method calls where possible.
+    
+    Transforms indirect calls (obj.attr()) into direct method calls based on
+    the results of MethodAnalysis.
+    
+    Args:
+        pattern: MethodPatternFinder instance with pattern information
+    """
     def __init__(self, pattern):
         self.pattern = pattern
         self.rewritten = set()
@@ -367,6 +423,14 @@ class MethodRewrite(TypeDispatcher):
 
 
 def methodMeet(values):
+    """Meet function for method analysis data flow.
+    
+    Args:
+        values: List of method binding values
+        
+    Returns:
+        Single value if all values are the same, top otherwise
+    """
     prototype = values[0]
     for value in values:
         if value != prototype:
@@ -375,6 +439,14 @@ def methodMeet(values):
 
 
 def evaluate(compiler, prgm):
+    """Main entry point for method call optimization.
+    
+    Args:
+        compiler: Compiler context
+        prgm: Program to optimize
+        
+    Performs pattern finding, analysis, and rewriting to fuse method calls.
+    """
     with compiler.console.scope("method call"):
         pattern = MethodPatternFinder()
         if not pattern.preprocess(compiler, prgm):

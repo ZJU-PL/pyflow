@@ -1,9 +1,34 @@
+"""
+Call Conversion for PyFlow.
+
+This module converts high-level AST operations into direct calls to interpreter
+functions, lowering the abstraction level for further optimization.
+
+The conversion:
+- Converts operations like GetAttr, SetAttr, GetSubscript into direct calls
+- Converts binary and unary operations into interpreter function calls
+- Converts control flow operations like ConvertToBool into calls
+- Marks code as "lowered" to prevent duplicate conversion
+
+This is typically done early in the optimization pipeline to enable
+inter-procedural optimizations.
+"""
+
 from pyflow.util.typedispatch import *
 from pyflow.language.python import ast, annotations
 from pyflow.util.python import opnames
 
 
 class ConvertCalls(TypeDispatcher):
+    """Converts high-level AST operations to direct calls.
+    
+    Traverses the AST and replaces operations like attribute access,
+    subscripting, and arithmetic with direct calls to interpreter functions.
+    
+    Args:
+        extractor: Program extractor with stub exports
+        code: Code node being converted
+    """
     def __init__(self, extractor, code):
         TypeDispatcher.__init__(self)
         self.extractor = extractor
@@ -221,6 +246,17 @@ class ConvertCalls(TypeDispatcher):
 
 
 def callConverter(extractor, node):
+    """Convert high-level operations in a code node to direct calls.
+    
+    Args:
+        extractor: Program extractor with stub information
+        node: Code node to convert
+        
+    Returns:
+        Converted code node (marked as lowered)
+        
+    Only performs conversion if the node hasn't been lowered already.
+    """
     # Ensure the node has a CodeAnnotation with a 'lowered' field
     if not hasattr(node, "annotation") or not hasattr(node.annotation, "lowered"):
         # Replace with a compatible default CodeAnnotation preserving origin if possible
