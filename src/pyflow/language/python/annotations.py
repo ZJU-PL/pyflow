@@ -1,5 +1,11 @@
-from pyflow.util.asttools.annotation import *
-from pyflow.util.asttools.origin import Origin
+from pyflow.language.asttools.origin import Origin
+from pyflow.language.asttools.annotation import (
+    noMod,
+    remapContextual,
+    annotationSet,
+    makeContextualAnnotation,
+    mergeContextualAnnotation,
+)
 
 
 def codeOrigin(code, line=None, col=None):

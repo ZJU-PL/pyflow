@@ -1,7 +1,7 @@
 from pyflow.util.typedispatch import *
 import pyflow.util.pydot as pydot
 from pyflow.util.io import filesystem
-from pyflow.util.asttools import astpprint
+from pyflow.language.asttools import astpprint
 from pyflow.util.application.async_utils import *
 
 import pyflow.analysis.dataflowIR.graph as graph

@@ -7,7 +7,7 @@
 # Also, if a reference == "optionally None" there will be problems.
 # In general, imutable objects should not be fused?
 
-from pyflow.lib.PADS.UnionFind import UnionFind
+from pyflow.util.PADS.UnionFind import UnionFind
 
 import collections
 

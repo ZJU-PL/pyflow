@@ -1,7 +1,7 @@
 from pyflow.util.typedispatch import *
 from pyflow.analysis.cfgIR import cfg
 
-from pyflow.lib.PADS.DFS import postorder
+from pyflow.util.PADS.DFS import postorder
 
 
 class BlockWrapper(object):

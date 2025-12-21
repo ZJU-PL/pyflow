@@ -49,7 +49,6 @@ def updateHitMiss(sys, e0, e1, b0, b1, slot, paths):
     # 	The value of the expression does not change
     # 	or the location is stable, and "the assigned value misses the tracked location"
 
-    # Note: I think there is a typo in the paper, as the following functions use "b1" in the paper.
 
     # If the target aliases with the configuration (b0),
     # The value of the hits may change, whereas the value of the misses will not change.

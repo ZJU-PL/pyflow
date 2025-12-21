@@ -3,14 +3,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 import textwrap
-from typing import Any, Mapping, Optional, Sequence, Union
+from typing import Any, List, Mapping, Optional, Sequence, Union
 
 import pytest
 
 from pyflow.checker import Issue, SecurityConfig, SecurityManager
 
 
-IssueList = list[Issue]
+IssueList = List[Issue]
 
 
 def _normalize_code(code: str) -> str:
@@ -43,7 +43,7 @@ class ScanResult:
     manager: SecurityManager
     issues: IssueList
 
-    def ids(self) -> list[str]:
+    def ids(self) -> List[str]:
         return [i.test_id for i in self.issues]
 
     def by_id(self, test_id: str) -> IssueList:
@@ -98,7 +98,7 @@ class Scanner:
             for k, v in config_overrides.items():
                 cfg.set_option(k, v)
 
-        paths: list[str] = []
+        paths: List[str] = []
         for rel_name, code in files.items():
             p = self._tmp_path / rel_name
             p.parent.mkdir(parents=True, exist_ok=True)

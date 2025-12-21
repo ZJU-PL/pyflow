@@ -6,11 +6,9 @@ from urllib.parse import quote
 from pyflow.language.python import simplecodegen
 
 from pyflow.util.io.xmloutput import XMLOutput
-from pyflow.util.asttools import astpprint
-import pyflow.util as util
-from pyflow.util.asttools.origin import originString
+from pyflow.language.asttools import astpprint
+from pyflow.language.asttools.origin import originString
 import pyflow.util.graphalgorithim.dominator as dominator
-from pyflow.util.application.async_utils import *
 from pyflow.util.io.filesystem import ensureDirectoryExists
 
 from ... import config
@@ -18,7 +16,6 @@ from ... import config
 from .. import programculler
 from pyflow.frontend.programextractor import Extractor
 
-from pyflow.analysis.dump import dumpgraphs
 from pyflow.analysis.dump import dumputil
 from pyflow.analysis import tools
 

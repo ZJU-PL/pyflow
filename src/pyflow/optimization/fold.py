@@ -5,9 +5,8 @@ expressions at compile time and replaces them with their computed values.
 """
 
 from pyflow.util.typedispatch import *
-from pyflow.util.asttools import annotation
+from ..language.asttools import annotation
 
-from pyflow.language.python import ast
 from pyflow.optimization.dataflow.forward import *
 from pyflow.optimization.dataflow.base import top, undefined, MutateCode
 from pyflow.language.python import fold

@@ -1,4 +1,4 @@
-from pyflow.util.asttools.annotation import Annotation
+from pyflow.language.asttools import Annotation
 
 
 class ObjectAnnotation(Annotation):

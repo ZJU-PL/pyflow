@@ -8,8 +8,6 @@ method = xtypes.MethodType
 
 from ..stubcollector import stubgenerator
 
-from pyflow.util.asttools.origin import Origin
-
 
 @stubgenerator
 def makeLLFunc(collector):

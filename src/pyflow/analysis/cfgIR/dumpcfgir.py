@@ -1,7 +1,7 @@
 import pyflow.util.pydot as pydot
 from pyflow.util.io import filesystem
 from pyflow.util.typedispatch import *
-from pyflow.util.asttools import astpprint
+from pyflow.language.asttools import astpprint
 from pyflow.util.application.async_utils import *
 
 from pyflow.analysis.cfgIR.cfg import *

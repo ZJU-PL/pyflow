@@ -1,6 +1,5 @@
 import unittest
 
-from pyflow.util.asttools.astpprint import pprint
 from pyflow.application import context
 from pyflow.frontend.programextractor import Extractor
 from pyflow.analysis.cfg import (

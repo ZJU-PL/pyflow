@@ -2,7 +2,6 @@ from pyflow.util.typedispatch import *
 from pyflow.language.python import ast
 
 # HACK for debugging
-from pyflow.util.asttools import astpprint
 
 import pyflow.optimization as optimization
 

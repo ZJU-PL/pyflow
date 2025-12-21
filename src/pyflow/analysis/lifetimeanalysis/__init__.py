@@ -6,7 +6,7 @@ from pyflow.analysis.storegraph import storegraph
 from pyflow.language.python import ast
 from pyflow.language.python import annotations
 
-from pyflow.lib.PADS.StrongConnectivity import StronglyConnectedComponents
+from pyflow.util.PADS.StrongConnectivity import StronglyConnectedComponents
 
 from .database import structure
 from .database import tupleset

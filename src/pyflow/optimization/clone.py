@@ -20,7 +20,7 @@ This is a whole-program optimization that requires inter-procedural analysis.
 # Whole program optimization
 
 import collections
-from pyflow.lib.PADS.UnionFind import UnionFind
+from pyflow.util.PADS.UnionFind import UnionFind
 from pyflow.util.typedispatch import *
 from pyflow.language.python import ast
 import pyflow.optimization.simplify as simplify

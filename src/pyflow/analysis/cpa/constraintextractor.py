@@ -1,12 +1,10 @@
 from pyflow.util.typedispatch import *
-from pyflow.util.asttools.origin import originString
+from pyflow.language.asttools.origin import originString
 
 from pyflow.language.python import ast
 
 # from pyflow.language.python import program
 # from pyflow.language.python import annotations
-
-from pyflow.util.python import opnames
 
 from . import constraints
 from .constraints import (
