@@ -269,13 +269,16 @@ class FlatCallConstraint(AbstractCall):
                 self.selfarg.attachTypeSplit(self.splitChanged)
 
             for arg in args:
-                arg.attachTypeSplit(self.splitChanged)
+                if arg is not None:
+                    arg.attachTypeSplit(self.splitChanged)
 
             for arg in vargSlots:
-                arg.attachTypeSplit(self.splitChanged)
+                if arg is not None:
+                    arg.attachTypeSplit(self.splitChanged)
 
             for arg in defaultSlots:
-                arg.attachTypeSplit(self.splitChanged)
+                if arg is not None:
+                    arg.attachTypeSplit(self.splitChanged)
         else:
             # If the call signature cannot be matched, mark dirty to re-evaluate later
             self.dirty = True

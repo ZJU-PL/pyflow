@@ -169,3 +169,32 @@ class ObjectManager:
                 func_obj, code_obj = self.get_object_call(pyobj, source_code)
                 return code_obj
         return None
+
+    def get_instance(self, typeobj: type) -> AbstractObject:
+        """Get an abstract instance object for a given type.
+        
+        Args:
+            typeobj: A Python type object (e.g., int, str, MyClass) or string name (e.g., 'float', 'int')
+            
+        Returns:
+            AbstractObject: The abstract instance representing instances of the type
+        """
+        # Handle string type names by converting to actual type objects
+        if isinstance(typeobj, str):
+            import builtins
+            if hasattr(builtins, typeobj):
+                typeobj = getattr(builtins, typeobj)
+            else:
+                raise ValueError(f"Unknown builtin type: {typeobj}")
+        
+        # Get the type object representation
+        type_obj = self.get_object(typeobj)
+        # Ensure it's loaded (this will create the abstractInstance if needed)
+        self.ensure_loaded(type_obj)
+        # Return the abstract instance
+        if type_obj.isType() and hasattr(type_obj, 'typeinfo') and type_obj.typeinfo:
+            return type_obj.typeinfo.abstractInstance
+        else:
+            # Fallback: create a minimal abstract instance if typeinfo wasn't created
+            type_name = typeobj.__name__ if hasattr(typeobj, '__name__') else str(typeobj)
+            return self.make_imaginary(f"instance_of_{type_name}", type_obj, False)

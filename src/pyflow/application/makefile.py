@@ -60,16 +60,21 @@ class Makefile(object):
 
     def declEntryPoint(self, func, *args):
         # Get the function from the module
-        if hasattr(self.module, func):
-            func_obj = getattr(self.module, func)
-            self.interface.func.append((func_obj, args))
+        # Handle both string names and function objects
+        if isinstance(func, str):
+            if hasattr(self.module, func):
+                func_obj = getattr(self.module, func)
+                self.interface.func.append((func_obj, args))
+            else:
+                # Handle nested attributes like os.path.exists
+                parts = func.split(".")
+                obj = self.module
+                for part in parts:
+                    obj = getattr(obj, part)
+                self.interface.func.append((obj, args))
         else:
-            # Handle nested attributes like os.path.exists
-            parts = func.split(".")
-            obj = self.module
-            for part in parts:
-                obj = getattr(obj, part)
-            self.interface.func.append((obj, args))
+            # func is already a function object, use it directly
+            self.interface.func.append((func, args))
 
     def executeFile(self):
         makeDSL = {

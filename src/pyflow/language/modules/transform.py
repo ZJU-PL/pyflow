@@ -1,3 +1,41 @@
+"""AST transformation utilities for simplifying Python code structure.
+
+This module provides AST (Abstract Syntax Tree) transformers that normalize
+and simplify Python code to make it easier to analyze statically. These
+transformations may be used as preprocessing steps in the tatic analysis pipeline.
+
+The module contains several transformer classes that handle different
+aspects of code simplification:
+
+1. AsyncTransformer: Converts asynchronous Python constructs (async/await)
+   into their synchronous equivalents, eliminating the need to handle
+   async semantics during static analysis.
+
+2. ChainedFunctionTransformer: Breaks down chained method calls into
+   separate assignment statements with temporary variables. For example,
+   converts `x = obj.method1().method2()` into multiple statements that
+   are easier to analyze step-by-step.
+
+3. IfExpTransformer/IfExpRewriter: Simplifies complex ternary expressions
+   (IfExp) by extracting complex test conditions into separate assignment
+   statements. This makes control flow analysis more straightforward.
+
+4. PytTransformer: A composite transformer that applies all of the above transformations in a single pass. 
+
+Example:
+    >>> import ast
+    >>> from pyflow.language.modules.transform import PytTransformer
+    >>> 
+    >>> code = '''
+    ... async def example():
+    ...     return await some_func()
+    ... '''
+    >>> tree = ast.parse(code)
+    >>> transformer = PytTransformer()
+    >>> transformed_tree = transformer.visit(tree)
+    >>> # The transformed tree now has synchronous code instead of async
+"""
+
 import ast
 
 
@@ -19,6 +57,21 @@ class AsyncTransformer():
 
 
 class ChainedFunctionTransformer():
+    """Transforms chained method calls into separate assignment statements.
+    
+    Breaks down expressions like `x = obj.method1().method2().method3()` into
+    multiple statements using temporary variables. This simplifies analysis by
+    making each method call explicit and easier to track.
+    
+    Example transformation:
+        Original: `b = c.d(e).f(g).h(i).j(k)`
+        Transformed:
+            __chain_tmp_3 = c.d(e)
+            __chain_tmp_2 = __chain_tmp_3.f(g)
+            __chain_tmp_1 = __chain_tmp_2.h(i)
+            b = __chain_tmp_1.j(k)
+    """
+    
     def visit_chain(self, node, depth=1):
         if (
             isinstance(node.value, ast.Call) and
@@ -123,21 +176,48 @@ class IfExpTransformer:
         return new_nodes
 
     def visit_FunctionDef(self, node):
-        transformed = ast.FunctionDef(
-            name=node.name,
-            args=node.args,
-            body=self.visit_body(node.body),
-            decorator_list=node.decorator_list,
-            returns=node.returns
-        )
+        # Preserve all fields including Python 3.12+ type_params
+        kwargs = {
+            'name': node.name,
+            'args': node.args,
+            'body': self.visit_body(node.body),
+            'decorator_list': node.decorator_list,
+            'returns': node.returns
+        }
+        # Include type_params if it exists (Python 3.12+)
+        if hasattr(node, 'type_params'):
+            kwargs['type_params'] = node.type_params
+        transformed = ast.FunctionDef(**kwargs)
         ast.copy_location(transformed, node)
         return self.generic_visit(transformed)
 
     def visit_Module(self, node):
-        transformed = ast.Module(self.visit_body(node.body))
+        # Preserve all fields including Python 3.12+ type_ignores
+        kwargs = {'body': self.visit_body(node.body)}
+        # Include type_ignores if it exists (Python 3.12+)
+        if hasattr(node, 'type_ignores'):
+            kwargs['type_ignores'] = node.type_ignores
+        transformed = ast.Module(**kwargs)
         ast.copy_location(transformed, node)
         return self.generic_visit(transformed)
 
 
 class PytTransformer(AsyncTransformer, IfExpTransformer, ChainedFunctionTransformer, ast.NodeTransformer):
+    """Composite transformer that applies all AST normalization transformations.
+    
+    This class combines all individual transformers (AsyncTransformer,
+    IfExpTransformer, and ChainedFunctionTransformer) into a single transformer
+    that can be applied in one pass. This is the main transformer used
+    throughout PyFlow for preprocessing Python ASTs before static analysis.
+    
+    The transformer applies the following transformations in order:
+    1. Async/await constructs are converted to synchronous equivalents
+    2. Complex ternary expressions are simplified with extracted conditions
+    3. Chained method calls are broken into separate statements
+    
+    This transformer is typically used in the AST preprocessing stage, before control flow graph construction and other analyses.
+    
+    See Also:
+        generate_ast() in ast_helper.py: Uses this transformer for AST preprocessing
+    """
     pass

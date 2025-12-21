@@ -56,30 +56,47 @@ class CPATypeSigBuilder(object):
         self.selfparam = nullIter
 
     def setSelfParam(self, value):
-        self.selfparam = value
+        if value is None:
+            self.selfparam = nullIter
+        else:
+            self.selfparam = value
 
     def unusedParam(self, index):
         self.params[index] = nullIter
 
     def setParam(self, index, value):
-        self.params[index] = value
+        if value is None:
+            self.params[index] = nullIter
+        else:
+            self.params[index] = value
 
     def unusedVParam(self, index):
         self.vparams[index] = nullIter
 
     def setVParam(self, index, value):
-        self.vparams[index] = value
+        if value is None:
+            self.vparams[index] = nullIter
+        else:
+            self.vparams[index] = value
 
     def getSelfArg(self):
+        if self.call.selfarg is None:
+            return None
         return self.call.selfarg.typeSplit.types()
 
     def getArg(self, index):
+        if index >= len(self.call.args) or self.call.args[index] is None:
+            return None
         return self.call.args[index].typeSplit.types()
 
     def getVArg(self, index):
+        if index >= len(self.call.vargSlots) or self.call.vargSlots[index] is None:
+            return None
         return self.call.vargSlots[index].typeSplit.types()
 
     def getDefault(self, index):
+        if index >= len(self.call.defaultSlots) or self.call.defaultSlots[index] is None:
+            return None
         return self.call.defaultSlots[index].typeSplit.types()
 
     def setReturnArg(self, i, value):

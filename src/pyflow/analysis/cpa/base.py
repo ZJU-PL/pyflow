@@ -127,6 +127,9 @@ class AnalysisContext(CanonicalObject):
             assert arg is None
         elif param is cpasignature.DoNotCare:
             pass
+        elif cpaType is None:
+            # Parameter type is None (from nullIter), skip initialization
+            pass
         elif cpaType is cpasignature.Any:
             assert isinstance(param, storegraph.SlotNode)
             assert isinstance(arg, storegraph.SlotNode)

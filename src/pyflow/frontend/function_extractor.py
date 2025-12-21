@@ -171,11 +171,35 @@ class FunctionExtractor:
 
     def _convert_function_args(self, args_node: python_ast.arguments, func: Any) -> pyflow_ast.CodeParameters:
         """Convert Python AST arguments to pyflow AST CodeParameters."""
-        # Get default values
+        # Get default values - defaults must be Existing objects, not expression nodes
         defaults = []
         if args_node.defaults:
-            for default in args_node.defaults:
-                defaults.append(self.ast_converter._convert_expression_safe(default))
+            # Try to get actual default values from the function object if available
+            if func and hasattr(func, '__defaults__') and func.__defaults__:
+                # Use the actual default values from the function
+                from pyflow.language.python.program import Object
+                for default_value in func.__defaults__:
+                    # Create an Object from the default value and wrap it in Existing
+                    obj = Object(default_value)
+                    defaults.append(pyflow_ast.Existing(obj))
+            else:
+                # Fallback: evaluate the AST default expressions if we can't get them from func
+                # This is less ideal but necessary when we only have AST
+                import ast as python_ast_eval
+                for default_node in args_node.defaults:
+                    try:
+                        # Try to evaluate the default expression as a constant
+                        # This works for literals but not for complex expressions
+                        default_value = python_ast_eval.literal_eval(default_node)
+                        from pyflow.language.python.program import Object
+                        obj = Object(default_value)
+                        defaults.append(pyflow_ast.Existing(obj))
+                    except (ValueError, TypeError):
+                        # If we can't evaluate it, skip this default
+                        # This is a limitation when we only have AST without the function object
+                        if self.verbose:
+                            print(f"DEBUG: Could not evaluate default value from AST, skipping")
+                        pass
         
         # Get parameter names
         param_names = [arg.arg for arg in args_node.args]

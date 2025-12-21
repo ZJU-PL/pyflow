@@ -58,19 +58,6 @@ def buildListSwitch(size):
     return Pair(a, b)
 
 
-### Can't handle asymetric returns? ###
-
-##def isPrime(num):
-##	if num%2==0: return False
-##	test = 3
-##	while test < num:
-##		if num%test == 0:
-##			return False
-##		else:
-##			test = test + 2
-##	return True
-
-
 def isPrime(num):
     if num == 2:
         return True

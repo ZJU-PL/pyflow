@@ -1,6 +1,6 @@
 # @PydevCodeAnalysisIgnore
 
-module("linear")
+module("tests.full.linear")
 output("../temp")
 config(checkTypes=True)
 

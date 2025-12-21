@@ -1,6 +1,6 @@
 # @PydevCodeAnalysisIgnore
 
-module("loops")
+module("tests.full.loops")
 output("../temp")
 config(checkTypes=True)
 

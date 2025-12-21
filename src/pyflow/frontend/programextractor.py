@@ -201,6 +201,17 @@ class Extractor:
                 print(f"DEBUG: source_code keys: {list(self.source_code.keys())}")
         return self.object_manager.get_call(obj, self.source_code)
 
+    def getInstance(self, typeobj: type) -> Any:
+        """Get an abstract instance object for a given type.
+        
+        Args:
+            typeobj: A Python type object (e.g., int, str, MyClass)
+            
+        Returns:
+            AbstractObject: The abstract instance representing instances of the type
+        """
+        return self.object_manager.get_instance(typeobj)
+
     def convertFunction(
         self,
         func: Any,

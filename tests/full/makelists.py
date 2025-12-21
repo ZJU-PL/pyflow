@@ -1,6 +1,6 @@
 # @PydevCodeAnalysisIgnore
 
-module("lists")
+module("tests.full.lists")
 output("../temp")
 config(checkTypes=True)
 

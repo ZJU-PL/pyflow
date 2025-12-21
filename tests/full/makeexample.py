@@ -1,6 +1,6 @@
 # @PydevCodeAnalysisIgnore
 
-module("example")
+module("tests.full.example")
 output("../temp")
 config(checkTypes=True)
 

@@ -37,9 +37,15 @@ def annotationSet(data):
         data: Iterable of annotation items.
 
     Returns:
-        Sorted tuple of annotation items.
+        Sorted tuple of annotation items. If items are not sortable,
+        returns a tuple sorted by id() as a fallback.
     """
-    return tuple(sorted(data))
+    try:
+        return tuple(sorted(data))
+    except TypeError:
+        # Fallback for non-sortable items (e.g., ObjectNode instances)
+        # Use id() as a stable sorting key
+        return tuple(sorted(data, key=lambda x: (type(x).__name__, id(x))))
 
 
 def makeContextualAnnotation(cdata):

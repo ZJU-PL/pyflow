@@ -1,6 +1,6 @@
 # @PydevCodeAnalysisIgnore
 
-module("confusion")
+module("tests.full.confusion")
 output("../temp")
 config(checkTypes=True)
 

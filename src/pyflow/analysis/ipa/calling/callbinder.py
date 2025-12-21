@@ -56,6 +56,8 @@ class CallBinder(object):
             self.invoke.up(value, target)
 
     def copyDownFiltered(self, src, typeFilter, dst):
+        if src is None:
+            return
         self.invoke.down(src.getFiltered(typeFilter), dst)
 
 

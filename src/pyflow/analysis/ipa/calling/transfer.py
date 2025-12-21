@@ -189,7 +189,9 @@ class TransferInfoBuilder(object):
                 # Too many positional parameters
                 return self.invalidateTransfer("Too many positional parameters")
 
-        assert cparams.kparam is None
+        # Keyword parameters are not fully supported, but allow DoNotCare
+        if cparams.kparam is not None and not cparams.kparam.isDoNotCare():
+            return self.invalidateTransfer("Keyword parameters not supported")
 
         if returnarglen:
             if len(cparams.returnparams) == returnarglen:

@@ -1,6 +1,6 @@
 # @PydevCodeAnalysisIgnore
 
-module("tuples")
+module("tests.full.tuples")
 output("../temp")
 config(checkTypes=True)
 
