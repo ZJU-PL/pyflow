@@ -145,12 +145,4 @@ pyflow/
 ```
 
 
-## Related Work
 
-- https://github.com/lkgv/PythonStAn
-  + Dataflow Analysis: Liveness analysis, reaching definition analysis, and def-use chains
-  + Pointer Analysis: k-CFA based pointer analysis with configurable context sensitivity
-  + Control Flow Analysis: CFG generation, interprocedural control flow graphs (ICFG)
-  + Abstract Interpretation: AI-based analysis with configurable abstract domains
-  + Scope Analysis: Module and function scope management
-- https://github.com/SMAT-Lab/Scalpel: Basic IR construction
