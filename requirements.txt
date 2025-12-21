@@ -3,6 +3,7 @@ stevedore
 pyyaml
 graphviz>=0.20.0
 pycg==0.0.6
+psutil
 # Development dependencies (install with: pip install -r requirements-dev.txt)
 # pytest>=6.0.0
 # pytest-cov>=2.0.0
