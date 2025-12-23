@@ -1,9 +1,57 @@
+"""Extended Static Single Assignment (ESSA) form construction.
+
+This module provides ForwardESSA, which constructs Extended Static Single
+Assignment form from Python AST. ESSA extends traditional SSA to handle:
+- Object fields: Fields are renamed separately from variables
+- Existing objects: External objects get unique numbers
+- Merges: Phi-like merges at control flow joins
+
+ESSA enables precise tracking of variable and field versions through
+control flow, supporting optimizations like dead code elimination and
+redundant load elimination.
+
+Key concepts:
+- Renaming: Assigning unique version numbers to variables/fields
+- Merges: Combining versions from multiple control flow paths
+- Entry/Exit: Tracking versions at function entry and exit
+"""
+
 from pyflow.util.typedispatch import *
 from pyflow.language.python import ast
 
 
 class ForwardESSA(TypeDispatcher):
+    """Constructs Extended Static Single Assignment (ESSA) form.
+    
+    ForwardESSA traverses AST and assigns unique version numbers to variables
+    and object fields. It handles:
+    - Variable renaming: Each assignment creates a new version
+    - Field renaming: Field accesses are versioned separately
+    - Merge operations: Versions from different paths are merged
+    - Entry/Exit tracking: Records versions at function boundaries
+    
+    Attributes:
+        rm: ReadModifyInfo lookup table (from FindReadModify)
+        uid: Unique identifier counter for version numbers
+        _current: Dictionary mapping variables/fields to current version numbers
+        readLUT: Dictionary mapping (node, name) to version number read
+        writeLUT: Dictionary mapping (node, name) to version number written
+        psedoReadLUT: Dictionary mapping (node, name) to pseudo-read version
+        existing: Dictionary mapping existing objects to version numbers
+        merges: Dictionary mapping (name, dstID) to set of source IDs
+        returns: List of return states (for merging)
+        parent: Parent node being processed (for logging reads)
+        code: Current code object being processed
+        returnparams: List of return parameter locals
+        entry: Dictionary mapping names to entry version numbers
+        exit: Dictionary mapping names to exit version numbers
+    """
     def __init__(self, rm):
+        """Initialize ESSA constructor.
+        
+        Args:
+            rm: ReadModifyInfo lookup table from FindReadModify
+        """
         self.rm = rm
         self.uid = 0
 
@@ -20,25 +68,64 @@ class ForwardESSA(TypeDispatcher):
         self.parent = None
 
     def newUID(self):
+        """Generate a new unique identifier.
+        
+        Returns:
+            int: New unique version number
+        """
         temp = self.uid
         self.uid = temp + 1
         return temp
 
     def branch(self, count):
+        """Create branches for control flow splitting.
+        
+        Creates multiple copies of the current state for different
+        control flow paths (e.g., if-then-else branches).
+        
+        Args:
+            count: Number of branches to create
+            
+        Returns:
+            list: List of state dictionaries, one per branch
+        """
         current = self.popState()
         branches = [dict(current) for i in range(count)]
         return branches
 
     def setState(self, state):
+        """Set the current state (must be None).
+        
+        Args:
+            state: State dictionary to set
+            
+        Raises:
+            AssertionError: If current state is not None
+        """
         assert self._current is None
         self._current = state
 
     def popState(self):
+        """Pop and return the current state.
+        
+        Returns:
+            dict: Current state dictionary (or None)
+        """
         old = self._current
         self._current = None
         return old
 
     def mergeStates(self, states):
+        """Merge multiple states from different control flow paths.
+        
+        Merges states from different paths (e.g., after if-then-else).
+        For each variable/field:
+        - If all states have the same version, use that version
+        - Otherwise, create a new merge version and log the merge
+        
+        Args:
+            states: List of state dictionaries to merge
+        """
         states = [state for state in states if state is not None]
 
         if len(states) == 0:
@@ -66,6 +153,17 @@ class ForwardESSA(TypeDispatcher):
         self._current = merged
 
     def current(self, node):
+        """Get current version number for a variable or field.
+        
+        For Existing nodes, returns a canonical version number for the object.
+        For other nodes, returns the current version from state (or -1 if not found).
+        
+        Args:
+            node: Variable or field to get version for
+            
+        Returns:
+            int: Current version number (or -1 if not found)
+        """
         assert not isinstance(node, int), node
         if isinstance(node, ast.Existing):
             obj = node.object
@@ -79,15 +177,37 @@ class ForwardESSA(TypeDispatcher):
         return uid
 
     def setCurrent(self, node, uid):
+        """Set current version number for a variable or field.
+        
+        Args:
+            node: Variable or field to set version for
+            uid: Version number to set
+            
+        Raises:
+            AssertionError: If node is int or uid is not int
+        """
         assert not isinstance(node, int), node
         assert isinstance(uid, int), uid
         self._current[node] = uid
 
     def rename(self, node):
+        """Rename a variable or field (assign new version number).
+        
+        Creates a new version number for the variable/field, effectively
+        marking it as modified.
+        
+        Args:
+            node: Variable or field to rename (None is ignored)
+        """
         if node is not None:
             self.setCurrent(node, self.newUID())
 
     def renameAll(self, names):
+        """Rename multiple variables/fields.
+        
+        Args:
+            names: Iterable of variables/fields to rename
+        """
         for name in names:
             self.rename(name)
 
@@ -112,15 +232,48 @@ class ForwardESSA(TypeDispatcher):
                 self.rename(field)
 
     def logRead(self, node, name):
+        """Log a read operation.
+        
+        Records that node reads name at its current version number.
+        
+        Args:
+            node: AST node performing the read
+            name: Variable or field being read
+        """
         self.readLUT[(node, name)] = self.current(name)
 
     def logModify(self, node, name):
+        """Log a modify operation.
+        
+        Records that node modifies name at its current version number.
+        
+        Args:
+            node: AST node performing the modify
+            name: Variable or field being modified
+        """
         self.writeLUT[(node, name)] = self.current(name)
 
     def logPsedoRead(self, node, name):
+        """Log a pseudo-read operation.
+        
+        Pseudo-reads occur when a field is modified - we need to track
+        that the previous value was "read" (for correctness).
+        
+        Args:
+            node: AST node performing the pseudo-read
+            name: Variable or field being pseudo-read
+        """
         self.psedoReadLUT[(node, name)] = self.current(name)
 
     def logReadLocals(self, parent, node):
+        """Log reads of local variables in an expression.
+        
+        Traverses an expression tree and logs all local variable reads.
+        
+        Args:
+            parent: Parent AST node
+            node: Expression node to traverse
+        """
         assert self.parent == None
         self.parent = parent
         self(node)
@@ -128,6 +281,13 @@ class ForwardESSA(TypeDispatcher):
 
     # TODO fields from op?
     def logReadFields(self, node):
+        """Log field reads for a node.
+        
+        Logs all fields that are read or modified (pseudo-read) by the node.
+        
+        Args:
+            node: AST node to log field reads for
+        """
         info = self.rm[node]
 
         for field in info.fieldRead:
@@ -139,11 +299,23 @@ class ForwardESSA(TypeDispatcher):
 
     # TODO fields from op?
     def logModifiedFields(self, node):
+        """Log field modifications for a node.
+        
+        Logs all fields that are modified by the node.
+        
+        Args:
+            node: AST node to log field modifications for
+        """
         info = self.rm[node]
         for field in info.fieldModify:
             self.logModify(node, field)
 
     def logEntry(self):
+        """Log entry state (versions at function entry).
+        
+        Records the version numbers of all variables and fields at function
+        entry. Filters out fields from killed objects (they can't be passed in).
+        """
         filtered = {}
         for name, uid in self._current.items():
             if isinstance(name, ast.Local):
@@ -161,6 +333,14 @@ class ForwardESSA(TypeDispatcher):
         self.entry = filtered
 
     def logExit(self):
+        """Log exit state (versions at function exit).
+        
+        Merges all return states and records the version numbers of variables
+        and fields at function exit. Filters:
+        - Non-return locals (not in returnparams)
+        - Unmodified fields (same version as entry)
+        - Fields from killed objects (won't propagate)
+        """
         returns = self.returns
         self.returns = []
 
@@ -188,6 +368,16 @@ class ForwardESSA(TypeDispatcher):
         self.exit = filtered
 
     def logMerge(self, name, srcIDs, dstID):
+        """Log a merge operation (phi-like merge).
+        
+        Records that a new version dstID was created by merging versions
+        srcIDs from different control flow paths.
+        
+        Args:
+            name: Variable or field being merged
+            srcIDs: Set of source version numbers
+            dstID: Destination version number (merge result)
+        """
         assert isinstance(dstID, int)
         key = (name, dstID)
         if key not in self.merges:
@@ -196,6 +386,13 @@ class ForwardESSA(TypeDispatcher):
 
     @dispatch(ast.Local, ast.Existing)
     def visitLocalRead(self, node):
+        """Visit a local variable or existing object read.
+        
+        Logs the read operation with current version number.
+        
+        Args:
+            node: Local or Existing node being read
+        """
         self.logRead(self.parent, node)
 
     @dispatch(ast.DoNotCare)
@@ -367,6 +564,18 @@ class ForwardESSA(TypeDispatcher):
             self.rename(p)
 
     def processCode(self, code):
+        """Process a code object and construct ESSA form.
+        
+        Main entry point for ESSA construction. Processes a code object:
+        1. Renames entry fields (fields that may be passed in)
+        2. Renames parameters (self, params, vparam, kparam)
+        3. Logs entry state
+        4. Processes AST
+        5. Logs exit state
+        
+        Args:
+            code: Code object to process
+        """
         self.code = code
 
         self.renameEntryFields(code.ast)

@@ -1,3 +1,9 @@
+"""Object representation within IPA contexts.
+
+Objects represent abstract objects and their fields within a context.
+They manage field slots and escape flags for escape analysis.
+"""
+
 from pyflow.language.python import program
 from pyflow.analysis.ipa.constraints import node, qualifiers
 
@@ -5,15 +11,35 @@ from pyflow.analysis.ipa.escape import objectescape
 
 
 class Object(object):
+    """Represents an abstract object and its fields in a context.
+    
+    Objects manage field slots and escape flags. Fields are accessed
+    by (fieldType, name) pairs. Escape flags track whether objects
+    escape their scope (for escape analysis).
+    
+    Attributes:
+        context: Context this object belongs to
+        name: ObjectName for this object
+        fields: Dictionary mapping (fieldType, name) to ConstraintNode
+        flags: Escape flags (escapeParam, escapeGlobal, etc.)
+        dirty: Whether flags have changed (needs reprocessing)
+    """
     __slots__ = "context", "name", "fields", "flags", "dirty"
 
     def __init__(self, context, name):
+        """Initialize an object.
+        
+        Args:
+            context: Context this object belongs to
+            name: ObjectName for this object
+        """
         self.context = context
         self.name = name
         self.fields = {}
         self.flags = 0
         self.dirty = False
 
+        # Initialize escape flags based on qualifier
         if name.qualifier is qualifiers.DN:
             self.flags |= objectescape.escapeParam
         elif name.qualifier is qualifiers.GLBL:

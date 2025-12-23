@@ -1,15 +1,54 @@
+"""CPA (Constraint Propagation Analysis) signature management.
+
+This module provides signature representation for context-sensitive analysis.
+Signatures combine code with parameter types to create distinct analysis
+contexts for different calling patterns.
+"""
+
 import itertools
 from pyflow.util import canonical
 from pyflow.analysis.storegraph import extendedtypes
 
 
 def cpaArgOK(arg):
+    """Check if an argument type is valid for CPA.
+    
+    Valid types are None, anyType, or ExtendedType.
+    
+    Args:
+        arg: Argument type to check
+        
+    Returns:
+        bool: True if valid CPA argument type
+    """
     return arg is None or arg is anyType or isinstance(arg, extendedtypes.ExtendedType)
 
 
 class CPAContextSignature(canonical.CanonicalObject):
+    """Represents a function signature for context-sensitive analysis.
+    
+    Signatures combine code with parameter types to create distinct
+    analysis contexts. Different calling patterns (different parameter
+    types) get different signatures and contexts.
+    
+    Attributes:
+        code: Function code object
+        selfparam: Self parameter type (or None, or nullIter)
+        params: List of positional parameter types
+        vparams: List of variable parameter types (*args)
+    """
     def __init__(self, code, selfparam, params, vparams):
-
+        """Initialize a CPA context signature.
+        
+        Args:
+            code: Function code object
+            selfparam: Self parameter type (None, nullIter, or ExtendedType)
+            params: List of positional parameter types
+            vparams: List of variable parameter types
+            
+        Raises:
+            AssertionError: If invalid argument types or too many vparams
+        """
         assert cpaArgOK(selfparam), selfparam
         for param in params:
             assert cpaArgOK(param), param
@@ -41,7 +80,31 @@ nullIter = (None,)
 
 
 class CPATypeSigBuilder(object):
+    """Builds CPA signatures from call sites.
+    
+    This class extracts parameter types from call sites and builds
+    CPA signatures for context-sensitive analysis. It handles:
+    - Self parameters
+    - Positional parameters
+    - Variable parameters (*args)
+    - Default parameters
+    
+    Attributes:
+        analysis: IPAnalysis instance
+        call: Call constraint being processed
+        code: Function code being called
+        selfparam: Self parameter type
+        params: List of positional parameter types
+        vparams: List of variable parameter types
+    """
     def __init__(self, analysis, call, info):
+        """Initialize signature builder.
+        
+        Args:
+            analysis: IPAnalysis instance
+            call: Call constraint (FlatCallConstraint)
+            info: TransferInfo for parameter mapping
+        """
         self.analysis = analysis
         self.call = call
 

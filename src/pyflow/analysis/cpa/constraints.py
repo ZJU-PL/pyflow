@@ -1,3 +1,23 @@
+"""Constraint system for CPA (Constraint-based Analysis).
+
+This module implements the constraint-based analysis system using a worklist algorithm.
+Constraints represent relationships between abstract values (slots) in the store graph
+and are solved iteratively until a fixed point is reached.
+
+The constraint system operates on:
+- Store graph slots: Abstract storage locations for variables and objects
+- Extended types: Abstract representations of Python types and objects
+- Operation contexts: Context-sensitive operation information
+
+Key constraint types:
+- AssignmentConstraint: Models variable assignments (x = y)
+- IsConstraint: Models identity checks (x is y)
+- LoadConstraint/StoreConstraint: Model object field access
+- AllocateConstraint: Models object creation
+- CallConstraint: Models function calls with context sensitivity
+- Switch constraints: Model conditional branching
+"""
+
 import itertools
 from pyflow.analysis.storegraph import storegraph
 from pyflow.analysis.storegraph import canonicalobjects
@@ -14,6 +34,20 @@ from pyflow.language.python import ast, program
 
 
 def slotRefs(slot):
+    """Get the set of type references from a slot node.
+    
+    This utility function extracts the extended types that a slot may hold.
+    It handles special cases:
+    - None slots: Return singleton tuple with None
+    - DoNotCare slots: Return Any type (megamorphic)
+    - Normal slots: Return the slot's refs set
+    
+    Args:
+        slot: SlotNode, None, or DoNotCare
+        
+    Returns:
+        Tuple of ExtendedType objects (or None/Any special values)
+    """
     if slot is None:
         # Not collected.
         return (None,)
@@ -25,32 +59,89 @@ def slotRefs(slot):
 
 
 class Constraint(object):
+    """Base class for all constraints in the CPA system.
+    
+    Constraints represent relationships between abstract values that must be maintained
+    during analysis. The constraint solver uses a worklist algorithm:
+    1. Constraints are marked as "dirty" when their inputs change
+    2. Dirty constraints are processed from the worklist
+    3. Processing may mark other constraints as dirty
+    4. Process continues until fixed point (no dirty constraints)
+    
+    Each constraint:
+    - Observes input slots (reads())
+    - Updates output slots (writes())
+    - Can be marked dirty and processed
+    
+    Attributes:
+        sys: The CPA system instance (InterproceduralDataflow)
+        dirty: Boolean flag indicating if constraint needs re-evaluation
+    """
     __slots__ = "sys", "dirty"
 
     def __init__(self, sys):
+        """Initialize a constraint.
+        
+        Args:
+            sys: The CPA system instance
+        """
         self.dirty = False
         self.sys = sys
         self.attach()
 
     def process(self):
+        """Process this constraint (called by worklist algorithm).
+        
+        Asserts that the constraint is dirty, then clears the dirty flag and
+        calls update() to perform the actual constraint processing.
+        
+        Raises:
+            AssertionError: If constraint is not dirty when processed
+        """
         assert self.dirty
         self.dirty = False
         self.update()
 
     def update(self):
+        """Update the constraint based on current slot values.
+        
+        Subclasses must implement this method to define the constraint's behavior.
+        This method is called when the constraint is processed from the worklist.
+        
+        Raises:
+            NotImplementedError: Must be implemented by subclasses
+        """
         raise NotImplementedError
 
     def mark(self):
+        """Mark this constraint as dirty and add it to the worklist.
+        
+        Called when input slots change, indicating this constraint needs
+        re-evaluation. Only adds to worklist if not already dirty.
+        """
         if not self.dirty:
             self.dirty = True
             self.sys.dirty.append(self)
 
     def getBad(self):
+        """Get slots that this constraint reads but have no type information.
+        
+        Returns:
+            List of SlotNodes that are read but have no refs (unresolved)
+        """
         return [
             slot for slot in self.reads() if slot is not None and not slotRefs(slot)
         ]
 
     def check(self, console):
+        """Check for unresolved dependencies and report them.
+        
+        Reports slots that this constraint reads but have no type information,
+        which indicates incomplete analysis or missing type information.
+        
+        Args:
+            console: Console object for output
+        """
         bad = self.getBad()
 
         if bad:
@@ -63,15 +154,42 @@ class Constraint(object):
 
 
 class CachedConstraint(Constraint):
+    """Base class for constraints that cache combinations of input types.
+    
+    Many constraints need to consider all combinations of types from multiple
+    input slots. This class provides caching to avoid redundant work:
+    - Tracks which type combinations have been processed
+    - Only calls concreteUpdate() for new combinations
+    - Uses Cartesian product of input slot types
+    
+    This is used by constraints like IsConstraint, LoadConstraint, CallConstraint
+    that need to consider multiple type combinations.
+    
+    Attributes:
+        observing: Tuple of slots this constraint observes (reads)
+        cache: Set of (type1, type2, ...) tuples that have been processed
+    """
     __slots__ = "observing", "cache"
 
     def __init__(self, sys, *args):
+        """Initialize a cached constraint.
+        
+        Args:
+            sys: The CPA system instance
+            *args: Variable number of slots to observe
+        """
         self.observing = args
         self.cache = set()
 
         Constraint.__init__(self, sys)
 
     def update(self):
+        """Update constraint by processing all type combinations.
+        
+        Generates Cartesian product of all input slot types and calls
+        concreteUpdate() for each new combination. Uses cache to avoid
+        redundant processing.
+        """
         values = [slotRefs(slot) for slot in self.observing]
 
         for args in itertools.product(*values):
@@ -80,6 +198,12 @@ class CachedConstraint(Constraint):
             self.concreteUpdate(*args)
 
     def attach(self):
+        """Attach this constraint to the system and register dependencies.
+        
+        Registers the constraint with the system and sets up read dependencies
+        on observed slots. If no valid slots are observed, marks constraint
+        immediately (for constraints that don't depend on slots).
+        """
         self.sys.constraint(self)
 
         depends = False
@@ -93,19 +217,59 @@ class CachedConstraint(Constraint):
             self.mark()
 
     def name(self):
+        """Get name of this constraint for debugging.
+        
+        Returns:
+            String representation of the operation
+        """
         return self.op.op
 
     def reads(self):
+        """Get slots that this constraint reads.
+        
+        Returns:
+            Tuple of SlotNodes that this constraint observes
+        """
         return self.observing
 
     def writes(self):
+        """Get slots that this constraint writes.
+        
+        Returns:
+            Tuple containing the target slot (subclasses override)
+        """
         return (self.target,)
 
 
 class AssignmentConstraint(Constraint):
+    """Constraint for variable assignments (x = y).
+    
+    Models data flow from source slot to destination slot. When the source slot's
+    types change, this constraint propagates them to the destination slot.
+    
+    This is the most fundamental constraint type, representing direct data flow
+    between variables. Used for:
+    - Direct assignments: x = y
+    - Parameter passing: func(x) where x flows to parameter
+    - Return value propagation: return x where x flows to caller
+    
+    Attributes:
+        sourceslot: SlotNode representing the source of the assignment
+        destslot: SlotNode representing the destination of the assignment
+    """
     __slots__ = "sourceslot", "destslot"
 
     def __init__(self, sys, sourceslot, destslot):
+        """Initialize an assignment constraint.
+        
+        Args:
+            sys: The CPA system instance
+            sourceslot: Source slot (must be SlotNode)
+            destslot: Destination slot (SlotNode or DoNotCare)
+            
+        Note:
+            If destslot is DoNotCare, the constraint is not created (early return)
+        """
         assert isinstance(sourceslot, storegraph.SlotNode), sourceslot
         # Handle DoNotCare case - if destslot is DoNotCare, we don't need to create this constraint
         if destslot is analysis.cpasignature.DoNotCare:
@@ -119,27 +283,81 @@ class AssignmentConstraint(Constraint):
         Constraint.__init__(self, sys)
 
     def update(self):
+        """Update destination slot with types from source slot.
+        
+        Propagates all types from sourceslot to destslot using the slot's
+        update() method, which handles type merging and constraint propagation.
+        """
         self.destslot = self.destslot.update(self.sourceslot)
 
     def attach(self):
+        """Attach constraint and register dependencies.
+        
+        Registers read dependency on sourceslot and write dependency on destslot,
+        so the constraint is triggered when source changes and updates destination.
+        """
         self.sys.constraint(self)
         self.sourceslot.dependsRead(self)
         self.destslot.dependsWrite(self)
 
     def name(self):
+        """Get string representation for debugging.
+        
+        Returns:
+            String showing source -> destination
+        """
         return "%r -> %r" % (self.sourceslot, self.destslot)
 
     def reads(self):
+        """Get slots read by this constraint.
+        
+        Returns:
+            Tuple containing sourceslot
+        """
         return (self.sourceslot,)
 
     def writes(self):
+        """Get slots written by this constraint.
+        
+        Returns:
+            Tuple containing destslot
+        """
         return (self.destslot,)
 
 
 class IsConstraint(CachedConstraint):
+    """Constraint for identity checks (x is y).
+    
+    Models Python's 'is' operator, which checks object identity (not equality).
+    This constraint determines when two objects may be the same object and propagates
+    boolean results to the target slot.
+    
+    The constraint considers all combinations of types from left and right slots,
+    and determines if they can be the same object based on:
+    - Type compatibility (must be same Python type)
+    - Object identity (existing objects must match exactly)
+    - Constant pooling (constants may be ambiguous)
+    
+    Attributes:
+        op: Operation context for this constraint
+        left: Left operand slot
+        right: Right operand slot
+        target: Target slot for boolean result
+        t: Whether True result has been emitted
+        f: Whether False result has been emitted
+    """
     __slots__ = "op", "left", "right", "target", "t", "f"
 
     def __init__(self, sys, op, left, right, target):
+        """Initialize an identity check constraint.
+        
+        Args:
+            sys: The CPA system instance
+            op: Operation context
+            left: Left operand slot (must be SlotNode)
+            right: Right operand slot (must be SlotNode)
+            target: Target slot for result (must not be None)
+        """
         assert target is not None
         assert isinstance(left, storegraph.SlotNode), type(left)
         assert isinstance(right, storegraph.SlotNode), type(right)
@@ -204,9 +422,37 @@ class IsConstraint(CachedConstraint):
 
 
 class LoadConstraint(CachedConstraint):
+    """Constraint for loading values from object fields (x = obj.field).
+    
+    Models reading a field from an object, where:
+    - expr is the object being accessed
+    - key is the field name/index being accessed
+    - target is where the loaded value goes
+    
+    The constraint considers all combinations of object types and key types,
+    and creates field accesses in the store graph. If target is None, the
+    load is being discarded (e.g., in a descriptive stub).
+    
+    Attributes:
+        op: Operation context for logging
+        expr: SlotNode for the object being accessed
+        slottype: String indicating slot type ("Attribute", "Array", etc.)
+        key: SlotNode for the field name/index
+        target: SlotNode for the loaded value (or None if discarded)
+    """
     __slots__ = "op", "expr", "slottype", "key", "target"
 
     def __init__(self, sys, op, expr, slottype, key, target):
+        """Initialize a load constraint.
+        
+        Args:
+            sys: The CPA system instance
+            op: Operation context
+            expr: Object slot (must be SlotNode)
+            slottype: Type of slot ("Attribute", "Array", etc.)
+            key: Field name/index slot (must be SlotNode)
+            target: Target slot for loaded value (may be None)
+        """
         assert isinstance(expr, storegraph.SlotNode), type(expr)
         assert isinstance(key, storegraph.SlotNode), type(key)
 
@@ -236,9 +482,36 @@ class LoadConstraint(CachedConstraint):
 
 
 class StoreConstraint(CachedConstraint):
+    """Constraint for storing values to object fields (obj.field = x).
+    
+    Models writing a value to an object field, where:
+    - expr is the object being modified
+    - key is the field name/index
+    - value is the value being stored
+    
+    The constraint creates field writes in the store graph and logs the
+    modification for tracking purposes.
+    
+    Attributes:
+        op: Operation context for logging
+        expr: SlotNode for the object being modified
+        slottype: String indicating slot type ("Attribute", "Array", etc.)
+        key: SlotNode for the field name/index
+        value: SlotNode for the value being stored
+    """
     __slots__ = "op", "expr", "slottype", "key", "value"
 
     def __init__(self, sys, op, expr, slottype, key, value):
+        """Initialize a store constraint.
+        
+        Args:
+            sys: The CPA system instance
+            op: Operation context
+            expr: Object slot
+            slottype: Type of slot ("Attribute", "Array", etc.)
+            key: Field name/index slot
+            value: Value slot to store
+        """
         self.op = op
         self.expr = expr
         self.slottype = slottype
@@ -262,9 +535,28 @@ class StoreConstraint(CachedConstraint):
 
 
 class AllocateConstraint(CachedConstraint):
+    """Constraint for object allocation (obj = MyClass()).
+    
+    Models object creation/instantiation. When the type slot contains a type,
+    this constraint creates an extended instance type and initializes the target
+    slot with it. The allocation is logged for tracking purposes.
+    
+    Attributes:
+        op: Operation context for logging
+        type_: SlotNode containing the type to instantiate
+        target: SlotNode where the new instance is stored
+    """
     __slots__ = "op", "type_", "target"
 
     def __init__(self, sys, op, type_, target):
+        """Initialize an allocation constraint.
+        
+        Args:
+            sys: The CPA system instance
+            op: Operation context
+            type_: Type slot (must contain a type)
+            target: Target slot for the new instance
+        """
         self.op = op
         self.type_ = type_
         self.target = target
@@ -369,9 +661,43 @@ class SimpleCheckConstraint(Constraint):
 
 # Resolves the type of the expression, varg, and karg
 class AbstractCallConstraint(CachedConstraint):
+    """Base class for function call constraints.
+    
+    Models function calls with context sensitivity. This constraint resolves:
+    - The callee function (from selfarg/expr)
+    - Variable arguments (*args) length
+    - Keyword arguments (**kwargs)
+    
+    For each combination of callee type and argument types, it creates a
+    SimpleCallConstraint to handle the actual call binding.
+    
+    This is an abstract base class - subclasses must implement getCode() to
+    determine which function is being called.
+    
+    Attributes:
+        op: Operation context for the call
+        selfarg: SlotNode for 'self' argument (or None)
+        args: List of SlotNodes for positional arguments
+        kwds: List of keyword arguments (currently unused)
+        vargs: SlotNode for *args tuple (or None)
+        kargs: SlotNode for **kwargs dict (or None)
+        targets: List of SlotNodes for return values (or None)
+    """
     __slots__ = "op", "selfarg", "args", "kwds", "vargs", "kargs", "targets"
 
     def __init__(self, sys, op, selfarg, args, kwds, vargs, kargs, targets):
+        """Initialize an abstract call constraint.
+        
+        Args:
+            sys: The CPA system instance
+            op: Operation context (must be OpContext)
+            selfarg: Self argument slot (or None)
+            args: List/tuple of argument slots
+            kwds: Keyword arguments (must be empty currently)
+            vargs: Variable arguments slot (or None)
+            kargs: Keyword arguments slot (or None)
+            targets: Return value slots (or None)
+        """
         assert isinstance(op, canonicalobjects.OpContext), type(op)
         assert isinstance(args, (list, tuple)), args
         assert not kwds, kwds

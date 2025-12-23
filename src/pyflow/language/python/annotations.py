@@ -1,3 +1,17 @@
+"""Annotations for Python AST nodes.
+
+This module provides annotation classes that attach context-sensitive metadata
+to AST nodes. Annotations track:
+- Read/modify/allocate information: Which objects are accessed
+- Invocation information: Which functions are called
+- Lifetime information: Which objects are live/killed
+- Origin information: Source location for debugging
+- Optimization information: Folding, lowering, runtime information
+
+Annotations are context-sensitive, meaning they can have different values
+for different analysis contexts (e.g., different calling patterns).
+"""
+
 from pyflow.language.asttools.origin import Origin
 from pyflow.language.asttools.annotation import (
     noMod,
@@ -9,20 +23,69 @@ from pyflow.language.asttools.annotation import (
 
 
 def codeOrigin(code, line=None, col=None):
+    """Create an Origin from a code object.
+    
+    Args:
+        code: Code object (from function.__code__)
+        line: Line number (defaults to code.co_firstlineno)
+        col: Column number (optional)
+        
+    Returns:
+        Origin: Origin object with source location information
+    """
     if line is None:
         line = code.co_firstlineno
     return Origin(code.co_name, code.co_filename, line, col)
 
 
 def functionOrigin(func, line=None, col=None):
+    """Create an Origin from a function object.
+    
+    Args:
+        func: Function object
+        line: Line number (optional)
+        col: Column number (optional)
+        
+    Returns:
+        Origin: Origin object with source location information
+    """
     return codeOrigin(func.__code__, line, col)
 
 
 class Annotation(object):
+    """Base class for AST node annotations.
+    
+    Annotations attach metadata to AST nodes. They are immutable and
+    provide rewrite() methods for creating modified copies.
+    """
     __slots__ = ()
 
 
 class CodeAnnotation(Annotation):
+    """Annotation for code nodes (functions, classes).
+    
+    CodeAnnotation attaches metadata to code definitions, including:
+    - Context information: Analysis contexts for this code
+    - Read/modify/allocate: Objects accessed by the code
+    - Lifetime information: Objects live/killed at entry/exit
+    - Optimization information: Folding, lowering, runtime info
+    
+    Attributes:
+        contexts: Tuple of analysis contexts for this code
+        descriptive: Descriptive information about the code
+        primitive: Whether code is primitive (built-in)
+        staticFold: Static folding information
+        dynamicFold: Dynamic folding information
+        origin: Source location information
+        live: Objects live at entry (context-sensitive)
+        killed: Objects killed at exit (context-sensitive)
+        codeReads: Objects read by code (context-sensitive)
+        codeModifies: Objects modified by code (context-sensitive)
+        codeAllocates: Objects allocated by code (context-sensitive)
+        lowered: Lowered representation (if applicable)
+        runtime: Runtime information
+        interpreter: Interpreter information
+    """
     __slots__ = [
         "contexts",
         "descriptive",
@@ -155,6 +218,23 @@ class CodeAnnotation(Annotation):
 
 
 class OpAnnotation(Annotation):
+    """Annotation for operation nodes (expressions, statements).
+    
+    OpAnnotation attaches metadata to operations, including:
+    - Invocation information: Which functions are called
+    - Read/modify/allocate: Which objects are accessed
+    - Origin information: Source location for debugging
+    
+    Attributes:
+        invokes: Functions invoked by this operation (context-sensitive)
+        opReads: Objects read by this operation (context-sensitive)
+        opModifies: Objects modified by this operation (context-sensitive)
+        opAllocates: Objects allocated by this operation (context-sensitive)
+        reads: Objects read (final analysis results, context-sensitive)
+        modifies: Objects modified (final analysis results, context-sensitive)
+        allocates: Objects allocated (final analysis results, context-sensitive)
+        origin: Source location information
+    """
     __slots__ = (
         "invokes",
         "opReads",

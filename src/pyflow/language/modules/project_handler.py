@@ -1,6 +1,16 @@
+"""Project handler for discovering and processing Python modules.
+
+This module provides utilities for discovering Python modules in directories
+and projects. It handles:
+- Directory scanning: Finding all Python files in a directory
+- Module discovery: Recursively finding modules in a project
+- Module naming: Generating qualified module names from file paths
+
+Key functions:
+- get_directory_modules: Get modules in a single directory
+- get_modules: Recursively discover modules in a project
 """
-The module finds all python modules and generates an ast for them.
-"""
+
 import os
 
 
@@ -8,8 +18,17 @@ _local_modules = list()
 
 
 def get_directory_modules(directory):
-    """Return a list containing tuples of
-    e.g. ('__init__', 'example/import_test_project/__init__.py')
+    """Get all Python modules in a directory.
+    
+    Returns a list of (module_name, file_path) tuples for all Python
+    files in the directory. Results are cached per directory.
+    
+    Args:
+        directory: Directory path to scan (or file path, will use parent)
+        
+    Returns:
+        list: List of (module_name, file_path) tuples
+            Example: [('__init__', 'example/import_test_project/__init__.py'), ...]
     """
     if _local_modules and os.path.dirname(_local_modules[0][1]) == directory:
         return _local_modules
@@ -31,8 +50,18 @@ def get_directory_modules(directory):
 
 
 def get_modules(path, prepend_module_root=True):
-    """Return a list containing tuples of
-    e.g. ('test_project.utils', 'example/test_project/utils.py')
+    """Recursively discover all Python modules in a project.
+    
+    Walks the directory tree starting from path and finds all Python files,
+    generating qualified module names based on directory structure.
+    
+    Args:
+        path: Root directory path to scan
+        prepend_module_root: Whether to prepend root directory name to module names
+        
+    Returns:
+        list: List of (qualified_module_name, file_path) tuples
+            Example: [('test_project.utils', 'example/test_project/utils.py'), ...]
     """
     module_root = os.path.split(path)[1]
     modules = list()
@@ -70,6 +99,14 @@ def get_modules(path, prepend_module_root=True):
 
 
 def _is_python_file(path):
+    """Check if a path is a Python file.
+    
+    Args:
+        path: File path to check
+        
+    Returns:
+        bool: True if path has .py extension
+    """
     if os.path.splitext(path)[1] == '.py':
         return True
     return False

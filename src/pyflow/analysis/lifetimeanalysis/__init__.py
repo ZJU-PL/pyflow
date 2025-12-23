@@ -1,3 +1,21 @@
+"""Lifetime analysis for PyFlow.
+
+This module performs lifetime analysis to determine when variables and objects
+are created, used, and destroyed. It tracks:
+- Object visibility: Globally visible, externally visible, escaping objects
+- Read/modify sets: Which objects are read/modified at each program point
+- Scope inference: How far back on the call stack objects may propagate
+- Lifetime annotations: Annotates code and operations with lifetime information
+
+The analysis uses a database structure with schemas for efficient storage
+and querying of lifetime information. It performs:
+1. Object graph construction: Builds reference graph between objects
+2. Visibility propagation: Determines which objects escape their scope
+3. Scope inference: Determines object lifetimes across call stack
+4. Read/modify analysis: Tracks which objects are read/modified
+5. Annotation: Attaches lifetime information to code and operations
+"""
+
 import collections
 import time
 
@@ -21,6 +39,17 @@ codeSchema = structure.CallbackSchema(lambda code: code.isCode())
 
 
 def wrapOpContext(schema):
+    """Wrap a schema with operation context mappings.
+    
+    Creates a nested mapping schema: code -> op -> context -> value.
+    Used for operation-level dataflow information.
+    
+    Args:
+        schema: Base schema to wrap
+        
+    Returns:
+        MappingSchema: Wrapped schema with operation context
+    """
     schema = mapping.MappingSchema(contextSchema, schema)
     schema = mapping.MappingSchema(operationSchema, schema)
     schema = mapping.MappingSchema(codeSchema, schema)
@@ -28,6 +57,17 @@ def wrapOpContext(schema):
 
 
 def wrapCodeContext(schema):
+    """Wrap a schema with code context mappings.
+    
+    Creates a nested mapping schema: code -> context -> value.
+    Used for code-level dataflow information.
+    
+    Args:
+        schema: Base schema to wrap
+        
+    Returns:
+        MappingSchema: Wrapped schema with code context
+    """
     schema = mapping.MappingSchema(contextSchema, schema)
     schema = mapping.MappingSchema(codeSchema, schema)
     return schema
@@ -47,6 +87,18 @@ invokeSourcesSchema = wrapCodeContext(tupleset.TupleSetSchema(invokeSourcesStruc
 
 
 def invertInvokes(invokes):
+    """Invert invocation mapping to get invocation sources.
+    
+    Converts forward invocation mapping (caller -> callee) to backward
+    mapping (callee -> caller). Used to find which call sites invoke
+    a given function.
+    
+    Args:
+        invokes: Forward invocation mapping (code, op, context) -> (dstCode, dstContext)
+        
+    Returns:
+        Mapping: Backward mapping (dstCode, dstContext) -> (code, op, context)
+    """
     invokeSources = invokeSourcesSchema.instance()
 
     for code, ops in invokes:
@@ -59,6 +111,17 @@ def invertInvokes(invokes):
 
 
 def filteredSCC(G):
+    """Filter strongly connected components to only non-trivial ones.
+    
+    Finds strongly connected components (cycles) in a graph, returning
+    only those with more than one node (non-trivial cycles).
+    
+    Args:
+        G: Graph to analyze
+        
+    Returns:
+        list: List of non-trivial strongly connected components
+    """
     o = []
     for g in StronglyConnectedComponents(G):
         if len(g) > 1:
@@ -67,7 +130,28 @@ def filteredSCC(G):
 
 
 class ObjectInfo(object):
+    """Information about an object's lifetime and references.
+    
+    ObjectInfo tracks lifetime properties for objects:
+    - Reference relationships: What objects this refers to and what refers to it
+    - Visibility: Whether object is globally or externally visible
+    - Closure holding: Which closures may hold references to this object
+    
+    Attributes:
+        obj: ObjectNode this info describes
+        refersTo: Set of ObjectInfo for objects this object refers to
+        referedFrom: Set of ObjectInfo for objects that refer to this
+        localReference: Set of code objects that reference this locally
+        heldByClosure: Set of ObjectInfo for closures that may hold this
+        globallyVisible: Whether object is globally visible (existing objects)
+        externallyVisible: Whether object is externally visible (parameters)
+    """
     def __init__(self, obj):
+        """Initialize object info.
+        
+        Args:
+            obj: ObjectNode to track
+        """
         self.obj = obj
         self.refersTo = set()
         self.referedFrom = set()
@@ -79,12 +163,36 @@ class ObjectInfo(object):
         self.externallyVisible = obj.xtype.isExternal()
 
     def isReachableFrom(self, refs):
+        """Check if this object is reachable from a set of references.
+        
+        Args:
+            refs: Set of ObjectInfo references
+            
+        Returns:
+            bool: True if object is held by any of the references
+        """
         return bool(self.heldByClosure.intersection(refs))
 
     def leaks(self):
+        """Check if this object leaks (escapes its scope).
+        
+        Returns:
+            bool: True if object is globally or externally visible
+        """
         return self.globallyVisible or self.externallyVisible
 
     def updateHeldBy(self, newHeld):
+        """Update the set of closures that hold this object.
+        
+        Args:
+            newHeld: Set of ObjectInfo for closures that may hold this
+            
+        Returns:
+            bool: True if heldByClosure changed
+            
+        Raises:
+            AssertionError: If object leaks (shouldn't update heldBy)
+        """
         assert not self.leaks(), self.obj
 
         diff = newHeld - self.heldByClosure
@@ -96,7 +204,30 @@ class ObjectInfo(object):
 
 
 class ReadModifyAnalysis(object):
+    """Read/modify analysis for tracking object usage.
+    
+    ReadModifyAnalysis tracks which objects are read and modified at each
+    program point. It propagates read/modify information through the call
+    graph, filtering out objects that are killed (no longer live).
+    
+    Attributes:
+        invokeSources: Dictionary mapping (code, context) to invocation sources
+        contextReads: Dictionary mapping (code, context) to set of read objects
+        contextModifies: Dictionary mapping (code, context) to set of modified objects
+        opReadDB: Database mapping (code, op, context) to read sets
+        opModifyDB: Database mapping (code, op, context) to modify sets
+        allocations: Dictionary mapping (code, context) to allocated objects
+        allReads: Set of all objects ever read
+        allModifies: Set of all objects ever modified
+        killed: Dictionary mapping (code, op, context) -> (dstCode, dstContext) to killed objects
+    """
     def __init__(self, liveCode, invokeSources):
+        """Initialize read/modify analysis.
+        
+        Args:
+            liveCode: Set of live code objects
+            invokeSources: Invocation source mapping
+        """
         self.invokeSources = invokeSources
 
         self.contextReads = collections.defaultdict(set)
@@ -129,6 +260,18 @@ class ReadModifyAnalysis(object):
                 self.allocations[(code, context)].update(allocates[1][cindex])
 
     def collectDB(self, liveCode):
+        """Collect read/modify/allocate information from live code.
+        
+        Traverses all live code and operations, collecting:
+        - Read sets: Objects read at each program point
+        - Modify sets: Objects modified at each program point
+        - Allocations: Objects allocated at each program point
+        
+        Stores information in databases indexed by (code, op, context).
+        
+        Args:
+            liveCode: Set of live code objects to process
+        """
         self.allReads = set()
         self.allModifies = set()
 
@@ -160,6 +303,11 @@ class ReadModifyAnalysis(object):
         self.processModifies()
 
     def processReads(self):
+        """Process read sets, propagating backward through call graph.
+        
+        Propagates read information backward from callees to callers,
+        filtering out objects that are killed (no longer live).
+        """
         self.dirty = set()
 
         for (code, context), values in self.contextReads.items():
@@ -171,6 +319,14 @@ class ReadModifyAnalysis(object):
             self.processContextReads(current)
 
     def processContextReads(self, current):
+        """Process reads for a specific context.
+        
+        Propagates reads from current context to its invocation sources,
+        filtering out killed objects.
+        
+        Args:
+            current: (code, context) tuple to process
+        """
         currentF, currentC = current
 
         for prev in self.invokeSources[currentF][currentC]:
@@ -197,6 +353,11 @@ class ReadModifyAnalysis(object):
                 self.dirty.add((prevF, prevC))
 
     def processModifies(self):
+        """Process modify sets, propagating backward through call graph.
+        
+        Propagates modify information backward from callees to callers,
+        filtering out objects that are killed (no longer live).
+        """
         self.dirty = set()
 
         for (code, context), values in self.contextModifies.items():
@@ -208,6 +369,14 @@ class ReadModifyAnalysis(object):
             self.processContextModifies(current)
 
     def processContextModifies(self, current):
+        """Process modifies for a specific context.
+        
+        Propagates modifies from current context to its invocation sources,
+        filtering out killed objects.
+        
+        Args:
+            current: (code, context) tuple to process
+        """
         currentF, currentC = current
 
         for prev in self.invokeSources[currentF][currentC]:
@@ -235,28 +404,68 @@ class ReadModifyAnalysis(object):
 
 
 class DFSSearcher(object):
+    """Depth-first search searcher for graph traversal.
+    
+    Generic DFS implementation for traversing graphs. Used to traverse
+    object reference graphs to build lifetime information.
+    
+    Attributes:
+        _stack: Stack of nodes to process
+        _touched: Set of nodes already visited
+    """
     def __init__(self):
+        """Initialize DFS searcher."""
         self._stack = []
         self._touched = set()
 
     def enqueue(self, *children):
+        """Enqueue children for processing.
+        
+        Args:
+            *children: Child nodes to enqueue
+        """
         for child in children:
             if child not in self._touched:
                 self._touched.add(child)
                 self._stack.append(child)
 
     def process(self):
+        """Process all enqueued nodes using DFS.
+        
+        Continues until stack is empty, visiting each node once.
+        """
         while self._stack:
             current = self._stack.pop()
             self.visit(current)
 
 
 class ObjectSearcher(DFSSearcher):
+    """DFS searcher for building object reference graph.
+    
+    ObjectSearcher traverses the object reference graph, building
+    refersTo and referedFrom relationships between objects.
+    
+    Attributes:
+        la: LifetimeAnalysis instance
+    """
     def __init__(self, la):
+        """Initialize object searcher.
+        
+        Args:
+            la: LifetimeAnalysis instance
+        """
         DFSSearcher.__init__(self)
         self.la = la
 
     def visit(self, obj):
+        """Visit an object and build reference relationships.
+        
+        For each slot in the object, follows references to other objects
+        and builds bidirectional reference relationships.
+        
+        Args:
+            obj: ObjectNode to visit
+        """
         objInfo = self.la.getObjectInfo(obj)
         for slot in obj:
             for next in slot:
@@ -267,7 +476,34 @@ class ObjectSearcher(DFSSearcher):
 
 
 class LifetimeAnalysis(object):
+    """Main lifetime analysis system.
+    
+    LifetimeAnalysis performs comprehensive lifetime analysis:
+    1. Object graph construction: Builds reference relationships
+    2. Visibility propagation: Determines escaping objects
+    3. Scope inference: Determines object lifetimes across call stack
+    4. Read/modify analysis: Tracks object usage
+    5. Annotation: Attaches lifetime information to code
+    
+    Attributes:
+        heapReferedToByHeap: Dictionary mapping objects to objects that refer to them
+        heapReferedToByCode: Dictionary mapping objects to code that refers to them
+        codeRefersToHeap: Dictionary mapping (code, context) to objects referenced
+        objects: Dictionary mapping ObjectNode to ObjectInfo
+        globallyVisible: Set of globally visible objects
+        externallyVisible: Set of externally visible objects
+        escapes: Set of escaping objects (union of globally and externally visible)
+        invokes: Database mapping (code, op, context) to invoked functions
+        invokeSources: Database mapping (code, context) to invocation sources
+        entries: Set of entry (code, context) pairs
+        live: Dictionary mapping (code, context) to live objects
+        killed: Dictionary mapping (code, op, context) -> (dstCode, dstContext) to killed objects
+        contextKilled: Dictionary mapping (code, context) to killed objects
+        rm: ReadModifyAnalysis instance
+        allocations: Dictionary mapping (code, context) to allocated objects
+    """
     def __init__(self):
+        """Initialize lifetime analysis."""
         self.heapReferedToByHeap = collections.defaultdict(set)
         self.heapReferedToByCode = collections.defaultdict(set)
 
@@ -279,6 +515,16 @@ class LifetimeAnalysis(object):
         self.externallyVisible = set()
 
     def getObjectInfo(self, obj):
+        """Get or create ObjectInfo for an object.
+        
+        ObjectInfo instances are canonicalized per object.
+        
+        Args:
+            obj: ObjectNode to get info for
+            
+        Returns:
+            ObjectInfo: Info for the object
+        """
         assert isinstance(obj, storegraph.ObjectNode), type(obj)
         if obj not in self.objects:
             info = ObjectInfo(obj)
@@ -288,6 +534,12 @@ class LifetimeAnalysis(object):
         return info
 
     def findGloballyVisible(self):
+        """Find all globally visible objects.
+        
+        Globally visible objects are existing objects (constants, globals)
+        and any objects they refer to. Uses transitive closure to find
+        all objects reachable from globally visible objects.
+        """
         # Globally visible
         active = set()
         for info in self.objects.values():
@@ -304,6 +556,12 @@ class LifetimeAnalysis(object):
                     self.globallyVisible.add(ref.obj)
 
     def findExternallyVisible(self):
+        """Find all externally visible objects.
+        
+        Externally visible objects are external objects (parameters)
+        and any objects they refer to. Uses transitive closure to find
+        all objects reachable from externally visible objects.
+        """
         # Externally visible
         active = set()
         for info in self.objects.values():
@@ -320,6 +578,11 @@ class LifetimeAnalysis(object):
                     self.externallyVisible.add(ref.obj)
 
     def propagateVisibility(self):
+        """Propagate visibility information and mark escaping objects.
+        
+        Finds globally and externally visible objects, computes escaping
+        set, and annotates objects with leak information.
+        """
         self.findGloballyVisible()
         self.findExternallyVisible()
         self.escapes = self.globallyVisible.union(self.externallyVisible)
@@ -378,6 +641,13 @@ class LifetimeAnalysis(object):
             print(key, hist[key])
 
     def inferScope(self):
+        """Infer object scope (how far back on call stack objects propagate).
+        
+        Determines which objects are live at each program point and which
+        are killed (no longer live) when crossing invocation boundaries.
+        Uses iterative analysis to propagate liveness information backward
+        through the call graph.
+        """
         # Figure out how far back on the stack the object may propagate
         self.live = collections.defaultdict(set)
         self.killed = collections.defaultdict(lambda: collections.defaultdict(set))
@@ -520,6 +790,24 @@ class LifetimeAnalysis(object):
         searcher.process()
 
     def process(self, compiler, prgm):
+        """Process lifetime analysis on a program.
+        
+        Main entry point for lifetime analysis. Performs:
+        1. Gather slots: Build object reference graph
+        2. Gather invokes: Build call graph
+        3. Propagate visibility: Find escaping objects
+        4. Propagate held: Find closure-held objects
+        5. Infer scope: Determine object lifetimes
+        6. Read/modify analysis: Track object usage
+        7. Create database: Annotate code with lifetime info
+        
+        Args:
+            compiler: Compiler instance
+            prgm: Program to analyze
+            
+        Returns:
+            LifetimeAnalysis: Self (for chaining)
+        """
         with compiler.console.scope("solve"):
             entryContexts = prgm.interface.entryContexts()
 
@@ -537,6 +825,7 @@ class LifetimeAnalysis(object):
             self.createDB(compiler, prgm)
 
         del self.rm
+        return self
 
     def createDB(self, compiler, prgm):
         self.annotationCount = 0
@@ -624,5 +913,18 @@ class LifetimeAnalysis(object):
 
 
 def evaluate(compiler, prgm):
+    """Run lifetime analysis on a program.
+    
+    Main entry point for lifetime analysis. Creates and runs a
+    LifetimeAnalysis instance on the program.
+    
+    Args:
+        compiler: Compiler instance
+        prgm: Program to analyze
+        
+    Returns:
+        LifetimeAnalysis: Analysis results
+    """
     with compiler.console.scope("lifetime analysis"):
         la = LifetimeAnalysis().process(compiler, prgm)
+        return la

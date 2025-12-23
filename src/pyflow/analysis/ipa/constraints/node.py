@@ -1,3 +1,10 @@
+"""Constraint node representation for IPA.
+
+Constraint nodes represent variables, fields, and intermediate values
+in the inter-procedural analysis. They maintain value sets, null flags,
+and critical value tracking for escape analysis.
+"""
+
 from pyflow.language.python import ast  # Debugging
 from . import split
 from ..calling import cpa
@@ -5,9 +12,28 @@ from ..model import objectname
 
 
 class Critical(object):
+    """Tracks critical values for escape analysis.
+    
+    Critical values are values that must be tracked precisely because
+    they may escape their scope. This class maintains critical value sets
+    and propagates them through the constraint graph.
+    
+    Attributes:
+        values: Set of critical values (frozen)
+        diff: Pending critical value changes (to be propagated)
+        isCritical: Whether this node itself is critical
+        _dirty: Whether critical values have changed
+        node: ConstraintNode this critical belongs to
+    """
     __slots__ = "values", "diff", "isCritical", "_dirty", "node"
 
     def __init__(self, context, node):
+        """Initialize critical value tracking.
+        
+        Args:
+            context: Context this critical belongs to
+            node: ConstraintNode this critical belongs to
+        """
         self.node = node
         cm = self.getManager(context)
         self.values = cm.empty()
@@ -70,6 +96,33 @@ class Critical(object):
 
 
 class ConstraintNode(object):
+    """Represents a variable, field, or intermediate value in IPA.
+    
+    ConstraintNodes are the fundamental units of data flow in IPA. They
+    maintain:
+    - Value sets: Set of ObjectNames that may flow to this node
+    - Null flag: Whether this node may be null
+    - Constraints: Connected via prev/next lists
+    - Splits: Type-based and exact splits for call resolution
+    - Flags: Escape flags and other metadata
+    - Critical values: Values that must be tracked for escape analysis
+    
+    Attributes:
+        context: Context this node belongs to
+        name: Variable/field name (ast.Local, tuple, etc.)
+        ci: Whether this is a context-insensitive node
+        values: Set of ObjectNames (frozen, current values)
+        valuediff: Pending value changes (to be propagated)
+        null: Whether this node may be null
+        dirty: Whether this node needs propagation
+        prev: List of constraints that read from this node
+        next: List of constraints that write to this node
+        typeSplit: TypeSplitConstraint for type-based splitting
+        exactSplit: ExactSplitConstraint for exact splitting
+        flags: Escape flags and metadata
+        flagsdiff: Pending flag changes
+        critical: Critical value tracker
+    """
     __slots__ = (
         "context",
         "name",
@@ -88,6 +141,13 @@ class ConstraintNode(object):
     )
 
     def __init__(self, context, name, ci=False):
+        """Initialize a constraint node.
+        
+        Args:
+            context: Context this node belongs to
+            name: Variable/field name (ast.Local, tuple, etc.)
+            ci: Whether this is context-insensitive
+        """
         assert not isinstance(name, ast.DoNotCare), name
 
         self.context = context

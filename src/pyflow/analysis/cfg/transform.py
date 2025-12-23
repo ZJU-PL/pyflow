@@ -2,6 +2,18 @@
 
 This module provides functionality to transform AST nodes into CFG structures,
 handling control flow constructs like returns, breaks, and yields.
+
+The CFGTransformer class is the main entry point for converting Python AST
+into a Control Flow Graph. It handles:
+- Basic statements (assignments, discards)
+- Control flow (if/else, while, for loops)
+- Exception handling (try/except/finally)
+- Type switches (isinstance checks)
+- Returns, breaks, continues, yields
+- Function and class definitions
+
+The transformation process builds CFG blocks (Suite, Switch, Merge, etc.)
+and connects them with appropriate control flow edges (normal, fail, error).
 """
 
 from pyflow.util.typedispatch import *
@@ -20,10 +32,18 @@ class CFGTransformer(TypeDispatcher):
     This class handles the transformation of Python AST nodes into control
     flow graph structures, managing control flow constructs and basic blocks.
     
+    The transformer maintains:
+    - Current block being built (for emitting operations)
+    - Handler stack (for return, break, continue, fail, error)
+    - Region stack (for tracking code regions)
+    
     Attributes:
-        current: Current CFG node being built.
-        handler: Function to get control flow handlers.
-        makeNewSuite: Function to create new suite nodes.
+        current: Current CFG Suite node being built
+        handler: Dictionary of handler stacks for control flow
+        makeNewSuite: Function to create new suite nodes
+        regionStack: Stack of code regions
+        region: Current code region
+        code: CFG Code object being built
     """
     
     def emit(self, stmt):
@@ -393,6 +413,25 @@ class CFGTransformer(TypeDispatcher):
         self.region = self.regionStack.pop()
 
     def process(self, code):
+        """Transform an AST Code object into a CFG.
+        
+        Main entry point for CFG construction. Initializes the transformer
+        state, sets up control flow handlers, and transforms the AST.
+        
+        Args:
+            code: AST Code object to transform
+            
+        Returns:
+            cfg.Code: Complete CFG representation of the function
+            
+        Process:
+            1. Initialize handler stacks for control flow
+            2. Create CFG Code container
+            3. Set up entry point and terminal handlers
+            4. Transform AST (may raise NoNormalFlow)
+            5. Clean up handlers
+            6. Return complete CFG
+        """
         self.regionStack = []
         self.region = None
 
@@ -427,6 +466,18 @@ class CFGTransformer(TypeDispatcher):
 
 
 def evaluate(compiler, code):
+    """Transform AST code to CFG and simplify.
+    
+    Main entry point for CFG construction from AST. Transforms the AST
+    into a CFG and applies simplification passes.
+    
+    Args:
+        compiler: Compiler context
+        code: AST Code object to transform
+        
+    Returns:
+        cfg.Code: Simplified CFG representation
+    """
     cfg = CFGTransformer().process(code)
 
     simplify.evaluate(compiler, cfg)

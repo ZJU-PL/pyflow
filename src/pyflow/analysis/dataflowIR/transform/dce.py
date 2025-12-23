@@ -1,9 +1,42 @@
+"""Dead Code Elimination (DCE) for dataflow IR.
+
+This module implements dead code elimination for dataflow graphs. It uses
+liveness analysis to identify nodes that are not used and removes them
+from the graph.
+
+The algorithm:
+1. Perform backward liveness analysis from exit node
+2. Mark all live nodes (nodes that contribute to exit)
+3. Remove dead nodes and clean up edges
+
+Dead code elimination is important for:
+- Reducing graph size
+- Enabling further optimizations
+- Improving analysis precision
+"""
+
 from pyflow.util.typedispatch import *
 import pyflow.analysis.dataflowIR.graph as graph
 
 
 class LivenessKiller(TypeDispatcher):
+    """Removes dead nodes from dataflow graph.
+    
+    After liveness analysis identifies live nodes, this class removes
+    dead nodes and cleans up edges. It processes nodes and removes
+    uses/definitions for dead nodes.
+    
+    Attributes:
+        live: Set of live nodes (from liveness analysis)
+        queue: Queue of nodes to process
+        processed: Set of processed nodes
+    """
     def __init__(self, live):
+        """Initialize liveness killer.
+        
+        Args:
+            live: Set of live nodes to keep
+        """
         self.live = live
         self.queue = []
         self.processed = set()
@@ -102,28 +135,61 @@ class LivenessKiller(TypeDispatcher):
 
 
 class LivenessSearcher(TypeDispatcher):
+    """Performs backward liveness analysis.
+    
+    This class performs backward liveness analysis starting from the exit
+    node. It marks all nodes that contribute to the exit (are live) by
+    traversing backward through def-use chains.
+    
+    The algorithm:
+    1. Start from exit node (always live)
+    2. For each live node, mark all predecessors (definitions/reads)
+    3. Continue until fixed point
+    
+    Attributes:
+        queue: Queue of nodes to process
+        live: Set of live nodes
+    """
     def __init__(self):
+        """Initialize liveness searcher."""
         self.queue = []
         self.live = set()
 
     def mark(self, node):
+        """Mark a node as live.
+        
+        Args:
+            node: DataflowNode to mark as live
+        """
         assert isinstance(node, graph.DataflowNode), node
         if node not in self.live:
             self.live.add(node)
             self.queue.append(node)
 
     def process(self, dataflow):
+        """Perform liveness analysis on a dataflow graph.
+        
+        Starts from exit and marks all live nodes by traversing backward.
+        
+        Args:
+            dataflow: DataflowGraph to analyze
+            
+        Returns:
+            set: Set of live nodes
+        """
         self.mark(dataflow.exit)
 
         while self.queue:
             current = self.queue.pop()
             if current.isOp() and current.isExit():
+                # Exit node: mark all reads, but skip entry fields that are just passed through
                 for prev in current.reverse():
                     if prev.isField() and prev.defn.isEntry():
                         pass  # The field is simply passed through.
                     else:
                         self.mark(prev)
             else:
+                # Normal node: mark all predecessors
                 for prev in current.reverse():
                     self.mark(prev)
 
@@ -131,5 +197,13 @@ class LivenessSearcher(TypeDispatcher):
 
 
 def evaluateDataflow(dataflow):
+    """Perform dead code elimination on a dataflow graph.
+    
+    Main entry point for DCE. Performs liveness analysis and removes
+    dead nodes.
+    
+    Args:
+        dataflow: DataflowGraph to optimize
+    """
     live = LivenessSearcher().process(dataflow)
     LivenessKiller(live).process(dataflow)

@@ -81,14 +81,41 @@ class IPAnalysis(object):
         self.funcDefaultName = self.pyObj(descName)
 
     def pyObj(self, pyobj):
+        """Get program object for a Python object.
+        
+        Args:
+            pyobj: Python object to get program object for
+            
+        Returns:
+            program.AbstractObject: Program object representation
+        """
         return self.extractor.getObject(pyobj)
 
     def pyObjInst(self, pycls):
+        """Get abstract instance for a Python class.
+        
+        Args:
+            pycls: Python class to get instance for
+            
+        Returns:
+            program.AbstractObject: Abstract instance object
+        """
         cls = self.pyObj(pycls)
         self.extractor.ensureLoaded(cls)
         return cls.typeinfo.abstractInstance
 
     def objectName(self, xtype, qualifier=qualifiers.HZ):
+        """Get or create an ObjectName for an extended type.
+        
+        ObjectNames are canonicalized by (xtype, qualifier) pair.
+        
+        Args:
+            xtype: ExtendedType from store graph
+            qualifier: Qualifier (HZ, DN, UP, GLBL)
+            
+        Returns:
+            ObjectName: Canonical object name
+        """
         key = (xtype, qualifier)
         if key not in self.objs:
             obj = objectname.ObjectName(xtype, qualifier)
@@ -98,6 +125,17 @@ class IPAnalysis(object):
         return obj
 
     def getContext(self, sig):
+        """Get or create an analysis context for a signature.
+        
+        Contexts are canonicalized by signature. If context doesn't exist,
+        creates it and extracts constraints from the code.
+        
+        Args:
+            sig: CPAContextSignature for the function
+            
+        Returns:
+            Context: Analysis context for the signature
+        """
         if sig not in self.contexts:
             context = Context(self, sig)
             self.contexts[sig] = context
@@ -109,6 +147,17 @@ class IPAnalysis(object):
         return context
 
     def getCode(self, obj):
+        """Get code object for a function object.
+        
+        Retrieves and processes code for a function, converting calls
+        and tracking live code.
+        
+        Args:
+            obj: ObjectName representing a function
+            
+        Returns:
+            program.Code: Code object for the function
+        """
         start = time.perf_counter()
 
         assert obj.isObjectName()
@@ -130,12 +179,30 @@ class IPAnalysis(object):
     ### Analysis methods ###
 
     def dirtySlot(self, slot):
+        """Mark a constraint node as dirty (needs reprocessing).
+        
+        Args:
+            slot: ConstraintNode to mark dirty
+        """
         self.dirtySlots.append(slot)
 
     def dirtyConstraints(self):
+        """Check if there are dirty constraints to process.
+        
+        Returns:
+            bool: True if there are dirty slots
+        """
         return bool(self.dirtySlots)
 
     def updateCallGraph(self):
+        """Update the call graph by resolving dirty calls.
+        
+        Processes dirty calls, direct calls, and flat calls to update
+        the inter-procedural call graph.
+        
+        Returns:
+            bool: True if call graph changed
+        """
         if self.trace:
             print("update")
         changed = False
@@ -145,14 +212,25 @@ class IPAnalysis(object):
             changed |= context.updateCallgraph()
         if self.trace:
             print("return", changed)
+        return changed
 
     def updateConstraints(self):
+        """Propagate constraints through the constraint graph.
+        
+        Processes all dirty slots by propagating their value changes
+        to dependent constraints.
+        """
         # if self.trace: print("resolve")
         while self.dirtySlots:
             slot = self.dirtySlots.pop()
             slot.propagate()
 
     def topDown(self):
+        """Perform top-down analysis pass.
+        
+        Top-down analysis propagates information from callers to callees.
+        Iterates until fixed point (no more changes).
+        """
         if self.trace:
             print("top down")
         dirty = True
@@ -162,11 +240,31 @@ class IPAnalysis(object):
             dirty = self.dirtyConstraints()
 
     def propagateCriticals(self, context):
+        """Propagate critical values in a context.
+        
+        Critical values are values that must be tracked precisely
+        (e.g., for escape analysis).
+        
+        Args:
+            context: Context to propagate criticals in
+        """
         while context.dirtycriticals:
             node = context.dirtycriticals.pop()
             node.critical.propagate(context, node)
 
     def contextBottomUp(self, context):
+        """Process a context in bottom-up order.
+        
+        Bottom-up analysis processes callees before callers, allowing
+        summaries to be computed and propagated upward. Uses DFS to
+        process contexts in reverse topological order.
+        
+        Args:
+            context: Context to process
+            
+        Raises:
+            AssertionError: If recursive cycle detected
+        """
         if context not in self.processed:
             self.processed.add(context)
             self.path.append(context)
@@ -192,6 +290,12 @@ class IPAnalysis(object):
             assert context not in self.path, "Recursive cycle detected in call graph"
 
     def bottomUp(self):
+        """Perform bottom-up analysis pass.
+        
+        Bottom-up analysis propagates information from callees to callers.
+        Processes contexts in reverse topological order, computing and
+        applying summaries.
+        """
         print("bottom up")
         self.processed = set()
         self.path = []

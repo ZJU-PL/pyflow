@@ -89,7 +89,21 @@ class DataflowEnvironment(object):
 
 # Processes the queue depth first.
 class Worklist(object):
+    """Worklist algorithm for constraint processing.
+    
+    Worklist maintains a queue of (constraint, index) pairs that need
+    to be processed. It processes constraints iteratively until a fixed
+    point is reached (no more changes).
+    
+    Attributes:
+        worklist: List of (constraint, index) pairs to process
+        dirty: Set of (constraint, index) pairs (for deduplication)
+        maxLength: Maximum worklist length reached
+        steps: Total number of steps processed
+        usefulSteps: Number of steps that produced useful changes
+    """
     def __init__(self):
+        """Initialize worklist."""
         self.worklist = []
         self.dirty = set()
         self.maxLength = 0
@@ -97,6 +111,14 @@ class Worklist(object):
         self.usefulSteps = 0
 
     def addDirty(self, constraint, index):
+        """Add a constraint/index pair to the worklist.
+        
+        Marks the pair as dirty and adds it to the worklist for processing.
+        
+        Args:
+            constraint: Constraint to process
+            index: Index (program point, context, configuration) tuple
+        """
         self.useful = True
         key = (constraint, index)
         if key not in self.dirty:
@@ -104,11 +126,25 @@ class Worklist(object):
             self.worklist.append(key)
 
     def pop(self):
+        """Pop a constraint/index pair from the worklist.
+        
+        Returns:
+            tuple: (constraint, index) pair
+        """
         key = self.worklist.pop()
         self.dirty.remove(key)
         return key
 
     def step(self, sys, trace=False):
+        """Process one step of the worklist algorithm.
+        
+        Processes a single constraint/index pair, updating statistics
+        and handling errors.
+        
+        Args:
+            sys: RegionBasedShapeAnalysis instance
+            trace: Whether to print trace information
+        """
         # Track statistics
         self.maxLength = max(len(self.worklist), self.maxLength)
 
@@ -141,6 +177,19 @@ class Worklist(object):
             self.usefulSteps += 1
 
     def process(self, sys, trace=False, limit=0):
+        """Process worklist until fixed point or limit reached.
+        
+        Iteratively processes constraints until no more changes occur
+        (fixed point) or iteration limit is reached.
+        
+        Args:
+            sys: RegionBasedShapeAnalysis instance
+            trace: Whether to print trace information
+            limit: Maximum iterations (0 for no limit)
+            
+        Returns:
+            bool: True if fixed point reached, False if limit hit
+        """
         stop = self.steps + limit
         while self.worklist:
             self.step(sys, trace)

@@ -1,10 +1,33 @@
+"""Call constraints for IPA.
+
+This module provides constraints for modeling inter-procedural calls:
+- CallConstraint: Indirect calls (resolved dynamically)
+- DirectCallConstraint: Direct calls with known code
+- ConcreteCallConstraint: Calls with concrete arguments
+- FlatCallConstraint: Calls with flattened arguments (for CPA)
+
+Call constraints resolve call sites to callee contexts and transfer
+arguments and return values.
+"""
+
 import itertools
 from ..calling import cpa, transfer, callbinder
 from . import node
 
 
 class AbstractCall(object):
+    """Base class for call constraints.
+    
+    Call constraints model inter-procedural calls. They maintain:
+    - dirty flag: Whether call needs reprocessing
+    - cache: Cache of resolved call contexts
+    
+    Attributes:
+        dirty: Whether this call needs reprocessing
+        cache: Dictionary caching resolved contexts
+    """
     def __init__(self):
+        """Initialize abstract call."""
         self.dirty = False
         self.cache = {}
 

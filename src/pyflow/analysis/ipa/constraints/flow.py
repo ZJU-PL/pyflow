@@ -1,3 +1,16 @@
+"""Flow constraints for IPA.
+
+This module provides constraints that model data flow operations:
+- Copy: Assignment/copy operations
+- Load: Field/attribute loads
+- Store: Field/attribute stores
+- Allocate: Object allocation
+- Is: Identity comparison
+- Check: Attribute existence checks
+
+These constraints propagate values through the constraint graph.
+"""
+
 import itertools
 from .base import Constraint
 from . import qualifiers
@@ -5,9 +18,24 @@ from pyflow.util.monkeypatch import xtypes
 
 
 class CopyConstraint(Constraint):
+    """Constraint for copy/assignment operations.
+    
+    CopyConstraint models assignment operations: dst = src.
+    When src values change, propagates them to dst.
+    
+    Attributes:
+        src: Source constraint node
+        dst: Destination constraint node
+    """
     __slots__ = "src", "dst"
 
     def __init__(self, src, dst):
+        """Initialize copy constraint.
+        
+        Args:
+            src: Source ConstraintNode
+            dst: Destination ConstraintNode
+        """
         assert src.isNode(), src
         assert dst.isNode(), dst
 
@@ -40,9 +68,28 @@ class CopyConstraint(Constraint):
 
 
 class DownwardConstraint(Constraint):
+    """Constraint for downward value transfer (caller to callee).
+    
+    DownwardConstraint transfers values from caller context to callee
+    context through an invocation. Used for parameter passing.
+    
+    Attributes:
+        invoke: Invocation connecting contexts
+        src: Source node in caller context
+        dst: Destination node in callee context
+        fieldTransfer: Whether this transfers field values
+    """
     __slots__ = "invoke", "src", "dst", "fieldTransfer"
 
     def __init__(self, invoke, src, dst, fieldTransfer=False):
+        """Initialize downward constraint.
+        
+        Args:
+            invoke: Invocation connecting contexts
+            src: Source ConstraintNode in caller
+            dst: Destination ConstraintNode in callee
+            fieldTransfer: Whether transferring field values
+        """
         assert src.isNode(), src
         assert dst.isNode(), dst
 
@@ -74,9 +121,28 @@ class DownwardConstraint(Constraint):
 
 
 class MemoryConstraint(Constraint):
+    """Base constraint for memory operations (load/store).
+    
+    MemoryConstraint models operations on object fields. It tracks
+    both the object and field name, and propagates values when either
+    changes.
+    
+    Attributes:
+        obj: ConstraintNode for the object
+        fieldtype: Field type string ("Attribute", "Array", "LowLevel")
+        field: ConstraintNode for the field name
+        criticalOp: Whether this operation is critical (for escape analysis)
+    """
     __slots__ = "obj", "fieldtype", "field", "criticalOp"
 
     def __init__(self, obj, fieldtype, field):
+        """Initialize memory constraint.
+        
+        Args:
+            obj: ConstraintNode for object
+            fieldtype: Field type string
+            field: ConstraintNode for field name
+        """
         Constraint.__init__(self)
         assert obj.isNode(), obj
         assert isinstance(fieldtype, str), fieldtype

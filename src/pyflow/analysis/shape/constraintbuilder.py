@@ -1,3 +1,14 @@
+"""Constraint builder for shape analysis.
+
+This module builds shape analysis constraints from Python AST. It traverses
+AST nodes and generates constraints that model how operations affect object
+shapes, reference counts, and path information.
+
+Key components:
+- ShapeConstraintBuilder: Main builder that traverses AST and generates constraints
+- GetLocals: Helper to collect local variables from AST
+"""
+
 from __future__ import absolute_import
 
 from pyflow.util.typedispatch import *
@@ -12,7 +23,16 @@ import time
 
 
 class GetLocals(TypeDispatcher):
+    """Collects local variables from AST nodes.
+    
+    Traverses AST to find all Local nodes, collecting them into a set.
+    Used to identify function-local variables for shape analysis.
+    
+    Attributes:
+        locals: Set of AST Local nodes found
+    """
     def __init__(self):
+        """Initialize local collector."""
         # Explicitly pass self to the base initializer
         TypeDispatcher.__init__(self)
         self.locals = set()
@@ -47,7 +67,44 @@ def getLocals(node):
 
 
 class ShapeConstraintBuilder(TypeDispatcher):
+    """Builds shape analysis constraints from AST.
+    
+    ShapeConstraintBuilder traverses Python AST and generates shape analysis
+    constraints. It models:
+    - Assignments: Assignment constraints
+    - Function calls: Split/merge constraints
+    - Control flow: Copy constraints for merging paths
+    - Memory operations: Load/store constraints
+    - Allocations: Allocation constraints
+    
+    Attributes:
+        sys: RegionBasedShapeAnalysis instance
+        function: Current function being processed
+        uid: Unique identifier counter for program points
+        current: Current program point (function, uid)
+        statementPre: Dictionary mapping AST nodes to pre-program points
+        statementPost: Dictionary mapping AST nodes to post-program points
+        constraints: List of constraints generated
+        functionCallPoint: Dictionary mapping code to call program points
+        functionReturnPoint: Dictionary mapping code to return program points
+        functionParams: Dictionary mapping code to callee parameters
+        functionLocals: Dictionary mapping code to set of local variables
+        functionLocalSlots: Dictionary mapping code to set of local slots
+        functionLocalExprs: Dictionary mapping code to set of local expressions
+        allocationPoint: Dictionary mapping (code, op) to allocation points
+        returnPoint: Return program point for current function
+        debug: Whether to print debug information
+        invokeCallback: Callback for function invocations
+        breaks: Stack of break points (for loops)
+        continues: Stack of continue points (for loops)
+    """
     def __init__(self, sys, invokeCallback=(lambda code: code)):
+        """Initialize constraint builder.
+        
+        Args:
+            sys: RegionBasedShapeAnalysis instance
+            invokeCallback: Callback function(code) for invocations
+        """
         self.sys = sys
 
         self.function = None
@@ -166,6 +223,16 @@ class ShapeConstraintBuilder(TypeDispatcher):
         return self.sys.canonical.fieldExpr(self.localExpr(expr), slot)
 
     def assign(self, source, destination):
+        """Create an assignment constraint.
+        
+        Generates an AssignmentConstraint for source -> destination.
+        Intentionally avoids strong updates to maintain soundness
+        (keeps alternate configurations for compound tests).
+        
+        Args:
+            source: Source expression
+            destination: Destination expression
+        """
         # Emit the assignment; we intentionally avoid a blanket strong update
         # here because the shape analysis relies on keeping alternate
         # configurations around for soundness in the compound tests.
@@ -486,6 +553,22 @@ class ShapeConstraintBuilder(TypeDispatcher):
     def handleInvocation(
         self, callPoint, returnPoint, srcContext, callerargs, dstFunc, dstContext
     ):
+        """Handle a function invocation.
+        
+        Processes a function call by:
+        1. Getting callee parameters
+        2. Mapping caller arguments to callee parameters
+        3. Creating split constraint (caller -> callee)
+        4. Creating merge constraint (callee -> caller)
+        
+        Args:
+            callPoint: Program point before call
+            returnPoint: Program point after call
+            srcContext: Caller context
+            callerargs: Caller arguments
+            dstFunc: Callee function code
+            dstContext: Callee context
+        """
         calleeparams = self.getCalleeParams(dstFunc)
 
         # HACK existing nodes return "None" which causes transfer to fail...

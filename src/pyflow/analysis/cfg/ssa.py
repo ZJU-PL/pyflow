@@ -91,7 +91,35 @@ class CollectModifies(TypeDispatcher):
 
 
 class SSARename(TypeDispatcher):
+    """Renames variables to SSA form during CFG traversal.
+    
+    This class performs the variable renaming phase of SSA construction.
+    It maintains a frame (mapping from original variables to SSA versions)
+    for each CFG block, and renames variables as it traverses the CFG.
+    
+    The renaming process:
+    - At each block, inherits the frame from its predecessor
+    - When a variable is defined, creates a new SSA version
+    - When a variable is used, uses the current SSA version from the frame
+    - At merge points, prepares for phi node insertion
+    
+    Attributes:
+        g: CFG Code object being transformed
+        rename: Set of variables that need renaming
+        merge: Dictionary mapping merge blocks to sets of variables needing phi nodes
+        frames: Dictionary mapping CFG blocks to variable frames
+        currentFrame: Current variable frame being built
+        read: Set of SSA variables that are read (used to determine if phi needed)
+        fixup: List of merge blocks that need phi node insertion
+    """
     def __init__(self, g, rename, merge):
+        """Initialize the SSA renamer.
+        
+        Args:
+            g: CFG Code object to transform
+            rename: Set of variables to rename
+            merge: Dictionary mapping merge blocks to variables needing phi nodes
+        """
         self.g = g
         self.rename = rename
         self.merge = merge
@@ -104,6 +132,18 @@ class SSARename(TypeDispatcher):
         self.fixup = []
 
     def clone(self, lcl, frame):
+        """Clone a local variable and add it to the frame.
+        
+        Creates a new SSA version of a local variable and records it
+        in the variable frame. Used when encountering a new definition.
+        
+        Args:
+            lcl: Original local variable (or None)
+            frame: Variable frame to add the clone to
+            
+        Returns:
+            ast.Local: Cloned local variable, or None if lcl is None
+        """
         if lcl:
             result = lcl.clone()
             frame[lcl] = result
@@ -292,6 +332,17 @@ class SSARename(TypeDispatcher):
 
     # Insert the merges, now that we know all the sources
     def doFixup(self):
+        """Insert phi nodes at merge points.
+        
+        After renaming is complete, inserts phi nodes at merge blocks
+        for variables that are read. The phi nodes merge values from
+        all predecessor blocks.
+        
+        Uses an iterative approach: only inserts phi nodes for variables
+        that are actually read. If a phi node's arguments include variables
+        that are read, those variables may need phi nodes too, so the
+        process repeats until fixed point.
+        """
         merges = []
 
         changed = True
@@ -308,7 +359,7 @@ class SSARename(TypeDispatcher):
                 target = self.frames[merge][name]
 
                 if target in self.read:
-
+                    # Variable is read, need phi node
                     arguments = []
                     for prev in merge.reverse():
                         arguments.append(self.frames[prev].get(name))
@@ -320,14 +371,36 @@ class SSARename(TypeDispatcher):
 
                     changed = True
                 else:
+                    # Variable not read, defer phi insertion
                     defer.append((merge, name))
 
             merges = defer
 
 
 def evaluate(compiler, g):
-    # Analysis
-
+    """Convert a CFG to SSA form.
+    
+    Main entry point for SSA conversion. Performs:
+    1. Dominance analysis to compute dominance frontiers
+    2. Collection of variable modifications
+    3. Computation of merge points for phi insertion
+    4. Variable renaming
+    5. Phi node insertion
+    
+    Args:
+        compiler: Compiler context (unused, kept for interface consistency)
+        g: CFG Code object to convert to SSA form
+        
+    Algorithm:
+        The algorithm follows the standard SSA construction:
+        1. Compute dominance frontiers using dominance analysis
+        2. For each variable, find all blocks that modify it
+        3. Compute iterated dominance frontier (IDF) for modification points
+        4. Variables modified in multiple blocks need renaming
+        5. Rename variables during reverse post-order traversal
+        6. Insert phi nodes at merge points for variables that are read
+    """
+    # Analysis: Compute dominance information
     def forward(node):
         return node.forward()
 
@@ -336,18 +409,18 @@ def evaluate(compiler, g):
 
     dom.evaluate([g.entryTerminal], forward, bind)
 
-    # Transform
-
+    # Transform: Collect variable modifications
     cm = CollectModifies()
     dfs = CFGDFS(post=cm)
     dfs.process(g.entryTerminal)
 
-    # Find the what variables we be renamed at what merge points
+    # Find which variables need renaming and at which merge points
     renames = set()
     merges = {}
 
-    # TODO linear verions of idf?
+    # TODO linear versions of idf?
     for k, v in cm.mod.items():
+        # Compute iterated dominance frontier for this variable's modifications
         idf = set()
         pending = set()
         pending.update(v)
@@ -359,6 +432,7 @@ def evaluate(compiler, g):
                     idf.add(child)
                     pending.add(child)
 
+        # Record merge points where phi nodes are needed
         for djnode in idf:
             if not djnode.node in merges:
                 merges[djnode.node] = set()
@@ -367,6 +441,7 @@ def evaluate(compiler, g):
         if idf:
             renames.add(k)
 
+    # Rename variables in reverse post-order (process definitions before uses)
     order = cm.order
     order.reverse()
 

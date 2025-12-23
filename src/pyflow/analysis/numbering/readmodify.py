@@ -1,17 +1,50 @@
+"""Read/modify analysis for numbering.
+
+This module provides FindReadModify, which analyzes AST nodes to determine
+which local variables and object fields are read and modified. This information
+is used for ESSA construction and other analyses that need to track variable
+usage.
+
+Key concepts:
+- Local reads: Local variables that are read
+- Local modifies: Local variables that are modified (assigned to)
+- Field reads: Object fields that are read
+- Field modifies: Object fields that are modified (stored to)
+"""
+
 from pyflow.util.typedispatch import *
 from pyflow.language.python import ast
 
 
 class ReadModifyInfo(object):
+    """Information about read/modify relationships for a node.
+    
+    ReadModifyInfo tracks which variables and fields are read and modified
+    by an AST node and its children.
+    
+    Attributes:
+        localRead: Set of Local nodes that are read
+        localModify: Set of Local nodes that are modified
+        fieldRead: Set of field references that are read
+        fieldModify: Set of field references that are modified
+    """
     __slots__ = "localRead", "localModify", "fieldRead", "fieldModify"
 
     def __init__(self):
+        """Initialize empty read/modify info."""
         self.localRead = set()
         self.localModify = set()
         self.fieldRead = set()
         self.fieldModify = set()
 
     def update(self, other):
+        """Update this info with information from another ReadModifyInfo.
+        
+        Merges read/modify sets from another ReadModifyInfo instance.
+        
+        Args:
+            other: ReadModifyInfo to merge from
+        """
         self.localRead.update(other.localRead)
         self.localModify.update(other.localModify)
         self.fieldRead.update(other.fieldRead)
@@ -19,8 +52,28 @@ class ReadModifyInfo(object):
 
 
 class FindReadModify(TypeDispatcher):
+    """Finds read/modify relationships for AST nodes.
+    
+    FindReadModify traverses AST nodes and determines which local variables
+    and object fields are read and modified. Results are stored in a lookup
+    table mapping nodes to ReadModifyInfo.
+    
+    Attributes:
+        lut: Dictionary mapping AST nodes to ReadModifyInfo
+    """
+    def __init__(self):
+        """Initialize read/modify finder."""
+        self.lut = {}
 
     def getListInfo(self, l):
+        """Get combined read/modify info for a list of nodes.
+        
+        Args:
+            l: List of AST nodes
+            
+        Returns:
+            ReadModifyInfo: Combined read/modify information
+        """
         info = ReadModifyInfo()
         for child in l:
             info.update(self(child))
@@ -175,6 +228,17 @@ class FindReadModify(TypeDispatcher):
         return info
 
     def processCode(self, code):
+        """Process a code object and find all read/modify relationships.
+        
+        Traverses the AST of a code object and builds a lookup table
+        mapping each node to its read/modify information.
+        
+        Args:
+            code: Code object to process
+            
+        Returns:
+            dict: Dictionary mapping AST nodes to ReadModifyInfo
+        """
         self.lut = {}
         self(code.ast)
         return self.lut

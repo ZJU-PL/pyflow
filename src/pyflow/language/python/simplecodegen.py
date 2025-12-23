@@ -1,3 +1,17 @@
+"""Simple code generation for Python AST.
+
+This module provides SimpleExprGen, which generates Python code from AST.
+It handles:
+- Expression generation: Converting AST expressions to Python code
+- Statement generation: Converting AST statements to Python code
+- Variable renaming: Generating unique names for local variables
+- Variable collapsing: Inlining collapsable variables
+- Constant handling: Proper representation of constants
+
+The code generator produces readable Python code that preserves the
+semantics of the original AST.
+"""
+
 import types
 import sys
 
@@ -16,6 +30,14 @@ isIdentifier = re.compile(r"^([a-zA-Z_]\w*)?$")
 
 
 def typeString(t):
+    """Convert type to string representation.
+    
+    Args:
+        t: Type object
+        
+    Returns:
+        str: String representation of type
+    """
     if t:
         return "<%s>" % ", ".join(set([str(label.baseType()) for label in t.labels]))
     else:
@@ -23,10 +45,23 @@ def typeString(t):
 
 
 class UncollapsableCodeError(Exception):
+    """Exception raised when code cannot be collapsed."""
     pass
 
 
 def getConstant(node, t=None):
+    """Extract constant value from an Existing node.
+    
+    Args:
+        node: Existing node with constant value
+        t: Expected type (optional, for validation)
+        
+    Returns:
+        object: Constant Python value
+        
+    Raises:
+        AssertionError: If node is not constant or wrong type
+    """
     assert isinstance(node, ast.Existing) and node.object.isConstant(), node
     if t != None:
         assert isinstance(node.object.pyobj, t)
@@ -34,6 +69,20 @@ def getConstant(node, t=None):
 
 
 def getExistingStr(node):
+    """Get string representation of an Existing node.
+    
+    For lexical constants, returns Python repr. For other objects,
+    returns a placeholder representation.
+    
+    Args:
+        node: Existing node
+        
+    Returns:
+        str: String representation
+        
+    Raises:
+        AssertionError: If node is not Existing
+    """
     assert isinstance(node, ast.Existing)
     if node.object.isLexicalConstant():
         return repr(node.object.pyobj)
@@ -46,9 +95,29 @@ def getExistingStr(node):
 
 
 class SimpleExprGen(TypeDispatcher):
+    """Simple code generator for Python AST.
+    
+    SimpleExprGen generates Python code from AST nodes. It handles:
+    - Expression generation: Converting expressions to Python code
+    - Variable renaming: Generating unique names for variables
+    - Variable collapsing: Inlining collapsable variables
+    - Constant representation: Proper handling of constants
+    
+    Attributes:
+        localLUT: Dictionary mapping Local nodes to generated names
+        names: Set of used names (for uniqueness)
+        uid: Unique identifier counter for name generation
+        collapsed: Dictionary mapping collapsed variables to their expressions
+        parent: Parent code generator (for nested code)
+    """
     __namedispatch__ = True  # HACK emulates old visitor
 
     def __init__(self, parent):
+        """Initialize code generator.
+        
+        Args:
+            parent: Parent code generator (or None for top-level)
+        """
         TypeDispatcher.__init__(self)
 
         # For renaming locals
@@ -61,6 +130,17 @@ class SimpleExprGen(TypeDispatcher):
         self.parent = parent
 
     def generateUniqueLocalName(self, base):
+        """Generate a unique local variable name.
+        
+        Generates a unique name based on base, appending a unique ID if needed.
+        Handles invalid identifiers from bytecode compiler.
+        
+        Args:
+            base: Base name for the variable
+            
+        Returns:
+            str: Unique variable name
+        """
         # The bytecode compiler can generate invalid names for list comprehensions/tuple comprehensions/etc.
         if not isIdentifier.match(base):
             base = ""
@@ -74,6 +154,16 @@ class SimpleExprGen(TypeDispatcher):
         return name
 
     def getLocalName(self, node):
+        """Get or generate a name for a local variable.
+        
+        Returns the generated name for a Local node, generating one if needed.
+        
+        Args:
+            node: Local node to get name for
+            
+        Returns:
+            str: Generated variable name
+        """
         # HACK assumes locals will not conflict with non-local names
         # TODO preregister globals and cells
         # TODO preregister "MakeFunction" names.
@@ -85,6 +175,15 @@ class SimpleExprGen(TypeDispatcher):
         return self.localLUT[node]
 
     def setLocalName(self, node, name):
+        """Set the name for a local variable.
+        
+        Args:
+            node: Local node to set name for
+            name: Name to set (None generates anonymous name)
+            
+        Raises:
+            AssertionError: If node already has a name
+        """
         assert not node in self.localLUT, "%r has already been named: %s." % (
             node,
             self.localLUT[node],

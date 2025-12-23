@@ -2,6 +2,15 @@
 
 This module implements dominance analysis algorithms for CFGs, including
 immediate dominance computation and dominance frontier analysis.
+
+Dominance analysis is fundamental for many CFG optimizations and analyses:
+- A node A dominates node B if all paths from entry to B pass through A
+- Immediate dominator (idom): The closest dominator of a node
+- Dominance frontier: Nodes where dominance ends (needed for SSA phi insertion)
+
+The module uses the DJ (Dominance-Join) graph representation, which combines
+the dominance tree with join node information for efficient dominance frontier
+computation using the iterated dominance frontier (IDF) algorithm.
 """
 
 from pyflow.util.graphalgorithim import dominator
@@ -218,10 +227,33 @@ class PlacePhi(object):
 # just the closest merges.
 # loose upper bound -> O(|E|*depth(DJTree))
 class FullIDF(object):
+    """Computes iterated dominance frontiers (IDF) for all nodes.
+    
+    The iterated dominance frontier of a set S is the set of all nodes
+    that are in the dominance frontier of S or in the dominance frontier
+    of any node in the IDF of S. This is needed for SSA phi node placement.
+    
+    This implementation uses a stack-based algorithm that processes the
+    dominance tree and adds join nodes to the IDF of all nodes on the
+    path from the join node to the root.
+    
+    Note: This finds the closest merges, not the entire dominance frontier.
+    Complexity: O(|E| * depth(DJTree))
+    """
     def __init__(self):
+        """Initialize the IDF computer."""
         self.stack = []
 
     def process(self, node):
+        """Process a node to compute its IDF.
+        
+        Uses a stack to track the path from root to current node. When
+        a join node is encountered, adds it to the IDF of all nodes on
+        the path from the join node's level to the current node's level.
+        
+        Args:
+            node: DJ node to process
+        """
         assert node.level == len(self.stack)
         self.stack.append(node)
 
@@ -237,6 +269,19 @@ class FullIDF(object):
 
 
 def evaluate(roots, forwardCallback, bindCallback):
+    """Evaluate dominance analysis for CFG roots.
+    
+    Computes immediate dominators, builds the DJ graph, numbers nodes,
+    and computes iterated dominance frontiers for all nodes.
+    
+    Args:
+        roots: List of root CFG nodes (typically entry terminals)
+        forwardCallback: Function to get successors of a node
+        bindCallback: Function to bind DJ node to CFG node
+        
+    Returns:
+        list: List of DJ nodes for the roots
+    """
     idoms = dominator.findIDoms(roots, forwardCallback)
     mdj = MakeDJGraph(idoms, forwardCallback, bindCallback)
     djs = [mdj.process(root) for root in roots]

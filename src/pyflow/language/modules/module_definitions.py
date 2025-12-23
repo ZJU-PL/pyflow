@@ -1,5 +1,15 @@
-"""This module handles module definitions
- which basically is a list of module definition."""
+"""Module definitions for tracking Python module imports and definitions.
+
+This module provides classes for tracking module definitions, imports, and
+their relationships. It maintains a global registry of project definitions
+and provides utilities for managing module-level definitions.
+
+Key concepts:
+- ModuleDefinition: Represents a single module definition
+- LocalModuleDefinition: Represents a local (project) module definition
+- ModuleDefinitions: Collection of module definitions for a module
+- project_definitions: Global registry of all project definitions
+"""
 
 import ast
 
@@ -10,7 +20,19 @@ project_definitions = dict()
 
 
 class ModuleDefinition():
-    """Handling of a definition."""
+    """Represents a module definition (class, function, etc.).
+    
+    ModuleDefinition tracks definitions within modules, including their
+    names, parent modules, and associated AST nodes. It handles both
+    top-level and nested module definitions.
+    
+    Attributes:
+        module_definitions: Local module definitions collection
+        name: Full qualified name of the definition
+        node: AST node for this definition (if available)
+        path: File path where definition is located
+        parent_module_name: Parent module name (for nested definitions)
+    """
     module_definitions = None
     name = None
     node = None
@@ -23,6 +45,14 @@ class ModuleDefinition():
         parent_module_name,
         path
     ):
+        """Initialize module definition.
+        
+        Args:
+            local_module_definitions: ModuleDefinitions collection
+            name: Name of the definition
+            parent_module_name: Parent module name (or None for top-level)
+            path: File path where definition is located
+        """
         self.module_definitions = local_module_definitions
         self.parent_module_name = parent_module_name
         self.path = path
@@ -46,14 +76,34 @@ class ModuleDefinition():
 
 
 class LocalModuleDefinition(ModuleDefinition):
-    """A local definition."""
+    """Represents a local (project) module definition.
+    
+    LocalModuleDefinition marks definitions that are defined in the
+    current project (not imported from external modules).
+    """
     pass
 
 
 class ModuleDefinitions():
-    """A collection of module definition.
-
-    Adds to the project definitions list.
+    """Collection of module definitions for a module.
+    
+    ModuleDefinitions manages definitions within a module, tracking:
+    - Imported definitions: Definitions imported from other modules
+    - Local definitions: Definitions defined in this module
+    - Class definitions: Class definitions in this module
+    - Import aliases: Mapping of import aliases to actual names
+    
+    It filters definitions based on import statements and maintains
+    a global registry of project definitions.
+    
+    Attributes:
+        import_names: List of names imported (or ["*"] for wildcard)
+        module_name: Name of the module (ast.alias or string)
+        is_init: Whether this is an __init__.py module
+        filename: Filename of the module
+        definitions: List of ModuleDefinition instances
+        classes: List of class definitions
+        import_alias_mapping: Dictionary mapping aliases to actual names
     """
 
     def __init__(
@@ -63,9 +113,13 @@ class ModuleDefinitions():
         is_init=False,
         filename=None
     ):
-        """Optionally set import names and module name.
-
-        Module name should only be set when it is a normal import statement.
+        """Initialize module definitions collection.
+        
+        Args:
+            import_names: List of imported names (or ["*"] for wildcard)
+            module_name: Module name (ast.alias or string, for normal imports)
+            is_init: Whether this is __init__.py module
+            filename: Filename of the module
         """
         self.import_names = import_names
         # module_name is sometimes ast.alias or a string
@@ -77,9 +131,18 @@ class ModuleDefinitions():
         self.import_alias_mapping = dict()
 
     def append_if_local_or_in_imports(self, definition):
-        """Add definition to list.
-
-        Handles local definitions and adds to project_definitions.
+        """Add definition if it's local or matches import names.
+        
+        Adds definition to collection if:
+        - It's a LocalModuleDefinition (local definition)
+        - Import is wildcard ("*")
+        - Definition name is in import_names
+        - Definition name matches an import alias
+        
+        Also adds to global project_definitions registry.
+        
+        Args:
+            definition: ModuleDefinition to add
         """
         if isinstance(definition, LocalModuleDefinition):
             self.definitions.append(definition)
@@ -98,13 +161,25 @@ class ModuleDefinitions():
             project_definitions[definition.node] = definition
 
     def get_definition(self, name):
-        """Get definitions by name."""
+        """Get definition by name.
+        
+        Args:
+            name: Name of definition to find
+            
+        Returns:
+            ModuleDefinition: Definition with matching name, or None
+        """
         for definition in self.definitions:
             if definition.name == name:
                 return definition
 
     def set_definition_node(self, node, name):
-        """Set definition by name."""
+        """Set the AST node for a definition by name.
+        
+        Args:
+            node: AST node to set
+            name: Name of definition to update
+        """
         definition = self.get_definition(name)
         if definition:
             definition.node = node

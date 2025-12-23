@@ -1,10 +1,34 @@
+"""Split constraints for IPA.
+
+Split constraints split values by type or exact object identity.
+They enable context-sensitive analysis by creating separate constraint
+nodes for different types/objects, allowing different calling contexts
+to be analyzed separately.
+"""
+
 from pyflow.language.python import ast
 from .base import Constraint
 from ..calling import cpa
 
 
 class Splitter(Constraint):
+    """Base class for split constraints.
+    
+    Splitters split a source node into multiple destination nodes based
+    on some criteria (type or exact object). Callbacks are notified when
+    splits change (enabling call graph updates).
+    
+    Attributes:
+        src: Source constraint node
+        dst: List of destination constraint nodes (one per split)
+        callbacks: List of callbacks to notify when splits change
+    """
     def __init__(self, src):
+        """Initialize splitter.
+        
+        Args:
+            src: Source ConstraintNode to split
+        """
         assert src.isNode(), src
         self.src = src
         self.dst = []
@@ -48,7 +72,25 @@ class Splitter(Constraint):
 
 
 class TypeSplitConstraint(Splitter):
+    """Splits values by CPA type.
+    
+    TypeSplitConstraint creates separate constraint nodes for each
+    CPA type that flows to the source. This enables type-based context
+    sensitivity: different types get different analysis contexts.
+    
+    If too many types appear (>= 4), becomes megamorphic and collapses
+    to a single node with anyType.
+    
+    Attributes:
+        objects: Dictionary mapping CPA type to destination node
+        megamorphic: Whether this split is megamorphic (too many types)
+    """
     def __init__(self, src):
+        """Initialize type split constraint.
+        
+        Args:
+            src: Source ConstraintNode to split by type
+        """
         Splitter.__init__(self, src)
         self.objects = {}
         self.megamorphic = False
@@ -93,7 +135,24 @@ class TypeSplitConstraint(Splitter):
 
 # TODO prevent over splitting?  All objects with the same qualifier should be grouped?
 class ExactSplitConstraint(Splitter):
+    """Splits values by exact object identity.
+    
+    ExactSplitConstraint creates separate constraint nodes for each
+    exact object that flows to the source. This enables object-sensitive
+    analysis: different objects get different analysis contexts.
+    
+    Note: This can create many splits. Consider using TypeSplitConstraint
+    for better scalability.
+    
+    Attributes:
+        objects: Dictionary mapping ObjectName to destination node
+    """
     def __init__(self, src):
+        """Initialize exact split constraint.
+        
+        Args:
+            src: Source ConstraintNode to split by exact object
+        """
         Splitter.__init__(self, src)
         self.objects = {}
 

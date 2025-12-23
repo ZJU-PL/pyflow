@@ -1,3 +1,16 @@
+"""Transfer functions for shape analysis.
+
+This module provides transfer functions that model how operations affect
+shape information. Transfer functions update reference counts, path
+information, and configurations based on operation semantics.
+
+Key functions:
+- assignmentConstraint: Models assignment operations
+- gcMerge: Garbage collection and merging
+- mapConfiguration: Maps configurations based on aliasing
+- updateHitMiss: Updates hit/miss information for paths
+"""
+
 from __future__ import absolute_import
 
 from pyflow.analysis.shape.model import expressions
@@ -8,6 +21,19 @@ import time
 
 
 def reachable(index, secondary):
+    """Check if a configuration is reachable.
+    
+    A configuration is reachable if it has references, external references,
+    or definite path hits. Configurations with no references and no definite
+    hits are considered unreachable (garbage).
+    
+    Args:
+        index: Configuration index
+        secondary: Secondary information
+        
+    Returns:
+        bool: True if configuration is reachable
+    """
     # Treat configurations with no references and no definite path hits as
     # unreachable, even if marked external.
     if not index.currentSet and not secondary.paths.hasCertainHit():
@@ -16,6 +42,19 @@ def reachable(index, secondary):
 
 
 def gcMerge(sys, point, context, index, secondary, canSteal=False):
+    """Garbage-collect and merge configuration.
+    
+    Checks if configuration is reachable, and if so, merges it into
+    the dataflow environment. Unreachable configurations are discarded.
+    
+    Args:
+        sys: RegionBasedShapeAnalysis instance
+        point: Program point
+        context: Analysis context
+        index: Configuration index
+        secondary: Secondary information
+        canSteal: Whether secondary can be stolen (not copied)
+    """
     reach = reachable(index, secondary)
     if not reach:
         return
@@ -24,6 +63,22 @@ def gcMerge(sys, point, context, index, secondary, canSteal=False):
 
 
 def mapConfiguration(sys, i, slot, b0, b1):
+    """Map configuration based on aliasing changes.
+    
+    Maps a configuration to new configurations based on how aliasing
+    changes in an assignment (e0 = e1). Updates reference counts
+    accordingly.
+    
+    Args:
+        sys: RegionBasedShapeAnalysis instance
+        i: Configuration index
+        slot: Slot being assigned to
+        b0: Whether e0 aliases configuration
+        b1: Whether e1 aliases configuration
+        
+    Returns:
+        tuple: Tuple of new configuration indices
+    """
     # e0 = e1
     # If neither points to the configuration i question, do nothing.
     # If both point to the configuration, there is no change, so do nothing.
@@ -133,6 +188,23 @@ def assign(sys, outpoint, context, e0, e1, b0, b1, i, paths, external):
 
 
 def assignmentConstraint(sys, outpoint, context, e1, e0, index, paths, external):
+    """Evaluate assignment constraint.
+    
+    Models assignment operation (e0 = e1) by:
+    1. Checking if expressions hit/miss the configuration
+    2. Splitting into cases based on hit/miss certainty
+    3. Updating reference counts and path information
+    
+    Args:
+        sys: RegionBasedShapeAnalysis instance
+        outpoint: Output program point
+        context: Analysis context
+        e1: Source expression
+        e0: Destination expression
+        index: Configuration index
+        paths: Path information
+        external: Whether external references exist
+    """
     assert e1.isExpression(), e1
     assert e0.isExpression(), e0
     assert not e0.isNull(), "Can't assign to 'null'"

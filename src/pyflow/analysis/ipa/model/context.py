@@ -1,3 +1,14 @@
+"""Context representation for IPA.
+
+Contexts represent analysis state for a function signature. Each
+context maintains:
+- Local variables and fields
+- Constraints (data flow relationships)
+- Call constraints (inter-procedural calls)
+- Invocations (connections to other contexts)
+- Summary (function summary for reuse)
+"""
+
 from . import invocation, region, objectname
 from pyflow.analysis.ipa.constraints import flow, calls, qualifiers, node
 
@@ -5,7 +16,50 @@ from pyflow.analysis.ipa.summary import Summary
 
 
 class Context(object):
+    """Represents analysis context for a function signature.
+    
+    Contexts are the fundamental unit of context-sensitive analysis.
+    Each unique (code, parameter types) combination gets its own context.
+    Contexts maintain:
+    - Variables: Local variables and fields
+    - Constraints: Data flow relationships
+    - Calls: Inter-procedural call constraints
+    - Invocations: Connections to other contexts
+    - Summary: Function summary for reuse
+    
+    Attributes:
+        analysis: IPAnalysis instance
+        signature: CPAContextSignature for this context
+        summary: Function summary
+        params: List of parameter constraint nodes
+        returns: List of return value constraint nodes
+        vparamField: List of variable parameter field nodes
+        foldObj: Folded object (if function can be folded)
+        region: Region managing objects in this context
+        locals: Dictionary mapping ast.Local to ConstraintNode
+        fields: Dictionary mapping (obj, fieldtype, name) to ConstraintNode
+        constraints: List of constraints in this context
+        calls: List of call constraints
+        ccalls: List of concrete call constraints
+        fcalls: List of flat call constraints
+        dirtycalls: Queue of dirty call constraints
+        dirtyccalls: Queue of dirty concrete calls
+        dirtyfcalls: Queue of dirty flat calls
+        invokeIn: Dictionary of incoming invocations
+        invokeOut: Dictionary of outgoing invocations
+        external: Whether this is an external context
+        dirtyflags: Queue of nodes with dirty flags
+        dirtyobjects: Queue of objects with dirty flags
+        dirtycriticals: Queue of nodes with dirty critical values
+        criticalStores: List of critical store constraints
+    """
     def __init__(self, analysis, signature):
+        """Initialize a context.
+        
+        Args:
+            analysis: IPAnalysis instance
+            signature: CPAContextSignature for this context
+        """
         self.analysis = analysis
         self.signature = signature
 

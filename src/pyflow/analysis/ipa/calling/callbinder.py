@@ -1,5 +1,29 @@
+"""Call binding for IPA.
+
+This module provides call binding functionality that connects call sites
+to callee contexts, transferring arguments and return values.
+"""
+
 class CallBinder(object):
+    """Binds call sites to callee contexts.
+    
+    CallBinder transfers arguments from call sites to callee parameters
+    and return values from callees back to call sites. It uses type
+    filtering to match call arguments to callee parameters.
+    
+    Attributes:
+        call: Call constraint (source)
+        invoke: Invocation connecting call to context
+        context: Callee context (destination)
+        params: Code parameters for the callee
+    """
     def __init__(self, call, context):
+        """Initialize call binder.
+        
+        Args:
+            call: Call constraint (FlatCallConstraint)
+            context: Callee context to bind to
+        """
         # Source
         self.call = call
         self.invoke = call.context.getInvoke(call.op, context)

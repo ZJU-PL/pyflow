@@ -1,8 +1,7 @@
 """Shape analysis for PyFlow.
 
 This package provides shape analysis capabilities that analyze the shapes and
-properties of data structures in Python programs, including region-based
-analysis and constraint-based shape inference.
+properties of data structures in Python programs, including region-based analysis and constraint-based shape inference.
 """
 
 from __future__ import absolute_import
@@ -79,11 +78,35 @@ class HeapInformationProvider(object):
 
 
 class OrderConstraints(object):
+    """Orders constraints by dependency for efficient processing.
+    
+    OrderConstraints performs topological sorting of constraints based on
+    their dependencies. Constraints that depend on others are processed
+    later, ensuring dependencies are satisfied before evaluation.
+    
+    Attributes:
+        sys: RegionBasedShapeAnalysis instance
+        entryCode: List of entry code objects
+    """
     def __init__(self, sys, entryCode):
+        """Initialize constraint orderer.
+        
+        Args:
+            sys: RegionBasedShapeAnalysis instance
+            entryCode: List of entry code objects
+        """
         self.sys = sys
         self.entryCode = entryCode
 
     def processConstraint(self, c):
+        """Process a constraint and assign priority.
+        
+        Recursively processes constraint dependencies and assigns priorities
+        in reverse topological order (dependencies get lower priorities).
+        
+        Args:
+            c: Constraint to process
+        """
         if c in self.processed:
             return
         self.processed.add(c)
@@ -97,6 +120,11 @@ class OrderConstraints(object):
         self.uid += 1
 
     def process(self):
+        """Process all constraints starting from entry points.
+        
+        Traverses constraints starting from entry code call points and
+        assigns priorities based on dependency order.
+        """
         self.uid = 1
         self.processed = set()
 
@@ -107,13 +135,50 @@ class OrderConstraints(object):
         self.sort()
 
     def sort(self):
+        """Sort constraint observers by priority.
+        
+        Sorts all constraint observers in each program point by their
+        assigned priority, ensuring dependencies are processed first.
+        """
         priority = lambda c: c.priority
         for observers in self.sys.environment.observers.values():
             observers.sort(reverse=False, key=priority)
 
 
 class RegionBasedShapeAnalysis(object):
+    """Main region-based shape analysis system.
+    
+    RegionBasedShapeAnalysis performs shape analysis on Python programs using
+    a region-based approach. It tracks:
+    - Object shapes: Structure and properties of data structures
+    - Reference counts: How many references point to each object
+    - Path information: Which paths through code access which objects
+    - Configurations: Shape configurations at program points
+    
+    The analysis uses a worklist algorithm to iteratively refine shape
+    information until a fixed point is reached.
+    
+    Attributes:
+        extractor: Program extractor for accessing code
+        canonical: CanonicalObjects for canonical naming
+        worklist: Worklist for constraint processing
+        environment: DataflowEnvironment managing analysis state
+        constraintbuilder: ShapeConstraintBuilder for building constraints
+        cpacanonical: Canonical objects from CPA analysis
+        info: HeapInformationProvider for heap information
+        pending: Set of code objects pending constraint building
+        visited: Set of code objects already visited
+        limit: Maximum number of worklist iterations
+        aborted: Set of objects where analysis was aborted (hit limit)
+    """
     def __init__(self, extractor, cpacanonical, info):
+        """Initialize region-based shape analysis.
+        
+        Args:
+            extractor: Program extractor
+            cpacanonical: Canonical objects from CPA
+            info: HeapInformationProvider
+        """
         self.extractor = extractor
         self.canonical = canonical.CanonicalObjects()
         self.worklist = dataflow.Worklist()
@@ -134,6 +199,15 @@ class RegionBasedShapeAnalysis(object):
         self.aborted = set()
 
     def process(self, trace=False, limit=0):
+        """Process constraints until fixed point or limit reached.
+        
+        Args:
+            trace: Whether to print trace information
+            limit: Maximum iterations (0 for no limit)
+            
+        Returns:
+            bool: True if fixed point reached, False if limit hit
+        """
         success = self.worklist.process(self, trace, limit)
         if not success:
             print("ITERATION LIMIT HIT")
@@ -141,17 +215,35 @@ class RegionBasedShapeAnalysis(object):
         return success
 
     def processCode(self, code):
+        """Mark code for constraint building.
+        
+        Args:
+            code: Code object to process
+        """
         if code not in self.visited:
             self.pending.add(code)
             self.visited.add(code)
 
     def build(self):
+        """Build constraints for all pending code objects.
+        
+        Processes all code objects in the pending set, building constraints
+        for each one.
+        """
         while self.pending:
             current = self.pending.pop()
             print("BUILD", current)
             self.constraintbuilder.process(current)
 
     def buildStructures(self, entryCode):
+        """Build constraint structures for entry code.
+        
+        Processes entry code objects, builds constraints, and orders them
+        by dependency.
+        
+        Args:
+            entryCode: List of entry code objects
+        """
         for code in entryCode:
             self.processCode(code)
         self.build()
@@ -160,6 +252,16 @@ class RegionBasedShapeAnalysis(object):
         order.process()
 
     def addEntryPoint(self, code, selfobj, args):
+        """Add an entry point and analyze it.
+        
+        Processes an entry point by binding existing objects and analyzing
+        their shapes. Aborts if iteration limit is hit.
+        
+        Args:
+            code: Entry point code object
+            selfobj: Self object (or None)
+            args: List of argument objects
+        """
         self.processCode(code)
         self.build()
 
@@ -274,6 +376,22 @@ import collections
 
 
 def evaluate(compiler):
+    """Run complete shape analysis on a program.
+    
+    Main entry point for shape analysis. Performs:
+    1. Region analysis: Groups aliasing objects
+    2. Constraint building: Builds constraints from AST
+    3. Constraint ordering: Orders constraints by dependency
+    4. Entry point analysis: Analyzes entry points
+    5. Allocation handling: Processes object allocations
+    6. Result reporting: Prints analysis results
+    
+    Args:
+        compiler: Compiler instance with program information
+        
+    Returns:
+        RegionBasedShapeAnalysis: Analysis results (or None)
+    """
     with compiler.console.scope("shape analysis"):
         # Access interface and liveCode through program if available
         if hasattr(compiler, 'program') and compiler.program:

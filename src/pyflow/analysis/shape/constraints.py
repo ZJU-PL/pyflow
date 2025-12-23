@@ -1,3 +1,16 @@
+"""Shape analysis constraints.
+
+This module defines constraints for shape analysis that model how operations
+affect object shapes, reference counts, and path information.
+
+Constraint types:
+- AssignmentConstraint: Assignment operations (x = y)
+- CopyConstraint: Copy operations (state propagation)
+- ForgetConstraint: Forget operations (kill variables)
+- SplitConstraint: Function call splits (caller/callee separation)
+- MergeConstraint: Function return merges (callee/caller combination)
+"""
+
 from __future__ import absolute_import
 
 from . import transferfunctions
@@ -8,6 +21,17 @@ seperateExternal = False
 
 
 def isPoint(point):
+    """Check if a value is a valid program point.
+    
+    Program points are tuples (code, uid) where code is a code object
+    and uid is an integer identifier.
+    
+    Args:
+        point: Value to check
+        
+    Returns:
+        bool: True if valid program point
+    """
     if isinstance(point, tuple) and len(point) == 2:
         if isinstance(point[1], int):
             return True
@@ -15,9 +39,27 @@ def isPoint(point):
 
 
 class Constraint(object):
+    """Base class for shape analysis constraints.
+    
+    Constraints model data flow operations in shape analysis. They connect
+    program points and propagate shape information (configurations and
+    secondary information) through the program.
+    
+    Attributes:
+        inputPoint: Program point where constraint reads from
+        outputPoint: Program point where constraint writes to
+        priority: Priority for constraint ordering (lower = earlier)
+    """
     __slots__ = "parent", "inputPoint", "outputPoint", "priority"
 
     def __init__(self, sys, inputPoint, outputPoint):
+        """Initialize a constraint.
+        
+        Args:
+            sys: RegionBasedShapeAnalysis instance
+            inputPoint: Input program point
+            outputPoint: Output program point
+        """
         assert isPoint(inputPoint), inputPoint
         assert isPoint(outputPoint), outputPoint
         self.inputPoint = inputPoint
@@ -41,9 +83,28 @@ class Constraint(object):
 
 
 class AssignmentConstraint(Constraint):
+    """Constraint for assignment operations.
+    
+    AssignmentConstraint models assignment operations (x = y). It propagates
+    shape information from source to destination, updating reference counts
+    and path information based on aliasing relationships.
+    
+    Attributes:
+        sourceExpr: Expression being assigned (source)
+        destinationExpr: Expression receiving assignment (destination)
+    """
     __slots__ = "sourceExpr", "destinationExpr"
 
     def __init__(self, sys, inputPoint, outputPoint, sourceExpr, destinationExpr):
+        """Initialize assignment constraint.
+        
+        Args:
+            sys: RegionBasedShapeAnalysis instance
+            inputPoint: Input program point
+            outputPoint: Output program point
+            sourceExpr: Source expression
+            destinationExpr: Destination expression
+        """
         Constraint.__init__(self, sys, inputPoint, outputPoint)
 
         assert sourceExpr.isExpression(), sourceExpr
@@ -69,9 +130,27 @@ class AssignmentConstraint(Constraint):
 
 
 class CopyConstraint(Constraint):
+    """Constraint for copying state between program points.
+    
+    CopyConstraint models state copying operations (e.g., control flow
+    merging). It propagates shape information unchanged from input to
+    output point.
+    """
     __slots__ = ()
 
     def evaluate(self, sys, point, context, configuration, secondary):
+        """Evaluate copy constraint.
+        
+        Simply propagates configuration and secondary information to
+        output point.
+        
+        Args:
+            sys: RegionBasedShapeAnalysis instance
+            point: Current program point
+            context: Analysis context
+            configuration: Shape configuration
+            secondary: Secondary information
+        """
         # Simply changes the program point.
         transferfunctions.gcMerge(
             sys, self.outputPoint, context, configuration, secondary
@@ -79,9 +158,26 @@ class CopyConstraint(Constraint):
 
 
 class ForgetConstraint(Constraint):
+    """Constraint for forgetting/killing variables.
+    
+    ForgetConstraint models variable death (e.g., leaving scope). It
+    removes shape information for specified slots, decrementing reference
+    counts appropriately.
+    
+    Attributes:
+        forget: Set of slots to forget
+    """
     __slots__ = "forget"
 
     def __init__(self, sys, inputPoint, outputPoint, forget):
+        """Initialize forget constraint.
+        
+        Args:
+            sys: RegionBasedShapeAnalysis instance
+            inputPoint: Input program point
+            outputPoint: Output program point
+            forget: Set of slots to forget
+        """
         Constraint.__init__(self, sys, inputPoint, outputPoint)
 
         for slot in forget:
@@ -97,7 +193,28 @@ class ForgetConstraint(Constraint):
 
 
 class SplitMergeInfo(object):
+    """Information for split/merge constraints (function calls).
+    
+    SplitMergeInfo manages information flow for function calls:
+    - Split: Separates caller and callee information
+    - Merge: Combines callee results back into caller
+    
+    It tracks parameter slots, extended parameters, and mappings for
+    return value transfer.
+    
+    Attributes:
+        parameterSlots: Set of parameter slots
+        extendedParameters: Set of extended parameters
+        remoteLUT: Lookup table for remote (callee) configurations
+        localLUT: Lookup table for local (caller) configurations
+        mapping: Mapping for return value transfer
+    """
     def __init__(self, parameterSlots):
+        """Initialize split/merge info.
+        
+        Args:
+            parameterSlots: Set of parameter slots
+        """
         self.parameterSlots = parameterSlots
         self.extendedParameters = set()
 
@@ -175,9 +292,26 @@ class SplitMergeInfo(object):
 
 
 class SplitConstraint(Constraint):
+    """Constraint for function call splits.
+    
+    SplitConstraint models function calls by splitting shape information
+    into local (caller) and remote (callee) portions. It separates
+    accessed and non-accessed information based on parameter usage.
+    
+    Attributes:
+        info: SplitMergeInfo for this split
+    """
     __slots__ = "info"
 
     def __init__(self, sys, inputPoint, outputPoint, info):
+        """Initialize split constraint.
+        
+        Args:
+            sys: RegionBasedShapeAnalysis instance
+            inputPoint: Input program point (before call)
+            outputPoint: Output program point (callee entry)
+            info: SplitMergeInfo for this split
+        """
         Constraint.__init__(self, sys, inputPoint, outputPoint)
         self.info = info
 
@@ -262,9 +396,26 @@ class SplitConstraint(Constraint):
 
 
 class MergeConstraint(Constraint):
+    """Constraint for function return merges.
+    
+    MergeConstraint models function returns by merging callee results
+    back into caller state. It combines local and remote configurations,
+    remaps return values, and updates reference counts.
+    
+    Attributes:
+        info: SplitMergeInfo for this merge
+    """
     __slots__ = "info"
 
     def __init__(self, sys, inputPoint, outputPoint, info):
+        """Initialize merge constraint.
+        
+        Args:
+            sys: RegionBasedShapeAnalysis instance
+            inputPoint: Input program point (callee return)
+            outputPoint: Output program point (after call)
+            info: SplitMergeInfo for this merge
+        """
         Constraint.__init__(self, sys, inputPoint, outputPoint)
         self.info = info
         info.merge = self  # Cirular reference?

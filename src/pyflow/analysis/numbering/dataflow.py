@@ -1,3 +1,14 @@
+"""Forward dataflow graph construction for numbering analysis.
+
+This module provides ForwardDataflow, which constructs forward dataflow
+graphs from Python AST. These graphs represent control flow relationships
+and are used for dominance analysis and numbering.
+
+The graph distinguishes between:
+- Symbolic nodes: (node, "entry") and (node, "exit") for control structures
+- Concrete nodes: Direct AST nodes for simple statements
+"""
+
 from pyflow.util.typedispatch import *
 from pyflow.language.python import ast
 
@@ -5,7 +16,31 @@ import collections
 
 
 class ForwardDataflow(TypeDispatcher):
+    """Constructs forward dataflow graphs from AST.
+    
+    ForwardDataflow traverses Python AST and builds a forward dataflow
+    graph representing control flow. The graph uses:
+    - Symbolic nodes: For control structures (loops, conditionals)
+    - Concrete nodes: For simple statements (assignments, etc.)
+    
+    Attributes:
+        next: Dictionary mapping nodes to list of successor nodes
+        entry: Dictionary mapping AST nodes to entry graph nodes
+        exit: Dictionary mapping AST nodes to exit graph nodes
+        returnExit: Exit node for return statements
+    """
     def makeSymbolic(self, node):
+        """Create symbolic entry/exit nodes for a control structure.
+        
+        Symbolic nodes are tuples (node, "entry") or (node, "exit")
+        that represent control flow boundaries for complex structures.
+        
+        Args:
+            node: AST node to create symbolic nodes for
+            
+        Returns:
+            tuple: (entry node, exit node)
+        """
         entry = (node, "entry")
         exit = (node, "exit")
 
@@ -15,6 +50,17 @@ class ForwardDataflow(TypeDispatcher):
         return entry, exit
 
     def makeConcrete(self, node):
+        """Create concrete entry/exit nodes (same as node itself).
+        
+        Concrete nodes use the AST node directly as both entry and exit.
+        Used for simple statements that don't need symbolic boundaries.
+        
+        Args:
+            node: AST node to create concrete nodes for
+            
+        Returns:
+            tuple: (entry node, exit node) - both are the same node
+        """
         entry = node
         exit = node
         self.entry[node] = entry
@@ -22,9 +68,23 @@ class ForwardDataflow(TypeDispatcher):
         return entry, exit
 
     def link(self, prev, next):
+        """Link two AST nodes in the dataflow graph.
+        
+        Creates an edge from prev's exit to next's entry.
+        
+        Args:
+            prev: Previous AST node
+            next: Next AST node
+        """
         self._link(self.exit[prev], self.entry[next])
 
     def _link(self, prev, next):
+        """Internal method to link graph nodes.
+        
+        Args:
+            prev: Previous graph node
+            next: Next graph node
+        """
         if prev is not None:
             self.next[prev].append(next)
 
@@ -126,6 +186,17 @@ class ForwardDataflow(TypeDispatcher):
         self._link(prev, exit)
 
     def processCode(self, code):
+        """Process a code object and build its dataflow graph.
+        
+        Traverses the AST of a code object and builds a forward dataflow
+        graph representing control flow relationships.
+        
+        Args:
+            code: Code object to process
+            
+        Returns:
+            dict: Dictionary mapping nodes to list of successor nodes
+        """
         self.next = collections.defaultdict(list)
         self.entry = {}
         self.exit = {}

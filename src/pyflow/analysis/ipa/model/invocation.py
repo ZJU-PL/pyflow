@@ -1,3 +1,9 @@
+"""Invocation representation for IPA.
+
+Invocations connect caller and callee contexts, managing bidirectional
+value transfer (parameters down, returns up) and object remapping.
+"""
+
 import collections
 from . import objectname
 from pyflow.analysis.ipa.constraints import flow, qualifiers
@@ -6,7 +12,32 @@ import itertools
 
 
 class Invocation(object):
+    """Represents an invocation from caller to callee context.
+    
+    Invocations manage bidirectional value transfer:
+    - Downward: Parameters from caller to callee
+    - Upward: Returns from callee to caller
+    
+    Objects are remapped between contexts (caller objects become
+    callee objects with DN qualifier).
+    
+    Attributes:
+        src: Caller context
+        op: AST operation (Call, DirectCall, etc.)
+        dst: Callee context
+        constraints: List of DownwardConstraints for parameter transfer
+        objForward: Dictionary mapping caller objects to callee objects
+        objReverse: Dictionary mapping callee objects to caller objects
+        slotReverse: Dictionary mapping callee slots to caller slots
+    """
     def __init__(self, src, op, dst):
+        """Initialize an invocation.
+        
+        Args:
+            src: Caller context
+            op: AST operation
+            dst: Callee context
+        """
         self.src = src
         self.op = op
         self.dst = dst

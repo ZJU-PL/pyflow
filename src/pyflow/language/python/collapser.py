@@ -1,9 +1,40 @@
+"""Variable collapsing for Python AST.
+
+This module provides Collapser, which identifies variables that can be
+collapsed (inlined) because they have a single definition and are used
+in a limited scope. Collapsing enables optimizations like:
+- Removing temporary variables
+- Inlining simple expressions
+- Reducing variable overhead
+
+Collapsing is performed by analyzing def-use chains and identifying
+variables that are safe to collapse.
+"""
+
 from pyflow.util.typedispatch import *
 from pyflow.language.python import ast
 
 
 class Collapser(TypeDispatcher):
+    """Identifies variables that can be collapsed (inlined).
+    
+    Collapser analyzes AST to find variables with single definitions
+    that can be safely inlined. It maintains a stack of potentially
+    collapsable variables and marks them when safe.
+    
+    Attributes:
+        defines: Dictionary mapping variables to list of definition locations
+        uses: Dictionary mapping variables to list of use locations
+        stack: Stack of potentially collapsable variables
+        collapsable: Set of variables that can be collapsed
+    """
     def __init__(self, defines, uses):
+        """Initialize collapser.
+        
+        Args:
+            defines: Dictionary mapping variables to definition locations
+            uses: Dictionary mapping variables to use locations
+        """
         TypeDispatcher.__init__(self)
         self.defines = defines
         self.uses = uses

@@ -1,3 +1,10 @@
+"""Constraint extraction from AST for IPA.
+
+This module extracts constraints from Python AST, converting AST nodes
+into IPA constraint nodes and constraints. It traverses the AST and
+builds the constraint graph for inter-procedural analysis.
+"""
+
 from pyflow.util.typedispatch import *
 from pyflow.language.python import ast, program
 from .constraints import qualifiers
@@ -5,20 +12,48 @@ from .calling import cpa
 
 
 class MarkParameters(TypeDispatcher):
+    """Marks function parameters as critical values.
+    
+    Parameters are marked as critical because they may escape the function
+    (passed to callees or returned). This enables escape analysis to track
+    parameter values precisely.
+    """
     def __init__(self, ce):
+        """Initialize parameter marker.
+        
+        Args:
+            ce: ConstraintExtractor instance
+        """
         self.ce = ce
 
     @dispatch(type(None), ast.DoNotCare)
     def visitNone(self, node):
+        """Handle None or DoNotCare parameters (ignored).
+        
+        Args:
+            node: None or DoNotCare node
+        """
         pass
 
     @dispatch(ast.Local)
     def visitLocal(self, node):
+        """Mark a local parameter as critical.
+        
+        Args:
+            node: AST Local node for parameter
+        """
         cnode = self.ce(node)
         self.ce.context.params.append(cnode)
         cnode.critical.markCritical(self.ce.context, cnode)
 
     def process(self, codeParameters):
+        """Process all function parameters.
+        
+        Marks selfparam, params, vparam, kparam, and returnparams as critical.
+        
+        Args:
+            codeParameters: CodeParameters object from code
+        """
         self(codeParameters.selfparam)
         for param in codeParameters.params:
             self(param)
@@ -31,7 +66,30 @@ class MarkParameters(TypeDispatcher):
 
 
 class ConstraintExtractor(TypeDispatcher):
+    """Extracts constraints from Python AST.
+    
+    This class traverses AST nodes and converts them into IPA constraints.
+    It handles:
+    - Local variables
+    - Existing objects (constants, globals)
+    - Function calls
+    - Memory operations (loads, stores, allocations)
+    - Control flow (loops, conditionals)
+    
+    Attributes:
+        analysis: IPAnalysis instance
+        context: Context to extract constraints into
+        code: Code object being processed
+        existing: Dictionary mapping existing objects to constraint nodes
+    """
     def __init__(self, analysis, context, code):
+        """Initialize constraint extractor.
+        
+        Args:
+            analysis: IPAnalysis instance
+            context: Context to extract constraints into
+            code: Code object to process
+        """
         self.analysis = analysis
         self.context = context
         self.code = code

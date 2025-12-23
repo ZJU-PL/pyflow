@@ -1,3 +1,24 @@
+"""CFG to Dataflow IR conversion.
+
+This module converts Control Flow Graphs (CFGs) into Dataflow IR representation.
+The conversion process:
+
+1. Traverses CFG operations in control flow order
+2. Maintains state for each control flow path (with predicates)
+3. Creates dataflow nodes (slots and operations) for each CFG operation
+4. Handles control flow merging with gated merges
+5. Builds complete dataflow graph with entry/exit nodes
+
+Key concepts:
+- **State**: Represents the state of variables at a point in control flow
+- **Predicates**: Control flow conditions that gate operations
+- **Hyperblocks**: Regions where control flow is shared
+- **Gated merges**: Merges that combine values from different control paths
+
+The conversion enables flow-sensitive data flow analysis by representing
+control flow dependencies explicitly in the dataflow graph.
+"""
+
 from pyflow.util.typedispatch import *
 from pyflow.language.python import ast
 
@@ -8,19 +29,63 @@ from pyflow.analysis.dataflowIR.transform import dce
 
 
 class AbstractState(object):
+    """Abstract base class for state representation during CFG conversion.
+    
+    State represents the values of variables at a point in control flow.
+    Different state types handle different scenarios:
+    - State: Normal state with parent for inheritance
+    - DeferedEntryPoint: Entry point state (parameters, existing objects)
+    - DeferedMerge: Merge point state (combines multiple paths)
+    
+    Attributes:
+        hyperblock: Hyperblock this state belongs to
+        predicate: PredicateNode representing control flow condition
+        slots: Dictionary mapping variable slots to their dataflow nodes
+    """
     def __init__(self, hyperblock, predicate):
+        """Initialize abstract state.
+        
+        Args:
+            hyperblock: Hyperblock for this state
+            predicate: PredicateNode for control flow condition
+        """
         assert predicate.hyperblock is hyperblock
         self.hyperblock = hyperblock
         self.predicate = predicate
         self.slots = {}
 
     def freeze(self):
+        """Freeze this state (prevent further modifications).
+        
+        Used when state is split or merged to prevent inconsistent updates.
+        """
         pass
 
     def split(self, predicates):
+        """Split this state into multiple states for different predicates.
+        
+        Creates new State objects for each predicate, inheriting from this state.
+        
+        Args:
+            predicates: List of PredicateNodes for different paths
+            
+        Returns:
+            list: List of State objects, one per predicate
+        """
         return [State(self.hyperblock, predicate, self) for predicate in predicates]
 
     def get(self, slot):
+        """Get the dataflow node for a variable slot.
+        
+        If slot hasn't been seen before, generates it using generate().
+        Otherwise returns cached value.
+        
+        Args:
+            slot: Variable slot (ast.Local, ast.Existing, or SlotNode)
+            
+        Returns:
+            SlotNode: Dataflow node for the slot
+        """
         if slot not in self.slots:
             result = self.generate(slot)
             self.slots[slot] = result
@@ -29,11 +94,39 @@ class AbstractState(object):
         return result
 
     def generate(self, slot):
+        """Generate a dataflow node for a slot (must be implemented by subclasses).
+        
+        Args:
+            slot: Variable slot to generate node for
+            
+        Returns:
+            SlotNode: Generated dataflow node
+            
+        Raises:
+            NotImplementedError: Must be implemented by subclasses
+        """
         raise NotImplementedError
 
 
 class State(AbstractState):
+    """Normal state with parent inheritance.
+    
+    State represents variable values along a control flow path. It inherits
+    values from a parent state and can override them. When frozen, it cannot
+    be modified (used when state is split or merged).
+    
+    Attributes:
+        parent: Parent state to inherit values from
+        frozen: Whether this state can be modified
+    """
     def __init__(self, hyperblock, predicate, parent):
+        """Initialize a state with parent.
+        
+        Args:
+            hyperblock: Hyperblock for this state
+            predicate: PredicateNode for control flow condition
+            parent: Parent state to inherit from
+        """
         AbstractState.__init__(self, hyperblock, predicate)
         self.parent = parent
         self.frozen = False
@@ -43,17 +136,47 @@ class State(AbstractState):
         parent.freeze()
 
     def freeze(self):
+        """Freeze this state to prevent modifications."""
         self.frozen = True
 
     def generate(self, slot):
+        """Generate node by inheriting from parent.
+        
+        Args:
+            slot: Variable slot
+            
+        Returns:
+            SlotNode: Node from parent state
+        """
         return self.parent.get(slot)
 
     def set(self, slot, value):
+        """Set a variable value in this state.
+        
+        Args:
+            slot: Variable slot
+            value: Dataflow node value
+            
+        Raises:
+            AssertionError: If state is frozen
+        """
         assert not self.frozen
         self.slots[slot] = value
 
 
 def gate(pred, value):
+    """Create a gated operation that conditionally passes a value.
+    
+    A gate operation passes a value through only when its predicate is true.
+    This is used to represent conditional values in the dataflow graph.
+    
+    Args:
+        pred: PredicateNode controlling the gate
+        value: SlotNode value to gate
+        
+    Returns:
+        SlotNode: Gated value (output of gate operation)
+    """
     gate = graph.Gate(pred.hyperblock)
     gate.setPredicate(pred)
     gate.addRead(value)
@@ -69,6 +192,22 @@ def gate(pred, value):
 
 
 def gatedMerge(hyperblock, pairs):
+    """Create a gated merge combining values from multiple control paths.
+    
+    A gated merge combines values from different control flow paths, each
+    gated by its predicate. The result is a value that depends on which
+    path was taken.
+    
+    Args:
+        hyperblock: Hyperblock for the merge
+        pairs: List of (predicate, value) tuples for each path
+        
+    Returns:
+        SlotNode: Merged value (output of merge operation)
+        
+    Note:
+        TODO: Handle single-pair case (should this create a gate instead?)
+    """
     if len(pairs) == 1:
         assert False, "single gated merge?"
         pred, value = pairs[0]
@@ -137,7 +276,31 @@ class DeferedEntryPoint(AbstractState):
 
 
 class CodeToDataflow(TypeDispatcher):
+    """Converts CFG Code objects to Dataflow IR.
+    
+    This class traverses CFG operations and converts them to dataflow graph
+    nodes. It maintains state for each control flow path and handles:
+    - Variable reads and writes
+    - Control flow branching (splits)
+    - Control flow merging (gated merges)
+    - Memory operations (loads, stores, allocations)
+    - Function entry and exit
+    
+    Attributes:
+        uid: Unique identifier counter for hyperblocks
+        code: CFG Code object being converted
+        dataflow: DataflowGraph being built
+        entryState: Entry point state (handles parameters, existing objects)
+        current: Current state being processed
+        returns: List of return states (for exit construction)
+        allModified: Set of all variables modified in the function
+    """
     def __init__(self, code):
+        """Initialize CFG to dataflow converter.
+        
+        Args:
+            code: CFG Code object to convert
+        """
         self.uid = 0
         hyperblock = self.newHyperblock()
 

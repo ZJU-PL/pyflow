@@ -1,3 +1,17 @@
+"""Def-use analysis for Python AST.
+
+This module provides def-use analysis, which tracks where variables are
+defined (assigned) and used (read). This information is essential for:
+- Variable collapsing: Finding variables that can be inlined
+- Dead code elimination: Finding unused variables
+- Data flow analysis: Understanding variable lifetimes
+
+The analysis distinguishes between:
+- Local variables: Function-local variables
+- Global variables: Module-level variables
+- Cell variables: Closure variables (nonlocal)
+"""
+
 from pyflow.util.typedispatch import *
 from pyflow.language.python import ast
 
@@ -5,11 +19,32 @@ import collections
 
 
 class DFS(object):
+    """Depth-first search visitor for AST traversal.
+    
+    DFS performs depth-first traversal of AST, calling a pre-order
+    callback for each node. It handles code nodes specially to avoid
+    revisiting shared code definitions.
+    
+    Attributes:
+        pre: Pre-order callback function(node)
+        visited: Set of visited code nodes
+    """
     def __init__(self, pre):
+        """Initialize DFS visitor.
+        
+        Args:
+            pre: Pre-order callback function
+        """
         self.pre = pre
         self.visited = set()
 
     def visit(self, node, force=False):
+        """Visit a node and traverse its children.
+        
+        Args:
+            node: AST node to visit
+            force: Whether to force traversal (even if already visited)
+        """
         if isinstance(node, ast.Code):
             if node in self.visited:
                 return
@@ -32,12 +67,33 @@ class DFS(object):
             node.visitChildren(self.visit)
 
     def process(self, node):
+        """Process a node (entry point for traversal).
+        
+        Args:
+            node: Root node to traverse
+        """
         # Force the traversal of the entry point.
         self.visit(node, force=True)
 
 
 class DefUseVisitor(TypeDispatcher):
+    """Visitor that collects def-use information for variables.
+    
+    DefUseVisitor traverses AST and collects:
+    - Local variable definitions and uses
+    - Global variable definitions and uses
+    - Cell variable definitions and uses
+    
+    Attributes:
+        lcldef: Dictionary mapping local variables to definition locations
+        lcluse: Dictionary mapping local variables to use locations
+        globaldef: Dictionary mapping global names to definition locations
+        globaluse: Dictionary mapping global names to use locations
+        celldef: Dictionary mapping cell variables to definition locations
+        celluse: Dictionary mapping cell variables to use locations
+    """
     def __init__(self):
+        """Initialize def-use visitor."""
         TypeDispatcher.__init__(self)
 
         self.lcldef = collections.defaultdict(list)

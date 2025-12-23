@@ -1,3 +1,23 @@
+"""Constraint extractor for CPA (Constraint-based Analysis).
+
+This module provides the ExtractDataflow class, which traverses Python AST nodes
+and extracts constraints representing data flow relationships. The extractor visits
+each AST node and creates appropriate constraints in the CPA system.
+
+The extractor handles:
+- Variable assignments and data flow
+- Function calls (direct and indirect)
+- Object field access (load/store)
+- Object allocation
+- Control flow (switches, loops)
+- Type checks and assertions
+
+Key design:
+- Uses TypeDispatcher for AST traversal
+- Creates constraints lazily (only once per node)
+- Handles complex Python constructs (closures, generators, etc.)
+"""
+
 from pyflow.util.typedispatch import *
 from pyflow.language.asttools.origin import originString
 
@@ -18,7 +38,31 @@ import pyflow.analysis as analysis
 
 
 class ExtractDataflow(TypeDispatcher):
+    """Extracts data flow constraints from Python AST nodes.
+    
+    This class traverses the AST representation of Python code and creates
+    constraints that model data flow relationships. It uses the TypeDispatcher
+    pattern to visit different AST node types and extract appropriate constraints.
+    
+    The extractor operates in a specific analysis context and creates constraints
+    that connect abstract values (slots) in the store graph. Constraints are
+    created lazily - each node is processed only once to avoid redundant work.
+    
+    Attributes:
+        system: The CPA system instance (InterproceduralDataflow)
+        context: AnalysisContext for this extraction
+        folded: Whether this function was constant-folded
+        code: Code object being analyzed
+        processed: Set of nodes that have been processed (currently unused)
+    """
     def __init__(self, system, context, folded):
+        """Initialize the constraint extractor.
+        
+        Args:
+            system: The CPA system instance
+            context: AnalysisContext for this extraction
+            folded: Whether the function was constant-folded (skip constraint extraction)
+        """
         self.system = system
         self.context = context
         self.folded = folded
@@ -28,9 +72,26 @@ class ExtractDataflow(TypeDispatcher):
 
     @property
     def exports(self):
+        """Get exports from the extractor's stubs.
+        
+        Returns:
+            Dictionary of exported stub functions
+        """
         return self.system.extractor.stubs.exports
 
     def doOnce(self, node):
+        """Check if a node should be processed (currently always True).
+        
+        This method is intended to ensure nodes are only processed once,
+        but currently always returns True. The processed set is maintained
+        for potential future use.
+        
+        Args:
+            node: AST node to check
+            
+        Returns:
+            bool: Always True (process the node)
+        """
         return True
 
         if not node in self.processed:
@@ -40,6 +101,17 @@ class ExtractDataflow(TypeDispatcher):
             return False
 
     def localSlot(self, lcl):
+        """Get the store graph slot for a local variable.
+        
+        Maps an AST Local node to its corresponding slot in the store graph
+        for this analysis context.
+        
+        Args:
+            lcl: AST Local node (or None)
+            
+        Returns:
+            SlotNode for the local variable, or None
+        """
         if lcl is not None:
             sys = self.system
             name = sys.canonical.localName(self.code, lcl, self.context)
@@ -49,12 +121,34 @@ class ExtractDataflow(TypeDispatcher):
             return None
 
     def existingSlot(self, obj):
+        """Get the store graph slot for an existing object.
+        
+        Maps a Python object to its corresponding slot in the store graph.
+        Used for constants and other existing objects.
+        
+        Args:
+            obj: Python object (program.Object)
+            
+        Returns:
+            SlotNode for the existing object
+        """
         sys = self.system
         name = sys.canonical.existingName(self.code, obj, self.context)
         group = self.context.group
         return group.root(name)
 
     def contextOp(self, node):
+        """Get the operation context for an AST node.
+        
+        Creates a canonical operation context that combines the code, AST node,
+        and analysis context. Used for logging operations in constraints.
+        
+        Args:
+            node: AST node (or None)
+            
+        Returns:
+            OpContext for this operation
+        """
         return self.system.canonical.opContext(self.code, node, self.context)
 
     def directCall(self, node, code, selfarg, args, vargs, kargs, targets):
