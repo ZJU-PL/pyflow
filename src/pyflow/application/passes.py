@@ -3,6 +3,27 @@ Standard pass implementations for PyFlow analysis and optimization.
 
 This module provides wrapper passes for the existing PyFlow analysis and
 optimization modules, allowing them to work with the new pass manager system.
+Each pass wraps an existing analysis or optimization function and provides
+a standardized interface for the pass manager.
+
+**Analysis Passes:**
+- IPA: Inter-procedural analysis for call graphs and contexts
+- CPA: Constraint-based analysis for type and flow constraints
+- Lifetime: Analyzes lifetimes of variables and objects
+
+**Optimization Passes:**
+- Method Call: Optimizes method calls and dispatch
+- Simplify: Constant folding, dead code elimination, simplification
+- Clone: Code cloning to separate different invocations
+- Argument Normalization: Normalizes function arguments, eliminates *args, **kwargs
+- Program Culling: Removes dead functions and contexts
+- Store Elimination: Eliminates redundant store operations
+
+**Pass Dependencies:**
+The register_standard_passes() function sets up dependencies:
+- CPA depends on IPA
+- Most optimizations depend on CPA
+- Many optimizations depend on Simplify
 """
 
 from .passmanager import AnalysisPass, OptimizationPass, PassResult
@@ -153,23 +174,47 @@ STANDARD_PASSES = {
 
 
 def register_standard_passes(pass_manager):
-    """Register all standard PyFlow passes with the pass manager."""
+    """
+    Register all standard PyFlow passes with the pass manager.
+    
+    This function:
+    1. Registers all standard passes from STANDARD_PASSES
+    2. Sets up dependency relationships between passes
+    
+    **Dependency Graph:**
+    ```
+    IPA
+     └─> CPA
+          └─> [Method Call, Simplify, Clone, Argument Normalization, Program Culling]
+               └─> Simplify
+                    └─> [Clone, Argument Normalization, Program Culling]
+    ```
+    
+    **Dependency Rules:**
+    - CPA depends on IPA (needs call graph)
+    - Most optimizations depend on CPA (need type/flow information)
+    - Many optimizations depend on Simplify (benefit from constant folding/DCE)
+    
+    Args:
+        pass_manager: PassManager instance to register passes with
+    """
     for pass_name, pass_class in STANDARD_PASSES.items():
         pass_manager.register_pass(pass_class())
 
     # Set up dependencies based on the current hardcoded pipeline
-    # IPA should run before CPA
+    # IPA should run before CPA (CPA needs call graph from IPA)
     ipa_pass = pass_manager.passes["ipa"]
     cpa_pass = pass_manager.passes["cpa"]
     cpa_pass.info.dependencies.add("ipa")
 
-    # CPA should run before most optimizations
+    # CPA should run before most optimizations (optimizations need type/flow info)
     for opt_name in ["methodcall", "simplify", "clone", "argument_normalization", "cull_program"]:
         if opt_name in pass_manager.passes:
             opt_pass = pass_manager.passes[opt_name]
             opt_pass.info.dependencies.add("cpa")
 
     # Simplification should run before many other optimizations
+    # (constant folding and DCE enable better optimization)
     simplify_pass = pass_manager.passes["simplify"]
     for opt_name in ["clone", "argument_normalization", "cull_program"]:
         if opt_name in pass_manager.passes:

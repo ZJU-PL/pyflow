@@ -3,10 +3,44 @@ Pass Manager system for PyFlow static analysis.
 
 This module provides a LLVM-inspired pass manager system that allows for:
 - Pass registration with metadata and dependencies
-- Automatic dependency resolution and ordering
+- Automatic dependency resolution and ordering (topological sort)
 - Pipeline construction and execution
 - Caching and invalidation of pass results
 - Standardized pass interfaces for analysis and optimization
+
+**Key Concepts:**
+
+1. **Pass Types:**
+   - AnalysisPass: Information-gathering passes (IPA, CPA, Lifetime)
+   - OptimizationPass: Code transformation passes (Simplify, Clone, etc.)
+   - TransformationPass: General transformation passes
+
+2. **Dependency Management:**
+   - Passes declare dependencies on other passes
+   - Pass manager automatically resolves execution order
+   - Circular dependencies are detected and reported
+
+3. **Caching:**
+   - Pass results can be cached based on program state
+   - Invalidates dependent passes when a pass modifies the program
+   - Reduces redundant computation
+
+4. **Pipeline Execution:**
+   - Builds pipelines from pass names
+   - Executes passes in dependency order
+   - Tracks execution time and results
+
+**Usage:**
+```python
+from pyflow.application import PassManager, CompilerContext
+from pyflow.application.passes import register_standard_passes
+
+manager = PassManager()
+register_standard_passes(manager)
+
+pipeline = manager.build_pipeline(["ipa", "cpa", "simplify"])
+results = manager.run_pipeline(compiler, program, pipeline)
+```
 
 The pass manager system enables flexible composition of analysis passes
 while maintaining correctness and efficiency.
