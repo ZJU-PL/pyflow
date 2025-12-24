@@ -1,4 +1,23 @@
-# Blacklist system for security checkers
+"""
+Blacklist System for Security Checkers.
+
+This module provides a blacklist system for identifying dangerous function
+calls and module imports. The blacklist contains patterns for functions,
+methods, and modules that are known to have security implications.
+
+**Blacklist Categories:**
+- Deserialization: pickle, marshal, etc.
+- Weak Cryptography: MD5, SHA1, weak ciphers
+- Command Injection: eval, subprocess with shell=True
+- XML Attacks: Vulnerable XML parsers
+- Insecure Protocols: telnet, FTP
+- And many more...
+
+**Pattern Matching:**
+Blacklist items support both exact matches and wildcard patterns (using
+fnmatch), allowing flexible matching of function/module names.
+"""
+
 import fnmatch
 import logging
 from . import issue
@@ -7,8 +26,40 @@ LOG = logging.getLogger(__name__)
 
 
 class BlacklistItem:
-    """Represents a single blacklist item"""
+    """
+    Represents a single blacklist item (dangerous function/import).
+    
+    A blacklist item defines:
+    - A set of qualified names (patterns) to match
+    - A test ID (e.g., "B301")
+    - A CWE classification
+    - A severity level
+    - A message template
+    
+    **Pattern Matching:**
+    Supports both exact matches and wildcard patterns (e.g., "pickle.*")
+    using fnmatch for flexible matching.
+    
+    Attributes:
+        name: Human-readable name for this blacklist item
+        id: Test ID (e.g., "B301")
+        cwe: CWE identifier
+        message: Message template (may include {name} placeholder)
+        qualnames: List of qualified name patterns to match
+        level: Severity level (HIGH, MEDIUM, LOW)
+    """
     def __init__(self, name, bid, cwe, qualnames, message, level="MEDIUM"):
+        """
+        Initialize a blacklist item.
+        
+        Args:
+            name: Human-readable name
+            bid: Test ID (e.g., "B301")
+            cwe: CWE identifier
+            qualnames: List of qualified name patterns
+            message: Message template
+            level: Severity level (default: MEDIUM)
+        """
         self.name = name
         self.id = bid
         self.cwe = cwe
@@ -17,15 +68,48 @@ class BlacklistItem:
         self.level = level
 
     def matches(self, qualname):
-        """Check if a qualified name matches this blacklist item"""
+        """
+        Check if a qualified name matches this blacklist item.
+        
+        Tests the qualified name against all patterns in this item.
+        
+        Args:
+            qualname: Qualified name to check (e.g., "pickle.loads")
+            
+        Returns:
+            True if any pattern matches, False otherwise
+        """
         return any(self._matches_pattern(qualname, pattern) for pattern in self.qualnames)
 
     def _matches_pattern(self, qualname, pattern):
-        """Check if qualname matches the pattern"""
+        """
+        Check if qualname matches a specific pattern.
+        
+        Uses fnmatch for wildcard patterns, exact match otherwise.
+        
+        Args:
+            qualname: Qualified name to check
+            pattern: Pattern to match against
+            
+        Returns:
+            True if matches, False otherwise
+        """
         return fnmatch.fnmatch(qualname, pattern) if "*" in pattern else qualname == pattern
 
     def create_issue(self, context, qualname):
-        """Create an issue for this blacklist item"""
+        """
+        Create a security issue for this blacklist item.
+        
+        Creates an Issue object with HIGH confidence (blacklist matches
+        are considered high confidence since they're based on known patterns).
+        
+        Args:
+            context: Context object with node information
+            qualname: Qualified name that matched
+            
+        Returns:
+            Issue object
+        """
         return issue.Issue(
             severity=self.level,
             confidence="HIGH",
@@ -39,14 +123,33 @@ class BlacklistItem:
 
 
 class BlacklistManager:
-    """Manages blacklist items for different node types"""
+    """
+    Manages blacklist items for different node types.
+    
+    The BlacklistManager maintains separate blacklists for:
+    - Call: Function/method calls (e.g., pickle.loads)
+    - Import: Module imports (e.g., import pickle)
+    - ImportFrom: From imports (e.g., from pickle import loads)
+    
+    **Blacklist Categories:**
+    - Deserialization vulnerabilities (pickle, marshal)
+    - Weak cryptography (MD5, SHA1, weak ciphers)
+    - Command injection (eval, subprocess)
+    - XML vulnerabilities (vulnerable parsers)
+    - Insecure protocols (telnet, FTP)
+    - And many more security issues
+    
+    Attributes:
+        blacklists: Dictionary mapping node types to lists of BlacklistItem
+    """
     
     def __init__(self):
+        """Initialize the blacklist manager and load all blacklists."""
         self.blacklists = {"Call": [], "Import": [], "ImportFrom": []}
         self._load_blacklists()
 
     def _load_blacklists(self):
-        """Load all blacklist items"""
+        """Load all blacklist items from internal definitions."""
         self._load_call_blacklists()
         self._load_import_blacklists()
 
@@ -198,11 +301,32 @@ class BlacklistManager:
         self.blacklists["ImportFrom"] = import_items
 
     def get_blacklist_items(self, node_type):
-        """Get blacklist items for a specific node type"""
+        """
+        Get blacklist items for a specific node type.
+        
+        Args:
+            node_type: Node type ("Call", "Import", or "ImportFrom")
+            
+        Returns:
+            List of BlacklistItem objects for that node type
+        """
         return self.blacklists.get(node_type, [])
 
     def check_blacklist(self, node_type, qualname, context):
-        """Check if a qualified name is blacklisted"""
+        """
+        Check if a qualified name is blacklisted.
+        
+        Tests the qualified name against all blacklist items for the
+        given node type. Returns the first matching issue found.
+        
+        Args:
+            node_type: Node type ("Call", "Import", or "ImportFrom")
+            qualname: Qualified name to check
+            context: Context object with node information
+            
+        Returns:
+            Issue object if blacklisted, None otherwise
+        """
         items = self.get_blacklist_items(node_type)
         for item in items:
             if item.matches(qualname):
@@ -210,5 +334,5 @@ class BlacklistManager:
         return None
 
 
-# Global blacklist manager instance
+# Global blacklist manager instance (singleton)
 blacklist_manager = BlacklistManager()
