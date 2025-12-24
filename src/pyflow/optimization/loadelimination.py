@@ -28,19 +28,40 @@ import collections
 
 
 class RedundantLoadEliminator(object):
-    """Eliminates redundant load operations from code.
+    """
+    Eliminates redundant load operations from code.
     
-    Uses SSA numbering and dominance information to identify loads that can
-    be replaced with values from dominating stores.
+    This class implements redundant load elimination (RLE), an optimization
+    that removes loads that are redundant because a dominating store has
+    already written the same value. It uses:
+    - SSA numbering to identify memory operations
+    - Dominance analysis to find dominating stores
+    - Value numbering to determine if loads can be replaced
     
-    Args:
+    The optimization works by:
+    1. Identifying all load and store operations
+    2. For each load, finding dominating stores to the same location
+    3. Replacing the load with the store's value if safe
+    
+    Attributes:
         compiler: Compiler context
         prgm: Program being optimized
         readNumbers: SSA read numbers for each (node, variable) pair
         writeNumbers: SSA write numbers for each (node, variable) pair
-        dom: Dominance information for nodes
+        dom: Dominance information mapping nodes to (pre, post) numbers
+        eliminated: Count of loads eliminated
     """
     def __init__(self, compiler, prgm, readNumbers, writeNumbers, dom):
+        """
+        Initialize redundant load eliminator.
+        
+        Args:
+            compiler: Compiler instance
+            prgm: Program being optimized
+            readNumbers: Dictionary mapping (node, variable) to SSA read number
+            writeNumbers: Dictionary mapping (node, variable) to SSA write number
+            dom: Dictionary mapping nodes to dominance intervals (pre, post)
+        """
         self.compiler = compiler
         self.prgm = prgm
         self.readNumbers = readNumbers
@@ -50,20 +71,65 @@ class RedundantLoadEliminator(object):
         self.eliminated = 0
 
     def readNumber(self, node, arg):
+        """
+        Get the SSA read number for a node-argument pair.
+        
+        Args:
+            node: AST node
+            arg: Variable/argument being read
+            
+        Returns:
+            SSA read number (0 for constants)
+        """
         if isinstance(arg, ast.Existing):
             return 0
         else:
             return self.readNumbers[(node, arg)]
 
     def writeNumber(self, node, arg):
+        """
+        Get the SSA write number for a node-argument pair.
+        
+        Args:
+            node: AST node (Store operation)
+            arg: Variable/argument being written
+            
+        Returns:
+            SSA write number
+        """
         return self.writeNumbers[(node, arg)]
 
     def dominates(self, a, b):
+        """
+        Check if node a dominates node b.
+        
+        Node a dominates b if all paths from the entry to b pass through a.
+        This is checked using dominance intervals: a dominates b if
+        a.pre < b.pre and a.post > b.post.
+        
+        Args:
+            a: Potential dominator node
+            b: Node to check
+            
+        Returns:
+            True if a dominates b
+        """
         adom = self.dom[a]
         bdom = self.dom[b]
         return adom[0] < bdom[0] and adom[1] > bdom[1]
 
     def findLoadStores(self):
+        """
+        Find all load and store operations in the code.
+        
+        Scans the read numbers to identify assignments from loads and
+        store operations. These are the candidates for elimination.
+        
+        Returns:
+            tuple: (loads set, stores set)
+                   - loads: Set of Assign nodes with Load expressions
+                   - stores: Set of Store nodes
+        """
         loads = set()
         stores = set()
 

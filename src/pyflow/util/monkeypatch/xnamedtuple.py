@@ -1,3 +1,16 @@
+"""
+Extended namedtuple that supports adding custom methods and attributes.
+
+This module provides a modified version of Python's namedtuple that allows
+adding additional class members (methods, class variables, etc.) to the
+generated class. This is useful for creating tuple-like classes with
+custom behavior while maintaining the immutability and efficiency of tuples.
+
+The key difference from the standard library's namedtuple is the
+namespaceaugment parameter, which allows injecting additional code into
+the generated class definition.
+"""
+
 # A slightly modified version of the existing named tuple.
 # The modification allows adding additional members.  Handy for adding methods.
 
@@ -7,36 +20,67 @@ import sys as _sys
 
 
 def namedtuple(typename, field_names, namespaceaugment={}, verbose=False):
-    """Returns a new subclass of tuple with named fields.
-
-    >>> Point = namedtuple('Point', 'x y')
-    >>> Point.__doc__				   # docstring for the new class
-    'Point(x, y)'
-    >>> p = Point(11, y=22)			 # instantiate with positional args or keywords
-    >>> p[0] + p[1]					 # indexable like a plain tuple
-    33
-    >>> x, y = p						# unpack like a regular tuple
-    >>> x, y
-    (11, 22)
-    >>> p.x + p.y					   # fields also accessable by name
-    33
-    >>> d = p._asdict()				 # convert to a dictionary
-    >>> d['x']
-    11
-    >>> Point(**d)					  # convert from a dictionary
-    Point(x=11, y=22)
-    >>> p._replace(x=100)			   # _replace() is like str.replace() but targets named fields
-    Point(x=100, y=22)
-
+    """
+    Returns a new subclass of tuple with named fields and optional custom members.
+    
+    This is an extended version of Python's namedtuple that supports adding
+    custom methods, class variables, and other attributes to the generated
+    class via the namespaceaugment parameter.
+    
+    Args:
+        typename: The name of the new class (string)
+        field_names: Field names as a string (space/comma separated) or iterable
+        namespaceaugment: Dictionary of additional class members to add
+                         (e.g., methods, class variables)
+        verbose: If True, print the generated class template
+        
+    Returns:
+        type: A new tuple subclass with named fields
+        
+    Raises:
+        ValueError: If field names are invalid (keywords, start with underscore,
+                   contain non-alphanumeric chars, duplicates, etc.)
+        SyntaxError: If the generated template has syntax errors
+        
+    Example:
+        >>> Point = namedtuple('Point', 'x y')
+        >>> Point.__doc__				   # docstring for the new class
+        'Point(x, y)'
+        >>> p = Point(11, y=22)			 # instantiate with positional args or keywords
+        >>> p[0] + p[1]					 # indexable like a plain tuple
+        33
+        >>> x, y = p						# unpack like a regular tuple
+        >>> x, y
+        (11, 22)
+        >>> p.x + p.y					   # fields also accessable by name
+        33
+        >>> d = p._asdict()				 # convert to a dictionary
+        >>> d['x']
+        11
+        >>> Point(**d)					  # convert from a dictionary
+        Point(x=11, y=22)
+        >>> p._replace(x=100)			   # _replace() is like str.replace() but targets named fields
+        Point(x=100, y=22)
+        
+    Example with custom methods:
+        >>> def distance(self):
+        ...     return (self.x**2 + self.y**2)**0.5
+        >>> Point = namedtuple('Point', 'x y', namespaceaugment={'distance': distance})
+        >>> p = Point(3, 4)
+        >>> p.distance()
+        5.0
     """
 
     # Parse and validate the field names.  Validation serves two purposes,
     # generating informative error messages and preventing template injection attacks.
     if isinstance(field_names, str):
+        # Parse string format: "x y" or "x, y" -> ["x", "y"]
         field_names = field_names.replace(
             ",", " "
         ).split()  # names separated by whitespace and/or commas
     field_names = tuple(map(str, field_names))
+    
+    # Validate type name and all field names
     for name in (typename,) + field_names:
         if not all(c.isalnum() or c == "_" for c in name):
             raise ValueError(
@@ -51,6 +95,8 @@ def namedtuple(typename, field_names, namespaceaugment={}, verbose=False):
             raise ValueError(
                 "Type names and field names cannot start with a number: %r" % name
             )
+    
+    # Check for duplicate field names and underscore prefixes
     seen_names = set()
     for name in field_names:
         if name.startswith("_"):
@@ -61,13 +107,18 @@ def namedtuple(typename, field_names, namespaceaugment={}, verbose=False):
 
     # Create and fill-in the class template
     numfields = len(field_names)
+    # Generate argument text: "x, y" from field_names
     argtxt = repr(field_names).replace("'", "")[
         1:-1
     ]  # tuple repr without parens or quotes
+    # Generate repr format: "x=%r, y=%r"
     reprtxt = ", ".join("%s=%%r" % name for name in field_names)
+    # Generate dict comprehension: "{'x': t[0], 'y': t[1]}"
     dicttxt = ", ".join(
         "%r: t[%d]" % (name, pos) for pos, name in enumerate(field_names)
     )
+    
+    # Generate the class template with standard namedtuple methods
     template = (
         """class %(typename)s(tuple):
         '%(typename)s(%(argtxt)s)' \n
@@ -97,9 +148,12 @@ def namedtuple(typename, field_names, namespaceaugment={}, verbose=False):
             return tuple(self) \n\n"""
         % locals()
     )
+    
+    # Add property accessors for each field (e.g., self.x, self.y)
     for i, name in enumerate(field_names):
         template += "        %s = property(itemgetter(%d))\n" % (name, i)
 
+    # Add custom members from namespaceaugment (methods, class vars, etc.)
     for name in namespaceaugment.keys():
         template += "        %s = %s\n" % (name, name)
 
@@ -108,6 +162,7 @@ def namedtuple(typename, field_names, namespaceaugment={}, verbose=False):
 
     # Execute the template string in a temporary namespace and
     # support tracing utilities by setting a value for frame.f_globals['__name__']
+    # The namespace includes namespaceaugment items and required utilities
     namespace = dict(namespaceaugment)
     namespace.update(itemgetter=_itemgetter, __name__="namedtuple_%s" % typename)
     try:

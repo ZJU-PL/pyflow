@@ -190,24 +190,52 @@ class MarkLive(TypeDispatcher):
         return node
 
     def filterParam(self, p):
+        """
+        Filter unused parameters to DoNotCare.
+        
+        If a parameter is never used (not live), replaces it with DoNotCare
+        to indicate it can be ignored. This enables call site optimizations.
+        
+        Args:
+            p: Parameter to filter (may be None)
+            
+        Returns:
+            Parameter if used, DoNotCare if unused, None if p was None
+        """
         if p is None:
             return None
         elif self.flow.lookup(p) is undefined:
+            # Parameter is unused, mark as DoNotCare
             return ast.DoNotCare()
         else:
             return p
 
     @dispatch(ast.CodeParameters)
     def visitCodeParameters(self, node):
+        """
+        Visit code parameters and filter unused ones.
+        
+        Replaces unused parameters with DoNotCare to enable optimizations
+        at call sites. In descriptive mode, preserves all parameters to
+        maintain behavioral information.
+        
+        Args:
+            node: CodeParameters node to process
+            
+        Returns:
+            CodeParameters with unused parameters replaced by DoNotCare
+        """
         # Insert don't care for unused parameters.
         # selfparam is a special case, it's OK if it disappears in descriptive stubs.
         selfparam = self.filterParam(node.selfparam)
 
         if self.descriptive():
+            # Descriptive mode: preserve all parameters
             params = node.params
             vparam = node.vparam
             kparam = node.kparam
         else:
+            # Normal mode: filter unused parameters
             params = [self.filterParam(p) for p in node.params]
             vparam = self.filterParam(node.vparam)
             kparam = self.filterParam(node.kparam)

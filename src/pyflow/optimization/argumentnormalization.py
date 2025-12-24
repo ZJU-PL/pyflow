@@ -74,6 +74,23 @@ class ArgumentNormalizationAnalysis(TypeDispatcher):
             node.visitChildren(self)
 
     def process(self, node):
+        """
+        Analyze a code node to determine if argument normalization is applicable.
+        
+        Checks if the function's *args parameter can be normalized by:
+        1. Verifying it's standard code (not a stub)
+        2. Checking if *args length is constant
+        3. Ensuring *args is not used in ways that prevent normalization
+           (e.g., passed as *args to another function, used in loops)
+        
+        Args:
+            node: Code node to analyze
+            
+        Returns:
+            tuple: (applicable, vparam_length)
+                   - applicable: True if normalization can be applied
+                   - vparam_length: Length of *args if constant, 0 otherwise
+        """
         if not node.isStandardCode():
             return False, 0
 

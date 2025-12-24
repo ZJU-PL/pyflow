@@ -457,6 +457,27 @@ class CodeInliningTransform(TypeDispatcher):
 
 
 def evaluate(compiler, prgm):
+    """
+    Main entry point for code inlining optimization.
+    
+    Performs function inlining by replacing function calls with the
+    function body at the call site. The optimization:
+    1. Analyzes functions to determine inlinability
+    2. Checks constraints (no returns in loops, no *args, etc.)
+    3. Inlines small, frequently-called functions
+    4. Processes in reverse postorder to handle dependencies
+    
+    This is a whole-program optimization that requires call graph
+    information to determine which functions can be inlined.
+    
+    Args:
+        compiler: Compiler instance
+        prgm: Program to optimize
+        
+    Note:
+        Currently disabled in the optimization pipeline due to
+        limitations with complex calling conventions.
+    """
     """Main entry point for code inlining optimization.
     
     Args:

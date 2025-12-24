@@ -71,28 +71,81 @@ def makeCallRewrite(extractor):
 
 
 class FoldRewrite(TypeDispatcher):
+    """
+    Rewriter that performs constant folding transformations.
+    
+    This class implements the core constant folding logic by:
+    - Replacing constant expressions with their computed values
+    - Propagating constants through assignments
+    - Folding binary and unary operations on constants
+    - Converting method calls to direct calls where possible
+    - Eliminating dead arguments from calls
+    
+    The rewriter uses forward data flow analysis to track constant values
+    as they flow through the program, enabling constant propagation in
+    addition to constant folding.
+    
+    Attributes:
+        extractor: Object extractor for creating new objects
+        storeGraph: Store graph for type information (may be None)
+        code: Code object being optimized
+        created: Set of objects created during folding
+        callRewrite: Term rewriter for call optimizations
+        annotationsExist: Whether context annotations are available
+        flow: FlowDict for tracking constant values (set by analysis)
+    """
     def __init__(self, extractor, storeGraph, code):
+        """
+        Initialize constant folding rewriter.
+        
+        Args:
+            extractor: Object extractor
+            storeGraph: Store graph (may be None)
+            code: Code object to optimize
+        """
         TypeDispatcher.__init__(self)
         self.extractor = extractor
         self.storeGraph = storeGraph
         self.code = code
 
+        # Track objects created during folding
         self.created = set()
 
+        # Term rewriter for call optimizations
         self.callRewrite = makeCallRewrite(extractor)
 
+        # Check if we have context annotations for type-based optimizations
         self.annotationsExist = (
             code.annotation.contexts is not None and storeGraph is not None
         )
 
     def descriptive(self):
+        """
+        Check if the code is descriptive (detailed behavior).
+        
+        Descriptive code is not folded as aggressively to preserve
+        behavioral information.
+        
+        Returns:
+            bool: True if code is descriptive
+        """
         return self.code.annotation.descriptive
 
     @defaultdispatch
     def visitOK(self, node):
+        """Default handler: return node unchanged."""
         return node
 
     def logCreated(self, node):
+        """
+        Log objects created during folding.
+        
+        Tracks newly created objects so they can be added to the
+        extractor's object list.
+        
+        Args:
+            node: AST node (if Existing, logs its object)
+        """
         if isinstance(node, ast.Existing):
             self.created.add(node.object)
 
@@ -496,30 +549,102 @@ class FoldAnalysis(TypeDispatcher):
 
 # Restricted traversal, so not all locals are rewritten.
 class FoldTraverse(TypeDispatcher):
+    """
+    Bottom-up AST traverser for constant folding.
+    
+    This traverser visits AST nodes in bottom-up order (children before
+    parents), allowing constant folding to work from leaves upward. It
+    applies the strategy (FoldRewrite) to each node after processing
+    its children.
+    
+    Special handling:
+    - Assignment targets are not folded (only expressions)
+    - Delete targets are not folded
+    - Code parameters are not processed
+    
+    Attributes:
+        strategy: FoldRewrite instance to apply transformations
+        code: Code object being processed
+    """
     def __init__(self, strategy, function):
+        """
+        Initialize fold traverser.
+        
+        Args:
+            strategy: FoldRewrite instance
+            function: Code object being processed
+        """
         self.strategy = strategy
         self.code = function
 
     @dispatch(ast.leafTypes)
     def visitLeaf(self, node):
+        """Visit leaf nodes (no children to process)."""
         return node
 
     @dispatch(list)
     def visitList(self, node):
+        """
+        Visit Python lists in AST.
+        
+        Handles raw Python lists that might appear in the AST structure.
+        Only processes items that have rewriteChildren method.
+        
+        Args:
+            node: List node
+            
+        Returns:
+            List with processed items
+        """
         # Handle raw Python lists that might appear in the AST
         return [self(item) for item in node if hasattr(item, 'rewriteChildren')]
 
     @defaultdispatch
     def default(self, node):
-        # Bottom up
+        """
+        Default handler: process children first, then apply strategy.
+        
+        Bottom-up traversal: children are processed before the parent,
+        enabling constant folding to work from leaves upward.
+        
+        Args:
+            node: AST node to process
+            
+        Returns:
+            Transformed node
+        """
+        # Bottom up: process children first
         return self.strategy(node.rewriteChildren(self))
 
     @dispatch(ast.CodeParameters)
     def visitCodeParameters(self, node):
+        """
+        Visit code parameters (not folded).
+        
+        Code parameters are not subject to constant folding.
+        
+        Args:
+            node: CodeParameters node
+            
+        Returns:
+            Node unchanged
+        """
         return node
 
     @dispatch(ast.Assign)
     def visitAssign(self, node):
+        """
+        Visit assignment: fold expression but not targets.
+        
+        Only the expression is folded; assignment targets (lcls) are
+        preserved as-is. This ensures variable names are not changed.
+        
+        Args:
+            node: Assign node
+            
+        Returns:
+            Assign node with folded expression
+        """
         # Modified bottom up
         # Avoids folding assignment targets
         node = ast.Assign(self(node.expr), node.lcls)
@@ -528,12 +653,41 @@ class FoldTraverse(TypeDispatcher):
 
     @dispatch(ast.Delete)
     def visitDelete(self, node):
+        """
+        Visit delete: don't fold delete targets.
+        
+        Delete targets are not folded to preserve the deletion semantics.
+        
+        Args:
+            node: Delete node
+            
+        Returns:
+            Node with strategy applied (but targets not folded)
+        """
         # Avoids folding delete targets
         node = self.strategy(node)
         return node
 
 
 def constMeet(values):
+    """
+    Meet function for constant propagation.
+    
+    Combines constant values from multiple control flow paths. If all paths
+    have the same constant value, returns that value. Otherwise, returns
+    top (indicating uncertainty).
+    
+    This implements the meet operation for the constant propagation lattice:
+    - Same constant from all paths -> that constant
+    - Different constants -> top (uncertain)
+    - undefined (no info) -> ignored
+    
+    Args:
+        values: List of constant values from different paths
+        
+    Returns:
+        The constant if all paths agree, or top if they differ
+    """
     prototype = values[0]
     for value in values[1:]:
         if value != prototype:
@@ -542,32 +696,58 @@ def constMeet(values):
 
 
 def evaluateCode(compiler, prgm, node):
+    """
+    Perform constant folding on a code node.
+    
+    This is the main entry point for constant folding. It performs:
+    1. Forward data flow analysis to track constant values
+    2. Constant folding of expressions (binary ops, unary ops, calls)
+    3. Constant propagation through assignments
+    4. Direct call conversion where possible
+    
+    For standard code, uses forward data flow analysis. For non-standard
+    code (like stubs), performs simple bottom-up folding without data flow.
+    
+    Args:
+        compiler: Compiler instance with extractor and other components
+        prgm: Program being optimized (may be None)
+        node: Code node to optimize
+        
+    Returns:
+        The optimized code node (modified in place)
+    """
     assert node.isCode(), type(node)
 
+    # Get store graph if available
     if prgm is None:
         storeGraph = None
     else:
         storeGraph = prgm.storeGraph
 
     if node.isStandardCode():
+        # Standard code: use forward data flow analysis
         analyze = FoldAnalysis()
         rewrite = FoldRewrite(compiler.extractor, storeGraph, node)
         rewriteS = FoldTraverse(rewrite, node)
 
+        # Create forward flow traverser with constant meet function
         traverse = ForwardFlowTraverse(constMeet, analyze, rewriteS)
         t = MutateCode(traverse)
 
-        # HACK
+        # HACK: Share flow dictionary between analysis and rewrite
         analyze.flow = traverse.flow
         rewrite.flow = traverse.flow
 
+        # Apply transformation
         t(node)
     else:
-        # HACK bypass dataflow analysis, as there's no real "flow"
+        # Non-standard code: simple bottom-up folding without data flow
+        # HACK: bypass dataflow analysis, as there's no real "flow"
         rewrite = FoldRewrite(compiler.extractor, storeGraph, node)
         rewriteS = FoldTraverse(rewrite, node)
         node.replaceChildren(rewriteS)
 
+    # Add newly created objects to extractor's object list
     existing = set(compiler.extractor.desc.objects)
     newobj = rewrite.created - existing
 

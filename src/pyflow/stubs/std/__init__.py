@@ -1,5 +1,35 @@
+"""
+Standard library stub generators.
+
+This package contains stub generators for Python's standard library modules.
+Each module provides stub implementations that enable static analysis of
+code using those standard library functions.
+
+The stub generators are automatically registered via the @stubgenerator
+decorator and are called during stub collection to register their stubs
+with the StubCollector.
+
+Modules:
+    interpreter: Interpreter-level operations (global access, attribute access)
+    llfunc: Low-level object operations (__getattribute__, __init__, etc.)
+    objects: Built-in object stubs (int, float, str methods)
+    container: Container operations (list, dict, tuple, etc.)
+    random: Random number generation functions
+    mathstubs: Mathematical functions
+    sampler: Sampling utilities
+    os_stubs: Operating system interface functions
+    json_stubs: JSON encoding/decoding functions
+    re_stubs: Regular expression operations
+    datetime_stubs: Date and time operations
+    collections_stubs: Collections data structures
+    itertools_stubs: Iterator utilities
+    functools_stubs: Higher-order functions
+    operator_stubs: Operator functions
+"""
+
 from __future__ import absolute_import
 
+# Core stub generators
 from . import interpreter
 from . import llfunc
 from .objects import float

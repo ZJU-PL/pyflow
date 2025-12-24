@@ -54,7 +54,7 @@ def evaluate(compiler, prgm, simplify=False):
             if code.isStandardCode() and not code.annotation.descriptive
         )
 
-        # Transform pass
+        # Transform pass: eliminate dead stores
         totalEliminated = 0
 
         for code in prgm.liveCode:
@@ -67,16 +67,20 @@ def evaluate(compiler, prgm, simplify=False):
             # Look for dead stores
             for store in stores[code]:
                 if store.annotation.modifies:
+                    # Check if any modified location is live
                     for modify in store.annotation.modifies[0]:
                         if modify in live:
+                            # Location is live, store is needed
                             break
                         if modify.object.leaks:
+                            # Object leaks memory, preserve store
                             break
                     else:
+                        # No modified locations are live - store is dead
                         replace[store] = []
                         eliminated += 1
                 else:
-                    # If no modifies info, assume it's live
+                    # If no modifies info, assume it's live (conservative)
                     pass
 
             # Rewrite the code without the dead stores

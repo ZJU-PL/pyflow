@@ -1,3 +1,23 @@
+"""
+Backward data flow analysis framework.
+
+This module provides infrastructure for backward data flow analysis, where
+information flows from program exit toward entry. Backward analysis is used
+for optimizations like:
+- Liveness analysis: Determine which variables are live at each point
+- Dead code elimination: Remove code that doesn't affect live variables
+- Available expressions: Find expressions available at each point
+
+The framework handles:
+- Reverse traversal of control flow
+- Merging information at control flow split points
+- Exception handling (exception paths merge with normal paths)
+- Return statements and output blocks as information sources
+
+Note: This is a work in progress and may have limitations with exception
+handling and flow control after raise statements.
+"""
+
 from . import base
 from .base import meet
 from pyflow.util.typedispatch import TypeDispatcher, dispatch, defaultdispatch
@@ -12,14 +32,43 @@ from pyflow.language.python import fold
 
 
 class ReverseFlowTraverse(TypeDispatcher):
+    """
+    Traverser for backward data flow analysis.
+    
+    This class implements backward data flow analysis by traversing the AST
+    in reverse order (bottom to top, right to left) and applying a strategy.
+    It manages flow-sensitive information using a FlowDict and handles control
+    flow structures in reverse.
+    
+    The traverser:
+    1. Processes nodes in reverse order
+    2. Updates flow information based on backward analysis
+    3. Handles control flow splits (merges in reverse)
+    4. Manages exception handling (exception paths merge with normal)
+    5. Starts from return statements and output blocks
+    
+    Attributes:
+        strategy: Strategy function that performs analysis/rewriting
+        meet: Meet function for combining values from multiple paths
+        flow: FlowDict for tracking flow-sensitive information
+        mayRaise: MayRaise dispatcher for exception analysis
+    """
     __slots__ = "strategy", "meet", "flow", "mayRaise"
 
     def __init__(self, meetF, strategy):
+        """
+        Initialize reverse flow traverser.
+        
+        Args:
+            meetF: Meet function for combining values from multiple paths
+            strategy: Strategy function that processes nodes
+        """
         self.strategy = strategy
         self.meet = meetF
 
         self.mayRaise = base.MayRaise()
 
+        # Initialize flow contours for return and exception paths
         # Assume there are contours for "return" and "raise"
         self.flow = base.FlowDict()
         self.flow.save("return")

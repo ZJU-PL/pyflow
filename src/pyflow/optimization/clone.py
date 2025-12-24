@@ -643,10 +643,21 @@ def rewriteProgram(compiler, prgm, cloner):
 
 
 def evaluate(compiler, prgm):
-    """Main entry point for code cloning optimization.
+    """
+    Main entry point for code cloning optimization.
+    
+    Performs function cloning to create context-specific implementations.
+    The optimization:
+    1. Analyzes function call patterns and context differences
+    2. Groups contexts that can share implementations
+    3. Creates cloned versions for contexts that need specialization
+    4. Updates the program's live code list
+    
+    This is a whole-program optimization that requires inter-procedural
+    analysis to understand call patterns and context relationships.
     
     Args:
-        compiler: Compiler context
+        compiler: Compiler instance
         prgm: Program to optimize
         
     Performs whole-program analysis to identify cloning opportunities,
