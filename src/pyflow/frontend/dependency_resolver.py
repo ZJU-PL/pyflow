@@ -36,11 +36,12 @@ from enum import Enum
 
 class DependencyStrategy(Enum):
     """Available strategies for handling import dependencies."""
-    AUTO = "auto"           # Try runtime execution, fallback to AST parsing
-    STUBS = "stubs"         # Create stub modules for missing dependencies
-    NOOP = "noop"           # Treat missing functions as no-ops
-    STRICT = "strict"       # Fail if dependencies can't be resolved
-    AST_ONLY = "ast_only"   # Only use AST parsing, no runtime execution
+
+    AUTO = "auto"  # Try runtime execution, fallback to AST parsing
+    STUBS = "stubs"  # Create stub modules for missing dependencies
+    NOOP = "noop"  # Treat missing functions as no-ops
+    STRICT = "strict"  # Fail if dependencies can't be resolved
+    AST_ONLY = "ast_only"  # Only use AST parsing, no runtime execution
     # Future advanced strategies:
     # DEPENDENCY_RESOLUTION = "deps"  # Resolve and analyze dependencies together
 
@@ -56,8 +57,12 @@ class DependencyResolver:
     - Conservative no-op implementations
     """
 
-    def __init__(self, strategy: str = "auto", verbose: bool = False,
-                 safe_modules: Optional[List[str]] = None):
+    def __init__(
+        self,
+        strategy: str = "auto",
+        verbose: bool = False,
+        safe_modules: Optional[List[str]] = None,
+    ):
         """
         Initialize the dependency resolver.
 
@@ -69,7 +74,13 @@ class DependencyResolver:
         self.strategy = DependencyStrategy(strategy)
         self.verbose = verbose
         self.safe_modules = safe_modules or [
-            'math', 'os', 'sys', 're', 'json', 'datetime', 'collections'
+            "math",
+            "os",
+            "sys",
+            "re",
+            "json",
+            "datetime",
+            "collections",
         ]
 
         # Cache for resolved modules to avoid repeated work
@@ -136,7 +147,9 @@ class DependencyResolver:
 
         # If runtime execution failed, fall back to AST extraction for local functions
         if self.verbose:
-            print(f"DEBUG: Runtime execution failed for {file_path}, falling back to AST extraction")
+            print(
+                f"DEBUG: Runtime execution failed for {file_path}, falling back to AST extraction"
+            )
         return self._extract_ast_functions(source, file_path)
 
     def _extract_noop(self, source: str, file_path: str) -> Dict[str, Any]:
@@ -167,7 +180,9 @@ class DependencyResolver:
             functions = {}
 
             for node in python_ast.walk(tree):
-                if isinstance(node, python_ast.FunctionDef) and not node.name.startswith("_"):
+                if isinstance(
+                    node, python_ast.FunctionDef
+                ) and not node.name.startswith("_"):
                     stub_func = self._create_ast_stub(node)
                     functions[node.name] = stub_func
 
@@ -202,7 +217,9 @@ class DependencyResolver:
 
         return safe_globals
 
-    def _handle_import_errors(self, source: str, exec_globals: Dict[str, Any]) -> Dict[str, Any]:
+    def _handle_import_errors(
+        self, source: str, exec_globals: Dict[str, Any]
+    ) -> Dict[str, Any]:
         """Handle import errors by creating stub modules."""
         missing_imports = self._find_imports(source)
 
@@ -223,9 +240,9 @@ class DependencyResolver:
             for node in python_ast.walk(tree):
                 if isinstance(node, python_ast.Import):
                     for alias in node.names:
-                        imports.add(alias.name.split('.')[0])
+                        imports.add(alias.name.split(".")[0])
                 elif isinstance(node, python_ast.ImportFrom) and node.module:
-                    imports.add(node.module.split('.')[0])
+                    imports.add(node.module.split(".")[0])
 
             return imports
         except:
@@ -233,6 +250,7 @@ class DependencyResolver:
 
     def _create_stub_module(self, module_name: str) -> Any:
         """Create a stub module that provides no-op functions."""
+
         class StubModule:
             def __init__(self, name):
                 self.__name__ = name
@@ -247,7 +265,7 @@ class DependencyResolver:
                         self.__name__ = name
 
                     def __call__(self, *args, **kwargs):
-                        if self.__name__ in ('print', 'warn', 'error'):
+                        if self.__name__ in ("print", "warn", "error"):
                             # Special case for common I/O functions
                             return None
                         return None  # Conservative no-op
@@ -262,6 +280,7 @@ class DependencyResolver:
 
     def _create_ast_stub(self, func_node: python_ast.FunctionDef) -> Any:
         """Create a stub function from AST node."""
+
         class ASTStubFunction:
             def __init__(self, name, args_info=None):
                 self.__name__ = name
@@ -273,13 +292,15 @@ class DependencyResolver:
 
         # Extract argument information
         args_info = []
-        if hasattr(func_node, 'args') and hasattr(func_node.args, 'args'):
+        if hasattr(func_node, "args") and hasattr(func_node.args, "args"):
             for arg in func_node.args.args:
                 args_info.append(arg.arg)
 
         return ASTStubFunction(func_node.name, args_info)
 
-    def _filter_functions(self, module_globals: Dict[str, Any], file_path: str) -> Dict[str, Any]:
+    def _filter_functions(
+        self, module_globals: Dict[str, Any], file_path: str
+    ) -> Dict[str, Any]:
         """Filter out built-in and external functions, keep only file-local ones."""
         builtin_names = set(dir(builtins))
         if isinstance(builtins, dict):
@@ -287,15 +308,17 @@ class DependencyResolver:
 
         filtered = {}
         for name, obj in module_globals.items():
-            if (callable(obj) and
-                not name.startswith("_") and
-                name not in builtin_names and
-                hasattr(obj, '__module__') and
-                obj.__module__ is not None and
-                obj.__module__ not in ('builtins', '__builtin__')):
+            if (
+                callable(obj)
+                and not name.startswith("_")
+                and name not in builtin_names
+                and hasattr(obj, "__module__")
+                and obj.__module__ is not None
+                and obj.__module__ not in ("builtins", "__builtin__")
+            ):
 
                 # Additional check: try to determine if this function was defined in this file
-                if hasattr(obj, '__code__') and hasattr(obj.__code__, 'co_filename'):
+                if hasattr(obj, "__code__") and hasattr(obj.__code__, "co_filename"):
                     if obj.__code__.co_filename == file_path:
                         filtered[name] = obj
 

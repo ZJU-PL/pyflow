@@ -7,6 +7,7 @@ LOG = logging.getLogger(__name__)
 
 def checks(*args):
     """Decorator function to set checks to be run"""
+
     def wrapper(func):
         if not hasattr(func, "_checks"):
             func._checks = []
@@ -16,15 +17,18 @@ def checks(*args):
             else:
                 func._checks.append(utils.check_ast_node(arg))
         return func
+
     return wrapper
 
 
 def with_id(id_val):
     """Test function identifier decorator"""
+
     def _has_id(func):
         if not hasattr(func, "_test_id"):
             func._test_id = id_val
         return func
+
     return _has_id
 
 

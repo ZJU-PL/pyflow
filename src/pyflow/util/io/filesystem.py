@@ -5,6 +5,7 @@ Provides helper functions for file and directory operations including
 directory creation, path joining, file I/O, and file hash computation
 for change detection.
 """
+
 import os.path
 import hashlib
 
@@ -12,10 +13,10 @@ import hashlib
 def ensureDirectoryExists(dirname):
     """
     Ensure that a directory exists, creating it if necessary.
-    
+
     Creates the directory and all necessary parent directories if they
     don't already exist. Safe to call multiple times.
-    
+
     Args:
         dirname: Path to the directory to ensure exists
     """
@@ -26,15 +27,15 @@ def ensureDirectoryExists(dirname):
 def join(directory, name, format=None):
     """
     Join directory path with filename, optionally adding a format extension.
-    
+
     Args:
         directory: Directory path
         name: Filename (without extension if format is provided)
         format: Optional file extension/format to append (without the dot)
-        
+
     Returns:
         Full path to the file
-        
+
     Example:
         join("/path/to", "output", "txt") -> "/path/to/output.txt"
     """
@@ -46,11 +47,11 @@ def join(directory, name, format=None):
 def relative(path, root):
     """
     Compute the relative path from root to path.
-    
+
     Args:
         path: Target path (absolute or relative)
         root: Base directory to compute relative path from
-        
+
     Returns:
         Relative path from root to path
     """
@@ -60,13 +61,13 @@ def relative(path, root):
 def fileInput(directory, name, format=None, binary=False):
     """
     Open a file for reading.
-    
+
     Args:
         directory: Directory containing the file
         name: Filename (without extension if format is provided)
         format: Optional file extension/format
         binary: If True, open in binary mode, otherwise text mode
-        
+
     Returns:
         Open file object ready for reading
     """
@@ -78,13 +79,13 @@ def fileInput(directory, name, format=None, binary=False):
 def readData(directory, name, format=None, binary=False):
     """
     Read the entire contents of a file.
-    
+
     Args:
         directory: Directory containing the file
         name: Filename (without extension if format is provided)
         format: Optional file extension/format
         binary: If True, read as binary data, otherwise as text
-        
+
     Returns:
         File contents as string (text mode) or bytes (binary mode)
     """
@@ -97,16 +98,16 @@ def readData(directory, name, format=None, binary=False):
 def fileOutput(directory, name, format=None, binary=False):
     """
     Open a file for writing, creating the directory if necessary.
-    
+
     The directory will be created if it doesn't exist. The file is opened
     for writing and will overwrite any existing file.
-    
+
     Args:
         directory: Directory to write the file to (created if missing)
         name: Filename (without extension if format is provided)
         format: Optional file extension/format
         binary: If True, open in binary mode, otherwise text mode
-        
+
     Returns:
         Open file object ready for writing
     """
@@ -119,10 +120,10 @@ def fileOutput(directory, name, format=None, binary=False):
 def writeData(directory, name, format, data, binary=False):
     """
     Write data to a file, creating the directory if necessary.
-    
+
     Opens the file, writes all data, and closes it. The directory will
     be created if it doesn't exist.
-    
+
     Args:
         directory: Directory to write the file to (created if missing)
         name: Filename (without extension if format is provided)
@@ -138,9 +139,9 @@ def writeData(directory, name, format, data, binary=False):
 def writeBinaryData(directory, name, format, data):
     """
     Write binary data to a file.
-    
+
     Convenience wrapper around writeData with binary=True.
-    
+
     Args:
         directory: Directory to write the file to (created if missing)
         name: Filename (without extension if format is provided)
@@ -153,10 +154,10 @@ def writeBinaryData(directory, name, format, data):
 def dataHash(s):
     """
     Compute SHA-1 hash of data.
-    
+
     Args:
         s: Data to hash (must be bytes for hashlib)
-        
+
     Returns:
         SHA-1 digest (bytes, not hex string)
     """
@@ -169,13 +170,13 @@ def dataHash(s):
 def fileHash(directory, name, format=None, binary=False):
     """
     Compute SHA-1 hash of a file's contents.
-    
+
     Args:
         directory: Directory containing the file
         name: Filename (without extension if format is provided)
         format: Optional file extension/format
         binary: If True, read as binary data, otherwise as text
-        
+
     Returns:
         SHA-1 digest (bytes) of the file contents
     """
@@ -185,18 +186,18 @@ def fileHash(directory, name, format=None, binary=False):
 def writeFileIfChanged(directory, name, format, data, binary=False):
     """
     Write data to a file only if it differs from the existing file.
-    
+
     Computes the hash of existing file (if it exists) and compares it
     with the hash of the new data. Only writes if they differ, avoiding
     unnecessary file modifications.
-    
+
     Args:
         directory: Directory to write the file to (created if missing)
         name: Filename (without extension if format is provided)
         format: File extension/format
         data: Data to write (string for text mode, bytes for binary mode)
         binary: If True, write in binary mode, otherwise text mode
-        
+
     Returns:
         True if the file was written (either didn't exist or changed),
         False if the file already contained the same data

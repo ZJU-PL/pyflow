@@ -12,12 +12,12 @@ from pyflow.analysis.storegraph import extendedtypes
 
 def cpaArgOK(arg):
     """Check if an argument type is valid for CPA.
-    
+
     Valid types are None, anyType, or ExtendedType.
-    
+
     Args:
         arg: Argument type to check
-        
+
     Returns:
         bool: True if valid CPA argument type
     """
@@ -26,26 +26,27 @@ def cpaArgOK(arg):
 
 class CPAContextSignature(canonical.CanonicalObject):
     """Represents a function signature for context-sensitive analysis.
-    
+
     Signatures combine code with parameter types to create distinct
     analysis contexts. Different calling patterns (different parameter
     types) get different signatures and contexts.
-    
+
     Attributes:
         code: Function code object
         selfparam: Self parameter type (or None, or nullIter)
         params: List of positional parameter types
         vparams: List of variable parameter types (*args)
     """
+
     def __init__(self, code, selfparam, params, vparams):
         """Initialize a CPA context signature.
-        
+
         Args:
             code: Function code object
             selfparam: Self parameter type (None, nullIter, or ExtendedType)
             params: List of positional parameter types
             vparams: List of variable parameter types
-            
+
         Raises:
             AssertionError: If invalid argument types or too many vparams
         """
@@ -81,14 +82,14 @@ nullIter = (None,)
 
 class CPATypeSigBuilder(object):
     """Builds CPA signatures from call sites.
-    
+
     This class extracts parameter types from call sites and builds
     CPA signatures for context-sensitive analysis. It handles:
     - Self parameters
     - Positional parameters
     - Variable parameters (*args)
     - Default parameters
-    
+
     Attributes:
         analysis: IPAnalysis instance
         call: Call constraint being processed
@@ -97,9 +98,10 @@ class CPATypeSigBuilder(object):
         params: List of positional parameter types
         vparams: List of variable parameter types
     """
+
     def __init__(self, analysis, call, info):
         """Initialize signature builder.
-        
+
         Args:
             analysis: IPAnalysis instance
             call: Call constraint (FlatCallConstraint)
@@ -158,7 +160,10 @@ class CPATypeSigBuilder(object):
         return self.call.vargSlots[index].typeSplit.types()
 
     def getDefault(self, index):
-        if index >= len(self.call.defaultSlots) or self.call.defaultSlots[index] is None:
+        if (
+            index >= len(self.call.defaultSlots)
+            or self.call.defaultSlots[index] is None
+        ):
             return None
         return self.call.defaultSlots[index].typeSplit.types()
 

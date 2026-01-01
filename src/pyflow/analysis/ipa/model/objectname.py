@@ -10,20 +10,21 @@ from pyflow.analysis.storegraph import extendedtypes
 
 class ObjectName(object):
     """Represents an abstract object in IPA.
-    
+
     ObjectName combines type information (ExtendedType) with a qualifier
     that indicates scope and lifetime. Objects are canonicalized by
     (xtype, qualifier) pair in IPAnalysis.objs.
-    
+
     Attributes:
         xtype: ExtendedType from store graph (type and object info)
         qualifier: Qualifier string (HZ, DN, UP, GLBL)
     """
+
     __slots__ = "xtype", "qualifier"
 
     def __init__(self, xtype, qualifier):
         """Initialize an object name.
-        
+
         Args:
             xtype: ExtendedType from store graph
             qualifier: Qualifier string (HZ, DN, UP, GLBL)
@@ -34,7 +35,7 @@ class ObjectName(object):
 
     def __repr__(self):
         """String representation for debugging.
-        
+
         Returns:
             str: Representation showing type and qualifier
         """
@@ -42,10 +43,10 @@ class ObjectName(object):
 
     def cpaType(self):
         """Get CPA type for this object.
-        
+
         Returns the type used in CPA (Constraint Propagation Analysis)
         for type-based splitting.
-        
+
         Returns:
             ExtendedType: CPA type
         """
@@ -53,7 +54,7 @@ class ObjectName(object):
 
     def obj(self):
         """Get the underlying program object.
-        
+
         Returns:
             program.AbstractObject: Program object
         """
@@ -61,7 +62,7 @@ class ObjectName(object):
 
     def pyObj(self):
         """Get the Python object.
-        
+
         Returns:
             object: Python object (if available)
         """
@@ -69,7 +70,7 @@ class ObjectName(object):
 
     def isObjectName(self):
         """Type check: this is an ObjectName.
-        
+
         Returns:
             bool: Always True for ObjectName instances
         """

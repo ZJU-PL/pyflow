@@ -20,18 +20,19 @@ import collections
 
 class DFS(object):
     """Depth-first search visitor for AST traversal.
-    
+
     DFS performs depth-first traversal of AST, calling a pre-order
     callback for each node. It handles code nodes specially to avoid
     revisiting shared code definitions.
-    
+
     Attributes:
         pre: Pre-order callback function(node)
         visited: Set of visited code nodes
     """
+
     def __init__(self, pre):
         """Initialize DFS visitor.
-        
+
         Args:
             pre: Pre-order callback function
         """
@@ -40,7 +41,7 @@ class DFS(object):
 
     def visit(self, node, force=False):
         """Visit a node and traverse its children.
-        
+
         Args:
             node: AST node to visit
             force: Whether to force traversal (even if already visited)
@@ -68,7 +69,7 @@ class DFS(object):
 
     def process(self, node):
         """Process a node (entry point for traversal).
-        
+
         Args:
             node: Root node to traverse
         """
@@ -78,12 +79,12 @@ class DFS(object):
 
 class DefUseVisitor(TypeDispatcher):
     """Visitor that collects def-use information for variables.
-    
+
     DefUseVisitor traverses AST and collects:
     - Local variable definitions and uses
     - Global variable definitions and uses
     - Cell variable definitions and uses
-    
+
     Attributes:
         lcldef: Dictionary mapping local variables to definition locations
         lcluse: Dictionary mapping local variables to use locations
@@ -92,6 +93,7 @@ class DefUseVisitor(TypeDispatcher):
         celldef: Dictionary mapping cell variables to definition locations
         celluse: Dictionary mapping cell variables to use locations
     """
+
     def __init__(self):
         """Initialize def-use visitor."""
         TypeDispatcher.__init__(self)

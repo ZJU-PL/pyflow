@@ -5,6 +5,7 @@ This module provides classes and functions for generating DOT format graph files
 which can be rendered by Graphviz tools. It supports directed and undirected graphs,
 subgraphs, clusters, nodes, and edges with customizable attributes.
 """
+
 import os
 import re
 
@@ -20,13 +21,13 @@ lut = {"\n": r"\n", "\t": r"\t", '"': r"\""}
 def escapeField(s):
     """
     Escape special characters in a string for use as a DOT field value.
-    
+
     Escapes newlines, tabs, and double quotes to their escaped representations
     to ensure valid DOT syntax.
-    
+
     Args:
         s: String to escape (will be converted to string if not already)
-        
+
     Returns:
         Escaped string safe for use in DOT format
     """
@@ -36,11 +37,12 @@ def escapeField(s):
 class Subgraph(object):
     """
     Represents a subgraph in a DOT graph structure.
-    
+
     A Subgraph can be a digraph (directed graph), graph (undirected graph),
     or a nested subgraph. It contains nodes, edges, and nested subgraphs,
     and can output itself in DOT format.
     """
+
     __slots__ = (
         "graphtype",
         "name",
@@ -57,7 +59,7 @@ class Subgraph(object):
     def __init__(self, graphtype, name, nodetype=None, edgetype=None, **attr):
         """
         Initialize a Subgraph.
-        
+
         Args:
             graphtype: Type of graph - "digraph" (directed) or "graph" (undirected)
             name: Name of the subgraph
@@ -82,7 +84,7 @@ class Subgraph(object):
     def isDirected(self):
         """
         Check if this is a directed graph (digraph).
-        
+
         Returns:
             True if this is a digraph, False if it's an undirected graph
         """
@@ -91,7 +93,7 @@ class Subgraph(object):
     def createDotFile(self, fo):
         """
         Create a DOT file from this subgraph.
-        
+
         Args:
             fo: File object or filename string to write the DOT output to
         """
@@ -102,10 +104,10 @@ class Subgraph(object):
     def outputDot(self, out, tabs=""):
         """
         Output this subgraph in DOT format to the given file object.
-        
+
         Recursively outputs all nested subgraphs, nodes, and edges with
         proper indentation and DOT syntax.
-        
+
         Args:
             out: File object to write to
             tabs: Indentation prefix for this level (used for nested subgraphs)
@@ -162,11 +164,11 @@ class Subgraph(object):
     def subgraph(self, name, **attr):
         """
         Create a nested subgraph within this subgraph.
-        
+
         Args:
             name: Name of the subgraph
             **attr: Additional attributes for the subgraph
-            
+
         Returns:
             The newly created Subgraph instance
         """
@@ -183,14 +185,14 @@ class Subgraph(object):
     def cluster(self, name, **attr):
         """
         Create a cluster subgraph (visual grouping in DOT format).
-        
+
         Cluster names are automatically prefixed with "cluster_" which tells
         Graphviz to visually group the nodes within.
-        
+
         Args:
             name: Name of the cluster (will be prefixed with "cluster_")
             **attr: Additional attributes for the cluster
-            
+
         Returns:
             The newly created cluster Subgraph instance
         """
@@ -202,10 +204,10 @@ class Subgraph(object):
     def registerNode(self, name, node):
         """
         Register a node in the name lookup table.
-        
+
         Registers the node in this subgraph and all parent subgraphs,
         allowing nodes to be found by name when creating edges.
-        
+
         Args:
             name: Name identifier for the node
             node: Node object to register (can be a Node or Subgraph)
@@ -217,15 +219,15 @@ class Subgraph(object):
     def node(self, name, nodetype=None, **attr):
         """
         Create a node in this subgraph.
-        
+
         Args:
             name: Unique name identifier for the node
             nodetype: Optional style/attributes for this node
             **attr: Additional node attributes (label, shape, color, etc.)
-            
+
         Returns:
             The newly created Node instance
-            
+
         Raises:
             AssertionError: If a node with the given name already exists
         """
@@ -240,16 +242,16 @@ class Subgraph(object):
     def getNode(self, n):
         """
         Get a node by name or return the node if it's already a node object.
-        
+
         Searches the name lookup table to find the node. If passed a Node or
         Subgraph object directly, returns it unchanged.
-        
+
         Args:
             n: Node name string, Node object, or Subgraph object
-            
+
         Returns:
             The Node or Subgraph object
-            
+
         Raises:
             AssertionError: If the node name is not found in the lookup table
         """
@@ -265,16 +267,16 @@ class Subgraph(object):
     def edge(self, n1, n2, edgetype=None, **kargs):
         """
         Create an edge between two nodes.
-        
+
         If this is a nested subgraph, the edge is pushed to the root graph.
         Edges can connect multiple nodes in sequence (n1 -> n2 -> n3 -> ...).
-        
+
         Args:
             n1: First node name (source node)
             n2: Second node name (destination node)
             edgetype: Optional style/attributes for this edge
             **kargs: Additional edge attributes (label, color, style, etc.)
-            
+
         Returns:
             The newly created Edge instance
         """
@@ -295,10 +297,11 @@ class Subgraph(object):
 class Node(object):
     """
     Represents a node in a DOT graph.
-    
+
     A node has a unique name and optional attributes that control its
     appearance in the rendered graph (shape, color, label, etc.).
     """
+
     __slots__ = ("name", "attr", "parent", "style")
 
     # Valid DOT node attributes that can be set
@@ -333,7 +336,7 @@ class Node(object):
     def __init__(self, name, nodetype=None, **attr):
         """
         Initialize a Node.
-        
+
         Args:
             name: Unique name identifier for the node (must be a string)
             nodetype: Optional default style/attributes (usually from parent subgraph)
@@ -348,7 +351,7 @@ class Node(object):
     def dump(self, out, tabs=""):
         """
         Output this node in DOT format.
-        
+
         Args:
             out: File object to write to
             tabs: Indentation prefix
@@ -362,16 +365,17 @@ class Node(object):
 class Edge(object):
     """
     Represents an edge (connection) between nodes in a DOT graph.
-    
+
     An edge can connect two or more nodes in sequence. It has optional
     attributes that control its appearance (label, color, style, etc.).
     """
+
     __slots__ = ("nodes", "attr", "style")
 
     def __init__(self, nodes, edgetype=None, **attr):
         """
         Initialize an Edge.
-        
+
         Args:
             nodes: List of at least 2 node names that this edge connects
             edgetype: Optional default style/attributes (usually from parent subgraph)
@@ -385,7 +389,7 @@ class Edge(object):
     def resolveNodes(self, subgraph):
         """
         Resolve node names to Node objects using the subgraph's lookup table.
-        
+
         Args:
             subgraph: Subgraph instance to use for node name resolution
         """
@@ -394,7 +398,7 @@ class Edge(object):
     def dump(self, out, tabs, directed):
         """
         Output this edge in DOT format.
-        
+
         Args:
             out: File object to write to
             tabs: Indentation prefix
@@ -417,16 +421,16 @@ class Edge(object):
 def Style(**kargs):
     """
     Create a style dictionary for nodes or edges.
-    
+
     Validates that all keys and values are strings, as required by DOT format.
     This is a convenience function for creating style dictionaries.
-    
+
     Args:
         **kargs: Style attributes (e.g., shape="box", color="red")
-        
+
     Returns:
         Dictionary of style attributes
-        
+
     Raises:
         AssertionError: If any key or value is not a string
     """
@@ -438,9 +442,9 @@ def Style(**kargs):
 def dumpAttr(attr, out):
     """
     Output attributes in DOT format to the file object.
-    
+
     Formats attributes as [key1="value1", key2="value2", ...]
-    
+
     Args:
         attr: Dictionary of attributes to output
         out: File object to write to
@@ -461,13 +465,13 @@ def dumpAttr(attr, out):
 def Digraph(**attr):
     """
     Create a new directed graph (digraph).
-    
+
     This is the main entry point for creating DOT graphs. Returns a Subgraph
     configured as a digraph that can be populated with nodes and edges.
-    
+
     Args:
         **attr: Graph-level attributes (e.g., label="My Graph", fontsize=12)
-        
+
     Returns:
         A Subgraph instance configured as a digraph
     """
@@ -478,10 +482,10 @@ def Digraph(**attr):
 def createGraphic(g, name, format="png"):
     """
     Create a graphic file from a graph by generating DOT and compiling it.
-    
+
     First creates a .dot file, then compiles it to the specified image format
     using Graphviz's dot tool.
-    
+
     Args:
         g: Subgraph instance to render
         name: Base name for output files (without extension)
@@ -495,11 +499,11 @@ def createGraphic(g, name, format="png"):
 def compileDotFile(name, format):
     """
     Compile a DOT file to an image using Graphviz.
-    
+
     Note: This function currently hardcodes the Windows path to Graphviz.
     For cross-platform use, the dot executable should be located via PATH
     or a configurable setting.
-    
+
     Args:
         name: Base name of the DOT file (without .dot extension)
         format: Output image format (e.g., "png", "svg", "pdf")

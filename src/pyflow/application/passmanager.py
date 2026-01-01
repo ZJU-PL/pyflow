@@ -56,6 +56,7 @@ from dataclasses import dataclass, field
 
 class PassKind(Enum):
     """Types of passes in the system."""
+
     ANALYSIS = "analysis"
     OPTIMIZATION = "optimization"
     TRANSFORMATION = "transformation"
@@ -65,8 +66,13 @@ class PassKind(Enum):
 class PassResult:
     """Result of running a pass."""
 
-    def __init__(self, success: bool = True, changed: bool = False,
-                 data: Any = None, error: Optional[str] = None):
+    def __init__(
+        self,
+        success: bool = True,
+        changed: bool = False,
+        data: Any = None,
+        error: Optional[str] = None,
+    ):
         self.success = success
         self.changed = changed
         self.data = data
@@ -80,13 +86,16 @@ class PassResult:
 @dataclass
 class PassInfo:
     """Metadata for a registered pass."""
+
     name: str
     kind: PassKind
     description: str = ""
     dependencies: Set[str] = field(default_factory=set)
-    requirements: Set[str] = field(default_factory=set)  # What analyses must be run first
-    invalidates: Set[str] = field(default_factory=set)   # What analyses this invalidates
-    preserves: Set[str] = field(default_factory=set)     # What analyses this preserves
+    requirements: Set[str] = field(
+        default_factory=set
+    )  # What analyses must be run first
+    invalidates: Set[str] = field(default_factory=set)  # What analyses this invalidates
+    preserves: Set[str] = field(default_factory=set)  # What analyses this preserves
 
     def __post_init__(self):
         # Convert string sets to actual sets if needed
@@ -251,7 +260,9 @@ class PassManager:
 
         def visit(pass_name: str):
             if pass_name in temp_visited:
-                raise ValueError(f"Circular dependency detected involving '{pass_name}'")
+                raise ValueError(
+                    f"Circular dependency detected involving '{pass_name}'"
+                )
             if pass_name not in visited and pass_name in self.passes:
                 temp_visited.add(pass_name)
 
@@ -276,7 +287,9 @@ class PassManager:
         """Build a pipeline from a list of pass names."""
         return PassPipeline(self, pass_names)
 
-    def run_pipeline(self, compiler, program, pipeline: "PassPipeline") -> Dict[str, PassResult]:
+    def run_pipeline(
+        self, compiler, program, pipeline: "PassPipeline"
+    ) -> Dict[str, PassResult]:
         """Run a pipeline of passes."""
         results = {}
 
@@ -307,7 +320,9 @@ class PassManager:
 
         return results
 
-    def run_passes(self, compiler, program, pass_names: List[str]) -> Dict[str, PassResult]:
+    def run_passes(
+        self, compiler, program, pass_names: List[str]
+    ) -> Dict[str, PassResult]:
         """Run a specific set of passes."""
         pipeline = self.build_pipeline(pass_names)
         return self.run_pipeline(compiler, program, pipeline)
@@ -324,14 +339,16 @@ class PassManager:
             result = pass_obj.run(compiler, program)
 
             execution_time = time.time() - start_time
-            self.execution_log.append({
-                'pass': pass_obj.name,
-                'success': result.success,
-                'changed': result.changed,
-                'time': execution_time,
-                'error': result.error,
-                'timestamp': result.timestamp
-            })
+            self.execution_log.append(
+                {
+                    "pass": pass_obj.name,
+                    "success": result.success,
+                    "changed": result.changed,
+                    "time": execution_time,
+                    "error": result.error,
+                    "timestamp": result.timestamp,
+                }
+            )
 
             return result
 
@@ -339,14 +356,16 @@ class PassManager:
             execution_time = time.time() - start_time
             error_result = PassResult(success=False, error=str(e))
 
-            self.execution_log.append({
-                'pass': pass_obj.name,
-                'success': False,
-                'changed': False,
-                'time': execution_time,
-                'error': str(e),
-                'timestamp': time.time()
-            })
+            self.execution_log.append(
+                {
+                    "pass": pass_obj.name,
+                    "success": False,
+                    "changed": False,
+                    "time": execution_time,
+                    "error": str(e),
+                    "timestamp": time.time(),
+                }
+            )
 
             return error_result
 
@@ -360,8 +379,9 @@ class PassManager:
         # Find passes that depend on this one or are invalidated by it
         to_invalidate = set()
         for other_name, other_pass in self.passes.items():
-            if (other_pass.depends_on(pass_name) or
-                pass_obj.invalidates_analysis(other_name)):
+            if other_pass.depends_on(pass_name) or pass_obj.invalidates_analysis(
+                other_name
+            ):
                 to_invalidate.add(other_name)
 
         # Invalidate them
@@ -412,8 +432,11 @@ class PassPipeline:
 
 
 # Convenience functions for creating common pass types
-def create_analysis_pass(name: str, run_func: Callable, description: str = "") -> AnalysisPass:
+def create_analysis_pass(
+    name: str, run_func: Callable, description: str = ""
+) -> AnalysisPass:
     """Create an analysis pass from a function."""
+
     class FunctionAnalysisPass(AnalysisPass):
         def __init__(self):
             super().__init__(name, description)
@@ -434,8 +457,11 @@ def create_analysis_pass(name: str, run_func: Callable, description: str = "") -
     return FunctionAnalysisPass()
 
 
-def create_optimization_pass(name: str, run_func: Callable, description: str = "") -> OptimizationPass:
+def create_optimization_pass(
+    name: str, run_func: Callable, description: str = ""
+) -> OptimizationPass:
     """Create an optimization pass from a function."""
+
     class FunctionOptimizationPass(OptimizationPass):
         def __init__(self):
             super().__init__(name, description)

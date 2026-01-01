@@ -1,5 +1,6 @@
 # FIXME: we already have a cfg in pyflow/analysis/cfg. Wdy not we need pyflow/analysis/cfgIR?
 
+
 class CFGNode(object):
     __slots__ = "parent", "prev", "next"
 

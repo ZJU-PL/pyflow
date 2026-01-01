@@ -1,8 +1,7 @@
-"""Kruskal's algorithm for minimum spanning trees. D. Eppstein, April 2006.
-"""
-
+"""Kruskal's algorithm for minimum spanning trees. D. Eppstein, April 2006."""
 
 from pyflow.util.PADS.UnionFind import UnionFind
+
 
 def MinimumSpanningTree(G):
     """
@@ -18,10 +17,10 @@ def MinimumSpanningTree(G):
     # part (the sort) is sped up by being built in to Python.
     subtrees = UnionFind()
     tree = []
-    edges = [(G[u][v],u,v) for u in G for v in G[u]]
+    edges = [(G[u][v], u, v) for u in G for v in G[u]]
     edges.sort()
-    for W,u,v in edges:
+    for W, u, v in edges:
         if subtrees[u] != subtrees[v]:
-            tree.append((u,v))
-            subtrees.union(u,v)
+            tree.append((u, v))
+            subtrees.union(u, v)
     return tree

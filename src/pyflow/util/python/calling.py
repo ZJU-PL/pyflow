@@ -25,11 +25,11 @@ from pyflow.util.tvl import *
 class CallerArgs(object):
     """
     Represents the arguments at a function call site.
-    
+
     This class encapsulates all information about how a function is being called,
     including positional arguments, keyword arguments, and variable arguments.
     Used to model the caller's side of a function call during static analysis.
-    
+
     Attributes:
         selfarg: The 'self' argument for method calls (None for regular functions)
         args: List/tuple of positional arguments
@@ -38,12 +38,13 @@ class CallerArgs(object):
         kargs: Variable keyword arguments (**kwargs), or None if not present
         returnargs: List/tuple of return value targets, or None
     """
+
     __slots__ = "selfarg", "args", "kwds", "vargs", "kargs", "returnargs"
 
     def __init__(self, selfarg, args, kwds, vargs, kargs, returnargs):
         """
         Initialize a CallerArgs object.
-        
+
         Args:
             selfarg: The 'self' argument (object or None)
             args: List or tuple of positional arguments
@@ -74,17 +75,17 @@ class CallerArgs(object):
     def map(self, callback):
         """
         Apply a transformation function to all arguments.
-        
+
         Creates a new CallerArgs object with all arguments transformed by the
         callback function. This is used during analysis to map abstract values
         or apply transformations to the call arguments.
-        
+
         Args:
             callback: Function to apply to each argument
-            
+
         Returns:
             CallerArgs: New CallerArgs object with transformed arguments
-            
+
         Note:
             returnargs are not transformed as they represent return value targets,
             which have different semantics than input arguments.
@@ -105,12 +106,12 @@ class CallerArgs(object):
 class CalleeParams(object):
     """
     Represents the parameter signature of a function definition.
-    
+
     This class encapsulates all information about a function's parameters,
     including their names, default values, and whether the function accepts
     variable arguments. Used to model the callee's side of a function call
     during static analysis.
-    
+
     Attributes:
         selfparam: The 'self' parameter for methods (object or None)
         params: List/tuple of parameter objects/values
@@ -120,6 +121,7 @@ class CalleeParams(object):
         kparam: Variable keyword parameter (**kwargs), or None if not present
         returnparams: List/tuple of return parameter objects
     """
+
     __slots__ = (
         "selfparam",
         "params",
@@ -135,7 +137,7 @@ class CalleeParams(object):
     ):
         """
         Initialize a CalleeParams object.
-        
+
         Args:
             selfparam: The 'self' parameter (object or None)
             params: List or tuple of parameter objects
@@ -177,11 +179,11 @@ class CalleeParams(object):
 class PositionalTransfer(object):
     """
     Tracks the mapping of positional arguments to parameters.
-    
+
     This class represents a transfer of arguments from a source range to a
     destination range. Used to track how positional arguments at the call site
     map to function parameters.
-    
+
     Attributes:
         active: Whether this transfer is active (has arguments to transfer)
         sourceBegin: Starting index in the source (caller arguments)
@@ -190,6 +192,7 @@ class PositionalTransfer(object):
         destinationEnd: Ending index in the destination (exclusive)
         count: Number of arguments being transferred
     """
+
     def __init__(self):
         """Initialize an inactive PositionalTransfer."""
         self.reset()
@@ -206,7 +209,7 @@ class PositionalTransfer(object):
     def transfer(self, src, dst, count):
         """
         Set up a transfer from source to destination.
-        
+
         Args:
             src: Starting index in source arguments
             dst: Starting index in destination parameters
@@ -226,7 +229,7 @@ class PositionalTransfer(object):
     def __iter__(self):
         """
         Iterate over (source_index, destination_index) pairs.
-        
+
         Yields:
             tuple: (source_index, destination_index) for each transferred argument
         """
@@ -242,13 +245,13 @@ class PositionalTransfer(object):
 class CallInfo(object):
     """
     Information about whether a function call will succeed and how arguments bind.
-    
+
     This class tracks the result of matching call-site arguments to function
     parameters. It uses three-valued logic (TVL) to represent certainty:
     - TVLTrue: The call will definitely succeed
     - TVLFalse: The call will definitely fail
     - TVLMaybe: The call may or may not succeed (uncertain)
-    
+
     Attributes:
         willSucceed: TVL value indicating if the call will succeed
         selfTransfer: Whether 'self' argument is being passed (for methods)
@@ -262,6 +265,7 @@ class CallInfo(object):
         certainKeywords: Set of parameter indices bound by keyword arguments
         defaults: Set of parameter indices that will use default values
     """
+
     def __init__(self):
         """Initialize CallInfo with default (uncertain) values."""
         self.willSucceed = TVLMaybe
@@ -285,17 +289,17 @@ class CallInfo(object):
     def isBound(self, param):
         """
         Check if a parameter is bound (will receive a value).
-        
+
         A parameter is bound if:
         - It receives a positional argument (TVLTrue)
         - It receives a keyword argument (TVLTrue)
         - It has a default value and no argument (TVLTrue)
         - It may receive an uncertain argument (TVLMaybe)
         - Otherwise, it's not bound (TVLFalse)
-        
+
         Args:
             param: Parameter index to check
-            
+
         Returns:
             TVL value: TVLTrue if definitely bound, TVLFalse if definitely not,
                      TVLMaybe if uncertain
@@ -314,11 +318,11 @@ class CallInfo(object):
     def _mustFail(self):
         """
         Mark this call as definitely failing.
-        
+
         Resets all transfer information and marks willSucceed as TVLFalse.
         Used when analysis determines the call cannot succeed (e.g., too many
         arguments, missing required parameters).
-        
+
         Returns:
             self: For method chaining
         """
@@ -341,11 +345,11 @@ class CallInfo(object):
 def bindDefaults(callee, info):
     """
     Mark parameters with default values that may be used.
-    
+
     Parameters with default values are only used if they're not bound by
     arguments. This function checks each parameter with a default and adds
     it to info.defaults if it's not definitely bound.
-    
+
     Args:
         callee: CalleeParams object describing the function signature
         info: CallInfo object to update with default bindings
@@ -364,17 +368,17 @@ def bindDefaults(callee, info):
 def isDoNotCare(node):
     """
     Check if a node represents a "do not care" value in the analysis.
-    
+
     Some analysis nodes may be marked as "do not care", meaning their value
     is irrelevant for the current analysis. This is used to skip certain
     checks or optimizations.
-    
+
     Args:
         node: Analysis node to check
-        
+
     Returns:
         bool: True if the node is marked as "do not care"
-        
+
     Note:
         This is a hack to check for a specific method on nodes. Nodes that
         don't care about their value implement isDoNotCare() returning True.
@@ -387,14 +391,14 @@ def callStackToParamsInfo(
 ):
     """
     Match call-site arguments to function parameters and determine call feasibility.
-    
+
     This is the core function for static call analysis. It takes information about
     a function call and determines:
     1. Whether the call will succeed, fail, or is uncertain (using TVL)
     2. How arguments map to parameters (positional, keyword, *args, **kwargs)
     3. Which parameters will use default values
     4. What exceptions might be raised (e.g., TypeError for mismatched arguments)
-    
+
     The function handles:
     - Method calls (self parameter)
     - Positional arguments
@@ -402,7 +406,7 @@ def callStackToParamsInfo(
     - Variable positional arguments (*args)
     - Default parameter values
     - Uncertain arguments (when analysis cannot determine exact count)
-    
+
     Args:
         callee: CalleeParams object describing the function's parameter signature
         selfarg: Whether a 'self' argument is being passed (True/False)
@@ -411,13 +415,13 @@ def callStackToParamsInfo(
         certainKwds: Set of keyword argument names that are definitely being passed
         isUncertainKwds: Whether there may be additional uncertain keyword arguments
                          (currently must be False - not fully supported)
-    
+
     Returns:
         CallInfo: Object containing information about argument binding and call success
-        
+
     Raises:
         AssertionError: If callee is not a CalleeParams or if isUncertainKwds is True
-        
+
     Example:
         >>> # Function: def foo(a, b, c=10): ...
         >>> callee = CalleeParams(None, [0, 1, 2], ["a", "b", "c"], [10], None, None, [])

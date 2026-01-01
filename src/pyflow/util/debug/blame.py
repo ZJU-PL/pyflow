@@ -14,14 +14,14 @@ import dis
 def lineForInstruction(code, instruction):
     """
     Find the source line number for a bytecode instruction offset.
-    
+
     Maps a bytecode instruction offset to the corresponding source line number
     by examining the line number table in the code object.
-    
+
     Args:
         code: Code object (from function.__code__)
         instruction: Bytecode instruction offset (f_lasti)
-        
+
     Returns:
         int: Source line number corresponding to the instruction
     """
@@ -38,25 +38,25 @@ def lineForInstruction(code, instruction):
 def traceBlame(offset, count):
     """
     Trace the call stack and return blame information.
-    
+
     Inspects the call stack starting at the given offset and returns
     information about the calling functions, including filename, line number,
     and function name. This is used for error reporting to show where
     errors originated.
-    
+
     The function traces backwards through the call stack, collecting
     information about each frame. It handles both regular Python execution
     (using f_lineno) and optimized execution (using f_lasti and bytecode
     instruction mapping).
-    
+
     Args:
         offset: Stack frame offset (0 = current frame, 1 = caller, etc.)
         count: Number of stack frames to trace
-        
+
     Returns:
         tuple: Tuple of strings in format "filename:lineno in function_name"
                representing the call stack from oldest to newest
-        
+
     Example:
         >>> def inner():
         ...     return traceBlame(2, 3)  # Trace 3 frames starting 2 levels up

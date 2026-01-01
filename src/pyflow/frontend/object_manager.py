@@ -7,7 +7,12 @@ for Python objects used in static analysis.
 
 from typing import Any, Dict, Optional
 
-from pyflow.language.python.program import Object, ImaginaryObject, AbstractObject, TypeInfo
+from pyflow.language.python.program import (
+    Object,
+    ImaginaryObject,
+    AbstractObject,
+    TypeInfo,
+)
 
 
 class ObjectManager:
@@ -33,7 +38,7 @@ class ObjectManager:
             self.ensure_loaded(pyflow_obj)
 
             # Initialize data structures for the object (required for IPA analysis)
-            if hasattr(pyflow_obj, 'type') and pyflow_obj.type is not None:
+            if hasattr(pyflow_obj, "type") and pyflow_obj.type is not None:
                 pyflow_obj.allocateDatastructures(pyflow_obj.type)
 
             self._object_cache[obj] = pyflow_obj
@@ -55,30 +60,38 @@ class ObjectManager:
                     if self.verbose:
                         print(f"DEBUG: Source code provided, type: {type(source_code)}")
                         if isinstance(source_code, dict):
-                            print(f"DEBUG: Source code keys: {list(source_code.keys())}")
+                            print(
+                                f"DEBUG: Source code keys: {list(source_code.keys())}"
+                            )
 
-                    if hasattr(func, '__code__') and func.__code__.co_filename:
+                    if hasattr(func, "__code__") and func.__code__.co_filename:
                         filename = func.__code__.co_filename
                         if isinstance(source_code, dict):
                             # Try exact match first
                             if filename in source_code:
                                 func_source = source_code[filename]
                                 if self.verbose:
-                                    print(f"DEBUG: Found exact source match for '{filename}'")
+                                    print(
+                                        f"DEBUG: Found exact source match for '{filename}'"
+                                    )
                             # Special case: if filename is '<string>' and we have source code, use it
-                            elif filename == '<string>':
+                            elif filename == "<string>":
                                 # For functions created by exec(), use the corresponding source file
                                 # We need to find which source file this function came from
                                 # For now, use the first available .py file
                                 for src_filename, src_content in source_code.items():
-                                    if src_filename.endswith('.py'):
+                                    if src_filename.endswith(".py"):
                                         func_source = src_content
                                         if self.verbose:
-                                            print(f"DEBUG: Using source for '<string>' filename from '{src_filename}'")
+                                            print(
+                                                f"DEBUG: Using source for '<string>' filename from '{src_filename}'"
+                                            )
                                         break
                             else:
                                 if self.verbose:
-                                    print(f"DEBUG: No source found for filename '{filename}'")
+                                    print(
+                                        f"DEBUG: No source found for filename '{filename}'"
+                                    )
                         elif isinstance(source_code, str):
                             func_source = source_code
                 else:
@@ -86,7 +99,9 @@ class ObjectManager:
                         print(f"DEBUG: No source code provided for {func.__name__}")
 
                 if self.verbose:
-                    print(f"DEBUG: Calling convert_function for {func.__name__} with source_code type: {type(func_source)}")
+                    print(
+                        f"DEBUG: Calling convert_function for {func.__name__} with source_code type: {type(func_source)}"
+                    )
                     if func_source:
                         print(f"DEBUG: Source code length: {len(func_source)}")
                         print(f"DEBUG: Source code preview: {repr(func_source[:100])}")
@@ -114,7 +129,7 @@ class ObjectManager:
         # Handle None objects
         if obj is None:
             return None
-            
+
         # If this object doesn't have a type set, we need to initialize it
         if not hasattr(obj, "type") or obj.type is None:
             if hasattr(obj, "pyobj"):
@@ -172,29 +187,32 @@ class ObjectManager:
 
     def get_instance(self, typeobj: type) -> AbstractObject:
         """Get an abstract instance object for a given type.
-        
+
         Args:
             typeobj: A Python type object (e.g., int, str, MyClass) or string name (e.g., 'float', 'int')
-            
+
         Returns:
             AbstractObject: The abstract instance representing instances of the type
         """
         # Handle string type names by converting to actual type objects
         if isinstance(typeobj, str):
             import builtins
+
             if hasattr(builtins, typeobj):
                 typeobj = getattr(builtins, typeobj)
             else:
                 raise ValueError(f"Unknown builtin type: {typeobj}")
-        
+
         # Get the type object representation
         type_obj = self.get_object(typeobj)
         # Ensure it's loaded (this will create the abstractInstance if needed)
         self.ensure_loaded(type_obj)
         # Return the abstract instance
-        if type_obj.isType() and hasattr(type_obj, 'typeinfo') and type_obj.typeinfo:
+        if type_obj.isType() and hasattr(type_obj, "typeinfo") and type_obj.typeinfo:
             return type_obj.typeinfo.abstractInstance
         else:
             # Fallback: create a minimal abstract instance if typeinfo wasn't created
-            type_name = typeobj.__name__ if hasattr(typeobj, '__name__') else str(typeobj)
+            type_name = (
+                typeobj.__name__ if hasattr(typeobj, "__name__") else str(typeobj)
+            )
             return self.make_imaginary(f"instance_of_{type_name}", type_obj, False)

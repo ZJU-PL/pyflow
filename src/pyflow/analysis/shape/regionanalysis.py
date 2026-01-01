@@ -22,16 +22,17 @@ from pyflow.language.python import ast
 
 class Region(object):
     """Represents a region (group) of objects.
-    
+
     A region contains objects that may alias (be referred to by the
     same pointer). Regions are computed using union-find analysis.
-    
+
     Attributes:
         objects: Frozen set of objects in this region
     """
+
     def __init__(self, objects):
         """Initialize a region.
-        
+
         Args:
             objects: Set of objects in this region
         """
@@ -39,10 +40,10 @@ class Region(object):
 
     def __contains__(self, obj):
         """Check if object is in this region.
-        
+
         Args:
             obj: Object to check
-            
+
         Returns:
             bool: True if object in region
         """
@@ -51,11 +52,11 @@ class Region(object):
 
 class RegionAnalysis(object):
     """Performs region analysis to group aliasing objects.
-    
+
     RegionAnalysis uses union-find to group objects that may alias.
     It processes operations to find objects that are read/written
     together, indicating they may alias.
-    
+
     Attributes:
         extractor: Program extractor
         entryPoints: List of entry points
@@ -64,9 +65,10 @@ class RegionAnalysis(object):
         liveObjs: Dictionary mapping code to set of live objects
         liveFields: Dictionary mapping code to set of live fields
     """
+
     def __init__(self, extractor, entryPoints, liveCode):
         """Initialize region analysis.
-        
+
         Args:
             extractor: Program extractor
             entryPoints: List of entry points
@@ -82,9 +84,9 @@ class RegionAnalysis(object):
 
     def merge(self, references):
         """Merge references into the same region.
-        
+
         Uses union-find to group references that may alias.
-        
+
         Args:
             references: Set of references to merge
         """
@@ -93,7 +95,7 @@ class RegionAnalysis(object):
 
     def process(self):
         """Process all live code to compute regions.
-        
+
         Analyzes operations in live code to find objects that are
         read/written together, indicating they may alias. Groups
         these objects into regions.

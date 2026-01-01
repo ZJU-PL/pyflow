@@ -19,12 +19,12 @@ from . import rewrite
 
 def floatMulRewrite(self, node):
     """Rewrite float multiplication with constant optimization.
-    
+
     Optimizes multiplication by 0, 1, or -1 for floating point operations.
-    
+
     Args:
         node: AST node representing the multiplication operation.
-        
+
     Returns:
         AST node: Optimized node or None if no optimization applies.
     """
@@ -73,18 +73,18 @@ def makeCallRewrite(extractor):
 class FoldRewrite(TypeDispatcher):
     """
     Rewriter that performs constant folding transformations.
-    
+
     This class implements the core constant folding logic by:
     - Replacing constant expressions with their computed values
     - Propagating constants through assignments
     - Folding binary and unary operations on constants
     - Converting method calls to direct calls where possible
     - Eliminating dead arguments from calls
-    
+
     The rewriter uses forward data flow analysis to track constant values
     as they flow through the program, enabling constant propagation in
     addition to constant folding.
-    
+
     Attributes:
         extractor: Object extractor for creating new objects
         storeGraph: Store graph for type information (may be None)
@@ -94,10 +94,11 @@ class FoldRewrite(TypeDispatcher):
         annotationsExist: Whether context annotations are available
         flow: FlowDict for tracking constant values (set by analysis)
     """
+
     def __init__(self, extractor, storeGraph, code):
         """
         Initialize constant folding rewriter.
-        
+
         Args:
             extractor: Object extractor
             storeGraph: Store graph (may be None)
@@ -122,10 +123,10 @@ class FoldRewrite(TypeDispatcher):
     def descriptive(self):
         """
         Check if the code is descriptive (detailed behavior).
-        
+
         Descriptive code is not folded as aggressively to preserve
         behavioral information.
-        
+
         Returns:
             bool: True if code is descriptive
         """
@@ -139,10 +140,10 @@ class FoldRewrite(TypeDispatcher):
     def logCreated(self, node):
         """
         Log objects created during folding.
-        
+
         Tracks newly created objects so they can be added to the
         extractor's object list.
-        
+
         Args:
             node: AST node (if Existing, logs its object)
         """
@@ -551,25 +552,26 @@ class FoldAnalysis(TypeDispatcher):
 class FoldTraverse(TypeDispatcher):
     """
     Bottom-up AST traverser for constant folding.
-    
+
     This traverser visits AST nodes in bottom-up order (children before
     parents), allowing constant folding to work from leaves upward. It
     applies the strategy (FoldRewrite) to each node after processing
     its children.
-    
+
     Special handling:
     - Assignment targets are not folded (only expressions)
     - Delete targets are not folded
     - Code parameters are not processed
-    
+
     Attributes:
         strategy: FoldRewrite instance to apply transformations
         code: Code object being processed
     """
+
     def __init__(self, strategy, function):
         """
         Initialize fold traverser.
-        
+
         Args:
             strategy: FoldRewrite instance
             function: Code object being processed
@@ -586,30 +588,30 @@ class FoldTraverse(TypeDispatcher):
     def visitList(self, node):
         """
         Visit Python lists in AST.
-        
+
         Handles raw Python lists that might appear in the AST structure.
         Only processes items that have rewriteChildren method.
-        
+
         Args:
             node: List node
-            
+
         Returns:
             List with processed items
         """
         # Handle raw Python lists that might appear in the AST
-        return [self(item) for item in node if hasattr(item, 'rewriteChildren')]
+        return [self(item) for item in node if hasattr(item, "rewriteChildren")]
 
     @defaultdispatch
     def default(self, node):
         """
         Default handler: process children first, then apply strategy.
-        
+
         Bottom-up traversal: children are processed before the parent,
         enabling constant folding to work from leaves upward.
-        
+
         Args:
             node: AST node to process
-            
+
         Returns:
             Transformed node
         """
@@ -620,12 +622,12 @@ class FoldTraverse(TypeDispatcher):
     def visitCodeParameters(self, node):
         """
         Visit code parameters (not folded).
-        
+
         Code parameters are not subject to constant folding.
-        
+
         Args:
             node: CodeParameters node
-            
+
         Returns:
             Node unchanged
         """
@@ -635,13 +637,13 @@ class FoldTraverse(TypeDispatcher):
     def visitAssign(self, node):
         """
         Visit assignment: fold expression but not targets.
-        
+
         Only the expression is folded; assignment targets (lcls) are
         preserved as-is. This ensures variable names are not changed.
-        
+
         Args:
             node: Assign node
-            
+
         Returns:
             Assign node with folded expression
         """
@@ -655,12 +657,12 @@ class FoldTraverse(TypeDispatcher):
     def visitDelete(self, node):
         """
         Visit delete: don't fold delete targets.
-        
+
         Delete targets are not folded to preserve the deletion semantics.
-        
+
         Args:
             node: Delete node
-            
+
         Returns:
             Node with strategy applied (but targets not folded)
         """
@@ -672,19 +674,19 @@ class FoldTraverse(TypeDispatcher):
 def constMeet(values):
     """
     Meet function for constant propagation.
-    
+
     Combines constant values from multiple control flow paths. If all paths
     have the same constant value, returns that value. Otherwise, returns
     top (indicating uncertainty).
-    
+
     This implements the meet operation for the constant propagation lattice:
     - Same constant from all paths -> that constant
     - Different constants -> top (uncertain)
     - undefined (no info) -> ignored
-    
+
     Args:
         values: List of constant values from different paths
-        
+
     Returns:
         The constant if all paths agree, or top if they differ
     """
@@ -698,21 +700,21 @@ def constMeet(values):
 def evaluateCode(compiler, prgm, node):
     """
     Perform constant folding on a code node.
-    
+
     This is the main entry point for constant folding. It performs:
     1. Forward data flow analysis to track constant values
     2. Constant folding of expressions (binary ops, unary ops, calls)
     3. Constant propagation through assignments
     4. Direct call conversion where possible
-    
+
     For standard code, uses forward data flow analysis. For non-standard
     code (like stubs), performs simple bottom-up folding without data flow.
-    
+
     Args:
         compiler: Compiler instance with extractor and other components
         prgm: Program being optimized (may be None)
         node: Code node to optimize
-        
+
     Returns:
         The optimized code node (modified in place)
     """

@@ -11,14 +11,17 @@ a uniform way.
 - InstanceWrapper: Wraps type objects (for creating instances)
 - NullWrapper: Represents missing arguments (e.g., no *args, **kwargs)
 """
+
+
 class ArgumentWrapper(object):
     """
     Base class for argument wrappers.
-    
+
     All argument wrappers inherit from this class. Wrappers provide
     a uniform interface for getting objects and slots from extractors
     and dataflow graphs.
     """
+
     pass
 
 
@@ -26,17 +29,18 @@ class ArgumentWrapper(object):
 class InstanceWrapper(ArgumentWrapper):
     """
     Wrapper for type objects (for creating instances).
-    
+
     This wrapper represents a type/class that will be instantiated.
     Used when declaring entry points that create instances of classes.
-    
+
     Attributes:
         typeobj: The type/class object to wrap
     """
+
     def __init__(self, typeobj):
         """
         Initialize an instance wrapper.
-        
+
         Args:
             typeobj: Type/class object to wrap
         """
@@ -45,10 +49,10 @@ class InstanceWrapper(ArgumentWrapper):
     def getObject(self, extractor):
         """
         Get an instance object from the extractor.
-        
+
         Args:
             extractor: Program extractor instance
-            
+
         Returns:
             Instance object for this type
         """
@@ -57,10 +61,10 @@ class InstanceWrapper(ArgumentWrapper):
     def get(self, dataflow):
         """
         Get an instance slot from the dataflow graph.
-        
+
         Args:
             dataflow: Dataflow graph
-            
+
         Returns:
             Instance slot for this type
         """
@@ -70,18 +74,19 @@ class InstanceWrapper(ArgumentWrapper):
 class ExistingWrapper(ArgumentWrapper):
     """
     Wrapper for existing Python objects (constants, functions, etc.).
-    
+
     This wrapper represents an existing Python object that should be
     used as-is. Used for constants, function references, and other
     existing objects.
-    
+
     Attributes:
         pyobj: The Python object to wrap
     """
+
     def __init__(self, pyobj):
         """
         Initialize an existing wrapper.
-        
+
         Args:
             pyobj: Python object to wrap (can be None)
         """
@@ -90,10 +95,10 @@ class ExistingWrapper(ArgumentWrapper):
     def getObject(self, extractor):
         """
         Get the object from the extractor.
-        
+
         Args:
             extractor: Program extractor instance
-            
+
         Returns:
             The wrapped Python object
         """
@@ -102,10 +107,10 @@ class ExistingWrapper(ArgumentWrapper):
     def get(self, dataflow):
         """
         Get an existing slot from the dataflow graph.
-        
+
         Args:
             dataflow: Dataflow graph
-            
+
         Returns:
             Existing slot for this object
         """
@@ -116,17 +121,18 @@ class ExistingWrapper(ArgumentWrapper):
 class NullWrapper(ArgumentWrapper):
     """
     Wrapper representing a missing/null argument.
-    
+
     Used when an optional argument (like *args or **kwargs) is not
     present in a function call. Always returns None/False.
     """
+
     def get(self, dataflow):
         """
         Get None (no slot for null arguments).
-        
+
         Args:
             dataflow: Dataflow graph (unused)
-            
+
         Returns:
             None
         """
@@ -135,7 +141,7 @@ class NullWrapper(ArgumentWrapper):
     def __nonzero__(self):
         """
         Null wrapper is always falsy.
-        
+
         Returns:
             False
         """

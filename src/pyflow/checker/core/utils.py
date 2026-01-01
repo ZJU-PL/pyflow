@@ -59,7 +59,9 @@ def get_module_qualname_from_path(path):
     """Get the module's qualified name by analysis of the path"""
     head, tail = os.path.split(path)
     if not head or not tail:
-        raise InvalidModulePath(f'Invalid python file path: "{path}" Missing path or file name')
+        raise InvalidModulePath(
+            f'Invalid python file path: "{path}" Missing path or file name'
+        )
 
     qname = [os.path.splitext(tail)[0]]
     while head not in ["/", ".", ""]:
@@ -90,7 +92,7 @@ def calc_linerange(node):
     lines_max = -1
     if hasattr(node, "lineno"):
         lines_min = lines_max = node.lineno
-    
+
     for n in ast.iter_child_nodes(node):
         lines_minmax = calc_linerange(n)
         lines_min = min(lines_min, lines_minmax[0])
@@ -104,7 +106,7 @@ def linerange(node):
     """Get line number range from a node"""
     if hasattr(node, "lineno"):
         return list(range(node.lineno, node.end_lineno + 1))
-    
+
     if hasattr(node, "_bandit_linerange_stripped"):
         lines_minmax = node._bandit_linerange_stripped
         return list(range(lines_minmax[0], lines_minmax[1] + 1))
@@ -121,7 +123,7 @@ def linerange(node):
     lines_max = -1
     if hasattr(node, "lineno"):
         lines_min = lines_max = node.lineno
-    
+
     for n in ast.iter_child_nodes(node):
         lines_minmax = calc_linerange(n)
         lines_min = min(lines_min, lines_minmax[0])

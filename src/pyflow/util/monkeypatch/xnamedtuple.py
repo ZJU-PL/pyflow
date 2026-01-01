@@ -22,26 +22,26 @@ import sys as _sys
 def namedtuple(typename, field_names, namespaceaugment={}, verbose=False):
     """
     Returns a new subclass of tuple with named fields and optional custom members.
-    
+
     This is an extended version of Python's namedtuple that supports adding
     custom methods, class variables, and other attributes to the generated
     class via the namespaceaugment parameter.
-    
+
     Args:
         typename: The name of the new class (string)
         field_names: Field names as a string (space/comma separated) or iterable
         namespaceaugment: Dictionary of additional class members to add
                          (e.g., methods, class variables)
         verbose: If True, print the generated class template
-        
+
     Returns:
         type: A new tuple subclass with named fields
-        
+
     Raises:
         ValueError: If field names are invalid (keywords, start with underscore,
                    contain non-alphanumeric chars, duplicates, etc.)
         SyntaxError: If the generated template has syntax errors
-        
+
     Example:
         >>> Point = namedtuple('Point', 'x y')
         >>> Point.__doc__				   # docstring for the new class
@@ -61,7 +61,7 @@ def namedtuple(typename, field_names, namespaceaugment={}, verbose=False):
         Point(x=11, y=22)
         >>> p._replace(x=100)			   # _replace() is like str.replace() but targets named fields
         Point(x=100, y=22)
-        
+
     Example with custom methods:
         >>> def distance(self):
         ...     return (self.x**2 + self.y**2)**0.5
@@ -79,7 +79,7 @@ def namedtuple(typename, field_names, namespaceaugment={}, verbose=False):
             ",", " "
         ).split()  # names separated by whitespace and/or commas
     field_names = tuple(map(str, field_names))
-    
+
     # Validate type name and all field names
     for name in (typename,) + field_names:
         if not all(c.isalnum() or c == "_" for c in name):
@@ -95,7 +95,7 @@ def namedtuple(typename, field_names, namespaceaugment={}, verbose=False):
             raise ValueError(
                 "Type names and field names cannot start with a number: %r" % name
             )
-    
+
     # Check for duplicate field names and underscore prefixes
     seen_names = set()
     for name in field_names:
@@ -117,7 +117,7 @@ def namedtuple(typename, field_names, namespaceaugment={}, verbose=False):
     dicttxt = ", ".join(
         "%r: t[%d]" % (name, pos) for pos, name in enumerate(field_names)
     )
-    
+
     # Generate the class template with standard namedtuple methods
     template = (
         """class %(typename)s(tuple):
@@ -148,7 +148,7 @@ def namedtuple(typename, field_names, namespaceaugment={}, verbose=False):
             return tuple(self) \n\n"""
         % locals()
     )
-    
+
     # Add property accessors for each field (e.g., self.x, self.y)
     for i, name in enumerate(field_names):
         template += "        %s = property(itemgetter(%d))\n" % (name, i)

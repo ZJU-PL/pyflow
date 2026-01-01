@@ -32,26 +32,27 @@ __all__ = ("TVLType", "TVLTrue", "TVLFalse", "TVLMaybe", "tvl")
 class TVLType(object):
     """
     Abstract base class for three-valued logic types.
-    
+
     This class defines the interface for TVL values. It prevents direct
     conversion to boolean (which would lose uncertainty information) and
     provides methods to query the certainty and truth value of a TVL.
-    
+
     Subclasses must implement:
     - maybeTrue(): Can this value be true?
     - maybeFalse(): Can this value be false?
     - mustBeTrue(): Must this value be true?
     - mustBeFalse(): Must this value be false?
     """
+
     __slots__ = ()
 
     def __nonzero__(self):
         """
         Prevent direct boolean conversion.
-        
+
         TVL values cannot be directly converted to boolean because this would
         lose uncertainty information. Use maybeTrue()/mustBeTrue() instead.
-        
+
         Raises:
             TypeError: Always, to prevent accidental boolean conversion
         """
@@ -64,7 +65,7 @@ class TVLType(object):
     def certain(self):
         """
         Check if this value is certain (not Maybe).
-        
+
         Returns:
             bool: True if value is TVLTrue or TVLFalse, False if TVLMaybe
         """
@@ -73,7 +74,7 @@ class TVLType(object):
     def uncertain(self):
         """
         Check if this value is uncertain (Maybe).
-        
+
         Returns:
             bool: True if value is TVLMaybe, False otherwise
         """
@@ -83,10 +84,11 @@ class TVLType(object):
 class TVLTrueType(TVLType):
     """
     TVL value representing definitely true (certain).
-    
+
     This represents a value that is known with certainty to be true.
     In logical operations, True dominates (True OR X = True, True AND X = X).
     """
+
     def maybeTrue(self):
         """Return True (this value can be true)."""
         return True
@@ -138,11 +140,12 @@ class TVLTrueType(TVLType):
 class TVLFalseType(TVLType):
     """
     TVL value representing definitely false (certain).
-    
+
     This represents a value that is known with certainty to be false.
     In logical operations, False dominates AND (False AND X = False) but
     is identity for OR (False OR X = X).
     """
+
     __slots__ = ()
 
     def maybeTrue(self):
@@ -196,11 +199,11 @@ class TVLFalseType(TVLType):
 class TVLMaybeType(TVLType):
     """
     TVL value representing uncertainty (maybe true, maybe false).
-    
+
     This represents a value where the analysis cannot determine with certainty
     whether it is true or false. In logical operations, Maybe propagates
     uncertainty unless the other operand forces a certain result.
-    
+
     Examples:
     - Maybe AND False = False (False dominates)
     - Maybe AND True = Maybe (uncertainty preserved)
@@ -208,6 +211,7 @@ class TVLMaybeType(TVLType):
     - Maybe OR False = Maybe (uncertainty preserved)
     - NOT Maybe = Maybe (uncertainty preserved)
     """
+
     __slots__ = ()
 
     def maybeTrue(self):
@@ -287,18 +291,18 @@ TVLMaybe = TVLMaybeType()
 def tvl(obj):
     """
     Convert a Python value to a TVL value.
-    
+
     Converts regular Python boolean/truthy values to TVL:
     - Truthy values -> TVLTrue
     - Falsy values -> TVLFalse
     - TVL values -> returned as-is
-    
+
     Args:
         obj: Python value to convert (any type)
-        
+
     Returns:
         TVLType: TVLTrue, TVLFalse, or the original TVL value
-        
+
     Example:
         >>> tvl(True)
         TVLTrue

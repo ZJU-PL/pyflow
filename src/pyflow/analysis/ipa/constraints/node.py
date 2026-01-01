@@ -13,11 +13,11 @@ from ..model import objectname
 
 class Critical(object):
     """Tracks critical values for escape analysis.
-    
+
     Critical values are values that must be tracked precisely because
     they may escape their scope. This class maintains critical value sets
     and propagates them through the constraint graph.
-    
+
     Attributes:
         values: Set of critical values (frozen)
         diff: Pending critical value changes (to be propagated)
@@ -25,11 +25,12 @@ class Critical(object):
         _dirty: Whether critical values have changed
         node: ConstraintNode this critical belongs to
     """
+
     __slots__ = "values", "diff", "isCritical", "_dirty", "node"
 
     def __init__(self, context, node):
         """Initialize critical value tracking.
-        
+
         Args:
             context: Context this critical belongs to
             node: ConstraintNode this critical belongs to
@@ -97,7 +98,7 @@ class Critical(object):
 
 class ConstraintNode(object):
     """Represents a variable, field, or intermediate value in IPA.
-    
+
     ConstraintNodes are the fundamental units of data flow in IPA. They
     maintain:
     - Value sets: Set of ObjectNames that may flow to this node
@@ -106,7 +107,7 @@ class ConstraintNode(object):
     - Splits: Type-based and exact splits for call resolution
     - Flags: Escape flags and other metadata
     - Critical values: Values that must be tracked for escape analysis
-    
+
     Attributes:
         context: Context this node belongs to
         name: Variable/field name (ast.Local, tuple, etc.)
@@ -123,6 +124,7 @@ class ConstraintNode(object):
         flagsdiff: Pending flag changes
         critical: Critical value tracker
     """
+
     __slots__ = (
         "context",
         "name",
@@ -142,7 +144,7 @@ class ConstraintNode(object):
 
     def __init__(self, context, name, ci=False):
         """Initialize a constraint node.
-        
+
         Args:
             context: Context this node belongs to
             name: Variable/field name (ast.Local, tuple, etc.)

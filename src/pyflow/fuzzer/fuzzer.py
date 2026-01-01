@@ -38,8 +38,8 @@ from pyflow.fuzzer.tracer import trace, get_coverage
 
 
 # Set multiprocessing start method to 'fork' on Unix (faster than 'spawn')
-if sys.platform != 'win32':
-    mp.set_start_method('fork')
+if sys.platform != "win32":
+    mp.set_start_method("fork")
 
 # Configure logging
 logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
@@ -52,7 +52,7 @@ SAMPLING_WINDOW = 5
 def worker(target, child_conn, close_fd_mask):
     """
     Worker process for executing fuzz targets.
-    
+
     This function runs in a separate process to isolate test execution.
     It:
     1. Sets up coverage tracing
@@ -60,30 +60,32 @@ def worker(target, child_conn, close_fd_mask):
     3. Receives inputs from main process
     4. Executes target function with input
     5. Sends coverage back to main process
-    
+
     **Isolation:**
     Running in a separate process ensures that crashes, exceptions, or
     hangs in the target function don't kill the main fuzzer process.
-    
+
     **Coverage Tracking:**
     sys.settrace(trace) enables line-level coverage tracking. After each
     execution, get_coverage() returns the total number of unique line
     transitions seen.
-    
+
     Args:
         target: Target function to fuzz (takes bytearray input)
         child_conn: Child end of pipe for receiving inputs
         close_fd_mask: Bitmask for closing stdout/stderr (1=stdout, 2=stderr)
     """
+
     # Silence the fuzzee's noise (optional)
     class DummyFile:
         """No-op file object to discard output."""
+
         def write(self, x):
             pass
-    
+
     logging.captureWarnings(True)
     logging.getLogger().setLevel(logging.ERROR)
-    
+
     # Optionally close stdout/stderr to reduce noise
     if close_fd_mask & 1:
         sys.stdout = DummyFile()
@@ -91,8 +93,8 @@ def worker(target, child_conn, close_fd_mask):
         sys.stderr = DummyFile()
 
     # Enable coverage tracing
-    sys.settrace(trace) 
-    
+    sys.settrace(trace)
+
     # Main worker loop
     while True:
         # Receive input from main process
@@ -107,34 +109,34 @@ def worker(target, child_conn, close_fd_mask):
             break
         else:
             # Success - send coverage count back
-            child_conn.send_bytes(b'%d' % get_coverage())
+            child_conn.send_bytes(b"%d" % get_coverage())
 
 
 class Fuzzer(object):
     """
     Coverage-guided fuzzer for Python functions.
-    
+
     This class implements a coverage-guided fuzzer similar to AFL/libFuzzer.
     It uses code coverage feedback to guide input generation, focusing on
     inputs that explore new code paths.
-    
+
     **Fuzzing Strategy:**
     - Starts with seed corpus (user-provided inputs)
     - Generates new inputs by mutating corpus inputs
     - Tracks code coverage for each execution
     - Adds inputs that increase coverage to corpus
     - Continues until timeout, crash, or memory limit
-    
+
     **Process Model:**
     - Main process: Input generation, corpus management, statistics
     - Worker process: Test execution, coverage measurement
     - Communication via multiprocessing.Pipe
-    
+
     **Safety Limits:**
     - Timeout per test case (kills hanging tests)
     - Memory limit (RSS) to prevent OOM
     - Maximum number of runs (optional)
-    
+
     Attributes:
         _target: Target function to fuzz
         _dirs: Directories for corpus (seed inputs and generated test cases)
@@ -151,20 +153,23 @@ class Fuzzer(object):
         _p: Worker process handle
         runs: Maximum number of runs (-1 = unlimited)
     """
-    def __init__(self,
-                 target,
-                 dirs=None,
-                 exact_artifact_path=None,
-                 rss_limit_mb=2048,
-                 timeout=120,
-                 regression=False,
-                 max_input_size=4096,
-                 close_fd_mask=0,
-                 runs=-1,
-                 dict_path=None):
+
+    def __init__(
+        self,
+        target,
+        dirs=None,
+        exact_artifact_path=None,
+        rss_limit_mb=2048,
+        timeout=120,
+        regression=False,
+        max_input_size=4096,
+        close_fd_mask=0,
+        runs=-1,
+        dict_path=None,
+    ):
         """
         Initialize a fuzzer.
-        
+
         Args:
             target: Target function to fuzz (takes bytearray input)
             dirs: Directories/files for seed corpus (first dir saves generated inputs)
@@ -195,39 +200,56 @@ class Fuzzer(object):
     def log_stats(self, log_type):
         """
         Log fuzzing statistics.
-        
+
         Logs current fuzzing statistics including:
         - Total executions
         - Coverage count
         - Corpus size
         - Executions per second
         - Memory usage (RSS)
-        
+
         Args:
             log_type: Type of log entry ("NEW" for coverage increase, "PULSE" for periodic)
-            
+
         Returns:
             Current RSS memory usage in MB
         """
         # Calculate total RSS (main process + worker process)
-        rss = (psutil.Process(self._p.pid).memory_info().rss + psutil.Process(os.getpid()).memory_info().rss) / 1024 / 1024
+        rss = (
+            (
+                psutil.Process(self._p.pid).memory_info().rss
+                + psutil.Process(os.getpid()).memory_info().rss
+            )
+            / 1024
+            / 1024
+        )
 
         endTime = time.time()
-        execs_per_second = int(self._executions_in_sample / (endTime - self._last_sample_time))
+        execs_per_second = int(
+            self._executions_in_sample / (endTime - self._last_sample_time)
+        )
         self._last_sample_time = time.time()
         self._executions_in_sample = 0
-        logging.info('#{} {}     cov: {} corp: {} exec/s: {} rss: {} MB'.format(
-            self._total_executions, log_type, self._total_coverage, self._corpus.length, execs_per_second, rss))
+        logging.info(
+            "#{} {}     cov: {} corp: {} exec/s: {} rss: {} MB".format(
+                self._total_executions,
+                log_type,
+                self._total_coverage,
+                self._corpus.length,
+                execs_per_second,
+                rss,
+            )
+        )
         return rss
 
-    def write_sample(self, buf, prefix='crash-'):
+    def write_sample(self, buf, prefix="crash-"):
         """
         Write a test case to disk (crash, timeout, or OOM).
-        
+
         Saves the input that caused a crash, timeout, or OOM to disk.
         Uses SHA256 hash as filename to avoid duplicates. If the input
         is small (< 200 bytes), also logs its hex representation.
-        
+
         Args:
             buf: Input bytearray to save
             prefix: Filename prefix ('crash-', 'timeout-', etc.)
@@ -238,24 +260,24 @@ class Fuzzer(object):
             crash_path = self._exact_artifact_path
         else:
             # Save to crashes/ directory
-            dir_path = 'crashes'
+            dir_path = "crashes"
             isExist = os.path.exists(dir_path)
             if not isExist:
-              os.makedirs(dir_path)
-              logging.info("The crashes directory is created")
+                os.makedirs(dir_path)
+                logging.info("The crashes directory is created")
 
             crash_path = dir_path + "/" + prefix + m.hexdigest()
-        with open(crash_path, 'wb') as f:
+        with open(crash_path, "wb") as f:
             f.write(buf)
-        logging.info('sample was written to {}'.format(crash_path))
+        logging.info("sample was written to {}".format(crash_path))
         # Log hex representation for small inputs (useful for debugging)
         if len(buf) < 200:
-            logging.info('sample = {}'.format(buf.hex()))
+            logging.info("sample = {}".format(buf.hex()))
 
     def start(self):
         """
         Start the fuzzing loop.
-        
+
         This is the main fuzzing loop that:
         1. Spawns worker process
         2. Generates inputs from corpus
@@ -264,25 +286,27 @@ class Fuzzer(object):
         5. Adds interesting inputs to corpus
         6. Logs statistics periodically
         7. Handles timeouts, crashes, and memory limits
-        
+
         **Exit Conditions:**
         - Maximum runs reached
         - Timeout on test case
         - Exception in target function (crash)
         - Memory limit exceeded (OOM)
-        
+
         **Coverage-Guided Strategy:**
         Only inputs that increase code coverage are added to the corpus.
         This focuses fuzzing on exploring new code paths.
         """
         logging.info("#0 READ units: {}".format(self._corpus.length))
         exit_code = 0
-        
+
         # Create pipe for communication with worker
         parent_conn, child_conn = mp.Pipe()
-        
+
         # Spawn worker process
-        self._p = mp.Process(target=worker, args=(self._target, child_conn, self._close_fd_mask))
+        self._p = mp.Process(
+            target=worker, args=(self._target, child_conn, self._close_fd_mask)
+        )
         self._p.start()
 
         # Main fuzzing loop
@@ -290,22 +314,24 @@ class Fuzzer(object):
             # Check if maximum runs reached
             if self.runs != -1 and self._total_executions >= self.runs:
                 self._p.terminate()
-                logging.info('did %d runs, stopping now.', self.runs)
+                logging.info("did %d runs, stopping now.", self.runs)
                 break
 
             # Generate next input (from corpus or mutation)
             buf = self._corpus.generate_input()
-            
+
             # Send input to worker
             parent_conn.send_bytes(buf)
-            
+
             # Wait for response with timeout
             if not parent_conn.poll(self._timeout):
                 # Timeout: worker didn't respond in time
                 self._p.kill()
-                logging.info("=================================================================")
+                logging.info(
+                    "================================================================="
+                )
                 logging.info("timeout reached. testcase took: {}".format(self._timeout))
-                self.write_sample(buf, prefix='timeout-')
+                self.write_sample(buf, prefix="timeout-")
                 break
 
             try:
@@ -321,7 +347,7 @@ class Fuzzer(object):
             self._total_executions += 1
             self._executions_in_sample += 1
             rss = 0
-            
+
             # Check if coverage increased
             if total_coverage > self._total_coverage:
                 # New coverage: add input to corpus and log
@@ -331,11 +357,15 @@ class Fuzzer(object):
             else:
                 # No new coverage: log periodically
                 if (time.time() - self._last_sample_time) > SAMPLING_WINDOW:
-                    rss = self.log_stats('PULSE')
+                    rss = self.log_stats("PULSE")
 
             # Check memory limit
             if rss > self._rss_limit_mb:
-                logging.info('MEMORY OOM: exceeded {} MB. Killing worker'.format(self._rss_limit_mb))
+                logging.info(
+                    "MEMORY OOM: exceeded {} MB. Killing worker".format(
+                        self._rss_limit_mb
+                    )
+                )
                 self.write_sample(buf)
                 self._p.kill()
                 break

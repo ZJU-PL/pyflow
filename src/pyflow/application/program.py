@@ -20,21 +20,21 @@ from . import interface
 class Program(object):
     """
     Represents a Python program for static analysis.
-    
+
     The Program class serves as the central data structure that holds all
     information about a Python program being analyzed. It maintains:
     - Interface declarations (functions, classes, entry points)
     - Analysis results (store graph, IPA results, etc.)
     - Live code tracking
     - Statistics
-    
+
     **Lifecycle:**
     1. Creation: Program is created with empty interface
     2. Configuration: Interface is populated with function/class declarations
     3. Extraction: Program extractor processes interface and creates entry points
     4. Analysis: Various analysis passes populate storeGraph, liveCode, etc.
     5. Results: Analysis results are stored (e.g., ipa_analysis)
-    
+
     Attributes:
         interface: InterfaceDeclaration containing function/class declarations
         storeGraph: Store graph for object relationships (populated during analysis)
@@ -43,7 +43,15 @@ class Program(object):
         stats: Statistics about the program (optional, populated during analysis)
         ipa_analysis: Results from Inter-Procedural Analysis (populated by IPA pass)
     """
-    __slots__ = "interface", "storeGraph", "entryPoints", "liveCode", "stats", "ipa_analysis"
+
+    __slots__ = (
+        "interface",
+        "storeGraph",
+        "entryPoints",
+        "liveCode",
+        "stats",
+        "ipa_analysis",
+    )
 
     def __init__(self):
         """

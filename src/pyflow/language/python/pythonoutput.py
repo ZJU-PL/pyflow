@@ -5,24 +5,26 @@ with proper indentation and formatting. It tracks indentation levels and
 ensures empty blocks are filled with 'pass' statements.
 """
 
+
 # A helper class that keeps track of the indentation level, etc.
 class PythonOutput(object):
     """Helper class for generating Python code with proper formatting.
-    
+
     PythonOutput manages indentation levels and ensures proper Python syntax
     when generating code. It tracks whether blocks have emitted statements
     and adds 'pass' statements to empty blocks.
-    
+
     Attributes:
         out: Output stream to write to
         indent: Current indentation level (number of tabs)
         emitedStack: Stack tracking whether each block level has emitted statements
     """
+
     __slots__ = "out", "indent", "emitedStack"
 
     def __init__(self, out):
         """Initialize Python output helper.
-        
+
         Args:
             out: Output stream (file-like object with write method)
         """
@@ -32,10 +34,10 @@ class PythonOutput(object):
 
     def emitStatement(self, stmt):
         """Emit a Python statement with proper indentation.
-        
+
         Writes a statement with the current indentation level and marks
         the current block as having emitted a statement.
-        
+
         Args:
             stmt: Statement string to emit
         """
@@ -46,7 +48,7 @@ class PythonOutput(object):
 
     def emitComment(self, text):
         """Emit a Python comment.
-        
+
         Args:
             text: Comment text (without # prefix)
         """
@@ -54,9 +56,9 @@ class PythonOutput(object):
 
     def startBlock(self, stmt):
         """Start a new indented block (e.g., if, for, def).
-        
+
         Emits the statement with colon and increases indentation.
-        
+
         Args:
             stmt: Block header statement (e.g., "if x", "def f")
         """
@@ -66,7 +68,7 @@ class PythonOutput(object):
 
     def endBlock(self):
         """End the current indented block.
-        
+
         If the block is empty (no statements emitted), adds a 'pass' statement.
         Decreases indentation and pops the emitted stack.
         """

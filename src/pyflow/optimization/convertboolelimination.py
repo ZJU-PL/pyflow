@@ -24,11 +24,12 @@ from pyflow.optimization.rewrite import rewrite
 # This should be a proper dataflow analysis?
 class InferBoolean(TypeDispatcher):
     """Infers which expressions are boolean values.
-    
+
     Tracks boolean values through assignments to identify redundant
     ConvertToBool operations. This is a simple analysis that doesn't
     handle all cases (e.g., propagation through assignments).
     """
+
     def __init__(self):
         self.lut = {}
         self.converts = []
@@ -76,11 +77,11 @@ class InferBoolean(TypeDispatcher):
 
 def evaluateCode(compiler, code):
     """Eliminate redundant boolean conversions in code.
-    
+
     Args:
         compiler: Compiler context
         code: Code node to optimize
-        
+
     Note: This transformation is slightly unsound, as conversions of
     possibly undefined locals will be eliminated. A proper dataflow
     analysis would be needed for full soundness.

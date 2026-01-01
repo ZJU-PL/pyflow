@@ -15,8 +15,8 @@ from pyflow.util.antlr3.tokens import Token, EOF_TOKEN
 #
 ############################################################################
 
-class IntStream(object):
 
+class IntStream(object):
     """
     @brief Base interface for streams of integer values.
 
@@ -26,18 +26,16 @@ class IntStream(object):
 
     def consume(self):
         raise NotImplementedError
-    
 
     def LA(self, i):
         """Get int at current input pointer + i ahead where i=1 is next int.
 
         Negative indexes are allowed.  LA(-1) is previous token (token
-	just matched).  LA(-i) where i is before first token should
-	yield -1, invalid char / EOF.
-	"""
-        
+        just matched).  LA(-i) where i is before first token should
+        yield -1, invalid char / EOF.
+        """
+
         raise NotImplementedError
-        
 
     def mark(self):
         """
@@ -51,7 +49,6 @@ class IntStream(object):
 
         raise NotImplementedError
 
-
     def index(self):
         """
         Return the current input symbol index 0..n where n indicates the
@@ -60,7 +57,6 @@ class IntStream(object):
         """
 
         raise NotImplementedError
-
 
     def rewind(self, marker=None):
         """
@@ -80,11 +76,10 @@ class IntStream(object):
         Do not "pop" the marker off the state.  mark(i)
         and rewind(i) should balance still. It is
         like invoking rewind(last marker) but it should not "pop"
-        the marker off.  It's like seek(last marker's input position).       
-	"""
+        the marker off.  It's like seek(last marker's input position).
+        """
 
         raise NotImplementedError
-
 
     def release(self, marker=None):
         """
@@ -95,10 +90,9 @@ class IntStream(object):
         This must throw away resources for all markers back to the marker
         argument.  So if you're nested 5 levels of mark(), and then release(2)
         you have to release resources for depths 2..5.
-	"""
+        """
 
         raise NotImplementedError
-
 
     def seek(self, index):
         """
@@ -121,21 +115,19 @@ class IntStream(object):
 
         The index is 0..n-1.  A seek to position i means that LA(1) will
         return the ith symbol.  So, seeking to 0 means LA(1) will return the
-        first element in the stream. 
+        first element in the stream.
         """
 
         raise NotImplementedError
-
 
     def size(self):
         """
         Only makes sense for streams that buffer everything up probably, but
         might be useful to display the entire stream or for testing.  This
         value includes a single EOF.
-	"""
+        """
 
         raise NotImplementedError
-
 
     def getSourceName(self):
         """
@@ -152,14 +144,13 @@ class CharStream(IntStream):
     @brief A source of characters for an ANTLR lexer.
 
     This is an abstract class that must be implemented by a subclass.
-    
+
     """
 
     # pylint does not realize that this is an interface, too
-    #pylint: disable-msg=W0223
-    
-    EOF = -1
+    # pylint: disable-msg=W0223
 
+    EOF = -1
 
     def substring(self, start, stop):
         """
@@ -169,8 +160,7 @@ class CharStream(IntStream):
         """
 
         raise NotImplementedError
-        
-    
+
     def LT(self, i):
         """
         Get the ith character of lookahead.  This is the same usually as
@@ -181,12 +171,10 @@ class CharStream(IntStream):
 
         raise NotImplementedError
 
-
     def getLine(self):
         """ANTLR tracks the line information automatically"""
 
         raise NotImplementedError
-
 
     def setLine(self, line):
         """
@@ -195,14 +183,12 @@ class CharStream(IntStream):
 
         raise NotImplementedError
 
-
     def getCharPositionInLine(self):
         """
         The index of the character relative to the beginning of the line 0..n-1
         """
 
         raise NotImplementedError
-
 
     def setCharPositionInLine(self, pos):
         raise NotImplementedError
@@ -214,12 +200,12 @@ class TokenStream(IntStream):
     @brief A stream of tokens accessing tokens from a TokenSource
 
     This is an abstract class that must be implemented by a subclass.
-    
+
     """
-    
+
     # pylint does not realize that this is an interface, too
-    #pylint: disable-msg=W0223
-    
+    # pylint: disable-msg=W0223
+
     def LT(self, k):
         """
         Get Token at current input pointer + i ahead where i=1 is next Token.
@@ -227,10 +213,9 @@ class TokenStream(IntStream):
         two tokens ago. LT(0) is undefined.  For i>=n, return Token.EOFToken.
         Return null for LT(0) and any index that results in an absolute address
         that is negative.
-	"""
+        """
 
         raise NotImplementedError
-
 
     def get(self, i):
         """
@@ -244,15 +229,13 @@ class TokenStream(IntStream):
 
         raise NotImplementedError
 
-
     def getTokenSource(self):
         """
         Where is this stream pulling tokens from?  This is not the name, but
         the object that provides Token objects.
-	"""
+        """
 
         raise NotImplementedError
-
 
     def toString(self, start=None, stop=None):
         """
@@ -266,11 +249,11 @@ class TokenStream(IntStream):
         indicate the start/end location.  Most often this will just delegate
         to the other toString(int,int).  This is also parallel with
         the TreeNodeStream.toString(Object,Object).
-	"""
+        """
 
         raise NotImplementedError
 
-        
+
 ############################################################################
 #
 # character streams for use in lexers
@@ -283,50 +266,48 @@ class TokenStream(IntStream):
 class ANTLRStringStream(CharStream):
     """
     @brief CharStream that pull data from a string.
-    
+
     A pretty quick CharStream that pulls all data from an array
     directly.  Every method call counts in the lexer.
 
     """
 
-    
     def __init__(self, data):
         """
         @param data This should be a string holding the data you want
            to parse. If you pass in a byte string, the Lexer will choke on
            non-ascii data.
-           
+
         """
-        
+
         CharStream.__init__(self)
-        
-  	# The data being scanned
+
+        # The data being scanned
         self.strdata = str(data)
         self.data = [ord(c) for c in self.strdata]
-        
-	# How many characters are actually in the buffer
+
+        # How many characters are actually in the buffer
         self.n = len(data)
 
- 	# 0..n-1 index into string of next char
+        # 0..n-1 index into string of next char
         self.p = 0
 
-	# line number 1..n within the input
+        # line number 1..n within the input
         self.line = 1
 
- 	# The index of the character relative to the beginning of the
+        # The index of the character relative to the beginning of the
         # line 0..n-1
         self.charPositionInLine = 0
 
-	# A list of CharStreamState objects that tracks the stream state
+        # A list of CharStreamState objects that tracks the stream state
         # values line, charPositionInLine, and p that can change as you
         # move through the input stream.  Indexed from 0..markDepth-1.
-        self._markers = [ ]
+        self._markers = []
         self.lastMarker = None
         self.markDepth = 0
 
         # What is name or source of this char stream?
         self.name = None
-
 
     def reset(self):
         """
@@ -334,56 +315,50 @@ class ANTLRStringStream(CharStream):
         when the object was created *except* the data array is not
         touched.
         """
-        
+
         self.p = 0
         self.line = 1
         self.charPositionInLine = 0
-        self._markers = [ ]
-
+        self._markers = []
 
     def consume(self):
         try:
-            if self.data[self.p] == 10: # \n
+            if self.data[self.p] == 10:  # \n
                 self.line += 1
                 self.charPositionInLine = 0
             else:
                 self.charPositionInLine += 1
 
             self.p += 1
-            
+
         except IndexError:
             # happend when we reached EOF and self.data[self.p] fails
             # just do nothing
             pass
 
-
-
     def LA(self, i):
         if i == 0:
-            return 0 # undefined
+            return 0  # undefined
 
         if i < 0:
-            i += 1 # e.g., translate LA(-1) to use offset i=0; then data[p+0-1]
+            i += 1  # e.g., translate LA(-1) to use offset i=0; then data[p+0-1]
 
         try:
-            return self.data[self.p+i-1]
+            return self.data[self.p + i - 1]
         except IndexError:
             return EOF
-
-
 
     def LT(self, i):
         if i == 0:
-            return 0 # undefined
+            return 0  # undefined
 
         if i < 0:
-            i += 1 # e.g., translate LA(-1) to use offset i=0; then data[p+0-1]
+            i += 1  # e.g., translate LA(-1) to use offset i=0; then data[p+0-1]
 
         try:
-            return self.strdata[self.p+i-1]
+            return self.strdata[self.p + i - 1]
         except IndexError:
             return EOF
-
 
     def index(self):
         """
@@ -391,13 +366,11 @@ class ANTLRStringStream(CharStream):
         last symbol has been read.  The index is the index of char to
         be returned from LA(1).
         """
-        
-        return self.p
 
+        return self.p
 
     def size(self):
         return self.n
-
 
     def mark(self):
         state = (self.p, self.line, self.charPositionInLine)
@@ -406,69 +379,60 @@ class ANTLRStringStream(CharStream):
         except IndexError:
             self._markers.append(state)
         self.markDepth += 1
-        
-        self.lastMarker = self.markDepth
-        
-        return self.lastMarker
 
+        self.lastMarker = self.markDepth
+
+        return self.lastMarker
 
     def rewind(self, marker=None):
         if marker is None:
             marker = self.lastMarker
 
-        p, line, charPositionInLine = self._markers[marker-1]
+        p, line, charPositionInLine = self._markers[marker - 1]
 
         self.seek(p)
         self.line = line
         self.charPositionInLine = charPositionInLine
         self.release(marker)
 
-
     def release(self, marker=None):
         if marker is None:
             marker = self.lastMarker
 
-        self.markDepth = marker-1
-
+        self.markDepth = marker - 1
 
     def seek(self, index):
         """
         consume() ahead until p==index; can't just set p=index as we must
         update line and charPositionInLine.
         """
-        
+
         if index <= self.p:
-            self.p = index # just jump; don't update stream state (line, ...)
+            self.p = index  # just jump; don't update stream state (line, ...)
             return
 
         # seek forward, consume until p hits index
         while self.p < index:
             self.consume()
 
-
     def substring(self, start, stop):
-        return self.strdata[start:stop+1]
-
+        return self.strdata[start : stop + 1]
 
     def getLine(self):
         """Using setter/getter methods is deprecated. Use o.line instead."""
         return self.line
 
-
     def getCharPositionInLine(self):
         """Using setter/getter methods is deprecated. Use o.charPositionInLine instead."""
         return self.charPositionInLine
-
 
     def setLine(self, line):
         """Using setter/getter methods is deprecated. Use o.line instead."""
         self.line = line
 
-
     def setCharPositionInLine(self, pos):
         """Using setter/getter methods is deprecated. Use o.charPositionInLine instead."""
         self.charPositionInLine = pos
-
 
     def getSourceName(self):
         return self.name
@@ -477,7 +441,7 @@ class ANTLRStringStream(CharStream):
 class ANTLRFileStream(ANTLRStringStream):
     """
     @brief CharStream that opens a file to read the data.
-    
+
     This is a char buffer stream that is loaded from a file
     all at once when you construct the object.
     """
@@ -489,23 +453,22 @@ class ANTLRFileStream(ANTLRStringStream):
 
         @param encoding If you set the optional encoding argument, then the
            data will be decoded on the fly.
-           
+
         """
-        
+
         self.fileName = fileName
 
-        fp = codecs.open(fileName, 'rb', encoding)
+        fp = codecs.open(fileName, "rb", encoding)
         try:
             data = fp.read()
         finally:
             fp.close()
-            
-        ANTLRStringStream.__init__(self, data)
 
+        ANTLRStringStream.__init__(self, data)
 
     def getSourceName(self):
         """Deprecated, access o.fileName directly."""
-        
+
         return self.fileName
 
 
@@ -515,7 +478,7 @@ class ANTLRInputStream(ANTLRStringStream):
 
     This is a char buffer stream that is loaded from a file like object
     all at once when you construct the object.
-    
+
     All input is consumed from the file, but it is not closed.
     """
 
@@ -526,16 +489,16 @@ class ANTLRInputStream(ANTLRStringStream):
 
         @param encoding If you set the optional encoding argument, then the
            data will be decoded on the fly.
-           
+
         """
-        
+
         if encoding is not None:
             # wrap input in a decoding reader
             reader = codecs.lookup(encoding)[2]
             file = reader(file)
 
         data = file.read()
-            
+
         ANTLRStringStream.__init__(self, data)
 
 
@@ -560,7 +523,7 @@ InputStream = ANTLRInputStream
 class CommonTokenStream(TokenStream):
     """
     @brief The most common stream of tokens
-    
+
     The most common stream of tokens is one where every token is buffered up
     and tokens are prefiltered for a certain channel (the parser will only
     see these tokens and cannot change the filter channel number during the
@@ -574,64 +537,60 @@ class CommonTokenStream(TokenStream):
 
         @param channel Skip tokens on any channel but this one; this is how we
             skip whitespace...
-            
+
         """
-        
+
         TokenStream.__init__(self)
-        
+
         self.tokenSource = tokenSource
 
-	# Record every single token pulled from the source so we can reproduce
+        # Record every single token pulled from the source so we can reproduce
         # chunks of it later.
         self.tokens = []
 
-	# Map<tokentype, channel> to override some Tokens' channel numbers
+        # Map<tokentype, channel> to override some Tokens' channel numbers
         self.channelOverrideMap = {}
 
-	# Set<tokentype>; discard any tokens with this type
+        # Set<tokentype>; discard any tokens with this type
         self.discardSet = set()
 
-	# Skip tokens on any channel but this one; this is how we skip whitespace...
+        # Skip tokens on any channel but this one; this is how we skip whitespace...
         self.channel = channel
 
-	# By default, track all incoming tokens
+        # By default, track all incoming tokens
         self.discardOffChannelTokens = False
 
-	# The index into the tokens list of the current token (next token
+        # The index into the tokens list of the current token (next token
         # to consume).  p==-1 indicates that the tokens list is empty
         self.p = -1
 
         # Remember last marked position
         self.lastMarker = None
-        
 
     def setTokenSource(self, tokenSource):
         """Reset this token stream by setting its token source."""
-        
+
         self.tokenSource = tokenSource
         self.tokens = []
         self.p = -1
         self.channel = DEFAULT_CHANNEL
 
-
     def reset(self):
         self.p = -1
         self.lastMarker = None
 
-
     def fillBuffer(self):
         """
         Load all tokens from the token source and put in tokens.
-	This is done upon first LT request because you might want to
+        This is done upon first LT request because you might want to
         set some token type / channel overrides before filling buffer.
         """
-        
 
         index = 0
         t = self.tokenSource.nextToken()
         while t is not None and t.type != EOF:
             discard = False
-            
+
             if self.discardSet is not None and t.type in self.discardSet:
                 discard = True
 
@@ -641,28 +600,27 @@ class CommonTokenStream(TokenStream):
             # is there a channel override for token type?
             try:
                 overrideChannel = self.channelOverrideMap[t.type]
-                
+
             except KeyError:
                 # no override for this type
                 pass
-            
+
             else:
                 if overrideChannel == self.channel:
                     t.channel = overrideChannel
                 else:
                     discard = True
-            
+
             if not discard:
                 t.index = index
                 self.tokens.append(t)
                 index += 1
 
             t = self.tokenSource.nextToken()
-       
+
         # leave p pointing at first token on channel
         self.p = 0
         self.p = self.skipOffTokenChannels(self.p)
-
 
     def consume(self):
         """
@@ -673,12 +631,11 @@ class CommonTokenStream(TokenStream):
 
         Walk past any token not on the channel the parser is listening to.
         """
-        
+
         if self.p < len(self.tokens):
             self.p += 1
 
-            self.p = self.skipOffTokenChannels(self.p) # leave p on valid token
-
+            self.p = self.skipOffTokenChannels(self.p)  # leave p on valid token
 
     def skipOffTokenChannels(self, i):
         """
@@ -692,16 +649,14 @@ class CommonTokenStream(TokenStream):
         except IndexError:
             # hit the end of token stream
             pass
-        
-        return i
 
+        return i
 
     def skipOffTokenChannelsReverse(self, i):
         while i >= 0 and self.tokens[i].channel != self.channel:
             i -= 1
 
         return i
-
 
     def setTokenTypeChannel(self, ttype, channel):
         """
@@ -710,14 +665,12 @@ class CommonTokenStream(TokenStream):
         when interpreting, we cannot exec actions so we need to tell
         the stream to force all WS and NEWLINE to be a different, ignored
         channel.
-	"""
-        
-        self.channelOverrideMap[ttype] = channel
+        """
 
+        self.channelOverrideMap[ttype] = channel
 
     def discardTokenType(self, ttype):
         self.discardSet.add(ttype)
-
 
     def getTokens(self, start=None, stop=None, types=None):
         """
@@ -731,7 +684,7 @@ class CommonTokenStream(TokenStream):
 
         if stop is None or stop >= len(self.tokens):
             stop = len(self.tokens) - 1
-            
+
         if start is None or stop < 0:
             start = 0
 
@@ -741,17 +694,17 @@ class CommonTokenStream(TokenStream):
         if isinstance(types, int):
             # called with a single type, wrap into set
             types = set([types])
-            
+
         filteredTokens = [
-            token for token in self.tokens[start:stop]
+            token
+            for token in self.tokens[start:stop]
             if types is None or token.type in types
-            ]
+        ]
 
         if len(filteredTokens) == 0:
             return None
 
         return filteredTokens
-
 
     def LT(self, k):
         """
@@ -767,20 +720,19 @@ class CommonTokenStream(TokenStream):
 
         if k < 0:
             return self.LB(-k)
-                
+
         i = self.p
         n = 1
         # find k good tokens
         while n < k:
             # skip off-channel tokens
-            i = self.skipOffTokenChannels(i+1) # leave p on valid token
+            i = self.skipOffTokenChannels(i + 1)  # leave p on valid token
             n += 1
 
         try:
             return self.tokens[i]
         except IndexError:
             return EOF_TOKEN
-
 
     def LB(self, k):
         """Look backwards k tokens on-channel tokens"""
@@ -799,14 +751,13 @@ class CommonTokenStream(TokenStream):
         # find k good tokens looking backwards
         while n <= k:
             # skip off-channel tokens
-            i = self.skipOffTokenChannelsReverse(i-1) # leave p on valid token
+            i = self.skipOffTokenChannelsReverse(i - 1)  # leave p on valid token
             n += 1
 
         if i < 0:
             return None
-            
-        return self.tokens[i]
 
+        return self.tokens[i]
 
     def get(self, i):
         """
@@ -816,47 +767,37 @@ class CommonTokenStream(TokenStream):
 
         return self.tokens[i]
 
-
     def LA(self, i):
         return self.LT(i).type
-
 
     def mark(self):
         self.lastMarker = self.index()
         return self.lastMarker
-    
 
     def release(self, marker=None):
         # no resources to release
         pass
-    
 
     def size(self):
         return len(self.tokens)
 
-
     def index(self):
         return self.p
-
 
     def rewind(self, marker=None):
         if marker is None:
             marker = self.lastMarker
-            
-        self.seek(marker)
 
+        self.seek(marker)
 
     def seek(self, index):
         self.p = index
 
-
     def getTokenSource(self):
         return self.tokenSource
 
-
     def getSourceName(self):
         return self.tokenSource.getSourceName()
-
 
     def toString(self, start=None, stop=None):
         if self.p == -1:
@@ -871,16 +812,16 @@ class CommonTokenStream(TokenStream):
             stop = len(self.tokens) - 1
         elif not isinstance(stop, int):
             stop = stop.index
-        
+
         if stop >= len(self.tokens):
             stop = len(self.tokens) - 1
 
-        return ''.join([t.text for t in self.tokens[start:stop+1]])
+        return "".join([t.text for t in self.tokens[start : stop + 1]])
 
 
 class RewriteOperation(object):
     """@brief Internal helper class."""
-    
+
     def __init__(self, index, text):
         self.index = index
         self.text = text
@@ -894,7 +835,7 @@ class RewriteOperation(object):
 
     def toString(self):
         opName = self.__class__.__name__
-        return opName+"@"+self.index+'"'+self.text+'"'
+        return opName + "@" + self.index + '"' + self.text + '"'
 
     __str__ = toString
 
@@ -910,7 +851,7 @@ class InsertBeforeOp(RewriteOperation):
 class ReplaceOp(RewriteOperation):
     """
     @brief Internal helper class.
-    
+
     I'm going to try replacing range from x..y with (y-x)+1 ReplaceOp
     instructions.
     """
@@ -918,7 +859,6 @@ class ReplaceOp(RewriteOperation):
     def __init__(self, first, last, text):
         RewriteOperation.__init__(self, first, text)
         self.lastIndex = last
-
 
     def execute(self, buf):
         if self.text is not None:
@@ -981,7 +921,7 @@ class TokenRewriteStream(CommonTokenStream):
     If you don't use named rewrite streams, a "default" stream is used as
     the first example shows.
     """
-    
+
     DEFAULT_PROGRAM_NAME = "default"
     MIN_TOKEN_INDEX = 0
 
@@ -993,10 +933,9 @@ class TokenRewriteStream(CommonTokenStream):
         #  Maps String (name) -> rewrite (List)
         self.programs = {}
         self.programs[self.DEFAULT_PROGRAM_NAME] = []
-        
- 	# Map String (program name) -> Integer index
+
+        # Map String (program name) -> Integer index
         self.lastRewriteTokenIndexes = {}
-        
 
     def rollback(self, *args):
         """
@@ -1013,17 +952,15 @@ class TokenRewriteStream(CommonTokenStream):
             instructionIndex = args[0]
         else:
             raise TypeError("Invalid arguments")
-        
+
         p = self.programs.get(programName, None)
         if p is not None:
-            self.programs[programName] = p[self.MIN_TOKEN_INDEX:instructionIndex]
-
+            self.programs[programName] = p[self.MIN_TOKEN_INDEX : instructionIndex]
 
     def deleteProgram(self, programName=DEFAULT_PROGRAM_NAME):
         """Reset the program so that no instructions exist"""
-            
-        self.rollback(programName, self.MIN_TOKEN_INDEX)
 
+        self.rollback(programName, self.MIN_TOKEN_INDEX)
 
     def addToSortedRewriteList(self, *args):
         """
@@ -1052,19 +989,19 @@ class TokenRewriteStream(CommonTokenStream):
             op = args[0]
         else:
             raise TypeError("Invalid arguments")
-        
+
         rewrites = self.getProgram(programName)
-        #System.out.println("### add "+op+"; rewrites="+rewrites)
+        # System.out.println("### add "+op+"; rewrites="+rewrites)
 
         # first insert position for operation
         for pos, searchOp in enumerate(rewrites):
             if searchOp.index == op.index:
                 # now pos is the index in rewrites of first op with op.index
-                #System.out.println("first op with op.index: pos="+pos)
+                # System.out.println("first op with op.index: pos="+pos)
 
                 # an instruction operating already on that index was found;
                 # make this one happen after all the others
-                #System.out.println("found instr for index="+op.index)
+                # System.out.println("found instr for index="+op.index)
                 if isinstance(op, ReplaceOp):
                     replaced = False
                     i = pos
@@ -1075,13 +1012,13 @@ class TokenRewriteStream(CommonTokenStream):
                             break
 
                         if isinstance(prevOp, ReplaceOp):
-                            rewrites[pos] = op # replace old with new
+                            rewrites[pos] = op  # replace old with new
                             replaced = True
                             break
 
                         # keep going; must be an insert
                         i += 1
-                        
+
                     if not replaced:
                         # add replace op to the end of all the inserts
                         rewrites.insert(i, op)
@@ -1093,23 +1030,22 @@ class TokenRewriteStream(CommonTokenStream):
                 break
 
             elif searchOp.index > op.index:
-                #System.out.println("no instruction at pos=="+pos)
+                # System.out.println("no instruction at pos=="+pos)
                 rewrites.insert(pos, op)
                 break
-            
+
         else:
             # new op is past any existing op, append to end
             rewrites.append(op)
-            
-        #System.out.println("after, rewrites="+rewrites)
 
+        # System.out.println("after, rewrites="+rewrites)
 
     def insertAfter(self, *args):
         if len(args) == 2:
             programName = self.DEFAULT_PROGRAM_NAME
             index = args[0]
             text = args[1]
-            
+
         elif len(args) == 3:
             programName = args[0]
             index = args[1]
@@ -1123,15 +1059,14 @@ class TokenRewriteStream(CommonTokenStream):
             index = index.index
 
         # to insert after, just insert before next index (even if past end)
-        self.insertBefore(programName, index+1, text)
-
+        self.insertBefore(programName, index + 1, text)
 
     def insertBefore(self, *args):
         if len(args) == 2:
             programName = self.DEFAULT_PROGRAM_NAME
             index = args[0]
             text = args[1]
-            
+
         elif len(args) == 3:
             programName = args[0]
             index = args[1]
@@ -1144,11 +1079,7 @@ class TokenRewriteStream(CommonTokenStream):
             # index is a Token, grap the stream index from it
             index = index.index
 
-        self.addToSortedRewriteList(
-            programName,
-            InsertBeforeOp(index, text)
-            )
-
+        self.addToSortedRewriteList(programName, InsertBeforeOp(index, text))
 
     def replace(self, *args):
         if len(args) == 2:
@@ -1156,13 +1087,13 @@ class TokenRewriteStream(CommonTokenStream):
             first = args[0]
             last = args[0]
             text = args[1]
-            
+
         elif len(args) == 3:
             programName = self.DEFAULT_PROGRAM_NAME
             first = args[0]
             last = args[1]
             text = args[2]
-            
+
         elif len(args) == 4:
             programName = args[0]
             first = args[1]
@@ -1182,45 +1113,36 @@ class TokenRewriteStream(CommonTokenStream):
 
         if first > last or first < 0 or last < 0:
             return
-        
-        self.addToSortedRewriteList(
-            programName,
-            ReplaceOp(first, last, text)
-            )
-        
+
+        self.addToSortedRewriteList(programName, ReplaceOp(first, last, text))
 
     def delete(self, *args):
         self.replace(*(list(args) + [None]))
 
-
     def getLastRewriteTokenIndex(self, programName=DEFAULT_PROGRAM_NAME):
         return self.lastRewriteTokenIndexes.get(programName, -1)
-
 
     def setLastRewriteTokenIndex(self, programName, i):
         self.lastRewriteTokenIndexes[programName] = i
 
-
     def getProgram(self, name):
         p = self.programs.get(name, None)
-        if p is  None:
+        if p is None:
             p = self.initializeProgram(name)
 
         return p
-
 
     def initializeProgram(self, name):
         p = []
         self.programs[name] = p
         return p
 
-
     def toOriginalString(self, start=None, end=None):
         if start is None:
             start = self.MIN_TOKEN_INDEX
         if end is None:
             end = self.size() - 1
-        
+
         buf = StringIO()
         i = start
         while i >= self.MIN_TOKEN_INDEX and i <= end and i < len(self.tokens):
@@ -1229,13 +1151,12 @@ class TokenRewriteStream(CommonTokenStream):
 
         return buf.getvalue()
 
-
     def toString(self, *args):
         if len(args) == 0:
             programName = self.DEFAULT_PROGRAM_NAME
             start = self.MIN_TOKEN_INDEX
             end = self.size() - 1
-            
+
         elif len(args) == 1:
             programName = args[0]
             start = self.MIN_TOKEN_INDEX
@@ -1245,7 +1166,7 @@ class TokenRewriteStream(CommonTokenStream):
             programName = self.DEFAULT_PROGRAM_NAME
             start = args[0]
             end = args[1]
-            
+
         if start is None:
             start = self.MIN_TOKEN_INDEX
         elif not isinstance(start, int):
@@ -1255,7 +1176,7 @@ class TokenRewriteStream(CommonTokenStream):
             end = len(self.tokens) - 1
         elif not isinstance(end, int):
             end = end.index
-        
+
         if end >= len(self.tokens):
             end = len(self.tokens) - 1
 
@@ -1263,37 +1184,34 @@ class TokenRewriteStream(CommonTokenStream):
         if rewrites is None or len(rewrites) == 0:
             # no instructions to execute
             return self.toOriginalString(start, end)
-        
+
         buf = StringIO()
 
         # Index of first rewrite we have not done
         rewriteOpIndex = 0
 
         tokenCursor = start
-        while ( tokenCursor >= self.MIN_TOKEN_INDEX
-                and tokenCursor <= end
-                and tokenCursor < len(self.tokens)
-                ):
-            #System.out.println("tokenCursor="+tokenCursor);
+        while (
+            tokenCursor >= self.MIN_TOKEN_INDEX
+            and tokenCursor <= end
+            and tokenCursor < len(self.tokens)
+        ):
+            # System.out.println("tokenCursor="+tokenCursor);
             # execute instructions associated with this token index
             if rewriteOpIndex < len(rewrites):
                 op = rewrites[rewriteOpIndex]
 
                 # skip all ops at lower index
-                while ( op.index < tokenCursor
-                        and rewriteOpIndex < len(rewrites)
-                        ):
+                while op.index < tokenCursor and rewriteOpIndex < len(rewrites):
                     rewriteOpIndex += 1
                     if rewriteOpIndex < len(rewrites):
                         op = rewrites[rewriteOpIndex]
 
                 # while we have ops for this token index, exec them
-                while ( tokenCursor == op.index
-                        and rewriteOpIndex < len(rewrites)
-                        ):
-                    #System.out.println("execute "+op+" at instruction "+rewriteOpIndex);
+                while tokenCursor == op.index and rewriteOpIndex < len(rewrites):
+                    # System.out.println("execute "+op+" at instruction "+rewriteOpIndex);
                     tokenCursor = op.execute(buf)
-                    #System.out.println("after execute tokenCursor = "+tokenCursor);
+                    # System.out.println("after execute tokenCursor = "+tokenCursor);
                     rewriteOpIndex += 1
                     if rewriteOpIndex < len(rewrites):
                         op = rewrites[rewriteOpIndex]
@@ -1302,29 +1220,27 @@ class TokenRewriteStream(CommonTokenStream):
             if tokenCursor <= end:
                 buf.write(self.get(tokenCursor).text)
                 tokenCursor += 1
-        
+
         # now see if there are operations (append) beyond last token index
         for opi in range(rewriteOpIndex, len(rewrites)):
             op = rewrites[opi]
-            
+
             if op.index >= self.size():
-                op.execute(buf) # must be insertions if after last token
+                op.execute(buf)  # must be insertions if after last token
 
-            #System.out.println("execute "+op+" at "+opi);
-            #op.execute(buf); # must be insertions if after last token
-
+            # System.out.println("execute "+op+" at "+opi);
+            # op.execute(buf); # must be insertions if after last token
 
         return buf.getvalue()
 
     __str__ = toString
-    
 
     def toDebugString(self, start=None, end=None):
         if start is None:
             start = self.MIN_TOKEN_INDEX
         if end is None:
             end = self.size() - 1
-        
+
         buf = StringIO()
         i = start
         while i >= self.MIN_TOKEN_INDEX and i <= end and i < len(self.tokens):

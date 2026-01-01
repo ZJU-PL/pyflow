@@ -12,9 +12,10 @@ import collections
 
 class WildcardSchema(base.Schema):
     """Schema that accepts any value (no validation).
-    
+
     Used for contexts and other values that don't need validation.
     """
+
     __slots__ = ()
 
     def __init__(self):
@@ -23,7 +24,7 @@ class WildcardSchema(base.Schema):
 
     def validate(self, args):
         """Validate arguments (always succeeds).
-        
+
         Args:
             args: Arguments to validate (ignored)
         """
@@ -32,16 +33,17 @@ class WildcardSchema(base.Schema):
 
 class TypeSchema(base.Schema):
     """Schema that validates types.
-    
+
     TypeSchema validates that values are instances of specific types.
     Used for validating AST nodes, code objects, etc.
-    
+
     Attributes:
         type_: Type or tuple of types to validate against
     """
+
     def __init__(self, type_):
         """Initialize type schema.
-        
+
         Args:
             type_: Type or tuple of types
         """
@@ -49,10 +51,10 @@ class TypeSchema(base.Schema):
 
     def validate(self, args):
         """Validate that argument is instance of type.
-        
+
         Args:
             args: Value to validate
-            
+
         Raises:
             SchemaError: If value is not instance of type
         """
@@ -63,7 +65,7 @@ class TypeSchema(base.Schema):
 
     def instance(self):
         """Create instance (not supported for types).
-        
+
         Raises:
             SchemaError: Types cannot be instantiated directly
         """
@@ -71,7 +73,7 @@ class TypeSchema(base.Schema):
 
     def missing(self):
         """Get missing value (not supported for types).
-        
+
         Raises:
             SchemaError: Types cannot have missing values
         """
@@ -80,16 +82,17 @@ class TypeSchema(base.Schema):
 
 class CallbackSchema(base.Schema):
     """Schema that validates using a callback function.
-    
+
     CallbackSchema uses a callback function to validate values.
     Used for complex validation logic (e.g., code.isCode()).
-    
+
     Attributes:
         validator: Callback function(value) -> bool
     """
+
     def __init__(self, validator):
         """Initialize callback schema.
-        
+
         Args:
             validator: Validation callback function
         """
@@ -97,10 +100,10 @@ class CallbackSchema(base.Schema):
 
     def validate(self, args):
         """Validate using callback function.
-        
+
         Args:
             args: Value to validate
-            
+
         Raises:
             SchemaError: If callback returns False
         """
@@ -109,7 +112,7 @@ class CallbackSchema(base.Schema):
 
     def instance(self):
         """Create instance (not supported for callbacks).
-        
+
         Raises:
             SchemaError: Callback schemas cannot be instantiated directly
         """
@@ -117,7 +120,7 @@ class CallbackSchema(base.Schema):
 
     def missing(self):
         """Get missing value (not supported for callbacks).
-        
+
         Raises:
             SchemaError: Callback schemas cannot have missing values
         """
@@ -126,20 +129,21 @@ class CallbackSchema(base.Schema):
 
 class StructureSchema(base.Schema):
     """Schema for structured data (named tuples).
-    
+
     StructureSchema defines structures with named fields, each with
     its own schema. Structures are represented as named tuples.
-    
+
     Attributes:
         fields: List of (name, fieldSchema) tuples
         map: Dictionary mapping field names to schemas
         type_: Named tuple type for this structure
     """
+
     __slots__ = "fields", "map", "type_"
 
     def __init__(self, *fields):
         """Initialize structure schema.
-        
+
         Args:
             *fields: (name, fieldSchema) tuples defining fields
         """

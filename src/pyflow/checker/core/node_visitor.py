@@ -39,16 +39,16 @@ LOG = logging.getLogger(__name__)
 class SecurityNodeVisitor:
     """
     AST visitor for security checking.
-    
+
     This visitor traverses Python AST nodes and runs security tests on them.
     It maintains context about the current namespace, imports, and node
     information, which is passed to security tests.
-    
+
     **Visitor Flow:**
     1. pre_visit: Sets up context for the node
     2. visit: Calls node-specific visitor method or runs generic tests
     3. post_visit: Cleans up (e.g., restores namespace)
-    
+
     **Context Building:**
     For each node, builds a context dictionary containing:
     - Node information (lineno, col_offset, etc.)
@@ -56,11 +56,11 @@ class SecurityNodeVisitor:
     - Import information (imports, aliases)
     - File information (filename, file_data)
     - Node-specific data (call info, string values, etc.)
-    
+
     **Score Tracking:**
     Maintains scores for severity and confidence levels, aggregating
     results from all security tests run during traversal.
-    
+
     Attributes:
         debug: Whether to enable debug logging
         nosec_lines: Lines with # nosec comments (to skip tests)
@@ -76,10 +76,11 @@ class SecurityNodeVisitor:
         metrics: Metrics collector for statistics
         context: Current context dictionary (updated per node)
     """
+
     def __init__(self, fname, fdata, testset, debug, nosec_lines, metrics):
         """
         Initialize a security node visitor.
-        
+
         Args:
             fname: Filename being analyzed
             fdata: File data object (for reading source lines)
@@ -90,14 +91,19 @@ class SecurityNodeVisitor:
         """
         self.debug = debug
         self.nosec_lines = nosec_lines
-        self.scores = {"SEVERITY": [0] * len(constants.RANKING), "CONFIDENCE": [0] * len(constants.RANKING)}
+        self.scores = {
+            "SEVERITY": [0] * len(constants.RANKING),
+            "CONFIDENCE": [0] * len(constants.RANKING),
+        }
         self.depth = 0
         self.fname = fname
         self.fdata = fdata
         self.testset = testset
         self.imports = set()
         self.import_aliases = {}
-        self.tester = b_tester.SecurityTester(self.testset, self.debug, nosec_lines, metrics)
+        self.tester = b_tester.SecurityTester(
+            self.testset, self.debug, nosec_lines, metrics
+        )
 
         # Try to determine module qualified name from file path
         try:
@@ -111,10 +117,10 @@ class SecurityNodeVisitor:
     def visit_ClassDef(self, node):
         """
         Visitor for AST ClassDef nodes.
-        
+
         Updates the namespace to include the class name, enabling
         qualified name tracking for nested classes.
-        
+
         Args:
             node: AST ClassDef node
         """
@@ -123,10 +129,10 @@ class SecurityNodeVisitor:
     def visit_FunctionDef(self, node):
         """
         Visitor for AST FunctionDef nodes.
-        
+
         Updates context with function information and runs function-level
         security tests. Updates namespace to include function name.
-        
+
         Args:
             node: AST FunctionDef node
         """
@@ -140,11 +146,11 @@ class SecurityNodeVisitor:
     def visit_Call(self, node):
         """
         Visitor for AST Call nodes.
-        
+
         Extracts call information (function name, qualified name) and
         runs call-level security tests. This is where most security
         checks happen (dangerous function calls, etc.).
-        
+
         Args:
             node: AST Call node
         """
@@ -157,10 +163,10 @@ class SecurityNodeVisitor:
     def visit_Import(self, node):
         """
         Visitor for AST Import nodes.
-        
+
         Tracks imported modules and their aliases, then runs import-level
         security tests (e.g., checking for dangerous module imports).
-        
+
         Args:
             node: AST Import node
         """
@@ -174,10 +180,10 @@ class SecurityNodeVisitor:
     def visit_ImportFrom(self, node):
         """
         Visitor for AST ImportFrom nodes.
-        
+
         Tracks imports from specific modules, handling both regular imports
         and relative imports (when module is None). Runs import-level tests.
-        
+
         Args:
             node: AST ImportFrom node
         """
@@ -195,11 +201,11 @@ class SecurityNodeVisitor:
     def visit_Constant(self, node):
         """
         Visitor for AST Constant nodes (Python 3.8+).
-        
+
         In Python 3.8+, several literal node types (Str, Bytes, Num, etc.)
         were folded into ast.Constant. This method dispatches to the
         appropriate visitor based on the value type.
-        
+
         Args:
             node: AST Constant node
         """
@@ -214,11 +220,11 @@ class SecurityNodeVisitor:
     def visit_Str(self, node):
         """
         Visitor for AST String nodes.
-        
+
         Extracts string value and runs string-level security tests
         (e.g., hardcoded passwords, SQL injection patterns). Skips
         docstrings (which are Expr nodes).
-        
+
         Args:
             node: AST Str or Constant node with string value
         """
@@ -231,10 +237,10 @@ class SecurityNodeVisitor:
     def visit_Bytes(self, node):
         """
         Visitor for AST Bytes nodes.
-        
+
         Extracts bytes value and runs bytes-level security tests.
         Skips docstrings.
-        
+
         Args:
             node: AST Bytes or Constant node with bytes value
         """
@@ -247,23 +253,26 @@ class SecurityNodeVisitor:
     def pre_visit(self, node):
         """
         Pre-visit setup for a node.
-        
+
         Builds the context dictionary with information about the current node,
         including location information, imports, and file data. This context
         is passed to security tests.
-        
+
         Args:
             node: AST node being visited
-            
+
         Returns:
             True (always continues traversal)
         """
         self.context = {
-            "imports": self.imports, "import_aliases": self.import_aliases,
-            "node": node, "linerange": b_utils.linerange(node),
-            "filename": self.fname, "file_data": self.fdata
+            "imports": self.imports,
+            "import_aliases": self.import_aliases,
+            "node": node,
+            "linerange": b_utils.linerange(node),
+            "filename": self.fname,
+            "file_data": self.fdata,
         }
-        
+
         # Add location information if available
         if hasattr(node, "lineno"):
             self.context["lineno"] = node.lineno
@@ -282,10 +291,10 @@ class SecurityNodeVisitor:
     def visit(self, node):
         """
         Visit a node and run appropriate security tests.
-        
+
         Looks for a node-specific visitor method (e.g., visit_Call for Call nodes).
         If found, calls it. Otherwise, runs generic tests for that node type.
-        
+
         Args:
             node: AST node to visit
         """
@@ -297,15 +306,17 @@ class SecurityNodeVisitor:
             visitor(node)
         else:
             # No specific visitor, run generic tests for this node type
-            self.update_scores(self.tester.run_tests(self.context, node.__class__.__name__))
+            self.update_scores(
+                self.tester.run_tests(self.context, node.__class__.__name__)
+            )
 
     def post_visit(self, node):
         """
         Post-visit cleanup for a node.
-        
+
         Restores namespace when exiting function or class definitions,
         maintaining proper scope tracking.
-        
+
         Args:
             node: AST node being exited
         """
@@ -318,7 +329,7 @@ class SecurityNodeVisitor:
     def generic_visit(self, node):
         """
         Generic visitor that traverses all child nodes.
-        
+
         This is the main traversal driver. It iterates over all fields of
         the node, and for each AST child node:
         1. Sets parent/sibling references (for context)
@@ -326,10 +337,10 @@ class SecurityNodeVisitor:
         3. Calls visit to run security tests
         4. Recursively visits children
         5. Calls post_visit to clean up
-        
+
         The parent/sibling references are used by some security tests to
         understand the context in which a node appears.
-        
+
         Args:
             node: AST node to traverse
         """
@@ -339,7 +350,9 @@ class SecurityNodeVisitor:
                 for idx, item in enumerate(value):
                     if isinstance(item, ast.AST):
                         # Set parent and sibling references for context
-                        item._bandit_sibling = value[idx + 1] if idx < len(value) - 1 else None
+                        item._bandit_sibling = (
+                            value[idx + 1] if idx < len(value) - 1 else None
+                        )
                         item._bandit_parent = node
                         if self.pre_visit(item):
                             self.visit(item)
@@ -357,33 +370,41 @@ class SecurityNodeVisitor:
     def update_scores(self, scores):
         """
         Update aggregate scores from test results.
-        
+
         Accumulates severity and confidence scores from security tests.
         Scores are arrays indexed by ranking level (UNDEFINED, LOW, MEDIUM, HIGH).
-        
+
         Args:
             scores: Dictionary with "SEVERITY" and "CONFIDENCE" arrays
         """
         if scores:
             for score_type in self.scores:
-                self.scores[score_type] = list(map(operator.add, self.scores[score_type], scores[score_type]))
+                self.scores[score_type] = list(
+                    map(operator.add, self.scores[score_type], scores[score_type])
+                )
 
     def process(self, data):
         """
         Main processing loop - parse and analyze code.
-        
+
         Parses the source code into an AST and traverses it to find
         security issues. After traversal, runs file-level tests.
-        
+
         Args:
             data: Source code string to analyze
-            
+
         Returns:
             Dictionary with "SEVERITY" and "CONFIDENCE" score arrays
         """
         f_ast = ast.parse(data)
         self.generic_visit(f_ast)
         # Run file-level tests after traversal
-        self.context = {"file_data": self.fdata, "filename": self.fname, "lineno": 0, "linerange": [0, 1], "col_offset": 0}
+        self.context = {
+            "file_data": self.fdata,
+            "filename": self.fname,
+            "lineno": 0,
+            "linerange": [0, 1],
+            "col_offset": 0,
+        }
         self.update_scores(self.tester.run_tests(self.context, "File"))
         return self.scores

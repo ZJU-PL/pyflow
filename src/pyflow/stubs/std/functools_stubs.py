@@ -33,6 +33,7 @@ def makeFunctoolsStubs(collector):
         def decorator(func):
             # Return the original function (simplified - real lru_cache returns wrapper)
             return func
+
         return decorator
 
     @export
@@ -42,6 +43,7 @@ def makeFunctoolsStubs(collector):
         # Decorator to copy function metadata
         def decorator(wrapper):
             return wrapper
+
         return decorator
 
     @export

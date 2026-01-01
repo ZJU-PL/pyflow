@@ -21,10 +21,10 @@ from pyflow.language.python import annotations
 
 def isZero(arg):
     """Check if an argument is the constant zero.
-    
+
     Args:
         arg: AST expression to check
-        
+
     Returns:
         True if arg is a constant zero, False otherwise
     """
@@ -37,10 +37,10 @@ def isZero(arg):
 
 def isOne(arg):
     """Check if an argument is the constant one.
-    
+
     Args:
         arg: AST expression to check
-        
+
     Returns:
         True if arg is a constant one, False otherwise
     """
@@ -53,10 +53,10 @@ def isOne(arg):
 
 def isNegativeOne(arg):
     """Check if an argument is the constant negative one.
-    
+
     Args:
         arg: AST expression to check
-        
+
     Returns:
         True if arg is a constant -1, False otherwise
     """
@@ -69,11 +69,11 @@ def isNegativeOne(arg):
 
 def hasNumArgs(node, count):
     """Check if a call node has exactly the specified number of arguments.
-    
+
     Args:
         node: Call node to check
         count: Expected number of arguments
-        
+
     Returns:
         True if node has exactly count arguments and is a simple call
     """
@@ -82,10 +82,10 @@ def hasNumArgs(node, count):
 
 def isSimpleCall(node):
     """Check if a call node is simple (no keywords, *args, or **kwargs).
-    
+
     Args:
         node: Call node to check
-        
+
     Returns:
         True if call has no keywords, variable args, or keyword args
     """
@@ -94,11 +94,11 @@ def isSimpleCall(node):
 
 def isAnalysisInstance(node, type):
     """Check if a node represents an instance of a specific type.
-    
+
     Args:
         node: AST node to check
         type: Python type to check against
-        
+
     Returns:
         True if node is a constant of the given type, or a local variable
         that can only reference objects of the given type
@@ -120,11 +120,11 @@ def isAnalysisInstance(node, type):
 
 def isAnalysis(arg, tests):
     """Check if an argument is a constant value in a test set.
-    
+
     Args:
         arg: AST expression to check
         tests: Set of values to test against
-        
+
     Returns:
         True if arg is a constant Existing node with value in tests
     """
@@ -138,26 +138,27 @@ def isAnalysis(arg, tests):
 class DirectCallRewriter(object):
     """
     Rewrites direct calls based on function origin information.
-    
+
     This class provides a framework for pattern-based code rewriting. It allows
     registering rewrite functions that are triggered when specific functions
     (identified by their origin) are called. This enables optimizations like:
     - Arithmetic identity simplifications (x * 1 -> x, x + 0 -> x)
     - Type-specific optimizations
     - Constant propagation through function calls
-    
+
     The rewriter uses function origins (where the function came from, like
     "prim_float_mul" or "convertToBool") to match calls to rewrite rules.
-    
+
     Attributes:
         extractor: Program extractor with stub information
         exports: Dictionary of exported stub functions
         rewrites: Dictionary mapping origins to lists of rewrite functions
     """
+
     def __init__(self, extractor):
         """
         Initialize a direct call rewriter.
-        
+
         Args:
             extractor: Program extractor with stub information
         """
@@ -168,13 +169,13 @@ class DirectCallRewriter(object):
     def _getOrigin(self, func):
         """
         Get the origin of a Python function.
-        
+
         The origin identifies where a function came from (e.g., stub name,
         module path, etc.). Used to match calls to rewrite rules.
-        
+
         Args:
             func: Python function object
-            
+
         Returns:
             Origin tuple or None if function not found
         """
@@ -189,10 +190,10 @@ class DirectCallRewriter(object):
     def addRewrite(self, name, func):
         """
         Register a rewrite rule for a stub function by name.
-        
+
         Looks up the stub function by name and registers the rewrite function
         for calls to that function.
-        
+
         Args:
             name: Name of the stub function (e.g., "prim_float_mul")
             func: Rewrite function that takes (strategy, node) and returns
@@ -204,10 +205,10 @@ class DirectCallRewriter(object):
     def attribute(self, type, name, func):
         """
         Register a rewrite rule for a type's attribute method.
-        
+
         Registers a rewrite for calls to a specific attribute of a type
         (e.g., str.upper, list.append).
-        
+
         Args:
             type: Type/class object
             name: Attribute name
@@ -220,7 +221,7 @@ class DirectCallRewriter(object):
     def function(self, obj, func):
         """
         Register a rewrite rule for a specific function object.
-        
+
         Args:
             obj: Function object
             func: Rewrite function
@@ -231,7 +232,7 @@ class DirectCallRewriter(object):
     def _bindCode(self, code, func):
         """
         Bind a rewrite function to a code object's origin.
-        
+
         Args:
             code: Code object (stub function)
             func: Rewrite function
@@ -243,10 +244,10 @@ class DirectCallRewriter(object):
     def _bindOrigin(self, origin, func):
         """
         Bind a rewrite function to an origin.
-        
+
         Multiple rewrite functions can be registered for the same origin.
         They are tried in order until one returns a non-None result.
-        
+
         Args:
             origin: Origin tuple identifying the function
             func: Rewrite function to register
@@ -262,14 +263,14 @@ class DirectCallRewriter(object):
     def __call__(self, strategy, node):
         """
         Apply rewrite rules to a direct call node.
-        
+
         Looks up rewrite rules for the call's origin and applies them in
         order. Returns the first non-None result, or None if no rewrite applies.
-        
+
         Args:
             strategy: Strategy object (typically self from FoldRewrite)
             node: DirectCall node to rewrite
-            
+
         Returns:
             Rewritten node if a rule applies, None otherwise
         """

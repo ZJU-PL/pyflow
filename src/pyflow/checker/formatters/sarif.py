@@ -92,20 +92,13 @@ def _map_severity_to_sarif_level(severity: str) -> str:
     SARIF levels: none, note, warning, error
     PyFlow levels: UNDEFINED, LOW, MEDIUM, HIGH
     """
-    mapping = {
-        "UNDEFINED": "none",
-        "LOW": "note",
-        "MEDIUM": "warning",
-        "HIGH": "error"
-    }
+    mapping = {"UNDEFINED": "none", "LOW": "note", "MEDIUM": "warning", "HIGH": "error"}
     return mapping.get(severity, "warning")
 
 
 def _map_confidence_to_sarif_properties(confidence: str) -> Dict[str, str]:
     """Map PyFlow confidence levels to SARIF properties."""
-    return {
-        "confidence": confidence.lower()
-    }
+    return {"confidence": confidence.lower()}
 
 
 def _create_sarif_rule(test_id: str, test_name: str) -> Dict[str, Any]:
@@ -113,31 +106,19 @@ def _create_sarif_rule(test_id: str, test_name: str) -> Dict[str, Any]:
     return {
         "id": test_id,
         "name": test_name,
-        "shortDescription": {
-            "text": f"Security issue detected by {test_id}"
-        },
-        "helpUri": "https://pyflow.readthedocs.io/"  # TODO: Update with actual docs URL
+        "shortDescription": {"text": f"Security issue detected by {test_id}"},
+        "helpUri": "https://pyflow.readthedocs.io/",  # TODO: Update with actual docs URL
     }
 
 
 def _create_sarif_artifact(file_path: str) -> Dict[str, Any]:
     """Create a SARIF artifact object for a file."""
-    return {
-        "location": {
-            "uri": file_path
-        }
-    }
+    return {"location": {"uri": file_path}}
 
 
 def _create_sarif_location(issue) -> Dict[str, Any]:
     """Create a SARIF location object from a PyFlow issue."""
-    location = {
-        "physicalLocation": {
-            "artifactLocation": {
-                "uri": issue.fname
-            }
-        }
-    }
+    location = {"physicalLocation": {"artifactLocation": {"uri": issue.fname}}}
 
     # Add region information if we have line/column data
     region = {}
@@ -160,25 +141,22 @@ def _create_sarif_result(issue) -> Dict[str, Any]:
     """Create a SARIF result object from a PyFlow issue."""
     result = {
         "ruleId": issue.test_id,
-        "message": {
-            "text": issue.text
-        },
+        "message": {"text": issue.text},
         "level": _map_severity_to_sarif_level(issue.severity),
         "locations": [_create_sarif_location(issue)],
-        "properties": _map_confidence_to_sarif_properties(issue.confidence)
+        "properties": _map_confidence_to_sarif_properties(issue.confidence),
     }
 
     # Add CWE information if available
     if issue.cwe and issue.cwe.id != 0:
-        result["properties"]["cwe"] = {
-            "id": issue.cwe.id,
-            "url": issue.cwe.link()
-        }
+        result["properties"]["cwe"] = {"id": issue.cwe.id, "url": issue.cwe.link()}
 
     return result
 
 
-def _collect_unique_rules_and_artifacts(issues) -> tuple[Dict[str, Dict], Dict[str, Dict]]:
+def _collect_unique_rules_and_artifacts(
+    issues,
+) -> tuple[Dict[str, Dict], Dict[str, Dict]]:
     """Collect unique rules and artifacts from issues."""
     rules = {}
     artifacts = {}
@@ -209,9 +187,7 @@ def report(manager, fileobj, sev_level, conf_level, lines=-1):
     """
 
     # Get filtered issues
-    results = manager.get_issue_list(
-        sev_level=sev_level, conf_level=conf_level
-    )
+    results = manager.get_issue_list(sev_level=sev_level, conf_level=conf_level)
 
     baseline = not isinstance(results, list)
 
@@ -227,7 +203,7 @@ def report(manager, fileobj, sev_level, conf_level, lines=-1):
         sarif_output = {
             "$schema": "https://schemastore.azurewebsites.net/schemas/json/sarif-2.1.0.json",
             "version": "2.1.0",
-            "runs": []
+            "runs": [],
         }
     else:
         # Collect unique rules and artifacts
@@ -245,30 +221,27 @@ def report(manager, fileobj, sev_level, conf_level, lines=-1):
                     "name": "PyFlow",
                     "version": "0.1.0",
                     "informationUri": "https://pyflow.readthedocs.io/",  # TODO: Update with actual docs URL
-                    "rules": list(rules.values())
+                    "rules": list(rules.values()),
                 }
             },
             "artifacts": list(artifacts.values()),
-            "results": sarif_results
+            "results": sarif_results,
         }
 
         # Create the complete SARIF document
         sarif_output = {
             "$schema": "https://schemastore.azurewebsites.net/schemas/json/sarif-2.1.0.json",
             "version": "2.1.0",
-            "runs": [sarif_run]
+            "runs": [sarif_run],
         }
 
     # Write SARIF output
     result = json.dumps(
-        sarif_output,
-        indent=2,
-        separators=(",", ": "),
-        ensure_ascii=False
+        sarif_output, indent=2, separators=(",", ": "), ensure_ascii=False
     )
 
     wrap_file_object(fileobj).write(result)
 
     # Check if this is a real file (not stdout) and log accordingly
-    if hasattr(fileobj, 'name') and fileobj.name != sys.stdout.name:
+    if hasattr(fileobj, "name") and fileobj.name != sys.stdout.name:
         LOG.info("SARIF output written to file: %s", fileobj.name)

@@ -24,7 +24,10 @@ def run_callgraph(input_path, args):
             try:
                 output = analyze_file_pycg(str(input_path), args.verbose)
             except ImportError:
-                print("Error: PyCG algorithm not available. Install pycg package.", file=sys.stderr)
+                print(
+                    "Error: PyCG algorithm not available. Install pycg package.",
+                    file=sys.stderr,
+                )
                 return 1
         else:
             print(f"Error: Unknown algorithm '{args.algorithm}'", file=sys.stderr)
@@ -45,6 +48,7 @@ def run_callgraph(input_path, args):
         print(f"Error: {e}", file=sys.stderr)
         if args.verbose:
             import traceback
+
             traceback.print_exc()
         return 1
 

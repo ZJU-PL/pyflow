@@ -40,13 +40,13 @@ codeSchema = structure.CallbackSchema(lambda code: code.isCode())
 
 def wrapOpContext(schema):
     """Wrap a schema with operation context mappings.
-    
+
     Creates a nested mapping schema: code -> op -> context -> value.
     Used for operation-level dataflow information.
-    
+
     Args:
         schema: Base schema to wrap
-        
+
     Returns:
         MappingSchema: Wrapped schema with operation context
     """
@@ -58,13 +58,13 @@ def wrapOpContext(schema):
 
 def wrapCodeContext(schema):
     """Wrap a schema with code context mappings.
-    
+
     Creates a nested mapping schema: code -> context -> value.
     Used for code-level dataflow information.
-    
+
     Args:
         schema: Base schema to wrap
-        
+
     Returns:
         MappingSchema: Wrapped schema with code context
     """
@@ -88,14 +88,14 @@ invokeSourcesSchema = wrapCodeContext(tupleset.TupleSetSchema(invokeSourcesStruc
 
 def invertInvokes(invokes):
     """Invert invocation mapping to get invocation sources.
-    
+
     Converts forward invocation mapping (caller -> callee) to backward
     mapping (callee -> caller). Used to find which call sites invoke
     a given function.
-    
+
     Args:
         invokes: Forward invocation mapping (code, op, context) -> (dstCode, dstContext)
-        
+
     Returns:
         Mapping: Backward mapping (dstCode, dstContext) -> (code, op, context)
     """
@@ -112,13 +112,13 @@ def invertInvokes(invokes):
 
 def filteredSCC(G):
     """Filter strongly connected components to only non-trivial ones.
-    
+
     Finds strongly connected components (cycles) in a graph, returning
     only those with more than one node (non-trivial cycles).
-    
+
     Args:
         G: Graph to analyze
-        
+
     Returns:
         list: List of non-trivial strongly connected components
     """
@@ -131,12 +131,12 @@ def filteredSCC(G):
 
 class ObjectInfo(object):
     """Information about an object's lifetime and references.
-    
+
     ObjectInfo tracks lifetime properties for objects:
     - Reference relationships: What objects this refers to and what refers to it
     - Visibility: Whether object is globally or externally visible
     - Closure holding: Which closures may hold references to this object
-    
+
     Attributes:
         obj: ObjectNode this info describes
         refersTo: Set of ObjectInfo for objects this object refers to
@@ -146,9 +146,10 @@ class ObjectInfo(object):
         globallyVisible: Whether object is globally visible (existing objects)
         externallyVisible: Whether object is externally visible (parameters)
     """
+
     def __init__(self, obj):
         """Initialize object info.
-        
+
         Args:
             obj: ObjectNode to track
         """
@@ -164,10 +165,10 @@ class ObjectInfo(object):
 
     def isReachableFrom(self, refs):
         """Check if this object is reachable from a set of references.
-        
+
         Args:
             refs: Set of ObjectInfo references
-            
+
         Returns:
             bool: True if object is held by any of the references
         """
@@ -175,7 +176,7 @@ class ObjectInfo(object):
 
     def leaks(self):
         """Check if this object leaks (escapes its scope).
-        
+
         Returns:
             bool: True if object is globally or externally visible
         """
@@ -183,13 +184,13 @@ class ObjectInfo(object):
 
     def updateHeldBy(self, newHeld):
         """Update the set of closures that hold this object.
-        
+
         Args:
             newHeld: Set of ObjectInfo for closures that may hold this
-            
+
         Returns:
             bool: True if heldByClosure changed
-            
+
         Raises:
             AssertionError: If object leaks (shouldn't update heldBy)
         """
@@ -205,11 +206,11 @@ class ObjectInfo(object):
 
 class ReadModifyAnalysis(object):
     """Read/modify analysis for tracking object usage.
-    
+
     ReadModifyAnalysis tracks which objects are read and modified at each
     program point. It propagates read/modify information through the call
     graph, filtering out objects that are killed (no longer live).
-    
+
     Attributes:
         invokeSources: Dictionary mapping (code, context) to invocation sources
         contextReads: Dictionary mapping (code, context) to set of read objects
@@ -221,9 +222,10 @@ class ReadModifyAnalysis(object):
         allModifies: Set of all objects ever modified
         killed: Dictionary mapping (code, op, context) -> (dstCode, dstContext) to killed objects
     """
+
     def __init__(self, liveCode, invokeSources):
         """Initialize read/modify analysis.
-        
+
         Args:
             liveCode: Set of live code objects
             invokeSources: Invocation source mapping
@@ -261,14 +263,14 @@ class ReadModifyAnalysis(object):
 
     def collectDB(self, liveCode):
         """Collect read/modify/allocate information from live code.
-        
+
         Traverses all live code and operations, collecting:
         - Read sets: Objects read at each program point
         - Modify sets: Objects modified at each program point
         - Allocations: Objects allocated at each program point
-        
+
         Stores information in databases indexed by (code, op, context).
-        
+
         Args:
             liveCode: Set of live code objects to process
         """
@@ -304,7 +306,7 @@ class ReadModifyAnalysis(object):
 
     def processReads(self):
         """Process read sets, propagating backward through call graph.
-        
+
         Propagates read information backward from callees to callers,
         filtering out objects that are killed (no longer live).
         """
@@ -320,10 +322,10 @@ class ReadModifyAnalysis(object):
 
     def processContextReads(self, current):
         """Process reads for a specific context.
-        
+
         Propagates reads from current context to its invocation sources,
         filtering out killed objects.
-        
+
         Args:
             current: (code, context) tuple to process
         """
@@ -354,7 +356,7 @@ class ReadModifyAnalysis(object):
 
     def processModifies(self):
         """Process modify sets, propagating backward through call graph.
-        
+
         Propagates modify information backward from callees to callers,
         filtering out objects that are killed (no longer live).
         """
@@ -370,10 +372,10 @@ class ReadModifyAnalysis(object):
 
     def processContextModifies(self, current):
         """Process modifies for a specific context.
-        
+
         Propagates modifies from current context to its invocation sources,
         filtering out killed objects.
-        
+
         Args:
             current: (code, context) tuple to process
         """
@@ -405,14 +407,15 @@ class ReadModifyAnalysis(object):
 
 class DFSSearcher(object):
     """Depth-first search searcher for graph traversal.
-    
+
     Generic DFS implementation for traversing graphs. Used to traverse
     object reference graphs to build lifetime information.
-    
+
     Attributes:
         _stack: Stack of nodes to process
         _touched: Set of nodes already visited
     """
+
     def __init__(self):
         """Initialize DFS searcher."""
         self._stack = []
@@ -420,7 +423,7 @@ class DFSSearcher(object):
 
     def enqueue(self, *children):
         """Enqueue children for processing.
-        
+
         Args:
             *children: Child nodes to enqueue
         """
@@ -431,7 +434,7 @@ class DFSSearcher(object):
 
     def process(self):
         """Process all enqueued nodes using DFS.
-        
+
         Continues until stack is empty, visiting each node once.
         """
         while self._stack:
@@ -441,16 +444,17 @@ class DFSSearcher(object):
 
 class ObjectSearcher(DFSSearcher):
     """DFS searcher for building object reference graph.
-    
+
     ObjectSearcher traverses the object reference graph, building
     refersTo and referedFrom relationships between objects.
-    
+
     Attributes:
         la: LifetimeAnalysis instance
     """
+
     def __init__(self, la):
         """Initialize object searcher.
-        
+
         Args:
             la: LifetimeAnalysis instance
         """
@@ -459,10 +463,10 @@ class ObjectSearcher(DFSSearcher):
 
     def visit(self, obj):
         """Visit an object and build reference relationships.
-        
+
         For each slot in the object, follows references to other objects
         and builds bidirectional reference relationships.
-        
+
         Args:
             obj: ObjectNode to visit
         """
@@ -477,14 +481,14 @@ class ObjectSearcher(DFSSearcher):
 
 class LifetimeAnalysis(object):
     """Main lifetime analysis system.
-    
+
     LifetimeAnalysis performs comprehensive lifetime analysis:
     1. Object graph construction: Builds reference relationships
     2. Visibility propagation: Determines escaping objects
     3. Scope inference: Determines object lifetimes across call stack
     4. Read/modify analysis: Tracks object usage
     5. Annotation: Attaches lifetime information to code
-    
+
     Attributes:
         heapReferedToByHeap: Dictionary mapping objects to objects that refer to them
         heapReferedToByCode: Dictionary mapping objects to code that refers to them
@@ -502,6 +506,7 @@ class LifetimeAnalysis(object):
         rm: ReadModifyAnalysis instance
         allocations: Dictionary mapping (code, context) to allocated objects
     """
+
     def __init__(self):
         """Initialize lifetime analysis."""
         self.heapReferedToByHeap = collections.defaultdict(set)
@@ -516,12 +521,12 @@ class LifetimeAnalysis(object):
 
     def getObjectInfo(self, obj):
         """Get or create ObjectInfo for an object.
-        
+
         ObjectInfo instances are canonicalized per object.
-        
+
         Args:
             obj: ObjectNode to get info for
-            
+
         Returns:
             ObjectInfo: Info for the object
         """
@@ -535,7 +540,7 @@ class LifetimeAnalysis(object):
 
     def findGloballyVisible(self):
         """Find all globally visible objects.
-        
+
         Globally visible objects are existing objects (constants, globals)
         and any objects they refer to. Uses transitive closure to find
         all objects reachable from globally visible objects.
@@ -557,7 +562,7 @@ class LifetimeAnalysis(object):
 
     def findExternallyVisible(self):
         """Find all externally visible objects.
-        
+
         Externally visible objects are external objects (parameters)
         and any objects they refer to. Uses transitive closure to find
         all objects reachable from externally visible objects.
@@ -579,7 +584,7 @@ class LifetimeAnalysis(object):
 
     def propagateVisibility(self):
         """Propagate visibility information and mark escaping objects.
-        
+
         Finds globally and externally visible objects, computes escaping
         set, and annotates objects with leak information.
         """
@@ -642,7 +647,7 @@ class LifetimeAnalysis(object):
 
     def inferScope(self):
         """Infer object scope (how far back on call stack objects propagate).
-        
+
         Determines which objects are live at each program point and which
         are killed (no longer live) when crossing invocation boundaries.
         Uses iterative analysis to propagate liveness information backward
@@ -791,7 +796,7 @@ class LifetimeAnalysis(object):
 
     def process(self, compiler, prgm):
         """Process lifetime analysis on a program.
-        
+
         Main entry point for lifetime analysis. Performs:
         1. Gather slots: Build object reference graph
         2. Gather invokes: Build call graph
@@ -800,11 +805,11 @@ class LifetimeAnalysis(object):
         5. Infer scope: Determine object lifetimes
         6. Read/modify analysis: Track object usage
         7. Create database: Annotate code with lifetime info
-        
+
         Args:
             compiler: Compiler instance
             prgm: Program to analyze
-            
+
         Returns:
             LifetimeAnalysis: Self (for chaining)
         """
@@ -914,14 +919,14 @@ class LifetimeAnalysis(object):
 
 def evaluate(compiler, prgm):
     """Run lifetime analysis on a program.
-    
+
     Main entry point for lifetime analysis. Creates and runs a
     LifetimeAnalysis instance on the program.
-    
+
     Args:
         compiler: Compiler instance
         prgm: Program to analyze
-        
+
     Returns:
         LifetimeAnalysis: Analysis results
     """

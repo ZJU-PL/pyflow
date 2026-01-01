@@ -10,16 +10,16 @@ from pyflow.language.python import ast
 
 class GetOps(TypeDispatcher):
     """Collects operations and local variables from AST nodes.
-    
+
     This class traverses AST nodes to extract operations, local variables,
     and copy operations for analysis.
-    
+
     Attributes:
         ops: List of collected operations.
         locals: Set of collected local variables.
         copies: List of copy operations found.
     """
-    
+
     def __init__(self):
         """Initialize the AST collector."""
         self.ops = []
@@ -50,7 +50,7 @@ class GetOps(TypeDispatcher):
     )
     def visitOK(self, node):
         """Visit nodes that contain child nodes.
-        
+
         Args:
             node: AST node to visit.
         """
@@ -59,7 +59,7 @@ class GetOps(TypeDispatcher):
     @dispatch(ast.Assign)
     def visitAssign(self, node):
         """Visit assignment nodes.
-        
+
         Args:
             node: Assignment AST node.
         """
@@ -81,7 +81,7 @@ class GetOps(TypeDispatcher):
     @dispatch(ast.InputBlock)
     def visitInputBlock(self, node):
         """Visit input block nodes.
-        
+
         Args:
             node: Input block AST node.
         """
@@ -91,7 +91,7 @@ class GetOps(TypeDispatcher):
     @dispatch(ast.OutputBlock)
     def visitOutputBlock(self, node):
         """Visit output block nodes.
-        
+
         Args:
             node: Output block AST node.
         """
@@ -101,7 +101,7 @@ class GetOps(TypeDispatcher):
     @dispatch(ast.Local, ast.Existing)
     def visitLocal(self, node):
         """Visit local variable nodes.
-        
+
         Args:
             node: Local variable AST node.
         """
@@ -140,7 +140,7 @@ class GetOps(TypeDispatcher):
     def visitList(self, node):
         # Handle raw Python lists that might appear in the AST
         for item in node:
-            if hasattr(item, 'visitChildren'):
+            if hasattr(item, "visitChildren"):
                 self(item)
             # For non-AST items, just skip them
 

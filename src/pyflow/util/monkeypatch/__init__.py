@@ -19,4 +19,3 @@ These modules are used throughout pyflow for:
 - Creating named tuples with custom methods (xnamedtuple)
 - Mathematical operations for analysis (xmath)
 """
-

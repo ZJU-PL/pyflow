@@ -23,16 +23,17 @@ from pyflow.util.graphalgorithim.merge import serializeMerges
 
 class Expander(TypeDispatcher):
     """Expands phi nodes into assignments at predecessor blocks.
-    
+
     This class traverses merge blocks and expands phi nodes by creating
     assignment statements that transfer values from predecessor blocks
     to the merge point. The assignments are inserted into new suite
     blocks placed between predecessors and the merge point.
     """
+
     @defaultdispatch
     def default(self, node):
         """Default handler (no action for most nodes).
-        
+
         Args:
             node: CFG node (ignored)
         """
@@ -40,13 +41,13 @@ class Expander(TypeDispatcher):
 
     def createTemp(self, node):
         """Create a temporary variable for serialization.
-        
+
         Used by serializeMerges to create temporary variables when
         multiple assignments need to be serialized.
-        
+
         Args:
             node: Variable to clone as temporary
-            
+
         Returns:
             ast.Local: Cloned variable
         """
@@ -55,15 +56,15 @@ class Expander(TypeDispatcher):
     @dispatch(cfg.Merge)
     def visitMerge(self, node):
         """Expand phi nodes in a merge block.
-        
+
         For each predecessor of the merge block, creates assignments
         that transfer the corresponding phi arguments to phi targets.
         Inserts these assignments in new suite blocks between the
         predecessor and the merge point.
-        
+
         Args:
             node: Merge block containing phi nodes
-            
+
         Note:
             HACK: Can't handle pushing assignments up into exceptions?
             Currently only handles normal, true, false, and entry exits.
@@ -100,10 +101,10 @@ class Expander(TypeDispatcher):
 
 def evaluate(compiler, g):
     """Expand phi nodes in a CFG.
-    
+
     Traverses the CFG and expands all phi nodes into explicit assignments.
     This converts SSA form back to a traditional CFG representation.
-    
+
     Args:
         compiler: Compiler context (unused, kept for interface consistency)
         g: CFG Code object to expand phi nodes in

@@ -18,10 +18,10 @@ from pyflow.util.graphalgorithim import dominator
 
 class DJNode(object):
     """Node in the DJ (Dominance-Join) graph for dominance analysis.
-    
+
     This class represents a node in the dominance tree with additional
     information needed for dominance frontier computation and SSA construction.
-    
+
     Attributes:
         node: The original CFG node.
         idom: Immediate dominator of this node.
@@ -33,11 +33,12 @@ class DJNode(object):
         pre: Pre-order number in dominance tree traversal.
         post: Post-order number in dominance tree traversal.
     """
+
     __slots__ = "node", "idom", "level", "d", "j", "marked", "idf", "pre", "post"
 
     def __init__(self, node):
         """Initialize a DJ node.
-        
+
         Args:
             node: The original CFG node this DJ node represents.
         """
@@ -58,7 +59,7 @@ class DJNode(object):
 
     def setIDom(self, idom):
         """Set the immediate dominator of this node.
-        
+
         Args:
             idom: The immediate dominator node.
         """
@@ -68,10 +69,10 @@ class DJNode(object):
 
     def number(self, uid):
         """Assign pre-order and post-order numbers to this node and its subtree.
-        
+
         Args:
             uid: Starting unique identifier for numbering.
-            
+
         Returns:
             int: Next available unique identifier after numbering this subtree.
         """
@@ -88,10 +89,10 @@ class DJNode(object):
 
     def dominates(self, other):
         """Check if this node dominates another node.
-        
+
         Args:
             other: The node to check dominance against.
-            
+
         Returns:
             bool: True if this node dominates the other node.
         """
@@ -100,20 +101,20 @@ class DJNode(object):
 
 class MakeDJGraph(object):
     """Constructs the DJ graph for dominance frontier analysis.
-    
+
     This class builds the dominance-join graph needed for computing dominance
     frontiers, which is essential for SSA form construction.
-    
+
     Attributes:
         idom: Immediate dominator mapping.
         processed: Set of processed nodes.
         nodes: Dictionary mapping CFG nodes to DJ nodes.
         numLevels: Number of levels in the dominance tree.
     """
-    
+
     def __init__(self, idom, forwardCallback, bindCallback):
         """Initialize the DJ graph constructor.
-        
+
         Args:
             idom: Immediate dominator mapping.
             forwardCallback: Callback for forward CFG traversal.
@@ -228,29 +229,30 @@ class PlacePhi(object):
 # loose upper bound -> O(|E|*depth(DJTree))
 class FullIDF(object):
     """Computes iterated dominance frontiers (IDF) for all nodes.
-    
+
     The iterated dominance frontier of a set S is the set of all nodes
     that are in the dominance frontier of S or in the dominance frontier
     of any node in the IDF of S. This is needed for SSA phi node placement.
-    
+
     This implementation uses a stack-based algorithm that processes the
     dominance tree and adds join nodes to the IDF of all nodes on the
     path from the join node to the root.
-    
+
     Note: This finds the closest merges, not the entire dominance frontier.
     Complexity: O(|E| * depth(DJTree))
     """
+
     def __init__(self):
         """Initialize the IDF computer."""
         self.stack = []
 
     def process(self, node):
         """Process a node to compute its IDF.
-        
+
         Uses a stack to track the path from root to current node. When
         a join node is encountered, adds it to the IDF of all nodes on
         the path from the join node's level to the current node's level.
-        
+
         Args:
             node: DJ node to process
         """
@@ -270,15 +272,15 @@ class FullIDF(object):
 
 def evaluate(roots, forwardCallback, bindCallback):
     """Evaluate dominance analysis for CFG roots.
-    
+
     Computes immediate dominators, builds the DJ graph, numbers nodes,
     and computes iterated dominance frontiers for all nodes.
-    
+
     Args:
         roots: List of root CFG nodes (typically entry terminals)
         forwardCallback: Function to get successors of a node
         bindCallback: Function to bind DJ node to CFG node
-        
+
     Returns:
         list: List of DJ nodes for the roots
     """

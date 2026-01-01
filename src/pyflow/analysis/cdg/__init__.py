@@ -40,13 +40,13 @@ from .construction import CDGConstructor, construct_cdg, analyze_control_depende
 from .dump import CDGDumper, dump_cdg, dump_cdg_to_directory
 
 __all__ = [
-    'CDGNode',
-    'CDGEdge', 
-    'ControlDependenceGraph',
-    'CDGConstructor',
-    'construct_cdg',
-    'analyze_control_dependencies',
-    'CDGDumper',
-    'dump_cdg',
-    'dump_cdg_to_directory'
+    "CDGNode",
+    "CDGEdge",
+    "ControlDependenceGraph",
+    "CDGConstructor",
+    "construct_cdg",
+    "analyze_control_dependencies",
+    "CDGDumper",
+    "dump_cdg",
+    "dump_cdg_to_directory",
 ]

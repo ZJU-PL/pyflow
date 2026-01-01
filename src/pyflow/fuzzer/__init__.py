@@ -61,5 +61,4 @@ if __name__ == '__main__':
 - ASCII digit mutation
 """
 
-__all__ = ['PythonFuzz', 'Fuzzer', 'Corpus', 'Dictionary']
-
+__all__ = ["PythonFuzz", "Fuzzer", "Corpus", "Dictionary"]

@@ -11,15 +11,16 @@ from pyflow.util.monkeypatch import xcollections
 
 class CachedSetManager(object):
     """Manages cached frozen sets for efficient set operations.
-    
+
     CachedSetManager caches frozen sets to avoid duplicate allocations.
     All set operations return cached sets when possible, reducing memory
     usage and improving performance.
-    
+
     Attributes:
         cache: Weak cache mapping frozensets to themselves
         _emptyset: Cached empty set
     """
+
     def __init__(self):
         """Initialize set manager."""
         self.cache = xcollections.weakcache()
@@ -27,10 +28,10 @@ class CachedSetManager(object):
 
     def coerce(self, values):
         """Coerce values to a cached frozen set.
-        
+
         Args:
             values: Iterable of values
-            
+
         Returns:
             frozenset: Cached frozen set
         """
@@ -38,7 +39,7 @@ class CachedSetManager(object):
 
     def empty(self):
         """Get the cached empty set.
-        
+
         Returns:
             frozenset: Cached empty set
         """
@@ -46,11 +47,11 @@ class CachedSetManager(object):
 
     def inplaceUnion(self, a, b):
         """Compute union of two sets, returning cached result.
-        
+
         Args:
             a: First frozen set
             b: Second frozen set
-            
+
         Returns:
             frozenset: Cached union set
         """
@@ -65,11 +66,11 @@ class CachedSetManager(object):
 
     def diff(self, a, b):
         """Compute set difference (a - b), returning cached result.
-        
+
         Args:
             a: First frozen set
             b: Second frozen set
-            
+
         Returns:
             frozenset: Cached difference set
         """
@@ -82,13 +83,13 @@ class CachedSetManager(object):
 
     def tempDiff(self, a, b):
         """Compute temporary set difference (not cached).
-        
+
         Used when the result is temporary and doesn't need caching.
-        
+
         Args:
             a: First frozen set
             b: Second frozen set
-            
+
         Returns:
             frozenset: Difference set (not cached)
         """
@@ -101,10 +102,10 @@ class CachedSetManager(object):
 
     def iter(self, s):
         """Iterate over a set.
-        
+
         Args:
             s: Set to iterate
-            
+
         Returns:
             iterator: Iterator over set elements
         """
@@ -112,7 +113,7 @@ class CachedSetManager(object):
 
     def memory(self):
         """Estimate memory usage of cache.
-        
+
         Returns:
             int: Estimated memory in bytes
         """

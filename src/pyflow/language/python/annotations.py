@@ -24,12 +24,12 @@ from pyflow.language.asttools.annotation import (
 
 def codeOrigin(code, line=None, col=None):
     """Create an Origin from a code object.
-    
+
     Args:
         code: Code object (from function.__code__)
         line: Line number (defaults to code.co_firstlineno)
         col: Column number (optional)
-        
+
     Returns:
         Origin: Origin object with source location information
     """
@@ -40,12 +40,12 @@ def codeOrigin(code, line=None, col=None):
 
 def functionOrigin(func, line=None, col=None):
     """Create an Origin from a function object.
-    
+
     Args:
         func: Function object
         line: Line number (optional)
         col: Column number (optional)
-        
+
     Returns:
         Origin: Origin object with source location information
     """
@@ -54,22 +54,23 @@ def functionOrigin(func, line=None, col=None):
 
 class Annotation(object):
     """Base class for AST node annotations.
-    
+
     Annotations attach metadata to AST nodes. They are immutable and
     provide rewrite() methods for creating modified copies.
     """
+
     __slots__ = ()
 
 
 class CodeAnnotation(Annotation):
     """Annotation for code nodes (functions, classes).
-    
+
     CodeAnnotation attaches metadata to code definitions, including:
     - Context information: Analysis contexts for this code
     - Read/modify/allocate: Objects accessed by the code
     - Lifetime information: Objects live/killed at entry/exit
     - Optimization information: Folding, lowering, runtime info
-    
+
     Attributes:
         contexts: Tuple of analysis contexts for this code
         descriptive: Descriptive information about the code
@@ -86,6 +87,7 @@ class CodeAnnotation(Annotation):
         runtime: Runtime information
         interpreter: Interpreter information
     """
+
     __slots__ = [
         "contexts",
         "descriptive",
@@ -219,12 +221,12 @@ class CodeAnnotation(Annotation):
 
 class OpAnnotation(Annotation):
     """Annotation for operation nodes (expressions, statements).
-    
+
     OpAnnotation attaches metadata to operations, including:
     - Invocation information: Which functions are called
     - Read/modify/allocate: Which objects are accessed
     - Origin information: Source location for debugging
-    
+
     Attributes:
         invokes: Functions invoked by this operation (context-sensitive)
         opReads: Objects read by this operation (context-sensitive)
@@ -235,6 +237,7 @@ class OpAnnotation(Annotation):
         allocates: Objects allocated (final analysis results, context-sensitive)
         origin: Source location information
     """
+
     __slots__ = (
         "invokes",
         "opReads",

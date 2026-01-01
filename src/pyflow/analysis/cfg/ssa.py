@@ -14,15 +14,15 @@ from . import dom
 
 class CollectModifies(TypeDispatcher):
     """Collects variable modifications for SSA construction.
-    
+
     This class traverses CFG blocks to identify where variables are modified,
     which is needed to determine where phi functions should be inserted.
-    
+
     Attributes:
         mod: Dictionary mapping variables to sets of blocks that modify them.
         order: List of blocks in traversal order.
     """
-    
+
     def __init__(self):
         """Initialize the modifier collector."""
         self.mod = {}
@@ -30,7 +30,7 @@ class CollectModifies(TypeDispatcher):
 
     def modified(self, node):
         """Mark a variable as modified in the current block.
-        
+
         Args:
             node: AST node representing the modified variable.
         """
@@ -39,7 +39,7 @@ class CollectModifies(TypeDispatcher):
 
     def _modified(self, node, block):
         """Record a variable modification in a specific block.
-        
+
         Args:
             node: AST node representing the modified variable.
             block: CFG block where the modification occurs.
@@ -92,17 +92,17 @@ class CollectModifies(TypeDispatcher):
 
 class SSARename(TypeDispatcher):
     """Renames variables to SSA form during CFG traversal.
-    
+
     This class performs the variable renaming phase of SSA construction.
     It maintains a frame (mapping from original variables to SSA versions)
     for each CFG block, and renames variables as it traverses the CFG.
-    
+
     The renaming process:
     - At each block, inherits the frame from its predecessor
     - When a variable is defined, creates a new SSA version
     - When a variable is used, uses the current SSA version from the frame
     - At merge points, prepares for phi node insertion
-    
+
     Attributes:
         g: CFG Code object being transformed
         rename: Set of variables that need renaming
@@ -112,9 +112,10 @@ class SSARename(TypeDispatcher):
         read: Set of SSA variables that are read (used to determine if phi needed)
         fixup: List of merge blocks that need phi node insertion
     """
+
     def __init__(self, g, rename, merge):
         """Initialize the SSA renamer.
-        
+
         Args:
             g: CFG Code object to transform
             rename: Set of variables to rename
@@ -133,14 +134,14 @@ class SSARename(TypeDispatcher):
 
     def clone(self, lcl, frame):
         """Clone a local variable and add it to the frame.
-        
+
         Creates a new SSA version of a local variable and records it
         in the variable frame. Used when encountering a new definition.
-        
+
         Args:
             lcl: Original local variable (or None)
             frame: Variable frame to add the clone to
-            
+
         Returns:
             ast.Local: Cloned local variable, or None if lcl is None
         """
@@ -333,11 +334,11 @@ class SSARename(TypeDispatcher):
     # Insert the merges, now that we know all the sources
     def doFixup(self):
         """Insert phi nodes at merge points.
-        
+
         After renaming is complete, inserts phi nodes at merge blocks
         for variables that are read. The phi nodes merge values from
         all predecessor blocks.
-        
+
         Uses an iterative approach: only inserts phi nodes for variables
         that are actually read. If a phi node's arguments include variables
         that are read, those variables may need phi nodes too, so the
@@ -379,18 +380,18 @@ class SSARename(TypeDispatcher):
 
 def evaluate(compiler, g):
     """Convert a CFG to SSA form.
-    
+
     Main entry point for SSA conversion. Performs:
     1. Dominance analysis to compute dominance frontiers
     2. Collection of variable modifications
     3. Computation of merge points for phi insertion
     4. Variable renaming
     5. Phi node insertion
-    
+
     Args:
         compiler: Compiler context (unused, kept for interface consistency)
         g: CFG Code object to convert to SSA form
-        
+
     Algorithm:
         The algorithm follows the standard SSA construction:
         1. Compute dominance frontiers using dominance analysis
@@ -400,6 +401,7 @@ def evaluate(compiler, g):
         5. Rename variables during reverse post-order traversal
         6. Insert phi nodes at merge points for variables that are read
     """
+
     # Analysis: Compute dominance information
     def forward(node):
         return node.forward()

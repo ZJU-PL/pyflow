@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 from pyflow.fuzzer.fuzzer import Fuzzer
 
+
 class TestFindCrash(unittest.TestCase):
     def test_find_crash(self):
         def fuzz(buf):
@@ -12,6 +13,6 @@ class TestFindCrash(unittest.TestCase):
             z = zipfile.ZipFile(f)
             z.testzip()
 
-        with patch('logging.Logger.info') as mock:
+        with patch("logging.Logger.info") as mock:
             Fuzzer(fuzz).start()
             self.assertTrue(mock.called_once)

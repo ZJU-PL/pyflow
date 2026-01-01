@@ -17,7 +17,7 @@ from .memory.storegraphpolicy import DefaultStoreGraphPolicy
 
 def dumpAnalysisResults(analysis):
     """Dump IPA analysis results to files.
-    
+
     Args:
         analysis: IPAnalysis object containing analysis results.
     """
@@ -31,11 +31,11 @@ def dumpAnalysisResults(analysis):
 
 def evaluateWithImage(compiler, prgm):
     """Run IPA analysis with existing store graph image.
-    
+
     Args:
         compiler: Compiler context for the analysis.
         prgm: Program object to analyze.
-        
+
     Returns:
         Result of the IPA analysis.
     """
@@ -64,11 +64,11 @@ def evaluateWithImage(compiler, prgm):
 
 def evaluate(compiler, prgm):
     """Run complete IPA analysis including store graph construction.
-    
+
     Args:
         compiler: Compiler context for the analysis.
         prgm: Program object to analyze.
-        
+
     Returns:
         Result of the IPA analysis.
     """

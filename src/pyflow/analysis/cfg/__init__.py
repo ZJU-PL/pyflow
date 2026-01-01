@@ -21,6 +21,18 @@ The CFG module is primarily used for:
 """
 
 from . import (
-    transform, graph, dom, ssa, ssatransform, structuralanalysis,
-    optimize, simplify, inline, gc, dfs, dump, expandphi, killflow
+    transform,
+    graph,
+    dom,
+    ssa,
+    ssatransform,
+    structuralanalysis,
+    optimize,
+    simplify,
+    inline,
+    gc,
+    dfs,
+    dump,
+    expandphi,
+    killflow,
 )

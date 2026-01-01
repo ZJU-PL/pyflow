@@ -9,7 +9,7 @@ from . import killflow, optimize, gc
 
 def evaluate(compiler, g):
     """Run CFG simplification passes.
-    
+
     Args:
         compiler: Compiler context for simplification.
         g: CFG graph to simplify.

@@ -1,4 +1,3 @@
-
 """CFG dumping and visualization utilities.
 
 This module provides functionality to dump and visualize control flow graphs
@@ -13,10 +12,10 @@ from pyflow.analysis.cfg import graph as cfg
 
 def makeStr(s):
     """Escape string for use in DOT graph labels.
-    
+
     Args:
         s: String to escape.
-        
+
     Returns:
         str: Escaped string suitable for DOT graphs.
     """
@@ -27,10 +26,10 @@ def makeStr(s):
 
 class NodeStyle(TypeDispatcher):
     """Provides styling information for CFG nodes in visualizations.
-    
+
     This class defines colors and shapes for different types of CFG nodes
     when generating visual representations.
-    
+
     Attributes:
         suiteColor: Color for suite nodes.
         switchColor: Color for switch nodes.
@@ -38,7 +37,7 @@ class NodeStyle(TypeDispatcher):
         yieldColor: Color for yield nodes.
         stateColor: Color for state nodes.
     """
-    
+
     suiteColor = "lightyellow"
     switchColor = "cyan"
     mergeColor = "magenta"
@@ -49,10 +48,10 @@ class NodeStyle(TypeDispatcher):
     @dispatch(cfg.Entry, cfg.Exit)
     def handleTerminal(self, node):
         """Handle terminal nodes (entry/exit).
-        
+
         Args:
             node: Terminal CFG node.
-            
+
         Returns:
             dict: Styling information for terminal nodes.
         """
@@ -61,10 +60,10 @@ class NodeStyle(TypeDispatcher):
     @dispatch(cfg.Suite)
     def handleSuite(self, node):
         """Handle suite nodes.
-        
+
         Args:
             node: Suite CFG node.
-            
+
         Returns:
             dict: Styling information for suite nodes.
         """
@@ -80,10 +79,10 @@ class NodeStyle(TypeDispatcher):
     @dispatch(cfg.Switch)
     def handleSwitch(self, node):
         """Handle switch nodes.
-        
+
         Args:
             node: Switch CFG node.
-            
+
         Returns:
             dict: Styling information for switch nodes.
         """
@@ -99,10 +98,10 @@ class NodeStyle(TypeDispatcher):
     @dispatch(cfg.Merge)
     def handleMerge(self, node):
         """Handle merge nodes.
-        
+
         Args:
             node: Merge CFG node.
-            
+
         Returns:
             dict: Styling information for merge nodes.
         """
@@ -267,8 +266,12 @@ def generate_clang_style_cfg(cfg):
                 continue
             visited.add(node)
             all_nodes.append(node)
-            if hasattr(node, 'next'):
-                queue.extend(next_node for next_node in node.next.values() if next_node and next_node not in visited)
+            if hasattr(node, "next"):
+                queue.extend(
+                    next_node
+                    for next_node in node.next.values()
+                    if next_node and next_node not in visited
+                )
 
         node_to_block = {node: f"B{i}" for i, node in enumerate(all_nodes)}
 
@@ -292,19 +295,22 @@ def generate_clang_style_cfg(cfg):
                     content += f"  [{type(node).__name__}]\n"
 
                 # Node content
-                if hasattr(node, 'ops') and node.ops:
+                if hasattr(node, "ops") and node.ops:
                     for op in node.ops:
                         content += f"    {op}\n"
-                elif hasattr(node, 'condition') and node.condition:
+                elif hasattr(node, "condition") and node.condition:
                     content += f"    Condition: {node.condition}\n"
-                elif hasattr(node, 'phi') and node.phi:
+                elif hasattr(node, "phi") and node.phi:
                     for phi in node.phi:
                         content += f"    Phi: {phi}\n"
 
                 # Outgoing edges
-                if hasattr(node, 'next') and node.next:
-                    edges = [f"{name} -> {node_to_block[next_node]}" for name, next_node in node.next.items()
-                            if next_node and next_node in node_to_block]
+                if hasattr(node, "next") and node.next:
+                    edges = [
+                        f"{name} -> {node_to_block[next_node]}"
+                        for name, next_node in node.next.items()
+                        if next_node and next_node in node_to_block
+                    ]
                     content += f"  Succs ({', '.join(edges)})\n"
                 else:
                     content += "  Succs ()\n"

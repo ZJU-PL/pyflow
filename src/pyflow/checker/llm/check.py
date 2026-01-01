@@ -2,6 +2,7 @@
 LLM-native security vulnerability checker.
 Analyzes code using LLM for comprehensive security vulnerability detection.
 """
+
 from typing import Dict, List, Any, Optional
 from dataclasses import dataclass
 from .llm_utils import LLMClient, LLMConfig, format_code_snippet, retry_llm_call
@@ -10,6 +11,7 @@ from .llm_utils import LLMClient, LLMConfig, format_code_snippet, retry_llm_call
 @dataclass
 class SecurityFinding:
     """Security vulnerability finding from LLM analysis."""
+
     vulnerability_type: str
     severity: str  # CRITICAL, HIGH, MEDIUM, LOW
     cwe_id: str
@@ -80,7 +82,7 @@ class LLMSecurityChecker:
         import re
 
         # Extract JSON array from response
-        json_match = re.search(r'\[.*\]', response, re.DOTALL)
+        json_match = re.search(r"\[.*\]", response, re.DOTALL)
         if not json_match:
             return []
 
@@ -89,12 +91,14 @@ class LLMSecurityChecker:
     def analyze_file(self, file_path: str) -> List[SecurityFinding]:
         """Analyze a complete file for security vulnerabilities."""
         try:
-            with open(file_path, 'r', encoding='utf-8') as f:
+            with open(file_path, "r", encoding="utf-8") as f:
                 code = f.read()
             return self.analyze_code(code, file_path)
         except Exception:
             return []
 
-    def analyze_snippet(self, code_snippet: str, context_lines: int = 5) -> List[SecurityFinding]:
+    def analyze_snippet(
+        self, code_snippet: str, context_lines: int = 5
+    ) -> List[SecurityFinding]:
         """Analyze a code snippet with surrounding context."""
         return self.analyze_code(code_snippet)

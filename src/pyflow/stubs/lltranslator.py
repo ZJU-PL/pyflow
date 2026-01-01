@@ -29,14 +29,14 @@ import pyflow.optimization as optimization
 def checkCallArgs(node, count):
     """
     Verify that a call node has exactly the specified number of arguments.
-    
+
     Checks that the call has the correct number of positional arguments
     and no keyword, variable, or keyword-only arguments.
-    
+
     Args:
         node: Call AST node to check
         count: Expected number of positional arguments
-        
+
     Raises:
         AssertionError: If argument count doesn't match or extra args present
     """
@@ -49,12 +49,12 @@ def checkCallArgs(node, count):
 class LLTranslator(TypeDispatcher):
     """
     Translator for converting low-level stub operations to pyflow AST.
-    
+
     LLTranslator walks the AST of a stub function and translates special
     low-level operations (like load, store, allocate) into pyflow AST nodes.
     It also resolves global names, handles descriptor operations, and optimizes
     direct calls where possible.
-    
+
     The translator processes stub functions that use a special syntax:
     - allocate(obj): Create a new object
     - load(obj, field): Load a field from an object
@@ -64,7 +64,7 @@ class LLTranslator(TypeDispatcher):
     - loadDict/storeDict/checkDict: Dictionary operations
     - loadArray/storeArray/checkArray: Array operations
     - loadDescriptor/storeDescriptor: Descriptor operations
-    
+
     Attributes:
         compiler: Compiler instance
         func: Python function being translated
@@ -73,10 +73,11 @@ class LLTranslator(TypeDispatcher):
         code: Current code object being processed
         numReturns: Number of return values (determined during translation)
     """
+
     def __init__(self, compiler, func):
         """
         Initialize a low-level translator.
-        
+
         Args:
             compiler: Compiler instance with extractor and other components
             func: Python function to translate
@@ -91,31 +92,31 @@ class LLTranslator(TypeDispatcher):
         # These are translated to specific AST node types
         self.specialGlobals = set(
             (
-                "allocate",      # Create new object
-                "load",          # Load low-level field
-                "store",         # Store to low-level field
-                "check",         # Check low-level field existence
-                "loadAttr",      # Load attribute
-                "storeAttr",     # Store attribute
-                "checkAttr",     # Check attribute existence
-                "loadDict",      # Load dictionary item
-                "storeDict",     # Store dictionary item
-                "checkDict",     # Check dictionary key existence
-                "loadArray",     # Load array element
-                "storeArray",    # Store array element
-                "checkArray",    # Check array index existence
+                "allocate",  # Create new object
+                "load",  # Load low-level field
+                "store",  # Store to low-level field
+                "check",  # Check low-level field existence
+                "loadAttr",  # Load attribute
+                "storeAttr",  # Store attribute
+                "checkAttr",  # Check attribute existence
+                "loadDict",  # Load dictionary item
+                "storeDict",  # Store dictionary item
+                "checkDict",  # Check dictionary key existence
+                "loadArray",  # Load array element
+                "storeArray",  # Store array element
+                "checkArray",  # Check array index existence
                 "loadDescriptor",  # Load via descriptor
-                "storeDescriptor", # Store via descriptor
+                "storeDescriptor",  # Store via descriptor
             )
         )
 
     def wrapPyObj(self, pyobj):
         """
         Wrap a Python object in an Existing AST node.
-        
+
         Args:
             pyobj: Python object to wrap
-            
+
         Returns:
             ast.Existing node representing the Python object
         """
@@ -125,13 +126,13 @@ class LLTranslator(TypeDispatcher):
     def resolveGlobal(self, name):
         """
         Resolve a global name to an AST node.
-        
+
         Looks up a global name in the function's globals, the extractor's
         name lookup table, or builtins, and returns an Existing node for it.
-        
+
         Args:
             name: Global name to resolve
-            
+
         Returns:
             ast.Existing node for the resolved object
         """
@@ -151,14 +152,14 @@ class LLTranslator(TypeDispatcher):
     def getDescriptorName(self, cls, name):
         """
         Get the unique slot name for a descriptor.
-        
+
         Extracts a descriptor from a class and returns its unique slot name
         as an Existing node. This is used for descriptor operations.
-        
+
         Args:
             cls: ast.Existing node representing the class
             name: ast.Existing node representing the attribute name (string)
-            
+
         Returns:
             ast.Existing node with the unique slot name for the descriptor
         """
@@ -185,7 +186,7 @@ class LLTranslator(TypeDispatcher):
     def visitLocal(self, node):
         """
         Visit a Local variable node.
-        
+
         If the local has been defined (mapped to an Existing node), return
         that definition. Otherwise, return the local unchanged.
         """
@@ -198,7 +199,7 @@ class LLTranslator(TypeDispatcher):
     def visitExisting(self, node):
         """
         Visit an Existing node.
-        
+
         Records the node in defn dictionary and returns it unchanged.
         """
         self.defn[node] = node
@@ -207,13 +208,13 @@ class LLTranslator(TypeDispatcher):
     def translateName(self, name):
         """
         Translate a name to an AST node.
-        
+
         Handles special names like "internal_self" and special globals,
         otherwise resolves as a global name.
-        
+
         Args:
             name: Name string to translate
-            
+
         Returns:
             AST node representing the name (Local, Existing, or string for special globals)
         """
@@ -245,14 +246,14 @@ class LLTranslator(TypeDispatcher):
     def visitCall(self, node):
         """
         Visit a Call node and translate special operations.
-        
+
         This is the core translation method. It handles:
         1. Special low-level operations (allocate, load, store, check, etc.)
            - These are translated to specific AST node types
         2. Direct call optimization
            - If the call target is a known function, convert to DirectCall
            - This enables better analysis and optimization
-        
+
         Special operations translated:
         - allocate(obj) -> Allocate node
         - load(obj, field) -> Load node (LowLevel field type)
@@ -262,10 +263,10 @@ class LLTranslator(TypeDispatcher):
         - loadDict/storeDict/checkDict -> Dictionary operations
         - loadArray/storeArray/checkArray -> Array operations
         - loadDescriptor/storeDescriptor -> Descriptor operations
-        
+
         Args:
             node: Call AST node to translate
-            
+
         Returns:
             Translated AST node (may be Call, DirectCall, Load, Store, etc.)
         """
@@ -446,13 +447,13 @@ class LLTranslator(TypeDispatcher):
     def process(self, node):
         """
         Process a code node and translate its AST.
-        
+
         Main entry point for translation. Translates the AST, determines
         return count, and applies optimizations.
-        
+
         Args:
             node: Code node to process
-            
+
         Returns:
             The processed code node with translated AST
         """
@@ -474,14 +475,14 @@ class LLTranslator(TypeDispatcher):
 def translate(compiler, func, code):
     """
     Translate a stub function's code to pyflow AST.
-    
+
     Convenience function that creates an LLTranslator and processes a code node.
-    
+
     Args:
         compiler: Compiler instance
         func: Python function being translated
         code: Code node to translate
-        
+
     Returns:
         Translated code node
     """

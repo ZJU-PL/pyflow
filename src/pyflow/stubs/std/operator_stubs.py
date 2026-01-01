@@ -52,7 +52,7 @@ def makeOperatorStubs(collector):
     @attachPtr(operator, "pow")
     @llfunc
     def operator_pow(a, b):
-        return allocate(type(a ** b))
+        return allocate(type(a**b))
 
     # Comparison operators
     @export

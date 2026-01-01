@@ -13,14 +13,15 @@ from .calling import cpa
 
 class MarkParameters(TypeDispatcher):
     """Marks function parameters as critical values.
-    
+
     Parameters are marked as critical because they may escape the function
     (passed to callees or returned). This enables escape analysis to track
     parameter values precisely.
     """
+
     def __init__(self, ce):
         """Initialize parameter marker.
-        
+
         Args:
             ce: ConstraintExtractor instance
         """
@@ -29,7 +30,7 @@ class MarkParameters(TypeDispatcher):
     @dispatch(type(None), ast.DoNotCare)
     def visitNone(self, node):
         """Handle None or DoNotCare parameters (ignored).
-        
+
         Args:
             node: None or DoNotCare node
         """
@@ -38,7 +39,7 @@ class MarkParameters(TypeDispatcher):
     @dispatch(ast.Local)
     def visitLocal(self, node):
         """Mark a local parameter as critical.
-        
+
         Args:
             node: AST Local node for parameter
         """
@@ -48,9 +49,9 @@ class MarkParameters(TypeDispatcher):
 
     def process(self, codeParameters):
         """Process all function parameters.
-        
+
         Marks selfparam, params, vparam, kparam, and returnparams as critical.
-        
+
         Args:
             codeParameters: CodeParameters object from code
         """
@@ -67,7 +68,7 @@ class MarkParameters(TypeDispatcher):
 
 class ConstraintExtractor(TypeDispatcher):
     """Extracts constraints from Python AST.
-    
+
     This class traverses AST nodes and converts them into IPA constraints.
     It handles:
     - Local variables
@@ -75,16 +76,17 @@ class ConstraintExtractor(TypeDispatcher):
     - Function calls
     - Memory operations (loads, stores, allocations)
     - Control flow (loops, conditionals)
-    
+
     Attributes:
         analysis: IPAnalysis instance
         context: Context to extract constraints into
         code: Code object being processed
         existing: Dictionary mapping existing objects to constraint nodes
     """
+
     def __init__(self, analysis, context, code):
         """Initialize constraint extractor.
-        
+
         Args:
             analysis: IPAnalysis instance
             context: Context to extract constraints into
@@ -388,6 +390,7 @@ class ConstraintExtractor(TypeDispatcher):
     @dispatch(ast.Suite, ast.Condition, ast.Switch, ast.Assert)
     def visitOK(self, node):
         node.visitChildren(self)
+
     @dispatch(ast.While)
     def visitWhile(self, node):
         self(node.condition)

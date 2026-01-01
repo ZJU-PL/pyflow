@@ -42,6 +42,7 @@ def name(index):
             # name is extracted from node.getChild(0)
             return FunctionDef(name, ...)
     """
+
     def name_func(func):
         def name_wrapper(self, node):
             if self.isNone(node.getChild(index)):
@@ -77,6 +78,7 @@ def fixedname(name):
         def visitModule(self, node):
             return Module(...)
     """
+
     def name_func(func):
         def name_wrapper(self, node):
             self.push(name)

@@ -25,19 +25,19 @@ from pyflow.language.python.fold import existingConstant
 class ForwardFlowTraverse(TypeDispatcher):
     """
     Traverser for forward data flow analysis.
-    
+
     This class implements forward data flow analysis by traversing the AST
     in forward order (top to bottom, left to right) and applying analysis
     and rewrite strategies. It manages flow-sensitive information using a
     FlowDict and handles control flow structures.
-    
+
     The traverser:
     1. Processes expressions and applies rewrite transformations
     2. Updates flow information based on analysis results
     3. Handles control flow (conditionals, loops, switches)
     4. Manages exception handling (try/except)
     5. Merges information at control flow merge points
-    
+
     Attributes:
         analyze: Analysis strategy that updates flow information
         rewrite: Rewrite strategy that transforms nodes
@@ -46,12 +46,13 @@ class ForwardFlowTraverse(TypeDispatcher):
         mayRaise: MayRaise dispatcher for exception analysis
         meetF: Meet function for combining information from paths
     """
+
     __slots__ = "analyze", "rewrite", "flow", "tryLevel", "mayRaise", "meetF"
 
     def __init__(self, meetF, analyze, rewrite):
         """
         Initialize forward flow traverser.
-        
+
         Args:
             meetF: Meet function for combining values from multiple paths
             analyze: Analysis strategy (updates flow information)

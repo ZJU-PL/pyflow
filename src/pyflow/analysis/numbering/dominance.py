@@ -20,13 +20,13 @@ from pyflow.util.io.xmloutput import XMLOutput
 
 class MakeForwardDominance(object):
     """Computes dominance relationships and numbers program points.
-    
+
     MakeForwardDominance performs:
     1. Builds forward dataflow graph
     2. Computes dominator tree
     3. Numbers nodes using DFS traversal
     4. Assigns (pre, post) intervals for dominance queries
-    
+
     Attributes:
         uid: Unique identifier counter for numbering
         pre: Dictionary mapping nodes to pre-order numbers
@@ -34,9 +34,10 @@ class MakeForwardDominance(object):
         processed: Set of processed nodes
         G: Graph structure (dataflow graph or dominator tree)
     """
+
     def printDebug(self, tree, head):
         """Print dominance tree for debugging (HTML format).
-        
+
         Args:
             tree: Dominator tree structure
             head: Root node of the tree
@@ -66,10 +67,10 @@ class MakeForwardDominance(object):
 
     def number(self, node):
         """Number a node and its descendants using DFS.
-        
+
         Assigns pre-order and post-order numbers to nodes in the dominator
         tree. The (pre, post) interval enables efficient dominance queries.
-        
+
         Args:
             node: Node to number
         """
@@ -88,13 +89,13 @@ class MakeForwardDominance(object):
 
     def processCode(self, code):
         """Process code and compute dominance numbering.
-        
+
         Builds dataflow graph, computes dominator tree, and numbers
         all nodes with (pre, post) intervals.
-        
+
         Args:
             code: Code object to process
-            
+
         Returns:
             dict: Dictionary mapping nodes to (pre, post) intervals
         """

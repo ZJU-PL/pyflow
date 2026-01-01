@@ -78,7 +78,7 @@ def generate_json_output(call_graph, args) -> str:
     # Get the CallGraph data directly
     cg_data = call_graph.get()
     modules = call_graph.get_modules()
-    
+
     data = {
         "functions": [],
         "invocations": {},

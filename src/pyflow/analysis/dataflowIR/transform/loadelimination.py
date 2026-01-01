@@ -20,12 +20,12 @@ from pyflow.analysis.dataflowIR.traverse import dfs
 
 def findLoadSrc(g):
     """Find the source definition for a load operation.
-    
+
     Returns the operation that defines the heap location being loaded.
-    
+
     Args:
         g: GenericOp representing a load operation
-        
+
     Returns:
         OpNode: Operation defining the loaded location (typically a Store)
     """
@@ -38,14 +38,14 @@ def findLoadSrc(g):
 # It may be filtered by type switches, etc.
 def isLocalSubset(defn, use):
     """Check if use is a subset/copy of definition.
-    
+
     Determines if a use represents the same value as a definition,
     possibly through type switches or other filtering operations.
-    
+
     Args:
         defn: Definition slot node
         use: Use slot node
-        
+
     Returns:
         bool: True if use is subset/copy of definition
     """
@@ -65,7 +65,7 @@ def isLocalSubset(defn, use):
 
 def attemptTransform(g, pg):
     """Attempt to eliminate a load operation.
-    
+
     Checks if a load can be eliminated by replacing it with the value
     from a dominating store. Verifies:
     1. Load has single modification target
@@ -73,11 +73,11 @@ def attemptTransform(g, pg):
     3. Load/store parameters match (object, field type, field name)
     4. Store predicate dominates load predicate
     5. Heap read/modify sets match
-    
+
     Args:
         g: GenericOp representing load operation
         pg: PredicateGraph for dominance checking
-        
+
     Returns:
         bool: True if transformation was performed
     """
@@ -132,10 +132,10 @@ def attemptTransform(g, pg):
 
 def collectLoads(dataflow):
     """Collect all load operations in a dataflow graph.
-    
+
     Args:
         dataflow: DataflowGraph to search
-        
+
     Returns:
         set: Set of GenericOp nodes representing loads
     """
@@ -152,13 +152,13 @@ def collectLoads(dataflow):
 
 def evaluateDataflow(dataflow):
     """Perform load elimination on a dataflow graph.
-    
+
     Main entry point for load elimination. Builds predicate graph,
     collects loads, and attempts to eliminate each one.
-    
+
     Args:
         dataflow: DataflowGraph to optimize
-        
+
     Note:
         HACK: Iterates until fixed point (no more eliminations possible).
         This is needed because eliminating one load may enable eliminating another.

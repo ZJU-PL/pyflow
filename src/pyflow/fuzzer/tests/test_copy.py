@@ -13,9 +13,9 @@ class TestCopy(unittest.TestCase):
 
         Corpus.copy(res, res, pos1, pos0)
 
-        res = res[:len(res) - (pos1-pos0)]
+        res = res[: len(res) - (pos1 - pos0)]
         self.assertEqual(b"abcdfg", res)
-    
+
     def test_insert(self):
         "test if copy function works as intended in insert operation"
 
@@ -29,7 +29,7 @@ class TestCopy(unittest.TestCase):
         Corpus.copy(res, res, pos, pos + n)
 
         for k in range(n):
-            res[pos+k] = ord('Z')
+            res[pos + k] = ord("Z")
 
         self.assertEqual(b"abcZZZZZdefg", res)
 
@@ -48,9 +48,9 @@ class TestCopy(unittest.TestCase):
 
         for k in range(n):
             res.append(0)
-        Corpus.copy(res, res, dst, dst+n)
+        Corpus.copy(res, res, dst, dst + n)
         for k in range(n):
-            res[dst+k] = tmp[k]
+            res[dst + k] = tmp[k]
         self.assertEqual(b"abcdeeffg", res)
 
     def test_copy(self):
@@ -62,9 +62,9 @@ class TestCopy(unittest.TestCase):
         dst = 5
         n = 2
 
-        Corpus.copy(res, res, src, dst, src+n)
+        Corpus.copy(res, res, src, dst, src + n)
         self.assertEqual(b"abcdeef", res)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

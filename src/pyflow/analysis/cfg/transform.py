@@ -28,15 +28,15 @@ NoNormalFlow = cfg.NoNormalFlow
 
 class CFGTransformer(TypeDispatcher):
     """Transforms AST nodes into CFG structures.
-    
+
     This class handles the transformation of Python AST nodes into control
     flow graph structures, managing control flow constructs and basic blocks.
-    
+
     The transformer maintains:
     - Current block being built (for emitting operations)
     - Handler stack (for return, break, continue, fail, error)
     - Region stack (for tracking code regions)
-    
+
     Attributes:
         current: Current CFG Suite node being built
         handler: Dictionary of handler stacks for control flow
@@ -45,10 +45,10 @@ class CFGTransformer(TypeDispatcher):
         region: Current code region
         code: CFG Code object being built
     """
-    
+
     def emit(self, stmt):
         """Emit a statement to the current CFG node.
-        
+
         Args:
             stmt: AST statement to emit.
         """
@@ -56,7 +56,7 @@ class CFGTransformer(TypeDispatcher):
 
     def attachCurrent(self, child):
         """Attach the current node to a child node.
-        
+
         Args:
             child: Child CFG node to attach to.
         """
@@ -76,7 +76,7 @@ class CFGTransformer(TypeDispatcher):
     @dispatch(ast.Return)
     def visitReturn(self, node):
         """Visit return statements.
-        
+
         Args:
             node: Return AST node.
         """
@@ -86,7 +86,7 @@ class CFGTransformer(TypeDispatcher):
     @dispatch(ast.Continue)
     def visitContinue(self, node):
         """Visit continue statements.
-        
+
         Args:
             node: Continue AST node.
         """
@@ -97,7 +97,7 @@ class CFGTransformer(TypeDispatcher):
     @dispatch(ast.Break)
     def visitBreak(self, node):
         """Visit break statements.
-        
+
         Args:
             node: Break AST node.
         """
@@ -108,7 +108,7 @@ class CFGTransformer(TypeDispatcher):
     @dispatch(ast.Yield)
     def visitYield(self, node):
         """Visit yield statements.
-        
+
         Args:
             node: Yield AST node.
         """
@@ -333,9 +333,9 @@ class CFGTransformer(TypeDispatcher):
         # For(iterator, index, loopPreamble, bodyPreamble, body, else_)
 
         # Process loop preamble and body preamble
-        if hasattr(node, 'loopPreamble') and node.loopPreamble:
+        if hasattr(node, "loopPreamble") and node.loopPreamble:
             self(node.loopPreamble)
-        if hasattr(node, 'bodyPreamble') and node.bodyPreamble:
+        if hasattr(node, "bodyPreamble") and node.bodyPreamble:
             self(node.bodyPreamble)
 
         # Create merge point for loop entry
@@ -363,7 +363,7 @@ class CFGTransformer(TypeDispatcher):
         self.popHandler("break")
 
         # Handle else clause if present
-        if hasattr(node, 'else_') and node.else_:
+        if hasattr(node, "else_") and node.else_:
             else_suite = self.makeNewSuite()
             self(node.else_)
             else_suite.setExit("normal", self.makeNewSuite())
@@ -414,16 +414,16 @@ class CFGTransformer(TypeDispatcher):
 
     def process(self, code):
         """Transform an AST Code object into a CFG.
-        
+
         Main entry point for CFG construction. Initializes the transformer
         state, sets up control flow handlers, and transforms the AST.
-        
+
         Args:
             code: AST Code object to transform
-            
+
         Returns:
             cfg.Code: Complete CFG representation of the function
-            
+
         Process:
             1. Initialize handler stacks for control flow
             2. Create CFG Code container
@@ -467,14 +467,14 @@ class CFGTransformer(TypeDispatcher):
 
 def evaluate(compiler, code):
     """Transform AST code to CFG and simplify.
-    
+
     Main entry point for CFG construction from AST. Transforms the AST
     into a CFG and applies simplification passes.
-    
+
     Args:
         compiler: Compiler context
         code: AST Code object to transform
-        
+
     Returns:
         cfg.Code: Simplified CFG representation
     """

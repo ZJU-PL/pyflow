@@ -20,18 +20,20 @@ Time complexity:
 - Overall: Nearly constant time per operation
 """
 
+
 class UnionFind(object):
     """
     Union-Find data structure with path compression and union by size.
-    
+
     This implementation uses:
     - Path compression: Flattens the tree during find operations
     - Union by size: Always attaches smaller trees to larger ones
-    
+
     Attributes:
         parents: Dictionary mapping objects to their parent in the union tree
         weights: Dictionary mapping roots to the size of their set
     """
+
     __slots__ = "parents", "weights"
 
     def __init__(self):
@@ -42,13 +44,13 @@ class UnionFind(object):
     def __getitem__(self, obj):
         """
         Find the root (representative) of the set containing obj.
-        
+
         If obj is not in any set, returns obj itself. Otherwise, finds
         the root of obj's set using path compression.
-        
+
         Args:
             obj: Object to find the root for
-            
+
         Returns:
             Root object representing the set containing obj
         """
@@ -60,7 +62,7 @@ class UnionFind(object):
     def __iter__(self):
         """
         Iterate over all objects that are part of sets.
-        
+
         Yields:
             All objects that have been unioned (have parents)
         """
@@ -69,13 +71,13 @@ class UnionFind(object):
     def getItemCompress(self, obj):
         """
         Find root with path compression.
-        
+
         Recursively finds the root while flattening the tree by making
         each node point directly to the root. This improves future lookups.
-        
+
         Args:
             obj: Object to find root for
-            
+
         Returns:
             Root object of the set containing obj
         """
@@ -92,18 +94,18 @@ class UnionFind(object):
     def union(self, first, *objs):
         """
         Union two or more sets together.
-        
+
         Merges the sets containing the given objects. Uses union by size
         (weight) to keep trees balanced - always attaches smaller trees
         to larger ones.
-        
+
         Args:
             first: First object (required)
             *objs: Additional objects to union with first
-            
+
         Returns:
             Root object of the merged set
-            
+
         Example:
             >>> uf = UnionFind()
             >>> uf.union(1, 2, 3)  # Union sets containing 1, 2, 3
@@ -146,7 +148,7 @@ class UnionFind(object):
     def copy(self):
         """
         Create a deep copy of this Union-Find structure.
-        
+
         Returns:
             New UnionFind instance with copied parents and weights
         """
@@ -158,7 +160,7 @@ class UnionFind(object):
     def dump(self):
         """
         Print the internal structure for debugging.
-        
+
         Outputs all parent relationships in the union tree.
         """
         for k, v in self.parents.items():

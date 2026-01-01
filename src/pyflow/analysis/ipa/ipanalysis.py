@@ -21,11 +21,11 @@ from . import summary
 
 class IPAnalysis(object):
     """Main class for inter-procedural analysis.
-    
+
     This class performs context-sensitive inter-procedural analysis by maintaining
     separate contexts for different calling patterns and propagating information
     between function calls and returns.
-    
+
     Attributes:
         compiler: Compiler context for the analysis.
         extractor: Program extractor for accessing source code.
@@ -43,10 +43,10 @@ class IPAnalysis(object):
         trace: Whether to enable tracing output.
         funcDefaultName: Name for function default parameters.
     """
-    
+
     def __init__(self, compiler, canonical, existingPolicy, externalPolicy):
         """Initialize the inter-procedural analysis.
-        
+
         Args:
             compiler: Compiler context for the analysis.
             canonical: Canonical store graph.
@@ -82,10 +82,10 @@ class IPAnalysis(object):
 
     def pyObj(self, pyobj):
         """Get program object for a Python object.
-        
+
         Args:
             pyobj: Python object to get program object for
-            
+
         Returns:
             program.AbstractObject: Program object representation
         """
@@ -93,10 +93,10 @@ class IPAnalysis(object):
 
     def pyObjInst(self, pycls):
         """Get abstract instance for a Python class.
-        
+
         Args:
             pycls: Python class to get instance for
-            
+
         Returns:
             program.AbstractObject: Abstract instance object
         """
@@ -106,13 +106,13 @@ class IPAnalysis(object):
 
     def objectName(self, xtype, qualifier=qualifiers.HZ):
         """Get or create an ObjectName for an extended type.
-        
+
         ObjectNames are canonicalized by (xtype, qualifier) pair.
-        
+
         Args:
             xtype: ExtendedType from store graph
             qualifier: Qualifier (HZ, DN, UP, GLBL)
-            
+
         Returns:
             ObjectName: Canonical object name
         """
@@ -126,13 +126,13 @@ class IPAnalysis(object):
 
     def getContext(self, sig):
         """Get or create an analysis context for a signature.
-        
+
         Contexts are canonicalized by signature. If context doesn't exist,
         creates it and extracts constraints from the code.
-        
+
         Args:
             sig: CPAContextSignature for the function
-            
+
         Returns:
             Context: Analysis context for the signature
         """
@@ -148,13 +148,13 @@ class IPAnalysis(object):
 
     def getCode(self, obj):
         """Get code object for a function object.
-        
+
         Retrieves and processes code for a function, converting calls
         and tracking live code.
-        
+
         Args:
             obj: ObjectName representing a function
-            
+
         Returns:
             program.Code: Code object for the function
         """
@@ -180,7 +180,7 @@ class IPAnalysis(object):
 
     def dirtySlot(self, slot):
         """Mark a constraint node as dirty (needs reprocessing).
-        
+
         Args:
             slot: ConstraintNode to mark dirty
         """
@@ -188,7 +188,7 @@ class IPAnalysis(object):
 
     def dirtyConstraints(self):
         """Check if there are dirty constraints to process.
-        
+
         Returns:
             bool: True if there are dirty slots
         """
@@ -196,10 +196,10 @@ class IPAnalysis(object):
 
     def updateCallGraph(self):
         """Update the call graph by resolving dirty calls.
-        
+
         Processes dirty calls, direct calls, and flat calls to update
         the inter-procedural call graph.
-        
+
         Returns:
             bool: True if call graph changed
         """
@@ -216,7 +216,7 @@ class IPAnalysis(object):
 
     def updateConstraints(self):
         """Propagate constraints through the constraint graph.
-        
+
         Processes all dirty slots by propagating their value changes
         to dependent constraints.
         """
@@ -227,7 +227,7 @@ class IPAnalysis(object):
 
     def topDown(self):
         """Perform top-down analysis pass.
-        
+
         Top-down analysis propagates information from callers to callees.
         Iterates until fixed point (no more changes).
         """
@@ -241,10 +241,10 @@ class IPAnalysis(object):
 
     def propagateCriticals(self, context):
         """Propagate critical values in a context.
-        
+
         Critical values are values that must be tracked precisely
         (e.g., for escape analysis).
-        
+
         Args:
             context: Context to propagate criticals in
         """
@@ -254,14 +254,14 @@ class IPAnalysis(object):
 
     def contextBottomUp(self, context):
         """Process a context in bottom-up order.
-        
+
         Bottom-up analysis processes callees before callers, allowing
         summaries to be computed and propagated upward. Uses DFS to
         process contexts in reverse topological order.
-        
+
         Args:
             context: Context to process
-            
+
         Raises:
             AssertionError: If recursive cycle detected
         """
@@ -291,7 +291,7 @@ class IPAnalysis(object):
 
     def bottomUp(self):
         """Perform bottom-up analysis pass.
-        
+
         Bottom-up analysis propagates information from callees to callers.
         Processes contexts in reverse topological order, computing and
         applying summaries.

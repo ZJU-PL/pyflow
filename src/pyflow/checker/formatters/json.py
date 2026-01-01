@@ -95,9 +95,7 @@ def report(manager, fileobj, sev_level, conf_level, lines=-1):
     for fname, reason in manager.get_skipped():
         machine_output["errors"].append({"filename": fname, "reason": reason})
 
-    results = manager.get_issue_list(
-        sev_level=sev_level, conf_level=conf_level
-    )
+    results = manager.get_issue_list(sev_level=sev_level, conf_level=conf_level)
 
     baseline = not isinstance(results, list)
 
@@ -105,36 +103,32 @@ def report(manager, fileobj, sev_level, conf_level, lines=-1):
         collector = []
         for r in results:
             d = r.as_dict(max_lines=lines)
-            d["more_info"] = "https://pyflow.readthedocs.io/"  # TODO: Update with actual docs URL
+            d["more_info"] = (
+                "https://pyflow.readthedocs.io/"  # TODO: Update with actual docs URL
+            )
             if len(results[r]) > 1:
-                d["candidates"] = [
-                    c.as_dict(max_lines=lines) for c in results[r]
-                ]
+                d["candidates"] = [c.as_dict(max_lines=lines) for c in results[r]]
             collector.append(d)
 
     else:
         collector = [r.as_dict(max_lines=lines) for r in results]
         for elem in collector:
-            elem["more_info"] = "https://pyflow.readthedocs.io/"  # TODO: Update with actual docs URL
+            elem["more_info"] = (
+                "https://pyflow.readthedocs.io/"  # TODO: Update with actual docs URL
+            )
 
     itemgetter = operator.itemgetter
     if manager.agg_type == "vuln":
-        machine_output["results"] = sorted(
-            collector, key=itemgetter("test_name")
-        )
+        machine_output["results"] = sorted(collector, key=itemgetter("test_name"))
     else:
-        machine_output["results"] = sorted(
-            collector, key=itemgetter("filename")
-        )
+        machine_output["results"] = sorted(collector, key=itemgetter("filename"))
 
     machine_output["metrics"] = manager.metrics.data
 
     # timezone agnostic format
     TS_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 
-    time_string = datetime.datetime.now(datetime.timezone.utc).strftime(
-        TS_FORMAT
-    )
+    time_string = datetime.datetime.now(datetime.timezone.utc).strftime(TS_FORMAT)
     machine_output["generated_at"] = time_string
 
     result = json.dumps(
@@ -144,5 +138,5 @@ def report(manager, fileobj, sev_level, conf_level, lines=-1):
     with fileobj:
         fileobj.write(result)
 
-    if hasattr(fileobj, 'name') and fileobj.name != sys.stdout.name:
+    if hasattr(fileobj, "name") and fileobj.name != sys.stdout.name:
         LOG.info("JSON output written to file: %s", fileobj.name)

@@ -447,8 +447,7 @@ def graph_from_adjacency_matrix(matrix, node_prefix="", directed=False):
 
         for e in r:
             if e:
-                graph.add_edge(
-                    Edge(node_prefix + node_orig, node_prefix + node_dest))
+                graph.add_edge(Edge(node_prefix + node_orig, node_prefix + node_dest))
             node_dest += 1
         node_orig += 1
 
@@ -482,8 +481,7 @@ def graph_from_incidence_matrix(matrix, node_prefix="", directed=False):
             nodes.sort()
 
         if len(nodes) == 2:
-            graph.add_edge(
-                Edge(node_prefix + abs(nodes[0]), node_prefix + nodes[1]))
+            graph.add_edge(Edge(node_prefix + abs(nodes[0]), node_prefix + nodes[1]))
 
     if not directed:
         graph.set_simplify(True)
@@ -626,8 +624,7 @@ def find_graphviz():
             # Note, we could also use the win32api to get this
             # information, but win32api may not be installed.
 
-            path = os.path.join(
-                os.environ["PROGRAMFILES"], "ATT", "GraphViz", "bin")
+            path = os.path.join(os.environ["PROGRAMFILES"], "ATT", "GraphViz", "bin")
 
         else:
 
@@ -769,8 +766,7 @@ class Common(object):
             #
             self.__setattr__(
                 "set_" + attr,
-                lambda x, a=attr: self.obj_dict["attributes"].__setitem__(
-                    a, x),
+                lambda x, a=attr: self.obj_dict["attributes"].__setitem__(a, x),
             )
 
             # Generate all the Getter methods.
@@ -1007,7 +1003,7 @@ class Edge(Common, object):
 
     def __hash__(self):
         """Hash method for Edge objects.
-        
+
         This method makes Edge objects hashable so they can be used in sets.
         The hash is based on the source and destination nodes, which is
         consistent with the __eq__ method.
@@ -1050,7 +1046,7 @@ class Edge(Common, object):
         if node_port_idx > 0:
 
             a = node_str[:node_port_idx]
-            b = node_str[node_port_idx + 1:]
+            b = node_str[node_port_idx + 1 :]
 
             node = quote_if_necessary(a)
 
@@ -1316,16 +1312,14 @@ class Graph(Common, object):
 
         if not node:
 
-            self.obj_dict["nodes"][graph_node.get_name()] = [
-                graph_node.obj_dict]
+            self.obj_dict["nodes"][graph_node.get_name()] = [graph_node.obj_dict]
 
             # self.node_dict[graph_node.get_name()] = graph_node.attributes
             graph_node.set_parent_graph(self.get_parent_graph())
 
         else:
 
-            self.obj_dict["nodes"][graph_node.get_name()].append(
-                graph_node.obj_dict)
+            self.obj_dict["nodes"][graph_node.get_name()].append(graph_node.obj_dict)
 
         graph_node.set_sequence(self.get_next_sequence_number())
 
@@ -1346,8 +1340,7 @@ class Graph(Common, object):
         if name in self.obj_dict["nodes"]:
 
             match.extend(
-                [Node(obj_dict=obj_dict)
-                 for obj_dict in self.obj_dict["nodes"][name]]
+                [Node(obj_dict=obj_dict) for obj_dict in self.obj_dict["nodes"][name]]
             )
 
         if len(match) == 1:
@@ -1426,8 +1419,7 @@ class Graph(Common, object):
 
             for edge_obj_dict in edges_obj_dict:
                 match.append(
-                    Edge(edge_points[0], edge_points[1],
-                         obj_dict=edge_obj_dict)
+                    Edge(edge_points[0], edge_points[1], obj_dict=edge_obj_dict)
                 )
 
         if len(match) == 1:
@@ -1460,8 +1452,7 @@ class Graph(Common, object):
         """
 
         if not isinstance(sgraph, Subgraph) and not isinstance(sgraph, Cluster):
-            raise TypeError(
-                "add_subgraph() received a non subgraph class object")
+            raise TypeError("add_subgraph() received a non subgraph class object")
 
         if sgraph.get_name() in self.obj_dict["subgraphs"]:
 
@@ -1515,8 +1506,7 @@ class Graph(Common, object):
         sgraph_objs = list()
 
         for sgraph, obj_dict_list in self.obj_dict["subgraphs"].items():
-            sgraph_objs.extend([Subgraph(obj_dict=obj_d)
-                               for obj_d in obj_dict_list])
+            sgraph_objs.extend([Subgraph(obj_dict=obj_d) for obj_d in obj_dict_list])
 
         return sgraph_objs
 
@@ -1553,8 +1543,7 @@ class Graph(Common, object):
         if self.obj_dict["name"] == "":
             graph.append("{\n")
         else:
-            graph.append("%s %s {\n" %
-                         (self.obj_dict["type"], self.obj_dict["name"]))
+            graph.append("%s %s {\n" % (self.obj_dict["type"], self.obj_dict["name"]))
 
         for attr in self.obj_dict["attributes"].keys():
 
@@ -1574,8 +1563,7 @@ class Graph(Common, object):
             edge_obj_dicts.extend(e)
 
         if edge_obj_dicts:
-            edge_src_set, edge_dst_set = zip(
-                *[obj["points"] for obj in edge_obj_dicts])
+            edge_src_set, edge_dst_set = zip(*[obj["points"] for obj in edge_obj_dicts])
             edge_src_set, edge_dst_set = set(edge_src_set), set(edge_dst_set)
         else:
             edge_src_set, edge_dst_set = set(), set()
@@ -1795,8 +1783,7 @@ class Dot(Graph):
         for frmt in self.formats:
             self.__setattr__(
                 "create_" + frmt,
-                lambda f=frmt, prog=self.prog: self.create(
-                    format=f, prog=prog),
+                lambda f=frmt, prog=self.prog: self.create(format=f, prog=prog),
             )
             f = self.__dict__["create_" + frmt]
             f.__doc__ = """Refer to the docstring accompanying the 'create' method for more information."""
@@ -1927,8 +1914,7 @@ class Dot(Graph):
                 raise InvocationException("GraphViz's executables not found")
 
         if prog not in self.progs:
-            raise InvocationException(
-                'GraphViz\'s executable "%s" not found' % prog)
+            raise InvocationException('GraphViz\'s executable "%s" not found' % prog)
 
         if not os.path.exists(self.progs[prog]) or not os.path.isfile(self.progs[prog]):
             raise InvocationException(
@@ -1994,10 +1980,10 @@ class Dot(Graph):
         if status != 0:
             raise InvocationException(
                 "Program terminated with status: %d. stderr follows: %s"
-                % (status, stderr_output.decode('utf-8') if stderr_output else '')
+                % (status, stderr_output.decode("utf-8") if stderr_output else "")
             )
         elif stderr_output:
-            print(stderr_output.decode('utf-8'))
+            print(stderr_output.decode("utf-8"))
 
         # For each of the image files...
         #

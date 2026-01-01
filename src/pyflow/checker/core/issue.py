@@ -23,21 +23,22 @@ import linecache
 class Cwe:
     """
     Common Weakness Enumeration (CWE) identifier.
-    
+
     CWE is a community-developed list of software and hardware weakness types.
     Each CWE ID represents a specific type of security weakness. This class
     provides CWE constants and utilities for generating CWE links.
-    
+
     **CWE Categories:**
     - Input Validation (CWE-20, CWE-22)
     - Injection (CWE-78, CWE-79, CWE-89, CWE-94)
     - Cryptography (CWE-259, CWE-295, CWE-326, CWE-327)
     - Access Control (CWE-284, CWE-732)
     - And many more...
-    
+
     Attributes:
         id: CWE identifier (0 = NOTSET)
     """
+
     NOTSET = 0
     IMPROPER_INPUT_VALIDATION = 20
     PATH_TRAVERSAL = 22
@@ -68,7 +69,7 @@ class Cwe:
     def __init__(self, id=NOTSET):
         """
         Initialize a CWE identifier.
-        
+
         Args:
             id: CWE ID (default: NOTSET = 0)
         """
@@ -77,7 +78,7 @@ class Cwe:
     def link(self):
         """
         Get the MITRE CWE URL for this CWE ID.
-        
+
         Returns:
             URL string, or empty string if NOTSET
         """
@@ -90,7 +91,7 @@ class Cwe:
     def as_dict(self):
         """
         Convert to dictionary for JSON output.
-        
+
         Returns:
             Dictionary with id and link, or empty dict if NOTSET
         """
@@ -112,7 +113,7 @@ class Cwe:
 class Issue:
     """
     Represents a security issue found in code.
-    
+
     An Issue contains all information about a security vulnerability or
     weakness detected during code analysis, including:
     - Severity and confidence levels
@@ -120,19 +121,19 @@ class Issue:
     - Location information (file, line, column)
     - Test information (which test found it)
     - Issue description
-    
+
     **Severity Levels:**
     - HIGH: Critical security issues
     - MEDIUM: Significant security concerns
     - LOW: Minor security issues
     - UNDEFINED: Unspecified severity
-    
+
     **Confidence Levels:**
     - HIGH: Very confident the issue is real
     - MEDIUM: Moderately confident
     - LOW: Low confidence (may be false positive)
     - UNDEFINED: Unspecified confidence
-    
+
     Attributes:
         severity: Severity level (HIGH, MEDIUM, LOW, UNDEFINED)
         cwe: CWE identifier object
@@ -148,11 +149,22 @@ class Issue:
         end_col_offset: Column offset where issue ends
         linerange: Range of lines affected
     """
-    def __init__(self, severity, cwe=0, confidence="UNDEFINED", text="", ident=None, 
-                 lineno=None, test_id="", col_offset=-1, end_col_offset=0):
+
+    def __init__(
+        self,
+        severity,
+        cwe=0,
+        confidence="UNDEFINED",
+        text="",
+        ident=None,
+        lineno=None,
+        test_id="",
+        col_offset=-1,
+        end_col_offset=0,
+    ):
         """
         Initialize a security issue.
-        
+
         Args:
             severity: Severity level (HIGH, MEDIUM, LOW, UNDEFINED)
             cwe: CWE ID (default: 0 = NOTSET)
@@ -179,13 +191,33 @@ class Issue:
         self.linerange = []
 
     def __str__(self):
-        return ("Issue: '%s' from %s:%s: CWE: %s, Severity: %s Confidence: %s at %s:%i:%i") % (
-            self.text, self.test_id, (self.ident or self.test), str(self.cwe),
-            self.severity, self.confidence, self.fname, self.lineno, self.col_offset)
+        return (
+            "Issue: '%s' from %s:%s: CWE: %s, Severity: %s Confidence: %s at %s:%i:%i"
+        ) % (
+            self.text,
+            self.test_id,
+            (self.ident or self.test),
+            str(self.cwe),
+            self.severity,
+            self.confidence,
+            self.fname,
+            self.lineno,
+            self.col_offset,
+        )
 
     def __eq__(self, other):
-        match_fields = ["text", "severity", "cwe", "confidence", "fname", "test", "test_id"]
-        return all(getattr(self, field) == getattr(other, field) for field in match_fields)
+        match_fields = [
+            "text",
+            "severity",
+            "cwe",
+            "confidence",
+            "fname",
+            "test",
+            "test_id",
+        ]
+        return all(
+            getattr(self, field) == getattr(other, field) for field in match_fields
+        )
 
     def __ne__(self, other):
         return not self.__eq__(other)
@@ -196,32 +228,34 @@ class Issue:
     def filter(self, severity, confidence):
         """
         Check if issue meets severity and confidence thresholds.
-        
+
         An issue passes the filter if its severity and confidence are
         both >= the specified thresholds (using RANKING ordering).
-        
+
         Args:
             severity: Minimum severity threshold
             confidence: Minimum confidence threshold
-            
+
         Returns:
             True if issue meets thresholds, False otherwise
         """
         from .constants import RANKING
-        return (RANKING.index(self.severity) >= RANKING.index(severity) and 
-                RANKING.index(self.confidence) >= RANKING.index(confidence))
+
+        return RANKING.index(self.severity) >= RANKING.index(
+            severity
+        ) and RANKING.index(self.confidence) >= RANKING.index(confidence)
 
     def get_code(self, max_lines=3, tabbed=False):
         """
         Get source code lines around the issue location.
-        
+
         Retrieves code from the file to provide context for the issue.
         Includes lines before and after the issue location.
-        
+
         Args:
             max_lines: Maximum number of lines to include
             tabbed: Whether to use tab-separated format (line number + code)
-            
+
         Returns:
             String containing formatted code lines
         """
@@ -238,7 +272,11 @@ class Issue:
         tmplt = "%i\t%s" if tabbed else "%i %s"
         lines = []
         for line in range(lmin, lmax):
-            text = self.fdata.readline() if self.fname == "<stdin>" else linecache.getline(self.fname, line)
+            text = (
+                self.fdata.readline()
+                if self.fname == "<stdin>"
+                else linecache.getline(self.fname, line)
+            )
             if not text:
                 break
             if isinstance(text, bytes):
@@ -249,20 +287,26 @@ class Issue:
     def as_dict(self, with_code=True, max_lines=3):
         """
         Convert the issue to a dictionary for JSON output.
-        
+
         Args:
             with_code: Whether to include source code in output
             max_lines: Maximum lines of code to include
-            
+
         Returns:
             Dictionary representation of the issue
         """
         out = {
-            "filename": self.fname, "test_name": self.test, "test_id": self.test_id,
-            "issue_severity": self.severity, "issue_cwe": self.cwe.as_dict(),
-            "issue_confidence": self.confidence, "issue_text": self.text,
-            "line_number": self.lineno, "line_range": self.linerange,
-            "col_offset": self.col_offset, "end_col_offset": self.end_col_offset,
+            "filename": self.fname,
+            "test_name": self.test,
+            "test_id": self.test_id,
+            "issue_severity": self.severity,
+            "issue_cwe": self.cwe.as_dict(),
+            "issue_confidence": self.confidence,
+            "issue_text": self.text,
+            "line_number": self.lineno,
+            "line_range": self.linerange,
+            "col_offset": self.col_offset,
+            "end_col_offset": self.end_col_offset,
         }
         if with_code:
             out["code"] = self.get_code(max_lines=max_lines)

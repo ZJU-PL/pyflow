@@ -24,10 +24,11 @@ from pyflow.analysis.astcollector import getOps
 
 class CodeInliningAnalysis(TypeDispatcher):
     """Determines the technical feasibility of inlining functions.
-    
+
     Analyzes functions to check if they can be safely inlined, considering
     factors like control flow, variable arguments, and complexity.
     """
+
     def __init__(self):
         self.canInline = {}
         self.invokeCount = {}
@@ -138,13 +139,14 @@ class CodeInliningAnalysis(TypeDispatcher):
 
 class OpInliningTransform(TypeDispatcher):
     """Transforms code for inlining at a specific call site.
-    
+
     Emulates calling convention assignments by cloning the code and translating
     the inlined contexts. Handles argument passing and return value handling.
-    
+
     Args:
         analysis: CodeInliningAnalysis instance with feasibility information
     """
+
     def __init__(self, analysis):
         self.analysis = analysis
 
@@ -243,17 +245,18 @@ class OpInliningTransform(TypeDispatcher):
 
 class CodeInliningTransform(TypeDispatcher):
     """Performs code inlining transformation.
-    
+
     Performs depth-first traversal of call graph, inlining code in reverse
     postorder to handle dependencies correctly. Only inlines functions that
     meet size and call frequency criteria.
-    
+
     Args:
         analysis: CodeInliningAnalysis instance
         compiler: Compiler context
         prgm: Program being optimized
         intrinsics: Intrinsic rewriter (for future use)
     """
+
     def __init__(self, analysis, compiler, prgm, intrinsics):
         self.analysis = analysis
         self.compiler = compiler
@@ -459,21 +462,21 @@ class CodeInliningTransform(TypeDispatcher):
 def evaluate(compiler, prgm):
     """
     Main entry point for code inlining optimization.
-    
+
     Performs function inlining by replacing function calls with the
     function body at the call site. The optimization:
     1. Analyzes functions to determine inlinability
     2. Checks constraints (no returns in loops, no *args, etc.)
     3. Inlines small, frequently-called functions
     4. Processes in reverse postorder to handle dependencies
-    
+
     This is a whole-program optimization that requires call graph
     information to determine which functions can be inlined.
-    
+
     Args:
         compiler: Compiler instance
         prgm: Program to optimize
-        
+
     Note:
         Currently disabled in the optimization pipeline due to
         limitations with complex calling conventions.

@@ -1,4 +1,3 @@
-
 """
 ANTLR3 runtime package
 
@@ -125,7 +124,7 @@ bug in your grammar, it can only be detected at runtime.
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
 # THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-__version__ = '3.1b1'
+__version__ = "3.1b1"
 
 from .constants import *
 from .dfa import *

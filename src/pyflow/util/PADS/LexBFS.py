@@ -7,11 +7,10 @@ http://www.cs.colostate.edu/~rmm/lexbfs.ps
 D. Eppstein, November 2003.
 """
 
-
-
 from pyflow.util.PADS.PartitionRefinement import PartitionRefinement
 from pyflow.util.PADS.Sequence import Sequence
 from pyflow.util.PADS.Util import arbitrary_item
+
 
 def LexBFS(G):
     """Find lexicographic breadth-first-search traversal order of a graph.
@@ -29,5 +28,5 @@ def LexBFS(G):
         P.remove(v)
         if not set:
             S.remove(set)
-        for new,old in P.refine(G[v]):
-            S.insertBefore(old,new)
+        for new, old in P.refine(G[v]):
+            S.insertBefore(old, new)

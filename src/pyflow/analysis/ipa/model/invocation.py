@@ -13,14 +13,14 @@ import itertools
 
 class Invocation(object):
     """Represents an invocation from caller to callee context.
-    
+
     Invocations manage bidirectional value transfer:
     - Downward: Parameters from caller to callee
     - Upward: Returns from callee to caller
-    
+
     Objects are remapped between contexts (caller objects become
     callee objects with DN qualifier).
-    
+
     Attributes:
         src: Caller context
         op: AST operation (Call, DirectCall, etc.)
@@ -30,9 +30,10 @@ class Invocation(object):
         objReverse: Dictionary mapping callee objects to caller objects
         slotReverse: Dictionary mapping callee slots to caller slots
     """
+
     def __init__(self, src, op, dst):
         """Initialize an invocation.
-        
+
         Args:
             src: Caller context
             op: AST operation

@@ -24,13 +24,14 @@ import time
 
 class GetLocals(TypeDispatcher):
     """Collects local variables from AST nodes.
-    
+
     Traverses AST to find all Local nodes, collecting them into a set.
     Used to identify function-local variables for shape analysis.
-    
+
     Attributes:
         locals: Set of AST Local nodes found
     """
+
     def __init__(self):
         """Initialize local collector."""
         # Explicitly pass self to the base initializer
@@ -68,7 +69,7 @@ def getLocals(node):
 
 class ShapeConstraintBuilder(TypeDispatcher):
     """Builds shape analysis constraints from AST.
-    
+
     ShapeConstraintBuilder traverses Python AST and generates shape analysis
     constraints. It models:
     - Assignments: Assignment constraints
@@ -76,7 +77,7 @@ class ShapeConstraintBuilder(TypeDispatcher):
     - Control flow: Copy constraints for merging paths
     - Memory operations: Load/store constraints
     - Allocations: Allocation constraints
-    
+
     Attributes:
         sys: RegionBasedShapeAnalysis instance
         function: Current function being processed
@@ -98,9 +99,10 @@ class ShapeConstraintBuilder(TypeDispatcher):
         breaks: Stack of break points (for loops)
         continues: Stack of continue points (for loops)
     """
+
     def __init__(self, sys, invokeCallback=(lambda code: code)):
         """Initialize constraint builder.
-        
+
         Args:
             sys: RegionBasedShapeAnalysis instance
             invokeCallback: Callback function(code) for invocations
@@ -224,11 +226,11 @@ class ShapeConstraintBuilder(TypeDispatcher):
 
     def assign(self, source, destination):
         """Create an assignment constraint.
-        
+
         Generates an AssignmentConstraint for source -> destination.
         Intentionally avoids strong updates to maintain soundness
         (keeps alternate configurations for compound tests).
-        
+
         Args:
             source: Source expression
             destination: Destination expression
@@ -554,13 +556,13 @@ class ShapeConstraintBuilder(TypeDispatcher):
         self, callPoint, returnPoint, srcContext, callerargs, dstFunc, dstContext
     ):
         """Handle a function invocation.
-        
+
         Processes a function call by:
         1. Getting callee parameters
         2. Mapping caller arguments to callee parameters
         3. Creating split constraint (caller -> callee)
         4. Creating merge constraint (callee -> caller)
-        
+
         Args:
             callPoint: Program point before call
             returnPoint: Program point after call
@@ -605,7 +607,6 @@ class ShapeConstraintBuilder(TypeDispatcher):
             if hasattr(obj, "slots"):
                 for fieldName in obj.slots.keys():
                     fields.add(fieldName)
-
 
         self.forget(targetExpr)
 

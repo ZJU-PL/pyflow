@@ -17,27 +17,28 @@ import collections
 
 class ForwardDataflow(TypeDispatcher):
     """Constructs forward dataflow graphs from AST.
-    
+
     ForwardDataflow traverses Python AST and builds a forward dataflow
     graph representing control flow. The graph uses:
     - Symbolic nodes: For control structures (loops, conditionals)
     - Concrete nodes: For simple statements (assignments, etc.)
-    
+
     Attributes:
         next: Dictionary mapping nodes to list of successor nodes
         entry: Dictionary mapping AST nodes to entry graph nodes
         exit: Dictionary mapping AST nodes to exit graph nodes
         returnExit: Exit node for return statements
     """
+
     def makeSymbolic(self, node):
         """Create symbolic entry/exit nodes for a control structure.
-        
+
         Symbolic nodes are tuples (node, "entry") or (node, "exit")
         that represent control flow boundaries for complex structures.
-        
+
         Args:
             node: AST node to create symbolic nodes for
-            
+
         Returns:
             tuple: (entry node, exit node)
         """
@@ -51,13 +52,13 @@ class ForwardDataflow(TypeDispatcher):
 
     def makeConcrete(self, node):
         """Create concrete entry/exit nodes (same as node itself).
-        
+
         Concrete nodes use the AST node directly as both entry and exit.
         Used for simple statements that don't need symbolic boundaries.
-        
+
         Args:
             node: AST node to create concrete nodes for
-            
+
         Returns:
             tuple: (entry node, exit node) - both are the same node
         """
@@ -69,9 +70,9 @@ class ForwardDataflow(TypeDispatcher):
 
     def link(self, prev, next):
         """Link two AST nodes in the dataflow graph.
-        
+
         Creates an edge from prev's exit to next's entry.
-        
+
         Args:
             prev: Previous AST node
             next: Next AST node
@@ -80,7 +81,7 @@ class ForwardDataflow(TypeDispatcher):
 
     def _link(self, prev, next):
         """Internal method to link graph nodes.
-        
+
         Args:
             prev: Previous graph node
             next: Next graph node
@@ -187,13 +188,13 @@ class ForwardDataflow(TypeDispatcher):
 
     def processCode(self, code):
         """Process a code object and build its dataflow graph.
-        
+
         Traverses the AST of a code object and builds a forward dataflow
         graph representing control flow relationships.
-        
+
         Args:
             code: Code object to process
-            
+
         Returns:
             dict: Dictionary mapping nodes to list of successor nodes
         """

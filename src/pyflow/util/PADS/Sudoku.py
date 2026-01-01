@@ -14,7 +14,6 @@ resorting to brute force backtracking search.
 D. Eppstein, July 2005.
 """
 
-
 import random
 import sys
 from optparse import OptionParser
@@ -25,62 +24,68 @@ from pyflow.util.PADS.Wrap import wrap
 
 # sets.Set is deprecated in Python 3, use built-in set instead
 
-class BadSudoku(Exception): pass
-    # raised when we discover that a puzzle has no solutions
+
+class BadSudoku(Exception):
+    pass
+
+
+# raised when we discover that a puzzle has no solutions
 
 # ======================================================================
 #   Bitmaps and patterns
 # ======================================================================
 
-digits = range(1,10)
+digits = range(1, 10)
+
 
 class group:
     def __init__(self, i, j, x, y, name):
         mask = 0
-        h,k = [q for q in range(4) if q != i and q != j]
+        h, k = [q for q in range(4) if q != i and q != j]
         for w in range(3):
             for z in range(3):
-                mask |= 1 << (x*3**i + y*3**j + w*3**h + z*3**k)
+                mask |= 1 << (x * 3**i + y * 3**j + w * 3**h + z * 3**k)
         self.mask = mask
-        self.pos = [None]*9
-        self.name = "%s %d" % (name,x+3*y+1)
+        self.pos = [None] * 9
+        self.name = "%s %d" % (name, x + 3 * y + 1)
 
-cols = [group(0,1,x,y,"column") for x in range(3) for y in range(3)]
-rows = [group(2,3,x,y,"row") for x in range(3) for y in range(3)]
-sqrs = [group(1,3,x,y,"square") for x in range(3) for y in range(3)]
-groups = sqrs+rows+cols
 
-neighbors = [0]*81
+cols = [group(0, 1, x, y, "column") for x in range(3) for y in range(3)]
+rows = [group(2, 3, x, y, "row") for x in range(3) for y in range(3)]
+sqrs = [group(1, 3, x, y, "square") for x in range(3) for y in range(3)]
+groups = sqrs + rows + cols
+
+neighbors = [0] * 81
 for i in range(81):
-    b = 1<<i
+    b = 1 << i
     for g in groups:
         if g.mask & b:
-            neighbors[i] |= (g.mask &~ b)
+            neighbors[i] |= g.mask & ~b
 
 unmask = {}
 for i in range(81):
-    unmask[1<<i] = i
+    unmask[1 << i] = i
 
 alignments = {}
 for s in sqrs:
-    for g in rows+cols:
-        m = s.mask&g.mask
+    for g in rows + cols:
+        m = s.mask & g.mask
         if m:
-            alignments[m] = (s,g)
-            b1 = m &~ (m-1)
-            m &=~ b1
-            b2 = m &~ (m-1)
-            b3 = m &~ b2
-            alignments[b1|b2]=alignments[b1|b3]=alignments[b2|b3]=(s,g)
+            alignments[m] = (s, g)
+            b1 = m & ~(m - 1)
+            m &= ~b1
+            b2 = m & ~(m - 1)
+            b3 = m & ~b2
+            alignments[b1 | b2] = alignments[b1 | b3] = alignments[b2 | b3] = (s, g)
 
 triads = []
 for square in sqrs:
-    for group in rows+cols:
-        triads.append((square.mask & group.mask,square,group))
+    for group in rows + cols:
+        triads.append((square.mask & group.mask, square, group))
 
 # pairs of rows and columns that cross the same squares
 nearby = {}
-for g in rows+cols:
+for g in rows + cols:
     nearby[g] = []
 for r1 in rows:
     for s in sqrs:
@@ -98,48 +103,53 @@ for c1 in cols:
             break
 
 
-
 # ======================================================================
 #   Human-readable names for puzzle cells
 # ======================================================================
 
-cellnames = [None]*81
+cellnames = [None] * 81
 for row in range(9):
     for col in range(9):
-        cellnames[row*9+col] = ''.join(['R',str(row+1),'C',str(col+1)])
+        cellnames[row * 9 + col] = "".join(["R", str(row + 1), "C", str(col + 1)])
 
-def andlist(list,conjunction="and"):
+
+def andlist(list, conjunction="and"):
     """Turn list of strings into English text."""
     if len(list) == 0:
         return "(empty list!)"
     if len(list) == 1:
         return list[0]
     elif len(list) == 2:
-        return (' '+conjunction+' ').join(list)
+        return (" " + conjunction + " ").join(list)
     else:
-        return ', '.join(list[:-1]+[conjunction+' '+list[-1]])
+        return ", ".join(list[:-1] + [conjunction + " " + list[-1]])
 
-def namecells(mask,conjunction="and"):
+
+def namecells(mask, conjunction="and"):
     """English string describing a sequence of cells."""
     names = []
     while mask:
-        bit = mask &~ (mask - 1)
+        bit = mask & ~(mask - 1)
         names.append(cellnames[unmask[bit]])
-        mask &=~ bit
-    return andlist(names,conjunction)
+        mask &= ~bit
+    return andlist(names, conjunction)
+
 
 def pathname(cells):
-    return '-'.join([cellnames[c] for c in cells])
+    return "-".join([cellnames[c] for c in cells])
 
-def plural(howmany,objectname):
+
+def plural(howmany, objectname):
     if howmany == 1:
         return objectname
     else:
-        return "%d %ss" % (howmany,objectname)
+        return "%d %ss" % (howmany, objectname)
+
 
 # ======================================================================
 #   State for puzzle solver
 # ======================================================================
+
 
 class Sudoku:
     """
@@ -148,7 +158,7 @@ class Sudoku:
     separately from this class.
     """
 
-    def __init__(self,initial_placements = None):
+    def __init__(self, initial_placements=None):
         """
         Initialize a new Sudoku grid.
 
@@ -195,8 +205,8 @@ class Sudoku:
         - assume_unique should be set true to enable solution rules
           based on the assumption that there exists a unique solution
         """
-        self.contents = [0]*81
-        self.locations = [None]+[(1<<81)-1]*9
+        self.contents = [0] * 81
+        self.locations = [None] + [(1 << 81) - 1] * 9
         self.rules_used = set()
         self.progress = False
         self.pairs = None
@@ -212,9 +222,9 @@ class Sudoku:
                 try:
                     digit = int(item)
                 except TypeError:
-                    digit,cell = item
+                    digit, cell = item
                 if digit:
-                    self.place(digit,cell)
+                    self.place(digit, cell)
                     self.original_cells |= 1 << cell
                 cell += 1
 
@@ -232,7 +242,7 @@ class Sudoku:
         self.progress = True
         self.pairs = None
 
-    def log(self,items,explanation=None):
+    def log(self, items, explanation=None):
         """
         Send a message for verbose output.
         Items should be a string or list of strings in the message.
@@ -241,49 +251,65 @@ class Sudoku:
         """
         if not self.logstream:
             return
-        if isinstance(items,str):
+        if isinstance(items, str):
             items = [items]
         if explanation:
-            if isinstance(explanation,str) or isinstance(explanation,list):
+            if isinstance(explanation, str) or isinstance(explanation, list):
                 x = explanation
             else:
                 x = explanation()
-            if isinstance(x,str):
+            if isinstance(x, str):
                 x = [x]
         else:
             x = []
-        text = ' '.join([str(i) for i in items+x])
+        text = " ".join([str(i) for i in items + x])
         for line in wrap(text):
             print(line, file=self.logstream)
         print(file=self.logstream)
 
-    def place(self,digit,cell,explanation=None):
+    def place(self, digit, cell, explanation=None):
         """Change the puzzle by filling the given cell with the given digit."""
         if digit != int(digit) or not 1 <= digit <= 9:
-            raise ValueError("place(%d,%d): digit out of range" % (digit,cell))
+            raise ValueError("place(%d,%d): digit out of range" % (digit, cell))
         if self.contents[cell] == digit:
             return
         if self.contents[cell]:
-            self.log(["Unable to place",digit,"in",cellnames[cell],
-                      "as it already contains",str(self.contents[cell])+"."])
-            raise BadSudoku("place(%d,%d): cell already contains %d" %
-                            (digit,cell,self.contents[cell]))
-        if (1<<cell) & self.locations[digit] == 0:
-            self.log(["Unable to place",digit,"in",cellnames[cell],
-                      "as that digit is not available to be placed there."])
-            raise BadSudoku("place(%d,%d): location not available" %
-                            (digit,cell))
+            self.log(
+                [
+                    "Unable to place",
+                    digit,
+                    "in",
+                    cellnames[cell],
+                    "as it already contains",
+                    str(self.contents[cell]) + ".",
+                ]
+            )
+            raise BadSudoku(
+                "place(%d,%d): cell already contains %d"
+                % (digit, cell, self.contents[cell])
+            )
+        if (1 << cell) & self.locations[digit] == 0:
+            self.log(
+                [
+                    "Unable to place",
+                    digit,
+                    "in",
+                    cellnames[cell],
+                    "as that digit is not available to be placed there.",
+                ]
+            )
+            raise BadSudoku("place(%d,%d): location not available" % (digit, cell))
         self.contents[cell] = digit
         bit = 1 << cell
         for d in digits:
             if d != digit:
-                self.unplace(d,bit,explanation,False)
+                self.unplace(d, bit, explanation, False)
             else:
-                self.unplace(d,neighbors[cell],explanation,False)
+                self.unplace(d, neighbors[cell], explanation, False)
         self.mark_progress()
-        self.log(["Placing",digit,"in",cellnames[cell]+'.'],explanation)
+        self.log(["Placing", digit, "in", cellnames[cell] + "."], explanation)
 
-    def unplace(self,digit,mask,explanation=None,log=True):
+    def unplace(self, digit, mask, explanation=None, log=True):
         """
         Eliminate the masked positions as possible locations for digit.
         The log argument should be true for external callers, but false
@@ -294,24 +320,30 @@ class Sudoku:
             raise ValueError("unplace(%d): digit out of range" % digit)
         if self.locations[digit] & mask:
             if log and self.logstream:
-                items = ["Preventing",digit,"from being placed in",
-                         namecells(self.locations[digit] & mask,"or")+'.']
-                self.log(items,explanation)
-            self.locations[digit] &=~ mask
+                items = [
+                    "Preventing",
+                    digit,
+                    "from being placed in",
+                    namecells(self.locations[digit] & mask, "or") + ".",
+                ]
+                self.log(items, explanation)
+            self.locations[digit] &= ~mask
             self.mark_progress()
 
-    def choices(self,cell):
+    def choices(self, cell):
         """Which digits are still available to be placed in the cell?"""
-        bit = 1<<cell
+        bit = 1 << cell
         return [d for d in digits if self.locations[d] & bit]
 
     def complete(self):
         """True if all cells have been filled in."""
         return 0 not in self.contents
 
+
 # ======================================================================
 #   Rules for puzzle solver
 # ======================================================================
+
 
 def locate(grid):
     """
@@ -325,13 +357,16 @@ def locate(grid):
     for d in digits:
         for g in groups:
             dglocs = grid.locations[d] & g.mask
-            if dglocs & (dglocs-1) == 0:
+            if dglocs & (dglocs - 1) == 0:
                 if dglocs == 0:
-                    grid.log(["Unable to place",d,"anywhere in",g.name+"."])
-                    raise BadSudoku("No place for %d in %s" %(d,g.name))
-                grid.place(d,unmask[dglocs],
-                            ["It is the only cell in",g.name,
-                             "in which",d,"can be placed."])
+                    grid.log(["Unable to place", d, "anywhere in", g.name + "."])
+                    raise BadSudoku("No place for %d in %s" % (d, g.name))
+                grid.place(
+                    d,
+                    unmask[dglocs],
+                    ["It is the only cell in", g.name, "in which", d, "can be placed."],
+                )
+
 
 def eliminate(grid):
     """
@@ -344,11 +379,13 @@ def eliminate(grid):
         if not grid.contents[cell]:
             allowed = grid.choices(cell)
             if len(allowed) == 0:
-                grid.log(["Unable to place any digit in",cellnames[cell]+"."])
+                grid.log(["Unable to place any digit in", cellnames[cell] + "."])
                 raise BadSudoku("No digit for cell %d" % cell)
             if len(allowed) == 1:
-                grid.place(allowed[0],cell,
-                           "No other digit may be placed in that cell.")
+                grid.place(
+                    allowed[0], cell, "No other digit may be placed in that cell."
+                )
+
 
 def align(grid):
     """
@@ -365,36 +402,54 @@ def align(grid):
             a = grid.locations[d] & g.mask
             if a in alignments:
                 s = [x for x in alignments[a] if x != g][0]
+
                 def explain():
-                    un = grid.locations[d] & s.mask &~ a
+                    un = grid.locations[d] & s.mask & ~a
                     if un & (un - 1):
                         this = "These placements"
                     else:
                         this = "This placement"
-                    return [this, "would conflict with", namecells(a)+",",
-                            "which are the only cells in", g.name,
-                            "that can contain that digit."]
-                grid.unplace(d, s.mask &~ a, explain)
+                    return [
+                        this,
+                        "would conflict with",
+                        namecells(a) + ",",
+                        "which are the only cells in",
+                        g.name,
+                        "that can contain that digit.",
+                    ]
 
-enough_room = "To leave enough room for those digits, no other " \
-              "digits may be placed in those cells."
+                grid.unplace(d, s.mask & ~a, explain)
 
-def explain_pair(grid,digs,locs):
+
+enough_room = (
+    "To leave enough room for those digits, no other "
+    "digits may be placed in those cells."
+)
+
+
+def explain_pair(grid, digs, locs):
     """Concoct explanation for application of pair rule."""
-    d1,d2 = digs
-    g1 = [g for g in groups if
-          grid.locations[d1] & g.mask == grid.locations[d1] & locs]
-    g2 = [g for g in groups if
-          grid.locations[d2] & g.mask == grid.locations[d2] & locs]
+    d1, d2 = digs
+    g1 = [g for g in groups if grid.locations[d1] & g.mask == grid.locations[d1] & locs]
+    g2 = [g for g in groups if grid.locations[d2] & g.mask == grid.locations[d2] & locs]
     for g in g1:
         if g in g2:
-            ing = ["In", g.name+",", "digits", d1, "and", d2]
+            ing = ["In", g.name + ",", "digits", d1, "and", d2]
             break
     else:
         # unlikely to get here due to align rule applying before pair
-        ing = ["In",(g1 and g1[0].name or "no group")+",", "digit", str(d1)+",",
-               "and in",(g2 and g2[0].name or "no group")+",", "digit", str(d2)]
-    return ing+["may only be placed in",namecells(locs)+".", enough_room]
+        ing = [
+            "In",
+            (g1 and g1[0].name or "no group") + ",",
+            "digit",
+            str(d1) + ",",
+            "and in",
+            (g2 and g2[0].name or "no group") + ",",
+            "digit",
+            str(d2),
+        ]
+    return ing + ["may only be placed in", namecells(locs) + ".", enough_room]
+
 
 def pair(grid):
     """
@@ -409,13 +464,16 @@ def pair(grid):
             dglocs = grid.locations[d] & g.mask
             fewerbits = dglocs & (dglocs - 1)
             if fewerbits & (fewerbits - 1) == 0:
-                if d not in pairs.setdefault(dglocs,[d]):
+                if d not in pairs.setdefault(dglocs, [d]):
                     pairs[dglocs].append(d)
                     for e in digits:
                         if e not in pairs[dglocs]:
+
                             def explain():
-                                return explain_pair(grid,pairs[dglocs],dglocs)
+                                return explain_pair(grid, pairs[dglocs], dglocs)
+
                             grid.unplace(e, dglocs, explain)
+
 
 def triad(grid):
     """
@@ -427,27 +485,43 @@ def triad(grid):
     remove positions for those three forced digits outside the
     triple but within the row, column, or square containing it.
     """
-    for mask,sqr,grp in triads:
-        forces = [d for d in digits
-                  if (grid.locations[d]&sqr.mask == grid.locations[d]&mask)
-                  or (grid.locations[d]&grp.mask == grid.locations[d]&mask)]
+    for mask, sqr, grp in triads:
+        forces = [
+            d
+            for d in digits
+            if (grid.locations[d] & sqr.mask == grid.locations[d] & mask)
+            or (grid.locations[d] & grp.mask == grid.locations[d] & mask)
+        ]
         if len(forces) == 3:
-            outside = (sqr.mask | grp.mask) &~ mask
+            outside = (sqr.mask | grp.mask) & ~mask
             for d in digits:
+
                 def explain():
-                    ing = ["In", grp.name, "and", sqr.name+",",
-                           "digits %d, %d, and %d" % tuple(forces),
-                           "may only be placed in", namecells(mask)+"."]
+                    ing = [
+                        "In",
+                        grp.name,
+                        "and",
+                        sqr.name + ",",
+                        "digits %d, %d, and %d" % tuple(forces),
+                        "may only be placed in",
+                        namecells(mask) + ".",
+                    ]
                     if d not in forces:
-                        return ing+[enough_room]
-                    elif grid.locations[d]&sqr.mask == grid.locations[d]&mask:
+                        return ing + [enough_room]
+                    elif grid.locations[d] & sqr.mask == grid.locations[d] & mask:
                         og = grp.name
                     else:
                         og = sqr.name
-                    return ing+["Therefore,", d, "may not be placed",
-                                "in any other cell of", og]
+                    return ing + [
+                        "Therefore,",
+                        d,
+                        "may not be placed",
+                        "in any other cell of",
+                        og,
+                    ]
 
                 grid.unplace(d, d in forces and outside or mask, explain)
+
 
 def digit(grid):
     """
@@ -461,8 +535,7 @@ def digit(grid):
         graph = {}
         locs = grid.locations[d]
         for r in range(9):
-            graph[r] = [c for c in range(9)
-                        if rows[r].mask & cols[c].mask & locs]
+            graph[r] = [c for c in range(9) if rows[r].mask & cols[c].mask & locs]
         imp = imperfections(graph)
         mask = 0
         forced = []
@@ -474,6 +547,7 @@ def digit(grid):
         mask &= grid.locations[d]
         if not mask:
             continue
+
         def explain():
             expl = []
             for f in forced:
@@ -481,12 +555,25 @@ def digit(grid):
                 fr.sort()
                 fc = list(set([cols[c].name for r in f for c in f[r]]))
                 fc.sort()
-                expl += ["In", andlist(fr)+", digit", d,
-                         "can only be placed in", andlist(fc,"or")+"."]
-                return expl + ["Placing",d,"in",namecells(mask,"or"),
-                               "would leave too few columns for", d,
-                               "to be placed in all of these rows."]
-        grid.unplace(d,mask,explain)
+                expl += [
+                    "In",
+                    andlist(fr) + ", digit",
+                    d,
+                    "can only be placed in",
+                    andlist(fc, "or") + ".",
+                ]
+                return expl + [
+                    "Placing",
+                    d,
+                    "in",
+                    namecells(mask, "or"),
+                    "would leave too few columns for",
+                    d,
+                    "to be placed in all of these rows.",
+                ]
+
+        grid.unplace(d, mask, explain)
+
 
 def rectangles():
     """Generate pairs of rows and columns that form two-square rectangles."""
@@ -496,11 +583,12 @@ def rectangles():
                 for c1 in range(9):
                     for c2 in range(c1):
                         if cols[c1] not in nearby[cols[c2]]:
-                            yield r1,r2,cols[c2],cols[c1]
+                            yield r1, r2, cols[c2], cols[c1]
             elif r1.mask < r2.mask:
                 for c1 in cols:
                     for c2 in nearby[c1]:
-                        yield r1,r2,c1,c2
+                        yield r1, r2, c1, c2
+
 
 def rectangle(grid):
     """
@@ -515,7 +603,7 @@ def rectangle(grid):
     """
     if not grid.assume_unique:
         return
-    for r1,r2,c1,c2 in rectangles():
+    for r1, r2, c1, c2 in rectangles():
         mask = (r1.mask | r2.mask) & (c1.mask | c2.mask)
         if not (mask & grid.original_cells):
             # First rectangle test
@@ -529,17 +617,25 @@ def rectangle(grid):
                     multiply_placable.append(d)
                 else:
                     safe_corners |= dmask
-            if len(multiply_placable) == 2 and \
-                    safe_corners & (safe_corners-1) == 0:
+            if len(multiply_placable) == 2 and safe_corners & (safe_corners - 1) == 0:
                 for d in multiply_placable:
+
                     def explain():
-                        return ["This placement would create an ambiguous",
-                                "rectangle for digits",
-                                str(multiply_placable[0]),"and",
-                                str(multiply_placable[1]),"in",
-                                r1.name+",",r2.name+",",
-                                c1.name+",","and",c2.name+"."]
-                    grid.unplace(d,safe_corners,explain)
+                        return [
+                            "This placement would create an ambiguous",
+                            "rectangle for digits",
+                            str(multiply_placable[0]),
+                            "and",
+                            str(multiply_placable[1]),
+                            "in",
+                            r1.name + ",",
+                            r2.name + ",",
+                            c1.name + ",",
+                            "and",
+                            c2.name + ".",
+                        ]
+
+                    grid.unplace(d, safe_corners, explain)
 
             # Second rectangle test
             # If only three digits can be placed in the rectangle,
@@ -553,73 +649,115 @@ def rectangle(grid):
                     for g in groups:
                         if grid.locations[d] & g.mask & a == a:
                             conflicts |= g.mask
+
                     def explain():
-                        un = conflicts &~ a
+                        un = conflicts & ~a
                         if un & (un - 1):
                             this = "These placements"
                         else:
                             this = "This placement"
-                        return ["The rectangle in", r1.name+",",
-                                r2.name+",", c1.name+", and", c2.name,
-                                "can only contain digits",
-                                andlist([str(dd) for dd in placable])+".",
-                                this, "would conflict with the placements",
-                                "of", str(d)+",", "creating an ambiguous",
-                                "rectangle on the remaining two digits."]
-                    grid.unplace(d, conflicts &~ a, explain)
+                        return [
+                            "The rectangle in",
+                            r1.name + ",",
+                            r2.name + ",",
+                            c1.name + ", and",
+                            c2.name,
+                            "can only contain digits",
+                            andlist([str(dd) for dd in placable]) + ".",
+                            this,
+                            "would conflict with the placements",
+                            "of",
+                            str(d) + ",",
+                            "creating an ambiguous",
+                            "rectangle on the remaining two digits.",
+                        ]
+
+                    grid.unplace(d, conflicts & ~a, explain)
 
             # Third rectangle test
             # If two cells are bivalued with digits x and y,
             # and the other two cells are bilocal with x,
             # then we can eliminate y from the two bilocal cells.
-            for x1,x2 in ((r1,r2), (r2,r1), (c1,c2), (c2,c1)):
+            for x1, x2 in ((r1, r2), (r2, r1), (c1, c2), (c2, c1)):
                 xd = [d for d in digits if grid.locations[d] & mask & x1.mask]
-                if len(xd) == 2:    # found locked pair on x1's corners
+                if len(xd) == 2:  # found locked pair on x1's corners
                     for d in xd:
                         x2d = grid.locations[d] & x2.mask
-                        if x2d & mask == x2d:   # and bilocal on x2
-                            dd = xd[0]+xd[1]-d  # other digit
+                        if x2d & mask == x2d:  # and bilocal on x2
+                            dd = xd[0] + xd[1] - d  # other digit
+
                             def explain():
-                                return ["The rectangle in", r1.name+",",
-                                    r2.name+",", c1.name+", and", c2.name,
+                                return [
+                                    "The rectangle in",
+                                    r1.name + ",",
+                                    r2.name + ",",
+                                    c1.name + ", and",
+                                    c2.name,
                                     "can only contain digits",
-                                    str(xd[0]),"and",str(xd[1]),"in",
-                                    x1.name+".","In addition,"
-                                    "the only cells in",x2.name,
-                                    "that can contain",str(d),
+                                    str(xd[0]),
+                                    "and",
+                                    str(xd[1]),
+                                    "in",
+                                    x1.name + ".",
+                                    "In addition," "the only cells in",
+                                    x2.name,
+                                    "that can contain",
+                                    str(d),
                                     "are in the rectangle.",
                                     "Therefore, to avoid creating an",
-                                    "ambiguous rectangle, the",str(dd),
-                                    "in",x2.name,"must be placed",
-                                    "outside the rectangle."]
-                            grid.unplace(dd,x2d,explain)
+                                    "ambiguous rectangle, the",
+                                    str(dd),
+                                    "in",
+                                    x2.name,
+                                    "must be placed",
+                                    "outside the rectangle.",
+                                ]
+
+                            grid.unplace(dd, x2d, explain)
 
             # Fourth rectangle test
             # If two cells are bivalued with digits x and y,
             # and a perpendicular side is bilocal with x,
             # then we can eliminate y from the remaining cell
-            for x1,perp in ((r1,(c1,c2)),(r2,(c1,c2)),
-                            (c1,(r1,r2)),(c2,(r1,r2))):
+            for x1, perp in (
+                (r1, (c1, c2)),
+                (r2, (c1, c2)),
+                (c1, (r1, r2)),
+                (c2, (r1, r2)),
+            ):
                 xd = [d for d in digits if grid.locations[d] & mask & x1.mask]
-                if len(xd) == 2:    # found locked pair on x1's corners
+                if len(xd) == 2:  # found locked pair on x1's corners
                     for x2 in perp:
                         for d in xd:
                             x2d = grid.locations[d] & x2.mask
-                            if x2d & mask == x2d:   # and bilocal on x2
-                                dd = xd[0]+xd[1]-d  # other digit
+                            if x2d & mask == x2d:  # and bilocal on x2
+                                dd = xd[0] + xd[1] - d  # other digit
+
                                 def explain():
-                                    return ["For the rectangle in", r1.name+",",
-                                        r2.name+",", c1.name+", and", c2.name,
+                                    return [
+                                        "For the rectangle in",
+                                        r1.name + ",",
+                                        r2.name + ",",
+                                        c1.name + ", and",
+                                        c2.name,
                                         "the two corners in",
-                                        x1.name,"must contain both digits",
-                                        str(xd[0]),"and",str(xd[1]),
+                                        x1.name,
+                                        "must contain both digits",
+                                        str(xd[0]),
+                                        "and",
+                                        str(xd[1]),
                                         "and the two corners in",
-                                        x2.name,"must contain one",str(d)+".",
+                                        x2.name,
+                                        "must contain one",
+                                        str(d) + ".",
                                         "Therefore, to avoid creating an",
                                         "ambiguous rectangle, the",
                                         "remaining corner must not contain",
-                                        str(dd)+"."]
-                                grid.unplace(dd,mask&~(x1.mask|x2.mask),explain)
+                                        str(dd) + ".",
+                                    ]
+
+                                grid.unplace(dd, mask & ~(x1.mask | x2.mask), explain)
+
 
 def trapezoid(grid):
     """
@@ -633,51 +771,59 @@ def trapezoid(grid):
     """
     if not grid.assume_unique:
         return
-    for r1,r2,c1,c2 in rectangles():
+    for r1, r2, c1, c2 in rectangles():
         corners = (r1.mask | r2.mask) & (c1.mask | c2.mask)
         if not (corners & grid.original_cells):
-            s1,s2 = [s for s in sqrs if s.mask & corners]
-            uncorner = (s1.mask | s2.mask) &~ corners
+            s1, s2 = [s for s in sqrs if s.mask & corners]
+            uncorner = (s1.mask | s2.mask) & ~corners
             candidates = {}
             universal = None
             for d in digits:
                 if not grid.locations[d] & uncorner:
-                    universal = d   # can form five cells w/any other digit
+                    universal = d  # can form five cells w/any other digit
             for d in digits:
                 locs_for_d = grid.locations[d] & uncorner
                 if locs_for_d and not (locs_for_d & (locs_for_d - 1)):
                     if universal != None or locs_for_d in candidates:
                         # found another digit sharing same five cells w/d
                         if universal != None:
-                            d1,d2 = universal,d
+                            d1, d2 = universal, d
                         else:
-                            d1,d2 = candidates[locs_for_d],d
-                        explanation = ["Digits",str(d1),"and",str(d2),
-                                       "must be placed in a trapezoid in",
-                                       s1.name,"and",s2.name+",",
-                                       "for if they were placed in a",
-                                       "rectangle, their locations",
-                                       "could be swapped, resulting",
-                                       "in multiple solutions",
-                                       "to the puzzle."]
+                            d1, d2 = candidates[locs_for_d], d
+                        explanation = [
+                            "Digits",
+                            str(d1),
+                            "and",
+                            str(d2),
+                            "must be placed in a trapezoid in",
+                            s1.name,
+                            "and",
+                            s2.name + ",",
+                            "for if they were placed in a",
+                            "rectangle, their locations",
+                            "could be swapped, resulting",
+                            "in multiple solutions",
+                            "to the puzzle.",
+                        ]
                         must = locs_for_d
                         mustnt = 0
                         if s2.mask & locs_for_d:
-                            s1,s2 = s2,s1   # swap so s1 contains extra cell
+                            s1, s2 = s2, s1  # swap so s1 contains extra cell
                         must |= corners & s2.mask
-                        for line in r1.mask,r2.mask,c1.mask,c2.mask:
+                        for line in r1.mask, r2.mask, c1.mask, c2.mask:
                             if line & locs_for_d and line & s2.mask:
                                 # most informative case: the extra cell
                                 # lies on a line through both squares.
-                                must |= corners & (s1.mask &~ line)
+                                must |= corners & (s1.mask & ~line)
                                 mustnt |= corners & (s1.mask & line)
                         for d3 in digits:
                             if d3 == d1 or d3 == d2:
-                                grid.unplace(d3,mustnt,explanation)
+                                grid.unplace(d3, mustnt, explanation)
                             else:
-                                grid.unplace(d3,must,explanation)
+                                grid.unplace(d3, must, explanation)
                     else:
                         candidates[locs_for_d] = d
+
 
 def subproblem(grid):
     """
@@ -692,9 +838,9 @@ def subproblem(grid):
             graph[d] = []
             locs = grid.locations[d] & g.mask
             while locs:
-                bit = locs &~ (locs-1)
+                bit = locs & ~(locs - 1)
                 graph[d].append(unmask[bit])
-                locs &=~ bit
+                locs &= ~bit
         imp = imperfections(graph)
         for d in imp.keys():
             if not imp[d]:
@@ -724,7 +870,7 @@ def subproblem(grid):
             mask = 0
             forces = []
             for cell in imp[d]:
-                bit = 1<<cell
+                bit = 1 << cell
                 if bit & grid.locations[d]:
                     mask |= bit
                     force = imp[d][cell]
@@ -739,36 +885,48 @@ def subproblem(grid):
                 expls = []
                 for force in forces:
                     if expls or len(force) > 1:
-                        that = "would leave too few remaining cells" \
-                               " to place those digits."
+                        that = (
+                            "would leave too few remaining cells"
+                            " to place those digits."
+                        )
                     if expls:
-                        expls[-1] += ','
+                        expls[-1] += ","
                         if force == forces[-1]:
-                            expls[-1] += ' and'
+                            expls[-1] += " and"
                     forcedigs = [str(x) for x in force]
                     forcedigs.sort()
                     forcemask = 0
                     for dig in force:
                         for cell in force[dig]:
-                            forcemask |= 1<<cell
-                    expls += [len(forcedigs) == 1 and "digit" or "digits",
-                              andlist(forcedigs), "can only be placed in",
-                              namecells(forcemask)]
-                expls[-1] += '.'
-                return ["In", g.name+","] + expls + ["Placing", d,
-                    "in", namecells(mask,"or"), that]
-            grid.unplace(d,mask,explain)
+                            forcemask |= 1 << cell
+                    expls += [
+                        len(forcedigs) == 1 and "digit" or "digits",
+                        andlist(forcedigs),
+                        "can only be placed in",
+                        namecells(forcemask),
+                    ]
+                expls[-1] += "."
+                return (
+                    ["In", g.name + ","]
+                    + expls
+                    + ["Placing", d, "in", namecells(mask, "or"), that]
+                )
+
+            grid.unplace(d, mask, explain)
             del imp[d]
         if grid.progress:
             return  # let changes propagate before trying more groups
 
-bilocal_explanation = \
-    "each two successive cells belong to a common row, column, or square," \
-    " and are the only two cells in that row, column, or square where one" \
+
+bilocal_explanation = (
+    "each two successive cells belong to a common row, column, or square,"
+    " and are the only two cells in that row, column, or square where one"
     " of the digits may be placed"
+)
 
 incyclic = "In the cyclic sequence of cells"
 inpath = "In the sequence of cells"
+
 
 def bilocal(grid):
     """
@@ -785,11 +943,11 @@ def bilocal(grid):
         return  # can only run after pair rule finds edges
 
     # Make labeled graph of pairs
-    graph = dict([(i,{}) for i in range(81)])
+    graph = dict([(i, {}) for i in range(81)])
     for pair in grid.pairs:
         digs = grid.pairs[pair]
-        bit = pair &~ (pair-1)
-        pair &=~ bit
+        bit = pair & ~(pair - 1)
+        pair &= ~bit
         if pair:
             v = unmask[bit]
             w = unmask[pair]
@@ -798,7 +956,7 @@ def bilocal(grid):
     # Apply repetitivity analysis to collect cyclic labels at each cell
     grid.bilocation = nrg = NonrepetitiveGraph(graph)
     forced = [set() for i in range(81)]
-    for v,w,L in nrg.cyclic():
+    for v, w, L in nrg.cyclic():
         forced[v].add(L)
         forced[w].add(L)
 
@@ -811,25 +969,38 @@ def bilocal(grid):
             # But for simplicity's sake we ignore that possibility;
             # it doesn't happen very often and when it does the repetitive
             # cycle rule will find it instead.
-            mask = 1<<cell
+            mask = 1 << cell
             for d in digits:
                 if d not in forced[cell]:
-                    def explain():
-                        forced1,forced2 = tuple(forced[cell])
-                        cycle = nrg.shortest(cell,forced1,cell,forced2)
-                        return [incyclic, pathname(cycle)+",",
-                                bilocal_explanation + ".",
-                                "This placement would prevent",
-                                forced1, "or", forced2,
-                                "from being placed in", cellnames[cell]+",",
-                                "making it impossible to place the cycle's",
-                                len(cycle)-1, "digits into the remaining",
-                                len(cycle)-2, "cells."]
-                    grid.unplace(d,mask,explain)
 
-bivalue_explanation = \
-    "each cell has two possible digits, each of which may also" \
+                    def explain():
+                        forced1, forced2 = tuple(forced[cell])
+                        cycle = nrg.shortest(cell, forced1, cell, forced2)
+                        return [
+                            incyclic,
+                            pathname(cycle) + ",",
+                            bilocal_explanation + ".",
+                            "This placement would prevent",
+                            forced1,
+                            "or",
+                            forced2,
+                            "from being placed in",
+                            cellnames[cell] + ",",
+                            "making it impossible to place the cycle's",
+                            len(cycle) - 1,
+                            "digits into the remaining",
+                            len(cycle) - 2,
+                            "cells.",
+                        ]
+
+                    grid.unplace(d, mask, explain)
+
+
+bivalue_explanation = (
+    "each cell has two possible digits, each of which may also"
     " be placed at one of the cell's two neighbors in the sequence"
+)
+
 
 def bivalue(grid):
     """
@@ -848,15 +1019,15 @@ def bivalue(grid):
     # Find and make bitmask per digit of bivalued cells
     graph = {}
     grid.otherbv = otherbv = {}
-    tvmask = [0]*10
+    tvmask = [0] * 10
     for c in range(81):
         ch = grid.choices(c)
         if len(ch) == 2:
             graph[c] = {}
-            tvmask[ch[0]] |= 1<<c
-            tvmask[ch[1]] |= 1<<c
-            otherbv[c,ch[0]] = ch[1]
-            otherbv[c,ch[1]] = ch[0]
+            tvmask[ch[0]] |= 1 << c
+            tvmask[ch[1]] |= 1 << c
+            otherbv[c, ch[0]] = ch[1]
+            otherbv[c, ch[1]] = ch[0]
     edgegroup = {}
 
     # Form edges and map back to their groups
@@ -865,35 +1036,46 @@ def bivalue(grid):
             mask = tvmask[d] & g.mask
             dgcells = []
             while mask:
-                bit = mask &~ (mask - 1)
+                bit = mask & ~(mask - 1)
                 dgcells.append(unmask[bit])
-                mask &=~ bit
+                mask &= ~bit
             for v in dgcells:
                 for w in dgcells:
                     if v != w:
-                        edgegroup.setdefault((v,w),[]).append(g)
-                        graph[v].setdefault(w,set()).add(d)
+                        edgegroup.setdefault((v, w), []).append(g)
+                        graph[v].setdefault(w, set()).add(d)
 
     # Apply repetitivity analysis to collect cyclic labels at each cell
     # and eliminate that label from other cells of the same group
     grid.bivalues = nrg = NonrepetitiveGraph(graph)
-    for v,w,digit in nrg.cyclic():
+    for v, w, digit in nrg.cyclic():
         mask = 0
-        for g in edgegroup[v,w]:
+        for g in edgegroup[v, w]:
             mask |= g.mask
-        mask &=~ (1 << v)
-        mask &=~ (1 << w)
+        mask &= ~(1 << v)
+        mask &= ~(1 << w)
+
         def explain():
-            cycle = [v] + nrg.shortest(w,grid.otherbv[w,digit],
-                                       v,grid.otherbv[v,digit])
-            return ["In the cyclic sequence of cells", pathname(cycle)+",",
-                    bivalue_explanation + ".",
-                    "This placement would conflict with placing", digit,
-                    "in", namecells((1<<v)|(1<<w))+",",
-                    "making it impossible to fill the cycle's",
-                    len(cycle)-1, "cells with the remaining",
-                    len(cycle)-2, "digits."]
-        grid.unplace(digit,mask,explain)
+            cycle = [v] + nrg.shortest(
+                w, grid.otherbv[w, digit], v, grid.otherbv[v, digit]
+            )
+            return [
+                "In the cyclic sequence of cells",
+                pathname(cycle) + ",",
+                bivalue_explanation + ".",
+                "This placement would conflict with placing",
+                digit,
+                "in",
+                namecells((1 << v) | (1 << w)) + ",",
+                "making it impossible to fill the cycle's",
+                len(cycle) - 1,
+                "cells with the remaining",
+                len(cycle) - 2,
+                "digits.",
+            ]
+
+        grid.unplace(digit, mask, explain)
+
 
 def repeat(grid):
     """
@@ -910,8 +1092,8 @@ def repeat(grid):
     for cell in range(81):
         if not grid.contents[cell]:
             for d in grid.choices(cell):
-                if (cell,d) in grid.bilocation.reachable(cell,d):
-                    cycle = grid.bilocation.shortest(cell,d,cell,d)
+                if (cell, d) in grid.bilocation.reachable(cell, d):
+                    cycle = grid.bilocation.shortest(cell, d, cell, d)
                     if cycle[1] == cycle[-2]:
                         # Degenerate repetitive cycle, look for a better one.
                         # It would be a correct decision to place d in cell:
@@ -920,45 +1102,74 @@ def repeat(grid):
                         # itself be a repetitive cycle. But the explanation
                         # will be clearer if we avoid using this cycle.
                         break
+
                     def explain():
-                        expl = [incyclic, pathname(cycle)+",",
-                                bilocal_explanation + ".",
-                                "If",d,"were not placed in",cellnames[cell]+",",
-                                "it would have to be placed in",
-                                cellnames[cycle[1]],"and",
-                                cellnames[cycle[-2]],"instead,",
-                                "making it impossible to place the"]
+                        expl = [
+                            incyclic,
+                            pathname(cycle) + ",",
+                            bilocal_explanation + ".",
+                            "If",
+                            d,
+                            "were not placed in",
+                            cellnames[cell] + ",",
+                            "it would have to be placed in",
+                            cellnames[cycle[1]],
+                            "and",
+                            cellnames[cycle[-2]],
+                            "instead,",
+                            "making it impossible to place the",
+                        ]
                         if len(cycle) == 4:
                             expl.append("remaining digit.")
                         else:
-                            expl += ["cycle's remaining",len(cycle)-3,"digits",
-                                     "in the remaining"]
+                            expl += [
+                                "cycle's remaining",
+                                len(cycle) - 3,
+                                "digits",
+                                "in the remaining",
+                            ]
                             if len(cycle) == 5:
                                 expl.append("cell.")
                             else:
-                                expl += [len(cycle)-4,"cells."]
+                                expl += [len(cycle) - 4, "cells."]
                         return expl
-                    grid.place(d,cell,explain)
+
+                    grid.place(d, cell, explain)
                     return  # allow changes to propagate w/simpler rules
-                elif (cell,d) in grid.bivalues.reachable(cell,d):
-                    cycle = grid.bivalues.shortest(cell,d,cell,d)
+                elif (cell, d) in grid.bivalues.reachable(cell, d):
+                    cycle = grid.bivalues.shortest(cell, d, cell, d)
                     if cycle[1] == cycle[-2]:
                         break
+
                     def explain():
-                        return [incyclic, pathname(cycle)+",",
-                                bivalue_explanation + ",",
-                                "except that", cellnames[cell],
-                                "shares", d, "as a possible value",
-                                "with both of its neighbors.",
-                                "Placing", d, "in", cellnames[cell],
-                                "would make it impossible",
-                                "to fill the cycle's remaining",
-                                len(cycle)-2, "cells with the remaining",
-                                len(cycle)-3, "digits, so only",
-                                grid.otherbv[cell,d], "can be placed in",
-                                cellnames[cell]+"."]
-                    grid.place(grid.otherbv[cell,d],cell,explain)
+                        return [
+                            incyclic,
+                            pathname(cycle) + ",",
+                            bivalue_explanation + ",",
+                            "except that",
+                            cellnames[cell],
+                            "shares",
+                            d,
+                            "as a possible value",
+                            "with both of its neighbors.",
+                            "Placing",
+                            d,
+                            "in",
+                            cellnames[cell],
+                            "would make it impossible",
+                            "to fill the cycle's remaining",
+                            len(cycle) - 2,
+                            "cells with the remaining",
+                            len(cycle) - 3,
+                            "digits, so only",
+                            grid.otherbv[cell, d],
+                            "can be placed in",
+                            cellnames[cell] + ".",
+                        ]
+
+                    grid.place(grid.otherbv[cell, d], cell, explain)
                     return  # allow changes to propagate w/simpler rules
+
 
 def path(grid):
     """
@@ -977,108 +1188,205 @@ def path(grid):
     for cell in range(81):
         if not grid.contents[cell]:
             for d in grid.choices(cell):
-                for neighbor,nd in grid.bilocation.reachable(cell,d):
+                for neighbor, nd in grid.bilocation.reachable(cell, d):
                     if nd == d:
-                        def explain():
-                            path = grid.bilocation.shortest(cell,d,neighbor,d)
-                            return [inpath, pathname(path)+",",
-                                    bilocal_explanation+".",
-                                    "This placement conflicts with placing",
-                                    d, "in", cellnames[cell], "or",
-                                    cellnames[neighbor]+",", "making it",
-                                    "impossible to place the sequence's",
-                                    len(path)-1, "digits in the remaining",
-                                    len(path)-2, "cells."]
-                        grid.unplace(d,neighbors[cell]&neighbors[neighbor],
-                                     explain)
-                if cell in grid.bivalues:
-                    for neighbor,nd in grid.bivalues.reachable(cell,
-                                                grid.otherbv[cell,d]):
-                        if d == grid.otherbv[neighbor,nd]:
-                            def explain():
-                                path = grid.bivalues.shortest(cell,
-                                        grid.otherbv[cell,d],neighbor,nd)
-                                return [inpath, pathname(path)+",",
-                                        bivalue_explanation+".",
-                                        "This placement conflicts with placing",
-                                        d, "in", cellnames[cell], "or",
-                                        cellnames[neighbor]+",", "making it",
-                                        "impossible to fill the sequence's",
-                                        len(path), "cells using only the",
-                                        len(path)-1,
-                                        "shared digits of the sequence."]
-                            grid.unplace(d,neighbors[cell]&neighbors[neighbor],
-                                         explain)
 
-def explain_conflict_path(grid,cell,d,why,reached,dd):
+                        def explain():
+                            path = grid.bilocation.shortest(cell, d, neighbor, d)
+                            return [
+                                inpath,
+                                pathname(path) + ",",
+                                bilocal_explanation + ".",
+                                "This placement conflicts with placing",
+                                d,
+                                "in",
+                                cellnames[cell],
+                                "or",
+                                cellnames[neighbor] + ",",
+                                "making it",
+                                "impossible to place the sequence's",
+                                len(path) - 1,
+                                "digits in the remaining",
+                                len(path) - 2,
+                                "cells.",
+                            ]
+
+                        grid.unplace(d, neighbors[cell] & neighbors[neighbor], explain)
+                if cell in grid.bivalues:
+                    for neighbor, nd in grid.bivalues.reachable(
+                        cell, grid.otherbv[cell, d]
+                    ):
+                        if d == grid.otherbv[neighbor, nd]:
+
+                            def explain():
+                                path = grid.bivalues.shortest(
+                                    cell, grid.otherbv[cell, d], neighbor, nd
+                                )
+                                return [
+                                    inpath,
+                                    pathname(path) + ",",
+                                    bivalue_explanation + ".",
+                                    "This placement conflicts with placing",
+                                    d,
+                                    "in",
+                                    cellnames[cell],
+                                    "or",
+                                    cellnames[neighbor] + ",",
+                                    "making it",
+                                    "impossible to fill the sequence's",
+                                    len(path),
+                                    "cells using only the",
+                                    len(path) - 1,
+                                    "shared digits of the sequence.",
+                                ]
+
+                            grid.unplace(
+                                d, neighbors[cell] & neighbors[neighbor], explain
+                            )
+
+
+def explain_conflict_path(grid, cell, d, why, reached, dd):
     """Explain why either cell,d or reached,dd must be placed."""
-    if why[reached,dd]:
-        path = grid.bilocation.shortest(cell,d,reached,dd)
+    if why[reached, dd]:
+        path = grid.bilocation.shortest(cell, d, reached, dd)
         if len(path) == 2:
-            mask = (1<<cell)|(1<<reached)
+            mask = (1 << cell) | (1 << reached)
             for g in groups:
                 if g.mask & mask == mask:
                     break
-            return [cellnames[cell],"and",cellnames[reached],
-                    "are the only cells in",g.name,
-                    "in which",d,"may be placed, so if",d,
-                    "were not placed in",cellnames[cell]+",",
-                    "it would have to be placed in",cellnames[reached]+"."]
-        return [inpath, pathname(path)+",", bilocal_explanation+".",
-                "If",d,"were not placed in",cellnames[cell]+",",
-                "then",dd,"would have to be placed in",cellnames[reached]+",",
-                "in order to make room for the remaining",
-                plural(len(path)-2,"digit"),"in the remaining",
-                plural(len(path)-2,"cell"),"of the sequence."]
-    path = grid.bivalues.shortest(cell,grid.otherbv[cell,d],
-                                 reached,grid.otherbv[reached,dd])
+            return [
+                cellnames[cell],
+                "and",
+                cellnames[reached],
+                "are the only cells in",
+                g.name,
+                "in which",
+                d,
+                "may be placed, so if",
+                d,
+                "were not placed in",
+                cellnames[cell] + ",",
+                "it would have to be placed in",
+                cellnames[reached] + ".",
+            ]
+        return [
+            inpath,
+            pathname(path) + ",",
+            bilocal_explanation + ".",
+            "If",
+            d,
+            "were not placed in",
+            cellnames[cell] + ",",
+            "then",
+            dd,
+            "would have to be placed in",
+            cellnames[reached] + ",",
+            "in order to make room for the remaining",
+            plural(len(path) - 2, "digit"),
+            "in the remaining",
+            plural(len(path) - 2, "cell"),
+            "of the sequence.",
+        ]
+    path = grid.bivalues.shortest(
+        cell, grid.otherbv[cell, d], reached, grid.otherbv[reached, dd]
+    )
     if len(path) == 2:
-        mask = (1<<cell)|(1<<reached)
-        return [cellnames[cell],"and",cellnames[reached],
-                "each have two possible values.",
-                "If",d,"were not placed in",cellnames[cell],
-                "it would have to contain",grid.otherbv[cell,d],
-                "instead, forcing",cellnames[reached],"to contain",str(dd)+"."]
-    return [inpath, pathname(path)+",", bivalue_explanation+".",
-            "If",d,"were not placed in",cellnames[cell]+",",
-            "then",dd,"would have to be placed in",cellnames[reached]+",",
-            "in order to make allow the remaining",plural(len(path)-1,"cell"),
-            "of the sequence to be filled by the remaining",
-            plural(len(path)-1,"digit")+"."]
+        mask = (1 << cell) | (1 << reached)
+        return [
+            cellnames[cell],
+            "and",
+            cellnames[reached],
+            "each have two possible values.",
+            "If",
+            d,
+            "were not placed in",
+            cellnames[cell],
+            "it would have to contain",
+            grid.otherbv[cell, d],
+            "instead, forcing",
+            cellnames[reached],
+            "to contain",
+            str(dd) + ".",
+        ]
+    return [
+        inpath,
+        pathname(path) + ",",
+        bivalue_explanation + ".",
+        "If",
+        d,
+        "were not placed in",
+        cellnames[cell] + ",",
+        "then",
+        dd,
+        "would have to be placed in",
+        cellnames[reached] + ",",
+        "in order to make allow the remaining",
+        plural(len(path) - 1, "cell"),
+        "of the sequence to be filled by the remaining",
+        plural(len(path) - 1, "digit") + ".",
+    ]
 
 
-def explain_conflict(grid,cell,d,why,reached,dd):
+def explain_conflict(grid, cell, d, why, reached, dd):
     """Concoct explanation for pair of conflicting paths, one to reached."""
-    for neighbor,ddd in why:
+    for neighbor, ddd in why:
         if ddd == dd:
-            if (1<<neighbor) & neighbors[reached]:
-                return explain_conflict_path(grid,cell,d,why,reached,dd) + \
-                       explain_conflict_path(grid,cell,d,why,neighbor,dd) + \
-                       [cellnames[reached],"and",cellnames[neighbor],
-                        "cannot both contain",str(dd)+",","so",cellnames[cell],
-                        "must contain",str(d)+"."]
-    return explain_conflict_path(grid,cell,d,why,reached,dd) + \
-        ["This conflicts with another path that has become lost."]
+            if (1 << neighbor) & neighbors[reached]:
+                return (
+                    explain_conflict_path(grid, cell, d, why, reached, dd)
+                    + explain_conflict_path(grid, cell, d, why, neighbor, dd)
+                    + [
+                        cellnames[reached],
+                        "and",
+                        cellnames[neighbor],
+                        "cannot both contain",
+                        str(dd) + ",",
+                        "so",
+                        cellnames[cell],
+                        "must contain",
+                        str(d) + ".",
+                    ]
+                )
+    return explain_conflict_path(grid, cell, d, why, reached, dd) + [
+        "This conflicts with another path that has become lost."
+    ]
 
-def explain_conflict_group(grid,cell,d,why,g,dd):
+
+def explain_conflict_group(grid, cell, d, why, g, dd):
     """Conflict explanation for set of conflicting paths that cover a group."""
     mask = g.mask & grid.locations[dd]
     conflicts = []
     confmask = 0
-    for reached,ddd in why:
+    for reached, ddd in why:
         if dd == ddd and neighbors[reached] & mask:
             conflicts.append(reached)
-            confmask |= 1<<reached
-            mask &=~ neighbors[reached]
+            confmask |= 1 << reached
+            mask &= ~neighbors[reached]
     conflicts.sort()
     expl = []
     for c in conflicts:
-        expl += explain_conflict_path(grid,cell,d,why,c,dd)
-    expl += ["In",g.name+",",namecells(g.mask&grid.locations[dd]),
-             "are the only cells in which",dd,"may be placed."]
-    return expl + ["Placing",dd,"in",namecells(confmask),
-                   "would prevent it from being placed anywhere in",g.name+",",
-                   "so",d,"must be placed in",cellnames[cell]+"."]
+        expl += explain_conflict_path(grid, cell, d, why, c, dd)
+    expl += [
+        "In",
+        g.name + ",",
+        namecells(g.mask & grid.locations[dd]),
+        "are the only cells in which",
+        dd,
+        "may be placed.",
+    ]
+    return expl + [
+        "Placing",
+        dd,
+        "in",
+        namecells(confmask),
+        "would prevent it from being placed anywhere in",
+        g.name + ",",
+        "so",
+        d,
+        "must be placed in",
+        cellnames[cell] + ".",
+    ]
+
 
 def conflict(grid):
     """
@@ -1099,114 +1407,134 @@ def conflict(grid):
     for cell in range(81):
         if not grid.contents[cell]:
             for d in grid.choices(cell):
-                conflicts = [0]*10
+                conflicts = [0] * 10
                 why = {}
-                for reached,dd in grid.bilocation.reachable(cell,d):
-                    why[reached,dd] = True
-                    if (1<<reached) & conflicts[dd]:
+                for reached, dd in grid.bilocation.reachable(cell, d):
+                    why[reached, dd] = True
+                    if (1 << reached) & conflicts[dd]:
+
                         def explain():
-                            return explain_conflict(grid,cell,d,why,reached,dd)
-                        grid.place(d,cell,explain)
+                            return explain_conflict(grid, cell, d, why, reached, dd)
+
+                        grid.place(d, cell, explain)
                         return  # allow changes to propagate
                     else:
                         conflicts[dd] |= neighbors[reached]
                 if cell in grid.bivalues:
-                    for reached,dd in grid.bivalues.reachable(cell,
-                                                grid.otherbv[cell,d]):
-                        other = grid.otherbv[reached,dd]
-                        why[reached,other] = False
-                        if (1<<reached) & conflicts[other]:
+                    for reached, dd in grid.bivalues.reachable(
+                        cell, grid.otherbv[cell, d]
+                    ):
+                        other = grid.otherbv[reached, dd]
+                        why[reached, other] = False
+                        if (1 << reached) & conflicts[other]:
+
                             def explain():
-                                return explain_conflict(grid,cell,d,
-                                                        why,reached,other)
-                            grid.place(d,cell,explain)
+                                return explain_conflict(
+                                    grid, cell, d, why, reached, other
+                                )
+
+                            grid.place(d, cell, explain)
                             return  # allow changes to propagate
                         else:
                             conflicts[other] |= neighbors[reached]
                 for g in groups:
                     for dd in digits:
-                        if grid.locations[dd] & g.mask &~ conflicts[dd] == 0:
+                        if grid.locations[dd] & g.mask & ~conflicts[dd] == 0:
+
                             def explain():
-                                return explain_conflict_group(grid,cell,d,
-                                                              why,g,dd)
-                            grid.place(d,cell,explain)
+                                return explain_conflict_group(grid, cell, d, why, g, dd)
+
+                            grid.place(d, cell, explain)
                             return  # allow changes to propagate
+
 
 # triples of name, rule, difficulty level
 rules = [
-    ("locate",locate,0),
-    ("eliminate",eliminate,1),
-    ("align",align,2),
-    ("pair",pair,2),
-    ("triad",triad,2),
-    ("trapezoid",trapezoid,2),
-    ("rectangle",rectangle,2),
-    ("subproblem",subproblem,3),
-    ("digit",digit,3),
-    ("bilocal",bilocal,3),
-    ("bivalue",bivalue,3),
-    ("repeat",repeat,4),
-    ("path",path,4),
-    ("conflict",conflict,4),
+    ("locate", locate, 0),
+    ("eliminate", eliminate, 1),
+    ("align", align, 2),
+    ("pair", pair, 2),
+    ("triad", triad, 2),
+    ("trapezoid", trapezoid, 2),
+    ("rectangle", rectangle, 2),
+    ("subproblem", subproblem, 3),
+    ("digit", digit, 3),
+    ("bilocal", bilocal, 3),
+    ("bivalue", bivalue, 3),
+    ("repeat", repeat, 4),
+    ("path", path, 4),
+    ("conflict", conflict, 4),
 ]
 
-def step(grid, quick_and_dirty = False):
+
+def step(grid, quick_and_dirty=False):
     """Try the rules, return True if one succeeds."""
     if grid.complete():
         return False
     grid.progress = False
     grid.steps += 1
-    grid.log(["Beginning solver iteration",str(grid.steps)+'.'])
-    for name,rule,level in rules:
+    grid.log(["Beginning solver iteration", str(grid.steps) + "."])
+    for name, rule, level in rules:
         if level <= 1 or not quick_and_dirty:
             rule(grid)
             if grid.progress:
                 grid.rules_used.add(name)
-                grid.log(["Ending solver iteration",grid.steps,
-                          "after successful application of the",
-                          name,"rule."])
+                grid.log(
+                    [
+                        "Ending solver iteration",
+                        grid.steps,
+                        "after successful application of the",
+                        name,
+                        "rule.",
+                    ]
+                )
                 return True
-    grid.log(["Ending solver iteration",grid.steps,
-              "with no additional progress."])
+    grid.log(["Ending solver iteration", grid.steps, "with no additional progress."])
     return False
+
 
 # ======================================================================
 #   Random permutation of puzzles
 # ======================================================================
 
-def block_permutation(preserve_symmetry = True):
+
+def block_permutation(preserve_symmetry=True):
     """Choose order to rearrange rows or columns of blocks."""
     if preserve_symmetry:
-        return random.choice([[0,1,2],[2,1,0]])
-    result = [0,1,2]
+        return random.choice([[0, 1, 2], [2, 1, 0]])
+    result = [0, 1, 2]
     random.shuffle(result)
     return result
 
-def permute1d(preserve_symmetry = True):
+
+def permute1d(preserve_symmetry=True):
     """Choose order to rearrange rows or columns of puzzle."""
     bp = block_permutation(preserve_symmetry)
-    ip = [block_permutation(False),block_permutation(preserve_symmetry)]
+    ip = [block_permutation(False), block_permutation(preserve_symmetry)]
     if preserve_symmetry:
-        ip.append([2-ip[0][2],2-ip[0][1],2-ip[0][0]])
+        ip.append([2 - ip[0][2], 2 - ip[0][1], 2 - ip[0][0]])
     else:
         ip.append(block_permutation(False))
-    return [bp[i]*3+ip[i][j] for i in [0,1,2] for j in [0,1,2]]
+    return [bp[i] * 3 + ip[i][j] for i in [0, 1, 2] for j in [0, 1, 2]]
 
-def permute(grid, preserve_symmetry = True):
+
+def permute(grid, preserve_symmetry=True):
     """Generate a randomly permuted version of the input puzzle."""
     digit_permutation = list(digits)
     random.shuffle(digit_permutation)
-    digit_permutation = [0]+digit_permutation
+    digit_permutation = [0] + digit_permutation
     row_permutation = permute1d(preserve_symmetry)
     col_permutation = permute1d(preserve_symmetry)
-    transpose = random.choice([[1,9],[9,1]])
-    contents = [None]*81
+    transpose = random.choice([[1, 9], [9, 1]])
+    contents = [None] * 81
     for row in range(9):
         for col in range(9):
-            contents[row_permutation[row]*transpose[0] +
-                     col_permutation[col]*transpose[1]] = \
-                digit_permutation[grid.contents[9*row+col]]
+            contents[
+                row_permutation[row] * transpose[0]
+                + col_permutation[col] * transpose[1]
+            ] = digit_permutation[grid.contents[9 * row + col]]
     return Sudoku(contents)
+
 
 # ======================================================================
 #   Output of puzzles
@@ -1215,32 +1543,35 @@ def permute(grid, preserve_symmetry = True):
 # Output functions should return True if it's ok to add difficulty/level,
 # false otherwise
 
+
 def text_format(grid):
     for row in digits:
         if row % 3 != 1:
-            print(('|' + ' '*11)*3+'|')
+            print(("|" + " " * 11) * 3 + "|")
         elif row == 1:
-            print(' ' + '-'*35 + ' ')
+            print(" " + "-" * 35 + " ")
         else:
-            print('|' + '-'*35 + '|')
+            print("|" + "-" * 35 + "|")
         for col in digits:
             if col % 3 == 1:
-                print('|', end=' ')
+                print("|", end=" ")
             else:
-                print(' ', end=' ')
-            print(grid.contents[(row-1)*9+(col-1)] or '.', end=' ')
-        print('|')
-    print(' ' + '-'*35 + ' ')
+                print(" ", end=" ")
+            print(grid.contents[(row - 1) * 9 + (col - 1)] or ".", end=" ")
+        print("|")
+    print(" " + "-" * 35 + " ")
     return True
+
 
 def numeric_format(grid):
     row = []
     for digit in grid:
         row.append(str(digit))
         if len(row) == 9:
-            print(''.join(row))
+            print("".join(row))
             row = []
     return True
+
 
 def html_format(grid):
     print("<table border=1>")
@@ -1251,50 +1582,61 @@ def html_format(grid):
             for c in range(3):
                 print("<tr>")
                 for d in range(3):
-                    row = 3*a+c
-                    col = 3*b+d
-                    cell = 9*row+col
+                    row = 3 * a + c
+                    col = 3 * b + d
+                    cell = 9 * row + col
                     if grid.contents[cell]:
-                        print('<td width=30 height=30 align=center valign=middle style="font-family:times,serif; font-size:16pt; text-align:center; color:black">%d</td>' % grid.contents[cell])
-#                        sty = '; color:black'
-#                        val = ' value="%d" readonly' % grid.contents[cell]
+                        print(
+                            '<td width=30 height=30 align=center valign=middle style="font-family:times,serif; font-size:16pt; text-align:center; color:black">%d</td>'
+                            % grid.contents[cell]
+                        )
+                    #                        sty = '; color:black'
+                    #                        val = ' value="%d" readonly' % grid.contents[cell]
                     else:
-                        print('<td width=30 height=30 align=center valign=middle><input style="font-family:times,serif; font-size:16pt; text-align:center; color:#555; margin:0pt; border-width:0" size=1 maxlength=1></td>')
-#                        sty = '; color:gray'
-#                        val = ''
-#                    print('<td width=30 height=30 align=center valign=middle><input style="font-size:16pt; text-align:center%s" size=1 maxlength=1%s></td>' % (sty,val))
+                        print(
+                            '<td width=30 height=30 align=center valign=middle><input style="font-family:times,serif; font-size:16pt; text-align:center; color:#555; margin:0pt; border-width:0" size=1 maxlength=1></td>'
+                        )
+                #                        sty = '; color:gray'
+                #                        val = ''
+                #                    print('<td width=30 height=30 align=center valign=middle><input style="font-size:16pt; text-align:center%s" size=1 maxlength=1%s></td>' % (sty,val))
                 print("</tr>")
             print("</table></td>")
         print("</tr>")
     print("</table>")
     return False
 
+
 def svg_format(grid):
-    print('''<?xml version="1.0" encoding="iso-8859-1"?>
+    print(
+        """<?xml version="1.0" encoding="iso-8859-1"?>
 <!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
  "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
-<svg xmlns="http://www.w3.org/2000/svg" version="1.1" width="274pt" height="274pt" viewBox="0 0 273 273">''')
+<svg xmlns="http://www.w3.org/2000/svg" version="1.1" width="274pt" height="274pt" viewBox="0 0 273 273">"""
+    )
     print('  <g fill="none" stroke="black" stroke-width="1.5">')
     print('    <rect x="2" y="2" width="270" height="270" />')
-    for i in [3,6]:
-        print('    <line x1="2" y1="%d" x2="272" y2="%d" />' % (30*i+2,30*i+2))
-        print('    <line x1="%d" y1="2" x2="%d" y2="272" />' % (30*i+2,30*i+2))
-    print('  </g>')
+    for i in [3, 6]:
+        print('    <line x1="2" y1="%d" x2="272" y2="%d" />' % (30 * i + 2, 30 * i + 2))
+        print('    <line x1="%d" y1="2" x2="%d" y2="272" />' % (30 * i + 2, 30 * i + 2))
+    print("  </g>")
     print('  <g fill="none" stroke="black" stroke-width="0.5">')
-    for i in [1,2,4,5,7,8]:
-        print('    <line x1="2" y1="%d" x2="272" y2="%d" />' % (30*i+2,30*i+2))
-        print('    <line x1="%d" y1="2" x2="%d" y2="272" />' % (30*i+2,30*i+2))
-    print('  </g>')
+    for i in [1, 2, 4, 5, 7, 8]:
+        print('    <line x1="2" y1="%d" x2="272" y2="%d" />' % (30 * i + 2, 30 * i + 2))
+        print('    <line x1="%d" y1="2" x2="%d" y2="272" />' % (30 * i + 2, 30 * i + 2))
+    print("  </g>")
     print('  <g font-family="Times" font-size="24" fill="black" text-anchor="middle">')
     for row in range(9):
         for col in range(9):
-            cell = row*9+col
+            cell = row * 9 + col
             if grid.contents[cell]:
-                print('    <text x="%d" y="%d">%d</text>' % \
-                    (30*col+17, 30*row+25, grid.contents[cell]))
-    print('  </g>')
-    print('</svg>')
+                print(
+                    '    <text x="%d" y="%d">%d</text>'
+                    % (30 * col + 17, 30 * row + 25, grid.contents[cell])
+                )
+    print("  </g>")
+    print("</svg>")
     return False
+
 
 output_formats = {
     "text": text_format,
@@ -1313,15 +1655,16 @@ output_formats = {
 #   Backtracking search for all solutions
 # ======================================================================
 
-def all_solutions(grid, fastrules = True):
+
+def all_solutions(grid, fastrules=True):
     """Generate sequence of completed Sudoku grids from initial puzzle."""
     while True:
         # first try the usual non-backtracking rules
         try:
-            while step(grid,fastrules): pass
+            while step(grid, fastrules):
+                pass
         except BadSudoku:
-            grid.log("A contradiction was found,"
-                     " so this branch has no solutions.")
+            grid.log("A contradiction was found," " so this branch has no solutions.")
             return  # no solutions
 
         # if they finished off the puzzle, there's only one solution
@@ -1333,29 +1676,46 @@ def all_solutions(grid, fastrules = True):
         # find a cell with few remaining possibilities
         def choices(c):
             ch = grid.choices(c)
-            if len(ch) < 2: return (10,0,0)
-            return (len(ch),c,ch[0])
-        L,c,d = min([choices(c) for c in range(81)])
+            if len(ch) < 2:
+                return (10, 0, 0)
+            return (len(ch), c, ch[0])
+
+        L, c, d = min([choices(c) for c in range(81)])
 
         # try it both ways
         branch = Sudoku(grid)
-        grid.log("Failed to progress, "
-                 "creating a new backtracking search branch.")
+        grid.log("Failed to progress, " "creating a new backtracking search branch.")
         branch.logstream = grid.logstream
         branch.steps = grid.steps
         branch.original_cells = grid.original_cells
-        branch.place(d,c,"The backtracking search will try this placement"
-                         " first. Then, after returning from this branch,"
-                         " it will try preventing this placement.")
-        for sol in all_solutions(branch,fastrules):
+        branch.place(
+            d,
+            c,
+            "The backtracking search will try this placement"
+            " first. Then, after returning from this branch,"
+            " it will try preventing this placement.",
+        )
+        for sol in all_solutions(branch, fastrules):
             yield sol
-        grid.log(["Returned from backtracking branch; undoing placement of",
-                  d,"in",cellnames[c],"and all subsequent decisions."])
+        grid.log(
+            [
+                "Returned from backtracking branch; undoing placement of",
+                d,
+                "in",
+                cellnames[c],
+                "and all subsequent decisions.",
+            ]
+        )
         grid.rules_used.update(branch.rules_used)
         grid.rules_used.add("backtrack")
         grid.steps = branch.steps
-        grid.unplace(d,1<<c,"The backtracking search has already tried this"
-                     " placement, and now must try the opposite decision.")
+        grid.unplace(
+            d,
+            1 << c,
+            "The backtracking search has already tried this"
+            " placement, and now must try the opposite decision.",
+        )
+
 
 def unisolvent(grid):
     """Does this puzzle have a unique solution?"""
@@ -1370,79 +1730,153 @@ def unisolvent(grid):
         return True
     return False
 
+
 # ======================================================================
 #   Command-line interface
 # ======================================================================
 
 parser = OptionParser()
 
-parser.add_option("-r","--rules",dest="show_rules", action="store_true",
-                  help = "show description of known solver rules and exit")
+parser.add_option(
+    "-r",
+    "--rules",
+    dest="show_rules",
+    action="store_true",
+    help="show description of known solver rules and exit",
+)
 
-parser.add_option("-l","--levels",dest="show_levels", action="store_true",
-                  help = "show description of difficulty levels and exit")
+parser.add_option(
+    "-l",
+    "--levels",
+    dest="show_levels",
+    action="store_true",
+    help="show description of difficulty levels and exit",
+)
 
-parser.add_option("-0", "--blank", dest="empty", action="store_true",
-                  help = "output blank sudoku grid and exit")
+parser.add_option(
+    "-0",
+    "--blank",
+    dest="empty",
+    action="store_true",
+    help="output blank sudoku grid and exit",
+)
 
-parser.add_option("-t","--translate", dest="translate", action="store_true",
-                  help = "translate format of input puzzle without solving")
+parser.add_option(
+    "-t",
+    "--translate",
+    dest="translate",
+    action="store_true",
+    help="translate format of input puzzle without solving",
+)
 
-parser.add_option("-p","--permute",dest="permute", action="store_true",
-                  help = "randomly rearrange the input puzzle")
+parser.add_option(
+    "-p",
+    "--permute",
+    dest="permute",
+    action="store_true",
+    help="randomly rearrange the input puzzle",
+)
 
-parser.add_option("-g","--generate", dest="generate", action="store_true",
-                  help = "generate new puzzle rather than reading from stdin")
+parser.add_option(
+    "-g",
+    "--generate",
+    dest="generate",
+    action="store_true",
+    help="generate new puzzle rather than reading from stdin",
+)
 
-parser.add_option("-a", "--asymmetric", dest="asymmetric", action="store_true",
-                  help = "allow asymmetry in generated puzzles")
+parser.add_option(
+    "-a",
+    "--asymmetric",
+    dest="asymmetric",
+    action="store_true",
+    help="allow asymmetry in generated puzzles",
+)
 
-parser.add_option("-u", "--unique", dest="assume_unique", action="store_false",
-                  help = "disallow rules that assume a unique solution",
-                  default = True)
+parser.add_option(
+    "-u",
+    "--unique",
+    dest="assume_unique",
+    action="store_false",
+    help="disallow rules that assume a unique solution",
+    default=True,
+)
 
-parser.add_option("-b", "--backtrack", dest="backtrack", action="store_true",
-                  help = "enable trial and error search for all solutions")
+parser.add_option(
+    "-b",
+    "--backtrack",
+    dest="backtrack",
+    action="store_true",
+    help="enable trial and error search for all solutions",
+)
 
-parser.add_option("-v", "--verbose", dest="verbose", action="store_true",
-                  help = "output description of each step in puzzle solution")
+parser.add_option(
+    "-v",
+    "--verbose",
+    dest="verbose",
+    action="store_true",
+    help="output description of each step in puzzle solution",
+)
 
-parser.add_option("-x", "--empty", dest="emptychars", action="store",
-                  type="string", default=".0",
-                  help="characters representing empty cells in input puzzle")
+parser.add_option(
+    "-x",
+    "--empty",
+    dest="emptychars",
+    action="store",
+    type="string",
+    default=".0",
+    help="characters representing empty cells in input puzzle",
+)
 
-parser.add_option("-2", "--output-both", dest="output_both",
-                  action="store_true",
-                  help = "output both the puzzle and its solution")
+parser.add_option(
+    "-2",
+    "--output-both",
+    dest="output_both",
+    action="store_true",
+    help="output both the puzzle and its solution",
+)
 
-parser.add_option("-f", "--format", dest="format", action="store",
-                  type="string", default="text",
-                  help="output format (options: text, numeric, html, svg)")
+parser.add_option(
+    "-f",
+    "--format",
+    dest="format",
+    action="store",
+    type="string",
+    default="text",
+    help="output format (options: text, numeric, html, svg)",
+)
 
-if __name__ == '__main__':
-    options,args = parser.parse_args()
+if __name__ == "__main__":
+    options, args = parser.parse_args()
     if args:
-        print("Unrecognized command line syntax, use --help for input documentation", file=sys.stderr)
+        print(
+            "Unrecognized command line syntax, use --help for input documentation",
+            file=sys.stderr,
+        )
         sys.exit(0)
 
     if options.show_rules:
-        print("""This solver knows the following rules.  Rules occurring later
+        print(
+            """This solver knows the following rules.  Rules occurring later
 in the list are attempted only when all earlier rules have failed
 to make progress.
-""")
-        for name,rule,difficulty in rules:
+"""
+        )
+        for name, rule, difficulty in rules:
             print(name + ":" + rule.__doc__)
         sys.exit(0)
 
     if options.show_levels:
-        print("""
+        print(
+            """
 Puzzles are classified by difficulty, according to a weighted combination
 of the set of rules needed to solve each puzzle.  There are six levels,
 in order by difficulty: easy, moderate, tricky, difficult, evil, and
 fiendish.  In addition, a puzzle is classified as impossible if this
 program cannot find a solution for it, or if backtracking is needed to
 find the solution.
-""")
+"""
+        )
         sys.exit(0)
 
     if options.translate:
@@ -1464,7 +1898,8 @@ find the solution.
 #   Initial puzzle setup
 # ======================================================================
 
-def random_puzzle(generate_symmetric = True):
+
+def random_puzzle(generate_symmetric=True):
     """Generate and return a randomly constructed Sudoku puzzle instance."""
     puzzle = []
     grid = Sudoku()
@@ -1476,20 +1911,21 @@ def random_puzzle(generate_symmetric = True):
     while True:
         try:
             while not grid.complete():
-                d,c = random.choice([(d,c) for c in range(81)
-                                           for d in choices(c)])
-                grid.place(d,c)
-                while step(grid,True): pass
-                puzzle.append((d,c))
+                d, c = random.choice([(d, c) for c in range(81) for d in choices(c)])
+                grid.place(d, c)
+                while step(grid, True):
+                    pass
+                puzzle.append((d, c))
                 if generate_symmetric:
-                    c = 80-c
+                    c = 80 - c
                     ch = grid.choices(c)
                     if not ch:  # avoid IndexError from random.choice
                         raise BadSudoku("Placement invalidated symmetric cell")
                     d = random.choice(ch)
-                    grid.place(d,c)
-                    while step(grid,True): pass
-                    puzzle.append((d,c))
+                    grid.place(d, c)
+                    while step(grid, True):
+                        pass
+                    puzzle.append((d, c))
         except BadSudoku:
             puzzle = []
             grid = Sudoku()
@@ -1499,9 +1935,9 @@ def random_puzzle(generate_symmetric = True):
     # find redundant information in initial state
     q = 0
     while q < len(puzzle):
-        grid = Sudoku(puzzle[:q] + puzzle[q+1+generate_symmetric:])
+        grid = Sudoku(puzzle[:q] + puzzle[q + 1 + generate_symmetric :])
         if not unisolvent(grid):
-            q += 1+generate_symmetric
+            q += 1 + generate_symmetric
         else:
             del puzzle[q]
             if generate_symmetric:
@@ -1509,17 +1945,21 @@ def random_puzzle(generate_symmetric = True):
 
     return Sudoku(puzzle)
 
-def read_puzzle(empty = ".0"):
+
+def read_puzzle(empty=".0"):
     """Read and return a Sudoku instance from standard input."""
+
     def digits():
         for digit in sys.stdin.read():
             if digit in empty:
                 yield 0
-            elif '1' <= digit <= '9':
+            elif "1" <= digit <= "9":
                 yield int(digit)
+
     return Sudoku(digits())
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     if options.generate:
         puzzle = random_puzzle(not options.asymmetric)
         print_puzzle = True
@@ -1539,7 +1979,7 @@ if __name__ == '__main__':
 #   Main program: print and solve puzzle
 # ======================================================================
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     print_level = True
     if print_puzzle:
         print_level = outputter(puzzle)
@@ -1548,9 +1988,10 @@ if __name__ == '__main__':
         print
 
     if options.backtrack:
-        solns = all_solutions(puzzle,False)
+        solns = all_solutions(puzzle, False)
     else:
-        while step(puzzle): pass
+        while step(puzzle):
+            pass
         solns = [puzzle]
 
     nsolns = 0
@@ -1561,10 +2002,10 @@ if __name__ == '__main__':
 
     difficulty = 0
     used_names = []
-    for name,rule,level in rules:
+    for name, rule, level in rules:
         if name in puzzle.rules_used:
             used_names.append(name)
-            difficulty += 1<<level
+            difficulty += 1 << level
     if "backtrack" in puzzle.rules_used:
         used_names.append("backtrack")
     if print_level:

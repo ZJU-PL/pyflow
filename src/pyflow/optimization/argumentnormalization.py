@@ -20,14 +20,15 @@ from pyflow.language.python import annotations
 
 class ArgumentNormalizationAnalysis(TypeDispatcher):
     """Analyzes whether argument normalization is applicable.
-    
+
     Checks if a function's *args parameter can be normalized into explicit
     positional parameters by verifying the length is constant and usage
     patterns allow transformation.
-    
+
     Args:
         storeGraph: Store graph for analyzing object relationships
     """
+
     def __init__(self, storeGraph):
         TypeDispatcher.__init__(self)
         self.storeGraph = storeGraph
@@ -76,16 +77,16 @@ class ArgumentNormalizationAnalysis(TypeDispatcher):
     def process(self, node):
         """
         Analyze a code node to determine if argument normalization is applicable.
-        
+
         Checks if the function's *args parameter can be normalized by:
         1. Verifying it's standard code (not a stub)
         2. Checking if *args length is constant
         3. Ensuring *args is not used in ways that prevent normalization
            (e.g., passed as *args to another function, used in loops)
-        
+
         Args:
             node: Code node to analyze
-            
+
         Returns:
             tuple: (applicable, vparam_length)
                    - applicable: True if normalization can be applied
@@ -132,13 +133,14 @@ class ArgumentNormalizationAnalysis(TypeDispatcher):
 
 class ArgumentNormalizationTransform(TypeDispatcher):
     """Transforms code to normalize arguments.
-    
+
     Replaces *args with explicit positional parameters and updates all
     call sites accordingly.
-    
+
     Args:
         storeGraph: Store graph for analyzing object relationships
     """
+
     def __init__(self, storeGraph):
         self.storeGraph = storeGraph
 
@@ -259,11 +261,11 @@ class ArgumentNormalizationTransform(TypeDispatcher):
 
 def evaluate(compiler, prgm):
     """Main entry point for argument normalization.
-    
+
     Args:
         compiler: Compiler context
         prgm: Program to optimize
-        
+
     Analyzes functions and transforms those where normalization is applicable.
     """
     with compiler.console.scope("argument normalization"):

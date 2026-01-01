@@ -29,21 +29,23 @@ from ..core import test_properties as test
 def check_blacklisted_imports(context):
     """
     Check for blacklisted module imports.
-    
+
     Checks all imported module names in an Import statement against
     the import blacklist. Returns a list of issues if any matches are found.
-    
+
     Args:
         context: Context object with import information
-        
+
     Returns:
         List of Issue objects if blacklisted imports found, None otherwise
     """
-    if not isinstance(getattr(context, 'node', None), ast.Import):
+    if not isinstance(getattr(context, "node", None), ast.Import):
         return None
-    
-    issues = [blacklist.blacklist_manager.check_blacklist("Import", alias.name, context) 
-              for alias in context.node.names]
+
+    issues = [
+        blacklist.blacklist_manager.check_blacklist("Import", alias.name, context)
+        for alias in context.node.names
+    ]
     return [issue for issue in issues if issue] or None
 
 
@@ -52,18 +54,20 @@ def check_blacklisted_imports(context):
 def check_blacklisted_import_from(context):
     """
     Check for blacklisted from imports.
-    
+
     Checks the module name in an ImportFrom statement against the
     import blacklist. Only checks the module, not individual imports.
-    
+
     Args:
         context: Context object with import information
-        
+
     Returns:
         Issue object if blacklisted module found, None otherwise
     """
-    node = getattr(context, 'node', None)
+    node = getattr(context, "node", None)
     if not isinstance(node, ast.ImportFrom) or not node.module:
         return None
-    
-    return blacklist.blacklist_manager.check_blacklist("ImportFrom", node.module, context)
+
+    return blacklist.blacklist_manager.check_blacklist(
+        "ImportFrom", node.module, context
+    )

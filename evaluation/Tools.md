@@ -15,6 +15,7 @@
 
 ## Type Checking
 
+- https://github.com/facebook/pyrefly
 - mypy: https://github.com/python/mypy
 - pyre-check: https://github.com/facebook/pyre-check Developed by Meta (Facebook), designed for performance in large codebases. It includes a security-focused sub-tool called Pysa (?)
 - Pyright: Created by Microsoft (powers VS Code’s Pylance). 

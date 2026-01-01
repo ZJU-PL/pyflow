@@ -1,4 +1,3 @@
-
 import sys
 import optparse
 
@@ -11,56 +10,31 @@ class _Main(object):
         self.stdout = sys.stdout
         self.stderr = sys.stderr
 
-        
     def parseOptions(self, argv):
         optParser = optparse.OptionParser()
         optParser.add_option(
-            "--encoding",
-            action="store",
-            type="string",
-            dest="encoding"
-            )
+            "--encoding", action="store", type="string", dest="encoding"
+        )
+        optParser.add_option("--input", action="store", type="string", dest="input")
         optParser.add_option(
-            "--input",
-            action="store",
-            type="string",
-            dest="input"
-            )
-        optParser.add_option(
-            "--interactive", "-i",
-            action="store_true",
-            dest="interactive"
-            )
-        optParser.add_option(
-            "--no-output",
-            action="store_true",
-            dest="no_output"
-            )
-        optParser.add_option(
-            "--profile",
-            action="store_true",
-            dest="profile"
-            )
-        optParser.add_option(
-            "--hotshot",
-            action="store_true",
-            dest="hotshot"
-            )
+            "--interactive", "-i", action="store_true", dest="interactive"
+        )
+        optParser.add_option("--no-output", action="store_true", dest="no_output")
+        optParser.add_option("--profile", action="store_true", dest="profile")
+        optParser.add_option("--hotshot", action="store_true", dest="hotshot")
 
         self.setupOptions(optParser)
-        
-        return optParser.parse_args(argv[1:])
 
+        return optParser.parse_args(argv[1:])
 
     def setupOptions(self, optParser):
         pass
-
 
     def execute(self, argv):
         options, args = self.parseOptions(argv)
 
         self.setUp(options)
-        
+
         if options.interactive:
             while True:
                 try:
@@ -68,23 +42,21 @@ class _Main(object):
                 except (EOFError, KeyboardInterrupt):
                     self.stdout.write("\nBye.\n")
                     break
-            
+
                 inStream = antlr3.ANTLRStringStream(input)
                 self.parseStream(options, inStream)
-            
+
         else:
             if options.input is not None:
                 inStream = antlr3.ANTLRStringStream(options.input)
 
-            elif len(args) == 1 and args[0] != '-':
-                inStream = antlr3.ANTLRFileStream(
-                    args[0], encoding=options.encoding
-                    )
+            elif len(args) == 1 and args[0] != "-":
+                inStream = antlr3.ANTLRFileStream(args[0], encoding=options.encoding)
 
             else:
                 inStream = antlr3.ANTLRInputStream(
                     self.stdin, encoding=options.encoding
-                    )
+                )
 
             if options.profile:
                 try:
@@ -93,47 +65,42 @@ class _Main(object):
                     import profile
 
                 profile.runctx(
-                    'self.parseStream(options, inStream)',
+                    "self.parseStream(options, inStream)",
                     globals(),
                     locals(),
-                    'profile.dat'
-                    )
+                    "profile.dat",
+                )
 
                 import pstats
-                stats = pstats.Stats('profile.dat')
+
+                stats = pstats.Stats("profile.dat")
                 stats.strip_dirs()
-                stats.sort_stats('time')
+                stats.sort_stats("time")
                 stats.print_stats(100)
 
             elif options.hotshot:
                 import hotshot
 
-                profiler = hotshot.Profile('hotshot.dat')
+                profiler = hotshot.Profile("hotshot.dat")
                 profiler.runctx(
-                    'self.parseStream(options, inStream)',
-                    globals(),
-                    locals()
-                    )
+                    "self.parseStream(options, inStream)", globals(), locals()
+                )
 
             else:
                 self.parseStream(options, inStream)
 
-
     def setUp(self, options):
         pass
 
-    
     def parseStream(self, options, inStream):
         raise NotImplementedError
-
 
     def write(self, options, text):
         if not options.no_output:
             self.stdout.write(text)
 
-
     def writeln(self, options, text):
-        self.write(options, text + '\n')
+        self.write(options, text + "\n")
 
 
 class LexerMain(_Main):
@@ -141,8 +108,7 @@ class LexerMain(_Main):
         _Main.__init__(self)
 
         self.lexerClass = lexerClass
-        
-    
+
     def parseStream(self, options, inStream):
         lexer = self.lexerClass(inStream)
         for token in lexer:
@@ -156,36 +122,28 @@ class ParserMain(_Main):
         self.lexerClassName = lexerClassName
         self.lexerClass = None
         self.parserClass = parserClass
-        
-    
+
     def setupOptions(self, optParser):
         optParser.add_option(
             "--lexer",
             action="store",
             type="string",
             dest="lexerClass",
-            default=self.lexerClassName
-            )
-        optParser.add_option(
-            "--rule",
-            action="store",
-            type="string",
-            dest="parserRule"
-            )
-
+            default=self.lexerClassName,
+        )
+        optParser.add_option("--rule", action="store", type="string", dest="parserRule")
 
     def setUp(self, options):
         lexerMod = __import__(options.lexerClass)
         self.lexerClass = getattr(lexerMod, options.lexerClass)
 
-        
     def parseStream(self, options, inStream):
         lexer = self.lexerClass(inStream)
         tokenStream = antlr3.CommonTokenStream(lexer)
         parser = self.parserClass(tokenStream)
         result = getattr(parser, options.parserRule)()
         if result is not None:
-            if hasattr(result, 'tree'):
+            if hasattr(result, "tree"):
                 if result.tree is not None:
                     self.writeln(options, result.tree.toStringTree())
             else:
@@ -199,37 +157,22 @@ class WalkerMain(_Main):
         self.lexerClass = None
         self.parserClass = None
         self.walkerClass = walkerClass
-        
-    
+
     def setupOptions(self, optParser):
         optParser.add_option(
-            "--lexer",
-            action="store",
-            type="string",
-            dest="lexerClass",
-            default=None
-            )
+            "--lexer", action="store", type="string", dest="lexerClass", default=None
+        )
         optParser.add_option(
-            "--parser",
-            action="store",
-            type="string",
-            dest="parserClass",
-            default=None
-            )
+            "--parser", action="store", type="string", dest="parserClass", default=None
+        )
         optParser.add_option(
             "--parser-rule",
             action="store",
             type="string",
             dest="parserRule",
-            default=None
-            )
-        optParser.add_option(
-            "--rule",
-            action="store",
-            type="string",
-            dest="walkerRule"
-            )
-
+            default=None,
+        )
+        optParser.add_option("--rule", action="store", type="string", dest="walkerRule")
 
     def setUp(self, options):
         lexerMod = __import__(options.lexerClass)
@@ -237,21 +180,19 @@ class WalkerMain(_Main):
         parserMod = __import__(options.parserClass)
         self.parserClass = getattr(parserMod, options.parserClass)
 
-        
     def parseStream(self, options, inStream):
         lexer = self.lexerClass(inStream)
         tokenStream = antlr3.CommonTokenStream(lexer)
         parser = self.parserClass(tokenStream)
         result = getattr(parser, options.parserRule)()
         if result is not None:
-            assert hasattr(result, 'tree'), "Parser did not return an AST"
+            assert hasattr(result, "tree"), "Parser did not return an AST"
             nodeStream = antlr3.tree.CommonTreeNodeStream(result.tree)
             nodeStream.setTokenStream(tokenStream)
             walker = self.walkerClass(nodeStream)
             result = getattr(walker, options.walkerRule)()
             if result is not None:
-                if hasattr(result, 'tree'):
+                if hasattr(result, "tree"):
                     self.writeln(options, result.tree.toStringTree())
                 else:
                     self.writeln(options, repr(result))
-

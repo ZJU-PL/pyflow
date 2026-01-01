@@ -40,13 +40,13 @@ FALSE_VALUES = [None, False, "False", 0, 0.0, 0j, "", (), [], {}]
 # Directories to exclude by default during file scanning
 # These are typically version control directories, build artifacts, etc.
 EXCLUDE = (
-    ".svn",      # Subversion
-    "CVS",       # CVS version control
-    ".bzr",      # Bazaar
-    ".hg",       # Mercurial
-    ".git",      # Git
+    ".svn",  # Subversion
+    "CVS",  # CVS version control
+    ".bzr",  # Bazaar
+    ".hg",  # Mercurial
+    ".git",  # Git
     "__pycache__",  # Python bytecode cache
-    ".tox",      # Tox virtual environments
-    ".eggs",     # Python eggs
-    "*.egg",     # Python egg files
+    ".tox",  # Tox virtual environments
+    ".eggs",  # Python eggs
+    "*.egg",  # Python egg files
 )

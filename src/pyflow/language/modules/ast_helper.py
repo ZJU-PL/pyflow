@@ -21,53 +21,55 @@ from functools import lru_cache
 from .transformer import PytTransformer
 
 log = logging.getLogger(__name__)
-BLACK_LISTED_CALL_NAMES = ['self']
+BLACK_LISTED_CALL_NAMES = ["self"]
 recursive = False
 
 
 def _convert_to_3(path):  # pragma: no cover
     """Convert Python 2 file to Python 3 using 2to3.
-    
+
     Attempts to convert a Python 2 file to Python 3 format using
     the 2to3 tool. This is used as a fallback when AST parsing fails.
-    
+
     Args:
         path: Path to Python file to convert
-        
+
     Raises:
         SystemExit: If 2to3 is not installed or conversion fails
     """
     try:
-        log.warn('##### Trying to convert %s to Python 3. #####', path)
-        subprocess.call(['2to3', '-w', path])
+        log.warn("##### Trying to convert %s to Python 3. #####", path)
+        subprocess.call(["2to3", "-w", path])
     except subprocess.SubprocessError:
-        log.exception('Check if 2to3 is installed. https://docs.python.org/2/library/2to3.html')
+        log.exception(
+            "Check if 2to3 is installed. https://docs.python.org/2/library/2to3.html"
+        )
         exit(1)
 
 
 @lru_cache()
 def generate_ast(path):
     """Generate normalized AST from a Python file.
-    
+
     Parses a Python file and applies AST transformations (async removal,
     chained call expansion, etc.) to produce a normalized AST suitable
     for static analysis.
-    
+
     Automatically attempts Python 2 to 3 conversion if parsing fails.
     Results are cached per file path.
-    
+
     Args:
         path: Path to Python file (e.g., 'example/foo/bar.py')
-        
+
     Returns:
         ast.Module: Normalized AST tree
-        
+
     Raises:
         IOError: If path is not a file
         SyntaxError: If parsing and conversion both fail
     """
     if os.path.isfile(path):
-        with open(path, 'r') as f:
+        with open(path, "r") as f:
             try:
                 tree = ast.parse(f.read())
                 return PytTransformer().visit(tree)
@@ -78,21 +80,23 @@ def generate_ast(path):
                     recursive = True
                     return generate_ast(path)
                 else:
-                    raise SyntaxError('The ast module can not parse the file'
-                                      ' and the python 2 to 3 conversion'
-                                      ' also failed.')
-    raise IOError('Input needs to be a file. Path: ' + path)
+                    raise SyntaxError(
+                        "The ast module can not parse the file"
+                        " and the python 2 to 3 conversion"
+                        " also failed."
+                    )
+    raise IOError("Input needs to be a file. Path: " + path)
 
 
 def _get_call_names_helper(node):
     """Recursively extract function call names from AST node.
-    
+
     Traverses AST nodes to extract function names from call expressions.
     Handles Name, Attribute, Subscript, and Str nodes.
-    
+
     Args:
         node: AST node to extract names from
-        
+
     Yields:
         str: Function names found in the node
     """
@@ -110,13 +114,13 @@ def _get_call_names_helper(node):
 
 def get_call_names(node):
     """Get list of call names from an AST node.
-    
+
     Extracts function call names from a call expression AST node,
     returning them in reverse order (outermost to innermost).
-    
+
     Args:
         node: AST call node to extract names from
-        
+
     Returns:
         list: List of call names (reversed order)
     """
@@ -125,38 +129,38 @@ def get_call_names(node):
 
 def _list_to_dotted_string(list_of_components):
     """Convert a list to a dotted string.
-    
+
     Args:
         list_of_components: List of string components
-        
+
     Returns:
         str: Components joined with dots
     """
-    return '.'.join(list_of_components)
+    return ".".join(list_of_components)
 
 
 def get_call_names_as_string(node):
     """Get call names as a dotted string.
-    
+
     Extracts call names and formats them as a dotted string
     (e.g., "obj.method.submethod").
-    
+
     Args:
         node: AST call node to extract names from
-        
+
     Returns:
         str: Dotted string representation of call names
     """
     return _list_to_dotted_string(get_call_names(node))
 
 
-class Arguments():
+class Arguments:
     """Represents function arguments from an AST function definition.
-    
+
     Arguments extracts and organizes argument information from an
     ast.FunctionDef or ast.AsyncFunctionDef node's args attribute.
     It provides convenient access to all argument types.
-    
+
     Attributes:
         args: List of positional arguments (ast.arg)
         varargs: Variable arguments (*args) or None
@@ -169,7 +173,7 @@ class Arguments():
 
     def __init__(self, args):
         """Initialize argument container.
-        
+
         Args:
             args: ast.arguments node from function definition
         """
@@ -192,10 +196,10 @@ class Arguments():
 
     def __getitem__(self, key):
         """Get argument by index.
-        
+
         Args:
             key: Index of argument
-            
+
         Returns:
             str: Argument name at index
         """
@@ -203,7 +207,7 @@ class Arguments():
 
     def __len__(self):
         """Get number of positional arguments.
-        
+
         Returns:
             int: Number of positional arguments
         """

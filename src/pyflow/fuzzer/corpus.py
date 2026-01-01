@@ -48,6 +48,7 @@ try:
     from random import _randbelow
 except ImportError:
     from random import _inst
+
     _randbelow = _inst._randbelow
 
 # Predefined "interesting" values that often trigger edge cases
@@ -59,23 +60,23 @@ INTERESTING32 = [0, 1, 32768, 65535, 65536, 100663045, 2147483647, 4294967295]
 class Corpus(object):
     """
     Manages the fuzzing corpus (seed inputs and generated test cases).
-    
+
     The corpus stores inputs that have increased code coverage and uses them
     as seeds for generating new mutations. It implements various mutation
     strategies to explore the input space efficiently.
-    
+
     **Corpus Lifecycle:**
     1. Initialization: Load seed inputs from files/directories
     2. Seed Phase: Run through all seed inputs first
     3. Mutation Phase: Generate new inputs by mutating corpus inputs
     4. Storage: Save interesting inputs (if corpus directory specified)
-    
+
     **Mutation Strategy:**
     - Selects random input from corpus
     - Applies random number of mutations (exponential distribution)
     - Each mutation is one of 15 different strategies
     - Ensures output doesn't exceed max_input_size
-    
+
     Attributes:
         _inputs: List of bytearray inputs in the corpus
         _dict: Dictionary of interesting keywords/tokens (optional)
@@ -85,10 +86,11 @@ class Corpus(object):
         _seed_idx: Current index in seed phase
         _save_corpus: Whether to save interesting inputs to disk
     """
+
     def __init__(self, dirs=None, max_input_size=4096, dict_path=None):
         """
         Initialize a fuzzing corpus.
-        
+
         Args:
             dirs: List of directories/files to load seed inputs from.
                  First directory is used to save generated test cases.
@@ -99,7 +101,7 @@ class Corpus(object):
         self._dict = dictionnary.Dictionary(dict_path)
         self._max_input_size = max_input_size
         self._dirs = dirs if dirs else []
-        
+
         # Load seed inputs from directories/files
         for i, path in enumerate(dirs):
             # Create first directory if it doesn't exist (for saving corpus)
@@ -114,23 +116,23 @@ class Corpus(object):
                     fname = os.path.join(path, i)
                     if os.path.isfile(fname):
                         self._add_file(fname)
-        
+
         # Seed phase tracking
         self._seed_run_finished = not self._inputs
         self._seed_idx = 0
         self._save_corpus = dirs and os.path.isdir(dirs[0])
-        
+
         # Always start with empty input
         self._inputs.append(bytearray(0))
 
     def _add_file(self, path):
         """
         Add a file's contents to the corpus.
-        
+
         Args:
             path: Path to file to load
         """
-        with open(path, 'rb') as f:
+        with open(path, "rb") as f:
             self._inputs.append(bytearray(f.read()))
 
     @property
@@ -142,10 +144,10 @@ class Corpus(object):
     def _rand(n):
         """
         Generate random integer in [0, n).
-        
+
         Args:
             n: Upper bound (exclusive)
-            
+
         Returns:
             Random integer, or 0 if n < 2
         """
@@ -157,22 +159,22 @@ class Corpus(object):
     def _rand_exp():
         """
         Generate random number with exponential distribution.
-        
+
         Returns n with probability 1/2^(n+1). This is used to determine
         how many mutations to apply to an input (most inputs get few mutations,
         some get many).
-        
+
         Implementation: Count leading zeros in random 32-bit number.
-        
+
         Returns:
             Random number with exponential distribution
         """
-        rand_bin = bin(random.randint(0, 2**32-1))[2:]
-        rand_bin = '0'*(32 - len(rand_bin)) + rand_bin
+        rand_bin = bin(random.randint(0, 2**32 - 1))[2:]
+        rand_bin = "0" * (32 - len(rand_bin)) + rand_bin
         count = 0
         for i in rand_bin:
-            if i == '0':
-                count +=1
+            if i == "0":
+                count += 1
             else:
                 break
         return count
@@ -181,15 +183,15 @@ class Corpus(object):
     def _choose_len(n):
         """
         Choose a length for mutation operations.
-        
+
         Uses a weighted distribution:
         - 90%: Small length (1-8 bytes)
         - 9%: Medium length (1-32 bytes)
         - 1%: Large length (1-n bytes)
-        
+
         Args:
             n: Maximum length
-            
+
         Returns:
             Random length in [1, min(n, max_length)]
         """
@@ -205,10 +207,10 @@ class Corpus(object):
     def copy(src, dst, start_source, start_dst, end_source=None, end_dst=None):
         """
         Copy bytes from source to destination.
-        
+
         Copies bytes from src[start_source:end_source] to dst[start_dst:end_dst].
         Handles bounds checking to avoid out-of-range access.
-        
+
         Args:
             src: Source bytearray
             dst: Destination bytearray
@@ -219,17 +221,19 @@ class Corpus(object):
         """
         end_source = len(src) if end_source is None else end_source
         end_dst = len(dst) if end_dst is None else end_dst
-        byte_to_copy = min(end_source-start_source, end_dst-start_dst)
-        dst[start_dst:start_dst+byte_to_copy] = src[start_source:start_source+byte_to_copy]
+        byte_to_copy = min(end_source - start_source, end_dst - start_dst)
+        dst[start_dst : start_dst + byte_to_copy] = src[
+            start_source : start_source + byte_to_copy
+        ]
 
     def put(self, buf):
         """
         Add an input to the corpus (if it increased coverage).
-        
+
         Adds the input to the corpus and optionally saves it to disk
         (if corpus directory is configured). Uses SHA256 hash as filename
         to avoid duplicates.
-        
+
         Args:
             buf: Bytearray input to add
         """
@@ -238,21 +242,21 @@ class Corpus(object):
             m = hashlib.sha256()
             m.update(buf)
             fname = os.path.join(self._dirs[0], m.hexdigest())
-            with open(fname, 'wb') as f:
+            with open(fname, "wb") as f:
                 f.write(buf)
 
     def generate_input(self):
         """
         Generate the next input to test.
-        
+
         **Seed Phase:**
         First runs through all seed inputs in order to establish baseline.
-        
+
         **Mutation Phase:**
         After seeds are exhausted, generates new inputs by:
         1. Selecting random input from corpus
         2. Mutating it using various strategies
-        
+
         Returns:
             Bytearray input to test
         """
@@ -271,11 +275,11 @@ class Corpus(object):
     def mutate(self, buf):
         """
         Mutate an input using random strategies.
-        
+
         Applies a random number of mutations (exponentially distributed)
         to the input. Each mutation is one of 15 different strategies
         chosen randomly. The input is truncated to max_input_size if needed.
-        
+
         **Mutation Strategies:**
         0. Remove range of bytes
         1. Insert random bytes
@@ -292,10 +296,10 @@ class Corpus(object):
         12. Replace uint16 with interesting value
         13. Replace uint32 with interesting value
         14. Replace ASCII digit with another digit
-        
+
         Args:
             buf: Input bytearray to mutate
-            
+
         Returns:
             Mutated bytearray (may be truncated to max_input_size)
         """
@@ -314,16 +318,16 @@ class Corpus(object):
                 pos0 = self._rand(len(res))
                 pos1 = pos0 + self._choose_len(len(res) - pos0)
                 self.copy(res, res, pos1, pos0)
-                res = res[:len(res) - (pos1-pos0)]
+                res = res[: len(res) - (pos1 - pos0)]
             elif x == 1:
                 # Insert a range of random bytes.
                 pos = self._rand(len(res) + 1)
                 n = self._choose_len(10)
                 for k in range(n):
                     res.append(0)
-                self.copy(res, res, pos, pos+n)
+                self.copy(res, res, pos, pos + n)
                 for k in range(n):
-                    res[pos+k] = self._rand(256)
+                    res[pos + k] = self._rand(256)
             elif x == 2:
                 # Duplicate a range of bytes.
                 if len(res) <= 1:
@@ -338,9 +342,9 @@ class Corpus(object):
                 self.copy(res, tmp, src, 0)
                 for k in range(n):
                     res.append(0)
-                self.copy(res, res, dst, dst+n)
+                self.copy(res, res, dst, dst + n)
                 for k in range(n):
-                    res[dst+k] = tmp[k]
+                    res[dst + k] = tmp[k]
             elif x == 3:
                 # Copy a range of bytes.
                 if len(res) <= 1:
@@ -351,7 +355,7 @@ class Corpus(object):
                 while src == dst:
                     dst = self._rand(len(res))
                 n = self._choose_len(len(res) - src)
-                self.copy(res, res, src, dst, src+n)
+                self.copy(res, res, src, dst, src + n)
             elif x == 4:
                 # Bit flip. Spooky!
                 if len(res) == 0:
@@ -382,7 +386,7 @@ class Corpus(object):
                     i -= 1
                     continue
                 pos = self._rand(len(res))
-                v = self._rand(2 ** 8)
+                v = self._rand(2**8)
                 res[pos] = (res[pos] + v) % 256
             elif x == 8:
                 # Add/subtract from a uint16.
@@ -390,11 +394,11 @@ class Corpus(object):
                     i -= 1
                     continue
                 pos = self._rand(len(res) - 1)
-                v = self._rand(2 ** 16)
+                v = self._rand(2**16)
                 if bool(random.getrandbits(1)):
-                    v = struct.pack('>H', v)
+                    v = struct.pack(">H", v)
                 else:
-                    v = struct.pack('<H', v)
+                    v = struct.pack("<H", v)
                 res[pos] = (res[pos] + v[0]) % 256
                 res[pos + 1] = (res[pos] + v[1]) % 256
             elif x == 9:
@@ -403,11 +407,11 @@ class Corpus(object):
                     i -= 1
                     continue
                 pos = self._rand(len(res) - 3)
-                v = self._rand(2 ** 32)
+                v = self._rand(2**32)
                 if bool(random.getrandbits(1)):
-                    v = struct.pack('>I', v)
+                    v = struct.pack(">I", v)
                 else:
-                    v = struct.pack('<I', v)
+                    v = struct.pack("<I", v)
                 res[pos] = (res[pos] + v[0]) % 256
                 res[pos + 1] = (res[pos + 1] + v[1]) % 256
                 res[pos + 2] = (res[pos + 2] + v[2]) % 256
@@ -418,11 +422,11 @@ class Corpus(object):
                     i -= 1
                     continue
                 pos = self._rand(len(res) - 7)
-                v = self._rand(2 ** 64)
+                v = self._rand(2**64)
                 if bool(random.getrandbits(1)):
-                    v = struct.pack('>Q', v)
+                    v = struct.pack(">Q", v)
                 else:
-                    v = struct.pack('<Q', v)
+                    v = struct.pack("<Q", v)
                 res[pos] = (res[pos] + v[0]) % 256
                 res[pos + 1] = (res[pos + 1] + v[1]) % 256
                 res[pos + 2] = (res[pos + 2] + v[2]) % 256
@@ -446,9 +450,9 @@ class Corpus(object):
                 pos = self._rand(len(res) - 1)
                 v = random.choice(INTERESTING16)
                 if bool(random.getrandbits(1)):
-                    v = struct.pack('>H', v)
+                    v = struct.pack(">H", v)
                 else:
-                    v = struct.pack('<H', v)
+                    v = struct.pack("<H", v)
                 res[pos] = v[0] % 256
                 res[pos + 1] = v[1] % 256
             elif x == 13:
@@ -459,9 +463,9 @@ class Corpus(object):
                 pos = self._rand(len(res) - 3)
                 v = random.choice(INTERESTING32)
                 if bool(random.getrandbits(1)):
-                    v = struct.pack('>I', v)
+                    v = struct.pack(">I", v)
                 else:
-                    v = struct.pack('<I', v)
+                    v = struct.pack("<I", v)
                 res[pos] = v[0] % 256
                 res[pos + 1] = v[1] % 256
                 res[pos + 2] = v[2] % 256
@@ -470,7 +474,7 @@ class Corpus(object):
                 # Replace an ascii digit with another digit.
                 digits = []
                 for k in range(len(res)):
-                    if ord('0') <= res[k] <= ord('9'):
+                    if ord("0") <= res[k] <= ord("9"):
                         digits.append(k)
                 if len(digits) == 0:
                     i -= 1
@@ -479,9 +483,9 @@ class Corpus(object):
                 was = res[digits[pos]]
                 now = was
                 while was == now:
-                    now = self._rand(10) + ord('0')
+                    now = self._rand(10) + ord("0")
                 res[digits[pos]] = now
 
         if len(res) > self._max_input_size:
-            res = res[:self._max_input_size]
+            res = res[: self._max_input_size]
         return res

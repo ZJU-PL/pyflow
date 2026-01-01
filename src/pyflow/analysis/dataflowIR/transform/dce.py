@@ -21,19 +21,20 @@ import pyflow.analysis.dataflowIR.graph as graph
 
 class LivenessKiller(TypeDispatcher):
     """Removes dead nodes from dataflow graph.
-    
+
     After liveness analysis identifies live nodes, this class removes
     dead nodes and cleans up edges. It processes nodes and removes
     uses/definitions for dead nodes.
-    
+
     Attributes:
         live: Set of live nodes (from liveness analysis)
         queue: Queue of nodes to process
         processed: Set of processed nodes
     """
+
     def __init__(self, live):
         """Initialize liveness killer.
-        
+
         Args:
             live: Set of live nodes to keep
         """
@@ -136,20 +137,21 @@ class LivenessKiller(TypeDispatcher):
 
 class LivenessSearcher(TypeDispatcher):
     """Performs backward liveness analysis.
-    
+
     This class performs backward liveness analysis starting from the exit
     node. It marks all nodes that contribute to the exit (are live) by
     traversing backward through def-use chains.
-    
+
     The algorithm:
     1. Start from exit node (always live)
     2. For each live node, mark all predecessors (definitions/reads)
     3. Continue until fixed point
-    
+
     Attributes:
         queue: Queue of nodes to process
         live: Set of live nodes
     """
+
     def __init__(self):
         """Initialize liveness searcher."""
         self.queue = []
@@ -157,7 +159,7 @@ class LivenessSearcher(TypeDispatcher):
 
     def mark(self, node):
         """Mark a node as live.
-        
+
         Args:
             node: DataflowNode to mark as live
         """
@@ -168,12 +170,12 @@ class LivenessSearcher(TypeDispatcher):
 
     def process(self, dataflow):
         """Perform liveness analysis on a dataflow graph.
-        
+
         Starts from exit and marks all live nodes by traversing backward.
-        
+
         Args:
             dataflow: DataflowGraph to analyze
-            
+
         Returns:
             set: Set of live nodes
         """
@@ -198,10 +200,10 @@ class LivenessSearcher(TypeDispatcher):
 
 def evaluateDataflow(dataflow):
     """Perform dead code elimination on a dataflow graph.
-    
+
     Main entry point for DCE. Performs liveness analysis and removes
     dead nodes.
-    
+
     Args:
         dataflow: DataflowGraph to optimize
     """

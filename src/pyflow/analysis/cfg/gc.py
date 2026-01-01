@@ -21,13 +21,14 @@ from pyflow.analysis.cfg.dfs import CFGDFS
 
 class Logger(TypeDispatcher):
     """Collects merge blocks during CFG traversal.
-    
+
     This class is used to identify all merge blocks in the CFG so
     their predecessor lists can be cleaned up.
-    
+
     Attributes:
         merges: List of merge blocks found during traversal
     """
+
     def __init__(self):
         """Initialize the logger."""
         self.merges = []
@@ -35,7 +36,7 @@ class Logger(TypeDispatcher):
     @defaultdispatch
     def default(self, node):
         """Default handler (no action for most nodes).
-        
+
         Args:
             node: CFG node (ignored)
         """
@@ -44,7 +45,7 @@ class Logger(TypeDispatcher):
     @dispatch(cfg.MultiEntryBlock)
     def visitMerge(self, node):
         """Record merge blocks.
-        
+
         Args:
             node: Merge block to record
         """
@@ -53,16 +54,16 @@ class Logger(TypeDispatcher):
 
 def evaluate(compiler, g):
     """Remove unreachable CFG nodes and clean up merge blocks.
-    
+
     Performs garbage collection on the CFG by:
     1. Finding all reachable nodes via DFS
     2. Removing unreachable predecessors from merge blocks
     3. Cleaning up CFG structure
-    
+
     Args:
         compiler: Compiler context (unused, kept for interface consistency)
         g: CFG Code object to clean up
-        
+
     Note:
         HACK: This exposes internals of merge blocks (_prev) to clean them up.
         Consider adding a proper API for this.
@@ -73,10 +74,10 @@ def evaluate(compiler, g):
 
     def live(node):
         """Check if a node is reachable from entry.
-        
+
         Args:
             node: CFG node to check
-            
+
         Returns:
             bool: True if node is reachable
         """

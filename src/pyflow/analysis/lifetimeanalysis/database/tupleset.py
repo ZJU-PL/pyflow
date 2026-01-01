@@ -10,17 +10,18 @@ from . import base
 
 class TupleSetSchema(base.Schema):
     """Schema for sets of tuples.
-    
+
     TupleSetSchema defines sets where each element is a tuple validated
     by valueschema. Used for storing relationships like (code, context)
     or (code, op, context) tuples.
-    
+
     Attributes:
         valueschema: StructureSchema for tuple structure
     """
+
     def __init__(self, valueschema):
         """Initialize tuple set schema.
-        
+
         Args:
             valueschema: StructureSchema for tuple structure
         """
@@ -28,7 +29,7 @@ class TupleSetSchema(base.Schema):
 
     def instance(self):
         """Create a tuple set instance.
-        
+
         Returns:
             TupleSet: New tuple set instance
         """
@@ -36,7 +37,7 @@ class TupleSetSchema(base.Schema):
 
     def missing(self):
         """Get missing (empty) value.
-        
+
         Returns:
             TupleSet: Empty tuple set instance
         """
@@ -44,10 +45,10 @@ class TupleSetSchema(base.Schema):
 
     def validate(self, args):
         """Validate tuple arguments.
-        
+
         Args:
             args: Tuple to validate
-            
+
         Raises:
             SchemaError: If tuple is invalid
         """
@@ -55,13 +56,13 @@ class TupleSetSchema(base.Schema):
 
     def inplaceMerge(self, target, *args):
         """Merge tuple sets in-place.
-        
+
         Adds all tuples from source sets to target.
-        
+
         Args:
             target: Target tuple set
             *args: Source tuple sets to merge
-            
+
         Returns:
             tuple: (target set, changed flag)
         """
@@ -75,17 +76,18 @@ class TupleSetSchema(base.Schema):
 
 class TupleSet(object):
     """Tuple set instance for database.
-    
+
     TupleSet stores a set of tuples, each validated by the schema.
     Used for storing relationships like invocation relationships.
-    
+
     Attributes:
         schema: TupleSetSchema for this set
         data: Set storing tuples
     """
+
     def __init__(self, schema):
         """Initialize a tuple set.
-        
+
         Args:
             schema: TupleSetSchema for this set
         """
@@ -95,7 +97,7 @@ class TupleSet(object):
 
     def __len__(self):
         """Get number of tuples.
-        
+
         Returns:
             int: Number of tuples
         """
@@ -103,7 +105,7 @@ class TupleSet(object):
 
     def __iter__(self):
         """Iterate over tuples.
-        
+
         Returns:
             iterator: Iterator over tuples
         """
@@ -111,10 +113,10 @@ class TupleSet(object):
 
     def add(self, *args):
         """Add a tuple to the set.
-        
+
         Args:
             *args: Tuple elements
-            
+
         Raises:
             SchemaError: If tuple is invalid
         """
@@ -123,10 +125,10 @@ class TupleSet(object):
 
     def remove(self, *args):
         """Remove a tuple from the set.
-        
+
         Args:
             *args: Tuple elements
-            
+
         Raises:
             DatabaseError: If tuple is not in set
         """

@@ -39,10 +39,11 @@ leafTypes = (str, int, bool, float, type(None), AbstractObject)
 
 class Existing(Reference):
     """Represents an existing Python object (constant value).
-    
+
     Used for literals and constants that are known at compile time.
     The object field contains the actual Python value.
     """
+
     __fields__ = "object:AbstractObject"
     __leaf__ = True
 
@@ -60,11 +61,12 @@ class Existing(Reference):
 
 class Local(Reference):
     """Represents a local variable reference.
-    
+
     Used for function parameters, local variables, and other named values.
     The name field may be None for anonymous locals. Local nodes are shared
     across the AST (same Local object represents the same variable).
     """
+
     __fields__ = "name:str?"
     __shared__ = True
     __leaf__ = True
@@ -94,10 +96,11 @@ class Local(Reference):
 
 class DoNotCare(Reference):
     """Represents a "don't care" value (wildcard).
-    
+
     Used when a value is needed but its specific value doesn't matter,
     such as in pattern matching or when discarding values.
     """
+
     __slots__ = ()
     __leaf__ = True
 
@@ -258,10 +261,11 @@ class DeleteSlice(SimpleStatement):
 
 class Call(Expression):
     """Represents a function call: expr(args, **kwargs).
-    
+
     Generic call node for indirect calls where the target function is
     determined at runtime. For direct calls with known targets, use DirectCall.
     """
+
     __fields__ = (
         "expr:Expression args:Expression* kwds* vargs:Expression? kargs:Expression?"
     )
@@ -269,21 +273,23 @@ class Call(Expression):
 
 class MethodCall(Expression):
     """Represents a method call: expr.name(args, **kwargs).
-    
+
     Direct method call where the method name is known. This is typically
     created by method call optimization from Call nodes.
     """
+
     # TODO kwds type?
     __fields__ = "expr:Expression name:Expression args:Expression* kwds* vargs:Expression? kargs:Expression?"
 
 
 class DirectCall(Expression):
     """Represents a direct function call with known target.
-    
+
     Direct call to a specific function code. The code field may be None
     for cloned "dead" direct calls that have no corresponding code.
     This is created by call conversion and optimization passes.
     """
+
     # TODO kwds type?
     # HACK code is optional, as cloned "dead" direct calls may have no corresponding code.
     __fields__ = "code:BaseCode? selfarg:Expression? args:Expression* kwds* vargs:Expression? kargs:Expression?"
@@ -535,11 +541,12 @@ class CodeParameters(PythonASTNode):
 
 class Code(BaseCode):
     """Represents a function or method definition.
-    
+
     Contains the function name, parameters, and body (AST). This is the
     primary representation of executable code in PyFlow. Code nodes are
     shared across the program (same Code object represents the same function).
     """
+
     __fields__ = """name:str
             codeparameters:CodeParameters
             ast:Suite"""

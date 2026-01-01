@@ -1,4 +1,3 @@
-
 """JSON serializable dictionary utilities."""
 
 import copy

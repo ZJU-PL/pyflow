@@ -18,10 +18,10 @@ from pyflow.language.python import annotations
 
 def isPythonAST(ast):
     """Check if a node is a Python AST node.
-    
+
     Args:
         ast: Node to check
-        
+
     Returns:
         bool: True if node is a PythonASTNode
     """
@@ -30,10 +30,10 @@ def isPythonAST(ast):
 
 class PythonASTNode(ASTNode):
     """Root base class for all Python AST nodes.
-    
+
     PythonASTNode provides common functionality and query methods for all
     AST nodes. Subclasses override methods to provide specific behavior.
-    
+
     Query methods:
     - returnsValue(): Whether node computes a value
     - alwaysReturnsBoolean(): Whether node always returns boolean
@@ -42,13 +42,14 @@ class PythonASTNode(ASTNode):
     - isReference(): Whether node is a reference (variable/constant)
     - isCode(): Whether node is a code definition (function/class)
     """
+
     def __init__(self):
         """Initialize AST node (abstract, must be overridden)."""
         raise NotImplementedError
 
     def returnsValue(self):
         """Check if node returns a value.
-        
+
         Returns:
             bool: True if node computes a value (expressions)
         """
@@ -56,7 +57,7 @@ class PythonASTNode(ASTNode):
 
     def alwaysReturnsBoolean(self):
         """Check if node always returns a boolean value.
-        
+
         Returns:
             bool: True if node always returns boolean
         """
@@ -64,7 +65,7 @@ class PythonASTNode(ASTNode):
 
     def isPure(self):
         """Check if node is pure (no side effects).
-        
+
         Returns:
             bool: True if node has no side effects
         """
@@ -72,7 +73,7 @@ class PythonASTNode(ASTNode):
 
     def isControlFlow(self):
         """Check if node is a control flow statement.
-        
+
         Returns:
             bool: True if node is control flow (if, while, for, etc.)
         """
@@ -80,7 +81,7 @@ class PythonASTNode(ASTNode):
 
     def isReference(self):
         """Check if node is a reference (variable or constant).
-        
+
         Returns:
             bool: True if node is a reference (Local, Existing, etc.)
         """
@@ -88,7 +89,7 @@ class PythonASTNode(ASTNode):
 
     def isCode(self):
         """Check if node is a code definition (function or class).
-        
+
         Returns:
             bool: True if node is a code definition
         """
@@ -97,20 +98,21 @@ class PythonASTNode(ASTNode):
 
 class Expression(PythonASTNode):
     """Base class for expression nodes (compute values).
-    
+
     Expressions are nodes that compute values and can be used in contexts
     where values are expected (e.g., right-hand side of assignments).
-    
+
     Attributes:
         __emptyAnnotation__: Default annotation for expressions
     """
+
     __slots__ = ()
 
     __emptyAnnotation__ = annotations.emptyOpAnnotation
 
     def returnsValue(self):
         """Expressions always return values.
-        
+
         Returns:
             bool: True (expressions compute values)
         """
@@ -119,15 +121,16 @@ class Expression(PythonASTNode):
 
 class LLExpression(Expression):
     """Low-level expression node.
-    
+
     LLExpression represents low-level expressions that may have special
     handling in code generation or analysis.
     """
+
     __slots__ = ()
 
     def returnsValue(self):
         """Low-level expressions return values.
-        
+
         Returns:
             bool: True
         """
@@ -136,20 +139,21 @@ class LLExpression(Expression):
 
 class Reference(Expression):
     """Base class for reference nodes (variables, constants).
-    
+
     References are expressions that refer to values rather than compute them.
     Examples: Local (variables), Existing (constants), DoNotCare (wildcards).
-    
+
     Attributes:
         __emptyAnnotation__: Default annotation for references (slot annotation)
     """
+
     __slots__ = ()
 
     __emptyAnnotation__ = annotations.emptySlotAnnotation
 
     def isReference(self):
         """References are reference nodes.
-        
+
         Returns:
             bool: True
         """
@@ -157,7 +161,7 @@ class Reference(Expression):
 
     def isDoNotCare(self):
         """Check if this is a DoNotCare (wildcard) node.
-        
+
         Returns:
             bool: True if DoNotCare, False otherwise
         """
@@ -166,13 +170,14 @@ class Reference(Expression):
 
 class Statement(PythonASTNode):
     """Base class for statement nodes (perform actions).
-    
+
     Statements are nodes that perform actions rather than compute values.
     Examples: Assign, Return, Discard, Delete.
-    
+
     Attributes:
         __emptyAnnotation__: Default annotation for statements
     """
+
     __slots__ = ()
 
     __emptyAnnotation__ = annotations.emptyOpAnnotation
@@ -180,32 +185,35 @@ class Statement(PythonASTNode):
 
 class SimpleStatement(Statement):
     """Base class for simple statements (single action).
-    
+
     Simple statements represent single actions (e.g., assignment, return).
     """
+
     __slots__ = ()
 
 
 class LLStatement(SimpleStatement):
     """Low-level statement node.
-    
+
     LLStatement represents low-level statements that may have special
     handling in code generation or analysis.
     """
+
     __slots__ = ()
 
 
 class ControlFlow(SimpleStatement):
     """Base class for control flow statements.
-    
+
     ControlFlow represents statements that alter program control flow:
     if, while, for, break, continue, etc.
     """
+
     __slots__ = ()
 
     def significant(self):
         """Control flow statements are significant.
-        
+
         Returns:
             bool: True (control flow affects program behavior)
         """
@@ -213,7 +221,7 @@ class ControlFlow(SimpleStatement):
 
     def isControlFlow(self):
         """Control flow nodes are control flow.
-        
+
         Returns:
             bool: True
         """
@@ -222,15 +230,16 @@ class ControlFlow(SimpleStatement):
 
 class CompoundStatement(Statement):
     """Base class for compound statements (multiple actions).
-    
+
     CompoundStatement represents statements that contain multiple actions
     or nested structures (e.g., Suite, TryExceptFinally).
     """
+
     __slots__ = ()
 
     def significant(self):
         """Compound statements are significant.
-        
+
         Returns:
             bool: True (compound statements affect program behavior)
         """
@@ -239,20 +248,21 @@ class CompoundStatement(Statement):
 
 class BaseCode(PythonASTNode):
     """Base class for code definitions (functions, classes).
-    
+
     BaseCode represents code definitions like functions and classes.
     These nodes are shared (same object = same definition) and provide
     methods for querying abstract read/modify/allocate information.
-    
+
     Attributes:
         __shared__: True (code nodes are shared)
     """
+
     __slots__ = ()
     __shared__ = True
 
     def isCode(self):
         """Code nodes are code definitions.
-        
+
         Returns:
             bool: True
         """
@@ -260,7 +270,7 @@ class BaseCode(PythonASTNode):
 
     def isAbstractCode(self):
         """Check if this is abstract code (not implemented).
-        
+
         Returns:
             bool: True if abstract code
         """
@@ -268,7 +278,7 @@ class BaseCode(PythonASTNode):
 
     def isStandardCode(self):
         """Check if this is standard code (implemented).
-        
+
         Returns:
             bool: True if standard code
         """
@@ -276,10 +286,10 @@ class BaseCode(PythonASTNode):
 
     def codeName(self):
         """Get the name of this code definition.
-        
+
         Returns:
             str: Code name
-            
+
         Raises:
             NotImplementedError: Must be overridden
         """
@@ -287,10 +297,10 @@ class BaseCode(PythonASTNode):
 
     def setCodeName(self, name):
         """Set the name of this code definition.
-        
+
         Args:
             name: New code name
-            
+
         Raises:
             NotImplementedError: Must be overridden
         """
@@ -298,7 +308,7 @@ class BaseCode(PythonASTNode):
 
     def abstractReads(self):
         """Get abstract read information (if available).
-        
+
         Returns:
             object: Abstract read information or None
         """
@@ -306,7 +316,7 @@ class BaseCode(PythonASTNode):
 
     def abstractModifies(self):
         """Get abstract modify information (if available).
-        
+
         Returns:
             object: Abstract modify information or None
         """
@@ -314,7 +324,7 @@ class BaseCode(PythonASTNode):
 
     def abstractAllocates(self):
         """Get abstract allocate information (if available).
-        
+
         Returns:
             object: Abstract allocate information or None
         """
@@ -323,19 +333,20 @@ class BaseCode(PythonASTNode):
 
 class AbstractCode(BaseCode):
     """Abstract code definition (not implemented).
-    
+
     AbstractCode represents code definitions that are not fully implemented
     or are placeholders for analysis purposes.
-    
+
     Attributes:
         __shared__: True (code nodes are shared)
     """
+
     __slots__ = ()
     __shared__ = True
 
     def isAbstractCode(self):
         """Abstract code is abstract.
-        
+
         Returns:
             bool: True
         """

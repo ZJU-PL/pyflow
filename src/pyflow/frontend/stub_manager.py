@@ -8,6 +8,7 @@ for built-in Python operations and interpreter functions.
 import operator
 
 from pyflow.language.python import ast as pyflow_ast
+
 # Expose makeStubs at module scope so tests can patch it directly.
 from pyflow.stubs.stubcollector import makeStubs
 
@@ -23,6 +24,7 @@ class StubManager:
         """Create stub functions for built-in operations."""
         try:
             from pyflow.stubs.stubcollector import makeStubs
+
             return makeStubs(self.compiler)
         except Exception as e:
             # Fallback to minimal stubs if full system fails
@@ -114,7 +116,9 @@ class StubManager:
             (),
             {
                 "exports": {
-                    "interpreter_getattribute": create_stub_code("interpreter_getattribute"),
+                    "interpreter_getattribute": create_stub_code(
+                        "interpreter_getattribute"
+                    ),
                     "interpreter__mul__": create_stub_code("interpreter__mul__"),
                     "interpreter__add__": create_stub_code("interpreter__add__"),
                     "interpreter__sub__": create_stub_code("interpreter__sub__"),
@@ -126,7 +130,9 @@ class StubManager:
                     "interpreter__xor__": create_stub_code("interpreter__xor__"),
                     "interpreter__lshift__": create_stub_code("interpreter__lshift__"),
                     "interpreter__rshift__": create_stub_code("interpreter__rshift__"),
-                    "interpreter__floordiv__": create_stub_code("interpreter__floordiv__"),
+                    "interpreter__floordiv__": create_stub_code(
+                        "interpreter__floordiv__"
+                    ),
                     "interpreter__eq__": create_stub_code("interpreter__eq__"),
                     "interpreter__ne__": create_stub_code("interpreter__ne__"),
                     "interpreter__lt__": create_stub_code("interpreter__lt__"),
@@ -135,15 +141,23 @@ class StubManager:
                     "interpreter__ge__": create_stub_code("interpreter__ge__"),
                     "interpreter_getitem": create_stub_code("interpreter_getitem"),
                     "interpreter_call": create_stub_code("interpreter_call"),
-                    "object__getattribute__": create_stub_code("object__getattribute__"),
-                    "object__setattribute__": create_stub_code("object__setattribute__"),
+                    "object__getattribute__": create_stub_code(
+                        "object__getattribute__"
+                    ),
+                    "object__setattribute__": create_stub_code(
+                        "object__setattribute__"
+                    ),
                     "object__call__": create_stub_code("object__call__"),
                     "function__get__": create_stub_code("function__get__"),
                     "function__call__": create_stub_code("function__call__"),
                     "method__get__": create_stub_code("method__get__"),
                     "method__call__": create_stub_code("method__call__"),
-                    "methoddescriptor__get__": create_stub_code("methoddescriptor__get__"),
-                    "methoddescriptor__call__": create_stub_code("methoddescriptor__call__"),
+                    "methoddescriptor__get__": create_stub_code(
+                        "methoddescriptor__get__"
+                    ),
+                    "methoddescriptor__call__": create_stub_code(
+                        "methoddescriptor__call__"
+                    ),
                 }
             },
         )()

@@ -4,6 +4,7 @@ from . import graph, dom
 
 import pyflow.util.pydot as pydot
 
+
 class Search(object):
     def __init__(self):
         self.processed = set()

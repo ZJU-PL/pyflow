@@ -2,6 +2,7 @@
 LLM-based bug report judge for analyzing and categorizing security issues.
 Independent from pyflow framework.
 """
+
 from typing import Dict, List, Any, Optional
 from dataclasses import dataclass
 from .llm_utils import LLMClient, LLMConfig, format_bug_report, retry_llm_call
@@ -10,6 +11,7 @@ from .llm_utils import LLMClient, LLMConfig, format_bug_report, retry_llm_call
 @dataclass
 class BugJudgment:
     """Result of bug report analysis."""
+
     is_security_issue: bool
     severity: str  # CRITICAL, HIGH, MEDIUM, LOW
     cwe_id: Optional[str]
@@ -63,7 +65,7 @@ class BugReportJudge:
                 confidence=result["confidence"],
                 category=result["category"],
                 explanation=result["explanation"],
-                remediation=result["remediation"]
+                remediation=result["remediation"],
             )
         except (ValueError, KeyError) as e:
             # Fallback judgment if parsing fails
@@ -74,10 +76,12 @@ class BugReportJudge:
                 confidence=0.5,
                 category="Unknown",
                 explanation=f"Failed to parse LLM response: {e}",
-                remediation="Manual review required"
+                remediation="Manual review required",
             )
 
-    def judge_reports_batch(self, bug_reports: List[Dict[str, Any]]) -> List[BugJudgment]:
+    def judge_reports_batch(
+        self, bug_reports: List[Dict[str, Any]]
+    ) -> List[BugJudgment]:
         """Analyze multiple bug reports in batch."""
         return [self.judge_report(report) for report in bug_reports]
 
@@ -87,13 +91,15 @@ class BugReportJudge:
         import json
         import re
 
-        json_match = re.search(r'\{.*\}', response, re.DOTALL)
+        json_match = re.search(r"\{.*\}", response, re.DOTALL)
         if not json_match:
             raise ValueError("No JSON found in response")
 
         return json.loads(json_match.group())
 
-    def is_false_positive(self, bug_report: Dict[str, Any], threshold: float = 0.7) -> bool:
+    def is_false_positive(
+        self, bug_report: Dict[str, Any], threshold: float = 0.7
+    ) -> bool:
         """Quick check if report is likely a false positive."""
         judgment = self.judge_report(bug_report)
         return not judgment.is_security_issue and judgment.confidence > threshold

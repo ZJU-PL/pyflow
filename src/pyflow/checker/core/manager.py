@@ -24,7 +24,15 @@ NOSEC_COMMENT_TESTS = re.compile(r"(?:(B\d+|[a-z\d_]+),?)+", re.IGNORECASE)
 class SecurityManager:
     scope = []
 
-    def __init__(self, config, debug=False, verbose=False, quiet=False, profile=None, ignore_nosec=False):
+    def __init__(
+        self,
+        config,
+        debug=False,
+        verbose=False,
+        quiet=False,
+        profile=None,
+        ignore_nosec=False,
+    ):
         """Initialize the security checker manager"""
         self.debug = debug
         self.verbose = verbose
@@ -42,8 +50,10 @@ class SecurityManager:
 
     def get_skipped(self):
         """Get list of skipped files"""
-        return [(skip[0].decode("utf-8"), skip[1]) if isinstance(skip[0], bytes) else skip 
-                for skip in self.skipped]
+        return [
+            (skip[0].decode("utf-8"), skip[1]) if isinstance(skip[0], bytes) else skip
+            for skip in self.skipped
+        ]
 
     def get_issue_list(self, sev_level=b_constants.LOW, conf_level=b_constants.LOW):
         """Get filtered list of issues"""
@@ -61,7 +71,13 @@ class SecurityManager:
     def filter_results(self, sev_filter, conf_filter):
         """Returns a list of results filtered by the baseline"""
         results = [i for i in self.results if i.filter(sev_filter, conf_filter)]
-        return results if not self.baseline else _find_candidate_matches(_compare_baseline_results(self.baseline, results), results)
+        return (
+            results
+            if not self.baseline
+            else _find_candidate_matches(
+                _compare_baseline_results(self.baseline, results), results
+            )
+        )
 
     def results_count(self, sev_filter=b_constants.LOW, conf_filter=b_constants.LOW):
         """Return the count of results"""
@@ -86,13 +102,19 @@ class SecurityManager:
         for fname in targets:
             if os.path.isdir(fname):
                 if recursive:
-                    new_files, newly_excluded = _get_files_from_dir(fname, included_globs, excluded_path_globs)
+                    new_files, newly_excluded = _get_files_from_dir(
+                        fname, included_globs, excluded_path_globs
+                    )
                     files_list.update(new_files)
                     excluded_files.update(newly_excluded)
                 else:
-                    LOG.warning("Skipping directory (%s), use -r flag to scan contents", fname)
+                    LOG.warning(
+                        "Skipping directory (%s), use -r flag to scan contents", fname
+                    )
             else:
-                if _is_file_included(fname, included_globs, excluded_path_globs, enforce_glob=False):
+                if _is_file_included(
+                    fname, included_globs, excluded_path_globs, enforce_glob=False
+                ):
                     files_list.add(os.path.join(".", fname) if fname != "-" else fname)
                 else:
                     excluded_files.add(fname)
@@ -109,7 +131,9 @@ class SecurityManager:
             try:
                 if fname == "-":
                     fdata = io.BytesIO(os.fdopen(sys.stdin.fileno(), "rb", 0).read())
-                    new_files_list = ["<stdin>" if x == "-" else x for x in new_files_list]
+                    new_files_list = [
+                        "<stdin>" if x == "-" else x for x in new_files_list
+                    ]
                     self._parse_file("<stdin>", fdata, new_files_list)
                 else:
                     with open(fname, "rb") as fdata:
@@ -128,18 +152,20 @@ class SecurityManager:
             lines = data.splitlines()
             self.metrics.begin(fname)
             self.metrics.count_locs(lines)
-            
+
             # Parse nosec comments
             nosec_lines = {}
             if not self.ignore_nosec:
                 try:
                     fdata.seek(0)
-                    for toktype, tokval, (lineno, _), _, _ in tokenize.tokenize(fdata.readline):
+                    for toktype, tokval, (lineno, _), _, _ in tokenize.tokenize(
+                        fdata.readline
+                    ):
                         if toktype == tokenize.COMMENT:
                             nosec_lines[lineno] = _parse_nosec_comment(tokval)
                 except tokenize.TokenError:
                     pass
-                
+
             score = self._execute_ast_visitor(fname, fdata, data, nosec_lines)
             self.scores.append(score)
             self.metrics.count_issues([score])
@@ -151,7 +177,7 @@ class SecurityManager:
         except Exception as e:
             LOG.error("Exception occurred when executing tests against %s.", fname)
             if not LOG.isEnabledFor(logging.DEBUG):
-                LOG.error('Run with --debug to see the full traceback.')
+                LOG.error("Run with --debug to see the full traceback.")
             self.skipped.append((fname, "exception while scanning file"))
             new_files_list.remove(fname)
             LOG.debug("  Exception string: %s", e)
@@ -159,7 +185,9 @@ class SecurityManager:
 
     def _execute_ast_visitor(self, fname, fdata, data, nosec_lines):
         """Execute AST parse on each file"""
-        res = b_node_visitor.SecurityNodeVisitor(fname, fdata, self.b_ts, self.debug, nosec_lines, self.metrics)
+        res = b_node_visitor.SecurityNodeVisitor(
+            fname, fdata, self.b_ts, self.debug, nosec_lines, self.metrics
+        )
         score = res.process(data)
         self.results.extend(res.tester.results)
         return score
@@ -169,7 +197,7 @@ def _get_files_from_dir(files_dir, included_globs=None, excluded_path_strings=No
     """Get files from a directory"""
     included_globs = included_globs or ["*.py"]
     excluded_path_strings = excluded_path_strings or []
-    
+
     files_list = set()
     excluded_files = set()
 
@@ -188,7 +216,10 @@ def _is_file_included(path, included_globs, excluded_path_strings, enforce_glob=
     """Determine if a file should be included based on filename"""
     if not (_matches_glob_list(path, included_globs) or not enforce_glob):
         return False
-    return not (_matches_glob_list(path, excluded_path_strings) or any(x in path for x in excluded_path_strings))
+    return not (
+        _matches_glob_list(path, excluded_path_strings)
+        or any(x in path for x in excluded_path_strings)
+    )
 
 
 def _matches_glob_list(filename, glob_list):
@@ -203,8 +234,10 @@ def _compare_baseline_results(baseline, results):
 
 def _find_candidate_matches(unmatched_issues, results_list):
     """Returns a dictionary with issue candidates"""
-    return collections.OrderedDict((unmatched, [i for i in results_list if unmatched == i]) 
-                                  for unmatched in unmatched_issues)
+    return collections.OrderedDict(
+        (unmatched, [i for i in results_list if unmatched == i])
+        for unmatched in unmatched_issues
+    )
 
 
 def _parse_nosec_comment(comment):
@@ -216,5 +249,5 @@ def _parse_nosec_comment(comment):
     nosec_tests = found_no_sec_comment.groupdict().get("tests", set())
     if not nosec_tests:
         return set()
-    
+
     return {test.group(1) for test in NOSEC_COMMENT_TESTS.finditer(nosec_tests)}

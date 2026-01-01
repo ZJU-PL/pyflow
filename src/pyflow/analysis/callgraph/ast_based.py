@@ -24,7 +24,7 @@ def extract_call_graph(source_code: str) -> CallGraph:
     function_names = set()
 
     # Add implicit 'main' function for module-level code
-    main_function = 'main'
+    main_function = "main"
     graph.add_node(main_function)
     function_names.add(main_function)
 
@@ -58,7 +58,7 @@ def extract_call_graph(source_code: str) -> CallGraph:
 def _analyze_function_calls(func_node, caller_name, function_names, graph):
     """Analyze function calls within a function definition."""
     # Use qualified name for the caller
-    qualified_caller = f"main.{func_node.name}" if func_node.name != 'main' else 'main'
+    qualified_caller = f"main.{func_node.name}" if func_node.name != "main" else "main"
 
     for child in ast.walk(func_node):
         if isinstance(child, ast.Call):
@@ -98,20 +98,24 @@ def _analyze_call_node(call_node, caller_name, function_names, graph):
             pass
 
 
-def _analyze_assignment_calls(assign_node, target_name, caller_name, function_names, graph):
+def _analyze_assignment_calls(
+    assign_node, target_name, caller_name, function_names, graph
+):
     """Analyze calls that happen after an assignment like a = func; a()()."""
     # This is a simplified approach - in a more complete implementation,
     # we'd need to track variable assignments and their usage in subsequent calls
     # For now, we'll handle the specific case from the test: a = func; a()()
 
     # Find the next statement after the assignment
-    parent = getattr(assign_node, '_parent', None)
-    if parent and hasattr(parent, 'body'):
+    parent = getattr(assign_node, "_parent", None)
+    if parent and hasattr(parent, "body"):
         try:
             assign_idx = parent.body.index(assign_node)
             if assign_idx + 1 < len(parent.body):
                 next_node = parent.body[assign_idx + 1]
-                if isinstance(next_node, ast.Expr) and isinstance(next_node.value, ast.Call):
+                if isinstance(next_node, ast.Expr) and isinstance(
+                    next_node.value, ast.Call
+                ):
                     call = next_node.value
                     if isinstance(call.func, ast.Name) and call.func.id == target_name:
                         # This is a call like a() after a = func
@@ -122,16 +126,20 @@ def _analyze_assignment_calls(assign_node, target_name, caller_name, function_na
             pass
 
 
-def _find_subsequent_calls(assign_node, var_name, func_name, caller_name, function_names, graph):
+def _find_subsequent_calls(
+    assign_node, var_name, func_name, caller_name, function_names, graph
+):
     """Find calls to a variable after it's been assigned a function."""
-    parent = getattr(assign_node, '_parent', None)
-    if parent and hasattr(parent, 'body'):
+    parent = getattr(assign_node, "_parent", None)
+    if parent and hasattr(parent, "body"):
         try:
             assign_idx = parent.body.index(assign_node)
             # Look at subsequent statements
             for i in range(assign_idx + 1, len(parent.body)):
                 next_node = parent.body[i]
-                if isinstance(next_node, ast.Expr) and isinstance(next_node.value, ast.Call):
+                if isinstance(next_node, ast.Expr) and isinstance(
+                    next_node.value, ast.Call
+                ):
                     call = next_node.value
                     if isinstance(call.func, ast.Name) and call.func.id == var_name:
                         # This is a call like a()
@@ -144,9 +152,16 @@ def _find_subsequent_calls(assign_node, var_name, func_name, caller_name, functi
                                 graph.add_edge(caller_name, func_name)
                         # Handle a()() pattern - the inner call returns a function
                         # that gets called by the outer call
-                        if call.args and len(call.args) == 1 and isinstance(call.args[0], ast.Call):
+                        if (
+                            call.args
+                            and len(call.args) == 1
+                            and isinstance(call.args[0], ast.Call)
+                        ):
                             inner_call = call.args[0]
-                            if isinstance(inner_call.func, ast.Name) and inner_call.func.id == var_name:
+                            if (
+                                isinstance(inner_call.func, ast.Name)
+                                and inner_call.func.id == var_name
+                            ):
                                 # This is a()() where a() returns a function that gets called
                                 # The inner a() should call func_name
                                 qualified_func = f"main.{func_name}"
@@ -176,18 +191,19 @@ def _analyze_assignment_and_call(assign_node, caller_name, function_names, graph
                     graph.add_edge(caller_name, func_name)
 
                 # Look for subsequent calls to this variable
-                _find_subsequent_calls(assign_node, var_name, func_name, caller_name, function_names, graph)
+                _find_subsequent_calls(
+                    assign_node, var_name, func_name, caller_name, function_names, graph
+                )
 
 
 def analyze_file(filepath: str) -> str:
     """Analyze a Python file and return call graph as text."""
     try:
-        with open(filepath, 'r') as f:
+        with open(filepath, "r") as f:
             source = f.read()
         graph = extract_call_graph(source)
         from .formats import generate_text_output
+
         return generate_text_output(graph, None)
     except Exception as e:
         return f"Error analyzing {filepath}: {e}"
-
-

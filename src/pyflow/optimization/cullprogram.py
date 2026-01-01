@@ -26,20 +26,21 @@ from pyflow.analysis import programculler
 class CodeContextCuller(TypeDispatcher):
     """
     Eliminates unreferenced code contexts from a program.
-    
+
     This class processes code nodes and removes contexts that are not
     in the live set. It updates annotations to reflect only the live
     contexts, reducing memory usage and analysis complexity.
-    
+
     The culler:
     - Remaps context indices to reflect only live contexts
     - Updates node annotations with context subsets
     - Tracks local variables that need annotation updates
-    
+
     Attributes:
         locals: Set of local variables that need annotation updates
         remap: List mapping old context indices to new indices
     """
+
     # Critical: code references in direct calls must NOT have their annotations rewritten.
     @dispatch(ast.leafTypes, ast.Code)
     def visitLeaf(self, node):
@@ -61,11 +62,11 @@ class CodeContextCuller(TypeDispatcher):
     def process(self, code, contexts):
         """
         Process a code node and remove unused contexts.
-        
+
         Creates a remapping from old context indices to new indices,
         keeping only the contexts that are in the live set. Updates
         the code's annotation and all child nodes.
-        
+
         Args:
             code: Code node to process
             contexts: Set of live contexts to preserve
@@ -88,15 +89,15 @@ class CodeContextCuller(TypeDispatcher):
 def evaluateCode(code, contexts, ccc):
     """
     Evaluate and cull contexts from a code node.
-    
+
     Removes unused contexts from a code node if the number of contexts
     differs from the live set. Verifies invariants before and after.
-    
+
     Args:
         code: Code node to process
         contexts: Set of live contexts
         ccc: CodeContextCuller instance
-        
+
     Raises:
         AssertionError: If contexts are not in code.annotation.contexts
     """
@@ -116,11 +117,11 @@ def evaluateCode(code, contexts, ccc):
 def evaluate(compiler, prgm):
     """
     Main entry point for program culling.
-    
+
     Finds all live contexts in the program and removes unused contexts
     from code annotations. This reduces memory usage and analysis
     complexity by eliminating unreachable code specializations.
-    
+
     Args:
         compiler: Compiler instance
         prgm: Program to cull

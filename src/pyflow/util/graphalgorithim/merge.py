@@ -13,6 +13,7 @@ assignments with temporaries: (temp1=a, x=temp1, y=x, z=b).
 
 class MergeError(Exception):
     """Exception raised when merge serialization encounters an error."""
+
     pass
 
 

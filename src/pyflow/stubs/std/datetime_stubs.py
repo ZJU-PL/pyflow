@@ -63,6 +63,8 @@ def makeDateTimeStubs(collector):
     @export
     @attachPtr(datetime, "timedelta")
     @llfunc
-    def datetime_timedelta(days=0, seconds=0, microseconds=0, milliseconds=0, minutes=0, hours=0, weeks=0):
+    def datetime_timedelta(
+        days=0, seconds=0, microseconds=0, milliseconds=0, minutes=0, hours=0, weeks=0
+    ):
         # Create timedelta object
         return allocate(datetime.timedelta)

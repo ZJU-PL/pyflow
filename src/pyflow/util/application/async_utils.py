@@ -38,6 +38,7 @@ def async_func(func):
         thread = long_running_task()  # Returns immediately
         thread.join()  # Wait for completion
     """
+
     @functools.wraps(func)
     def async_wrapper(*args, **kargs):
         t = threading.Thread(target=func, args=args, kwargs=kargs)
@@ -73,6 +74,7 @@ def async_limited(count):
         for i in range(10):
             api_call()  # First 3 start immediately, others wait
     """
+
     def limited_func(func):
         # Semaphore to limit concurrent executions
         semaphore = threading.BoundedSemaphore(count)

@@ -14,22 +14,24 @@ poolableTypes = set((float, int, str, bool))
 
 class ProgramDecl(object):
     """Base class for program declarations.
-    
+
     ProgramDecl marks classes that represent program-level declarations
     (objects, types, etc.) in the program representation.
     """
+
     __slots__ = ()
 
 
 class TypeInfo(object):
     """Type information for objects.
-    
+
     TypeInfo associates type information with objects, including abstract
     instance information for type objects.
-    
+
     Attributes:
         abstractInstance: Abstract instance for this type (if applicable)
     """
+
     __slots__ = "abstractInstance"
 
     def __init__(self):
@@ -39,19 +41,20 @@ class TypeInfo(object):
 
 class AbstractObject(ProgramDecl):
     """Base class for all program objects.
-    
+
     AbstractObject represents objects in the program, either concrete
     (wrapping Python values) or abstract (for analysis). It provides
     methods for querying object properties.
-    
+
     Attributes:
         type: Type object for this object
     """
+
     __slots__ = "type", "__weakref__"
 
     def isType(self):
         """Check if this object is a type.
-        
+
         Returns:
             bool: True if object is a type
         """
@@ -59,18 +62,20 @@ class AbstractObject(ProgramDecl):
 
     def isAbstract(self):
         """Check if this object is abstract (not concrete).
-        
+
         Returns:
             bool: True if object is abstract
         """
-        return (self.type is not None and 
-                hasattr(self.type, 'typeinfo') and 
-                self.type.typeinfo is not None and 
-                self.type.typeinfo.abstractInstance == self)
+        return (
+            self.type is not None
+            and hasattr(self.type, "typeinfo")
+            and self.type.typeinfo is not None
+            and self.type.typeinfo.abstractInstance == self
+        )
 
     def isConcrete(self):
         """Check if this object is concrete (not abstract).
-        
+
         Returns:
             bool: True if object is concrete
         """
@@ -78,7 +83,7 @@ class AbstractObject(ProgramDecl):
 
     def isConstant(self):
         """Check if this object is constant.
-        
+
         Returns:
             bool: True if object is constant
         """
@@ -86,9 +91,9 @@ class AbstractObject(ProgramDecl):
 
     def isLexicalConstant(self):
         """Check if this object is a lexical constant.
-        
+
         Lexical constants are compile-time constants (literals).
-        
+
         Returns:
             bool: True if object is lexical constant
         """
@@ -96,9 +101,9 @@ class AbstractObject(ProgramDecl):
 
     def isUnique(self):
         """Check if this object is unique (not poolable).
-        
+
         Unique objects cannot be pooled (shared) because they have identity.
-        
+
         Returns:
             bool: True if object is unique
         """
@@ -127,11 +132,11 @@ def isLexicalConstant(pyobj):
 
 class Object(AbstractObject):
     """Concrete object wrapping a Python value.
-    
+
     Object wraps a Python value (pyobj) and provides access to its
     attributes, array elements, dictionary items, and low-level fields.
     Objects are lazily initialized - data structures are allocated on demand.
-    
+
     Attributes:
         pyobj: Python object being wrapped
         type: Type object for this object
@@ -141,14 +146,15 @@ class Object(AbstractObject):
         dictionary: Dictionary mapping dictionary keys to objects
         lowlevel: Dictionary mapping low-level field names to objects
     """
+
     __slots__ = "pyobj", "type", "typeinfo", "slot", "array", "dictionary", "lowlevel"
 
     def __init__(self, pyobj):
         """Initialize object wrapper.
-        
+
         Args:
             pyobj: Python object to wrap
-            
+
         Raises:
             AssertionError: If pyobj is already a ProgramDecl
         """
@@ -159,10 +165,10 @@ class Object(AbstractObject):
 
     def allocateDatastructures(self, type_):
         """Allocate data structures for this object.
-        
+
         Initializes slot, array, dictionary, and lowlevel dictionaries.
         Called lazily when data structures are first accessed.
-        
+
         Args:
             type_: Type object for this object
         """
@@ -246,26 +252,27 @@ class Object(AbstractObject):
 
 class ImaginaryObject(AbstractObject):
     """Abstract object for analysis (not a concrete Python value).
-    
+
     ImaginaryObject represents abstract objects used during analysis.
     These objects don't correspond to concrete Python values but represent
     abstract concepts (e.g., "any list", "any function").
-    
+
     Attributes:
         name: Name of the imaginary object
         preexisting: Whether object is preexisting (exists before analysis)
         type: Type object for this imaginary object
     """
+
     __slots__ = "name", "preexisting"
 
     def __init__(self, name, t, preexisting):
         """Initialize imaginary object.
-        
+
         Args:
             name: Name of the imaginary object
             t: Type object (must be a type)
             preexisting: Whether object is preexisting
-            
+
         Raises:
             AssertionError: If t is not a type
         """
@@ -276,7 +283,7 @@ class ImaginaryObject(AbstractObject):
 
     def __repr__(self):
         """String representation of imaginary object.
-        
+
         Returns:
             str: String representation
         """
@@ -284,9 +291,9 @@ class ImaginaryObject(AbstractObject):
 
     def isPreexisting(self):
         """Check if object is preexisting.
-        
+
         Preexisting objects exist before analysis (e.g., hidden function stubs).
-        
+
         Returns:
             bool: True if object is preexisting
         """
@@ -296,7 +303,7 @@ class ImaginaryObject(AbstractObject):
 
     def pythonType(self):
         """Get Python type of this object.
-        
+
         Returns:
             type: Python type object
         """

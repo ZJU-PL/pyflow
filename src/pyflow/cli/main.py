@@ -18,13 +18,12 @@ from .security import run_security_analysis, add_security_parser
 from . import callgraph
 
 
-
 def main():
     """Main entry point for the PyFlow CLI.
-    
+
     Parses command-line arguments and dispatches to appropriate sub-commands
     for optimization, call graph analysis, IR dumping, and security analysis.
-    
+
     Returns:
         int: Exit code (0 for success, non-zero for error).
     """
@@ -43,17 +42,21 @@ def main():
 
     # Call graph command - use the modular parser
     callgraph.add_callgraph_parser(subparsers)
-    
+
     # IR dumping command - use the modular parser
     add_ir_parser(subparsers)
-    
+
     # Security analysis command - use the modular parser
     add_security_parser(subparsers)
 
     args = parser.parse_args()
 
     # Handle special commands that don't require input
-    if args.command == "optimize" and hasattr(args, "list_opt_passes") and args.list_opt_passes:
+    if (
+        args.command == "optimize"
+        and hasattr(args, "list_opt_passes")
+        and args.list_opt_passes
+    ):
         list_optimization_passes()
         return 0
 

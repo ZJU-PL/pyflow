@@ -19,10 +19,10 @@ from pyflow.util.python import apply
 
 def existingConstant(node):
     """Check if a node represents a constant value.
-    
+
     Args:
         node: AST node to check
-        
+
     Returns:
         bool: True if node is an Existing node with constant value
     """
@@ -31,13 +31,13 @@ def existingConstant(node):
 
 def foldSwitch(node):
     """Fold a Switch node if condition is constant.
-    
+
     If the switch condition is constant, returns the taken branch.
     If both branches are empty, returns just the preamble.
-    
+
     Args:
         node: Switch node to fold
-        
+
     Returns:
         AST node: Folded node (Suite with taken branch, or original node)
     """
@@ -60,14 +60,14 @@ def foldSwitch(node):
 
 def foldBinaryOpAST(extractor, bop):
     """Fold a binary operation if both operands are constant.
-    
+
     Evaluates binary operations (+, -, *, /, ==, <, etc.) at compile time
     if both operands are constant.
-    
+
     Args:
         extractor: Object extractor for creating new objects
         bop: BinaryOp node to fold
-        
+
     Returns:
         AST node: Existing node with constant result, or original node
     """
@@ -87,14 +87,14 @@ def foldBinaryOpAST(extractor, bop):
 
 def foldUnaryPrefixOpAST(extractor, uop):
     """Fold a unary prefix operation if operand is constant.
-    
+
     Evaluates unary operations (-, +, not, etc.) at compile time
     if the operand is constant.
-    
+
     Args:
         extractor: Object extractor for creating new objects
         uop: UnaryPrefixOp node to fold
-        
+
     Returns:
         AST node: Existing node with constant result, or original node
     """
@@ -113,13 +113,13 @@ def foldUnaryPrefixOpAST(extractor, uop):
 
 def foldBoolAST(extractor, op):
     """Fold a boolean conversion if operand is constant.
-    
+
     Evaluates boolean conversion at compile time if operand is constant.
-    
+
     Args:
         extractor: Object extractor for creating new objects
         op: ConvertToBool node to fold
-        
+
     Returns:
         AST node: Existing node with constant result, or original node
     """
@@ -137,13 +137,13 @@ def foldBoolAST(extractor, op):
 
 def foldNotAST(extractor, op):
     """Fold a 'not' operation if operand is constant.
-    
+
     Evaluates 'not' operation at compile time if operand is constant.
-    
+
     Args:
         extractor: Object extractor for creating new objects
         op: Not operation node to fold
-        
+
     Returns:
         AST node: Existing node with constant result, or original node
     """
@@ -161,17 +161,17 @@ def foldNotAST(extractor, op):
 
 def foldCallAST(extractor, node, func, args=(), kargs={}):
     """Fold a function call if all arguments are constant.
-    
+
     Evaluates function calls at compile time if all arguments are constant
     and the function can be evaluated (built-in functions).
-    
+
     Args:
         extractor: Object extractor for creating new objects
         node: Call node to fold
         func: Function object to call
         args: Positional arguments
         kargs: Keyword arguments (not supported)
-        
+
     Returns:
         AST node: Existing node with constant result, or original node
     """
@@ -193,14 +193,14 @@ def foldCallAST(extractor, node, func, args=(), kargs={}):
 
 def foldIsAST(extractor, node):
     """Fold an 'is' comparison if both operands are known.
-    
+
     Evaluates 'is' comparisons at compile time if both operands are
     Existing nodes (known objects).
-    
+
     Args:
         extractor: Object extractor for creating new objects
         node: Is comparison node to fold
-        
+
     Returns:
         AST node: Existing node with constant result, or original node
     """

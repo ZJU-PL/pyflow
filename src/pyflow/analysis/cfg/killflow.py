@@ -22,17 +22,18 @@ NoNormalFlow = cfg.NoNormalFlow
 
 class OpFlow(TypeDispatcher):
     """Analyzes AST operations to determine control flow properties.
-    
+
     This class traverses AST nodes and determines which control flow paths
     are possible. It sets flags indicating:
     - normal: Operation can complete normally
     - fails: Operation can fail/raise exceptions
     - errors: Operation can cause errors
     - yields: Operation can yield (generators)
-    
+
     The analysis is pessimistic by default - if an operation's flow
     properties cannot be determined, it assumes all paths are possible.
     """
+
     @dispatch(
         ast.leafTypes,
         ast.GetCellDeref,
@@ -43,7 +44,7 @@ class OpFlow(TypeDispatcher):
     )
     def visitLeaf(self, node):
         """Visit leaf nodes (no flow effects).
-        
+
         Leaf nodes don't affect control flow, so no flags are set.
         """
         pass
@@ -51,7 +52,7 @@ class OpFlow(TypeDispatcher):
     @dispatch(ast.Existing)
     def visitExisting(self, node):
         """Visit existing object nodes (no flow effects).
-        
+
         Existing objects are constants and don't affect control flow.
         """
         pass
@@ -59,9 +60,9 @@ class OpFlow(TypeDispatcher):
     @dispatch(ast.Local)
     def visitLocal(self, node):
         """Visit local variable references.
-        
+
         Local variable reads don't affect control flow.
-        
+
         Note:
             TODO: Handle undefined variables?
         """
@@ -69,10 +70,10 @@ class OpFlow(TypeDispatcher):
 
     def assumePessimistic(self):
         """Assume pessimistic flow (all paths possible).
-        
+
         When flow properties cannot be determined, assume the operation
         can cause errors. This ensures soundness but may be imprecise.
-        
+
         Note:
             TODO: Get flow info via callback for more precision?
         """
@@ -162,18 +163,19 @@ class OpFlow(TypeDispatcher):
 
 class FlowKiller(TypeDispatcher):
     """Kills impossible control flow edges based on operation analysis.
-    
+
     This class uses OpFlow analysis to determine which control flow edges
     are impossible and removes them from the CFG. It processes CFG blocks
     and kills exits that cannot be taken based on the operations they contain.
-    
+
     Attributes:
         opFlow: OpFlow instance for analyzing operations
         yields: Whether any operation in the CFG can yield
     """
+
     def __init__(self, opFlow):
         """Initialize the flow killer.
-        
+
         Args:
             opFlow: OpFlow instance for operation analysis
         """
@@ -183,9 +185,9 @@ class FlowKiller(TypeDispatcher):
     @dispatch(cfg.Yield)
     def visitYield(self, node):
         """Visit yield blocks.
-        
+
         Yield blocks always indicate yield flow.
-        
+
         Args:
             node: Yield CFG block
         """
@@ -194,10 +196,10 @@ class FlowKiller(TypeDispatcher):
     @dispatch(cfg.Entry, cfg.Exit, cfg.Merge)
     def visitOK(self, node):
         """Visit structural blocks (no operations to analyze).
-        
+
         Entry, Exit, and Merge blocks don't contain operations, so
         no flow killing is needed.
-        
+
         Args:
             node: CFG block (ignored)
         """
@@ -206,13 +208,13 @@ class FlowKiller(TypeDispatcher):
     @dispatch(cfg.Suite)
     def visitSuite(self, node):
         """Analyze suite blocks and kill impossible exits.
-        
+
         Processes each operation in the suite to determine flow properties.
         Kills exits that cannot be taken:
         - "normal" exit killed if any operation prevents normal flow
         - "fail" exit killed if no operation can fail
         - "error" exit killed if no operation can error
-        
+
         Args:
             node: Suite CFG block to analyze
         """
@@ -245,10 +247,10 @@ class FlowKiller(TypeDispatcher):
     @dispatch(cfg.Switch)
     def visitSwitch(self, node):
         """Analyze switch blocks and kill impossible exits.
-        
+
         Processes the switch condition to determine flow properties.
         Kills exits that cannot be taken based on condition analysis.
-        
+
         Args:
             node: Switch CFG block to analyze
         """
@@ -270,10 +272,10 @@ class FlowKiller(TypeDispatcher):
     @dispatch(cfg.TypeSwitch)
     def visitTypeSwitch(self, node):
         """Analyze type switch blocks and kill impossible exits.
-        
+
         Type switches don't have explicit conditions to analyze, but
         we still check for yield flow and kill impossible exits.
-        
+
         Args:
             node: TypeSwitch CFG block to analyze
         """
@@ -291,10 +293,10 @@ class FlowKiller(TypeDispatcher):
 
 def evaluate(compiler, g):
     """Run flow killing analysis on a CFG.
-    
+
     Analyzes all operations in the CFG and removes impossible control
     flow edges. This simplifies the CFG and enables more precise analysis.
-    
+
     Args:
         compiler: Compiler context (unused, kept for interface consistency)
         g: CFG Code object to analyze

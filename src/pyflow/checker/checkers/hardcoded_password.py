@@ -35,19 +35,21 @@ from ..core import test_properties as test
 # Regular expression for password-related keywords
 RE_WORDS = "(pas+wo?r?d|pass(phrase)?|pwd|token|secrete?)"
 # Pattern matches: start, end, or anywhere in variable name (case-insensitive)
-RE_CANDIDATES = re.compile(f"(^{RE_WORDS}$|_{RE_WORDS}_|^{RE_WORDS}_|_{RE_WORDS}$)", re.IGNORECASE)
+RE_CANDIDATES = re.compile(
+    f"(^{RE_WORDS}$|_{RE_WORDS}_|^{RE_WORDS}_|_{RE_WORDS}$)", re.IGNORECASE
+)
 
 
 def _get_string(node):
     """
     Extract a string value from AST string nodes.
-    
+
     Handles both Python < 3.8 (ast.Str) and Python 3.8+ (ast.Constant)
     for compatibility.
-    
+
     Args:
         node: AST node (Str, Constant, or other)
-        
+
     Returns:
         String value, or None if not a string node
     """
@@ -61,10 +63,10 @@ def _get_string(node):
 def _report(value):
     """
     Create a hardcoded password issue.
-    
+
     Args:
         value: The hardcoded password value found
-        
+
     Returns:
         Issue object with LOW severity, MEDIUM confidence
     """
@@ -81,25 +83,25 @@ def _report(value):
 def hardcoded_password_string(context):
     """
     Check for hardcoded password strings in assignments and comparisons.
-    
+
     Detects hardcoded passwords in:
     1. Variable assignments: `password = "secret123"`
     2. Attribute assignments: `config.password = "secret123"`
     3. Dictionary assignments: `config["password"] = "secret123"`
     4. Comparisons: `if password == "secret123"`
-    
+
     Args:
         context: Context object with string node information
-        
+
     Returns:
         Issue object if hardcoded password detected, None otherwise
     """
     node = context.node
-    parent = getattr(node, '_bandit_parent', None)
+    parent = getattr(node, "_bandit_parent", None)
     node_str = _get_string(node)
     if node_str is None:
         return None
-    
+
     if isinstance(parent, ast.Assign):
         # Look for "candidate='some_string'" in variable assignments
         for targ in parent.targets:
@@ -110,7 +112,7 @@ def hardcoded_password_string(context):
 
     elif isinstance(parent, ast.Subscript) and RE_CANDIDATES.search(node_str):
         # Look for "dict[candidate]='some_string'" in dictionary assignments
-        grandparent = getattr(parent, '_bandit_parent', None)
+        grandparent = getattr(parent, "_bandit_parent", None)
         if isinstance(grandparent, ast.Assign):
             value_str = _get_string(grandparent.value)
             if value_str is not None:
@@ -119,7 +121,9 @@ def hardcoded_password_string(context):
     elif isinstance(parent, ast.Compare):
         # Look for "candidate == 'some_string'" in comparisons
         left = parent.left
-        if isinstance(left, (ast.Name, ast.Attribute)) and RE_CANDIDATES.search(left.id if isinstance(left, ast.Name) else left.attr):
+        if isinstance(left, (ast.Name, ast.Attribute)) and RE_CANDIDATES.search(
+            left.id if isinstance(left, ast.Name) else left.attr
+        ):
             if parent.comparators:
                 comp_str = _get_string(parent.comparators[0])
                 if comp_str is not None:
@@ -131,13 +135,13 @@ def hardcoded_password_string(context):
 def hardcoded_password_funcarg(context):
     """
     Check for hardcoded password function arguments.
-    
+
     Detects hardcoded passwords passed as keyword arguments:
     `login(password="secret123")`
-    
+
     Args:
         context: Context object with call node information
-        
+
     Returns:
         Issue object if hardcoded password detected, None otherwise
     """
@@ -153,21 +157,19 @@ def hardcoded_password_funcarg(context):
 def hardcoded_password_default(context):
     """
     Check for hardcoded password argument defaults.
-    
+
     Detects hardcoded passwords in function parameter defaults:
     `def login(password="secret123"):`
-    
+
     Args:
         context: Context object with function definition information
-        
+
     Returns:
         Issue object if hardcoded password detected, None otherwise
     """
     # Look for "def function(candidate='some_string')" in parameter defaults
     # Align defaults with parameters (defaults only apply to last N parameters)
-    defs = [None] * (
-        len(context.node.args.args) - len(context.node.args.defaults)
-    )
+    defs = [None] * (len(context.node.args.args) - len(context.node.args.defaults))
     defs.extend(context.node.args.defaults)
 
     # Go through all (param, value) pairs and look for password candidates
@@ -175,8 +177,7 @@ def hardcoded_password_default(context):
         if isinstance(key, (ast.Name, ast.arg)):
             # Skip if the default value is None
             if val is None or (
-                isinstance(val, (ast.Constant, ast.NameConstant))
-                and val.value is None
+                isinstance(val, (ast.Constant, ast.NameConstant)) and val.value is None
             ):
                 continue
             val_str = _get_string(val)

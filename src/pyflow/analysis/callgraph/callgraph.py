@@ -82,4 +82,3 @@ class CallGraph:
         for caller, callees in self._graph.items():
             for callee in callees:
                 yield caller, callee
-

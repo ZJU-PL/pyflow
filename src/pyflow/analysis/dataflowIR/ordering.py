@@ -14,17 +14,17 @@ from . import graph
 
 class OrderSearcher(object):
     """Computes topological ordering of dataflow graph operations.
-    
+
     This class performs a depth-first search of the dataflow graph,
     assigning pre-order and post-order numbers to nodes, and collecting
     operation nodes in reverse post-order (which is a valid topological order).
-    
+
     The algorithm:
     1. Start from entry and existing nodes
     2. Perform DFS, assigning pre-order numbers
     3. When revisiting nodes, assign post-order numbers
     4. Collect operation nodes in reverse post-order
-    
+
     Attributes:
         queue: Queue of nodes to process
         enqueued: Set of nodes already enqueued
@@ -32,6 +32,7 @@ class OrderSearcher(object):
         uid: Unique identifier counter
         order: List of operations in topological order
     """
+
     def __init__(self):
         """Initialize the order searcher."""
         self.queue = []
@@ -43,9 +44,9 @@ class OrderSearcher(object):
 
     def mark(self, node):
         """Mark a node for processing.
-        
+
         Adds a node to the queue if it hasn't been enqueued yet.
-        
+
         Args:
             node: Dataflow node to mark
         """
@@ -55,11 +56,11 @@ class OrderSearcher(object):
 
     def handleNode(self, node):
         """Handle a node during DFS traversal.
-        
+
         If node hasn't been visited (no pre-order number), assign one
         and enqueue its successors. If already visited, assign post-order
         number and add to order list if it's an operation.
-        
+
         Args:
             node: Dataflow node to handle
         """
@@ -86,13 +87,13 @@ class OrderSearcher(object):
 
     def process(self, dataflow):
         """Process a dataflow graph to compute topological order.
-        
+
         Starts from entry points (entry, existing nodes, null, entryPredicate)
         and performs DFS to compute ordering.
-        
+
         Args:
             dataflow: DataflowGraph to process
-            
+
         Returns:
             list: List of OpNode objects in topological order (reverse post-order)
         """
@@ -114,13 +115,13 @@ class OrderSearcher(object):
 
 def evaluateDataflow(dataflow):
     """Compute topological ordering of operations in a dataflow graph.
-    
+
     Main entry point for computing operation ordering. Returns operations
     in an order that respects data dependencies (definitions before uses).
-    
+
     Args:
         dataflow: DataflowGraph to order
-        
+
     Returns:
         list: List of OpNode objects in topological order
     """

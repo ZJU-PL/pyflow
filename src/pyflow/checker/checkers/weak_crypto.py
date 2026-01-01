@@ -26,7 +26,7 @@ from ..core import test_properties as test
 def weak_crypto_issue():
     """
     Create a generic weak crypto issue.
-    
+
     Returns:
         Issue object with MEDIUM severity, HIGH confidence
     """
@@ -43,13 +43,13 @@ def weak_crypto_issue():
 def weak_cryptographic_key(context):
     """
     Check for weak cryptographic key sizes.
-    
+
     Validates AES key sizes to ensure they meet minimum security requirements.
     AES keys should be at least 128 bits for security.
-    
+
     Args:
         context: Context object with call information
-        
+
     Returns:
         Issue object if weak key size detected, None otherwise
     """
@@ -65,17 +65,17 @@ def weak_cryptographic_key(context):
 def weak_hash_functions(context):
     """
     Check for weak hash functions.
-    
+
     Detects use of cryptographically weak hash functions (MD5, SHA1)
     which are vulnerable to collision attacks and should not be used
     for security purposes.
-    
+
     Args:
         context: Context object with call information
-        
+
     Returns:
         Issue object if weak hash function detected, None otherwise
-        
+
     Note:
         This is a fallback check. Most weak hash functions are also
         caught by the blacklist system (B303).

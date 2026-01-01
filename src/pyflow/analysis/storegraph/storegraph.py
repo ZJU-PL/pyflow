@@ -29,15 +29,16 @@ from pyflow.language.python import program
 
 class MergableNode(object):
     """Base class for nodes that can be merged during analysis.
-    
+
     Uses union-find data structure to efficiently merge equivalent nodes.
     When nodes are merged, they point to a canonical representative via
     the forward pointer. This enables efficient alias analysis and object
     merging.
-    
+
     Attributes:
         forward: Pointer to canonical representative (None if self is canonical)
     """
+
     __slots__ = "forward"
 
     def __init__(self):
@@ -46,10 +47,10 @@ class MergableNode(object):
 
     def getForward(self):
         """Get the canonical representative of this node.
-        
+
         Follows forward pointers to find the canonical node, performing
         path compression for efficiency.
-        
+
         Returns:
             MergableNode: Canonical representative
         """
@@ -62,10 +63,10 @@ class MergableNode(object):
 
     def setForward(self, other):
         """Set this node to point to another (for merging).
-        
+
         Args:
             other: Node to point to
-            
+
         Raises:
             AssertionError: If forward pointer already set
         """
@@ -75,7 +76,7 @@ class MergableNode(object):
 
     def isObjectContext(self):
         """Check if this is an object context node.
-        
+
         Returns:
             bool: True if ObjectNode
         """
@@ -83,7 +84,7 @@ class MergableNode(object):
 
     def isSlot(self):
         """Check if this is a slot node.
-        
+
         Returns:
             bool: True if SlotNode
         """
@@ -91,7 +92,7 @@ class MergableNode(object):
 
     def isObject(self):
         """Check if this is an object node.
-        
+
         Returns:
             bool: True if ObjectNode
         """
@@ -102,16 +103,16 @@ class MergableNode(object):
 # depending on how the analysis works.
 class StoreGraph(MergableNode):
     """Root store graph managing all slots and regions.
-    
+
     StoreGraph is the root of the store graph structure. It manages:
     - Root slots: Local variables and references to existing objects
     - Regions: Groups of objects (for region-based analysis)
     - Set operations: Efficient set management for object sets
     - Type information: Type pointer and length slot names
-    
+
     StoreGraphs can represent entire programs or individual functions,
     depending on the analysis scope.
-    
+
     Attributes:
         slots: Dictionary mapping SlotName to SlotNode (root slots)
         regionHint: Default region for new objects
@@ -121,6 +122,7 @@ class StoreGraph(MergableNode):
         typeSlotName: Canonical name for type pointer field
         lengthSlotName: Canonical name for length field
     """
+
     __slots__ = (
         "slots",
         "regionHint",
@@ -133,7 +135,7 @@ class StoreGraph(MergableNode):
 
     def __init__(self, extractor, canonical):
         """Initialize a store graph.
-        
+
         Args:
             extractor: Program extractor for accessing objects
             canonical: CanonicalObjects for canonical naming
@@ -227,21 +229,22 @@ class StoreGraph(MergableNode):
 
 class RegionNode(MergableNode):
     """Represents a region grouping objects together.
-    
+
     Regions group objects for region-based analysis. Objects in the same
     region are considered related (e.g., allocated in the same context).
     Regions can be merged when objects from different regions are aliased.
-    
+
     Attributes:
         objects: Dictionary mapping ExtendedType to ObjectNode
         group: StoreGraph this region belongs to
         weight: Weight for region merging heuristics
     """
+
     __slots__ = "objects", "group", "weight"
 
     def __init__(self, group):
         """Initialize a region node.
-        
+
         Args:
             group: StoreGraph this region belongs to
         """
@@ -295,11 +298,11 @@ class RegionNode(MergableNode):
 
 class ObjectNode(MergableNode):
     """Represents an abstract object in the store graph.
-    
+
     ObjectNode represents an abstract object with its fields (slots).
     Objects can be merged when they alias. Fields are accessed by
     SlotName (field type and name).
-    
+
     Attributes:
         region: RegionNode this object belongs to
         xtype: ExtendedType for this object
@@ -307,11 +310,12 @@ class ObjectNode(MergableNode):
         leaks: Whether this object may leak (escape analysis)
         annotation: ObjectAnnotation with analysis results
     """
+
     __slots__ = "region", "xtype", "slots", "leaks", "annotation"
 
     def __init__(self, region, xtype):
         """Initialize an object node.
-        
+
         Args:
             region: RegionNode this object belongs to
             xtype: ExtendedType for this object
@@ -399,17 +403,17 @@ class ObjectNode(MergableNode):
 
 class SlotNode(MergableNode):
     """Represents a storage location (local variable or object field).
-    
+
     SlotNode represents a storage location that can hold references to
     objects. Slots maintain:
     - refs: Set of ExtendedTypes that may flow to this slot
     - null: Whether this slot may be null
     - observers: Constraints that depend on this slot (for propagation)
-    
+
     Slots can be:
     - Root slots: Local variables or existing object references
     - Field slots: Object attributes, array elements, etc.
-    
+
     Attributes:
         object: ObjectNode this slot belongs to (None for root slots)
         slotName: SlotName identifying this slot
@@ -419,6 +423,7 @@ class SlotNode(MergableNode):
         observers: List of constraints observing this slot
         annotation: FieldAnnotation with analysis results
     """
+
     __slots__ = (
         "object",
         "slotName",
@@ -431,7 +436,7 @@ class SlotNode(MergableNode):
 
     def __init__(self, object, slot, region, refs):
         """Initialize a slot node.
-        
+
         Args:
             object: ObjectNode this slot belongs to (None for root slots)
             slot: SlotName identifying this slot

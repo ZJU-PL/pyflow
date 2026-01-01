@@ -84,7 +84,7 @@ class Pipeline(object):
     def _run_with_pass_manager(self, compiler, program, name: str):
         """
         Run pipeline using the pass manager system.
-        
+
         Builds a comprehensive pipeline with standard passes in dependency order:
         1. IPA (Inter-procedural analysis) - builds call graph
         2. CPA (Constraint propagation analysis) - type and flow analysis
@@ -95,15 +95,15 @@ class Pipeline(object):
         7. Argument normalization - eliminates *args, **kwargs
         8. Program culling - removes dead functions/contexts
         9. Store elimination - removes redundant stores
-        
+
         Args:
             compiler: Compiler context
             program: Program to analyze
             name: Name for logging
-            
+
         Returns:
             Dictionary mapping pass names to PassResult objects
-            
+
         Raises:
             RuntimeError: If pass manager not initialized
         """
@@ -111,42 +111,46 @@ class Pipeline(object):
             raise RuntimeError("Pass manager not initialized")
 
         # Build a comprehensive pipeline with standard passes
-        pipeline = self.pass_manager.build_pipeline([
-            "ipa",           # Inter-procedural analysis first
-            "cpa",           # Constraint propagation analysis
-            "lifetime",      # Lifetime analysis
-            "methodcall",    # Method call optimization
-            "simplify",      # Simplification (constant folding, DCE)
-            "clone",         # Code cloning
-            "argument_normalization",  # Argument normalization
-            "cull_program",  # Program culling
-            "store_elimination",       # Store elimination
-        ])
+        pipeline = self.pass_manager.build_pipeline(
+            [
+                "ipa",  # Inter-procedural analysis first
+                "cpa",  # Constraint propagation analysis
+                "lifetime",  # Lifetime analysis
+                "methodcall",  # Method call optimization
+                "simplify",  # Simplification (constant folding, DCE)
+                "clone",  # Code cloning
+                "argument_normalization",  # Argument normalization
+                "cull_program",  # Program culling
+                "store_elimination",  # Store elimination
+            ]
+        )
 
         # Run the pipeline
         results = self.pass_manager.run_pipeline(compiler, program, pipeline)
 
         # Log execution summary
         successful = sum(1 for r in results.values() if r.success)
-        total_time = sum(r.time for r in results.values() if hasattr(r, 'time'))
+        total_time = sum(r.time for r in results.values() if hasattr(r, "time"))
 
-        print(f"Pass Manager: {successful}/{len(results)} passes successful in {total_time:.3f}s")
+        print(
+            f"Pass Manager: {successful}/{len(results)} passes successful in {total_time:.3f}s"
+        )
 
         return results
 
     def _run_legacy_pipeline(self, compiler, program, name: str):
         """
         Run the legacy hardcoded pipeline for backward compatibility.
-        
+
         This method runs the original hardcoded pipeline that was used before
         the pass manager system. It executes passes in a fixed order without
         dependency tracking or caching.
-        
+
         Args:
             compiler: Compiler context
             program: Program to analyze
             name: Name for logging
-            
+
         Returns:
             None (legacy pipeline doesn't return structured results)
         """
@@ -199,10 +203,10 @@ class Pipeline(object):
 def codeConditioning(compiler, prgm, firstPass, dumpStats=False):
     """
     Code conditioning phase of the legacy pipeline.
-    
+
     This function runs optimization passes to improve code quality and
     eliminate dead code. It's called after the main analysis passes (IPA/CPA).
-    
+
     **Optimization Sequence:**
     1. Method call optimization (first pass only)
     2. Lifetime analysis
@@ -211,12 +215,12 @@ def codeConditioning(compiler, prgm, firstPass, dumpStats=False):
     5. Argument normalization (first pass only)
     6. Program culling (first pass only)
     7. Store elimination
-    
+
     **Note:** Some optimizations are conditionally enabled/disabled:
     - Load elimination: Currently disabled
     - Code inlining: Temporarily disabled
     - Brute force simplification: Disabled (requires path sensitivity)
-    
+
     Args:
         compiler: Compiler context
         prgm: Program to optimize
@@ -260,7 +264,6 @@ def codeConditioning(compiler, prgm, firstPass, dumpStats=False):
         if False:  # Temporarily disable load elimination
             loadelimination.evaluate(compiler, prgm)
 
-
         if True:
             storeelimination.evaluate(compiler, prgm)
 
@@ -281,13 +284,13 @@ def codeConditioning(compiler, prgm, firstPass, dumpStats=False):
 def bruteForceSimplification(compiler, prgm):
     """
     Brute force simplification by iterating optimization passes.
-    
+
     This function runs lifetime analysis and simplification multiple times
     in an attempt to improve precision. However, this approach has limited
     effectiveness without path sensitivity, as noted in the code comments.
-    
+
     **Note:** Currently disabled in the main pipeline due to limited effectiveness.
-    
+
     Args:
         compiler: Compiler context
         prgm: Program to simplify
@@ -301,16 +304,16 @@ def bruteForceSimplification(compiler, prgm):
 def depythonPass(compiler, prgm, opPathLength=0, firstPass=True):
     """
     Main analysis pass of the legacy pipeline.
-    
+
     This function runs the core analysis passes:
     1. IPA (Inter-procedural analysis) - builds call graph and contexts
     2. CPA (Constraint propagation analysis) - type and flow analysis
     3. Code conditioning - optimization passes
-    
+
     The "depython" name refers to the original goal of translating Python
     to a lower-level representation, though PyFlow is now primarily a static
     analysis framework.
-    
+
     Args:
         compiler: Compiler context
         prgm: Program to analyze
@@ -340,27 +343,27 @@ def depythonPass(compiler, prgm, opPathLength=0, firstPass=True):
 def evaluate(compiler, prgm, name):
     """
     Main entry point for the legacy analysis pipeline.
-    
+
     This function orchestrates the complete analysis pipeline:
     1. First pass: Full analysis with all optimizations
     2. Second pass: Re-analysis with call-path sensitivity (opPathLength=3)
     3. Cleanup: Dump reports and clean up threads
-    
+
     **Two-Pass Strategy:**
     The pipeline runs two passes because:
     - First pass: Establishes basic analysis results
     - Second pass: Uses call-path sensitivity to improve precision
       (intrinsics can prevent complete inlining, path sensitivity compensates)
-    
+
     **Cleanup:**
     - Dumps analysis reports if configured
     - Cleans up any remaining threads if configured
-    
+
     Args:
         compiler: Compiler context
         prgm: Program to analyze
         name: Name for logging and report generation
-        
+
     Raises:
         CompilerAbort: If compilation is aborted (for testing/debugging)
     """

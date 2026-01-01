@@ -1,4 +1,3 @@
-
 # lot's of docstrings are missing, don't complain for now...
 # pylint: disable-msg=C0111
 
@@ -15,24 +14,23 @@ class DOTTreeGenerator(object):
 
     _treeST = stringtemplate3.StringTemplate(
         template=(
-        "digraph {\n" +
-        "  ordering=out;\n" +
-        "  ranksep=.4;\n" +
-        "  node [shape=plaintext, fixedsize=true, fontsize=11, fontname=\"Courier\",\n" +
-        "        width=.25, height=.25];\n" +
-        "  edge [arrowsize=.5]\n" +
-        "  $nodes$\n" +
-        "  $edges$\n" +
-        "}\n")
+            "digraph {\n"
+            + "  ordering=out;\n"
+            + "  ranksep=.4;\n"
+            + '  node [shape=plaintext, fixedsize=true, fontsize=11, fontname="Courier",\n'
+            + "        width=.25, height=.25];\n"
+            + "  edge [arrowsize=.5]\n"
+            + "  $nodes$\n"
+            + "  $edges$\n"
+            + "}\n"
         )
+    )
 
-    _nodeST = stringtemplate3.StringTemplate(
-        template="$name$ [label=\"$text$\"];\n"
-        )
+    _nodeST = stringtemplate3.StringTemplate(template='$name$ [label="$text$"];\n')
 
     _edgeST = stringtemplate3.StringTemplate(
-        template="$parent$ -> $child$ // \"$parentText$\" -> \"$childText$\"\n"
-        )
+        template='$parent$ -> $child$ // "$parentText$" -> "$childText$"\n'
+    )
 
     def __init__(self):
         ## Track node to number mapping so we can get proper node name back
@@ -40,7 +38,6 @@ class DOTTreeGenerator(object):
 
         ## Track node number so we can get unique node names
         self.nodeNumber = 0
-
 
     def toDOT(self, tree, adaptor=None, treeST=_treeST, edgeST=_edgeST):
         if adaptor is None:
@@ -54,7 +51,6 @@ class DOTTreeGenerator(object):
         self.nodeNumber = 0
         self.toDOTDefineEdges(tree, adaptor, treeST, edgeST)
         return treeST
-
 
     def toDOTDefineNodes(self, tree, adaptor, treeST, knownNodes=None):
         if knownNodes is None:
@@ -79,7 +75,7 @@ class DOTTreeGenerator(object):
         # for each child, do a "<unique-name> [label=text]" node def
         for i in range(n):
             child = adaptor.getChild(tree, i)
-            
+
             number = self.getNodeNumber(child)
             if number not in knownNodes:
                 nodeST = self.getNodeST(adaptor, child)
@@ -87,7 +83,6 @@ class DOTTreeGenerator(object):
                 knownNodes.add(number)
 
             self.toDOTDefineNodes(child, adaptor, treeST, knownNodes)
-
 
     def toDOTDefineEdges(self, tree, adaptor, treeST, edgeST):
         if tree is None:
@@ -115,7 +110,6 @@ class DOTTreeGenerator(object):
             treeST.setAttribute("edges", edgeST)
             self.toDOTDefineEdges(child, adaptor, treeST, edgeST)
 
-
     def getNodeST(self, adaptor, t):
         text = adaptor.getText(t)
         nodeST = self._nodeST.getInstanceOf()
@@ -126,7 +120,6 @@ class DOTTreeGenerator(object):
         nodeST.setAttribute("text", text)
         return nodeST
 
-
     def getNodeNumber(self, t):
         try:
             return self.nodeToNumberMap[t]
@@ -136,7 +129,9 @@ class DOTTreeGenerator(object):
             return self.nodeNumber - 1
 
 
-def toDOT(tree, adaptor=None, treeST=DOTTreeGenerator._treeST, edgeST=DOTTreeGenerator._edgeST):
+def toDOT(
+    tree, adaptor=None, treeST=DOTTreeGenerator._treeST, edgeST=DOTTreeGenerator._edgeST
+):
     """
     Generate DOT (graphviz) for a whole tree not just a node.
     For example, 3+4*5 should generate:
@@ -168,7 +163,7 @@ def toDOT(tree, adaptor=None, treeST=DOTTreeGenerator._treeST, edgeST=DOTTreeGen
         print(tree.toStringTree())
         st = antlr3.extras.toDOT(t)
         print(st)
-        
+
     """
 
     gen = DOTTreeGenerator()

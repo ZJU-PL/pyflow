@@ -22,15 +22,15 @@ import time
 
 def reachable(index, secondary):
     """Check if a configuration is reachable.
-    
+
     A configuration is reachable if it has references, external references,
     or definite path hits. Configurations with no references and no definite
     hits are considered unreachable (garbage).
-    
+
     Args:
         index: Configuration index
         secondary: Secondary information
-        
+
     Returns:
         bool: True if configuration is reachable
     """
@@ -38,15 +38,19 @@ def reachable(index, secondary):
     # unreachable, even if marked external.
     if not index.currentSet and not secondary.paths.hasCertainHit():
         return False
-    return index.currentSet or secondary.externalReferences or secondary.paths.hasCertainHit()
+    return (
+        index.currentSet
+        or secondary.externalReferences
+        or secondary.paths.hasCertainHit()
+    )
 
 
 def gcMerge(sys, point, context, index, secondary, canSteal=False):
     """Garbage-collect and merge configuration.
-    
+
     Checks if configuration is reachable, and if so, merges it into
     the dataflow environment. Unreachable configurations are discarded.
-    
+
     Args:
         sys: RegionBasedShapeAnalysis instance
         point: Program point
@@ -64,18 +68,18 @@ def gcMerge(sys, point, context, index, secondary, canSteal=False):
 
 def mapConfiguration(sys, i, slot, b0, b1):
     """Map configuration based on aliasing changes.
-    
+
     Maps a configuration to new configurations based on how aliasing
     changes in an assignment (e0 = e1). Updates reference counts
     accordingly.
-    
+
     Args:
         sys: RegionBasedShapeAnalysis instance
         i: Configuration index
         slot: Slot being assigned to
         b0: Whether e0 aliases configuration
         b1: Whether e1 aliases configuration
-        
+
     Returns:
         tuple: Tuple of new configuration indices
     """
@@ -103,7 +107,6 @@ def updateHitMiss(sys, e0, e1, b0, b1, slot, paths):
     # Only retain valid expressions
     # 	The value of the expression does not change
     # 	or the location is stable, and "the assigned value misses the tracked location"
-
 
     # If the target aliases with the configuration (b0),
     # The value of the hits may change, whereas the value of the misses will not change.
@@ -189,12 +192,12 @@ def assign(sys, outpoint, context, e0, e1, b0, b1, i, paths, external):
 
 def assignmentConstraint(sys, outpoint, context, e1, e0, index, paths, external):
     """Evaluate assignment constraint.
-    
+
     Models assignment operation (e0 = e1) by:
     1. Checking if expressions hit/miss the configuration
     2. Splitting into cases based on hit/miss certainty
     3. Updating reference counts and path information
-    
+
     Args:
         sys: RegionBasedShapeAnalysis instance
         outpoint: Output program point

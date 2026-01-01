@@ -17,7 +17,7 @@ from pyflow.analysis.ipa.summary import Summary
 
 class Context(object):
     """Represents analysis context for a function signature.
-    
+
     Contexts are the fundamental unit of context-sensitive analysis.
     Each unique (code, parameter types) combination gets its own context.
     Contexts maintain:
@@ -26,7 +26,7 @@ class Context(object):
     - Calls: Inter-procedural call constraints
     - Invocations: Connections to other contexts
     - Summary: Function summary for reuse
-    
+
     Attributes:
         analysis: IPAnalysis instance
         signature: CPAContextSignature for this context
@@ -53,9 +53,10 @@ class Context(object):
         dirtycriticals: Queue of nodes with dirty critical values
         criticalStores: List of critical store constraints
     """
+
     def __init__(self, analysis, signature):
         """Initialize a context.
-        
+
         Args:
             analysis: IPAnalysis instance
             signature: CPAContextSignature for this context

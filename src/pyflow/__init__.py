@@ -1,5 +1,4 @@
-"""PyFlow - Static Analysis Framework for Python.
-"""
+"""PyFlow - Static Analysis Framework for Python."""
 
 __version__ = "0.1.0"
 __author__ = "rainoftime"
@@ -12,7 +11,7 @@ from .application.context import Context
 
 __all__ = [
     "Program",
-    "Pipeline", 
+    "Pipeline",
     "Context",
     "__version__",
     "__author__",

@@ -18,16 +18,17 @@ from pyflow.language.python import ast
 
 class ReadModifyInfo(object):
     """Information about read/modify relationships for a node.
-    
+
     ReadModifyInfo tracks which variables and fields are read and modified
     by an AST node and its children.
-    
+
     Attributes:
         localRead: Set of Local nodes that are read
         localModify: Set of Local nodes that are modified
         fieldRead: Set of field references that are read
         fieldModify: Set of field references that are modified
     """
+
     __slots__ = "localRead", "localModify", "fieldRead", "fieldModify"
 
     def __init__(self):
@@ -39,9 +40,9 @@ class ReadModifyInfo(object):
 
     def update(self, other):
         """Update this info with information from another ReadModifyInfo.
-        
+
         Merges read/modify sets from another ReadModifyInfo instance.
-        
+
         Args:
             other: ReadModifyInfo to merge from
         """
@@ -53,24 +54,25 @@ class ReadModifyInfo(object):
 
 class FindReadModify(TypeDispatcher):
     """Finds read/modify relationships for AST nodes.
-    
+
     FindReadModify traverses AST nodes and determines which local variables
     and object fields are read and modified. Results are stored in a lookup
     table mapping nodes to ReadModifyInfo.
-    
+
     Attributes:
         lut: Dictionary mapping AST nodes to ReadModifyInfo
     """
+
     def __init__(self):
         """Initialize read/modify finder."""
         self.lut = {}
 
     def getListInfo(self, l):
         """Get combined read/modify info for a list of nodes.
-        
+
         Args:
             l: List of AST nodes
-            
+
         Returns:
             ReadModifyInfo: Combined read/modify information
         """
@@ -229,13 +231,13 @@ class FindReadModify(TypeDispatcher):
 
     def processCode(self, code):
         """Process a code object and find all read/modify relationships.
-        
+
         Traverses the AST of a code object and builds a lookup table
         mapping each node to its read/modify information.
-        
+
         Args:
             code: Code object to process
-            
+
         Returns:
             dict: Dictionary mapping AST nodes to ReadModifyInfo
         """

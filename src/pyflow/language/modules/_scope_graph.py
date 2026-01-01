@@ -20,14 +20,14 @@ import networkx as nx
 
 class ScopeGraph(ast.NodeVisitor):
     """Builds scope graphs for name resolution.
-    
+
     ScopeGraph traverses AST and builds graphs representing:
     - Scope relationships: Parent-child relationships between scopes
     - Declarations: Names declared in each scope
     - References: Names referenced in each scope
     - Inheritance: Class inheritance relationships
     - Method Resolution Order: MRO for resolving method calls
-    
+
     Attributes:
         sg: Scope graph (directed graph of scopes)
         ig: Inheritance graph (directed graph of class inheritance)
@@ -38,9 +38,10 @@ class ScopeGraph(ast.NodeVisitor):
         declarations: Dictionary mapping scopes to declared names
         current_scope_name: Current scope being processed
     """
+
     def __init__(self) -> None:
         """Initialize scope graph builder.
-        
+
         The central concepts in the framework are declarations, references, and scopes.
         """
         self.sg = nx.DiGraph()  # scope graph
@@ -55,10 +56,10 @@ class ScopeGraph(ast.NodeVisitor):
 
     def build(self, ast_tree):
         """Build scope graph from AST tree.
-        
+
         Traverses AST and builds scope graph, tracking declarations,
         references, and inheritance relationships.
-        
+
         Args:
             ast_tree: AST tree to process
         """
@@ -67,12 +68,12 @@ class ScopeGraph(ast.NodeVisitor):
 
     def visit_FunctionDef(self, node):
         """Visit function definition node.
-        
+
         Records function declaration and creates new scope for function body.
-        
+
         Args:
             node: FunctionDef AST node
-            
+
         Returns:
             ast.FunctionDef: Node (unchanged)
         """
@@ -93,13 +94,13 @@ class ScopeGraph(ast.NodeVisitor):
 
     def visit_ClassDef(self, node):
         """Visit class definition node.
-        
+
         Records class declaration, inheritance relationships, and creates
         new scope for class body.
-        
+
         Args:
             node: ClassDef AST node
-            
+
         Returns:
             ast.ClassDef: Node (unchanged)
         """
@@ -129,12 +130,12 @@ class ScopeGraph(ast.NodeVisitor):
 
     def visit_Module(self, node):
         """Visit module node.
-        
+
         Creates module scope and processes module body.
-        
+
         Args:
             node: Module AST node
-            
+
         Returns:
             ast.Module: Node (unchanged)
         """
@@ -153,9 +154,9 @@ class ScopeGraph(ast.NodeVisitor):
 
     def visit_Name(self, node):
         """Visit name node.
-        
+
         Records name as declaration (Store) or reference (Load/Del).
-        
+
         Args:
             node: Name AST node
         """
@@ -173,9 +174,9 @@ class ScopeGraph(ast.NodeVisitor):
 
     def visit_Import(self, node):
         """Visit import statement.
-        
+
         Records imported names in current scope.
-        
+
         Args:
             node: Import AST node
         """
@@ -190,9 +191,9 @@ class ScopeGraph(ast.NodeVisitor):
 
     def visit_ImportFrom(self, node):
         """Visit import from statement.
-        
+
         Records imported names in current scope.
-        
+
         Args:
             node: ImportFrom AST node
         """
@@ -208,15 +209,15 @@ class ScopeGraph(ast.NodeVisitor):
 
     def resolve(self, name, working_scope):
         """Resolve a name in a given working scope.
-        
+
         Finds the name in the given working scope, following parent scope
         relationships. A path with fewer parent transitions is more specific
         than a path with more parent transitions.
-        
+
         Args:
             name: Name to resolve
             working_scope: Scope to start resolution from
-            
+
         Returns:
             object: Resolved name information (not implemented)
         """
@@ -224,7 +225,7 @@ class ScopeGraph(ast.NodeVisitor):
 
     def add_scope(self, scope_name, parent_name):
         """Add a scope with parent relationship.
-        
+
         Args:
             scope_name: Name of scope to add
             parent_name: Name of parent scope
@@ -233,14 +234,14 @@ class ScopeGraph(ast.NodeVisitor):
 
     def add_reference(self, scope_name, name, ctx):
         """Add a name reference in a scope.
-        
+
         Records a name reference (load/del) or declaration (store) in a scope.
-        
+
         Args:
             scope_name: Scope name
             name: Name being referenced/declared
             ctx: Context ("load", "del", or "store")
-            
+
         Raises:
             Exception: If context is unknown
         """
@@ -268,7 +269,7 @@ class ScopeGraph(ast.NodeVisitor):
 
     def _add_scope_name(self, scope_name, parent_name):
         """Add scope name with parent relationship.
-        
+
         Args:
             scope_name: Name of scope
             parent_name: Name of parent scope
@@ -277,13 +278,13 @@ class ScopeGraph(ast.NodeVisitor):
 
     def get_parent(self, scope_name):
         """Get parent scope for a scope.
-        
+
         Args:
             scope_name: Name of scope
-            
+
         Returns:
             str: Parent scope name
-            
+
         Raises:
             Exception: If parent scope not found
         """
@@ -329,15 +330,15 @@ class ScopeGraph(ast.NodeVisitor):
 
     def MRO_resolve_method(self, cls_name, method_name):
         """Resolve method using Method Resolution Order (MRO).
-        
+
         Given a class name and method name, uses MRO to find which class
         defines the method. Performs breadth-first search through inheritance
         hierarchy following MRO.
-        
+
         Args:
             cls_name: Name of class to start search from
             method_name: Name of method to find
-            
+
         Returns:
             str: Name of class that defines the method, or None if not found
         """
@@ -390,7 +391,8 @@ class ScopeGraph(ast.NodeVisitor):
 
 
 def create_MRO():
-    pass 
+    pass
+
 
 def test_this_module():
     pass
@@ -398,5 +400,3 @@ def test_this_module():
 
 if __name__ == "__main__":
     test_this_module()
-
-

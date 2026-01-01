@@ -51,5 +51,3 @@ __all__ = [
     "dump_ddg",
     "dump_ddg_to_directory",
 ]
-
-

@@ -31,10 +31,10 @@ isIdentifier = re.compile(r"^([a-zA-Z_]\w*)?$")
 
 def typeString(t):
     """Convert type to string representation.
-    
+
     Args:
         t: Type object
-        
+
     Returns:
         str: String representation of type
     """
@@ -46,19 +46,20 @@ def typeString(t):
 
 class UncollapsableCodeError(Exception):
     """Exception raised when code cannot be collapsed."""
+
     pass
 
 
 def getConstant(node, t=None):
     """Extract constant value from an Existing node.
-    
+
     Args:
         node: Existing node with constant value
         t: Expected type (optional, for validation)
-        
+
     Returns:
         object: Constant Python value
-        
+
     Raises:
         AssertionError: If node is not constant or wrong type
     """
@@ -70,16 +71,16 @@ def getConstant(node, t=None):
 
 def getExistingStr(node):
     """Get string representation of an Existing node.
-    
+
     For lexical constants, returns Python repr. For other objects,
     returns a placeholder representation.
-    
+
     Args:
         node: Existing node
-        
+
     Returns:
         str: String representation
-        
+
     Raises:
         AssertionError: If node is not Existing
     """
@@ -96,13 +97,13 @@ def getExistingStr(node):
 
 class SimpleExprGen(TypeDispatcher):
     """Simple code generator for Python AST.
-    
+
     SimpleExprGen generates Python code from AST nodes. It handles:
     - Expression generation: Converting expressions to Python code
     - Variable renaming: Generating unique names for variables
     - Variable collapsing: Inlining collapsable variables
     - Constant representation: Proper handling of constants
-    
+
     Attributes:
         localLUT: Dictionary mapping Local nodes to generated names
         names: Set of used names (for uniqueness)
@@ -110,11 +111,12 @@ class SimpleExprGen(TypeDispatcher):
         collapsed: Dictionary mapping collapsed variables to their expressions
         parent: Parent code generator (for nested code)
     """
+
     __namedispatch__ = True  # HACK emulates old visitor
 
     def __init__(self, parent):
         """Initialize code generator.
-        
+
         Args:
             parent: Parent code generator (or None for top-level)
         """
@@ -131,13 +133,13 @@ class SimpleExprGen(TypeDispatcher):
 
     def generateUniqueLocalName(self, base):
         """Generate a unique local variable name.
-        
+
         Generates a unique name based on base, appending a unique ID if needed.
         Handles invalid identifiers from bytecode compiler.
-        
+
         Args:
             base: Base name for the variable
-            
+
         Returns:
             str: Unique variable name
         """
@@ -155,12 +157,12 @@ class SimpleExprGen(TypeDispatcher):
 
     def getLocalName(self, node):
         """Get or generate a name for a local variable.
-        
+
         Returns the generated name for a Local node, generating one if needed.
-        
+
         Args:
             node: Local node to get name for
-            
+
         Returns:
             str: Generated variable name
         """
@@ -176,11 +178,11 @@ class SimpleExprGen(TypeDispatcher):
 
     def setLocalName(self, node, name):
         """Set the name for a local variable.
-        
+
         Args:
             node: Local node to set name for
             name: Name to set (None generates anonymous name)
-            
+
         Raises:
             AssertionError: If node already has a name
         """

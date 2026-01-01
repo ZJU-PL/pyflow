@@ -32,23 +32,25 @@ import random
 import re
 import os
 
+
 class Dictionary:
     """
     Dictionary of interesting keywords/tokens for fuzzing.
-    
+
     Loads a dictionary from a file and provides random access to entries.
     The dictionary format is similar to AFL/libFuzzer dictionaries.
-    
+
     Attributes:
         _dict: List of dictionary entries (strings)
     """
+
     # Regular expression to match dictionary entries: "string"
     line_re = re.compile('"(.+)"$')
 
     def __init__(self, dict_path=None):
         """
         Initialize a dictionary from a file.
-        
+
         Args:
             dict_path: Path to dictionary file (optional).
                       If None or file doesn't exist, creates empty dictionary.
@@ -63,7 +65,7 @@ class Dictionary:
             for line in f:
                 line = line.lstrip()
                 # Skip comments and empty lines
-                if line.startswith('#'):
+                if line.startswith("#"):
                     continue
                 # Extract quoted strings
                 word = self.line_re.search(line)
@@ -74,7 +76,7 @@ class Dictionary:
     def get_word(self):
         """
         Get a random word from the dictionary.
-        
+
         Returns:
             Random dictionary entry, or None if dictionary is empty
         """

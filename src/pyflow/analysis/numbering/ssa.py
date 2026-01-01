@@ -22,14 +22,14 @@ from pyflow.language.python import ast
 
 class ForwardESSA(TypeDispatcher):
     """Constructs Extended Static Single Assignment (ESSA) form.
-    
+
     ForwardESSA traverses AST and assigns unique version numbers to variables
     and object fields. It handles:
     - Variable renaming: Each assignment creates a new version
     - Field renaming: Field accesses are versioned separately
     - Merge operations: Versions from different paths are merged
     - Entry/Exit tracking: Records versions at function boundaries
-    
+
     Attributes:
         rm: ReadModifyInfo lookup table (from FindReadModify)
         uid: Unique identifier counter for version numbers
@@ -46,9 +46,10 @@ class ForwardESSA(TypeDispatcher):
         entry: Dictionary mapping names to entry version numbers
         exit: Dictionary mapping names to exit version numbers
     """
+
     def __init__(self, rm):
         """Initialize ESSA constructor.
-        
+
         Args:
             rm: ReadModifyInfo lookup table from FindReadModify
         """
@@ -69,7 +70,7 @@ class ForwardESSA(TypeDispatcher):
 
     def newUID(self):
         """Generate a new unique identifier.
-        
+
         Returns:
             int: New unique version number
         """
@@ -79,13 +80,13 @@ class ForwardESSA(TypeDispatcher):
 
     def branch(self, count):
         """Create branches for control flow splitting.
-        
+
         Creates multiple copies of the current state for different
         control flow paths (e.g., if-then-else branches).
-        
+
         Args:
             count: Number of branches to create
-            
+
         Returns:
             list: List of state dictionaries, one per branch
         """
@@ -95,10 +96,10 @@ class ForwardESSA(TypeDispatcher):
 
     def setState(self, state):
         """Set the current state (must be None).
-        
+
         Args:
             state: State dictionary to set
-            
+
         Raises:
             AssertionError: If current state is not None
         """
@@ -107,7 +108,7 @@ class ForwardESSA(TypeDispatcher):
 
     def popState(self):
         """Pop and return the current state.
-        
+
         Returns:
             dict: Current state dictionary (or None)
         """
@@ -117,12 +118,12 @@ class ForwardESSA(TypeDispatcher):
 
     def mergeStates(self, states):
         """Merge multiple states from different control flow paths.
-        
+
         Merges states from different paths (e.g., after if-then-else).
         For each variable/field:
         - If all states have the same version, use that version
         - Otherwise, create a new merge version and log the merge
-        
+
         Args:
             states: List of state dictionaries to merge
         """
@@ -154,13 +155,13 @@ class ForwardESSA(TypeDispatcher):
 
     def current(self, node):
         """Get current version number for a variable or field.
-        
+
         For Existing nodes, returns a canonical version number for the object.
         For other nodes, returns the current version from state (or -1 if not found).
-        
+
         Args:
             node: Variable or field to get version for
-            
+
         Returns:
             int: Current version number (or -1 if not found)
         """
@@ -178,11 +179,11 @@ class ForwardESSA(TypeDispatcher):
 
     def setCurrent(self, node, uid):
         """Set current version number for a variable or field.
-        
+
         Args:
             node: Variable or field to set version for
             uid: Version number to set
-            
+
         Raises:
             AssertionError: If node is int or uid is not int
         """
@@ -192,10 +193,10 @@ class ForwardESSA(TypeDispatcher):
 
     def rename(self, node):
         """Rename a variable or field (assign new version number).
-        
+
         Creates a new version number for the variable/field, effectively
         marking it as modified.
-        
+
         Args:
             node: Variable or field to rename (None is ignored)
         """
@@ -204,7 +205,7 @@ class ForwardESSA(TypeDispatcher):
 
     def renameAll(self, names):
         """Rename multiple variables/fields.
-        
+
         Args:
             names: Iterable of variables/fields to rename
         """
@@ -233,9 +234,9 @@ class ForwardESSA(TypeDispatcher):
 
     def logRead(self, node, name):
         """Log a read operation.
-        
+
         Records that node reads name at its current version number.
-        
+
         Args:
             node: AST node performing the read
             name: Variable or field being read
@@ -244,9 +245,9 @@ class ForwardESSA(TypeDispatcher):
 
     def logModify(self, node, name):
         """Log a modify operation.
-        
+
         Records that node modifies name at its current version number.
-        
+
         Args:
             node: AST node performing the modify
             name: Variable or field being modified
@@ -255,10 +256,10 @@ class ForwardESSA(TypeDispatcher):
 
     def logPsedoRead(self, node, name):
         """Log a pseudo-read operation.
-        
+
         Pseudo-reads occur when a field is modified - we need to track
         that the previous value was "read" (for correctness).
-        
+
         Args:
             node: AST node performing the pseudo-read
             name: Variable or field being pseudo-read
@@ -267,9 +268,9 @@ class ForwardESSA(TypeDispatcher):
 
     def logReadLocals(self, parent, node):
         """Log reads of local variables in an expression.
-        
+
         Traverses an expression tree and logs all local variable reads.
-        
+
         Args:
             parent: Parent AST node
             node: Expression node to traverse
@@ -282,9 +283,9 @@ class ForwardESSA(TypeDispatcher):
     # TODO fields from op?
     def logReadFields(self, node):
         """Log field reads for a node.
-        
+
         Logs all fields that are read or modified (pseudo-read) by the node.
-        
+
         Args:
             node: AST node to log field reads for
         """
@@ -300,9 +301,9 @@ class ForwardESSA(TypeDispatcher):
     # TODO fields from op?
     def logModifiedFields(self, node):
         """Log field modifications for a node.
-        
+
         Logs all fields that are modified by the node.
-        
+
         Args:
             node: AST node to log field modifications for
         """
@@ -312,7 +313,7 @@ class ForwardESSA(TypeDispatcher):
 
     def logEntry(self):
         """Log entry state (versions at function entry).
-        
+
         Records the version numbers of all variables and fields at function
         entry. Filters out fields from killed objects (they can't be passed in).
         """
@@ -334,7 +335,7 @@ class ForwardESSA(TypeDispatcher):
 
     def logExit(self):
         """Log exit state (versions at function exit).
-        
+
         Merges all return states and records the version numbers of variables
         and fields at function exit. Filters:
         - Non-return locals (not in returnparams)
@@ -369,10 +370,10 @@ class ForwardESSA(TypeDispatcher):
 
     def logMerge(self, name, srcIDs, dstID):
         """Log a merge operation (phi-like merge).
-        
+
         Records that a new version dstID was created by merging versions
         srcIDs from different control flow paths.
-        
+
         Args:
             name: Variable or field being merged
             srcIDs: Set of source version numbers
@@ -387,9 +388,9 @@ class ForwardESSA(TypeDispatcher):
     @dispatch(ast.Local, ast.Existing)
     def visitLocalRead(self, node):
         """Visit a local variable or existing object read.
-        
+
         Logs the read operation with current version number.
-        
+
         Args:
             node: Local or Existing node being read
         """
@@ -565,14 +566,14 @@ class ForwardESSA(TypeDispatcher):
 
     def processCode(self, code):
         """Process a code object and construct ESSA form.
-        
+
         Main entry point for ESSA construction. Processes a code object:
         1. Renames entry fields (fields that may be passed in)
         2. Renames parameters (self, params, vparam, kparam)
         3. Logs entry state
         4. Processes AST
         5. Logs exit state
-        
+
         Args:
             code: Code object to process
         """

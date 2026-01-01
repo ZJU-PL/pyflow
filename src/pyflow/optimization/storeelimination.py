@@ -23,12 +23,12 @@ from pyflow.optimization import rewrite
 
 def evaluate(compiler, prgm, simplify=False):
     """Main entry point for dead store elimination.
-    
+
     Args:
         compiler: Compiler context
         prgm: Program to optimize
         simplify: Whether to run simplification after rewriting
-        
+
     Returns:
         bool: True if any stores were eliminated, False otherwise
     """

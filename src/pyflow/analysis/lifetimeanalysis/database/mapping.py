@@ -10,20 +10,21 @@ from . import base
 
 class MappingSchema(base.Schema):
     """Schema for key-value mappings.
-    
+
     MappingSchema defines mappings from keys (validated by keyschema)
     to values (validated by valueschema). Used for storing analysis
     information indexed by program points, contexts, etc.
-    
+
     Attributes:
         keyschema: Schema for keys
         valueschema: Schema for values
     """
+
     __slots__ = "keyschema", "valueschema"
 
     def __init__(self, keyschema, valueschema):
         """Initialize mapping schema.
-        
+
         Args:
             keyschema: Schema for keys
             valueschema: Schema for values
@@ -33,7 +34,7 @@ class MappingSchema(base.Schema):
 
     def instance(self):
         """Create a mapping instance.
-        
+
         Returns:
             Mapping: New mapping instance
         """
@@ -41,7 +42,7 @@ class MappingSchema(base.Schema):
 
     def missing(self):
         """Get missing (empty) value.
-        
+
         Returns:
             Mapping: Empty mapping instance
         """
@@ -49,10 +50,10 @@ class MappingSchema(base.Schema):
 
     def validateKey(self, args):
         """Validate a key.
-        
+
         Args:
             args: Key to validate
-            
+
         Raises:
             SchemaError: If key is invalid
         """
@@ -60,10 +61,10 @@ class MappingSchema(base.Schema):
 
     def validateValue(self, args):
         """Validate a value.
-        
+
         Args:
             args: Value to validate
-            
+
         Raises:
             SchemaError: If value is invalid
         """
@@ -71,13 +72,13 @@ class MappingSchema(base.Schema):
 
     def inplaceMerge(self, target, *args):
         """Merge mappings in-place.
-        
+
         Merges all key-value pairs from source mappings into target.
-        
+
         Args:
             target: Target mapping
             *args: Source mappings to merge
-            
+
         Returns:
             tuple: (target mapping, changed flag)
         """
@@ -90,20 +91,21 @@ class MappingSchema(base.Schema):
 
 class Mapping(object):
     """Mapping (dictionary) instance for database.
-    
+
     Mapping stores key-value pairs with schema validation. Values
     are merged according to the value schema when the same key appears
     multiple times.
-    
+
     Attributes:
         schema: MappingSchema for this mapping
         data: Dictionary storing key-value pairs
     """
+
     __slots__ = "schema", "data"
 
     def __init__(self, schema):
         """Initialize a mapping.
-        
+
         Args:
             schema: MappingSchema for this mapping
         """
@@ -113,10 +115,10 @@ class Mapping(object):
 
     def __getitem__(self, key):
         """Get value for a key (creating if missing).
-        
+
         Args:
             key: Key to look up
-            
+
         Returns:
             object: Value for key (may be missing value)
         """
@@ -132,7 +134,7 @@ class Mapping(object):
 
     def __len__(self):
         """Get number of entries.
-        
+
         Returns:
             int: Number of entries
         """
@@ -140,7 +142,7 @@ class Mapping(object):
 
     def __iter__(self):
         """Iterate over key-value pairs.
-        
+
         Returns:
             iterator: Iterator over (key, value) pairs
         """
@@ -148,7 +150,7 @@ class Mapping(object):
 
     def forget(self):
         """Forget all keys, merging all values.
-        
+
         Returns:
             object: Merged value from all entries
         """
@@ -156,13 +158,13 @@ class Mapping(object):
 
     def merge(self, key, value):
         """Merge a value into this mapping.
-        
+
         Merges value into existing value for key (or creates new entry).
-        
+
         Args:
             key: Key to merge value for
             value: Value to merge
-            
+
         Returns:
             bool: True if mapping changed
         """

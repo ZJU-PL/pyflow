@@ -17,4 +17,5 @@ class CompilerAbort(Exception):
         if error_count > 0:
             raise CompilerAbort()
     """
+
     pass

@@ -1,4 +1,3 @@
-
 import os.path
 import collections
 from urllib.parse import quote
@@ -67,13 +66,13 @@ def outputOrigin(out, tabs, originTrace):
             # Handle case where origin might be a list or origin.filename might be a list or string
             try:
                 if isinstance(origin, list):
-                    if origin and hasattr(origin[0], 'filename'):
+                    if origin and hasattr(origin[0], "filename"):
                         filename = origin[0].filename
                         if isinstance(filename, list):
                             filename = filename[0] if filename else ""
                     else:
                         filename = ""
-                elif hasattr(origin, 'filename'):
+                elif hasattr(origin, "filename"):
                     filename = origin.filename
                     if isinstance(filename, list):
                         filename = filename[0] if filename else ""
@@ -209,10 +208,7 @@ def dumpFunctionInfo(func, compiler, derived, links, reportDir):
             # Handle case where contexts is not a sequence
             contexts_count = 0
 
-    printLabel(
-        out,
-        "%d contexts" % contexts_count
-    )
+    printLabel(out, "%d contexts" % contexts_count)
 
     if code.annotation.contexts is None:
         return
@@ -248,7 +244,9 @@ def dumpFunctionInfo(func, compiler, derived, links, reportDir):
             refs = callee.selfparam.annotation.references
             if refs and len(refs) > 1:
                 context_refs = refs[1]
-                if isinstance(context_refs, (list, tuple)) and cindex < len(context_refs):
+                if isinstance(context_refs, (list, tuple)) and cindex < len(
+                    context_refs
+                ):
                     objs = context_refs[cindex]
                 else:
                     objs = ("?",)
@@ -262,7 +260,9 @@ def dumpFunctionInfo(func, compiler, derived, links, reportDir):
                 refs = param.annotation.references
                 if refs and len(refs) > 1:
                     context_refs = refs[1]
-                    if isinstance(context_refs, (list, tuple)) and cindex < len(context_refs):
+                    if isinstance(context_refs, (list, tuple)) and cindex < len(
+                        context_refs
+                    ):
                         objs = context_refs[cindex]
                     else:
                         objs = ("?",)
@@ -274,7 +274,9 @@ def dumpFunctionInfo(func, compiler, derived, links, reportDir):
             refs = callee.vparam.annotation.references
             if refs and len(refs) > 1:
                 context_refs = refs[1]
-                if isinstance(context_refs, (list, tuple)) and cindex < len(context_refs):
+                if isinstance(context_refs, (list, tuple)) and cindex < len(
+                    context_refs
+                ):
                     objs = context_refs[cindex]
                 else:
                     objs = ("?",)
@@ -296,7 +298,9 @@ def dumpFunctionInfo(func, compiler, derived, links, reportDir):
             refs = callee.kparam.annotation.references
             if refs and len(refs) > 1:
                 context_refs = refs[1]
-                if isinstance(context_refs, (list, tuple)) and cindex < len(context_refs):
+                if isinstance(context_refs, (list, tuple)) and cindex < len(
+                    context_refs
+                ):
                     objs = context_refs[cindex]
                 else:
                     objs = ("?",)
@@ -309,7 +313,9 @@ def dumpFunctionInfo(func, compiler, derived, links, reportDir):
                 refs = param.annotation.references
                 if refs and len(refs) > 1:
                     context_refs = refs[1]
-                    if isinstance(context_refs, (list, tuple)) and cindex < len(context_refs):
+                    if isinstance(context_refs, (list, tuple)) and cindex < len(
+                        context_refs
+                    ):
                         objs = context_refs[cindex]
                     else:
                         objs = ("?",)
@@ -340,7 +346,9 @@ def dumpFunctionInfo(func, compiler, derived, links, reportDir):
                 invokes = op.annotation.invokes
                 if len(invokes) > 1:
                     context_invokes = invokes[1]
-                    if isinstance(context_invokes, (list, tuple)) and cindex < len(context_invokes):
+                    if isinstance(context_invokes, (list, tuple)) and cindex < len(
+                        context_invokes
+                    ):
                         callees = context_invokes[cindex]
                     else:
                         callees = []
@@ -362,15 +370,27 @@ def dumpFunctionInfo(func, compiler, derived, links, reportDir):
             s = ""
             if read and len(read) > 1:
                 context_read = read[1]
-                if isinstance(context_read, (list, tuple)) and cindex < len(context_read) and context_read[cindex]:
+                if (
+                    isinstance(context_read, (list, tuple))
+                    and cindex < len(context_read)
+                    and context_read[cindex]
+                ):
                     s += "R"
             if modify and len(modify) > 1:
                 context_modify = modify[1]
-                if isinstance(context_modify, (list, tuple)) and cindex < len(context_modify) and context_modify[cindex]:
+                if (
+                    isinstance(context_modify, (list, tuple))
+                    and cindex < len(context_modify)
+                    and context_modify[cindex]
+                ):
                     s += "M"
             if allocate and len(allocate) > 1:
                 context_allocate = allocate[1]
-                if isinstance(context_allocate, (list, tuple)) and cindex < len(context_allocate) and context_allocate[cindex]:
+                if (
+                    isinstance(context_allocate, (list, tuple))
+                    and cindex < len(context_allocate)
+                    and context_allocate[cindex]
+                ):
                     s += "A"
 
             if False:
@@ -380,15 +400,27 @@ def dumpFunctionInfo(func, compiler, derived, links, reportDir):
                 allocate = op.annotation.opAllocates
                 if read and len(read) > 1:
                     context_read = read[1]
-                    if isinstance(context_read, (list, tuple)) and cindex < len(context_read) and context_read[cindex]:
+                    if (
+                        isinstance(context_read, (list, tuple))
+                        and cindex < len(context_read)
+                        and context_read[cindex]
+                    ):
                         s += "(R)"
                 if modify and len(modify) > 1:
                     context_modify = modify[1]
-                    if isinstance(context_modify, (list, tuple)) and cindex < len(context_modify) and context_modify[cindex]:
+                    if (
+                        isinstance(context_modify, (list, tuple))
+                        and cindex < len(context_modify)
+                        and context_modify[cindex]
+                    ):
                         s += "(M)"
                 if allocate and len(allocate) > 1:
                     context_allocate = allocate[1]
-                    if isinstance(context_allocate, (list, tuple)) and cindex < len(context_allocate) and context_allocate[cindex]:
+                    if (
+                        isinstance(context_allocate, (list, tuple))
+                        and cindex < len(context_allocate)
+                        and context_allocate[cindex]
+                    ):
                         s += "(A)"
 
             if s:
@@ -421,7 +453,9 @@ def dumpFunctionInfo(func, compiler, derived, links, reportDir):
             crefs = lcl.annotation.references
             if crefs is not None and len(crefs) > 1:
                 context_refs = crefs[1]
-                if isinstance(context_refs, (list, tuple)) and cindex < len(context_refs):
+                if isinstance(context_refs, (list, tuple)) and cindex < len(
+                    context_refs
+                ):
                     refs = context_refs[cindex]
                 else:
                     refs = ("?",)
@@ -478,7 +512,9 @@ def dumpFunctionInfo(func, compiler, derived, links, reportDir):
 
         if killed is not None and len(killed) > 1:
             context_killed = killed[1]
-            if isinstance(context_killed, (list, tuple)) and cindex < len(context_killed):
+            if isinstance(context_killed, (list, tuple)) and cindex < len(
+                context_killed
+            ):
                 killed = context_killed[cindex]
             else:
                 killed = set()
@@ -737,7 +773,9 @@ class DerivedData(object):
 
                 if len(invokes) > 1:
                     context_invokes = invokes[1]
-                    if isinstance(context_invokes, (list, tuple)) and cindex < len(context_invokes):
+                    if isinstance(context_invokes, (list, tuple)) and cindex < len(
+                        context_invokes
+                    ):
                         dsts = context_invokes[cindex]
                     else:
                         dsts = []
@@ -774,7 +812,9 @@ class DerivedData(object):
             for cindex, context in enumerate(contexts):
                 if len(modifies) > 1:
                     context_modifies = modifies[1]
-                    if isinstance(context_modifies, (list, tuple)) and cindex < len(context_modifies):
+                    if isinstance(context_modifies, (list, tuple)) and cindex < len(
+                        context_modifies
+                    ):
                         cmods = context_modifies[cindex]
                     else:
                         cmods = set()

@@ -1,5 +1,5 @@
-
 """Utility functions for formatting plugins for PyFlow Checker."""
+
 import io
 
 

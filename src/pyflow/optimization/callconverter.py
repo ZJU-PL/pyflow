@@ -21,14 +21,15 @@ from pyflow.util.python import opnames
 
 class ConvertCalls(TypeDispatcher):
     """Converts high-level AST operations to direct calls.
-    
+
     Traverses the AST and replaces operations like attribute access,
     subscripting, and arithmetic with direct calls to interpreter functions.
-    
+
     Args:
         extractor: Program extractor with stub exports
         code: Code node being converted
     """
+
     def __init__(self, extractor, code):
         TypeDispatcher.__init__(self)
         self.extractor = extractor
@@ -154,7 +155,9 @@ class ConvertCalls(TypeDispatcher):
 
     @dispatch(ast.BuildList)
     def visitBuildList(self, node):
-        code = self.exports.get("buildList") or self.exports.get("interpreter_buildList")
+        code = self.exports.get("buildList") or self.exports.get(
+            "interpreter_buildList"
+        )
         if code is None:
             # Fallback: leave node shape but convert children
             return node.rewriteChildren(self)
@@ -247,21 +250,27 @@ class ConvertCalls(TypeDispatcher):
 
 def callConverter(extractor, node):
     """Convert high-level operations in a code node to direct calls.
-    
+
     Args:
         extractor: Program extractor with stub information
         node: Code node to convert
-        
+
     Returns:
         Converted code node (marked as lowered)
-        
+
     Only performs conversion if the node hasn't been lowered already.
     """
     # Ensure the node has a CodeAnnotation with a 'lowered' field
     if not hasattr(node, "annotation") or not hasattr(node.annotation, "lowered"):
         # Replace with a compatible default CodeAnnotation preserving origin if possible
-        origin = getattr(node.annotation, "origin", None) if hasattr(node, "annotation") else None
-        node.annotation = annotations.emptyCodeAnnotation.rewrite(origin=origin, lowered=False)
+        origin = (
+            getattr(node.annotation, "origin", None)
+            if hasattr(node, "annotation")
+            else None
+        )
+        node.annotation = annotations.emptyCodeAnnotation.rewrite(
+            origin=origin, lowered=False
+        )
 
     if not node.annotation.lowered:
         converter = ConvertCalls(extractor, node)

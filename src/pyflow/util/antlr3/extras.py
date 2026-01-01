@@ -6,5 +6,6 @@ from pyflow.util.antlr3.treewizard import TreeWizard
 try:
     from pyflow.util.antlr3.dottreegen import toDOT
 except ImportError as exc:
+
     def toDOT(*args, **kwargs):
         raise exc

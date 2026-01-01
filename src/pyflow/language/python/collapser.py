@@ -17,20 +17,21 @@ from pyflow.language.python import ast
 
 class Collapser(TypeDispatcher):
     """Identifies variables that can be collapsed (inlined).
-    
+
     Collapser analyzes AST to find variables with single definitions
     that can be safely inlined. It maintains a stack of potentially
     collapsable variables and marks them when safe.
-    
+
     Attributes:
         defines: Dictionary mapping variables to list of definition locations
         uses: Dictionary mapping variables to list of use locations
         stack: Stack of potentially collapsable variables
         collapsable: Set of variables that can be collapsed
     """
+
     def __init__(self, defines, uses):
         """Initialize collapser.
-        
+
         Args:
             defines: Dictionary mapping variables to definition locations
             uses: Dictionary mapping variables to use locations
@@ -119,7 +120,9 @@ class Collapser(TypeDispatcher):
                 if node.traceback:
                     self.markPossible(node.traceback)
 
-    @dispatch(ast.Break, ast.Continue, ast.Local, ast.Existing, ast.Cell, ast.DoNotCare, str)
+    @dispatch(
+        ast.Break, ast.Continue, ast.Local, ast.Existing, ast.Cell, ast.DoNotCare, str
+    )
     def visitNOP(self, node):
         pass
 

@@ -16,33 +16,36 @@ __all__ = ("singleton", "instance")
 class singletonMetaclass(type):
     """
     Metaclass that automatically creates a singleton instance.
-    
+
     When a class using this metaclass is defined, it automatically:
     1. Creates the class (with "Type" appended to the name)
     2. Instantiates it immediately
     3. Returns the instance instead of the class
-    
+
     This ensures only one instance of the class can exist.
     """
+
     def __new__(self, name, bases, d):
         """
         Create a singleton class and return its instance.
-        
+
         Args:
             self: The metaclass
             name: Name of the class being created
             bases: Base classes
             d: Class dictionary
-            
+
         Returns:
             Instance of the created class (not the class itself)
         """
         # Provide default __repr__ if not defined
         if "__repr__" not in d:
+
             def __repr__(self):
                 return name
+
             d["__repr__"] = __repr__
-        
+
         # Create class with "Type" suffix to avoid name collision
         cls = type.__new__(self, name + "Type", bases, d)
         # Immediately create and return the singleton instance
@@ -52,14 +55,14 @@ class singletonMetaclass(type):
 class singleton(object, metaclass=singletonMetaclass):
     """
     Base class for singleton objects.
-    
+
     Classes that inherit from singleton automatically become singletons.
     When the class is defined, a single instance is created and the class
     name refers to that instance, not the class itself.
-    
+
     This is useful for stateless classes that serve as namespaces or
     type dispatchers, where creating multiple instances would be wasteful.
-    
+
     Example:
         >>> class MySingleton(singleton):
         ...     def method(self):
@@ -71,6 +74,7 @@ class singleton(object, metaclass=singletonMetaclass):
         >>> MySingleton is MySingleton  # Always the same instance
         True
     """
+
     __slots__ = ()
 
 
@@ -82,21 +86,21 @@ singleton = type(singleton)
 def instance(cls):
     """
     Decorator for turning a class into a pseudo-singleton.
-    
+
     This function immediately instantiates a class and returns the instance.
     It's a simpler alternative to the singleton metaclass for cases where
     you want to create a single instance without using inheritance.
-    
+
     This is handy for stateless TypeDispatcher classes where you want
     a single instance to use for dispatch rather than creating new
     instances each time.
-    
+
     Args:
         cls: Class to instantiate
-        
+
     Returns:
         Instance of the class
-        
+
     Example:
         >>> class MyDispatcher:
         ...     pass

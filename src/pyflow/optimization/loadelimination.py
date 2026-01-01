@@ -30,19 +30,19 @@ import collections
 class RedundantLoadEliminator(object):
     """
     Eliminates redundant load operations from code.
-    
+
     This class implements redundant load elimination (RLE), an optimization
     that removes loads that are redundant because a dominating store has
     already written the same value. It uses:
     - SSA numbering to identify memory operations
     - Dominance analysis to find dominating stores
     - Value numbering to determine if loads can be replaced
-    
+
     The optimization works by:
     1. Identifying all load and store operations
     2. For each load, finding dominating stores to the same location
     3. Replacing the load with the store's value if safe
-    
+
     Attributes:
         compiler: Compiler context
         prgm: Program being optimized
@@ -51,10 +51,11 @@ class RedundantLoadEliminator(object):
         dom: Dominance information mapping nodes to (pre, post) numbers
         eliminated: Count of loads eliminated
     """
+
     def __init__(self, compiler, prgm, readNumbers, writeNumbers, dom):
         """
         Initialize redundant load eliminator.
-        
+
         Args:
             compiler: Compiler instance
             prgm: Program being optimized
@@ -73,11 +74,11 @@ class RedundantLoadEliminator(object):
     def readNumber(self, node, arg):
         """
         Get the SSA read number for a node-argument pair.
-        
+
         Args:
             node: AST node
             arg: Variable/argument being read
-            
+
         Returns:
             SSA read number (0 for constants)
         """
@@ -89,11 +90,11 @@ class RedundantLoadEliminator(object):
     def writeNumber(self, node, arg):
         """
         Get the SSA write number for a node-argument pair.
-        
+
         Args:
             node: AST node (Store operation)
             arg: Variable/argument being written
-            
+
         Returns:
             SSA write number
         """
@@ -102,15 +103,15 @@ class RedundantLoadEliminator(object):
     def dominates(self, a, b):
         """
         Check if node a dominates node b.
-        
+
         Node a dominates b if all paths from the entry to b pass through a.
         This is checked using dominance intervals: a dominates b if
         a.pre < b.pre and a.post > b.post.
-        
+
         Args:
             a: Potential dominator node
             b: Node to check
-            
+
         Returns:
             True if a dominates b
         """
@@ -121,10 +122,10 @@ class RedundantLoadEliminator(object):
     def findLoadStores(self):
         """
         Find all load and store operations in the code.
-        
+
         Scans the read numbers to identify assignments from loads and
         store operations. These are the candidates for elimination.
-        
+
         Returns:
             tuple: (loads set, stores set)
                    - loads: Set of Assign nodes with Load expressions
@@ -252,13 +253,13 @@ class RedundantLoadEliminator(object):
 
 def evaluateCode(compiler, prgm, code, simplify=True):
     """Eliminate redundant loads in a single code unit.
-    
+
     Args:
         compiler: Compiler context
         prgm: Program being optimized
         code: Code unit to optimize
         simplify: Whether to run simplification after rewriting
-        
+
     Returns:
         int: Number of loads eliminated
     """
@@ -279,11 +280,11 @@ def evaluateCode(compiler, prgm, code, simplify=True):
 
 def evaluate(compiler, prgm):
     """Main entry point for redundant load elimination.
-    
+
     Args:
         compiler: Compiler context
         prgm: Program to optimize
-        
+
     Returns:
         bool: True if any loads were eliminated, False otherwise
     """

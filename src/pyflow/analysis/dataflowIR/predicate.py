@@ -24,12 +24,12 @@ from .traverse import dfs
 
 class PredicateGraph(object):
     """Represents the predicate dependency graph.
-    
+
     This class builds a graph of predicate dependencies from a dataflow graph
     and computes dominance relationships. Predicates represent control flow
     conditions, and dependencies indicate when one predicate's evaluation
     depends on another.
-    
+
     Attributes:
         entry: Entry predicate node
         exit: Exit predicate node
@@ -38,6 +38,7 @@ class PredicateGraph(object):
         tree: Dominator tree structure
         idom: Immediate dominator mapping
     """
+
     def __init__(self):
         """Initialize an empty predicate graph."""
         self.entry = None
@@ -49,9 +50,9 @@ class PredicateGraph(object):
 
     def _declare(self, pred):
         """Declare a predicate in the graph.
-        
+
         Ensures a predicate has entries in forward and reverse edge maps.
-        
+
         Args:
             pred: PredicateNode to declare
         """
@@ -61,10 +62,10 @@ class PredicateGraph(object):
 
     def depends(self, src, dst):
         """Add a dependency edge from src to dst predicate.
-        
+
         Indicates that predicate dst depends on predicate src (src must
         be evaluated before dst).
-        
+
         Args:
             src: Source predicate (dependency source)
             dst: Destination predicate (dependency target)
@@ -83,7 +84,7 @@ class PredicateGraph(object):
 
     def finalize(self):
         """Finalize the predicate graph and compute dominance.
-        
+
         Ensures entry is declared and computes dominator tree and immediate
         dominator mapping for dominance queries.
         """
@@ -96,14 +97,14 @@ class PredicateGraph(object):
 
     def dominates(self, src, dst):
         """Check if src predicate dominates dst predicate.
-        
+
         A predicate src dominates dst if all paths from entry to dst
         pass through src.
-        
+
         Args:
             src: Source predicate to check dominance for
             dst: Destination predicate to check dominance against
-            
+
         Returns:
             bool: True if src dominates dst
         """
@@ -121,14 +122,15 @@ class PredicateGraph(object):
 
 class PredicateGraphBuilder(TypeDispatcher):
     """Builds predicate graph from dataflow graph.
-    
+
     This class traverses a dataflow graph and extracts predicate dependencies.
     It identifies operations that generate predicates (like TypeSwitch) and
     builds the dependency graph.
-    
+
     Attributes:
         pg: PredicateGraph being built
     """
+
     def __init__(self):
         """Initialize the predicate graph builder."""
         TypeDispatcher.__init__(self)
@@ -146,10 +148,10 @@ class PredicateGraphBuilder(TypeDispatcher):
     )
     def visitJunk(self, node):
         """Visit nodes that don't generate predicates.
-        
+
         These nodes don't create new predicates, so no dependencies
         are added.
-        
+
         Args:
             node: Dataflow node (ignored)
         """
@@ -158,9 +160,9 @@ class PredicateGraphBuilder(TypeDispatcher):
     @dispatch(graph.Exit)
     def visitExit(self, node):
         """Visit exit nodes.
-        
+
         Records the exit predicate for the predicate graph.
-        
+
         Args:
             node: Exit node
         """
@@ -169,10 +171,10 @@ class PredicateGraphBuilder(TypeDispatcher):
     @dispatch(graph.GenericOp)
     def visitGenericOp(self, node):
         """Visit generic operations.
-        
+
         Generic operations may generate new predicates (e.g., TypeSwitch).
         Adds dependencies from the operation's predicate to generated predicates.
-        
+
         Args:
             node: GenericOp node
         """
@@ -183,10 +185,10 @@ class PredicateGraphBuilder(TypeDispatcher):
     @dispatch(graph.Merge)
     def visitMerge(self, node):
         """Visit merge operations.
-        
+
         If the merge is a predicate operation (merging predicates), adds
         dependencies from source predicates to the merged predicate.
-        
+
         Args:
             node: Merge node
         """
@@ -200,13 +202,13 @@ class PredicateGraphBuilder(TypeDispatcher):
 
     def process(self, dataflow):
         """Process a dataflow graph to build predicate graph.
-        
+
         Traverses the dataflow graph and extracts predicate dependencies,
         then finalizes the predicate graph with dominance information.
-        
+
         Args:
             dataflow: DataflowGraph to process
-            
+
         Returns:
             PredicateGraph: Complete predicate graph with dominance info
         """
@@ -218,12 +220,12 @@ class PredicateGraphBuilder(TypeDispatcher):
 
 def buildPredicateGraph(dataflow):
     """Build predicate graph from a dataflow graph.
-    
+
     Main entry point for predicate graph construction.
-    
+
     Args:
         dataflow: DataflowGraph to build predicate graph from
-        
+
     Returns:
         PredicateGraph: Complete predicate graph
     """

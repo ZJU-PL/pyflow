@@ -14,13 +14,14 @@ from . import simplify
 
 def memoizeMethod(getter):
     """Decorator to memoize method calls.
-    
+
     Args:
         getter: Function to get the cache for memoization.
-        
+
     Returns:
         Decorator function for memoization.
     """
+
     def memodecorator(func):
         def memowrap(self, *args):
             cache = getter(self)
@@ -38,18 +39,18 @@ def memoizeMethod(getter):
 
 class ASTCloner(TypeDispatcher):
     """Clones AST nodes with origin tracking.
-    
+
     This class provides functionality to clone AST nodes while preserving
     and updating origin information for debugging and analysis purposes.
-    
+
     Attributes:
         origin: Origin information for cloned nodes.
         cache: Cache for memoized cloning operations.
     """
-    
+
     def __init__(self, origin):
         """Initialize the AST cloner.
-        
+
         Args:
             origin: Origin information for cloned nodes.
         """
@@ -58,10 +59,10 @@ class ASTCloner(TypeDispatcher):
 
     def adjustOrigin(self, node):
         """Adjust the origin information of a node.
-        
+
         Args:
             node: AST node to adjust origin for.
-            
+
         Returns:
             AST node with adjusted origin.
         """
@@ -74,10 +75,10 @@ class ASTCloner(TypeDispatcher):
     @dispatch(str, type(None))
     def visitLeaf(self, node):
         """Visit leaf nodes (no cloning needed).
-        
+
         Args:
             node: Leaf node to visit.
-            
+
         Returns:
             Original node.
         """
@@ -87,10 +88,10 @@ class ASTCloner(TypeDispatcher):
     @memoizeMethod(lambda self: self.cache)
     def visitLocal(self, node):
         """Visit local variable nodes.
-        
+
         Args:
             node: Local variable AST node.
-            
+
         Returns:
             Cloned local variable node.
         """
@@ -101,10 +102,10 @@ class ASTCloner(TypeDispatcher):
     @dispatch(ast.Existing)
     def visitExisting(self, node):
         """Visit existing object nodes.
-        
+
         Args:
             node: Existing object AST node.
-            
+
         Returns:
             Cloned existing object node.
         """
@@ -187,13 +188,9 @@ class CFGCloner(object):
             [],  # defaults
             None,  # vparam
             None,  # kparam
-            [self.lcl(g.returnParam)]  # returnparams
+            [self.lcl(g.returnParam)],  # returnparams
         )
-        newG.code = ast.Code(
-            g.code.name + "_clone",
-            codeparams,
-            ast.Suite([])
-        )
+        newG.code = ast.Code(g.code.name + "_clone", codeparams, ast.Suite([]))
 
         newG.returnParam = self.lcl(g.returnParam)
 

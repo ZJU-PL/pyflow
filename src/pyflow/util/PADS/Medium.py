@@ -20,13 +20,15 @@ theory of finite automata.
 D. Eppstein, May 2007.
 """
 
-
 import pyflow.util.PADS.BFS as BFS
 import pyflow.util.PADS.DFS as DFS
 from pyflow.util.PADS.Graphs import isUndirected
 import unittest
 
-class MediumError(ValueError): pass
+
+class MediumError(ValueError):
+    pass
+
 
 class Medium:
     """
@@ -58,13 +60,13 @@ class Medium:
             i += 1
         return i
 
-    def __getitem__(self,S):
+    def __getitem__(self, S):
         """Construct dict mapping tokens to actions from state S."""
-        return dict([(t,self.action(S,t)) for t in self.tokens()])
+        return dict([(t, self.action(S, t)) for t in self.tokens()])
 
-    def __call__(self,S,t):
+    def __call__(self, S, t):
         """Apply token t to state S."""
-        return self.action(S,t)
+        return self.action(S, t)
 
 
 class ExplicitMedium(Medium):
@@ -75,10 +77,10 @@ class ExplicitMedium(Medium):
     (# states) x (# tokens) but it makes all operations fast.
     """
 
-    def __init__(self,M):
+    def __init__(self, M):
         """Form ExplicitMedium from any other kind of medium."""
-        self._reverse = dict([(t,M.reverse(t)) for t in M.tokens()])
-        self._action = dict([(S,M[S]) for S in M])
+        self._reverse = dict([(t, M.reverse(t)) for t in M.tokens()])
+        self._action = dict([(S, M[S]) for S in M])
 
     # Basic classes needed to define any medium
 
@@ -88,10 +90,10 @@ class ExplicitMedium(Medium):
     def tokens(self):
         return iter(self._reverse)
 
-    def reverse(self,t):
+    def reverse(self, t):
         return self._reverse[t]
 
-    def action(self,S,t):
+    def action(self, S, t):
         return self._action[S][t]
 
     # Faster implementation of other medium functions
@@ -99,7 +101,7 @@ class ExplicitMedium(Medium):
     def __len__(self):
         return len(self._action)
 
-    def __getitem__(self,S):
+    def __getitem__(self, S):
         return self._action[S]
 
 
@@ -118,7 +120,7 @@ class BitvectorMedium(Medium):
     distance between the vectors.
     """
 
-    def __init__(self,states,L):
+    def __init__(self, states, L):
         """Initialize medium for set states and bitvector length L."""
         self._states = set(states)
         self._veclen = L
@@ -128,26 +130,26 @@ class BitvectorMedium(Medium):
 
     def tokens(self):
         for i in range(self._veclen):
-            yield i,False
-            yield i,True
+            yield i, False
+            yield i, True
 
-    def reverse(self,t):
-        i,b = t
-        return i,not b
+    def reverse(self, t):
+        i, b = t
+        return i, not b
 
-    def action(self,S,t):
+    def action(self, S, t):
         """
         Compute the action of token t on state S.
         We form the bitvector V that should correspond to St,
         then test whether V belongs to the given set of states.
         If so, we return it; otherwise, we return S itself.
         """
-        i,b = t
-        mask = 1<<i
+        i, b = t
+        mask = 1 << i
         if b:
             V = S | mask
         else:
-            V = S &~ mask
+            V = S & ~mask
         if V in self._states:
             return V
         else:
@@ -160,13 +162,13 @@ def StateTransitionGraph(M):
     If s is a state of M, G[s] will provide a dictionary mapping
     the neighbors of s to the actions that produced those neighbors.
     """
-    G = dict([(S,{}) for S in M])
+    G = dict([(S, {}) for S in M])
     for S in M:
         for t in M.tokens():
-            St = M(S,t)
+            St = M(S, t)
             if St != S:
                 if St in G[S]:
-                    raise MediumError("multiple adjacency from %s to %s" % (S,St))
+                    raise MediumError("multiple adjacency from %s to %s" % (S, St))
                 G[S][St] = t
     return G
 
@@ -179,16 +181,19 @@ class LabeledGraphMedium(Medium):
     LabeledGraphMedium(StateTransitionGraph(M)) should result
     in a medium with the same behavior as M itself.
     """
-    def __init__(self,G):
+
+    def __init__(self, G):
         if not isUndirected(G):
             raise MediumError("not an undirected graph")
-        self._action = dict([(v,{}) for v in G])
+        self._action = dict([(v, {}) for v in G])
         self._reverse = {}
         for v in G:
             for w in G[v]:
                 t = G[v][w]
                 if t in self._action[v]:
-                    raise MediumError("multiple edges for state %s and token %s" % (v,t))
+                    raise MediumError(
+                        "multiple edges for state %s and token %s" % (v, t)
+                    )
                 self._action[v][t] = w
                 if t not in self._reverse:
                     rt = G[w][v]
@@ -205,11 +210,11 @@ class LabeledGraphMedium(Medium):
     def tokens(self):
         return iter(self._reverse)
 
-    def reverse(self,t):
+    def reverse(self, t):
         return self._reverse[t]
 
-    def action(self,S,t):
-        return self._action[S].get(t,S)
+    def action(self, S, t):
+        return self._action[S].get(t, S)
 
     def __len__(self):
         return len(self._action)
@@ -233,7 +238,7 @@ def RoutingTable(M):
 
     # find list of tokens that lead to the initial state
     activeTokens = set()
-    for LG in BFS.BreadthFirstLevels(G,initialState):
+    for LG in BFS.BreadthFirstLevels(G, initialState):
         for v in LG:
             for w in LG[v]:
                 activeTokens.add(G[w][v])
@@ -244,7 +249,7 @@ def RoutingTable(M):
     inactivated = object()  # flag object to mark inactive tokens
 
     # rest of data structure: point from states to list and list to states
-    activeForState = dict([(S,-1) for S in M])
+    activeForState = dict([(S, -1) for S in M])
     statesForPos = [[] for i in activeTokens]
 
     def scan(S):
@@ -253,8 +258,8 @@ def RoutingTable(M):
         while True:
             i += 1
             if i >= len(activeTokens):
-                raise MediumError("no active token from %s to %s" %(S,current))
-            if activeTokens[i] != inactivated and M(S,activeTokens[i]) != S:
+                raise MediumError("no active token from %s to %s" % (S, current))
+            if activeTokens[i] != inactivated and M(S, activeTokens[i]) != S:
                 activeForState[S] = i
                 statesForPos[i].append(S)
                 return
@@ -267,10 +272,10 @@ def RoutingTable(M):
     # traverse the graph, maintaining active tokens
     visited = set()
     routes = {}
-    for prev,current,edgetype in DFS.search(G,initialState):
+    for prev, current, edgetype in DFS.search(G, initialState):
         if prev != current and edgetype != DFS.nontree:
             if edgetype == DFS.reverse:
-                prev,current = current,prev
+                prev, current = current, prev
 
             # add token to end of list, point to it from old state
             activeTokens.append(G[prev][current])
@@ -287,7 +292,7 @@ def RoutingTable(M):
             if current not in visited:
                 for S in M:
                     if S != current:
-                        routes[S,current] = activeTokens[activeForState[S]]
+                        routes[S, current] = activeTokens[activeForState[S]]
 
     return routes
 
@@ -298,11 +303,11 @@ def HypercubeEmbedding(M):
     tokmap = {}
     for t in M.tokens():
         if t not in tokmap:
-            tokmap[t] = tokmap[M.reverse(t)] = 1<<dim
+            tokmap[t] = tokmap[M.reverse(t)] = 1 << dim
             dim += 1
     embed = {}
     G = StateTransitionGraph(M)
-    for prev,current,edgetype in DFS.search(G):
+    for prev, current, edgetype in DFS.search(G):
         if edgetype == DFS.forward:
             if prev == current:
                 embed[current] = 0
@@ -313,12 +318,13 @@ def HypercubeEmbedding(M):
 
 # Perform some sanity checks if run standalone
 
+
 class MediumTest(unittest.TestCase):
 
     # make medium from all five-bit numbers that have 2 or 3 bits lit
-    twobits = [3,5,6,9,10,12,17,18,20,24]
-    threebits = [31^x for x in twobits]
-    M523 = BitvectorMedium(twobits+threebits,5)
+    twobits = [3, 5, 6, 9, 10, 12, 17, 18, 20, 24]
+    threebits = [31 ^ x for x in twobits]
+    M523 = BitvectorMedium(twobits + threebits, 5)
 
     def testStates(self):
         """Check that iter(Medium) generates the correct set of states."""
@@ -327,29 +333,29 @@ class MediumTest(unittest.TestCase):
         L1.sort()
         L2 = MediumTest.twobits + MediumTest.threebits
         L2.sort()
-        self.assertEqual(L1,L2)
+        self.assertEqual(L1, L2)
 
     def testTokens(self):
         """Check that Medium.tokens() generates the correct set of tokens."""
         M = MediumTest.M523
-        toks = [(i,False) for i in range(5)] + [(i,True) for i in range(5)]
-        self.assertEqual(set(toks),set(M.tokens()))
+        toks = [(i, False) for i in range(5)] + [(i, True) for i in range(5)]
+        self.assertEqual(set(toks), set(M.tokens()))
         for t in toks:
-            i,b = t
-            self.assertEqual(M.reverse(t),(i,not b))
+            i, b = t
+            self.assertEqual(M.reverse(t), (i, not b))
 
     def testAction(self):
         """Check that the action of the tokens is what we expect."""
         M = MediumTest.M523
         for x in M:
             for i in range(5):
-                b = (x>>i)&1
-                self.assertEqual(x,M(x,(i,b)))
-                y = M(x,(i,not b))
+                b = (x >> i) & 1
+                self.assertEqual(x, M(x, (i, b)))
+                y = M(x, (i, not b))
                 if b == (x in MediumTest.twobits):
-                    self.assertEqual(x,y)
+                    self.assertEqual(x, y)
                 else:
-                    self.assertEqual(y,x^(1<<i))
+                    self.assertEqual(y, x ^ (1 << i))
 
     def testRouting(self):
         """Check that RoutingTable finds paths that decrease Hamming dist."""
@@ -358,48 +364,51 @@ class MediumTest(unittest.TestCase):
         for x in M:
             for y in M:
                 if x != y:
-                    i,b = R[x,y]
-                    self.assertEqual((x^y)&(1<<i),1<<i)
-                    self.assertEqual((x>>i)&1, not b)
+                    i, b = R[x, y]
+                    self.assertEqual((x ^ y) & (1 << i), 1 << i)
+                    self.assertEqual((x >> i) & 1, not b)
 
     def testExplicit(self):
         """Check that ExplicitMedium looks the same as its argument."""
         M = MediumTest.M523
         E = ExplicitMedium(M)
-        self.assertEqual(set(M),set(E))
-        self.assertEqual(set(M.tokens()),set(E.tokens()))
+        self.assertEqual(set(M), set(E))
+        self.assertEqual(set(M.tokens()), set(E.tokens()))
         for t in M.tokens():
-            self.assertEqual(M.reverse(t),E.reverse(t))
+            self.assertEqual(M.reverse(t), E.reverse(t))
         for s in M:
             for t in M.tokens():
-                self.assertEqual(M(s,t),E(s,t))
+                self.assertEqual(M(s, t), E(s, t))
 
     def testEmbed(self):
         """Check that HypercubeEmbedding finds appropriate coordinates."""
         M = MediumTest.M523
         E = HypercubeEmbedding(M)
-        def ham(x,y):
-            z = x^y
+
+        def ham(x, y):
+            z = x ^ y
             d = 0
             while z:
                 d += 1
-                z &= z-1
+                z &= z - 1
             return d
+
         for x in M:
             for y in M:
-                self.assertEqual(ham(x,y),ham(E[x],E[y]))
+                self.assertEqual(ham(x, y), ham(E[x], E[y]))
 
     def testGraph(self):
         """Check that LabeledGraphMedium(StateTransitionGraph(M)) = M."""
         M = MediumTest.M523
         L = LabeledGraphMedium(StateTransitionGraph(M))
-        self.assertEqual(set(M),set(L))
-        self.assertEqual(set(M.tokens()),set(L.tokens()))
+        self.assertEqual(set(M), set(L))
+        self.assertEqual(set(M.tokens()), set(L.tokens()))
         for t in M.tokens():
-            self.assertEqual(M.reverse(t),L.reverse(t))
+            self.assertEqual(M.reverse(t), L.reverse(t))
         for s in M:
             for t in M.tokens():
-                self.assertEqual(M(s,t),L(s,t))
+                self.assertEqual(M(s, t), L(s, t))
+
 
 if __name__ == "__main__":
     unittest.main()

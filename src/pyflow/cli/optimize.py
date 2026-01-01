@@ -35,31 +35,60 @@ ANALYSIS_MODULES = {
 
 def add_optimize_parser(subparsers):
     """Add optimization subcommand parser."""
-    parser = subparsers.add_parser("optimize", help="Run static analysis and optimization")
+    parser = subparsers.add_parser(
+        "optimize", help="Run static analysis and optimization"
+    )
 
     # Input/Output options
-    parser.add_argument("input_path", nargs="?", help="Python file, directory, or library to optimize")
+    parser.add_argument(
+        "input_path", nargs="?", help="Python file, directory, or library to optimize"
+    )
     parser.add_argument("--output", "-o", help="Output file for results")
-    parser.add_argument("--verbose", "-v", action="store_true", help="Enable verbose output")
-    parser.add_argument("--dump", "-d", action="store_true", help="Dump analysis results")
-    parser.add_argument("--dump-ipa", action="store_true", help="Dump IPA analysis results")
-    parser.add_argument("--dump-shape", action="store_true", help="Dump Shape analysis results")
+    parser.add_argument(
+        "--verbose", "-v", action="store_true", help="Enable verbose output"
+    )
+    parser.add_argument(
+        "--dump", "-d", action="store_true", help="Dump analysis results"
+    )
+    parser.add_argument(
+        "--dump-ipa", action="store_true", help="Dump IPA analysis results"
+    )
+    parser.add_argument(
+        "--dump-shape", action="store_true", help="Dump Shape analysis results"
+    )
 
     # Analysis options
-    parser.add_argument("--analysis", "-a", choices=["all", "cpa", "ipa", "shape", "lifetime"],
-                       default="all", help="Analysis type (default: all)")
-    parser.add_argument("--dependency-strategy",
-                       choices=["auto", "stubs", "noop", "strict", "ast_only"],
-                       default="auto", help="Dependency handling strategy")
+    parser.add_argument(
+        "--analysis",
+        "-a",
+        choices=["all", "cpa", "ipa", "shape", "lifetime"],
+        default="all",
+        help="Analysis type (default: all)",
+    )
+    parser.add_argument(
+        "--dependency-strategy",
+        choices=["auto", "stubs", "noop", "strict", "ast_only"],
+        default="auto",
+        help="Dependency handling strategy",
+    )
 
     # File discovery options
-    parser.add_argument("--recursive", "-r", action="store_true", help="Recursively analyze subdirectories")
+    parser.add_argument(
+        "--recursive",
+        "-r",
+        action="store_true",
+        help="Recursively analyze subdirectories",
+    )
     parser.add_argument("--exclude", nargs="*", default=[], help="Exclude patterns")
-    parser.add_argument("--include", nargs="*", default=["*.py"], help="Include patterns")
+    parser.add_argument(
+        "--include", nargs="*", default=["*.py"], help="Include patterns"
+    )
 
     # Optimization options
     parser.add_argument("--opt-passes", nargs="*", help="Specific optimization passes")
-    parser.add_argument("--list-opt-passes", action="store_true", help="List available passes")
+    parser.add_argument(
+        "--list-opt-passes", action="store_true", help="List available passes"
+    )
     parser.add_argument("--no-opt-passes", action="store_true", help="Analysis only")
 
     return parser
@@ -71,7 +100,7 @@ def list_optimization_passes():
     for name, desc in OPTIMIZATION_PASSES.items():
         print(f"  {name:<25} - {desc}")
 
-    
+
 def run_analysis(input_path, args):
     """Run PyFlow analysis on the input path (file or directory)."""
     try:
@@ -84,7 +113,10 @@ def run_analysis(input_path, args):
                 print("No Python files found to analyze")
                 return
         else:
-            print(f"Error: '{input_path}' is neither a file nor a directory", file=sys.stderr)
+            print(
+                f"Error: '{input_path}' is neither a file nor a directory",
+                file=sys.stderr,
+            )
             sys.exit(1)
 
         # Setup compiler and program
@@ -93,9 +125,17 @@ def run_analysis(input_path, args):
         program = Program()
 
         # Extract program
-        from pyflow.frontend.programextractor import create_interface_from_paths, Extractor
-        program.interface, all_source_code = create_interface_from_paths(python_files, args)
-        compiler.extractor = Extractor(compiler, verbose=args.verbose, source_code=all_source_code)
+        from pyflow.frontend.programextractor import (
+            create_interface_from_paths,
+            Extractor,
+        )
+
+        program.interface, all_source_code = create_interface_from_paths(
+            python_files, args
+        )
+        compiler.extractor = Extractor(
+            compiler, verbose=args.verbose, source_code=all_source_code
+        )
 
         with console.scope("extraction"):
             extractProgram(compiler, program)
@@ -116,6 +156,7 @@ def run_analysis(input_path, args):
             elif args.analysis == "ipa":
                 # Run only IPA analysis (skip CPA and later passes)
                 from pyflow.analysis import ipa as ipa_module
+
                 with console.scope("ipa-only"):
                     result = ipa_module.evaluate(compiler, program)
                     if result:
@@ -136,12 +177,14 @@ def run_analysis(input_path, args):
     except Exception as e:
         print(f"Error during analysis: {e}", file=sys.stderr)
         import traceback
+
         traceback.print_exc()
         sys.exit(1)
 
 
 def find_python_files(directory, args):
     """Find Python files based on include/exclude patterns."""
+
     def should_include(file_path):
         if file_path.suffix != ".py":
             return False
@@ -153,14 +196,17 @@ def find_python_files(directory, args):
     if args.recursive:
         files = []
         for root, dirs, filenames in os.walk(directory):
-            dirs[:] = [d for d in dirs if not any(fnmatch.fnmatch(d, p) for p in args.exclude)]
-            files.extend(Path(root) / f for f in filenames if should_include(Path(root) / f))
+            dirs[:] = [
+                d for d in dirs if not any(fnmatch.fnmatch(d, p) for p in args.exclude)
+            ]
+            files.extend(
+                Path(root) / f for f in filenames if should_include(Path(root) / f)
+            )
         return sorted(files)
     else:
-        return sorted(f for f in directory.iterdir() if f.is_file() and should_include(f))
-
-
-
+        return sorted(
+            f for f in directory.iterdir() if f.is_file() and should_include(f)
+        )
 
 
 def run_analysis_passes(compiler, program, analysis_type):
@@ -172,10 +218,13 @@ def run_analysis_passes(compiler, program, analysis_type):
     # For IPA and Shape analysis, run the full pipeline to ensure proper setup
     if analysis_type in ["ipa", "shape"]:
         from pyflow.application.pipeline import evaluate as pipeline_evaluate
+
         pipeline_evaluate(compiler, program, f"dummy_{analysis_type}")
         print(f"{analysis_type.upper()} analysis completed as part of full pipeline")
 
-        if analysis_type == "ipa" and not (hasattr(program, 'ipa_analysis') and program.ipa_analysis):
+        if analysis_type == "ipa" and not (
+            hasattr(program, "ipa_analysis") and program.ipa_analysis
+        ):
             print("Warning: IPA analysis results not available from pipeline run")
     else:
         module_name, func_name = ANALYSIS_MODULES[analysis_type]
@@ -184,12 +233,13 @@ def run_analysis_passes(compiler, program, analysis_type):
 
         if analysis_type == "shape":
             from pyflow.application.pipeline import evaluate as pipeline_evaluate
+
             pipeline_evaluate(compiler, program, "shape_analysis")
         else:
             # Store analysis result in program for later dumping
             analysis_result = func(compiler, program)
-            if analysis_result and hasattr(analysis_result, 'contexts'):
-                setattr(program, f'{analysis_type}_analysis', analysis_result)
+            if analysis_result and hasattr(analysis_result, "contexts"):
+                setattr(program, f"{analysis_type}_analysis", analysis_result)
 
 
 def dump_specific_results(compiler, program, input_path, args):
@@ -208,7 +258,7 @@ def dump_ipa_results(compiler, program, input_path, output_file):
     try:
         from pyflow.analysis.ipa.dump import Dumper
 
-        if not (hasattr(program, 'ipa_analysis') and program.ipa_analysis):
+        if not (hasattr(program, "ipa_analysis") and program.ipa_analysis):
             print("IPA analysis results not available for dumping")
             return
 
@@ -229,7 +279,7 @@ def dump_ipa_results(compiler, program, input_path, output_file):
 def dump_shape_results(compiler, program, input_path, output_file):
     """Dump Shape analysis results."""
     try:
-        if not (hasattr(program, 'shape_analysis') and program.shape_analysis):
+        if not (hasattr(program, "shape_analysis") and program.shape_analysis):
             print("Shape analysis results not available for dumping")
             return
 
@@ -243,7 +293,7 @@ def dump_shape_results(compiler, program, input_path, output_file):
         with redirect_stdout(io.StringIO()) as output_buffer:
             program.shape_analysis.dumpStatistics()
 
-        with open(output_path, 'w') as f:
+        with open(output_path, "w") as f:
             f.write(output_buffer.getvalue())
 
         print(f"Shape analysis results dumped to: {output_path}")
@@ -255,7 +305,11 @@ def get_output_path(output_file, input_path, default_suffix):
     """Get output path for dumping results."""
     if output_file:
         return Path(output_file)
-    return input_path.with_suffix(f".{default_suffix}") if input_path.is_file() else input_path / default_suffix
+    return (
+        input_path.with_suffix(f".{default_suffix}")
+        if input_path.is_file()
+        else input_path / default_suffix
+    )
 
 
 def dump_results(compiler, program, input_path, output_file):
@@ -263,9 +317,14 @@ def dump_results(compiler, program, input_path, output_file):
     try:
         from pyflow.analysis.dump import dumpreport
 
-        output_path = Path(output_file) if output_file else (
-            input_path.with_suffix(".analysis") if input_path.is_file()
-            else input_path / "analysis_results"
+        output_path = (
+            Path(output_file)
+            if output_file
+            else (
+                input_path.with_suffix(".analysis")
+                if input_path.is_file()
+                else input_path / "analysis_results"
+            )
         )
         output_path.parent.mkdir(parents=True, exist_ok=True)
         dumpreport.evaluate(compiler, program, str(output_path))
@@ -288,8 +347,14 @@ def run_optimization_passes(compiler, program, passes):
     """Run specific optimization passes."""
     from pyflow.analysis import cpa, lifetimeanalysis
     from pyflow.optimization import (
-        methodcall, simplify, clone, argumentnormalization,
-        codeinlining, cullprogram, loadelimination, storeelimination
+        methodcall,
+        simplify,
+        clone,
+        argumentnormalization,
+        codeinlining,
+        cullprogram,
+        loadelimination,
+        storeelimination,
     )
 
     with compiler.console.scope("specific-passes"):

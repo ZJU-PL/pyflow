@@ -38,5 +38,9 @@ def subprocess_without_shell_equals_true(context):
 @test.with_id("B604")
 def any_other_function_with_shell_equals_true(context):
     """Check for other functions with shell=True"""
-    if context.call_function_name_qual in ["os.system", "os.popen", "commands.getstatusoutput"]:
+    if context.call_function_name_qual in [
+        "os.system",
+        "os.popen",
+        "commands.getstatusoutput",
+    ]:
         return shell_injection_issue()

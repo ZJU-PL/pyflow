@@ -20,11 +20,11 @@ import inspect
 
 def flattenTypesInto(l, result):
     """Flatten nested type lists into a flat list.
-    
+
     Args:
         l: List of types (can contain nested lists/tuples).
         result: List to append flattened types to.
-        
+
     Raises:
         TypeDispatchDeclarationError: If non-type objects are found.
     """
@@ -41,17 +41,18 @@ def flattenTypesInto(l, result):
 
 def dispatch(*types):
     """Decorator for type-based method dispatch.
-    
+
     Marks a method as handling dispatch for the specified types. When the
     TypeDispatcher calls the method, it will select the appropriate overload
     based on the runtime types of the arguments.
-    
+
     Args:
         *types: Type objects that this method handles.
-        
+
     Returns:
         Decorated function with dispatch metadata.
     """
+
     def dispatchF(f):
         def dispatchWrap(*args, **kargs):
             return f(*args, **kargs)
@@ -66,16 +67,17 @@ def dispatch(*types):
 
 def defaultdispatch(f):
     """Decorator for default dispatch method.
-    
+
     Marks a method as the default handler when no specific type dispatch
     method matches the arguments.
-    
+
     Args:
         f: Function to mark as default dispatch handler.
-        
+
     Returns:
         Decorated function with default dispatch metadata.
     """
+
     def defaultWrap(*args, **kargs):
         return f(*args, **kargs)
 
@@ -87,22 +89,22 @@ def defaultdispatch(f):
 def dispatch__call__(self, p, *args):
     """
     Dispatch a call based on the type of the first argument.
-    
+
     This function implements the core dispatch logic:
     1. Look up the exact type in the dispatch table
     2. If not found, search the method resolution order (MRO) for a matching superclass
     3. Optionally try name-based dispatch (visitor pattern style)
     4. Fall back to default handler if no match found
     5. Cache the result for future lookups
-    
+
     The dispatch table is built by the metaclass from methods decorated with
     @dispatch(type) or @defaultdispatch.
-    
+
     Args:
         self: TypeDispatcher instance
         p: First argument (type determines which method to call)
         *args: Additional arguments to pass to the dispatched method
-        
+
     Returns:
         Result of calling the appropriate handler method
     """
@@ -153,40 +155,42 @@ def dispatch__call__(self, p, *args):
 class TypeDispatchError(Exception):
     """
     Exception raised when type dispatch fails.
-    
+
     This is raised when a TypeDispatcher is called with a type that has
     no handler and no default handler is available (should not happen if
     defaultdispatch is properly defined).
     """
+
     pass
 
 
 class TypeDispatchDeclarationError(Exception):
     """
     Exception raised when type dispatch is incorrectly declared.
-    
+
     This is raised during class definition if:
     - Multiple handlers are declared for the same type
     - No default handler is provided
     - Invalid type objects are used in @dispatch decorators
     """
+
     pass
 
 
 def exceptionDefault(self, node, *args):
     """
     Default handler that raises an exception.
-    
+
     This is the default defaultdispatch handler. It raises a TypeDispatchError
     indicating that the dispatcher cannot handle the given type. Subclasses
     should override this with @defaultdispatch to provide their own default
     behavior.
-    
+
     Args:
         self: TypeDispatcher instance
         node: Object that couldn't be dispatched
         *args: Additional arguments
-        
+
     Raises:
         TypeDispatchError: Always, indicating unhandled type
     """
@@ -196,11 +200,11 @@ def exceptionDefault(self, node, *args):
 def inlineAncestor(t, lut):
     """
     Inline dispatch table entries from an ancestor class.
-    
+
     This function merges dispatch table entries from a base class into
     the lookup table being built. It only adds entries that haven't been
     defined in the current class (allowing subclasses to override).
-    
+
     Args:
         t: Class to get dispatch table from
         lut: Lookup table dictionary to update
@@ -217,12 +221,12 @@ def inlineAncestor(t, lut):
 class typedispatcher(type):
     """
     Metaclass that builds type dispatch tables for TypeDispatcher classes.
-    
+
     This metaclass processes methods decorated with @dispatch or @defaultdispatch
     and builds a lookup table mapping types to handler functions. The table is
     stored in __typeDispatchTable__ and used by dispatch__call__ to route calls
     to the appropriate handler.
-    
+
     The metaclass:
     1. Scans class methods for dispatch decorators
     2. Builds a type -> handler mapping
@@ -230,19 +234,20 @@ class typedispatcher(type):
     4. Ensures a default handler exists
     5. Stores the dispatch table in the class
     """
+
     def __new__(self, name, bases, d):
         """
         Create a TypeDispatcher class with dispatch table.
-        
+
         Args:
             self: The metaclass
             name: Name of the class being created
             bases: Base classes
             d: Class dictionary
-            
+
         Returns:
             New class with __typeDispatchTable__ attribute
-            
+
         Raises:
             TypeDispatchDeclarationError: If dispatch is incorrectly declared
         """
@@ -292,17 +297,17 @@ class typedispatcher(type):
 class TypeDispatcher(object, metaclass=typedispatcher):
     """
     Base class for type-based method dispatch (multiple dispatch).
-    
+
     This class provides a multiple dispatch system where methods are selected
     based on the runtime type of the first argument. This is similar to method
     overloading in languages like C++ or Java, but determined at runtime.
-    
+
     Usage:
         1. Inherit from TypeDispatcher
         2. Decorate methods with @dispatch(Type) for specific types
         3. Decorate one method with @defaultdispatch for fallback
         4. Call the dispatcher with an object - appropriate method is called
-    
+
     Example:
         >>> class MyDispatcher(TypeDispatcher):
         ...     @dispatch(int)
@@ -321,12 +326,13 @@ class TypeDispatcher(object, metaclass=typedispatcher):
         'string'
         >>> d([1, 2, 3])
         'other'
-    
+
     Attributes:
         __concrete__: If True, only exact type matches (no inheritance lookup)
         __namedispatch__: If True, enable name-based dispatch (visitor pattern)
         __nameprefix__: Prefix for name-based dispatch methods (default: "visit")
     """
+
     __dispatch__ = dispatch__call__
     __call__ = dispatch__call__
     exceptionDefault = defaultdispatch(exceptionDefault)

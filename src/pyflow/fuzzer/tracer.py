@@ -26,33 +26,34 @@ import sys
 
 # Global state for coverage tracking
 prev_line = 0
-prev_filename = ''
+prev_filename = ""
 # Coverage data: filename -> set of (prev_line, curr_line) transitions
 data = collections.defaultdict(set)
+
 
 def trace(frame, event, arg):
     """
     Trace function for sys.settrace.
-    
+
     This function is called by Python for each line execution when
     sys.settrace(trace) is active. It tracks line transitions to measure
     code coverage.
-    
+
     **Coverage Model:**
     - Tracks transitions: (previous_line, current_line) pairs
     - Handles file boundaries: concatenates filenames for inter-file transitions
     - Only processes 'line' events (ignores call, return, etc.)
-    
+
     Args:
         frame: Current execution frame
         event: Event type ('line', 'call', 'return', etc.)
         arg: Event argument (unused for 'line' events)
-        
+
     Returns:
         The trace function itself (to continue tracing)
     """
     # Only track line events (actual line executions)
-    if event != 'line':
+    if event != "line":
         return trace
 
     global prev_line
@@ -80,10 +81,10 @@ def trace(frame, event, arg):
 def get_coverage():
     """
     Get total code coverage count.
-    
+
     Returns the total number of unique line transitions seen so far.
     This is used by the fuzzer to determine if a test case increased coverage.
-    
+
     Returns:
         Total number of unique (prev_line, curr_line) transitions
     """

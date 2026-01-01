@@ -35,23 +35,23 @@ LOG = logging.getLogger(__name__)
 class SecurityTester:
     """
     Executes security tests and collects results.
-    
+
     The SecurityTester runs security tests registered for specific node types,
     collects issues, handles nosec comments, and calculates severity/confidence
     scores. It serves as the bridge between the AST visitor and individual
     security test functions.
-    
+
     **Test Functions:**
     Security tests are functions that take a Context object and optionally
     a config dictionary. They return:
     - None: No issue found
     - Issue: Single issue found
     - List[Issue]: Multiple issues found
-    
+
     **Score Calculation:**
     Scores are calculated based on issue severity and confidence levels,
     using the RANKING_VALUES point system.
-    
+
     Attributes:
         results: List of all issues found during analysis
         testset: TestSet containing registered security tests
@@ -60,10 +60,11 @@ class SecurityTester:
         nosec_lines: Dictionary mapping line numbers to nosec test IDs
         metrics: Metrics collector for statistics
     """
+
     def __init__(self, testset, debug, nosec_lines, metrics):
         """
         Initialize a security tester.
-        
+
         Args:
             testset: TestSet containing security tests
             debug: Whether to enable debug logging
@@ -80,7 +81,7 @@ class SecurityTester:
     def run_tests(self, raw_context, checktype):
         """
         Run all security tests for a specific node type.
-        
+
         Executes all tests registered for the given checktype (e.g., "Call",
         "Import", "Str"). For each test:
         1. Creates a Context wrapper
@@ -89,11 +90,11 @@ class SecurityTester:
         4. Checks nosec comments
         5. Annotates issues with file/location information
         6. Calculates scores
-        
+
         Args:
             raw_context: Raw context dictionary from visitor
             checktype: Node type to run tests for (e.g., "Call", "Import")
-            
+
         Returns:
             Dictionary with "SEVERITY" and "CONFIDENCE" score arrays
         """
@@ -117,7 +118,7 @@ class SecurityTester:
                 if result is not None:
                     # Handle both single issues and lists of issues
                     issues = result if isinstance(result, list) else [result]
-                    
+
                     for issue in issues:
                         nosec_tests_to_skip = self._get_nosecs_from_contexts(
                             temp_context, test_result=issue
@@ -166,10 +167,7 @@ class SecurityTester:
                         scores["CONFIDENCE"][con] += val
                 else:
                     nosec_tests_to_skip = self._get_nosecs_from_contexts(temp_context)
-                    if (
-                        nosec_tests_to_skip
-                        and test._test_id in nosec_tests_to_skip
-                    ):
+                    if nosec_tests_to_skip and test._test_id in nosec_tests_to_skip:
                         LOG.warning(
                             f"nosec encountered ({test._test_id}), but no "
                             f"failed test on line {temp_context['lineno']}"
@@ -185,27 +183,25 @@ class SecurityTester:
     def _get_nosecs_from_contexts(self, context, test_result=None):
         """
         Get set of tests to skip based on nosec comments.
-        
+
         Checks for nosec comments on both the current line (from test_result)
         and the context line. Combines both sets of tests to skip.
-        
+
         **Nosec Comment Format:**
         - # nosec B301: Skip test B301 on this line
         - # nosec: Skip all tests on this line
-        
+
         Args:
             context: Context dictionary
             test_result: Optional Issue object (for line number)
-            
+
         Returns:
             Set of test IDs to skip, or None if no nosec comments found
         """
         nosec_tests_to_skip = set()
         # Get nosec tests from the issue's line number
         base_tests = (
-            self.nosec_lines.get(test_result.lineno, None)
-            if test_result
-            else None
+            self.nosec_lines.get(test_result.lineno, None) if test_result else None
         )
         # Get nosec tests from the context line
         context_tests = utils.get_nosec(self.nosec_lines, context)
@@ -226,10 +222,10 @@ class SecurityTester:
     def report_error(test, context, error):
         """
         Report an error that occurred during test execution.
-        
+
         Logs detailed error information including test name, file, line number,
         and full traceback. Used for debugging test failures.
-        
+
         Args:
             test: Test function name that failed
             context: Context object where error occurred
@@ -243,5 +239,6 @@ class SecurityTester:
         )
         what += str(error)
         import traceback
+
         what += traceback.format_exc()
         LOG.error(what)

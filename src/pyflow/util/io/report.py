@@ -10,14 +10,14 @@ and Ploticus pie chart generation.
 def reindex(indexes, l):
     """
     Reorder elements of a list based on index mapping.
-    
+
     Args:
         indexes: List of indices specifying the new order
         l: List to reorder
-        
+
     Returns:
         New list with elements in the order specified by indexes
-        
+
     Example:
         reindex([2, 0, 1], ['a', 'b', 'c']) -> ['c', 'a', 'b']
     """
@@ -57,14 +57,15 @@ astColors = (
 class TableBuilder(object):
     """
     Build and format tables with customizable columns and formats.
-    
+
     Supports adding rows, setting format strings for columns, and
     outputting tables in various formats (plain text, LaTeX).
     """
+
     def __init__(self, *columns):
         """
         Initialize a TableBuilder with column names.
-        
+
         Args:
             *columns: Variable number of column name strings
         """
@@ -76,11 +77,11 @@ class TableBuilder(object):
     def setFormats(self, *formats):
         """
         Set format strings for each column.
-        
+
         Args:
             *formats: Format strings (e.g., "%d", "%.2f", "%s") for each column
                     Must match the number of columns
-                    
+
         Raises:
             AssertionError: If number of formats doesn't match number of columns
         """
@@ -90,11 +91,11 @@ class TableBuilder(object):
     def row(self, name, *values):
         """
         Add a row to the table.
-        
+
         Args:
             name: Row name/identifier (typically used as first column in output)
             *values: Values for each column (must match number of columns)
-            
+
         Raises:
             AssertionError: If number of values doesn't match number of columns
         """
@@ -104,11 +105,11 @@ class TableBuilder(object):
     def formatRow(self, name, values):
         """
         Format a row's values using the column format strings.
-        
+
         Args:
             name: Row name
             values: List of values to format
-            
+
         Returns:
             Tuple of (name, list of formatted value strings)
         """
@@ -123,10 +124,10 @@ class TableBuilder(object):
     def rewrite(self, *indexes):
         """
         Reorder columns based on index mapping.
-        
+
         Reorders columns, formats, and all row data according to the
         specified index sequence.
-        
+
         Args:
             *indexes: Indices specifying the new column order
         """
@@ -137,9 +138,9 @@ class TableBuilder(object):
     def dumpLatex(self, f, label):
         """
         Output table in LaTeX format.
-        
+
         Generates a LaTeX subfloat table suitable for inclusion in LaTeX documents.
-        
+
         Args:
             f: File object to write LaTeX code to
             label: Label identifier for the table (used in \\label{fig:label})
@@ -169,10 +170,11 @@ class TableBuilder(object):
 class PieBuilder(object):
     """
     Build pie charts for visualization using Ploticus format.
-    
+
     Accumulates pie slices with labels, colors, and values, then
     outputs them in Ploticus script format for rendering.
     """
+
     template = """
 #proc getdata
 data:
@@ -198,7 +200,7 @@ labelfarout: 1.3
     def slice(self, label, color, value):
         """
         Add a slice to the pie chart.
-        
+
         Args:
             label: Label text for this slice
             color: Color name for this slice (Ploticus color name)
@@ -209,10 +211,10 @@ labelfarout: 1.3
     def dumpPloticus(self, f):
         """
         Output pie chart in Ploticus script format.
-        
+
         Generates a complete Ploticus script that can be rendered
         to produce a pie chart visualization.
-        
+
         Args:
             f: File object to write Ploticus script to
         """

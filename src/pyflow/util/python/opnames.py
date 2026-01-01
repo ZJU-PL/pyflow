@@ -44,22 +44,22 @@ compareRev = {">": "lt", "<": "gt", ">=": "le", "<=": "ge", "==": "eq", "!=": "n
 # Used for determining evaluation order in expressions
 # Based on Python's operator precedence rules
 binaryOpPrecedence = {
-    "+": 12,      # Addition
-    "-": 12,      # Subtraction
-    "*": 11,      # Multiplication
-    "/": 11,      # Division
-    "//": 11,     # Floor division
-    "%": 11,      # Modulo
-    "**": 8,      # Exponentiation (right-associative)
-    "<<": 13,     # Left shift
-    ">>": 13,     # Right shift
-    "&": 14,      # Bitwise AND
-    "^": 15,      # Bitwise XOR
-    "|": 16,      # Bitwise OR
-    "in": 19,     # Membership test
-    "not in": 19, # Negated membership test
-    "is": 18,     # Identity test
-    "is not": 18, # Negated identity test
+    "+": 12,  # Addition
+    "-": 12,  # Subtraction
+    "*": 11,  # Multiplication
+    "/": 11,  # Division
+    "//": 11,  # Floor division
+    "%": 11,  # Modulo
+    "**": 8,  # Exponentiation (right-associative)
+    "<<": 13,  # Left shift
+    ">>": 13,  # Right shift
+    "&": 14,  # Bitwise AND
+    "^": 15,  # Bitwise XOR
+    "|": 16,  # Bitwise OR
+    "in": 19,  # Membership test
+    "not in": 19,  # Negated membership test
+    "is": 18,  # Identity test
+    "is not": 18,  # Negated identity test
 }
 
 # Operators that must have spaces around them when used in code
@@ -93,15 +93,17 @@ inplaceFallback = {}
 # Build mappings for arithmetic and bitwise operators
 for op, name in opLUT.items():
     iop = op + "="  # Create in-place operator (e.g., "+" -> "+=")
-    forward[op] = "__%s__" % name      # Forward method: a + b -> a.__add__(b)
-    reverse[op] = "__r%s__" % name     # Reverse method: a + b -> b.__radd__(a) if a.__add__ fails
-    inplace[op] = "__i%s__" % name     # In-place method: a += b -> a.__iadd__(b)
+    forward[op] = "__%s__" % name  # Forward method: a + b -> a.__add__(b)
+    reverse[op] = (
+        "__r%s__" % name
+    )  # Reverse method: a + b -> b.__radd__(a) if a.__add__ fails
+    inplace[op] = "__i%s__" % name  # In-place method: a += b -> a.__iadd__(b)
     binaryOps.add(op)
     inplaceOps.add(iop)
     inplaceFallback[iop] = op  # "+=" falls back to "+" if __iadd__ not available
 
-    binaryOpName[op] = "__%s__" % name   # Regular binary operator method
-    binaryOpName[iop] = "__i%s__" % name # In-place operator method
+    binaryOpName[op] = "__%s__" % name  # Regular binary operator method
+    binaryOpName[iop] = "__i%s__" % name  # In-place operator method
 
 # Build mappings for comparison operators
 for op, name in compare.items():
@@ -130,17 +132,17 @@ unaryPrefixOpName = unaryPrefixLUT
 def binaryOpMethodNames(op):
     """
     Get the forward and reverse magic method names for a binary operator.
-    
+
     This function returns both the forward method (called on the left operand)
     and the reverse method (called on the right operand if forward fails).
-    
+
     Args:
         op: Binary operator symbol (e.g., "+", "-", "*")
-        
+
     Returns:
         tuple: (forward_method_name, reverse_method_name)
                e.g., ("__add__", "__radd__") for "+"
-               
+
     Example:
         >>> forward, reverse = binaryOpMethodNames("+")
         >>> forward

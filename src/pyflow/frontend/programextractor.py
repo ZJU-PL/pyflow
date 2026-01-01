@@ -27,11 +27,11 @@ from .stub_manager import StubManager
 
 class Extractor:
     """Extracts program information from Python code for static analysis.
-    
+
     The Extractor class is responsible for processing Python source code and
     building internal representations suitable for static analysis. It handles
     function and class extraction, AST processing, and object management.
-    
+
     Attributes:
         compiler: CompilerContext for compilation state.
         verbose: Whether to output verbose information during extraction.
@@ -52,7 +52,7 @@ class Extractor:
         self, compiler: CompilerContext, verbose: bool = True, source_code: str = None
     ):
         """Initialize the program extractor.
-        
+
         Args:
             compiler: CompilerContext for compilation state.
             verbose: Whether to output verbose information during extraction.
@@ -81,17 +81,17 @@ class Extractor:
         self.object_manager = ObjectManager(
             verbose, self.function_extractor, self.stub_manager
         )
-        
+
         # Expose stubs for backward compatibility
         self.stubs = self.stub_manager.stubs
 
     def extract_from_source(self, source: str, filename: str = "<string>") -> Program:
         """Extract program information from Python source code.
-        
+
         Args:
             source: Python source code as a string.
             filename: Name of the source file (for error reporting).
-            
+
         Returns:
             Program: Program object containing extracted information.
         """
@@ -106,10 +106,10 @@ class Extractor:
 
     def extract_from_file(self, filename: str) -> Program:
         """Extract program information from a Python file.
-        
+
         Args:
             filename: Path to the Python file to process.
-            
+
         Returns:
             Program: Program object containing extracted information.
         """
@@ -140,8 +140,11 @@ class Extractor:
             try:
                 file_program = self.extract_from_source(source, filename)
                 # Add extracted functions to combined program
-                if hasattr(file_program, 'liveCode') and file_program.liveCode:
-                    if not hasattr(combined_program, 'liveCode') or combined_program.liveCode is None:
+                if hasattr(file_program, "liveCode") and file_program.liveCode:
+                    if (
+                        not hasattr(combined_program, "liveCode")
+                        or combined_program.liveCode is None
+                    ):
                         combined_program.liveCode = set()
                     combined_program.liveCode.update(file_program.liveCode)
             except Exception as e:
@@ -170,10 +173,11 @@ class Extractor:
                 self.function_extractor.extract_class(node, program)
 
         if self.verbose:
-            print(f"DEBUG: Extraction complete, liveCode has {len(program.liveCode)} functions")
+            print(
+                f"DEBUG: Extraction complete, liveCode has {len(program.liveCode)} functions"
+            )
 
         return program
-
 
     def getObject(self, obj: Any) -> Object:
         """Get or create an object representation for static analysis."""
@@ -196,17 +200,19 @@ class Extractor:
     def getCall(self, obj):
         """Get call information for an object."""
         if self.verbose:
-            print(f"DEBUG: getCall called for {obj}, source_code type: {type(self.source_code)}")
+            print(
+                f"DEBUG: getCall called for {obj}, source_code type: {type(self.source_code)}"
+            )
             if isinstance(self.source_code, dict):
                 print(f"DEBUG: source_code keys: {list(self.source_code.keys())}")
         return self.object_manager.get_call(obj, self.source_code)
 
     def getInstance(self, typeobj: type) -> Any:
         """Get an abstract instance object for a given type.
-        
+
         Args:
             typeobj: A Python type object (e.g., int, str, MyClass)
-            
+
         Returns:
             AbstractObject: The abstract instance representing instances of the type
         """
@@ -228,7 +234,7 @@ class Extractor:
                 # First try to find the function by checking if it has a __code__ attribute
                 # that can help us identify which file it came from
                 func_file = None
-                if hasattr(func, '__code__') and hasattr(func.__code__, 'co_filename'):
+                if hasattr(func, "__code__") and hasattr(func.__code__, "co_filename"):
                     func_file = func.__code__.co_filename
 
                 if func_file and func_file in self.source_code:
@@ -239,7 +245,7 @@ class Extractor:
                     # Use a more sophisticated approach to avoid false matches
                     for filename, file_source in self.source_code.items():
                         # Look for function definition pattern: def function_name(
-                        pattern = rf'\bdef\s+{re.escape(func.__name__)}\s*\('
+                        pattern = rf"\bdef\s+{re.escape(func.__name__)}\s*\("
                         if re.search(pattern, file_source):
                             source = file_source
                             break
@@ -250,7 +256,6 @@ class Extractor:
         return self.function_extractor.convert_function(
             func, source_code=source, trace=trace, ssa=ssa, descriptive=descriptive
         )
-
 
 
 def extractProgram(compiler: CompilerContext, program: Program) -> None:
@@ -278,11 +283,13 @@ def extractProgram(compiler: CompilerContext, program: Program) -> None:
         )
 
         # Add extracted functions to program's liveCode
-        if hasattr(extracted_program, 'liveCode') and extracted_program.liveCode:
-            if not hasattr(program, 'liveCode') or program.liveCode is None:
+        if hasattr(extracted_program, "liveCode") and extracted_program.liveCode:
+            if not hasattr(program, "liveCode") or program.liveCode is None:
                 program.liveCode = set()
             program.liveCode.update(extracted_program.liveCode)
-            print(f"DEBUG: Added {len(extracted_program.liveCode)} functions to program.liveCode")
+            print(
+                f"DEBUG: Added {len(extracted_program.liveCode)} functions to program.liveCode"
+            )
         else:
             print(f"DEBUG: No liveCode found in extracted_program")
     else:
@@ -291,7 +298,7 @@ def extractProgram(compiler: CompilerContext, program: Program) -> None:
             compiler.console.output("Program extraction complete")
 
     # Process the interface declarations (functions and classes)
-    if hasattr(program, 'interface') and program.interface:
+    if hasattr(program, "interface") and program.interface:
         if not program.interface.translated:
             program.interface.translate(compiler.extractor)
             # Set entry points from the interface
@@ -320,10 +327,18 @@ def create_interface_from_paths(python_files, args):
                 exec_globals = dict(vars(builtins))
 
                 # Set the __file__ variable so functions get the correct filename
-                exec_globals['__file__'] = str(file_path)
+                exec_globals["__file__"] = str(file_path)
 
                 # Add safe modules
-                safe_modules = ['math', 'os', 'sys', 're', 'json', 'datetime', 'collections']
+                safe_modules = [
+                    "math",
+                    "os",
+                    "sys",
+                    "re",
+                    "json",
+                    "datetime",
+                    "collections",
+                ]
                 for mod_name in safe_modules:
                     try:
                         exec_globals[mod_name] = __import__(mod_name)
@@ -331,54 +346,78 @@ def create_interface_from_paths(python_files, args):
                         pass
 
                 # Execute the source code with filename preserved in code objects
-                compiled = compile(source, str(file_path), 'exec')
+                compiled = compile(source, str(file_path), "exec")
                 exec(compiled, exec_globals)
 
                 # Extract functions that were defined in this file
                 functions = {}
                 for name, obj in exec_globals.items():
-                    if not name.startswith('_') and callable(obj) and hasattr(obj, '__code__'):
+                    if (
+                        not name.startswith("_")
+                        and callable(obj)
+                        and hasattr(obj, "__code__")
+                    ):
                         if args.verbose:
-                            print(f"DEBUG: Function '{name}' has code with filename: '{obj.__code__.co_filename}' (expected: '{file_path}')")
+                            print(
+                                f"DEBUG: Function '{name}' has code with filename: '{obj.__code__.co_filename}' (expected: '{file_path}')"
+                            )
                         # Accept functions with either the correct filename or '<string>' (from exec)
                         # Since we executed this specific source file, any function found here came from it
                         functions[name] = obj
 
                 if args.verbose:
-                    print(f"DEBUG: Successfully executed source and found {len(functions)} functions with correct code objects")
+                    print(
+                        f"DEBUG: Successfully executed source and found {len(functions)} functions with correct code objects"
+                    )
 
             except Exception as exec_error:
                 if args.verbose:
-                    print(f"DEBUG: Source execution failed: {exec_error}, using dependency resolver")
+                    print(
+                        f"DEBUG: Source execution failed: {exec_error}, using dependency resolver"
+                    )
 
                 # Fallback to dependency resolver
                 resolver = DependencyResolver(
-                    strategy='stubs',  # Try stubs strategy which should give better results
+                    strategy="stubs",  # Try stubs strategy which should give better results
                     verbose=args.verbose,
-                    safe_modules=['math', 'os', 'sys', 're', 'json', 'datetime', 'collections']
+                    safe_modules=[
+                        "math",
+                        "os",
+                        "sys",
+                        "re",
+                        "json",
+                        "datetime",
+                        "collections",
+                    ],
                 )
                 functions = resolver.extract_functions(source, file_path)
 
             for func_name, func_obj in functions.items():
                 # Skip driver/main function from being treated as analysis entry point
-                if func_name == 'main':
+                if func_name == "main":
                     if args.verbose:
                         print(f"DEBUG: Skipping '{func_name}' as an entry point")
                     continue
                 # Debug: check if function has code object
-                if hasattr(func_obj, '__code__') and func_obj.__code__:
+                if hasattr(func_obj, "__code__") and func_obj.__code__:
                     if args.verbose:
-                        print(f"DEBUG: Function '{func_name}' has code object with filename: {func_obj.__code__.co_filename}")
+                        print(
+                            f"DEBUG: Function '{func_name}' has code object with filename: {func_obj.__code__.co_filename}"
+                        )
                 else:
                     if args.verbose:
-                        print(f"DEBUG: Function '{func_name}' has no code object or it's None")
+                        print(
+                            f"DEBUG: Function '{func_name}' has no code object or it's None"
+                        )
 
                 interface_decl.func.append((func_obj, []))
                 if args.verbose:
                     print(f"Added function '{func_name}' from {file_path}")
 
             if args.verbose:
-                print(f"Found {len(functions)} callable objects in {file_path}: {list(functions.keys())}")
+                print(
+                    f"Found {len(functions)} callable objects in {file_path}: {list(functions.keys())}"
+                )
 
         except Exception as e:
             if args.verbose:

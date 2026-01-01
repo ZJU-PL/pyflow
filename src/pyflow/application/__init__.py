@@ -69,17 +69,38 @@ from .errors import CompilerAbort
 
 # Pass manager system
 from .passmanager import (
-    PassManager, PassPipeline, Pass, PassResult, PassInfo,
-    AnalysisPass, OptimizationPass, TransformationPass,
-    PassKind, PassCache, create_analysis_pass, create_optimization_pass
+    PassManager,
+    PassPipeline,
+    Pass,
+    PassResult,
+    PassInfo,
+    AnalysisPass,
+    OptimizationPass,
+    TransformationPass,
+    PassKind,
+    PassCache,
+    create_analysis_pass,
+    create_optimization_pass,
 )
 from .passes import register_standard_passes
 
 __all__ = [
-    "Program", "Pipeline", "Context", "CompilerAbort",
+    "Program",
+    "Pipeline",
+    "Context",
+    "CompilerAbort",
     # Pass manager system
-    "PassManager", "PassPipeline", "Pass", "PassResult", "PassInfo",
-    "AnalysisPass", "OptimizationPass", "TransformationPass",
-    "PassKind", "PassCache", "create_analysis_pass", "create_optimization_pass",
-    "register_standard_passes"
+    "PassManager",
+    "PassPipeline",
+    "Pass",
+    "PassResult",
+    "PassInfo",
+    "AnalysisPass",
+    "OptimizationPass",
+    "TransformationPass",
+    "PassKind",
+    "PassCache",
+    "create_analysis_pass",
+    "create_optimization_pass",
+    "register_standard_passes",
 ]

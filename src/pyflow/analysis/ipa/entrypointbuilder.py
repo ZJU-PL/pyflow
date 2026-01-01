@@ -9,14 +9,14 @@ from pyflow.language.python import ast
 
 def buildTempLocal(analysis, objs):
     """Build a temporary local variable for entry point arguments.
-    
+
     Creates a local variable in the root context and initializes it with
     object names from the entry point arguments.
-    
+
     Args:
         analysis: IPAnalysis instance
         objs: List of ExtendedType objects (or None)
-        
+
     Returns:
         ConstraintNode or None: Local variable node, or None if objs is None
     """
@@ -31,10 +31,10 @@ def buildTempLocal(analysis, objs):
 
 def buildEntryPoint(analysis, ep, epargs):
     """Build an entry point for inter-procedural analysis.
-    
+
     Creates entry point arguments as local variables in the root context
     and initiates a direct call to the entry point function.
-    
+
     Args:
         analysis: IPAnalysis instance
         ep: Entry point function object

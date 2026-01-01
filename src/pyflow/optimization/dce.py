@@ -15,10 +15,10 @@ from pyflow.analysis import tools
 
 def liveMeet(values):
     """Meet function for liveness analysis.
-    
+
     Args:
         values: Set of liveness values.
-        
+
     Returns:
         top: If any values are present (variable is live).
         undefined: If no values are present (variable is dead).
@@ -31,10 +31,11 @@ def liveMeet(values):
 
 class MarkLocals(TypeDispatcher):
     """Marks local variables as used in an AST subtree.
-    
+
     This dispatcher traverses the AST and marks local variables as live
     when they are referenced, enabling dead code elimination.
     """
+
     @dispatch(ast.leafTypes)
     def visitLeaf(self, node):
         """Visit leaf nodes (no action needed)."""
@@ -43,7 +44,7 @@ class MarkLocals(TypeDispatcher):
     @dispatch(ast.Local)
     def visitLocal(self, node):
         """Mark a local variable as live when referenced.
-        
+
         Args:
             node: Local variable node being referenced.
         """
@@ -53,7 +54,7 @@ class MarkLocals(TypeDispatcher):
     @dispatch(ast.GetGlobal, ast.SetGlobal)
     def visitGlobalOp(self, node):
         """Handle global variable operations.
-        
+
         Args:
             node: Global variable operation node.
         """
@@ -64,7 +65,7 @@ class MarkLocals(TypeDispatcher):
     @defaultdispatch
     def default(self, node):
         """Default handler for unhandled node types.
-        
+
         Args:
             node: AST node to process.
         """
@@ -87,18 +88,18 @@ nodesWithNoSideEffects = (
 
 class MarkLive(TypeDispatcher):
     """Performs live variable analysis and marks code for elimination.
-    
+
     This class implements the core dead code elimination logic by analyzing
     which variables are live and which statements can be safely removed.
-    
+
     Attributes:
         code: Code object being analyzed.
         marker: MarkLocals instance for marking variable usage.
     """
-    
+
     def __init__(self, code):
         """Initialize the live variable marker.
-        
+
         Args:
             code: Code object to analyze for liveness.
         """
@@ -107,10 +108,10 @@ class MarkLive(TypeDispatcher):
 
     def hasNoSideEffects(self, node):
         """Check if a node has no side effects and can be eliminated.
-        
+
         Args:
             node: AST node to check.
-            
+
         Returns:
             bool: True if the node has no side effects.
         """
@@ -123,7 +124,7 @@ class MarkLive(TypeDispatcher):
 
     def descriptive(self):
         """Check if we're in descriptive mode.
-        
+
         Returns:
             bool: True if in descriptive mode.
         """
@@ -192,13 +193,13 @@ class MarkLive(TypeDispatcher):
     def filterParam(self, p):
         """
         Filter unused parameters to DoNotCare.
-        
+
         If a parameter is never used (not live), replaces it with DoNotCare
         to indicate it can be ignored. This enables call site optimizations.
-        
+
         Args:
             p: Parameter to filter (may be None)
-            
+
         Returns:
             Parameter if used, DoNotCare if unused, None if p was None
         """
@@ -214,14 +215,14 @@ class MarkLive(TypeDispatcher):
     def visitCodeParameters(self, node):
         """
         Visit code parameters and filter unused ones.
-        
+
         Replaces unused parameters with DoNotCare to enable optimizations
         at call sites. In descriptive mode, preserves all parameters to
         maintain behavioral information.
-        
+
         Args:
             node: CodeParameters node to process
-            
+
         Returns:
             CodeParameters with unused parameters replaced by DoNotCare
         """
@@ -253,15 +254,15 @@ class MarkLive(TypeDispatcher):
 
 def evaluateCode(compiler, node, initialLive=None):
     """Evaluate code for dead code elimination.
-    
+
     Performs live variable analysis and eliminates dead code from the given
     AST node.
-    
+
     Args:
         compiler: Compiler context.
         node: AST node to analyze and optimize.
         initialLive: Set of initially live variables (optional).
-        
+
     Returns:
         AST node with dead code eliminated.
     """

@@ -17,15 +17,16 @@ from . import node
 
 class AbstractCall(object):
     """Base class for call constraints.
-    
+
     Call constraints model inter-procedural calls. They maintain:
     - dirty flag: Whether call needs reprocessing
     - cache: Cache of resolved call contexts
-    
+
     Attributes:
         dirty: Whether this call needs reprocessing
         cache: Dictionary caching resolved contexts
     """
+
     def __init__(self):
         """Initialize abstract call."""
         self.dirty = False

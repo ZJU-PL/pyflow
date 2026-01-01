@@ -16,4 +16,12 @@ These model classes enable shape analysis to precisely track data structure
 shapes and properties across complex program structures.
 """
 
-from . import canonical, expressions, slots, referencecount, configuration, secondary, pathinformation
+from . import (
+    canonical,
+    expressions,
+    slots,
+    referencecount,
+    configuration,
+    secondary,
+    pathinformation,
+)
