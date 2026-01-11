@@ -1,5 +1,5 @@
 """
-Semantic fact queries for PyFlow.
+Analysis fact queries for PyFlow.
 """
 
 from typing import List, Union
@@ -7,8 +7,8 @@ from typing import List, Union
 from pyflow.application.errors import TemporaryLimitation
 
 
-class FactQueries:
-    """Fact query mixin for call relationships and analysis results."""
+class AnalysisFactQueries:
+    """Analysis fact mixin for IPA and store facts."""
 
     def get_callers(self, function: Union[str, object]) -> List[str]:
         """Return callers for the given function name."""

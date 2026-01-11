@@ -57,6 +57,7 @@ class Program(object):
         "cpa_analysis",
         "lifetime_analysis",
         "semantic_queries",
+        "semantic_queries_mode",
     )
 
     def __init__(self):
@@ -80,15 +81,25 @@ class Program(object):
         self.cpa_analysis = None
         self.lifetime_analysis = None
         self.semantic_queries = None
+        self.semantic_queries_mode = None
 
-    def get_semantic_queries(self, compiler):
+    def get_semantic_queries(self, compiler, server_mode=None):
         """Get or create a semantic query service for this program."""
-        if self.semantic_queries is None or self.semantic_queries.compiler is not compiler:
-            from .queries import SemanticQueryService
+        from .queries import SemanticQueryService
+        from .queries.server_mode import DEFAULT_MODE
 
-            self.semantic_queries = SemanticQueryService(compiler, self)
+        mode = server_mode or DEFAULT_MODE
+        if (
+            self.semantic_queries is None
+            or self.semantic_queries.compiler is not compiler
+            or self.semantic_queries_mode is not mode
+        ):
+            self.semantic_queries = SemanticQueryService(
+                compiler, self, server_mode=mode
+            )
+            self.semantic_queries_mode = mode
         return self.semantic_queries
 
-    def get_queries(self, compiler):
+    def get_queries(self, compiler, server_mode=None):
         """Alias for get_semantic_queries."""
-        return self.get_semantic_queries(compiler)
+        return self.get_semantic_queries(compiler, server_mode=server_mode)

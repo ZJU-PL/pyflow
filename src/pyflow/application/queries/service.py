@@ -6,12 +6,22 @@ from typing import Dict, Optional
 
 from pyflow.application.errors import TemporaryLimitation
 
-from .facts import FactQueries
-from .graphs import GraphQueries
-from .summaries import SummaryQueries
+from .analysis_facts import AnalysisFactQueries
+from .graph_queries import GraphQueries
+from .summary_queries import SummaryQueries
+from .server_mode import (
+    DEFAULT_MODE,
+    MCPServerMode,
+    get_server_mode_description,
+    resolve_capabilities,
+)
 
 
-class SemanticQueryService(GraphQueries, FactQueries, SummaryQueries):
+class SemanticQueryService(
+    GraphQueries,
+    AnalysisFactQueries,
+    SummaryQueries,
+):
     """
     Queryable semantic facts for a Program.
 
@@ -19,36 +29,38 @@ class SemanticQueryService(GraphQueries, FactQueries, SummaryQueries):
     provides convenience methods for fetching graphs and semantic facts.
     """
 
-    def __init__(self, compiler, program):
+    def __init__(
+        self,
+        compiler,
+        program,
+        server_mode: Optional[MCPServerMode] = None,
+    ):
         GraphQueries.__init__(self)
         self.compiler = compiler
         self.program = program
+        self.server_mode = server_mode or DEFAULT_MODE
 
     def capabilities(self) -> Dict[str, Dict[str, Optional[str]]]:
         """Return supported query capabilities and notes for tooling."""
-        return {
-            "cfg": {"available": True, "note": None},
-            "ssa": {"available": True, "note": None},
-            "cdg": {"available": True, "note": None},
-            "callgraph": {"available": True, "note": "Requires IPA analysis."},
-            "callers": {"available": True, "note": "Requires IPA analysis."},
-            "callees": {"available": True, "note": "Requires IPA analysis."},
-            "function_summaries": {"available": True, "note": "Requires IPA analysis."},
-            "store_graph": {"available": True, "note": "Requires IPA/CPA analysis."},
-            "lifetime": {"available": True, "note": "Requires lifetime analysis."},
-            "reaching_defs": {
-                "available": False,
-                "note": "Derive from SSA form.",
-            },
-            "aliases": {
-                "available": False,
-                "note": "Use store graph + CPA dataflow.",
-            },
-            "points_to": {
-                "available": False,
-                "note": "Use store graph + CPA dataflow.",
-            },
+        capabilities = resolve_capabilities(self.server_mode)
+        capabilities["_server_mode"] = {
+            "available": True,
+            "note": get_server_mode_description(self.server_mode),
         }
+        return capabilities
+
+    def set_server_mode(self, mode: MCPServerMode):
+        """Switch the MCP server mode and reset caches."""
+        if self.server_mode is not mode:
+            self.server_mode = mode
+            self._reset_graph_cache()
+        return self
+
+    def _reset_graph_cache(self):
+        self._cfg_cache.clear()
+        self._ssa_cache.clear()
+        self._cdg_cache.clear()
+        self._callgraph_cache = None
 
     def _require_ipa(self):
         if getattr(self.program, "ipa_analysis", None) is None:
