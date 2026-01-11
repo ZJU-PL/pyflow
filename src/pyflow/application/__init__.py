@@ -66,7 +66,7 @@ from .program import Program
 from .pipeline import Pipeline
 from .context import Context
 from .errors import CompilerAbort
-from .queries import SemanticQueryService, FunctionSummary
+from .queries import SemanticQueryService, IpaFunctionSummary
 
 # Pass manager system
 from .passmanager import (
@@ -91,7 +91,7 @@ __all__ = [
     "Context",
     "CompilerAbort",
     "SemanticQueryService",
-    "FunctionSummary",
+    "IpaFunctionSummary",
     # Pass manager system
     "PassManager",
     "PassPipeline",

@@ -1,11 +1,17 @@
 """
 Semantic query service for PyFlow.
+
+This service reorganizes node-centric facts into agent-ready groupings such as
+"call graph driven" insights for patch/test reasoning and "semantic fact"
+answers for unit test generation or alias/lifetime-aware tasks.
 """
 
 from typing import Dict, Optional, Union, List, Any
 
+from .call_graph_queries import CallGraphQueries
+from .control_flow_queries import ControlFlowQueries
 from .context import QueryContext
-from .facts_engine import AnalysisFactEngine, FunctionSummary
+from .data_flow_queries import DataFlowQueries, IpaFunctionSummary
 from .graph_engine import GraphQueryEngine
 from .server_mode import (
     DEFAULT_MODE,
@@ -31,7 +37,9 @@ class SemanticQueryService:
     ):
         self.context = QueryContext(compiler, program)
         self.graph_engine = GraphQueryEngine(self.context)
-        self.fact_engine = AnalysisFactEngine(self.context, self.graph_engine)
+        self.control_flow_queries = ControlFlowQueries(self.context, self.graph_engine)
+        self.call_graph_queries = CallGraphQueries(self.context, self.graph_engine)
+        self.data_flow_queries = DataFlowQueries(self.context)
 
         self.compiler = compiler
         self.program = program
@@ -58,47 +66,63 @@ class SemanticQueryService:
 
     # Delegate to GraphQueryEngine
     def get_cfg(self, function: Union[str, object]):
-        return self.graph_engine.get_cfg(function)
+        return self.control_flow_queries.get_cfg(function)
 
     def get_cfg_structure(self, function: Union[str, object]) -> Dict[str, Any]:
         """Return a JSON-friendly structure of the CFG."""
-        return self.graph_engine.get_cfg_structure(function)
+        return self.control_flow_queries.get_cfg_structure(function)
 
     def get_ssa(self, function: Union[str, object]):
-        return self.graph_engine.get_ssa(function)
+        return self.control_flow_queries.get_ssa(function)
 
     def get_cdg(self, function: Union[str, object]):
-        return self.graph_engine.get_cdg(function)
+        return self.control_flow_queries.get_cdg(function)
 
     def get_callgraph(self):
-        return self.graph_engine.get_callgraph()
+        return self.call_graph_queries.get_callgraph()
 
-    # Delegate to AnalysisFactEngine
+    # Call-graph driven helpers for patch/test reasoning
     def get_callers(self, function: Union[str, object]) -> List[str]:
-        return self.fact_engine.get_callers(function)
+        return self.call_graph_queries.get_callers(function)
 
     def get_callees(self, function: Union[str, object]) -> List[str]:
-        return self.fact_engine.get_callees(function)
+        return self.call_graph_queries.get_callees(function)
 
+    def get_downstream_functions(
+        self, function: Union[str, object], max_depth: Optional[int] = None
+    ) -> List[str]:
+        return self.call_graph_queries.get_downstream_functions(function, max_depth)
+
+    def get_upstream_functions(
+        self, function: Union[str, object], max_depth: Optional[int] = None
+    ) -> List[str]:
+        return self.call_graph_queries.get_upstream_functions(function, max_depth)
+
+    def get_shortest_path(
+        self, source: Union[str, object], target: Union[str, object]
+    ) -> Optional[List[str]]:
+        return self.call_graph_queries.get_shortest_path(source, target)
+
+    # Semantic facts for unit test generation and alias reasoning
     def get_reaching_defs(self, function: Union[str, object]):
-        return self.fact_engine.get_reaching_defs(function)
+        return self.data_flow_queries.get_reaching_defs(function)
 
     def get_aliases(self, function: Union[str, object]):
-        return self.fact_engine.get_aliases(function)
+        return self.data_flow_queries.get_aliases(function)
 
     def get_points_to(self, function: Union[str, object]):
-        return self.fact_engine.get_points_to(function)
+        return self.data_flow_queries.get_points_to(function)
 
     def get_lifetime(self):
-        return self.fact_engine.get_lifetime()
+        return self.data_flow_queries.get_lifetime()
 
     def get_store_graph(self):
-        return self.fact_engine.get_store_graph()
+        return self.data_flow_queries.get_store_graph()
 
     def get_ipa_analysis(self):
-        return self.fact_engine.get_ipa_analysis()
+        return self.data_flow_queries.get_ipa_analysis()
 
-    def get_function_summaries(
+    def get_ipa_function_summaries(
         self, function: Optional[Union[str, object]] = None
-    ) -> List[FunctionSummary]:
-        return self.fact_engine.get_function_summaries(function)
+    ) -> List[IpaFunctionSummary]:
+        return self.data_flow_queries.get_ipa_function_summaries(function)
