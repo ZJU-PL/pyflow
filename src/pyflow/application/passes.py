@@ -67,6 +67,7 @@ class CPAAnalysisPass(AnalysisPass):
         try:
             # Run CPA with default parameters
             cpa_result = cpa.evaluate(compiler, program)
+            program.cpa_analysis = cpa_result
             return PassResult(success=True, changed=True, data=cpa_result)
         except Exception as e:
             return PassResult(success=False, error=str(e))
@@ -80,8 +81,9 @@ class LifetimeAnalysisPass(AnalysisPass):
 
     def run(self, compiler, program) -> PassResult:
         try:
-            lifetimeanalysis.evaluate(compiler, program)
-            return PassResult(success=True, changed=True)
+            result = lifetimeanalysis.evaluate(compiler, program)
+            program.lifetime_analysis = result
+            return PassResult(success=True, changed=True, data=result)
         except Exception as e:
             return PassResult(success=False, error=str(e))
 

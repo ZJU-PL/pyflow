@@ -8,11 +8,14 @@ __email__ = "rainoftime@gmail.com"
 from .application.program import Program
 from .application.pipeline import Pipeline
 from .application.context import Context
+from .application.queries import SemanticQueryService, FunctionSummary
 
 __all__ = [
     "Program",
     "Pipeline",
     "Context",
+    "SemanticQueryService",
+    "FunctionSummary",
     "__version__",
     "__author__",
     "__email__",

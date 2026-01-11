@@ -42,6 +42,9 @@ class Program(object):
         liveCode: Set of live code elements (functions, classes) reachable from entry points
         stats: Statistics about the program (optional, populated during analysis)
         ipa_analysis: Results from Inter-Procedural Analysis (populated by IPA pass)
+        cpa_analysis: Results from Constraint Propagation Analysis (optional)
+        lifetime_analysis: Results from lifetime analysis (optional)
+        semantic_queries: Cached semantic query service (optional)
     """
 
     __slots__ = (
@@ -51,6 +54,9 @@ class Program(object):
         "liveCode",
         "stats",
         "ipa_analysis",
+        "cpa_analysis",
+        "lifetime_analysis",
+        "semantic_queries",
     )
 
     def __init__(self):
@@ -71,3 +77,18 @@ class Program(object):
         self.liveCode = set()
         self.stats = None
         self.ipa_analysis = None
+        self.cpa_analysis = None
+        self.lifetime_analysis = None
+        self.semantic_queries = None
+
+    def get_semantic_queries(self, compiler):
+        """Get or create a semantic query service for this program."""
+        if self.semantic_queries is None or self.semantic_queries.compiler is not compiler:
+            from .queries import SemanticQueryService
+
+            self.semantic_queries = SemanticQueryService(compiler, self)
+        return self.semantic_queries
+
+    def get_queries(self, compiler):
+        """Alias for get_semantic_queries."""
+        return self.get_semantic_queries(compiler)

@@ -232,7 +232,7 @@ def codeConditioning(compiler, prgm, firstPass, dumpStats=False):
             # Try to identify and optimize method calls
             methodcall.evaluate(compiler, prgm)
 
-        lifetimeanalysis.evaluate(compiler, prgm)
+        prgm.lifetime_analysis = lifetimeanalysis.evaluate(compiler, prgm)
 
         if True:
             # Fold, DCE, etc.
@@ -297,7 +297,7 @@ def bruteForceSimplification(compiler, prgm):
     """
     with compiler.console.scope("brute force"):
         for _i in range(2):
-            lifetimeanalysis.evaluate(compiler, prgm)
+            prgm.lifetime_analysis = lifetimeanalysis.evaluate(compiler, prgm)
             simplify.evaluate(compiler, prgm)
 
 
@@ -380,7 +380,7 @@ def evaluate(compiler, prgm, name):
                     depythonPass(compiler, prgm, 3, firstPass=False)
                 else:
                     # HACK rerun lifetime analysis, as inlining causes problems for the function annotations.
-                    lifetimeanalysis.evaluate(compiler, prgm)
+                    prgm.lifetime_analysis = lifetimeanalysis.evaluate(compiler, prgm)
 
                 stats.contextStats(compiler, prgm, "secondpass")
 

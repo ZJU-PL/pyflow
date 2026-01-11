@@ -109,13 +109,6 @@ pyflow/
 │   │   ├── object_manager.py          # Object management
 │   │   ├── programextractor.py        # Program extraction
 │   │   └── stub_manager.py            # Stub management
-│   ├── fuzzer/                        # Fuzzing framework
-│   │   ├── corpus.py                  # Fuzzing corpus management
-│   │   ├── dictionnary.py             # Fuzzing dictionary
-│   │   ├── fuzzer.py                  # Main fuzzer implementation
-│   │   ├── main.py                    # Fuzzer entry point
-│   │   ├── tracer.py                  # Execution tracing
-│   │   └── tests/                     # Fuzzer tests
 │   ├── language/                      # Language-specific modules
 │   │   ├── asttools/                  # AST manipulation tools
 │   │   ├── modules/                   # Module handling
