@@ -6,8 +6,8 @@ import argparse
 import logging
 import sys
 
-from pyflow.checker.core.manager import SecurityManager
-from pyflow.checker.core.config import SecurityConfig
+from pyflow.checker.ast.core.manager import SecurityManager
+from pyflow.checker.ast.core.config import SecurityConfig
 
 
 def add_security_parser(subparsers):

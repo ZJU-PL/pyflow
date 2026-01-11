@@ -7,8 +7,9 @@ dangerous patterns, insecure function calls, weak cryptography, and other
 security issues.
 
 **Architecture:**
-- Core: AST visitor, test runner, issue representation, context management
-- Checkers: Individual security test modules
+- ast: AST-based engine (current implementation)
+  - core: AST visitor, test runner, issue representation, context management
+  - checkers: Individual security test modules
 - Formatters: Output formatters (JSON, SARIF, text)
 - LLM: LLM-based advanced analysis (optional)
 
@@ -34,8 +35,8 @@ results = manager.check_file("example.py")
 
 # Security checker for pyflow
 # NOTE: Current, the security checker does not use the facilities in pyflow.
-from .core.manager import SecurityManager
-from .core.config import SecurityConfig
-from .core.issue import Issue, Cwe
+from .ast.core.manager import SecurityManager
+from .ast.core.config import SecurityConfig
+from .ast.core.issue import Issue, Cwe
 
 __all__ = ["SecurityManager", "SecurityConfig", "Issue", "Cwe"]

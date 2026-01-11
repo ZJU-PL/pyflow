@@ -14,7 +14,7 @@ class TestLoader:
     def load_tests(self, test_set):
         """Load all available security tests"""
         # Import all checker modules
-        checker_package = "pyflow.checker.checkers"
+        checker_package = "pyflow.checker.ast.checkers"
 
         try:
             package = importlib.import_module(checker_package)
