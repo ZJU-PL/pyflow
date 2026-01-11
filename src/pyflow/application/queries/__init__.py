@@ -6,7 +6,7 @@ structures (CFG, SSA, CDG, callgraph) for coding agents and tooling.
 """
 
 from .service import SemanticQueryService
-from .summary_queries import FunctionSummary
+from .facts_engine import FunctionSummary
 from .server_mode import DEFAULT_MODE, MCPServerMode, resolve_capabilities
 
 __all__ = [

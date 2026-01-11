@@ -2,13 +2,11 @@
 Semantic query service for PyFlow.
 """
 
-from typing import Dict, Optional
+from typing import Dict, Optional, Union, List, Any
 
-from pyflow.application.errors import TemporaryLimitation
-
-from .analysis_facts import AnalysisFactQueries
-from .graph_queries import GraphQueries
-from .summary_queries import SummaryQueries
+from .context import QueryContext
+from .facts_engine import AnalysisFactEngine, FunctionSummary
+from .graph_engine import GraphQueryEngine
 from .server_mode import (
     DEFAULT_MODE,
     MCPServerMode,
@@ -17,11 +15,7 @@ from .server_mode import (
 )
 
 
-class SemanticQueryService(
-    GraphQueries,
-    AnalysisFactQueries,
-    SummaryQueries,
-):
+class SemanticQueryService:
     """
     Queryable semantic facts for a Program.
 
@@ -35,7 +29,10 @@ class SemanticQueryService(
         program,
         server_mode: Optional[MCPServerMode] = None,
     ):
-        GraphQueries.__init__(self)
+        self.context = QueryContext(compiler, program)
+        self.graph_engine = GraphQueryEngine(self.context)
+        self.fact_engine = AnalysisFactEngine(self.context, self.graph_engine)
+
         self.compiler = compiler
         self.program = program
         self.server_mode = server_mode or DEFAULT_MODE
@@ -57,58 +54,51 @@ class SemanticQueryService(
         return self
 
     def _reset_graph_cache(self):
-        self._cfg_cache.clear()
-        self._ssa_cache.clear()
-        self._cdg_cache.clear()
-        self._callgraph_cache = None
+        self.graph_engine.reset_cache()
 
-    def _require_ipa(self):
-        if getattr(self.program, "ipa_analysis", None) is None:
-            raise TemporaryLimitation("IPA analysis not available; run IPA first.")
-        return self.program.ipa_analysis
+    # Delegate to GraphQueryEngine
+    def get_cfg(self, function: Union[str, object]):
+        return self.graph_engine.get_cfg(function)
 
-    def _resolve_function(self, function):
-        if isinstance(function, str):
-            code = self._find_function_by_name(function)
-            if code is None:
-                raise ValueError(f"Function '{function}' not found in live code.")
-            return code
-        if hasattr(function, "codeName"):
-            return function
-        raise TypeError("Expected a function name or a PyFlow code object.")
+    def get_cfg_structure(self, function: Union[str, object]) -> Dict[str, Any]:
+        """Return a JSON-friendly structure of the CFG."""
+        return self.graph_engine.get_cfg_structure(function)
 
-    def _resolve_function_name(self, function):
-        if function is None:
-            raise ValueError("Function name is required.")
-        if isinstance(function, str):
-            return function
-        if hasattr(function, "codeName"):
-            return function.codeName()
-        if hasattr(function, "__name__"):
-            return function.__name__
-        raise TypeError("Expected a function name or a PyFlow code object.")
+    def get_ssa(self, function: Union[str, object]):
+        return self.graph_engine.get_ssa(function)
 
-    def _context_name(self, context) -> Optional[str]:
-        code = getattr(context.signature, "code", None)
-        return self._code_name(code)
+    def get_cdg(self, function: Union[str, object]):
+        return self.graph_engine.get_cdg(function)
 
-    def _code_name(self, code) -> Optional[str]:
-        if code is None:
-            return None
-        if hasattr(code, "codeName"):
-            return code.codeName()
-        if hasattr(code, "__name__"):
-            return code.__name__
-        return str(code)
+    def get_callgraph(self):
+        return self.graph_engine.get_callgraph()
 
-    def _find_function_by_name(self, function_name: str):
-        for code in getattr(self.program, "liveCode", []):
-            if hasattr(code, "codeName") and code.codeName() == function_name:
-                return code
+    # Delegate to AnalysisFactEngine
+    def get_callers(self, function: Union[str, object]) -> List[str]:
+        return self.fact_engine.get_callers(function)
 
-        interface = getattr(self.program, "interface", None)
-        if interface and hasattr(interface, "entryPoint"):
-            for ep in interface.entryPoint:
-                if hasattr(ep.code, "codeName") and ep.code.codeName() == function_name:
-                    return ep.code
-        return None
+    def get_callees(self, function: Union[str, object]) -> List[str]:
+        return self.fact_engine.get_callees(function)
+
+    def get_reaching_defs(self, function: Union[str, object]):
+        return self.fact_engine.get_reaching_defs(function)
+
+    def get_aliases(self, function: Union[str, object]):
+        return self.fact_engine.get_aliases(function)
+
+    def get_points_to(self, function: Union[str, object]):
+        return self.fact_engine.get_points_to(function)
+
+    def get_lifetime(self):
+        return self.fact_engine.get_lifetime()
+
+    def get_store_graph(self):
+        return self.fact_engine.get_store_graph()
+
+    def get_ipa_analysis(self):
+        return self.fact_engine.get_ipa_analysis()
+
+    def get_function_summaries(
+        self, function: Optional[Union[str, object]] = None
+    ) -> List[FunctionSummary]:
+        return self.fact_engine.get_function_summaries(function)
