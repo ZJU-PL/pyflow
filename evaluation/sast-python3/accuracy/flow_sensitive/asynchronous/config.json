@@ -1,0 +1,26 @@
+{
+  "asynchronous": [
+    {
+      "evaluation_item": "准确度->流敏感分析->异步执行",
+      "scene_levels": [
+        {
+          "level": "4",
+          "scene_list": [
+            {
+              "compose": "asyncio_await_001_T.py && !asyncio_await_002_F.py",
+              "scene": "异步执行-await"
+            },
+            {
+              "compose": "asynchronous_chain_001_T.py && !asynchronous_chain_002_F.py",
+              "scene": "异步函数链"
+            },
+            {
+              "compose": "asynchronous_execution_001_T.py && !asynchronous_execution_002_F.py",
+              "scene": "异步执行"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
