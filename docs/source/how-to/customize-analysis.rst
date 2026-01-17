@@ -1,0 +1,296 @@
+.. _how-to-customize-analysis:
+
+======================
+How to Customize Analysis
+======================
+
+This guide explains how to configure and customize PyFlow's analysis behavior
+for your specific needs.
+
+Configuration File
+==================
+
+Create a configuration file to customize analysis:
+
+.. code-block:: toml
+   :caption: pyflow.toml
+
+   [analysis]
+   # Enable/disable specific analyses
+   enable_cpa = true
+   enable_ipa = true
+   enable_shape = true
+
+   [analysis.cpa]
+   # CPA configuration
+   context_sensitive = true
+   flow_sensitive = true
+   field_sensitive = true
+
+   [analysis.callgraph]
+   # Call graph configuration
+   algorithm = "cha"  # "cha", "rapid", or "opa"
+   max_depth = 10
+
+   [optimization]
+   # Optimization configuration
+   default_passes = ["simplify", "methodcall"]
+   max_inline_size = 20
+
+   [output]
+   # Output configuration
+   format = "text"
+   verbose = false
+
+Loading Configuration
+---------------------
+
+PyFlow automatically loads configuration from ``pyflow.toml`` in the current
+directory or project root.
+
+Custom Analysis Passes
+======================
+
+Create custom analysis passes by extending PyFlow's base classes:
+
+.. code-block:: python
+
+   from pyflow.analysis import AnalysisPass
+   from pyflow.analysis.cfg import CFG
+
+   class MyCustomAnalysis(AnalysisPass):
+       """Custom analysis pass for specific needs."""
+
+       def __init__(self):
+           super().__init__()
+           self.results = {}
+
+       def analyze(self, program):
+           """Run the analysis on a program."""
+           for function in program.functions:
+               self.analyze_function(function)
+           return self.results
+
+       def analyze_function(self, function):
+           """Analyze a single function."""
+           cfg = function.cfg
+           # Custom analysis logic here
+           self.results[function.name] = {
+               "num_blocks": len(cfg.blocks),
+               "num_edges": len(cfg.edges),
+           }
+
+   # Register the pass
+   from pyflow.analysis.registry import AnalysisRegistry
+   AnalysisRegistry.register("my_custom", MyCustomAnalysis)
+
+Running Custom Analysis
+-----------------------
+
+.. code-block:: bash
+
+   pyflow analyze input.py --analysis my_custom
+
+Custom Optimization Passes
+===========================
+
+Create custom optimization passes:
+
+.. code-block:: python
+
+   from pyflow.optimization import OptimizationPass
+
+   class MyCustomOptimization(OptimizationPass):
+       """Custom optimization pass."""
+
+       def optimize(self, program):
+           """Apply optimization to a program."""
+           # Custom optimization logic here
+           for function in program.functions:
+               self.optimize_function(function)
+           return program
+
+       def optimize_function(self, function):
+           """Optimize a single function."""
+           # Custom optimization logic here
+           pass
+
+   # Register the pass
+   from pyflow.optimization.registry import OptimizationRegistry
+   OptimizationRegistry.register("my_optimization", MyCustomOptimization)
+
+Running Custom Optimization
+----------------------------
+
+.. code-block:: bash
+
+   pyflow optimize input.py --opt-passes my_custom
+
+Custom Output Formatters
+========================
+
+Create custom output formatters:
+
+.. code-block:: python
+
+   from pyflow.application.interface.formatter import OutputFormatter
+
+   class MyCustomFormatter(OutputFormatter):
+       """Custom output formatter."""
+
+       def format_callgraph(self, callgraph):
+           """Format call graph output."""
+           # Custom formatting logic
+           return custom_string_representation
+
+       def format_cfg(self, cfg):
+           """Format CFG output."""
+           # Custom formatting logic
+           return custom_string_representation
+
+   # Register the formatter
+   from pyflow.interface.formatter import FormatterRegistry
+   FormatterRegistry.register("my_format", MyCustomFormatter)
+
+Using Custom Formatter
+----------------------
+
+.. code-block:: bash
+
+   pyflow callgraph input.py --format my_format
+
+Advanced Configuration
+======================
+
+Context-Sensitive Analysis
+--------------------------
+
+Configure context-sensitive analysis:
+
+.. code-block:: toml
+
+   [analysis.cpa]
+   context_sensitive = true
+   # Context depth limit (0 = unlimited)
+   max_context_depth = 5
+   # Context representation: "k-limiting", "-object-sensitive", "call-string"
+   context_representation = "k-limiting"
+   k_value = 3
+
+Field Sensitivity
+-----------------
+
+Configure field-sensitive analysis:
+
+.. code-block:: toml
+
+   [analysis.cpa]
+   field_sensitive = true
+   # Track individual fields separately
+   track_individual_fields = true
+   # Maximum fields to track per object
+   max_tracked_fields = 20
+
+Flow Sensitivity
+----------------
+
+Configure flow-sensitive analysis:
+
+.. code-block:: toml
+
+   [analysis.cpa]
+   flow_sensitive = true
+   # Statement-level vs block-level analysis
+   granularity = "statement"  # or "block"
+
+Command-Line Overrides
+======================
+
+Override configuration from the command line:
+
+.. code-block:: bash
+
+   # Override specific settings
+   pyflow analyze input.py \
+       --analysis cpa \
+       --cpa-config context_sensitive=true,max_context_depth=10
+
+   # Disable optimizations
+   pyflow optimize input.py --no-opt-passes
+
+   # Set output format
+   pyflow callgraph input.py --format json --output result.json
+
+Environment Variables
+=====================
+
+Configure via environment variables:
+
+.. code-block:: bash
+
+   # Set output format
+   export PYFLOW_FORMAT=json
+
+   # Set verbosity
+   export PYFLOW_VERBOSE=true
+
+   # Set configuration file path
+   export PYFLOW_CONFIG=/path/to/pyflow.toml
+
+Programmatic Usage
+==================
+
+Use PyFlow programmatically for fine-grained control:
+
+.. code-block:: python
+
+   from pyflow import Program, AnalysisContext
+   from pyflow.analysis.cpa import CPA
+   from pyflow.analysis.callgraph import CallGraphAnalysis
+
+   # Create program representation
+   program = Program.from_file("input.py")
+
+   # Create analysis context
+   context = AnalysisContext()
+   context.set_config({
+       "context_sensitive": True,
+       "flow_sensitive": True,
+   })
+
+   # Run specific analyses
+   cpa = CPA(context)
+   cpa_results = cpa.analyze(program)
+
+   callgraph = CallGraphAnalysis()
+   callgraph_results = callgraph.analyze(program)
+
+   # Combine results
+   combined_results = {
+       "cpa": cpa_results,
+       "callgraph": callgraph_results,
+   }
+
+Troubleshooting
+===============
+
+Issue: Configuration not applied
+---------------------------------
+
+- Ensure pyflow.toml is in the project root
+- Check file permissions
+- Verify TOML syntax
+
+Issue: Custom pass not found
+----------------------------
+
+- Ensure the pass is registered before use
+- Check import paths
+- Verify class inheritance
+
+Issue: Performance issues with custom configuration
+----------------------------------------------------
+
+- Reduce context depth for large codebases
+- Disable flow sensitivity for faster analysis
+- Use incremental analysis for repeated runs

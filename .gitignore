@@ -1,5 +1,10 @@
 # Byte-compiled / optimized / DLL files
 __pycache__/
+.cursor
+.codex
+.claude
+.sisyphus
+.gemini
 *.py[cod]
 *$py.class
 *.text

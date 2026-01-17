@@ -1,11 +1,43 @@
 Welcome to PyFlow's Documentation!
 ==================================
 
-=============
-Introduction
-=============
+PyFlow is a comprehensive static analysis and compilation framework for Python
+code. It provides advanced analysis capabilities for understanding, optimizing,
+and securing Python programs without execution.
 
-PyFlow is a comprehensive static analysis and compilation framework for Python code. It provides advanced analysis capabilities for understanding, optimizing, and securing Python programs without execution.
+If you are new to PyFlow, start with the :ref:`tutorials`.
+
+.. toctree::
+    :maxdepth: 2
+    :caption: Getting Started
+
+    tutorials/index
+
+.. toctree::
+    :maxdepth: 2
+    :caption: How-to Guides
+
+    how-to/index
+
+.. toctree::
+    :maxdepth: 2
+    :caption: Explanations
+
+    explanation/index
+
+.. toctree::
+    :maxdepth: 2
+    :caption: Reference
+
+    cli
+    analysis/index
+    optimization/index
+    checker/sec
+
+================================================================================
+
+What is PyFlow?
+===============
 
 PyFlow is designed to be a powerful tool for:
 
@@ -14,65 +46,65 @@ PyFlow is designed to be a powerful tool for:
 - **Security Analysis**: Automated vulnerability detection and security checking
 - **Research**: Advancing static analysis techniques for dynamic languages
 
-.. toctree::
-   :maxdepth: 2
-   :caption: Contents:
+Installation
+============
 
-   overview
-   cli
-   analysis/index
-   optimization/index
-   checker/sec
+Install PyFlow from source:
 
-==========================
-Installing and Using PyFlow
-==========================
+.. code-block:: bash
 
-Install PyFlow from source
----------------------------
+   git clone https://github.com/ZJU-PL/pyflow.git
+   cd pyflow
+   python -m venv venv
+   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   pip install -e .
 
-::
+Quick Start
+===========
 
-  git clone https://github.com/ZJU-PL/pyflow.git
-  cd pyflow
-  python -m venv venv
-  source venv/bin/activate  # On Windows: venv\Scripts\activate
-  pip install -e .
+After installation, use PyFlow's command-line interface:
 
-The setup script will:
-- Create a Python virtual environment if it doesn't exist
-- Activate the virtual environment and install dependencies
-- Install PyFlow in development mode
+.. code-block:: bash
 
-Basic Usage
------------
+   # Analyze call graph
+   pyflow callgraph input.py
 
-After installation, you can use PyFlow's command-line interface:
+   # Run security checks
+   pyflow security input.py
 
-::
+   # Apply optimizations
+   pyflow optimize input.py --output optimized.py
 
-  # Analyze call graph
-  pyflow callgraph input.py
+   # Visualize intermediate representations
+   pyflow ir input.py --dump-cfg function_name
 
-  # Run security checks
-  pyflow check input.py
+Documentation Structure
+=======================
 
-  # Apply optimizations
-  pyflow optimize input.py
+This documentation is organized following the Diátaxis framework:
 
-  # Visualize intermediate representations
-  pyflow ir input.py --dump-cfg
+.. list-table::
+   :widths: 25 75
+   :header-rows: 1
 
-See :doc:`cli` for detailed command documentation.
+   * - Section
+     - Description
+   * - :ref:`Tutorials <tutorials>`
+     - Step-by-step guides for learning PyFlow
+   * - :ref:`How-to Guides <how-to>`
+     - Practical guides for accomplishing specific tasks
+   * - :ref:`Explanations <explanation>`
+     - In-depth discussions of concepts and architecture
+   * - :ref:`Reference <reference>`
+     - Complete API documentation and command reference
 
-===============
-Core Components
-===============
+Core Capabilities
+=================
 
-Analysis Modules
-----------------
+Static Analysis
+---------------
 
-PyFlow provides a rich set of analysis modules organized by purpose:
+PyFlow provides comprehensive static analysis:
 
 * **Control Flow Analysis**: CFG construction, dominance analysis, loop detection
 * **Data Flow Analysis**: Forward/backward analysis, constant propagation, live variables
@@ -81,10 +113,8 @@ PyFlow provides a rich set of analysis modules organized by purpose:
 * **Shape Analysis**: Data structure shape and property analysis
 * **Call Graph Analysis**: Function call relationship analysis with multiple algorithms
 
-See :doc:`analysis/index` for detailed analysis module documentation.
-
-Optimization Framework
-----------------------
+Code Optimization
+-----------------
 
 PyFlow includes comprehensive optimization passes:
 
@@ -93,8 +123,7 @@ PyFlow includes comprehensive optimization passes:
 * **Function Inlining**: Performance optimization through inlining
 * **Data Flow Optimizations**: Load/store elimination and redundancy removal
 * **Control Flow Simplification**: Basic block merging and jump optimization
-
-See :doc:`optimization/index` for complete optimization documentation.
+* **Method Call Optimization**: Optimization of method dispatch
 
 Security Analysis
 -----------------
@@ -104,9 +133,15 @@ PyFlow's security checker identifies vulnerabilities:
 * **Injection Attacks**: SQL injection, command injection detection
 * **Authentication Issues**: Hardcoded credentials, weak cryptography
 * **Code Safety**: Dangerous function usage, unsafe imports
-* **LLM Integration**: AI-assisted vulnerability detection
+* **Input Validation**: Missing or improper input validation
+* **Dependency Security**: Known vulnerable dependencies
 
-See :doc:`checker/sec` for security analysis documentation.
+Getting Help
+============
+
+* **Documentation**: See this documentation or :doc:`cli` for command reference
+* **Issues**: Report bugs at https://github.com/ZJU-PL/pyflow/issues
+* **Discussions**: Ask questions at https://github.com/ZJU-PL/pyflow/discussions
 
 Indices and Tables
 ==================
