@@ -31,13 +31,15 @@ def extract_call_graph(source_code: str) -> CallGraph:
     try:
         tree = ast.parse(source_code)
 
-        # First pass: collect all function definitions
+        # First pass: collect all function definitions and add them to graph
         for node in ast.walk(tree):
             if isinstance(node, ast.FunctionDef):
                 # Use qualified names like 'main.func'
                 qualified_name = f"{main_function}.{node.name}"
                 function_names.add(node.name)
                 function_names.add(qualified_name)
+                # Add the function to the graph
+                graph.add_node(qualified_name)
 
         # Second pass: find calls within functions and module-level code
         for node in ast.walk(tree):
@@ -85,12 +87,13 @@ def _analyze_call_node(call_node, caller_name, function_names, graph):
     if isinstance(call_node.func, ast.Name):
         # Direct function call like func()
         callee_name = call_node.func.id
-        # Try both simple name and qualified name
+        # Use qualified callee name
         qualified_callee = f"main.{callee_name}"
-        if callee_name in function_names:
-            graph.add_edge(caller_name, callee_name)
-        elif qualified_callee in function_names:
+        if qualified_callee in function_names:
             graph.add_edge(caller_name, qualified_callee)
+        elif callee_name in function_names:
+            # Fallback to simple name for backwards compatibility
+            graph.add_edge(caller_name, callee_name)
     elif isinstance(call_node.func, ast.Attribute):
         # Method call like obj.method()
         if isinstance(call_node.func.value, ast.Name):

@@ -1,3 +1,30 @@
+"""
+Statistics Collection and Reporting for PyFlow Analysis Results.
+
+This module provides utilities for collecting, analyzing, and reporting
+statistics about PyFlow static analysis results. It generates LaTeX reports
+with various metrics about code complexity, operation counts, and analysis outcomes.
+
+Classes:
+    StatCollector: Collects and aggregates statistics during analysis.
+
+Functions:
+    classifyCode: Categorizes code by its annotation type (user, interp, runtime, primitive).
+    contextStats: Generates comprehensive statistics for a program's analysis.
+    opRatios: Computes operation type ratios and generates LaTeX tables.
+    functionRatios: Computes function context ratios and generates LaTeX tables.
+    opsRemoved: Compares operation counts between analysis runs.
+    opPieChart: Generates pie chart visualizations of operation distributions.
+
+The statistics module helps researchers and developers understand the
+characteristics of their code under analysis, including code classification,
+operation frequencies, and optimization effectiveness.
+
+Example:
+    >>> stats = contextStats(compiler, program, "my_analysis")
+    >>> # Generates LaTeX tables in outputDirectory/stats/my_analysis/
+"""
+
 from pyflow.analysis import astcollector
 
 import collections

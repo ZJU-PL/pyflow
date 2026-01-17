@@ -5,7 +5,6 @@
 from .simple.core.manager import SecurityManager
 from .simple.core.config import SecurityConfig
 from .simple.core.issue import Issue, Cwe
-from .engine import BugFindingEngine, BugReport
 from .bugfinder import StaticBugFinder, BugFinderConfig, BugInstance, Severity
 
 __all__ = [
@@ -13,8 +12,6 @@ __all__ = [
     "SecurityConfig",
     "Issue",
     "Cwe",
-    "BugFindingEngine",
-    "BugReport",
     "StaticBugFinder",
     "BugFinderConfig",
     "BugInstance",

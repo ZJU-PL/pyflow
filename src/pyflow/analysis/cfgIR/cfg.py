@@ -6,6 +6,8 @@ class CFGNode(object):
 
     def __init__(self):
         self.parent = None
+        self.prev = None
+        self.next = None
 
     def addNext(self, other):
         assert self.next is None

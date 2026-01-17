@@ -1,3 +1,26 @@
+"""
+Interprocedural Analysis (IPA) Summary Components.
+
+This module provides summary-based representations for interprocedural analysis,
+capturing the effect of function calls on program state through abstract summaries.
+
+Classes:
+    SummaryCopy: Represents a field copy operation in a summary.
+    SummaryLoad: Represents a field load operation in a summary.
+    Summary: Main summary class that tracks slots, operations, and objects.
+
+The summary-based approach allows efficient interprocedural analysis by
+summarizing each function's effect rather than analyzing all call sites
+individually. Summaries track how data flows through slots, how fields
+are accessed, and how objects are propagated.
+
+Example:
+    >>> summary = Summary()
+    >>> summary.copy('src_slot', 'dst_slot')
+    >>> summary.load(obj, field_type, field, 'dst_slot')
+    >>> update(context)  # Apply summary to analysis context
+"""
+
 from ..constraints import qualifiers
 import collections
 

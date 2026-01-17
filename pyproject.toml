@@ -68,6 +68,9 @@ addopts = [
     "--strict-markers",
     "--strict-config",
     "--verbose",
+    #"-W", "ignore::DeprecationWarning",
+    "-W",
+    "ignore::pytest.PytestUnhandledThreadExceptionWarning",
 ]
 
 [tool.black]

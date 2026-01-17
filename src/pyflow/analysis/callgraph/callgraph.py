@@ -51,8 +51,10 @@ class CallGraph:
         Record an invocation from `caller` to `callee`.
 
         Nodes are auto-created on demand to keep the API ergonomic for the
-        higher-level analysers.
+        higher-level analysers. Self-loops are not allowed.
         """
+        if caller == callee:
+            return  # Prevent self-loops
         self.add_node(caller)
         self.add_node(callee)
         self._graph[caller].add(callee)

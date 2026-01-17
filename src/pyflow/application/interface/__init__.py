@@ -1,3 +1,28 @@
+"""
+Application Interface Declarations.
+
+This module provides data structures for declaring and representing
+program entry points and class interfaces in the PyFlow analysis framework.
+
+Classes:
+    ClassDeclaration: Declares a class with its initialization, attributes, and methods.
+    EntryPoint: Represents a callable entry point with argument information.
+    InterfaceDeclaration: Aggregates function and class declarations into analyzable interfaces.
+
+These structures are used during program extraction to convert Python code
+into a form suitable for static analysis. Interface declarations translate
+functions, classes, and their methods into unified entry points that the
+analysis pipeline can process.
+
+Example:
+    >>> decl = InterfaceDeclaration()
+    >>> cls = ClassDeclaration(MyClass)
+    >>> cls.init(arg1, arg2)
+    >>> cls.method('method_name', arg1)
+    >>> decl.cls.append(cls)
+    >>> decl.translate(extractor)  # Convert to entry points
+"""
+
 import pyflow.util as util
 from .argwrapper import *
 
