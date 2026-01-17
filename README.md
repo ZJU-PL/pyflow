@@ -158,9 +158,8 @@ pyflow/
 ├── LICENSE.txt                        # License file
 ├── README.md                          # This file
 ├── conftest.py                        # Pytest configuration
-├── pyproject.toml                     # Python project configuration
-├── requirements*.txt                  # Dependencies
-├── setup.py                           # Setup script
+├── pyproject.toml                     # Python project configuration (dependencies & config)
+├── requirements-dev.txt               # Legacy dev dependencies (optional)
 └── setup-dev.sh                       # Development setup script
 ```
 

@@ -5,12 +5,12 @@ set -e
 
 echo "Setting up PyFlow development environment..."
 
-# Check if Python 3.6+ is available
+# Check if Python 3.8+ is available
 python_version=$(python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
-required_version="3.6"
+required_version="3.8"
 
 if [ "$(printf '%s\n' "$required_version" "$python_version" | sort -V | head -n1)" != "$required_version" ]; then
-    echo "Error: Python 3.6 or higher is required. Found: $python_version"
+    echo "Error: Python 3.8 or higher is required. Found: $python_version"
     exit 1
 fi
 
@@ -26,24 +26,13 @@ fi
 echo "Activating virtual environment..."
 source venv/bin/activate
 
-# Upgrade pip
-echo "Upgrading pip..."
-pip install --upgrade pip
+# Upgrade pip, setuptools, and wheel
+echo "Upgrading pip, setuptools, and wheel..."
+pip install --upgrade pip setuptools wheel
 
-# Install the package in development mode
+# Install the package in development mode (includes all dev dependencies from pyproject.toml)
 echo "Installing PyFlow in development mode..."
 pip install -e ".[dev]"
-
-# Install additional dependencies if requirements files exist
-if [ -f "requirements.txt" ]; then
-    echo "Installing additional requirements..."
-    pip install -r requirements.txt
-fi
-
-if [ -f "requirements-dev.txt" ]; then
-    echo "Installing development requirements..."
-    pip install -r requirements-dev.txt
-fi
 
 echo ""
 echo "Development environment setup complete!"
