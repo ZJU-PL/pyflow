@@ -8,17 +8,15 @@ answers for unit test generation or alias/lifetime-aware tasks.
 
 from typing import Dict, Optional, Union, List, Any
 
-from .call_graph_queries import CallGraphQueries
-from .control_flow_queries import ControlFlowQueries
-from .context import QueryContext
-from .data_flow_queries import DataFlowQueries, IpaFunctionSummary
-from .graph_engine import GraphQueryEngine
-from .server_mode import (
+from .core import (
     DEFAULT_MODE,
     MCPServerMode,
+    QueryContext,
+    GraphQueryEngine,
     get_server_mode_description,
     resolve_capabilities,
 )
+from .graphs import CallGraphQueries, ControlFlowQueries, DataFlowQueries, IpaFunctionSummary
 
 
 class SemanticQueryService:

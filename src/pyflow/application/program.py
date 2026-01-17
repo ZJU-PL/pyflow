@@ -86,7 +86,7 @@ class Program(object):
     def get_semantic_queries(self, compiler, server_mode=None):
         """Get or create a semantic query service for this program."""
         from .queries import SemanticQueryService
-        from .queries.server_mode import DEFAULT_MODE
+        from .queries import DEFAULT_MODE
 
         mode = server_mode or DEFAULT_MODE
         if (
