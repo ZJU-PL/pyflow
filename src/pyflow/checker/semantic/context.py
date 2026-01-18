@@ -66,7 +66,7 @@ class AnalysisSession:
         pipeline = Pipeline(use_pass_manager=use_pass_manager)
         compiler.program = program
         with console.scope("analysis"):
-            pipeline.run(program, compiler=compiler, name="bugfinder")
+            pipeline.run(program, compiler=compiler, name="semantic")
 
         queries = program.get_semantic_queries(compiler)
         store_graph = cls._maybe_get_store_graph(queries)

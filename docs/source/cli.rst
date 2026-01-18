@@ -65,21 +65,25 @@ Available passes: fold, dce, inline, simplify, loadelim, storeelim, etc.
 Security Commands
 -----------------
 
-**pyflow check**
-~~~~~~~~~~~~~~~~
+**pyflow security**
+~~~~~~~~~~~~~~~~~~~
 
-Run security analysis on Python code.
+Run security analysis on Python code using the pattern-based checker (AST pattern matching).
 
 ::
 
-  pyflow check input.py --format sarif --output security.sarif
-  pyflow check package/ --severity high --recursive
+  pyflow security input.py
+  pyflow security package/ --recursive
+  pyflow security src/ -v --exclude tests/
 
 Options:
-- ``--format``: Output format (text, json, sarif)
-- ``--severity``: Minimum severity level (low, medium, high, critical)
-- ``--output``: Output file path
-- ``--config``: Configuration file path
+- ``-r, --recursive``: Scan directories recursively
+- ``-v, --verbose``: Verbose output
+- ``-d, --debug``: Debug output
+- ``--exclude``: Comma-separated list of paths to exclude
+
+The security command uses the pattern-based checker engine for fast AST pattern matching.
+For deep semantic analysis, use the semantic checker via the PyFlow API.
 
 Global Options
 ==============
@@ -112,8 +116,8 @@ Example configuration file:
     passes: [fold, dce, inline]
     benchmark: true
   security:
-    severity: high
-    format: sarif
+    recursive: true
+    exclude: [tests/, .venv/]
 
 Integration
 ===========
@@ -129,7 +133,7 @@ PyFlow integrates with CI/CD pipelines:
   - name: Run PyFlow analysis
     run: |
       pyflow callgraph src/ --format json --output callgraph.json
-      pyflow check src/ --format sarif --output security.sarif
+      pyflow security src/ --recursive
       pyflow optimize src/main.py --all-passes --output optimized.py
 
 IDE Integration

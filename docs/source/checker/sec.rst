@@ -3,6 +3,18 @@ Security Analysis and Checking
 
 PyFlow's security checker identifies potential security vulnerabilities and unsafe coding patterns in Python applications.
 
+PyFlow provides two distinct checker engines:
+
+**Pattern-based checker** (``pyflow.checker.pattern``)
+  A lightweight AST pattern matching engine, similar to Bandit, that uses
+  simple pattern matching to identify common security vulnerabilities.
+  Fast and suitable for quick scans.
+
+**Semantic checker** (``pyflow.checker.semantic``)
+  A deep analysis engine that leverages PyFlow's full analysis pipeline
+  (IPA/CPA, store graph, lifetime analysis) to perform context-sensitive
+  vulnerability detection. More thorough but slower than pattern matching.
+
 Checker Categories
 ==================
 
@@ -61,23 +73,41 @@ Object-Oriented Safety
 Analysis Framework
 ==================
 
-Core Infrastructure
--------------------
+Pattern-Based Checker Infrastructure
+------------------------------------
 
-**core/manager.py**: Checker management system
-- Orchestrates security analysis
+**pattern/core/manager.py**: Pattern checker management system
+- Orchestrates AST-based security analysis
 - Manages checker registration and execution
 - Handles analysis configuration
 
-**core/context.py**: Analysis context management
+**pattern/core/context.py**: Pattern checker context management
 - Maintains analysis state during checking
 - Tracks file and module information
 - Manages issue reporting
 
-**core/issue.py**: Issue representation
+**pattern/core/issue.py**: Issue representation
 - Standardizes security issue reporting
 - Provides severity levels and categories
 - Supports issue metadata and location tracking
+
+**pattern/checkers/**: Individual pattern-based security checkers
+- AST pattern matching rules for various vulnerability types
+- Configurable blacklists and pattern definitions
+
+Semantic Checker Infrastructure
+--------------------------------
+
+**semantic/runner.py**: Semantic checker orchestration
+- Runs the full PyFlow analysis pipeline
+- Coordinates semantic analysis passes (IPA/CPA/lifetime)
+- Feeds analysis results to detectors
+
+**semantic/detectors/**: Semantic-based detectors
+- **taint.py**: Taint analysis detector
+- **misuse.py**: API misuse detection
+- **lifetime.py**: Lifetime escape detection
+- Uses semantic facts from PyFlow analyses rather than AST patterns
 
 Output Formatters
 -----------------

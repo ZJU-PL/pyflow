@@ -255,3 +255,15 @@ pyflow callgraph examples/test_function.py --format dot --output callgraph.dot
 pyflow callgraph examples/test_function.py --show-cycles --max-depth 5
 ```
 
+## Security Checker 
+
+~~~~
+#### Run on a specific config.json file
+pyflow security --micro-bench evaluation/sast-python3/accuracy/field_sensitive/multidimensional_collection/config.json
+
+#### Run on a directory (finds all config.json files)
+pyflow security --micro-bench evaluation/sast-python3/accuracy --engine semantic
+
+#### With verbose output
+pyflow security --micro-bench evaluation/sast-python3/accuracy --engine semantic -v
+~~~~

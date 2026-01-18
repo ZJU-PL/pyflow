@@ -91,8 +91,11 @@ pyflow/
 │   │   ├── pipeline.py                # Analysis pipeline
 │   │   └── program.py                 # Program representation
 │   ├── checker/                       # Code checking and validation
-│   │   ├── checkers/                  # Individual checkers
-│   │   ├── core/                      # Core checking infrastructure
+│   │   ├── pattern/                   # Pattern-based AST checker (Bandit-style)
+│   │   │   ├── checkers/              # Individual pattern checkers
+│   │   │   └── core/                  # Pattern checker infrastructure
+│   │   ├── semantic/                  # Semantic analysis-backed checker
+│   │   │   └── detectors/             # Semantic detectors (taint, misuse, etc.)
 │   │   ├── formatters/                # Output formatters
 │   │   └── llm/                       # LLM integration
 │   ├── cli/                           # Command-line interface

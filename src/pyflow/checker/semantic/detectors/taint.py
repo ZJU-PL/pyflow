@@ -121,6 +121,7 @@ class _LocalTaintAnalyzer(ast.NodeVisitor):
         self.sources = sources
         self.sinks = sinks
         self.tainted: Set[str] = set()
+        self.tainted_containers: Set[str] = set()
         self.has_source = False
         self.returns_tainted = False
         self.params_to_sink: Set[str] = set()
@@ -132,15 +133,46 @@ class _LocalTaintAnalyzer(ast.NodeVisitor):
         self.generic_visit(node)
 
     def visit_Assign(self, node: ast.Assign):
-        if self._expr_is_source(node.value):
+        value_is_source = self._expr_is_source(node.value)
+        value_is_tainted = self._expr_is_tainted(node.value)
+
+        if value_is_source:
             self.has_source = True
-            for target in node.targets:
-                if isinstance(target, ast.Name):
+
+        for target in node.targets:
+            if isinstance(target, ast.Name):
+                if value_is_source or value_is_tainted:
                     self.tainted.add(target.id)
-        elif self._expr_is_tainted(node.value):
-            for target in node.targets:
-                if isinstance(target, ast.Name):
-                    self.tainted.add(target.id)
+                elif (
+                    isinstance(node.value, ast.Name)
+                    and node.value.id in self.tainted_containers
+                ):
+                    self.tainted_containers.add(target.id)
+                elif self._container_literal_is_tainted(node.value):
+                    self.tainted_containers.add(target.id)
+            elif isinstance(target, ast.Subscript):
+                base = self._subscript_base_name(target.value)
+                if base and (value_is_source or value_is_tainted):
+                    self.tainted_containers.add(base)
+            elif isinstance(target, (ast.Tuple, ast.List)):
+                if value_is_source or value_is_tainted:
+                    for elt in target.elts:
+                        if isinstance(elt, ast.Name):
+                            self.tainted.add(elt.id)
+        self.generic_visit(node)
+
+    def visit_AugAssign(self, node: ast.AugAssign):
+        value_is_tainted = self._expr_is_tainted(node.value)
+        if isinstance(node.target, ast.Name):
+            if value_is_tainted:
+                self.tainted.add(node.target.id)
+            if isinstance(node.value, ast.Name) and node.value.id in self.tainted_containers:
+                self.tainted_containers.add(node.target.id)
+        elif isinstance(node.target, ast.Subscript):
+            base = self._subscript_base_name(node.target.value)
+            if base and value_is_tainted:
+                self.tainted_containers.add(base)
+        self.generic_visit(node)
         self.generic_visit(node)
 
     def visit_Return(self, node: ast.Return):
@@ -153,10 +185,16 @@ class _LocalTaintAnalyzer(ast.NodeVisitor):
         if fullname in self.sinks:
             self.sinks_found.add(fullname)
             for arg in node.args:
-                if isinstance(arg, ast.Name) and arg.id in self.tainted:
-                    self.params_to_sink.add(arg.id)
+                if isinstance(arg, ast.Name):
+                    if arg.id in self.tainted or arg.id in self.tainted_containers:
+                        self.params_to_sink.add(arg.id)
+                elif isinstance(arg, ast.Subscript):
+                    base = self._subscript_base_name(arg.value)
+                    if base in self.tainted_containers:
+                        self.params_to_sink.add(base)
         if self._expr_is_source(node):
             self.has_source = True
+        self._handle_container_calls(node)
         self.generic_visit(node)
 
     # -------------------------------------------------------------- predicates
@@ -174,8 +212,18 @@ class _LocalTaintAnalyzer(ast.NodeVisitor):
         return False
 
     def _expr_is_tainted(self, expr: ast.AST) -> bool:
+        if isinstance(expr, ast.Name) and expr.id in self.tainted_containers:
+            return True
         if isinstance(expr, ast.Name) and expr.id in self.tainted:
             return True
+        if isinstance(expr, ast.Subscript):
+            base = self._subscript_base_name(expr.value)
+            if base and base in self.tainted_containers:
+                return True
+        if isinstance(expr, (ast.List, ast.Tuple, ast.Set)):
+            return any(self._expr_is_tainted(elt) for elt in expr.elts)
+        if isinstance(expr, ast.Dict):
+            return any(self._expr_is_tainted(v) for v in expr.values)
         if isinstance(expr, ast.Call):
             return any(self._expr_is_tainted(arg) for arg in expr.args)
         if isinstance(expr, ast.Attribute) and isinstance(expr.value, ast.Name):
@@ -198,3 +246,29 @@ class _LocalTaintAnalyzer(ast.NodeVisitor):
         if isinstance(cur, ast.Name):
             parts.append(cur.id)
         return ".".join(reversed(parts))
+
+    def _subscript_base_name(self, expr: ast.AST) -> str:
+        if isinstance(expr, ast.Name):
+            return expr.id
+        if isinstance(expr, ast.Attribute):
+            return self._attribute_name(expr)
+        return ""
+
+    def _container_literal_is_tainted(self, expr: ast.AST) -> bool:
+        if isinstance(expr, (ast.List, ast.Tuple, ast.Set)):
+            return any(self._expr_is_tainted(elt) for elt in expr.elts)
+        if isinstance(expr, ast.Dict):
+            return any(self._expr_is_tainted(v) for v in expr.values)
+        return False
+
+    def _handle_container_calls(self, node: ast.Call):
+        if not isinstance(node.func, ast.Attribute):
+            return
+        method = node.func.attr
+        container_name = self._attribute_name(node.func.value)
+
+        if method in {"append", "extend", "insert", "add", "update", "setdefault"}:
+            if any(self._expr_is_tainted(arg) for arg in node.args):
+                self.tainted_containers.add(container_name)
+        elif method == "clear":
+            self.tainted_containers.discard(container_name)
