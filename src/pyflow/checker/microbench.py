@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import re
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -225,52 +226,58 @@ class MicroBenchRunner:
         Returns:
             BenchmarkResults object
         """
-        results = BenchmarkResults()
-        
-        # Find all config.json files
-        if benchmark_path.is_file() and benchmark_path.name == "config.json":
-            config_files = [benchmark_path]
-        elif benchmark_path.is_dir():
-            config_files = list(benchmark_path.rglob("config.json"))
-        else:
-            raise ValueError(f"Invalid benchmark path: {benchmark_path}")
-        
-        if not config_files:
-            print(f"Warning: No config.json files found in {benchmark_path}")
+        # Suppress RuntimeWarning about coroutines that were never awaited.
+        # This is expected during static analysis since we're not actually
+        # executing async code, just analyzing it statically.
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", message=".*coroutine.*was never awaited.*", category=RuntimeWarning)
+            
+            results = BenchmarkResults()
+            
+            # Find all config.json files
+            if benchmark_path.is_file() and benchmark_path.name == "config.json":
+                config_files = [benchmark_path]
+            elif benchmark_path.is_dir():
+                config_files = list(benchmark_path.rglob("config.json"))
+            else:
+                raise ValueError(f"Invalid benchmark path: {benchmark_path}")
+            
+            if not config_files:
+                print(f"Warning: No config.json files found in {benchmark_path}")
+                return results
+            
+            # Collect all test cases
+            all_test_cases = []
+            for config_file in config_files:
+                test_cases = self.parse_config(config_file)
+                all_test_cases.extend(test_cases)
+            
+            results.total_tests = len(all_test_cases)
+            
+            # Run each test case
+            for test_case in all_test_cases:
+                if self.verbose:
+                    print(f"Running: {test_case.scene} ({test_case.T_file} / {test_case.F_file})")
+                
+                test_result = self.run_test_case(test_case)
+                results.test_results.append(test_result)
+            
+            # Calculate metrics from test results
+            # Each test case should have BOTH T file (TP) and F file (TN) correct
+            for test_result in results.test_results:
+                # True Positive: Found bug in T file (correct)
+                if test_result.T_has_bug:
+                    results.true_positives += 1
+                else:
+                    results.false_negatives += 1
+                
+                # True Negative: No bug in F file (correct)
+                if not test_result.F_has_bug:
+                    results.true_negatives += 1
+                else:
+                    results.false_positives += 1
+            
             return results
-        
-        # Collect all test cases
-        all_test_cases = []
-        for config_file in config_files:
-            test_cases = self.parse_config(config_file)
-            all_test_cases.extend(test_cases)
-        
-        results.total_tests = len(all_test_cases)
-        
-        # Run each test case
-        for test_case in all_test_cases:
-            if self.verbose:
-                print(f"Running: {test_case.scene} ({test_case.T_file} / {test_case.F_file})")
-            
-            test_result = self.run_test_case(test_case)
-            results.test_results.append(test_result)
-        
-        # Calculate metrics from test results
-        # Each test case should have BOTH T file (TP) and F file (TN) correct
-        for test_result in results.test_results:
-            # True Positive: Found bug in T file (correct)
-            if test_result.T_has_bug:
-                results.true_positives += 1
-            else:
-                results.false_negatives += 1
-            
-            # True Negative: No bug in F file (correct)
-            if not test_result.F_has_bug:
-                results.true_negatives += 1
-            else:
-                results.false_positives += 1
-        
-        return results
     
     def print_results(self, results: BenchmarkResults):
         """Print benchmark results in a formatted way."""

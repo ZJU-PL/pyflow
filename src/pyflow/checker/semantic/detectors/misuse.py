@@ -8,6 +8,7 @@ context (function names, call graph reachability) to reduce noise.
 from __future__ import annotations
 
 import ast
+import textwrap
 from typing import List, Set
 
 from ..context import AnalysisSession
@@ -27,7 +28,7 @@ class MisuseDetector(Detector):
             if reachable and fname not in reachable:
                 # Skip unreachable code to stay context-aware
                 continue
-            tree = ast.parse(src)
+            tree = ast.parse(textwrap.dedent(src))
             reports.extend(self._resource_leak_reports(fname, tree))
             reports.extend(self._null_deref_reports(fname, tree))
         return reports

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import ast
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple, Union
@@ -132,6 +133,34 @@ class AnalysisSession:
                     src = all_source_code[filename]
             if src:
                 name_to_source[name] = src
+
+        # Fallback: derive sources from raw files when no callable objects exist.
+        for filename, src in all_source_code.items():
+            try:
+                tree = ast.parse(src)
+            except SyntaxError:
+                continue
+
+            func_nodes = [
+                node
+                for node in ast.walk(tree)
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            ]
+            if func_nodes:
+                for node in func_nodes:
+                    if node.name in name_to_source:
+                        continue
+                    if getattr(node, "lineno", None) and getattr(node, "end_lineno", None):
+                        lines = src.splitlines()
+                        func_src = "\n".join(lines[node.lineno - 1 : node.end_lineno])
+                    else:
+                        func_src = ast.get_source_segment(src, node) or src
+                    name_to_source[node.name] = func_src
+            else:
+                module_name = f"<module:{Path(filename).name}>"
+                if module_name not in name_to_source:
+                    name_to_source[module_name] = src
+
         return name_to_source
 
     # --------------------------------------------------------------- analysis
