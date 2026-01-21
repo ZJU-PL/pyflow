@@ -1,7 +1,7 @@
 import os
 import unittest
 
-from tests.test_utils import get_modules_and_packages
+from tests.modules.test_utils import get_modules_and_packages
 
 from pyflow.language.modules.project_handler import (
     get_modules,
