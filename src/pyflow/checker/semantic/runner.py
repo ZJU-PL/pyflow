@@ -8,11 +8,11 @@ from typing import Iterable, List, Optional, Sequence, Union
 
 from .context import AnalysisSession
 from .detectors.base import run_detectors
-from .detectors.misuse import MisuseDetector
+from .detectors.hazards import HazardsDetector
 from .detectors.taint import TaintDetector
 from .detectors.taint2 import TaintDetector2
-from .detectors.lifetime import LifetimeEscapeDetector
-from .issue import BugInstance
+from .detectors.leak import LeakDetector
+from .issue import Issue
 
 
 @dataclass
@@ -34,8 +34,8 @@ class StaticBugFinder:
 
     def _create_detectors(self) -> List:
         detectors = [
-            MisuseDetector(),
-            LifetimeEscapeDetector(),
+            HazardsDetector(),
+            LeakDetector(),
         ]
 
         # Select taint detector based on config
@@ -46,7 +46,7 @@ class StaticBugFinder:
 
         return detectors
 
-    def analyze(self, paths: Sequence[Union[str, Path]]) -> List[BugInstance]:
+    def analyze(self, paths: Sequence[Union[str, Path]]) -> List[Issue]:
         session = AnalysisSession.from_paths(
             paths,
             use_pass_manager=self.config.use_pass_manager,

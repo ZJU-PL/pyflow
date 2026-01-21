@@ -13,8 +13,13 @@ from pathlib import Path
 
 from pyflow.checker.pattern.core.manager import SecurityManager
 from pyflow.checker.pattern.core.config import SecurityConfig
-from pyflow.checker.semantic import StaticBugFinder, BugFinderConfig
+from pyflow.checker.pattern.core import constants as b_constants
+from pyflow.checker.semantic import BugFinderConfig
+from pyflow.checker.semantic.manager import SemanticManager
 from pyflow.checker.microbench import MicroBenchRunner
+from pyflow.checker.formatters import text as text_formatter
+from pyflow.checker.formatters import json as json_formatter
+from pyflow.checker.formatters import sarif as sarif_formatter
 
 
 def add_security_parser(subparsers):
@@ -65,6 +70,18 @@ def add_security_parser(subparsers):
         "PATH should be a config.json file or directory containing config.json files. "
         "Measures False Positives (FP) and False Negatives (FN).",
     )
+    security_parser.add_argument(
+        "--format",
+        choices=["text", "json", "sarif"],
+        default="text",
+        help="Output format: 'text' (default), 'json', or 'sarif'",
+    )
+    security_parser.add_argument(
+        "--output",
+        "-o",
+        type=Path,
+        help="Output file (default: stdout)",
+    )
 
 
 def run_security_analysis(targets, args):
@@ -98,51 +115,56 @@ def run_security_analysis(targets, args):
 
     targets = targets or ["."]
 
-    # Choose engine based on --engine option
-    if args.engine == "semantic":
-        # Use semantic checker
-        config = BugFinderConfig(
-            verbose=args.verbose,
-            recursive=args.recursive,
-            exclude=tuple(args.exclude.split(",")) if args.exclude else tuple(),
-        )
-        finder = StaticBugFinder(config)
-        bug_instances = finder.analyze(targets)
+    # Determine output file
+    output_file = open(args.output, "w") if args.output else sys.stdout
 
-        if bug_instances:
-            print(f"\nFound {len(bug_instances)} security issues:")
-            for bug in bug_instances:
-                print(f"  {bug}")
-            return 1
+    try:
+        # Choose engine based on --engine option
+        if args.engine == "semantic":
+            # Use semantic checker with adapter manager
+            config = BugFinderConfig(
+                verbose=args.verbose,
+                recursive=args.recursive,
+                exclude=tuple(args.exclude.split(",")) if args.exclude else tuple(),
+                taint_engine=args.taint_engine if args.taint_engine != "both" else "ast",
+            )
+            manager = SemanticManager(
+                config=config, debug=args.debug, verbose=args.verbose, quiet=False
+            )
+            manager.analyze(targets)
         else:
-            print("No security issues found.")
-            return 0
-    else:
-        # Use pattern-based checker (default)
-        config = SecurityConfig()
+            # Use pattern-based checker (default)
+            config = SecurityConfig()
 
-        # Create security manager
-        manager = SecurityManager(
-            config=config, debug=args.debug, verbose=args.verbose, quiet=False
-        )
+            # Create security manager
+            manager = SecurityManager(
+                config=config, debug=args.debug, verbose=args.verbose, quiet=False
+            )
 
-        # Discover files
-        manager.discover_files(targets, recursive=args.recursive, excluded_paths="")
+            # Discover files
+            manager.discover_files(targets, recursive=args.recursive, excluded_paths="")
 
-        # Run security checks
-        manager.run_tests()
+            # Run security checks
+            manager.run_tests()
 
-        # Report results
-        issues = manager.get_issue_list()
+        # Use formatters to output results
+        sev_level = b_constants.LOW
+        conf_level = b_constants.LOW
 
-        if issues:
-            print(f"\nFound {len(issues)} security issues:")
-            for issue in issues:
-                print(f"  {issue}")
-            return 1
-        else:
-            print("No security issues found.")
-            return 0
+        if args.format == "json":
+            json_formatter.report(manager, output_file, sev_level, conf_level)
+        elif args.format == "sarif":
+            sarif_formatter.report(manager, output_file, sev_level, conf_level)
+        else:  # text format
+            text_formatter.report(manager, output_file, sev_level, conf_level)
+
+        # Return exit code based on whether issues were found
+        issues = manager.get_issue_list(sev_level, conf_level)
+        return 1 if issues else 0
+
+    finally:
+        if args.output:
+            output_file.close()
 
 
 if __name__ == "__main__":

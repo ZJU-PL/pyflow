@@ -1,33 +1,10 @@
-"""Issue types for the analysis-backed bug finder."""
+"""Issue types for the analysis-backed bug finder.
 
-from dataclasses import dataclass, field
-from enum import Enum
-from typing import List, Optional
+This module re-exports the common Issue and Cwe classes from pattern checker
+to ensure semantic checker uses the same bug reporting format.
+"""
 
+# Re-export pattern checker's Issue and Cwe classes for consistency
+from ..pattern.core.issue import Cwe, Issue
 
-class Severity(str, Enum):
-    LOW = "low"
-    MEDIUM = "medium"
-    HIGH = "high"
-    CRITICAL = "critical"
-
-
-@dataclass(frozen=True)
-class IssueTrace:
-    """Lightweight trace payload."""
-
-    summary: str
-    detail: Optional[str] = None
-
-
-@dataclass(frozen=True)
-class BugInstance:
-    """Single reported bug instance."""
-
-    rule: str
-    message: str
-    severity: Severity
-    function: Optional[str] = None
-    file: Optional[str] = None
-    line: Optional[int] = None
-    traces: List[IssueTrace] = field(default_factory=list)
+__all__ = ["Issue", "Cwe"]

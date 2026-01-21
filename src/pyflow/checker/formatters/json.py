@@ -75,7 +75,7 @@ import logging
 import operator
 import sys
 
-from ..ast.core.test_properties import accepts_baseline
+from ..pattern.core.test_properties import accepts_baseline
 
 LOG = logging.getLogger(__name__)
 

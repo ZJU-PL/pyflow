@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Set, Any, Union, Tuple
 
 from ..context import AnalysisSession
-from ..issue import BugInstance, IssueTrace, Severity
+from ..issue import Issue
 from .base import Detector
 
 # Standard taint sources
@@ -100,23 +100,21 @@ class TaintDetector2(Detector):
         # Build function summaries using hybrid approach
         summaries = self._build_summaries(session)
 
-        reports: List[BugInstance] = []
+        reports: List[Issue] = []
         for name, summary in summaries.items():
             for sink in summary.tainted_sinks:
-                reports.append(
-                    BugInstance(
-                        rule="taint-source-to-sink",
-                        message=f"Untrusted data can reach sink '{sink}' in '{name}'.",
-                        severity=Severity.HIGH,
-                        function=name,
-                        traces=[
-                            IssueTrace(
-                                summary=f"Local flow in '{name}'",
-                                detail="Derived from taint summary using PyFlow infrastructure.",
-                            )
-                        ],
-                    )
+                issue = Issue(
+                    severity="HIGH",
+                    confidence="HIGH",
+                    cwe=79,  # CWE-79: XSS / Injection
+                    text=f"Untrusted data can reach sink '{sink}'.",
+                    ident=sink,
+                    lineno=None,
+                    test_id="S005",  # Semantic checker rule ID (IPA variant)
                 )
+                issue.fname = name  # Function name as file identifier
+                issue.test = "taint2"
+                reports.append(issue)
 
         return reports
 

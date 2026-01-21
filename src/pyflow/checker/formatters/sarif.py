@@ -80,7 +80,7 @@ import logging
 import sys
 from typing import Dict, List, Any, Optional
 
-from ..ast.core.test_properties import accepts_baseline
+from ..pattern.core.test_properties import accepts_baseline
 from .utils import wrap_file_object
 
 LOG = logging.getLogger(__name__)

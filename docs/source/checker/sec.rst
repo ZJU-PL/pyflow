@@ -105,8 +105,8 @@ Semantic Checker Infrastructure
 
 **semantic/detectors/**: Semantic-based detectors
 - **taint.py**: Taint analysis detector
-- **misuse.py**: API misuse detection
-- **lifetime.py**: Lifetime escape detection
+- **hazards.py**: Null dereference detection
+- **leak.py**: Leak detection (resource leaks, scope leaks)
 - Uses semantic facts from PyFlow analyses rather than AST patterns
 
 Output Formatters

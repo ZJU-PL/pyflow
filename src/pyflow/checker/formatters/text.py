@@ -34,8 +34,8 @@ import datetime
 import logging
 import sys
 
-from ..ast.core import constants
-from ..ast.core.test_properties import accepts_baseline
+from ..pattern.core import constants
+from ..pattern.core.test_properties import accepts_baseline
 from .utils import wrap_file_object
 
 LOG = logging.getLogger(__name__)

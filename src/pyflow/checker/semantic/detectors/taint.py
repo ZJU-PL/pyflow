@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 from typing import Dict, Iterable, List, Optional, Set, Tuple
 
 from ..context import AnalysisSession
-from ..issue import BugInstance, IssueTrace, Severity
+from ..issue import Issue
 from .base import Detector
 
 
@@ -69,25 +69,23 @@ class TaintDetector(Detector):
         self.sources = set(sources or DEFAULT_SOURCES)
         self.sinks = set(sinks or DEFAULT_SINKS)
 
-    def run(self, session: AnalysisSession) -> List[BugInstance]:
+    def run(self, session: AnalysisSession) -> List[Issue]:
         summaries = self._build_summaries(session)
-        reports: List[BugInstance] = []
+        reports: List[Issue] = []
         for name, summary in summaries.items():
             for sink in summary.tainted_sinks:
-                reports.append(
-                    BugInstance(
-                        rule="taint-source-to-sink",
-                        message=f"Untrusted data can reach sink '{sink}' in '{name}'.",
-                        severity=Severity.HIGH,
-                        function=name,
-                        traces=[
-                            IssueTrace(
-                                summary=f"Local flow in '{name}'",
-                                detail="Derived from taint summary.",
-                            )
-                        ],
-                    )
+                issue = Issue(
+                    severity="HIGH",
+                    confidence="HIGH",
+                    cwe=79,  # CWE-79: XSS / Injection
+                    text=f"Untrusted data can reach sink '{sink}'.",
+                    ident=sink,
+                    lineno=None,
+                    test_id="S004",  # Semantic checker rule ID
                 )
+                issue.fname = name  # Function name as file identifier
+                issue.test = "taint"
+                reports.append(issue)
         return reports
 
     # ------------------------------------------------------------------ helpers

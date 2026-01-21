@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import List
 
-from ..issue import BugInstance
+from ..issue import Issue
 from ..context import AnalysisSession
 
 
@@ -14,12 +14,12 @@ class Detector:
     name: str = "base-detector"
     description: str = ""
 
-    def run(self, session: AnalysisSession) -> List[BugInstance]:
+    def run(self, session: AnalysisSession) -> List[Issue]:
         raise NotImplementedError
 
 
-def run_detectors(session: AnalysisSession, detectors) -> List[BugInstance]:
-    reports: List[BugInstance] = []
+def run_detectors(session: AnalysisSession, detectors) -> List[Issue]:
+    reports: List[Issue] = []
     for detector in detectors:
         reports.extend(detector.run(session))
     return reports

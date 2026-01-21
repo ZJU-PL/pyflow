@@ -5,7 +5,7 @@
 from .pattern.core.manager import SecurityManager
 from .pattern.core.config import SecurityConfig
 from .pattern.core.issue import Issue, Cwe
-from .semantic import StaticBugFinder, BugFinderConfig, BugInstance, Severity
+from .semantic import StaticBugFinder, BugFinderConfig
 
 __all__ = [
     "SecurityManager",
@@ -14,8 +14,6 @@ __all__ = [
     "Cwe",
     "StaticBugFinder",
     "BugFinderConfig",
-    "BugInstance",
-    "Severity",
 ]
 
 """

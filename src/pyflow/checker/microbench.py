@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
 
-from .semantic import StaticBugFinder, BugFinderConfig, BugInstance
+from .semantic import StaticBugFinder, BugFinderConfig, Issue
 from .pattern.core.manager import SecurityManager
 from .pattern.core.config import SecurityConfig
 

@@ -6,7 +6,7 @@ pipeline (IPA/CPA/lifetime, etc.) and feeds semantic facts into focused
 detectors (taint, misuse, resource handling, etc.).
 """
 
-from .issue import BugInstance, Severity
+from .issue import Issue, Cwe
 from .runner import StaticBugFinder, BugFinderConfig
 
-__all__ = ["StaticBugFinder", "BugFinderConfig", "BugInstance", "Severity"]
+__all__ = ["StaticBugFinder", "BugFinderConfig", "Issue", "Cwe"]
