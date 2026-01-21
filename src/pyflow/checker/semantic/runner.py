@@ -8,7 +8,7 @@ from typing import Iterable, List, Optional, Sequence, Union
 
 from .context import AnalysisSession
 from .detectors.base import run_detectors
-from .detectors.hazards import HazardsDetector
+from .detectors.null_dereference import NullDereferenceDetector
 from .detectors.taint import TaintDetector
 from .detectors.taint2 import TaintDetector2
 from .detectors.leak import LeakDetector
@@ -34,7 +34,7 @@ class StaticBugFinder:
 
     def _create_detectors(self) -> List:
         detectors = [
-            HazardsDetector(),
+            NullDereferenceDetector(),
             LeakDetector(),
         ]
 

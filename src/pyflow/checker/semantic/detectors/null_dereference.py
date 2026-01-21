@@ -1,7 +1,11 @@
 """
-Null dereference hazard detector.
+Null dereference detector.
 
-These heuristics are intentionally light-weight but leverage PyFlow's semantic context (function names, call graph reachability, etc.) to reduce noise.
+Detects potential null pointer dereferences (NPD) where variables assigned None
+are later accessed without null checks.
+
+These heuristics are intentionally light-weight but leverage PyFlow's semantic 
+context (function names, call graph reachability, etc.) to reduce noise.
 """
 
 from __future__ import annotations
@@ -15,8 +19,8 @@ from ..issue import Issue
 from .base import Detector
 
 
-class HazardsDetector(Detector):
-    name = "hazards"
+class NullDereferenceDetector(Detector):
+    name = "null_dereference"
     description = "Detect null dereference hazards."
 
     def run(self, session: AnalysisSession) -> List[Issue]:
@@ -31,7 +35,6 @@ class HazardsDetector(Detector):
             reports.extend(self._null_deref_reports(fname, tree))
         return reports
 
-    # ----------------------------------------------------------- null deref
     def _null_deref_reports(self, fname: str, tree: ast.AST) -> List[Issue]:
         reports: List[Issue] = []
         visitor = _NullDerefVisitor()
@@ -40,14 +43,14 @@ class HazardsDetector(Detector):
             issue = Issue(
                 severity="LOW",
                 confidence="MEDIUM",
-                cwe=0,  # No specific CWE for null deref
+                cwe=476,  # CWE-476: NULL Pointer Dereference
                 text=f"Variable '{var}' may be None before dereference.",
                 ident=var,
                 lineno=line,
                 test_id="S001",  # Semantic checker rule ID
             )
             issue.fname = fname
-            issue.test = "hazards"
+            issue.test = "null_dereference"
             reports.append(issue)
         return reports
 
@@ -84,6 +87,7 @@ class _NullDerefVisitor(ast.NodeVisitor):
         self.generic_visit(node)
 
     def generic_visit(self, node):
+        # Note: This detector doesn't use parent tracking, so we don't need
+        # to set parent attributes. Standard traversal is sufficient.
         for child in ast.iter_child_nodes(node):
-            child.parent = node
             self.visit(child)
