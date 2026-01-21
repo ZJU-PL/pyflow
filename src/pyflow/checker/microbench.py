@@ -8,9 +8,9 @@ from __future__ import annotations
 import json
 import re
 import warnings
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Union
 
 from .semantic import StaticBugFinder, BugFinderConfig, BugInstance
 from .pattern.core.manager import SecurityManager
@@ -62,7 +62,7 @@ class BenchmarkResults:
     true_negatives: int = 0
     false_positives: int = 0
     false_negatives: int = 0
-    test_results: List[TestResult] = None
+    test_results: List[TestResult] = field(default_factory=list)
     
     def __post_init__(self):
         if self.test_results is None:
@@ -96,43 +96,49 @@ class BenchmarkResults:
         - T file has bug detected (TP) 
         - F file has no bug detected (TN)
         """
-        # Each test case contributes 2 checks (T file and F file)
-        # So total checks = total_tests * 2
-        total_checks = self.total_tests * 2
-        correct_checks = self.true_positives + self.true_negatives
-        return correct_checks / total_checks if total_checks > 0 else 0.0
+        if self.total_tests == 0:
+            return 0.0
+        
+        # Count test cases where BOTH TP and TN are true
+        correct_test_cases = sum(
+            1 for result in self.test_results
+            if result.is_tp and result.is_tn
+        )
+        return correct_test_cases / self.total_tests
 
 
 class MicroBenchRunner:
     """Runs micro-benchmarks and evaluates checker accuracy."""
-    
-    def __init__(self, engine: str = "semantic", verbose: bool = False):
+
+    def __init__(self, engine: str = "semantic", taint_engine: str = "ast", verbose: bool = False):
         """
         Initialize the benchmark runner.
-        
+
         Args:
             engine: "semantic" or "pattern"
+            taint_engine: "ast" (local), "ipa" (interprocedural), or "both"
             verbose: Enable verbose output
         """
         self.engine = engine
+        self.taint_engine = taint_engine
         self.verbose = verbose
-    
+
     def parse_config(self, config_path: Path) -> List[TestCase]:
         """
         Parse a config.json file to extract test cases.
-        
+
         Args:
             config_path: Path to config.json file
-            
+
         Returns:
             List of TestCase objects
         """
         test_cases = []
         config_dir = config_path.parent
-        
+
         with open(config_path, 'r', encoding='utf-8') as f:
             config = json.load(f)
-        
+
         # Navigate the nested structure to find scene_list
         for category_key, category_value in config.items():
             if isinstance(category_value, list):
@@ -143,7 +149,7 @@ class MicroBenchRunner:
                                 for scene in level["scene_list"]:
                                     compose = scene.get("compose", "")
                                     scene_name = scene.get("scene", "")
-                                    
+
                                     # Parse compose expression like "file_T.py && !file_F.py"
                                     match = re.match(r'(\w+\.py)\s*&&\s*!(\w+\.py)', compose)
                                     if match:
@@ -154,22 +160,28 @@ class MicroBenchRunner:
                                             scene=scene_name,
                                             directory=config_dir
                                         ))
-        
+
         return test_cases
-    
-    def run_test_file(self, test_file: Path) -> bool:
+
+    def run_test_file(self, test_file: Path, taint_engine: Optional[str] = None) -> bool:
         """
         Run a test file and return True if bugs were found.
-        
+
         Args:
             test_file: Path to the test file
-            
+            taint_engine: Override taint engine for this run
+
         Returns:
             True if bugs were found, False otherwise
         """
+        engine = taint_engine or self.taint_engine
         try:
             if self.engine == "semantic":
-                config = BugFinderConfig(verbose=self.verbose, recursive=False)
+                config = BugFinderConfig(
+                    verbose=self.verbose,
+                    recursive=False,
+                    taint_engine=engine
+                )
                 finder = StaticBugFinder(config)
                 bugs = finder.analyze([str(test_file)])
                 return len(bugs) > 0
@@ -284,7 +296,10 @@ class MicroBenchRunner:
         print("\n" + "="*70)
         print("Micro-Benchmark Results")
         print("="*70)
-        print(f"\nEngine: {self.engine}")
+        engine_info = self.engine
+        if self.engine == "semantic":
+            engine_info += f" (taint: {self.taint_engine})"
+        print(f"\nEngine: {engine_info}")
         print(f"Total test cases: {results.total_tests}")
         print("\nMetrics:")
         print(f"  True Positives (TP):  {results.true_positives}")
@@ -296,7 +311,7 @@ class MicroBenchRunner:
         print(f"  Recall:     {results.recall:.4f}")
         print(f"  F1 Score:   {results.f1_score:.4f}")
         print(f"  Accuracy:   {results.accuracy:.4f}")
-        
+
         # Show failing tests if any
         if results.false_positives > 0 or results.false_negatives > 0:
             print("\nFailed Tests:")
@@ -308,5 +323,5 @@ class MicroBenchRunner:
                     if result.is_fn:
                         status.append(f"FN: {result.test_case.T_file}")
                     print(f"  {result.test_case.scene}: {', '.join(status)}")
-        
+
         print("="*70 + "\n")

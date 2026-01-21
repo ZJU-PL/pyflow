@@ -49,6 +49,15 @@ def add_security_parser(subparsers):
         "'semantic' for deep analysis using PyFlow's analysis pipeline",
     )
     security_parser.add_argument(
+        "--taint-engine",
+        choices=["ast", "ipa", "both"],
+        default="ast",
+        help="Taint analysis engine (only for --engine semantic): "
+        "'ast' for local AST-based analysis (default), "
+        "'ipa' for interprocedural IPA-aware analysis, "
+        "'both' to run both and compare results",
+    )
+    security_parser.add_argument(
         "--micro-bench",
         metavar="PATH",
         type=str,
@@ -76,8 +85,13 @@ def run_security_analysis(targets, args):
         if not bench_path.exists():
             print(f"Error: Benchmark path not found: {bench_path}", file=sys.stderr)
             return 1
-        
-        runner = MicroBenchRunner(engine=args.engine, verbose=args.verbose)
+
+        # Run benchmark with specified taint engine
+        runner = MicroBenchRunner(
+            engine=args.engine,
+            taint_engine=args.taint_engine,
+            verbose=args.verbose
+        )
         results = runner.run_benchmark(bench_path)
         runner.print_results(results)
         return 0

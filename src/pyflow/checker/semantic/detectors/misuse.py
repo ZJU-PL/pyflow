@@ -1,8 +1,7 @@
 """
 Semantic misuse detectors (resource leaks, null-deref patterns, type hazards).
 
-These heuristics are intentionally light-weight but leverage PyFlow's semantic
-context (function names, call graph reachability) to reduce noise.
+These heuristics are intentionally light-weight but leverage PyFlow's semantic context (function names, call graph reachability, lifetime, etc.) to reduce noise.
 """
 
 from __future__ import annotations

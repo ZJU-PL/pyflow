@@ -1,4 +1,5 @@
 # Byte-compiled / optimized / DLL files
+example.txt
 __pycache__/
 .cursor
 .codex

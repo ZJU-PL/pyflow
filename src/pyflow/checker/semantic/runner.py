@@ -10,6 +10,7 @@ from .context import AnalysisSession
 from .detectors.base import run_detectors
 from .detectors.misuse import MisuseDetector
 from .detectors.taint import TaintDetector
+from .detectors.taint2 import TaintDetector2
 from .detectors.lifetime import LifetimeEscapeDetector
 from .issue import BugInstance
 
@@ -21,6 +22,7 @@ class BugFinderConfig:
     recursive: bool = False
     include: Iterable[str] = field(default_factory=lambda: ("*.py",))
     exclude: Iterable[str] = field(default_factory=tuple)
+    taint_engine: str = "ast"  # "ast" for local analysis, "ipa" for interprocedural
 
 
 class StaticBugFinder:
@@ -28,11 +30,21 @@ class StaticBugFinder:
 
     def __init__(self, config: Optional[BugFinderConfig] = None):
         self.config = config or BugFinderConfig()
-        self.detectors = [
-            TaintDetector(),
+        self.detectors = self._create_detectors()
+
+    def _create_detectors(self) -> List:
+        detectors = [
             MisuseDetector(),
             LifetimeEscapeDetector(),
         ]
+
+        # Select taint detector based on config
+        if self.config.taint_engine == "ipa":
+            detectors.insert(0, TaintDetector2())
+        else:
+            detectors.insert(0, TaintDetector())
+
+        return detectors
 
     def analyze(self, paths: Sequence[Union[str, Path]]) -> List[BugInstance]:
         session = AnalysisSession.from_paths(
