@@ -633,7 +633,7 @@ class ShapeConstraintBuilder(TypeDispatcher):
             field = self.sys.info.storeSlotName(node)
             self.assign(self.localExpr(node.value), self.fieldExpr(node.expr, field))
             self.post(node)
-        except:
+        except Exception:
             print(node)
             raise
 

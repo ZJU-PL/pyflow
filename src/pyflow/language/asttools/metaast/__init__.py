@@ -179,7 +179,9 @@ class ClassBuilder(object):
         # Compile and return the generated function so callers can attach it
         return codegeneration.compileFunc(self.name, code, self.g)
 
-    def defaultFunc(self, name, func, args, kargs={}):
+    def defaultFunc(self, name, func, args, kargs=None):
+        if kargs is None:
+            kargs = {}
         if not name in self.d:
             self.d[name] = self.makeFunc(func, args, kargs)
 

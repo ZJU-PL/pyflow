@@ -452,7 +452,7 @@ class MergeConstraint(Constraint):
         # Merge the secondary
         try:
             paths = remoteSecondary.paths.join(localSecondary.paths)
-        except:
+        except Exception:
             return
 
             print("-" * 60)

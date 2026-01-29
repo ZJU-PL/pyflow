@@ -159,7 +159,7 @@ def foldNotAST(extractor, op):
     return op
 
 
-def foldCallAST(extractor, node, func, args=(), kargs={}):
+def foldCallAST(extractor, node, func, args=(), kargs=None):
     """Fold a function call if all arguments are constant.
 
     Evaluates function calls at compile time if all arguments are constant
@@ -175,6 +175,8 @@ def foldCallAST(extractor, node, func, args=(), kargs={}):
     Returns:
         AST node: Existing node with constant result, or original node
     """
+    if kargs is None:
+        kargs = {}
     assert not kargs, kargs
 
     for arg in args:

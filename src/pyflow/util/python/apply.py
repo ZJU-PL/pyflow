@@ -27,7 +27,7 @@ class ApplyError(Exception):
     pass
 
 
-def applyFunction(func, vargs=(), kargs={}):
+def applyFunction(func, vargs=(), kargs=None):
     """
     Apply a function with given positional and keyword arguments.
 
@@ -51,9 +51,11 @@ def applyFunction(func, vargs=(), kargs={}):
         >>> applyFunction(pow, (2, 3), {"mod": 5})
         3
     """
+    if kargs is None:
+        kargs = {}
     try:
         result = func(*vargs, **kargs)
-    except:
+    except Exception:
         raise ApplyError("Error folding '%s'" % str(func))
 
     return result

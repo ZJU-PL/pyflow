@@ -44,7 +44,7 @@ import types
 #########################
 
 
-def foldFunctionIR(extractor, func, vargs=(), kargs={}):
+def foldFunctionIR(extractor, func, vargs=(), kargs=None):
     """Fold a function call with constant arguments.
 
     Args:
@@ -58,6 +58,8 @@ def foldFunctionIR(extractor, func, vargs=(), kargs={}):
     """
     newvargs = [arg.pyobj for arg in vargs]
 
+    if kargs is None:
+        kargs = {}
     assert not kargs, kargs
     newkargs = {}
 

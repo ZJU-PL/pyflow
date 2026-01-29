@@ -245,7 +245,7 @@ class DependencyResolver:
                     imports.add(node.module.split(".")[0])
 
             return imports
-        except:
+        except Exception:
             return set()
 
     def _create_stub_module(self, module_name: str) -> Any:

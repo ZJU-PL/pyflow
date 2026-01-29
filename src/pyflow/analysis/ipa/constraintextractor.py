@@ -464,7 +464,7 @@ class ConstraintExtractor(TypeDispatcher):
 
             try:
                 result = foldFunc(*params)
-            except:
+            except Exception:
                 return
 
             obj = self.context.analysis.pyObj(result)

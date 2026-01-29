@@ -18,7 +18,7 @@ class Sequence:
     takes time proportional to the index.
     """
 
-    def __init__(self, iterable=[], key=None):
+    def __init__(self, iterable=None, key=None):
         """We represent the sequence as a doubly-linked circular linked list,
         stored in two dictionaries, self._next and self._prev.  We also store
         a pointer self._first to the first item in the sequence.  If key is
@@ -30,6 +30,8 @@ class Sequence:
         self._next = {}
         self._prev = {}
         self._first = None
+        if iterable is None:
+            iterable = []
         for x in iterable:
             self.append(x)
 

@@ -87,7 +87,7 @@ def traceBlame(offset, count):
             del caller  # Destroy a circular reference to avoid memory leaks
 
             lines.append("%s:%d in %s" % (filename, lineno, name))
-        except:
+        except Exception:
             # Skip frames that can't be accessed (e.g., C extension frames)
             pass
 

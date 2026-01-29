@@ -166,7 +166,7 @@ class Worklist(object):
 
         try:
             constraint.update(sys, index)
-        except:
+        except Exception:
             print(
                 "ERROR processing:",
                 constraint,

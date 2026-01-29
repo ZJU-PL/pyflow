@@ -34,7 +34,7 @@ def graphNum(s):
     """Parse s as an integer, complain appropriately if it fails."""
     try:
         return int(s)
-    except:
+    except (ValueError, TypeError):
         raise GraphFormatError('Number expected: "%s"' % s)
 
 

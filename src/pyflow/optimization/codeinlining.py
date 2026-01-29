@@ -507,6 +507,6 @@ def evaluate(compiler, prgm):
         for code in prgm.interface.entryCode():
             try:
                 transform.process(code)
-            except:
+            except Exception:
                 compiler.console.output("Failed to transform %r" % code)
                 raise

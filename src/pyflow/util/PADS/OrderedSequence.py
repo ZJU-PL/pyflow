@@ -20,12 +20,14 @@ class SimpleOrderedSequence(Sequence):
     to use this data structure only for sequences of very few items.
     """
 
-    def __init__(self, iterable=[], key=None):
+    def __init__(self, iterable=None, key=None):
         """The only additional data we maintain over a vanilla Sequence
         is a dictionary self._tag mapping sequence items to integers,
         such that an item is earlier than another iff its tag is smaller.
         """
         self._tag = {}
+        if iterable is None:
+            iterable = []
         Sequence.__init__(self, iterable, key=key)
 
     def __lt__(self, x, y):
