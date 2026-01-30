@@ -1,12 +1,16 @@
 """
-Static bug finder built on top of PyFlow analyses.
+Static bug finder built on PyFlow analyses.
 
-This package houses a modular, analysis-backed engine that runs the PyFlow
-pipeline (IPA/CPA/lifetime, etc.) and feeds semantic facts into focused
-detectors (taint, misuse, resource handling, etc.).
+  core/     - session, runner, manager, issue, detector base
+  detectors/- taint, leak, null_dereference, etc.
 """
 
-from .issue import Issue, Cwe
-from .runner import StaticBugFinder, BugFinderConfig
+from .core import (
+    Issue,
+    Cwe,
+    StaticBugFinder,
+    BugFinderConfig,
+    SemanticManager,
+)
 
-__all__ = ["StaticBugFinder", "BugFinderConfig", "Issue", "Cwe"]
+__all__ = ["StaticBugFinder", "BugFinderConfig", "SemanticManager", "Issue", "Cwe"]

@@ -7,11 +7,11 @@ from pathlib import Path
 from typing import Iterable, List, Optional, Sequence, Union
 
 from .context import AnalysisSession
-from .detectors.base import run_detectors
-from .detectors.null_dereference import NullDereferenceDetector
-from .detectors.taint import TaintDetector
-from .detectors.taint2 import TaintDetector2
-from .detectors.leak import LeakDetector
+from .base import run_detectors
+from ..detectors.null_dereference import NullDereferenceDetector
+from ..detectors.taint import TaintDetector
+from ..detectors.taint2 import TaintDetector2
+from ..detectors.leak import LeakDetector
 from .issue import Issue
 
 

@@ -109,11 +109,12 @@ class ObjectManager:
                         print(f"DEBUG: No source code for {func.__name__}")
 
                 code_obj = self.function_extractor.convert_function(func, func_source)
-                # Allow small functions to fold concretely using their Python implementation.
-                try:
-                    code_obj.annotation.dynamicFold = func
-                except Exception:
-                    pass
+                # NOTE: Do not enable dynamic folding for extracted target code.
+                #
+                # CPA's dynamic folding executes the Python function when all arguments
+                # are constant. For analyzed programs this can cause real side effects
+                # (e.g., `os.system("safe_value")` in benchmarks), which is unsafe and
+                # can skew analysis results.
                 return func, code_obj
             return func, None
         return func, None

@@ -6,9 +6,9 @@ import ast
 import textwrap
 from typing import Dict, List, Optional, Set, Tuple
 
-from ..context import AnalysisSession
-from ..issue import Issue
-from .base import Detector
+from ..core.context import AnalysisSession
+from ..core.issue import Issue
+from ..core.base import Detector
 from .ast_helpers import ASTParentTracker
 
 

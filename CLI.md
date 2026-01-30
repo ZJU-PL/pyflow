@@ -268,5 +268,5 @@ pyflow security --micro-bench evaluation/sast-python3/accuracy --engine semantic
 pyflow security --micro-bench evaluation/sast-python3/accuracy --engine semantic -v
 
 
-pyflow security --micro-bench evaluation/sast-python3/accuracy --engine semantic --taint-engnine ipa (use pyflow/checker/semantic/detectors/taint2.py)
+pyflow security --micro-bench evaluation/sast-python3/accuracy --engine semantic --taint-engine ipa (use pyflow/checker/semantic/detectors/taint2.py)
 ~~~~

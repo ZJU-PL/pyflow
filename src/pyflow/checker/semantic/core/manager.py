@@ -1,9 +1,8 @@
 """
 Adapter manager for semantic checker to work with common formatters.
 
-This module provides an adapter that makes semantic checker compatible
-with the pattern checker's manager interface, enabling it to use the
-shared formatters (text, JSON, SARIF) in pyflow/checker/formatters.
+Makes the semantic checker compatible with the pattern checker's manager
+interface so it can use the shared formatters (text, JSON, SARIF).
 """
 
 from __future__ import annotations
@@ -11,8 +10,8 @@ from __future__ import annotations
 from typing import List, Optional
 from pathlib import Path
 
-from ..pattern.core import constants as b_constants
-from ..pattern.core.metrics import Metrics
+from ...pattern.core import constants as b_constants
+from ...pattern.core.metrics import Metrics
 from .runner import StaticBugFinder, BugFinderConfig
 from .issue import Issue
 
@@ -88,7 +87,7 @@ class SemanticManager:
                 self.metrics.issues_by_severity[issue.severity] += 1
             if issue.confidence in self.metrics.issues_by_confidence:
                 self.metrics.issues_by_confidence[issue.confidence] += 1
-        
+
         # Update metrics data property
         self.metrics.data = self._build_metrics_data(self.metrics)
 

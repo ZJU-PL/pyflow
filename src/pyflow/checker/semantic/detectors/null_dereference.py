@@ -14,9 +14,9 @@ import ast
 import textwrap
 from typing import List, Set
 
-from ..context import AnalysisSession
-from ..issue import Issue
-from .base import Detector
+from ..core.context import AnalysisSession
+from ..core.issue import Issue
+from ..core.base import Detector
 
 
 class NullDereferenceDetector(Detector):

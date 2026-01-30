@@ -14,8 +14,7 @@ from pathlib import Path
 from pyflow.checker.pattern.core.manager import SecurityManager
 from pyflow.checker.pattern.core.config import SecurityConfig
 from pyflow.checker.pattern.core import constants as b_constants
-from pyflow.checker.semantic import BugFinderConfig
-from pyflow.checker.semantic.manager import SemanticManager
+from pyflow.checker.semantic import BugFinderConfig, SemanticManager
 from pyflow.checker.microbench import MicroBenchRunner
 from pyflow.checker.formatters import text as text_formatter
 from pyflow.checker.formatters import json as json_formatter

@@ -328,6 +328,11 @@ def create_interface_from_paths(python_files, args):
 
                 # Set the __file__ variable so functions get the correct filename
                 exec_globals["__file__"] = str(file_path)
+                # Avoid running `if __name__ == "__main__":` blocks.
+                exec_globals["__name__"] = "__pyflow_analysis__"
+
+                # Prevent interactive/blocking behavior during extraction.
+                exec_globals["input"] = lambda *args, **kwargs: ""
 
                 # Add safe modules
                 safe_modules = [
@@ -343,6 +348,15 @@ def create_interface_from_paths(python_files, args):
                     try:
                         exec_globals[mod_name] = __import__(mod_name)
                     except ImportError:
+                        pass
+
+                # Reduce side effects during exec()-based extraction.
+                os_mod = exec_globals.get("os")
+                if os_mod is not None:
+                    try:
+                        os_mod.system = lambda *args, **kwargs: 0
+                        os_mod.popen = lambda *args, **kwargs: None
+                    except Exception:
                         pass
 
                 # Execute the source code with filename preserved in code objects

@@ -208,12 +208,30 @@ class DependencyResolver:
         """Create a safe globals dict for exec()."""
         safe_globals = dict(vars(builtins))
 
+        # Ensure module metadata exists and avoid triggering `if __name__ == "__main__":`
+        # blocks during execution-based extraction.
+        safe_globals.setdefault("__name__", "__pyflow_analysis__")
+
+        # Prevent interactive/blocking behavior during execution-based extraction.
+        # Static analysis should never prompt for input.
+        safe_globals["input"] = lambda *args, **kwargs: ""
+
         # Add safe modules
         for module_name in self.safe_modules:
             try:
                 safe_globals[module_name] = __import__(module_name)
             except ImportError:
                 pass  # Skip unavailable modules
+
+        # Reduce side effects during exec()-based extraction by stubbing the most
+        # common "dangerous" primitives used in security benchmarks.
+        os_mod = safe_globals.get("os")
+        if os_mod is not None:
+            try:
+                os_mod.system = lambda *args, **kwargs: 0
+                os_mod.popen = lambda *args, **kwargs: None
+            except Exception:
+                pass
 
         return safe_globals
 
