@@ -39,7 +39,7 @@ class IPAnalysis(object):
         valuemanager: Manager for value sets.
         criticalmanager: Manager for critical sets.
         dirtySlots: List of slots that need reprocessing.
-        decompileTime: Time spent on decompilation.
+        decompileTime: Time spent extracting/converting code.
         trace: Whether to enable tracing output.
         funcDefaultName: Name for function default parameters.
     """

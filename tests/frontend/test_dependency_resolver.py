@@ -2,6 +2,7 @@
 
 import unittest
 from unittest.mock import Mock, patch
+import inspect
 
 from pyflow.frontend.dependency_resolver import DependencyResolver, DependencyStrategy
 
@@ -293,6 +294,40 @@ def func2(x, y):
         self.assertIsInstance(result, dict)
         # Should have stub for missing module
         self.assertIn('nonexistent_module', result)
+
+    def test_auto_strategy_is_side_effect_free(self):
+        """AUTO should not execute module top-level code."""
+        resolver = DependencyResolver(strategy="auto", verbose=False)
+        source = "raise RuntimeError('boom')\n\ndef f():\n    return 1\n"
+        functions = resolver.extract_functions(source, "example.py")
+        self.assertIn("f", functions)
+
+    def test_ast_proxy_has_code_and_signature(self):
+        """AST extracted functions should look like callables with code/signature."""
+        resolver = DependencyResolver(strategy="ast_only", verbose=False)
+        source = "def f(a, /, b=1, *args, c=2, **kwargs):\n    return a\n"
+        functions = resolver.extract_functions(source, "example.py")
+        f = functions["f"]
+
+        self.assertTrue(callable(f))
+        self.assertTrue(hasattr(f, "__code__"))
+        self.assertEqual(f.__code__.co_filename, "example.py")
+        self.assertEqual(f.__code__.co_firstlineno, 1)
+
+        sig = inspect.signature(f)
+        kinds = [p.kind for p in sig.parameters.values()]
+        self.assertIn(inspect.Parameter.POSITIONAL_ONLY, kinds)
+        self.assertIn(inspect.Parameter.VAR_POSITIONAL, kinds)
+        self.assertIn(inspect.Parameter.KEYWORD_ONLY, kinds)
+        self.assertIn(inspect.Parameter.VAR_KEYWORD, kinds)
+
+    def test_ast_only_skips_nested_functions(self):
+        """AST extraction should return only top-level functions."""
+        resolver = DependencyResolver(strategy="ast_only", verbose=False)
+        source = "def outer():\n    def inner():\n        return 1\n    return inner()\n"
+        functions = resolver.extract_functions(source, "example.py")
+        self.assertIn("outer", functions)
+        self.assertNotIn("inner", functions)
 
 
 if __name__ == "__main__":

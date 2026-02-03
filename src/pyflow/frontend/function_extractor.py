@@ -78,7 +78,7 @@ class FunctionExtractor:
             func_node = None
             for node in python_ast.walk(tree):
                 if (
-                    isinstance(node, python_ast.FunctionDef)
+                    isinstance(node, (python_ast.FunctionDef, python_ast.AsyncFunctionDef))
                     and node.name == func.__name__
                 ):
                     func_node = node
@@ -134,7 +134,7 @@ class FunctionExtractor:
         return code
 
     def _convert_python_function_to_pyflow(
-        self, func_node: python_ast.FunctionDef, func: Any
+        self, func_node: python_ast.AST, func: Any, *, filename: Optional[str] = None
     ) -> pyflow_ast.Code:
         """Convert a Python AST FunctionDef to a pyflow AST Code node."""
         # Convert function parameters
@@ -161,13 +161,26 @@ class FunctionExtractor:
         code = pyflow_ast.Code(func_name, codeparams, body)
 
         # Initialize the annotation properly
+        origin = [f"converted_function({func_name})"]
+        try:
+            if func is not None and hasattr(func, "__code__") and func.__code__ is not None:
+                origin.append(
+                    f"source({func.__code__.co_filename}:{func.__code__.co_firstlineno})"
+                )
+            else:
+                lineno = getattr(func_node, "lineno", None)
+                if filename and isinstance(lineno, int):
+                    origin.append(f"source({filename}:{lineno})")
+        except Exception:
+            pass
+
         code.annotation = CodeAnnotation(
             contexts=None,
             descriptive=False,
             primitive=False,
             staticFold=False,
             dynamicFold=False,
-            origin=[f"converted_function({func_name})"],
+            origin=origin,
             live=None,
             killed=None,
             codeReads=None,
@@ -184,75 +197,103 @@ class FunctionExtractor:
         self, args_node: python_ast.arguments, func: Any
     ) -> pyflow_ast.CodeParameters:
         """Convert Python AST arguments to pyflow AST CodeParameters."""
-        # Get default values - defaults must be Existing objects, not expression nodes
-        defaults = []
-        if args_node.defaults:
-            # Try to get actual default values from the function object if available
-            if func and hasattr(func, "__defaults__") and func.__defaults__:
-                # Use the actual default values from the function
-                from pyflow.language.python.program import Object
+        from pyflow.language.python.program import Object
 
-                for default_value in func.__defaults__:
-                    # Create an Object from the default value and wrap it in Existing
-                    obj = Object(default_value)
-                    defaults.append(pyflow_ast.Existing(obj))
-            else:
-                # Fallback: evaluate the AST default expressions if we can't get them from func
-                # This is less ideal but necessary when we only have AST
-                import ast as python_ast_eval
+        # Prefer inspect.signature for real callables; it captures pos-only and kw-only.
+        param_names = []
+        per_param_defaults = []
+        vararg = None
+        kwarg = None
 
-                for default_node in args_node.defaults:
+        sig = None
+        if func is not None:
+            try:
+                sig = inspect.signature(func)
+            except (TypeError, ValueError):
+                sig = None
+
+        if sig is not None:
+            for p in sig.parameters.values():
+                if p.kind in (
+                    inspect.Parameter.POSITIONAL_ONLY,
+                    inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                    inspect.Parameter.KEYWORD_ONLY,
+                ):
+                    param_names.append(p.name)
+                    if p.default is inspect._empty:
+                        per_param_defaults.append(None)
+                    else:
+                        per_param_defaults.append(pyflow_ast.Existing(Object(p.default)))
+                elif p.kind == inspect.Parameter.VAR_POSITIONAL:
+                    vararg = pyflow_ast.Local(p.name)
+                elif p.kind == inspect.Parameter.VAR_KEYWORD:
+                    kwarg = pyflow_ast.Local(p.name)
+        else:
+            # AST-only fallback.
+            posonly = [a.arg for a in getattr(args_node, "posonlyargs", [])]
+            regular = [a.arg for a in getattr(args_node, "args", [])]
+            kwonly = [a.arg for a in getattr(args_node, "kwonlyargs", [])]
+            param_names = [*posonly, *regular, *kwonly]
+            per_param_defaults = [None] * len(param_names)
+
+            positional_names = [*posonly, *regular]
+            pos_defaults = list(getattr(args_node, "defaults", []) or [])
+            if pos_defaults:
+                start = len(positional_names) - len(pos_defaults)
+                for i, default_node in enumerate(pos_defaults):
+                    idx = start + i
                     try:
-                        # Try to evaluate the default expression as a constant
-                        # This works for literals but not for complex expressions
-                        default_value = python_ast_eval.literal_eval(default_node)
-                        from pyflow.language.python.program import Object
+                        default_value = python_ast.literal_eval(default_node)
+                        per_param_defaults[idx] = pyflow_ast.Existing(Object(default_value))
+                    except Exception:
+                        per_param_defaults[idx] = pyflow_ast.Existing(Object(None))
 
-                        obj = Object(default_value)
-                        defaults.append(pyflow_ast.Existing(obj))
-                    except (ValueError, TypeError):
-                        # If we can't evaluate it, skip this default
-                        # This is a limitation when we only have AST without the function object
-                        if self.verbose:
-                            print(
-                                f"DEBUG: Could not evaluate default value from AST, skipping"
-                            )
-                        pass
+            kw_defaults = list(getattr(args_node, "kw_defaults", []) or [])
+            if kwonly and kw_defaults:
+                base = len(positional_names)
+                for i, default_node in enumerate(kw_defaults):
+                    if default_node is None:
+                        continue
+                    try:
+                        default_value = python_ast.literal_eval(default_node)
+                        per_param_defaults[base + i] = pyflow_ast.Existing(Object(default_value))
+                    except Exception:
+                        per_param_defaults[base + i] = pyflow_ast.Existing(Object(None))
 
-        # Get parameter names
-        param_names = [arg.arg for arg in args_node.args]
+            if args_node.vararg:
+                vararg = pyflow_ast.Local(args_node.vararg.arg)
+            if args_node.kwarg:
+                kwarg = pyflow_ast.Local(args_node.kwarg.arg)
 
-        # Create Local objects for parameters
         params = [pyflow_ast.Local(name) for name in param_names]
 
-        # Handle *args and **kwargs
-        vararg = None
-        if args_node.vararg:
-            vararg = pyflow_ast.Local(args_node.vararg.arg)
-
-        kwarg = None
-        if args_node.kwarg:
-            kwarg = pyflow_ast.Local(args_node.kwarg.arg)
+        # Collapse to trailing-contiguous defaults as required by CalleeParams.
+        first_default = next((i for i, d in enumerate(per_param_defaults) if d is not None), None)
+        defaults = []
+        if first_default is not None:
+            for d in per_param_defaults[first_default:]:
+                defaults.append(d if d is not None else pyflow_ast.Existing(Object(None)))
 
         return pyflow_ast.CodeParameters(
-            selfparam=None,  # No self for regular functions
+            selfparam=None,
             params=params,
             paramnames=param_names,
             defaults=tuple(defaults),
             vparam=vararg,
             kparam=kwarg,
-            # Provide a default single return param
             returnparams=[pyflow_ast.Local("ret0")],
         )
 
-    def extract_function(self, node: python_ast.FunctionDef, program: Program) -> None:
+    def extract_function(
+        self, node: python_ast.AST, program: Program, filename: Optional[str] = None
+    ) -> None:
         """Extract information from a function definition."""
         try:
             if self.verbose:
                 print(f"Found function: {node.name}")
 
             # Convert Python AST function to pyflow AST
-            pyflow_code = self._convert_python_function_to_pyflow(node, None)
+            pyflow_code = self._convert_python_function_to_pyflow(node, None, filename=filename)
 
             # Add to program
             if hasattr(program, "liveCode"):
@@ -271,11 +312,26 @@ class FunctionExtractor:
 
                 traceback.print_exc()
 
-    def extract_class(self, node: python_ast.ClassDef, program: Program) -> None:
+    def extract_class(
+        self, node: python_ast.ClassDef, program: Program, filename: Optional[str] = None
+    ) -> None:
         """Extract information from a class definition."""
         try:
             if self.verbose:
                 print(f"Found class: {node.name}")
+            # For now, treat methods as additional code objects with qualified names.
+            # This provides method bodies to the analysis pipeline without requiring
+            # full class-object modeling in the interface.
+            for child in node.body:
+                if isinstance(child, (python_ast.FunctionDef, python_ast.AsyncFunctionDef)):
+                    code = self._convert_python_function_to_pyflow(child, None, filename=filename)
+                    code.setCodeName(f"{node.name}.{child.name}")
+                    if hasattr(program, "liveCode"):
+                        program.liveCode.add(code)
+                    else:
+                        program.liveCode = {code}
+                    if self.verbose:
+                        print(f"Added method {node.name}.{child.name} to program")
         except Exception as e:
             if self.verbose:
                 print(f"Error processing class {node.name}: {e}")

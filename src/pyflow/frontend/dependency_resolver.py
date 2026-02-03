@@ -30,8 +30,106 @@ handling the "missing dependencies" problem in a principled manner.
 
 import ast as python_ast
 import builtins
-from typing import Dict, List, Any, Optional, Callable
+import inspect
+from dataclasses import dataclass
+from typing import Dict, List, Any, Optional, Callable, Iterable, Tuple
 from enum import Enum
+
+
+@dataclass(frozen=True)
+class _FakeCode:
+    co_filename: str
+    co_firstlineno: int
+
+
+class _ASTFunctionProxy:
+    """A minimal callable that looks like a Python function to the frontend.
+
+    This lets the rest of the pipeline (InterfaceDeclaration -> Extractor ->
+    FunctionExtractor) operate without executing the analyzed module.
+    """
+
+    def __init__(
+        self,
+        *,
+        name: str,
+        qualname: str,
+        module: str,
+        filename: str,
+        firstlineno: int,
+        signature: Optional[inspect.Signature],
+    ):
+        self.__name__ = name
+        self.__qualname__ = qualname
+        self.__module__ = module
+        self.__code__ = _FakeCode(filename, firstlineno)
+        if signature is not None:
+            self.__signature__ = signature
+
+    def __call__(self, *args, **kwargs):
+        # Never execute user code; this proxy is only for metadata.
+        return None
+
+
+def _iter_toplevel_function_nodes(tree: python_ast.AST) -> Iterable[python_ast.AST]:
+    for node in getattr(tree, "body", []) or []:
+        if isinstance(node, (python_ast.FunctionDef, python_ast.AsyncFunctionDef)):
+            yield node
+
+
+def _signature_from_ast(args: python_ast.arguments) -> inspect.Signature:
+    params: List[inspect.Parameter] = []
+
+    def add_param(
+        name: str, kind: inspect._ParameterKind, default: Any = inspect._empty
+    ):
+        params.append(inspect.Parameter(name, kind, default=default))
+
+    posonly = list(getattr(args, "posonlyargs", []) or [])
+    regular = list(getattr(args, "args", []) or [])
+    kwonly = list(getattr(args, "kwonlyargs", []) or [])
+
+    # Defaults for posonly+regular apply to last N.
+    positional = [*posonly, *regular]
+    defaults = list(getattr(args, "defaults", []) or [])
+    default_start = len(positional) - len(defaults)
+
+    for i, a in enumerate(posonly):
+        default = inspect._empty
+        if defaults and i >= default_start:
+            try:
+                default = python_ast.literal_eval(defaults[i - default_start])
+            except Exception:
+                default = None
+        add_param(a.arg, inspect.Parameter.POSITIONAL_ONLY, default)
+
+    for i, a in enumerate(regular):
+        default = inspect._empty
+        pos_index = len(posonly) + i
+        if defaults and pos_index >= default_start:
+            try:
+                default = python_ast.literal_eval(defaults[pos_index - default_start])
+            except Exception:
+                default = None
+        add_param(a.arg, inspect.Parameter.POSITIONAL_OR_KEYWORD, default)
+
+    if args.vararg is not None:
+        add_param(args.vararg.arg, inspect.Parameter.VAR_POSITIONAL)
+
+    kw_defaults = list(getattr(args, "kw_defaults", []) or [])
+    for i, a in enumerate(kwonly):
+        default = inspect._empty
+        if i < len(kw_defaults) and kw_defaults[i] is not None:
+            try:
+                default = python_ast.literal_eval(kw_defaults[i])
+            except Exception:
+                default = None
+        add_param(a.arg, inspect.Parameter.KEYWORD_ONLY, default)
+
+    if args.kwarg is not None:
+        add_param(args.kwarg.arg, inspect.Parameter.VAR_KEYWORD)
+
+    return inspect.Signature(params)
 
 
 class DependencyStrategy(Enum):
@@ -97,6 +195,7 @@ class DependencyResolver:
         Returns:
             Dictionary mapping function names to function objects
         """
+        file_path = str(file_path)
         if self.strategy == DependencyStrategy.STRICT:
             return self._extract_with_runtime(source, file_path)
         elif self.strategy == DependencyStrategy.STUBS:
@@ -111,9 +210,11 @@ class DependencyResolver:
     def _extract_with_runtime(self, source: str, file_path: str) -> Dict[str, Any]:
         """Extract functions using runtime execution only."""
         exec_globals = self._create_safe_exec_globals()
+        exec_globals["__file__"] = file_path
 
         try:
-            exec(source, exec_globals)
+            compiled = compile(source, file_path, "exec")
+            exec(compiled, exec_globals)
             return self._filter_functions(exec_globals, file_path)
         except Exception as e:
             if self.verbose:
@@ -123,10 +224,12 @@ class DependencyResolver:
     def _extract_with_stubs(self, source: str, file_path: str) -> Dict[str, Any]:
         """Extract functions using runtime execution with stub modules."""
         exec_globals = self._create_safe_exec_globals()
+        exec_globals["__file__"] = file_path
 
         # Try normal execution first
         try:
-            exec(source, exec_globals)
+            compiled = compile(source, file_path, "exec")
+            exec(compiled, exec_globals)
             functions = self._filter_functions(exec_globals, file_path)
             if functions:
                 return functions
@@ -137,7 +240,8 @@ class DependencyResolver:
             # Create stubs for missing imports
             exec_globals_with_stubs = self._handle_import_errors(source, exec_globals)
             try:
-                exec(source, exec_globals_with_stubs)
+                compiled = compile(source, file_path, "exec")
+                exec(compiled, exec_globals_with_stubs)
                 functions = self._filter_functions(exec_globals_with_stubs, file_path)
                 if functions:
                     return functions
@@ -155,6 +259,7 @@ class DependencyResolver:
     def _extract_noop(self, source: str, file_path: str) -> Dict[str, Any]:
         """Extract functions but treat all external dependencies as no-ops."""
         exec_globals = self._create_safe_exec_globals()
+        exec_globals["__file__"] = file_path
 
         # Pre-populate with no-op stubs for any potential missing imports
         missing_imports = self._find_imports(source)
@@ -162,7 +267,8 @@ class DependencyResolver:
             exec_globals[module_name] = self._create_noop_module(module_name)
 
         try:
-            exec(source, exec_globals)
+            compiled = compile(source, file_path, "exec")
+            exec(compiled, exec_globals)
             return self._filter_functions(exec_globals, file_path)
         except Exception as e:
             if self.verbose:
@@ -179,12 +285,26 @@ class DependencyResolver:
             tree = python_ast.parse(source)
             functions = {}
 
-            for node in python_ast.walk(tree):
-                if isinstance(
-                    node, python_ast.FunctionDef
-                ) and not node.name.startswith("_"):
-                    stub_func = self._create_ast_stub(node)
-                    functions[node.name] = stub_func
+            module_name = "__pyflow_module__"
+            for node in _iter_toplevel_function_nodes(tree):
+                if node.name.startswith("_"):
+                    continue
+
+                lineno = int(getattr(node, "lineno", 1) or 1)
+                sig = None
+                try:
+                    sig = _signature_from_ast(node.args)
+                except Exception:
+                    sig = None
+
+                functions[node.name] = _ASTFunctionProxy(
+                    name=node.name,
+                    qualname=node.name,
+                    module=module_name,
+                    filename=file_path,
+                    firstlineno=lineno,
+                    signature=sig,
+                )
 
             return functions
         except Exception as e:
@@ -193,15 +313,15 @@ class DependencyResolver:
             return {}
 
     def _extract_auto(self, source: str, file_path: str) -> Dict[str, Any]:
-        """Auto strategy: try runtime first, fallback to AST."""
-        # Try runtime extraction with stubs first
-        result = self._extract_with_stubs(source, file_path)
-        if result:
-            return result
+        """Auto strategy: prefer AST parsing to avoid executing user code.
 
-        # Fallback to AST parsing
+        Historically this resolver executed modules to obtain real function objects.
+        That is unsafe (side effects) and brittle (imports, environment, IO).
+        AUTO now behaves like AST_ONLY unless the caller explicitly selects a
+        runtime-based strategy (STRICT/STUBS/NOOP).
+        """
         if self.verbose:
-            print(f"DEBUG: Falling back to AST parsing for {file_path}")
+            print(f"DEBUG: AUTO strategy using AST parsing for {file_path}")
         return self._extract_ast_only(source, file_path)
 
     def _create_safe_exec_globals(self) -> Dict[str, Any]:
@@ -296,25 +416,23 @@ class DependencyResolver:
         """Create a module that provides only no-op functions."""
         return self._create_stub_module(module_name)
 
-    def _create_ast_stub(self, func_node: python_ast.FunctionDef) -> Any:
-        """Create a stub function from AST node."""
-
-        class ASTStubFunction:
-            def __init__(self, name, args_info=None):
-                self.__name__ = name
-                self._args_info = args_info or []
-
-            def __call__(self, *args, **kwargs):
-                # Note: verbose logging not available in stub context
-                return None
-
-        # Extract argument information
-        args_info = []
-        if hasattr(func_node, "args") and hasattr(func_node.args, "args"):
-            for arg in func_node.args.args:
-                args_info.append(arg.arg)
-
-        return ASTStubFunction(func_node.name, args_info)
+    def _create_ast_stub(self, func_node: python_ast.AST) -> Any:
+        """Create a stub callable from a FunctionDef/AsyncFunctionDef AST node."""
+        name = getattr(func_node, "name", "unknown")
+        lineno = int(getattr(func_node, "lineno", 1) or 1)
+        sig = None
+        try:
+            sig = _signature_from_ast(func_node.args)  # type: ignore[attr-defined]
+        except Exception:
+            sig = None
+        return _ASTFunctionProxy(
+            name=name,
+            qualname=name,
+            module="__pyflow_module__",
+            filename="<ast>",
+            firstlineno=lineno,
+            signature=sig,
+        )
 
     def _filter_functions(
         self, module_globals: Dict[str, Any], file_path: str

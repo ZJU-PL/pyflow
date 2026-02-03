@@ -31,7 +31,7 @@ from pyflow.util.python.apply import applyFunction
 from pyflow.analysis.astcollector import getOps
 from pyflow import analysis  # for references like analysis.cpasignature
 
-# For keeping track of how much time we spend decompiling.
+# For keeping track of how much time we spend extracting/converting.
 import time
 
 from pyflow.util import canonical
@@ -613,7 +613,7 @@ class InterproceduralDataflow(object):
         )
         console.output("Slot Memory:   %s" % formatting.memorySize(self.slotMemory()))
         console.output("")
-        console.output("Decompile:     %s" % formatting.elapsedTime(self.decompileTime))
+        console.output("Extract:       %s" % formatting.elapsedTime(self.decompileTime))
         console.output("Solve:         %s" % formatting.elapsedTime(self.solveTime))
         console.output("")
 

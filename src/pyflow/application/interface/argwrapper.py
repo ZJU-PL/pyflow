@@ -25,7 +25,7 @@ class ArgumentWrapper(object):
     pass
 
 
-# Thin wrappers made to work with decompiler.programextractor
+# Thin wrappers used by the interface translation layer.
 class InstanceWrapper(ArgumentWrapper):
     """
     Wrapper for type objects (for creating instances).

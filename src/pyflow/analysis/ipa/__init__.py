@@ -57,7 +57,7 @@ def evaluateWithImage(compiler, prgm):
 
         print("%5d code" % len(analysis.liveCode))
         print("%5d contexts" % len(analysis.contexts))
-        print("%.2f ms decompile" % (analysis.decompileTime * 1000.0))
+        print("%.2f ms extract" % (analysis.decompileTime * 1000.0))
 
     return analysis
 

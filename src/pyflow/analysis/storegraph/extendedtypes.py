@@ -132,13 +132,13 @@ class ExternalObjectType(ExtendedObjectType):
         return "<external %r>" % self.obj
 
 
-# Found in memory by the decompiler
+# Found in memory by the analysis pipeline
 class ExistingObjectType(ExtendedObjectType):
     """Extended type for existing objects (constants, globals).
 
     ExistingObjectType represents objects that exist in memory before
-    function execution (constants, globals, etc.). These are discovered
-    by the decompiler.
+    function execution (constants, globals, etc.). These are treated as
+    pre-existing values by the analysis pipeline.
     """
 
     __slots__ = ()

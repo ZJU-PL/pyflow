@@ -27,7 +27,7 @@ from pyflow.language.python import fold
 
 # TODO structure like forward flow
 # TODO merge in 'raise' when may raise.
-# TODO integrate with decompiler?
+# TODO integrate with earlier extraction phases?
 # No flow control after raise issues?
 
 

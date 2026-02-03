@@ -20,7 +20,7 @@ The AST supports:
 - Type dispatch for visitor patterns
 """
 
-### Objects for representing decompiled code. ###
+### Objects for representing Python code. ###
 # Fields should be in order of evaluation.
 
 from .pythonbase import *
@@ -420,7 +420,7 @@ class Break(ControlFlow):
     pass
 
 
-# A temorary AST node used while decompiling.
+# A temporary AST node used by legacy pipelines.
 class EndFinally(ControlFlow):
     pass
 

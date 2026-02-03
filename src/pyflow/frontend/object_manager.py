@@ -14,6 +14,8 @@ from pyflow.language.python.program import (
     TypeInfo,
 )
 
+from .source_locator import best_source_for_callable
+
 
 class ObjectManager:
     """Manages Python objects and their PyFlow representations."""
@@ -22,14 +24,24 @@ class ObjectManager:
         self, verbose: bool = True, function_extractor=None, stub_manager=None
     ):
         self.verbose = verbose
+        # Cache for hashable objects (value-based key).
         self._object_cache: Dict[Any, Object] = {}
+        # Fallback cache for unhashable objects (identity-based key).
+        self._object_cache_by_id: Dict[int, Object] = {}
         self.function_extractor = function_extractor
         self.stub_manager = stub_manager
 
     def get_object(self, obj: Any) -> Object:
         """Get or create an object representation for static analysis."""
-        if obj in self._object_cache:
-            return self._object_cache[obj]
+        try:
+            if obj in self._object_cache:
+                return self._object_cache[obj]
+        except TypeError:
+            # Unhashable objects (e.g., list/dict): cache by identity.
+            oid = id(obj)
+            cached = self._object_cache_by_id.get(oid)
+            if cached is not None:
+                return cached
 
         # Create an Object wrapper for the Python object
         try:
@@ -41,7 +53,10 @@ class ObjectManager:
             if hasattr(pyflow_obj, "type") and pyflow_obj.type is not None:
                 pyflow_obj.allocateDatastructures(pyflow_obj.type)
 
-            self._object_cache[obj] = pyflow_obj
+            try:
+                self._object_cache[obj] = pyflow_obj
+            except TypeError:
+                self._object_cache_by_id[id(obj)] = pyflow_obj
             return pyflow_obj
         except Exception as e:
             if self.verbose:
@@ -67,30 +82,15 @@ class ObjectManager:
                     if hasattr(func, "__code__") and func.__code__.co_filename:
                         filename = func.__code__.co_filename
                         if isinstance(source_code, dict):
-                            # Try exact match first
-                            if filename in source_code:
-                                func_source = source_code[filename]
-                                if self.verbose:
+                            func_source = best_source_for_callable(func, source_code)
+                            if self.verbose:
+                                if func_source is not None:
                                     print(
-                                        f"DEBUG: Found exact source match for '{filename}'"
+                                        f"DEBUG: Located source for {func.__qualname__} (len={len(func_source)})"
                                     )
-                            # Special case: if filename is '<string>' and we have source code, use it
-                            elif filename == "<string>":
-                                # For functions created by exec(), use the corresponding source file
-                                # We need to find which source file this function came from
-                                # For now, use the first available .py file
-                                for src_filename, src_content in source_code.items():
-                                    if src_filename.endswith(".py"):
-                                        func_source = src_content
-                                        if self.verbose:
-                                            print(
-                                                f"DEBUG: Using source for '<string>' filename from '{src_filename}'"
-                                            )
-                                        break
-                            else:
-                                if self.verbose:
+                                else:
                                     print(
-                                        f"DEBUG: No source found for filename '{filename}'"
+                                        f"DEBUG: Could not locate source for {func.__qualname__}"
                                     )
                         elif isinstance(source_code, str):
                             func_source = source_code

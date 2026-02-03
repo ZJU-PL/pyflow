@@ -101,6 +101,22 @@ for i in range(10):
         result = self.converter._convert_node(node)
         self.assertIsInstance(result, pyflow_ast.For)
 
+    def test_convert_for_loop_destructuring(self):
+        """Destructuring for-targets should be lowered via bodyPreamble."""
+        source = """
+for a, b in items:
+    pass
+"""
+        tree = python_ast.parse(source)
+        node = tree.body[0]
+
+        result = self.converter._convert_node(node)
+        self.assertIsInstance(result, pyflow_ast.For)
+        self.assertIsInstance(result.index, pyflow_ast.Local)
+        self.assertTrue(
+            any(isinstance(b, pyflow_ast.Assign) for b in result.bodyPreamble.blocks)
+        )
+
     def test_convert_while_loop(self):
         """Test converting while loop."""
         source = """
@@ -194,12 +210,32 @@ while x > 0:
         result = self.converter._convert_expression(node)
         self.assertIsInstance(result, pyflow_ast.Call)
 
+    def test_convert_call_with_starargs_and_kwargs(self):
+        """Calls should preserve *args/**kwargs via vargs/kargs fields."""
+        source = "func(1, *xs, a=2, **kw)"
+        tree = python_ast.parse(source, mode="eval")
+        node = tree.body
+
+        result = self.converter._convert_expression(node)
+        self.assertIsInstance(result, pyflow_ast.Call)
+        self.assertIsNotNone(result.vargs)
+        self.assertIsNotNone(result.kargs)
+
     def test_convert_binop_expression(self):
         """Test converting binary operation."""
         source = "a + b"
         tree = python_ast.parse(source, mode='eval')
         node = tree.body
         
+        result = self.converter._convert_expression(node)
+        self.assertIsInstance(result, pyflow_ast.Call)
+
+    def test_convert_bitwise_binop_expression(self):
+        """Bitwise operators should be converted via interpreter calls."""
+        source = "a & b"
+        tree = python_ast.parse(source, mode="eval")
+        node = tree.body
+
         result = self.converter._convert_expression(node)
         self.assertIsInstance(result, pyflow_ast.Call)
 
@@ -212,6 +248,27 @@ while x > 0:
         result = self.converter._convert_expression(node)
         self.assertIsInstance(result, (pyflow_ast.Call, pyflow_ast.Existing))
 
+    def test_convert_compare_in_not_in(self):
+        """Membership tests should be modeled via __contains__ and Not."""
+        in_tree = python_ast.parse("x in y", mode="eval")
+        not_in_tree = python_ast.parse("x not in y", mode="eval")
+
+        in_result = self.converter._convert_expression(in_tree.body)
+        self.assertIsInstance(in_result, pyflow_ast.Call)
+        self.assertIsInstance(in_result.expr, pyflow_ast.Existing)
+        self.assertEqual(in_result.expr.object.pyobj, "interpreter__contains__")
+
+        not_in_result = self.converter._convert_expression(not_in_tree.body)
+        self.assertIsInstance(not_in_result, pyflow_ast.Not)
+
+    def test_convert_chained_comparison(self):
+        """Chained comparisons should be approximated as a boolean conjunction."""
+        tree = python_ast.parse("a < b < c", mode="eval")
+        result = self.converter._convert_expression(tree.body)
+        self.assertIsInstance(result, pyflow_ast.Call)
+        self.assertIsInstance(result.expr, pyflow_ast.Existing)
+        self.assertEqual(result.expr.object.pyobj, "interpreter_booland")
+
     def test_convert_subscript_expression(self):
         """Test converting subscript expression."""
         source = "arr[0]"
@@ -220,6 +277,22 @@ while x > 0:
         
         result = self.converter._convert_expression(node)
         self.assertIsInstance(result, pyflow_ast.Call)
+
+    def test_convert_boolop_and(self):
+        """Boolean operations should be approximated via helper stubs."""
+        tree = python_ast.parse("a and b and c", mode="eval")
+        result = self.converter._convert_expression(tree.body)
+        self.assertIsInstance(result, pyflow_ast.Call)
+        self.assertIsInstance(result.expr, pyflow_ast.Existing)
+        self.assertEqual(result.expr.object.pyobj, "interpreter_booland")
+
+    def test_convert_ifexp(self):
+        """Ternary expressions should be approximated via helper stubs."""
+        tree = python_ast.parse("x if c else y", mode="eval")
+        result = self.converter._convert_expression(tree.body)
+        self.assertIsInstance(result, pyflow_ast.Call)
+        self.assertIsInstance(result.expr, pyflow_ast.Existing)
+        self.assertEqual(result.expr.object.pyobj, "interpreter_ifexp")
 
     def test_convert_attribute_expression(self):
         """Test converting attribute expression."""
@@ -255,7 +328,7 @@ while x > 0:
         node = tree.body
         
         result = self.converter._convert_expression(node)
-        self.assertIsInstance(result, pyflow_ast.BuildMap)
+        self.assertIsInstance(result, (pyflow_ast.Existing, pyflow_ast.BuildMap))
 
     def test_convert_lambda_expression(self):
         """Test converting lambda expression."""
@@ -343,8 +416,9 @@ with open('file.txt') as f:
         node = tree.body[0]
         
         result = self.converter._convert_node(node)
-        # Should return a Suite (body of with statement)
-        self.assertIsNotNone(result)
+        self.assertIsInstance(result, pyflow_ast.Suite)
+        # Should bind "f" via an Assign somewhere in the result
+        self.assertTrue(any(isinstance(b, pyflow_ast.Assign) for b in result.blocks))
 
     def test_convert_import_statement(self):
         """Test converting import statement."""
@@ -353,7 +427,8 @@ with open('file.txt') as f:
         node = tree.body[0]
         
         result = self.converter._convert_node(node)
-        self.assertIsInstance(result, pyflow_ast.Discard)
+        self.assertIsInstance(result, pyflow_ast.Suite)
+        self.assertTrue(any(isinstance(b, pyflow_ast.Assign) for b in result.blocks))
 
     def test_convert_import_from_statement(self):
         """Test converting from-import statement."""
@@ -362,7 +437,8 @@ with open('file.txt') as f:
         node = tree.body[0]
         
         result = self.converter._convert_node(node)
-        self.assertIsInstance(result, pyflow_ast.Discard)
+        self.assertIsInstance(result, pyflow_ast.Suite)
+        self.assertTrue(any(isinstance(b, pyflow_ast.Assign) for b in result.blocks))
 
     def test_convert_function_def(self):
         """Test converting function definition."""
@@ -425,35 +501,40 @@ class TestClass:
         codeparams = self.converter._convert_function_args(func_node.args)
         self.assertIsNotNone(codeparams.kparam)
 
-    def test_convert_assignment_target_name(self):
-        """Test converting assignment target (name)."""
-        source = "x = 1"
-        tree = python_ast.parse(source)
-        node = tree.body[0]
-        target = node.targets[0]
-        
-        result = self.converter._convert_assignment_target(target)
-        self.assertIsInstance(result, pyflow_ast.Local)
-
-    def test_convert_assignment_target_attribute(self):
-        """Test converting assignment target (attribute)."""
+    def test_convert_assign_attribute_models_setattr(self):
+        """Attribute assignments should be modeled via SetAttr."""
         source = "obj.attr = 1"
         tree = python_ast.parse(source)
         node = tree.body[0]
-        target = node.targets[0]
-        
-        result = self.converter._convert_assignment_target(target)
-        self.assertIsInstance(result, pyflow_ast.Local)
 
-    def test_convert_assignment_target_subscript(self):
-        """Test converting assignment target (subscript)."""
+        result = self.converter._convert_node(node)
+        self.assertIsInstance(result, pyflow_ast.Suite)
+        self.assertTrue(any(isinstance(b, pyflow_ast.SetAttr) for b in result.blocks))
+
+    def test_convert_assign_subscript_models_setsubscript(self):
+        """Subscript assignments should be modeled via interpreter_setitem call."""
         source = "arr[0] = 1"
         tree = python_ast.parse(source)
         node = tree.body[0]
-        target = node.targets[0]
-        
-        result = self.converter._convert_assignment_target(target)
-        self.assertIsInstance(result, pyflow_ast.Local)
+
+        result = self.converter._convert_node(node)
+        self.assertIsInstance(result, pyflow_ast.Suite)
+        self.assertTrue(any(isinstance(b, pyflow_ast.Discard) for b in result.blocks))
+
+    def test_convert_delete_subscript_models_delitem(self):
+        """Subscript deletes should be modeled via interpreter_delitem call."""
+        source = "del arr[0]"
+        tree = python_ast.parse(source)
+        node = tree.body[0]
+
+        result = self.converter._convert_node(node)
+        self.assertIsInstance(result, pyflow_ast.Suite)
+        discards = [b for b in result.blocks if isinstance(b, pyflow_ast.Discard)]
+        self.assertTrue(discards)
+        call = discards[0].expr
+        self.assertIsInstance(call, pyflow_ast.Call)
+        self.assertIsInstance(call.expr, pyflow_ast.Existing)
+        self.assertEqual(call.expr.object.pyobj, "interpreter_delitem")
 
 
 if __name__ == "__main__":

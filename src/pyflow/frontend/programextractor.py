@@ -7,8 +7,8 @@ The Extractor class processes Python source code and builds internal
 representations suitable for static analysis, including function and
 class extraction, AST processing, and object management.
 
-FIXME: very likely to be buggy (Maybe we need to repalce it with
-the dir in src/pyflow/decompile)
+NOTE: This extractor is intentionally source/AST-based (no bytecode decompilation).
+    It is designed to be conservative and side-effect free.
 """
 
 import ast
@@ -23,6 +23,7 @@ from pyflow.language.python.program import ImaginaryObject, AbstractObject
 from .function_extractor import FunctionExtractor
 from .object_manager import ObjectManager
 from .stub_manager import StubManager
+from .source_locator import best_source_for_callable
 
 
 class Extractor:
@@ -161,16 +162,18 @@ class Extractor:
         if self.verbose:
             print(f"DEBUG: Extracting from AST for {filename}")
 
-        # Walk through the AST to find functions and classes
-        for node in ast.walk(tree):
-            if isinstance(node, ast.FunctionDef):
+        # Prefer module-level definitions. Using ast.walk would also include nested
+        # functions and methods multiple times, which is rarely what we want for
+        # entry point discovery.
+        for node in getattr(tree, "body", []) or []:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 if self.verbose:
                     print(f"DEBUG: Found function definition: {node.name}")
-                self.function_extractor.extract_function(node, program)
+                self.function_extractor.extract_function(node, program, filename)
             elif isinstance(node, ast.ClassDef):
                 if self.verbose:
                     print(f"DEBUG: Found class definition: {node.name}")
-                self.function_extractor.extract_class(node, program)
+                self.function_extractor.extract_class(node, program, filename)
 
         if self.verbose:
             print(
@@ -230,21 +233,11 @@ class Extractor:
         source = None
         if hasattr(self, "source_code") and self.source_code:
             if isinstance(self.source_code, dict):
-                # Multiple files - try to find the source for this function
-                # First try to find the function by checking if it has a __code__ attribute
-                # that can help us identify which file it came from
-                func_file = None
-                if hasattr(func, "__code__") and hasattr(func.__code__, "co_filename"):
-                    func_file = func.__code__.co_filename
-
-                if func_file and func_file in self.source_code:
-                    # We found the file this function came from
-                    source = self.source_code[func_file]
-                else:
-                    # Fallback: search for function name in source files
-                    # Use a more sophisticated approach to avoid false matches
+                source = best_source_for_callable(func, self.source_code)
+                if source is None:
+                    # Fallback: search for function name in source files.
+                    # Use a more sophisticated approach to avoid false matches.
                     for filename, file_source in self.source_code.items():
-                        # Look for function definition pattern: def function_name(
                         pattern = rf"\bdef\s+{re.escape(func.__name__)}\s*\("
                         if re.search(pattern, file_source):
                             source = file_source
@@ -262,8 +255,7 @@ def extractProgram(compiler: CompilerContext, program: Program) -> None:
     """
     Extract program information for static analysis.
 
-    This is a simplified version that focuses on static analysis
-    rather than bytecode decompilation.
+    This extractor focuses on static analysis from source/AST (no decompilation).
     """
     if not hasattr(compiler, "extractor") or compiler.extractor is None:
         compiler.extractor = Extractor(compiler)
@@ -313,98 +305,19 @@ def create_interface_from_paths(python_files, args):
     interface_decl = interface.InterfaceDeclaration()
     all_source_code = {}
 
+    resolver = DependencyResolver(
+        strategy=getattr(args, "dependency_strategy", "auto"),
+        verbose=getattr(args, "verbose", False),
+        safe_modules=["math", "os", "sys", "re", "json", "datetime", "collections"],
+    )
+
     for file_path in python_files:
         try:
             with open(file_path, "r", encoding="utf-8") as f:
                 source = f.read()
             all_source_code[str(file_path)] = source
 
-            # Try to get real function objects by executing the source in a controlled environment
-            try:
-                import builtins
-
-                # Create a safe globals dict with builtins
-                exec_globals = dict(vars(builtins))
-
-                # Set the __file__ variable so functions get the correct filename
-                exec_globals["__file__"] = str(file_path)
-                # Avoid running `if __name__ == "__main__":` blocks.
-                exec_globals["__name__"] = "__pyflow_analysis__"
-
-                # Prevent interactive/blocking behavior during extraction.
-                exec_globals["input"] = lambda *args, **kwargs: ""
-
-                # Add safe modules
-                safe_modules = [
-                    "math",
-                    "os",
-                    "sys",
-                    "re",
-                    "json",
-                    "datetime",
-                    "collections",
-                ]
-                for mod_name in safe_modules:
-                    try:
-                        exec_globals[mod_name] = __import__(mod_name)
-                    except ImportError:
-                        pass
-
-                # Reduce side effects during exec()-based extraction.
-                os_mod = exec_globals.get("os")
-                if os_mod is not None:
-                    try:
-                        os_mod.system = lambda *args, **kwargs: 0
-                        os_mod.popen = lambda *args, **kwargs: None
-                    except Exception:
-                        pass
-
-                # Execute the source code with filename preserved in code objects
-                compiled = compile(source, str(file_path), "exec")
-                exec(compiled, exec_globals)
-
-                # Extract functions that were defined in this file
-                functions = {}
-                for name, obj in exec_globals.items():
-                    if (
-                        not name.startswith("_")
-                        and callable(obj)
-                        and hasattr(obj, "__code__")
-                    ):
-                        if args.verbose:
-                            print(
-                                f"DEBUG: Function '{name}' has code with filename: '{obj.__code__.co_filename}' (expected: '{file_path}')"
-                            )
-                        # Accept functions with either the correct filename or '<string>' (from exec)
-                        # Since we executed this specific source file, any function found here came from it
-                        functions[name] = obj
-
-                if args.verbose:
-                    print(
-                        f"DEBUG: Successfully executed source and found {len(functions)} functions with correct code objects"
-                    )
-
-            except Exception as exec_error:
-                if args.verbose:
-                    print(
-                        f"DEBUG: Source execution failed: {exec_error}, using dependency resolver"
-                    )
-
-                # Fallback to dependency resolver
-                resolver = DependencyResolver(
-                    strategy="stubs",  # Try stubs strategy which should give better results
-                    verbose=args.verbose,
-                    safe_modules=[
-                        "math",
-                        "os",
-                        "sys",
-                        "re",
-                        "json",
-                        "datetime",
-                        "collections",
-                    ],
-                )
-                functions = resolver.extract_functions(source, file_path)
+            functions = resolver.extract_functions(source, str(file_path))
 
             for func_name, func_obj in functions.items():
                 # Skip driver/main function from being treated as analysis entry point
@@ -412,17 +325,6 @@ def create_interface_from_paths(python_files, args):
                     if args.verbose:
                         print(f"DEBUG: Skipping '{func_name}' as an entry point")
                     continue
-                # Debug: check if function has code object
-                if hasattr(func_obj, "__code__") and func_obj.__code__:
-                    if args.verbose:
-                        print(
-                            f"DEBUG: Function '{func_name}' has code object with filename: {func_obj.__code__.co_filename}"
-                        )
-                else:
-                    if args.verbose:
-                        print(
-                            f"DEBUG: Function '{func_name}' has no code object or it's None"
-                        )
 
                 interface_decl.func.append((func_obj, []))
                 if args.verbose:
