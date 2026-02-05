@@ -56,6 +56,10 @@ class FunctionSummary:
     param_key_taint_writes: Dict[str, Set[str]] = field(default_factory=dict)
     sinks: Set[str] = field(default_factory=set)
     tainted_sinks: Set[str] = field(default_factory=set)
+    # Track sink locations as (lineno, col_offset) tuples
+    sink_locations: Set[Tuple[int, int]] = field(default_factory=set)
+    # Track which sink is at which location
+    sink_location_map: Dict[Tuple[int, int], str] = field(default_factory=dict)
     tainted_sink: bool = False
     returns_value: bool = True
     return_param_deps: Set[str] = field(default_factory=set)
@@ -70,33 +74,79 @@ class TaintDetector(Detector):
         self.sinks = set(sinks or DEFAULT_SINKS)
 
     def run(self, session: AnalysisSession) -> List[Issue]:
-        summaries = self._build_summaries(session)
+        # Extract cross-module tracking info from session
+        func_to_file = getattr(session, 'func_to_file', {})
+        file_imports = getattr(session, 'file_imports', {})
+        
+        summaries = self._build_summaries(session, func_to_file, file_imports)
         reports: List[Issue] = []
         for name, summary in summaries.items():
-            for sink in summary.tainted_sinks:
-                issue = Issue(
-                    severity="HIGH",
-                    confidence="HIGH",
-                    cwe=79,  # CWE-79: XSS / Injection
-                    text=f"Untrusted data can reach sink '{sink}'.",
-                    ident=sink,
-                    lineno=None,
-                    test_id="S004",  # Semantic checker rule ID
-                )
-                issue.fname = name  # Function name as file identifier
-                issue.test = "taint"
-                reports.append(issue)
+            # Only report if this function DIRECTLY calls a sink with tainted data
+            if summary.sinks and summary.tainted_sinks:
+                for sink in summary.tainted_sinks:
+                    # Get the line number from the sink location
+                    lineno = 1
+                    col_offset = 0
+                    for loc, sink_name in summary.sink_location_map.items():
+                        if sink_name == sink:
+                            lineno, col_offset = loc
+                            break
+
+                    issue = Issue(
+                        severity="HIGH",
+                        confidence="HIGH",
+                        cwe=79,
+                        text=f"Untrusted data can reach sink '{sink}'.",
+                        ident=sink,
+                        lineno=lineno,
+                        col_offset=col_offset,
+                        test_id="S004",
+                    )
+                    issue.fname = name
+                    issue.test = "taint"
+                    reports.append(issue)
         return reports
 
     # ------------------------------------------------------------------ helpers
-    def _build_summaries(self, session: AnalysisSession) -> Dict[str, FunctionSummary]:
+    def _build_summaries(
+        self, 
+        session: AnalysisSession,
+        func_to_file: Dict[str, str] = None,
+        file_imports: Dict[str, Dict[str, str]] = None
+    ) -> Dict[str, FunctionSummary]:
+        # Use provided cross-module info or empty defaults
+        if func_to_file is None:
+            func_to_file = getattr(session, 'func_to_file', {})
+        if file_imports is None:
+            file_imports = getattr(session, 'file_imports', {})
+        
+        # Collect IPA return metadata
         return_param_deps, returns_value = self._collect_ipa_return_metadata(session)
+        
+        # Compute local return dependencies (works even when IPA fails)
+        local_return_deps = self._compute_local_return_deps(session.sources_by_name)
+        
+        # Merge local deps with IPA deps (IPA takes precedence if available)
+        for name, deps in local_return_deps.items():
+            if name not in return_param_deps:
+                return_param_deps[name] = deps
+            else:
+                # Merge both - union of dependencies
+                return_param_deps[name] = return_param_deps[name] | deps
+        
         function_trees: Dict[str, ast.AST] = {}
         param_names: Dict[str, List[str]] = {}
         for fname, src in session.sources_by_name.items():
+            # Extract just the function node from the file-level AST
             tree = ast.parse(textwrap.dedent(src))
-            function_trees[fname] = tree
-            param_names[fname] = self._extract_param_names(tree, fname)
+            func_node = self._extract_function_node(tree, fname)
+            if func_node:
+                function_trees[fname] = func_node
+                param_names[fname] = self._collect_param_names(func_node.args)
+            else:
+                # Fallback to full tree if function extraction fails
+                function_trees[fname] = tree
+                param_names[fname] = self._extract_param_names(tree, fname)
 
         known_callees = set(function_trees.keys()) | set(return_param_deps.keys())
         summaries: Dict[str, FunctionSummary] = {}
@@ -142,6 +192,8 @@ class TaintDetector(Detector):
                     returns_value,
                     param_names,
                     known_callees,
+                    func_to_file,
+                    file_imports,
                 )
                 unconditional_summary, _ = self._analyze_function(
                     name,
@@ -157,6 +209,8 @@ class TaintDetector(Detector):
                     returns_value,
                     param_names,
                     known_callees,
+                    func_to_file,
+                    file_imports,
                 )
                 summary.returns_tainted_unconditional = (
                     unconditional_summary.returns_tainted
@@ -203,6 +257,9 @@ class TaintDetector(Detector):
         returns_value: Dict[str, bool],
         param_names: Dict[str, List[str]],
         known_callees: Set[str],
+        # Cross-module parameters
+        func_to_file: Dict[str, str],
+        file_imports: Dict[str, Dict[str, str]],
     ) -> tuple[FunctionSummary, Dict[str, Set[str]]]:
         analyzer = _LocalTaintAnalyzer(
             sources=self.sources,
@@ -218,6 +275,8 @@ class TaintDetector(Detector):
             callee_param_names=param_names,
             callee_returns_value=returns_value,
             known_callees=known_callees,
+            func_to_file=func_to_file,
+            file_imports=file_imports,
         )
         analyzer.visit(tree)
         summary = FunctionSummary(
@@ -230,6 +289,8 @@ class TaintDetector(Detector):
             param_key_taint_writes=analyzer.param_key_taint_writes,
             sinks=analyzer.sinks_found,
             tainted_sinks=analyzer.tainted_sinks,
+            sink_locations=analyzer.sink_locations,
+            sink_location_map=analyzer.sink_location_map,
             tainted_sink=bool(analyzer.tainted_sinks),
             returns_value=returns_value.get(name, True),
             return_param_deps=return_param_deps.get(name, set()),
@@ -250,6 +311,7 @@ class TaintDetector(Detector):
             or old.param_key_taint_writes != new.param_key_taint_writes
             or old.sinks != new.sinks
             or old.tainted_sinks != new.tainted_sinks
+            or old.sink_locations != new.sink_locations
         )
 
     @staticmethod
@@ -258,6 +320,14 @@ class TaintDetector(Detector):
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == name:
                 return TaintDetector._collect_param_names(node.args)
         return []
+
+    @staticmethod
+    def _extract_function_node(tree: ast.AST, func_name: str) -> Optional[ast.AST]:
+        """Extract a specific function node from a file-level AST."""
+        for node in ast.iter_child_nodes(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == func_name:
+                return node
+        return None
 
     @staticmethod
     def _collect_param_names(args: ast.arguments) -> List[str]:
@@ -269,6 +339,99 @@ class TaintDetector(Detector):
         for arg in args.kwonlyargs:
             names.append(arg.arg)
         return names
+
+    def _compute_local_return_deps(
+        self, sources_by_name: Dict[str, str]
+    ) -> Dict[str, Set[str]]:
+        """Compute return dependencies using local AST analysis.
+        
+        This method analyzes each function's AST to determine which parameters
+        affect the return value. This works even when IPA analysis fails.
+        """
+        return_deps: Dict[str, Set[str]] = {}
+        
+        for func_name, src in sources_by_name.items():
+            try:
+                tree = ast.parse(textwrap.dedent(src))
+            except SyntaxError:
+                continue
+            
+            func_node = self._extract_function_node(tree, func_name)
+            if not func_node:
+                continue
+            
+            params = set(self._collect_param_names(func_node.args))
+            if not params:
+                continue
+            
+            # Find all return statements and track which params they use
+            used_in_return = self._find_params_in_returns(func_node, params)
+            
+            if used_in_return:
+                return_deps[func_name] = used_in_return
+        
+        return return_deps
+    
+    def _find_params_in_returns(
+        self, func_node: ast.AST, params: Set[str]
+    ) -> Set[str]:
+        """Find which parameters are used in return statements."""
+        used_params: Set[str] = set()
+        
+        class ReturnFinder(ast.NodeVisitor):
+            def __init__(self, params: Set[str]):
+                self.params = params
+                self.used: Set[str] = set()
+            
+            def visit_Return(self, node: ast.Return):
+                if node.value:
+                    self._find_names(node.value, self.params, self.used)
+                self.generic_visit(node)
+            
+            def _find_names(self, node: ast.AST, params: Set[str], used: Set[str]):
+                """Recursively find parameter names in an expression."""
+                if isinstance(node, ast.Name) and node.id in params:
+                    used.add(node.id)
+                elif isinstance(node, ast.BinOp):
+                    self._find_names(node.left, params, used)
+                    self._find_names(node.right, params, used)
+                elif isinstance(node, ast.UnaryOp):
+                    self._find_names(node.operand, params, used)
+                elif isinstance(node, ast.Call):
+                    # Check if any args use params
+                    for arg in node.args:
+                        self._find_names(arg, params, used)
+                    for kw in node.keywords:
+                        if kw.value:
+                            self._find_names(kw.value, params, used)
+                elif isinstance(node, ast.IfExp):
+                    self._find_names(node.body, params, used)
+                    self._find_names(node.orelse, params, used)
+                elif isinstance(node, ast.Subscript):
+                    self._find_names(node.value, params, used)
+                    self._find_names(node.slice, params, used)
+                elif isinstance(node, ast.Attribute):
+                    # obj.param - check if obj is a param
+                    if isinstance(node.value, ast.Name) and node.value.id in params:
+                        used.add(node.value.id)
+                    else:
+                        self._find_names(node.value, params, used)
+                elif isinstance(node, (ast.Tuple, ast.List, ast.Set)):
+                    for elt in node.elts:
+                        self._find_names(elt, params, used)
+                elif isinstance(node, ast.Dict):
+                    for k in node.keys:
+                        if k:
+                            self._find_names(k, params, used)
+                    for v in node.values:
+                        self._find_names(v, params, used)
+                # Visit children
+                for child in ast.iter_child_nodes(node):
+                    self._find_names(child, params, used)
+        
+        finder = ReturnFinder(params)
+        finder.visit(func_node)
+        return finder.used
 
     def _collect_ipa_return_metadata(
         self, session: AnalysisSession
@@ -344,6 +507,9 @@ class _LocalTaintAnalyzer(ast.NodeVisitor):
         callee_param_names: Dict[str, List[str]],
         callee_returns_value: Dict[str, bool],
         known_callees: Set[str],
+        # Cross-module tracking
+        func_to_file: Dict[str, str] = None,
+        file_imports: Dict[str, Dict[str, str]] = None,
     ):
         self.sources = sources
         self.sinks = sinks
@@ -358,6 +524,9 @@ class _LocalTaintAnalyzer(ast.NodeVisitor):
         self.callee_param_names = callee_param_names
         self.callee_returns_value = callee_returns_value
         self.known_callees = known_callees
+        # Cross-module info
+        self.func_to_file = func_to_file or {}
+        self.file_imports = file_imports or {}
 
         self.tainted: Set[str] = set()
         self.tainted_containers: Set[str] = set()
@@ -373,10 +542,17 @@ class _LocalTaintAnalyzer(ast.NodeVisitor):
         self.param_key_taint_writes: Dict[str, Set[str]] = {}
         self.sinks_found: Set[str] = set()
         self.tainted_sinks: Set[str] = set()
+        # Track sink locations as (lineno, col_offset) tuples
+        self.sink_locations: Set[Tuple[int, int]] = set()
+        # Track which sink is at which location
+        self.sink_location_map: Dict[Tuple[int, int], str] = {}
         self.tainted_sink = False
         self.current_params: Set[str] = set()
         self.call_param_taints: Dict[str, Set[str]] = {}
         self.function_depth = 0
+        # Module-level state tracking
+        self.global_tainted: Set[str] = set()  # Global variables that are tainted
+        self.func_refs: Dict[str, str] = {}  # Function references: var -> original function
 
     def visit_Match(self, node: ast.Match):
         """Handle match statements with proper taint propagation semantics.
@@ -451,6 +627,16 @@ class _LocalTaintAnalyzer(ast.NodeVisitor):
 
         if value_is_source:
             self.has_source = True
+
+        # Track function references: func_var = original_func
+        if isinstance(node.value, ast.Name):
+            value_name = node.value.id
+            # Check if the assigned value is a known function
+            if value_name in self.known_callees:
+                for target in node.targets:
+                    if isinstance(target, ast.Name):
+                        # Track this function reference
+                        self.func_refs[target.id] = value_name
 
         for target in node.targets:
             if isinstance(target, ast.Name):
@@ -695,6 +881,10 @@ class _LocalTaintAnalyzer(ast.NodeVisitor):
             if tainted_arg:
                 self.tainted_sink = True
                 self.tainted_sinks.add(fullname)
+                # Track the location of this tainted sink
+                location = (node.lineno, node.col_offset)
+                self.sink_locations.add(location)
+                self.sink_location_map[location] = fullname
         if self._expr_is_source(node):
             self.has_source = True
         self._handle_container_calls(node)
@@ -787,6 +977,14 @@ class _LocalTaintAnalyzer(ast.NodeVisitor):
                 return True
             if fullname and self._call_is_known(fullname):
                 return False
+            # Check if the called function is a function reference that might be tainted
+            if isinstance(expr.func, ast.Name):
+                func_name = expr.func.id
+                # Check if this variable holds a reference to a tainted function
+                if func_name in self.func_refs:
+                    original = self.func_refs[func_name]
+                    if self._is_tainted_function(original):
+                        return True
             if any(self._expr_is_tainted(arg) for arg in expr.args):
                 return True
             return any(self._expr_is_tainted(kwd.value) for kwd in expr.keywords)
@@ -798,6 +996,23 @@ class _LocalTaintAnalyzer(ast.NodeVisitor):
                 or "*" in self.tainted_attrs.get(base_key, set())
             ):
                 return True
+        # Check if this name is a function reference
+        if isinstance(expr, ast.Name) and expr.id in self.func_refs:
+            original = self.func_refs[expr.id]
+            if self._is_tainted_function(original):
+                return True
+        return False
+
+    def _is_tainted_function(self, func_name: str) -> bool:
+        """Check if a function returns tainted data."""
+        # Check if this function is a source
+        if func_name in self.sources:
+            return True
+        # Check if the function has a source or returns tainted data
+        if self.callee_has_source.get(func_name, False):
+            return True
+        if self.callee_returns_tainted.get(func_name, False):
+            return True
         return False
 
     def _call_fullname(self, func: ast.AST) -> str:
@@ -812,11 +1027,21 @@ class _LocalTaintAnalyzer(ast.NodeVisitor):
         return callee in self.known_callees
 
     def _resolve_callee_name(self, fullname: str) -> str:
+        # First try direct match
         if fullname in self.known_callees:
             return fullname
         short = fullname.split(".")[-1]
         if short in self.known_callees:
             return short
+        
+        # Cross-module resolution: check if this function is defined elsewhere
+        # and we have its source in known_callees
+        if short in self.func_to_file:
+            # This function is defined in another file
+            # Check if it's in known_callees
+            if short in self.known_callees:
+                return short
+        
         return fullname
 
     def _attribute_name(self, node: ast.Attribute) -> str:

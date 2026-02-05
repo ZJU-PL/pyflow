@@ -80,6 +80,32 @@ class SemanticManager:
         """
         self.results = self.finder.analyze(paths)
 
+        # Count lines of code from analyzed files
+        total_lines = 0
+        for path in paths:
+            path_obj = Path(path) if isinstance(path, str) else path
+            if path_obj.is_file():
+                try:
+                    with open(path_obj, 'r', encoding='utf-8') as f:
+                        lines = f.readlines()
+                    total_lines += len(lines)
+                    self.metrics.files += 1
+                except (IOError, OSError):
+                    pass
+            elif path_obj.is_dir():
+                for py_file in path_obj.rglob("*.py"):
+                    try:
+                        with open(py_file, 'r', encoding='utf-8') as f:
+                            lines = f.readlines()
+                        total_lines += len(lines)
+                        self.metrics.files += 1
+                    except (IOError, OSError):
+                        pass
+        
+        self.metrics.lines = total_lines
+        self.metrics.data["_totals"]["loc"] = total_lines
+        self.metrics.data["_totals"]["files"] = self.metrics.files
+
         # Update metrics
         for issue in self.results:
             self.metrics.issues += 1

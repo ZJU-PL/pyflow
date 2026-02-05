@@ -25,8 +25,16 @@ class NullDereferenceDetector(Detector):
 
     def run(self, session: AnalysisSession) -> List[Issue]:
         reports: List[Issue] = []
-        callgraph = session.queries.get_callgraph().get()
-        reachable = set(callgraph.keys())
+        
+        # Get call graph for reachability analysis
+        # Handle case where IPA analysis is not available
+        try:
+            callgraph = session.queries.get_callgraph().get()
+            reachable = set(callgraph.keys())
+        except Exception:
+            # If callgraph is not available, analyze all files
+            reachable = set()
+        
         for fname, src in session.sources_by_name.items():
             if reachable and fname not in reachable:
                 # Skip unreachable code to stay context-aware

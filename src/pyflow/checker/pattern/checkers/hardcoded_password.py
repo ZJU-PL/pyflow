@@ -17,7 +17,7 @@ The checker looks for variable names containing password-related keywords:
 2. Dictionary assignment: `config["password"] = "secret123"`
 3. Comparison: `if password == "secret123"`
 4. Function arguments: `login(password="secret123")`
-5. Function defaults: `def login(password="secret123")`
+5. Function defaults: `def login(password="secret123"):`
 
 **Test IDs:**
 - B105: Hardcoded password in string assignment
@@ -38,6 +38,84 @@ RE_WORDS = "(pas+wo?r?d|pass(phrase)?|pwd|token|secrete?)"
 RE_CANDIDATES = re.compile(
     f"(^{RE_WORDS}$|_{RE_WORDS}_|^{RE_WORDS}_|_{RE_WORDS}$)", re.IGNORECASE
 )
+
+# Patterns that are likely placeholders, not real passwords
+PLACEHOLDER_PATTERNS = [
+    r"^<[^>]+>$",  # <placeholder>
+    r"^YOUR_[A-Z_]+$",  # YOUR_PASSWORD_HERE
+    r"^REPLACE_[A-Z_]+$",  # REPLACE_WITH_PASSWORD
+    r"^XXX+$",  # XXX, XXXXX
+    r"^\*+$",  # ****
+    r"^test\d*$",  # test, test123
+    r"^demo\d*$",  # demo, demo123
+    r"^sample\d*$",  # sample, sample123
+    r"^example\d*$",  # example, example123
+    r"^default$",  # default
+    r"^changeme$",  # changeme
+]
+RE_PLACEHOLDER = re.compile("|".join(PLACEHOLDER_PATTERNS), re.IGNORECASE)
+
+
+def _get_string(node):
+    """
+    Extract a string value from AST string nodes.
+
+    Handles both Python < 3.8 (ast.Str) and Python 3.8+ (ast.Constant)
+    for compatibility.
+
+    Args:
+        node: AST node (Str, Constant, or other)
+
+    Returns:
+        String value, or None if not a string node
+    """
+    if isinstance(node, ast.Str):
+        return node.s
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    return None
+
+
+def _is_placeholder(value):
+    """
+    Check if a string value looks like a placeholder rather than a real password.
+
+    Args:
+        value: The string value to check
+
+    Returns:
+        True if this looks like a placeholder, False otherwise
+    """
+    if not value:
+        return True
+    # Check against placeholder patterns
+    if RE_PLACEHOLDER.match(value):
+        return True
+    # Very short strings are unlikely to be real passwords
+    if len(value) < 4:
+        return True
+    # Strings that are all digits are unlikely to be passwords
+    if value.isdigit():
+        return True
+    return False
+
+
+def _report(value):
+    """
+    Create a hardcoded password issue.
+
+    Args:
+        value: The hardcoded password value found
+
+    Returns:
+        Issue object with LOW severity, MEDIUM confidence
+    """
+    return issue.Issue(
+        severity="LOW",
+        confidence="MEDIUM",
+        cwe=issue.Cwe.HARD_CODED_PASSWORD,
+        text=f"Possible hardcoded password: '{value}'",
+    )
 
 
 def _get_string(node):
@@ -101,6 +179,10 @@ def hardcoded_password_string(context):
     node_str = _get_string(node)
     if node_str is None:
         return None
+    
+    # Skip placeholder patterns and very short strings
+    if _is_placeholder(node_str):
+        return None
 
     if isinstance(parent, ast.Assign):
         # Look for "candidate='some_string'" in variable assignments
@@ -149,7 +231,9 @@ def hardcoded_password_funcarg(context):
     for kw in context.node.keywords:
         val_str = _get_string(kw.value)
         if val_str is not None and RE_CANDIDATES.search(kw.arg):
-            return _report(val_str)
+            # Skip placeholders
+            if not _is_placeholder(val_str):
+                return _report(val_str)
 
 
 @test.checks("FunctionDef")
@@ -182,4 +266,6 @@ def hardcoded_password_default(context):
                 continue
             val_str = _get_string(val)
             if val_str is not None and RE_CANDIDATES.search(key.arg):
-                return _report(val_str)
+                # Skip placeholders
+                if not _is_placeholder(val_str):
+                    return _report(val_str)

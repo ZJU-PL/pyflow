@@ -30,6 +30,10 @@ class AnalysisSession:
     sources_by_name: Dict[str, str]
     store_graph: Optional[object]
     lifetime: Optional[object]
+    # Cross-module tracking
+    func_to_file: Dict[str, str]  # Maps function name to its defining file
+    file_imports: Dict[str, Dict[str, str]]  # Maps file -> {imported_name: source_file}
+    all_source_code: Dict[str, str]  # Maps filename -> source code
 
     @classmethod
     def from_paths(
@@ -72,7 +76,9 @@ class AnalysisSession:
         queries = program.get_semantic_queries(compiler)
         store_graph = cls._maybe_get_store_graph(queries)
         lifetime = cls._maybe_get_lifetime(queries)
-        sources_by_name = cls._collect_sources(program, all_source_code)
+        sources_by_name, func_to_file, file_imports = cls._collect_sources_and_imports(
+            program, all_source_code
+        )
         return cls(
             compiler=compiler,
             program=program,
@@ -80,6 +86,9 @@ class AnalysisSession:
             sources_by_name=sources_by_name,
             store_graph=store_graph,
             lifetime=lifetime,
+            func_to_file=func_to_file,
+            file_imports=file_imports,
+            all_source_code=all_source_code,
         )
 
     @staticmethod
@@ -111,36 +120,64 @@ class AnalysisSession:
         return sorted(set(files))
 
     @staticmethod
-    def _collect_sources(program: Program, all_source_code: Dict[str, str]) -> Dict[str, str]:
-        """Map function names to their defining source text when available."""
+    def _collect_sources_and_imports(
+        program: Program, all_source_code: Dict[str, str]
+    ) -> Tuple[Dict[str, str], Dict[str, str], Dict[str, Dict[str, str]]]:
+        """Map function names to source, track file origins and imports.
+        
+        Returns:
+            name_to_source: Maps function name to its source code
+            func_to_file: Maps function name to its defining file
+            file_imports: Maps filename -> {imported_name: source_file}
+        """
         name_to_source: Dict[str, str] = {}
+        func_to_file: Dict[str, str] = {}
+        file_imports: Dict[str, Dict[str, str]] = {}
+        
+        # Collect from interface (callable objects)
         interface = getattr(program, "interface", None)
         funcs = getattr(interface, "func", []) if interface else []
         for func_obj, _ in funcs:
             name = getattr(func_obj, "__name__", None)
             if not name:
                 continue
+            # Get source
+            src = None
+            func_filename = ""
             try:
                 import inspect
-
                 src = inspect.getsource(func_obj)
+                func_filename = getattr(func_obj, "__code__", None)
+                func_filename = getattr(func_filename, "co_filename", "") or ""
             except (OSError, TypeError):
-                src = None
+                pass
             if not src:
-                filename = getattr(func_obj, "__code__", None)
-                filename = getattr(filename, "co_filename", None)
-                if filename and filename in all_source_code:
-                    src = all_source_code[filename]
+                if func_filename and func_filename in all_source_code:
+                    src = all_source_code[func_filename]
             if src:
                 name_to_source[name] = src
-
-        # Fallback: derive sources from raw files when no callable objects exist.
+                func_to_file[name] = func_filename
+        
+        # Collect from AST with import tracking
         for filename, src in all_source_code.items():
+            file_imports[filename] = {}
             try:
                 tree = ast.parse(src)
             except SyntaxError:
                 continue
-
+            
+            # Track imports
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    for alias in node.names:
+                        file_imports[filename][alias.asname or alias.name] = alias.name
+                elif isinstance(node, ast.ImportFrom):
+                    if node.module:
+                        for alias in node.names:
+                            imported = f"{node.module}.{alias.name}"
+                            file_imports[filename][alias.asname or alias.name] = imported
+            
+            # Collect functions
             func_nodes = [
                 node
                 for node in ast.walk(tree)
@@ -156,12 +193,9 @@ class AnalysisSession:
                     else:
                         func_src = ast.get_source_segment(src, node) or src
                     name_to_source[node.name] = func_src
-            else:
-                module_name = f"<module:{Path(filename).name}>"
-                if module_name not in name_to_source:
-                    name_to_source[module_name] = src
-
-        return name_to_source
+                    func_to_file[node.name] = filename
+        
+        return name_to_source, func_to_file, file_imports
 
     # --------------------------------------------------------------- analysis
     @staticmethod

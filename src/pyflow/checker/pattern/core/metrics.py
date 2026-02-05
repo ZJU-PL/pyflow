@@ -13,6 +13,22 @@ class Metrics:
         self.issues = 0
         self.issues_by_severity = {"LOW": 0, "MEDIUM": 0, "HIGH": 0}
         self.issues_by_confidence = {"LOW": 0, "MEDIUM": 0, "HIGH": 0}
+        # For formatter compatibility
+        self.data = {
+            "_totals": {
+                "loc": 0,
+                "nosec": 0,
+                "skipped_tests": 0,
+                "SEVERITY.UNDEFINED": 0,
+                "SEVERITY.LOW": 0,
+                "SEVERITY.MEDIUM": 0,
+                "SEVERITY.HIGH": 0,
+                "CONFIDENCE.UNDEFINED": 0,
+                "CONFIDENCE.LOW": 0,
+                "CONFIDENCE.MEDIUM": 0,
+                "CONFIDENCE.HIGH": 0,
+            }
+        }
 
     def begin(self, filename):
         """Begin processing a file"""
@@ -22,6 +38,7 @@ class Metrics:
     def count_locs(self, lines):
         """Count lines of code"""
         self.lines += len(lines)
+        self.data["_totals"]["loc"] += len(lines)
 
     def count_issues(self, scores_list):
         """Count issues from scores"""
@@ -33,20 +50,28 @@ class Metrics:
                         if sev in self.issues_by_severity:
                             self.issues_by_severity[sev] += count
                             self.issues += count
+                        key = f"SEVERITY.{sev}"
+                        if key in self.data["_totals"]:
+                            self.data["_totals"][key] += count
 
                 for conf_idx, count in enumerate(scores["CONFIDENCE"]):
                     if count > 0:
                         conf = ["UNDEFINED", "LOW", "MEDIUM", "HIGH"][conf_idx]
                         if conf in self.issues_by_confidence:
                             self.issues_by_confidence[conf] += count
+                        key = f"CONFIDENCE.{conf}"
+                        if key in self.data["_totals"]:
+                            self.data["_totals"][key] += count
 
     def note_nosec(self):
         """Note a nosec comment"""
         self.nosec += 1
+        self.data["_totals"]["nosec"] += 1
 
     def note_skipped_test(self):
         """Note a skipped test"""
         self.skipped += 1
+        self.data["_totals"]["skipped_tests"] += 1
 
     def aggregate(self):
         """Aggregate final metrics"""
