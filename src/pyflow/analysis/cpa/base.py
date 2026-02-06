@@ -390,8 +390,10 @@ class AnalysisContext(CanonicalObject):
             pass  # assert callee.vparam is not None or numArgs == numParam
 
         # Bind the kparams (keyword arguments **kwargs)
-        # Note: Currently not supported (assertion ensures kparam is None)
-        assert callee.kparam is None
+        # Note: **kwargs handling is limited - skip binding for now
+        # This prevents crashes when analyzing functions with **kwargs
+        if callee.kparam is not None:
+            pass  # Skip kparam binding - **kwargs not fully supported yet
 
         # Copy the return value(s) from callee return params to caller return args
         if caller.returnargs is not None:

@@ -84,6 +84,9 @@ class ConvertCalls(TypeDispatcher):
         ast.TypeSwitchCase,
         ast.FunctionDef,
         ast.ClassDef,
+        ast.MakeFunction,
+        ast.Import,
+        ast.Yield,
         ast.Raise,
     )
     def visitOK(self, node):
@@ -179,6 +182,11 @@ class ConvertCalls(TypeDispatcher):
     def visitBuildMap(self, node):
         # For now, just return the node with processed children
         # In a full implementation, this would handle dict literal creation
+        return node.rewriteChildren(self)
+
+    @dispatch(ast.BuildSlice)
+    def visitBuildSlice(self, node):
+        # Process slice components
         return node.rewriteChildren(self)
 
     @dispatch(ast.UnpackSequence)

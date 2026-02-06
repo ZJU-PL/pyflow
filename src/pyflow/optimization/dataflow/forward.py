@@ -108,6 +108,10 @@ class ForwardFlowTraverse(TypeDispatcher):
         ast.SetCellDeref,
         ast.Assert,
         ast.DirectCall,
+        ast.BuildList,
+        ast.BuildTuple,
+        ast.BuildMap,
+        ast.BuildSlice,
     )
     def visitOK(self, node):
         return self.processExpr(node)
@@ -538,3 +542,21 @@ class ForwardFlowTraverse(TypeDispatcher):
         result = self.processExpr(node)
         self.flow.save("raise")
         return result
+
+    @dispatch(ast.FunctionDef)
+    def visitFunctionDef(self, node):
+        # Function definitions are handled during extraction, not dataflow
+        # Just process the body for any side effects
+        return node.rewriteChildren(self)
+
+    @dispatch(ast.ClassDef)
+    def visitClassDef(self, node):
+        # Class definitions are handled during extraction, not dataflow
+        # Just process for any side effects
+        return node.rewriteChildren(self)
+
+    @dispatch(ast.Code)
+    def visitCode(self, node):
+        # Code nodes (function/lambda bodies) are processed during extraction
+        # Skip here to avoid double processing
+        return node

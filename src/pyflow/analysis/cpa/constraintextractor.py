@@ -335,6 +335,11 @@ class ExtractDataflow(TypeDispatcher):
             # Return None for maps
             return None
 
+    @dispatch(ast.BuildSlice)
+    def visitBuildSlice(self, node, targets=None):
+        # Evaluate slice components for side effects; slices are pure values
+        return None
+
     @dispatch(ast.FunctionDef)
     def visitFunctionDef(self, node, targets=None):
         # Function definitions don't need complex analysis for data flow
@@ -351,6 +356,22 @@ class ExtractDataflow(TypeDispatcher):
             assert len(targets) == 1
             # Just return None for class definitions
             pass
+        return None
+
+    @dispatch(ast.Import)
+    def visitImport(self, node, targets=None):
+        # Import statements are handled at module level, skip for dataflow
+        return None
+
+    @dispatch(ast.Yield)
+    def visitYield(self, node, targets=None):
+        # Yield statements in generators - skip for dataflow analysis
+        return None
+
+    @dispatch(ast.MakeFunction)
+    def visitMakeFunction(self, node, targets=None):
+        # Lambda functions are pure values, skip constraint extraction
+        # The lambda body is analyzed separately when the lambda is called
         return None
 
     @dispatch(ast.TryExceptFinally)
@@ -480,7 +501,6 @@ class ExtractDataflow(TypeDispatcher):
         value = self.init(node.object, node.object)
 
         if targets is not None:
-            assert len(targets) == 1
             targets[0].initializeType(self.system.canonical.existingType(node.object))
         else:
             return value

@@ -62,6 +62,23 @@ class MarkLocals(TypeDispatcher):
             self.flow.define(self.selfparam, top)
         node.visitChildren(self)
 
+    @dispatch(list)
+    def visitList(self, node):
+        """Visit Python lists in AST.
+
+        Handles raw Python lists that might appear in the AST structure
+        (e.g., args and kwds in Call nodes).
+
+        Args:
+            node: List node
+
+        Returns:
+            None (lists are just containers, no side effects)
+        """
+        for item in node:
+            if hasattr(item, "visitChildren"):
+                item.visitChildren(self)
+
     @defaultdispatch
     def default(self, node):
         """Default handler for unhandled node types.

@@ -130,7 +130,10 @@ class GetOps(TypeDispatcher):
         ast.BuildTuple,
         ast.BuildList,
         ast.BuildMap,
-        ast.GetIter,
+        ast.BuildSlice,
+        ast.MakeFunction,
+        ast.Import,
+        ast.Yield,
     )
     def visitOp(self, node):
         node.visitChildren(self)
