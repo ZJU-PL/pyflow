@@ -9,8 +9,7 @@ from typing import Iterable, List, Optional, Sequence, Union
 from .context import AnalysisSession
 from .base import run_detectors
 from ..detectors.null_dereference import NullDereferenceDetector
-from ..detectors.taint import TaintDetector
-from ..detectors.taint2 import TaintDetector2
+from ..detectors.semantic_taint import SemanticTaintDetector
 from ..detectors.leak import LeakDetector
 from .issue import Issue
 
@@ -22,7 +21,7 @@ class BugFinderConfig:
     recursive: bool = False
     include: Iterable[str] = field(default_factory=lambda: ("*.py",))
     exclude: Iterable[str] = field(default_factory=tuple)
-    taint_engine: str = "ast"  # "ast" for local analysis, "ipa" for interprocedural
+    taint_engine: str = "semantic"  # Uses comprehensive semantic taint analysis
 
 
 class StaticBugFinder:
@@ -36,14 +35,8 @@ class StaticBugFinder:
         detectors = [
             NullDereferenceDetector(),
             LeakDetector(),
+            SemanticTaintDetector(),  # Comprehensive semantic taint analysis
         ]
-
-        # Select taint detector based on config
-        if self.config.taint_engine == "ipa":
-            detectors.insert(0, TaintDetector2())
-        else:
-            detectors.insert(0, TaintDetector())
-
         return detectors
 
     def analyze(self, paths: Sequence[Union[str, Path]]) -> List[Issue]:
