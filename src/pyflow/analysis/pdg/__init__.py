@@ -29,7 +29,12 @@ Module structure:
 from .graph import PDGNode, PDGEdge, ProgramDependenceGraph
 from .construction import PDGConstructor, construct_pdg
 from .dump import PDGDumper, dump_pdg, dump_pdg_to_directory
-from .cypher import execute as execute_cypher, parse as parse_cypher, CypherSyntaxError, CypherExecutionError
+from .cypher import (
+    execute as execute_cypher,
+    parse as parse_cypher,
+    CypherSyntaxError,
+    CypherExecutionError,
+)
 
 __all__ = [
     "PDGNode",

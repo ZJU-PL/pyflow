@@ -23,7 +23,9 @@ PDGNodeKind = str  # "entry" | "exit" | "block" | "stmt" | "cond" | ...
 class PDGEdge:
     __slots__ = ("source", "target", "kind", "label")
 
-    def __init__(self, source: "PDGNode", target: "PDGNode", kind: PDGEdgeKind, label: str = ""):
+    def __init__(
+        self, source: "PDGNode", target: "PDGNode", kind: PDGEdgeKind, label: str = ""
+    ):
         self.source = source
         self.target = target
         self.kind = kind
@@ -47,7 +49,15 @@ class PDGEdge:
 
 
 class PDGNode:
-    __slots__ = ("node_id", "kind", "cfg_node", "ast_node", "label", "edges_in", "edges_out")
+    __slots__ = (
+        "node_id",
+        "kind",
+        "cfg_node",
+        "ast_node",
+        "label",
+        "edges_in",
+        "edges_out",
+    )
 
     def __init__(
         self,
@@ -66,7 +76,9 @@ class PDGNode:
         self.edges_in: Set[PDGEdge] = set()
         self.edges_out: Set[PDGEdge] = set()
 
-    def add_edge_to(self, other: "PDGNode", kind: PDGEdgeKind, label: str = "") -> PDGEdge:
+    def add_edge_to(
+        self, other: "PDGNode", kind: PDGEdgeKind, label: str = ""
+    ) -> PDGEdge:
         edge = PDGEdge(self, other, kind, label)
         self.edges_out.add(edge)
         other.edges_in.add(edge)
@@ -136,7 +148,9 @@ class ProgramDependenceGraph:
         ast_node: Any = None,
         label: str = "",
     ) -> PDGNode:
-        node = PDGNode(self._new_id(), kind, cfg_node=cfg_node, ast_node=ast_node, label=label)
+        node = PDGNode(
+            self._new_id(), kind, cfg_node=cfg_node, ast_node=ast_node, label=label
+        )
         self.nodes.append(node)
         if ast_node is not None:
             self._ast_node_index[ast_node] = node
@@ -195,19 +209,33 @@ class ProgramDependenceGraph:
             edge_count += 1
             edge_kinds[e.kind] = edge_kinds.get(e.kind, 0) + 1
 
-        return PDGStats(nodes=len(self.nodes), edges=edge_count, node_kinds=node_kinds, edge_kinds=edge_kinds)
+        return PDGStats(
+            nodes=len(self.nodes),
+            edges=edge_count,
+            node_kinds=node_kinds,
+            edge_kinds=edge_kinds,
+        )
 
-    def successors(self, node: PDGNode, *, kinds: Optional[Set[PDGEdgeKind]] = None) -> Set[PDGNode]:
+    def successors(
+        self, node: PDGNode, *, kinds: Optional[Set[PDGEdgeKind]] = None
+    ) -> Set[PDGNode]:
         if kinds is None:
             return {e.target for e in node.edges_out}
         return {e.target for e in node.edges_out if e.kind in kinds}
 
-    def predecessors(self, node: PDGNode, *, kinds: Optional[Set[PDGEdgeKind]] = None) -> Set[PDGNode]:
+    def predecessors(
+        self, node: PDGNode, *, kinds: Optional[Set[PDGEdgeKind]] = None
+    ) -> Set[PDGNode]:
         if kinds is None:
             return {e.source for e in node.edges_in}
         return {e.source for e in node.edges_in if e.kind in kinds}
 
-    def backward_slice(self, seeds: Sequence[PDGNode], *, kinds: Set[PDGEdgeKind] = frozenset(("data", "control"))) -> Set[PDGNode]:
+    def backward_slice(
+        self,
+        seeds: Sequence[PDGNode],
+        *,
+        kinds: Set[PDGEdgeKind] = frozenset(("data", "control")),
+    ) -> Set[PDGNode]:
         """
         Compute a backward slice (all nodes that can affect the seeds).
         """
@@ -224,7 +252,12 @@ class ProgramDependenceGraph:
                     worklist.append(pred)
         return visited
 
-    def forward_slice(self, seeds: Sequence[PDGNode], *, kinds: Set[PDGEdgeKind] = frozenset(("data", "control"))) -> Set[PDGNode]:
+    def forward_slice(
+        self,
+        seeds: Sequence[PDGNode],
+        *,
+        kinds: Set[PDGEdgeKind] = frozenset(("data", "control")),
+    ) -> Set[PDGNode]:
         """
         Compute a forward slice (all nodes affected by the seeds).
         """
@@ -249,7 +282,9 @@ class ProgramDependenceGraph:
                     edges.add(e)
         return keep, edges
 
-    def cypher(self, query: str, *, params: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+    def cypher(
+        self, query: str, *, params: Optional[Dict[str, Any]] = None
+    ) -> List[Dict[str, Any]]:
         """
         Execute an in-memory Cypher-like query against this PDG.
 

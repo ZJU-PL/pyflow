@@ -7,8 +7,22 @@ from ..core import test_properties as test
 
 # SQL keywords that indicate dangerous operations
 SQL_DANGEROUS_KEYWORDS = [
-    "SELECT", "INSERT", "UPDATE", "DELETE", "DROP", "ALTER", "CREATE", "TRUNCATE",
-    "EXEC", "EXECUTE", "UNION", "GRANT", "REVOKE", "SHUTDOWN", "DELETE", "xp_",
+    "SELECT",
+    "INSERT",
+    "UPDATE",
+    "DELETE",
+    "DROP",
+    "ALTER",
+    "CREATE",
+    "TRUNCATE",
+    "EXEC",
+    "EXECUTE",
+    "UNION",
+    "GRANT",
+    "REVOKE",
+    "SHUTDOWN",
+    "DELETE",
+    "xp_",
 ]
 
 # String formatting patterns that could lead to SQL injection
@@ -20,12 +34,20 @@ SQL_STRING_FORMAT_PATTERNS = [
 
 # Function names that commonly execute SQL
 SQL_EXECUTION_FUNCTIONS = [
-    "execute", "executemany", "executescript", "cursor",
-    "execute_sql", "run_query", "query", "raw_query",
+    "execute",
+    "executemany",
+    "executescript",
+    "cursor",
+    "execute_sql",
+    "run_query",
+    "query",
+    "raw_query",
 ]
 
 
-def sql_injection_issue(text="Possible SQL injection vector through string-based query construction."):
+def sql_injection_issue(
+    text="Possible SQL injection vector through string-based query construction.",
+):
     """Create a SQL injection issue"""
     return issue.Issue(
         severity="MEDIUM",
@@ -84,14 +106,14 @@ def sql_injection_string_formatting(context):
     # Only check calls that look like SQL execution
     if not _is_sql_related_call(context):
         return None
-    
+
     # Check string arguments for formatting patterns
     for arg in context.node.args:
         arg_str = _get_string(arg)
         if arg_str and _check_string_for_sql(arg_str):
             if _check_for_string_formatting(context.node):
                 return sql_injection_issue()
-        
+
         # Check if arg is a formatted string with SQL content
         if isinstance(arg, (ast.BinOp, ast.Call, ast.JoinedStr)):
             # Look for SQL keywords in formatted strings
@@ -100,7 +122,7 @@ def sql_injection_string_formatting(context):
                 left_str = _get_string(arg.left)
                 if left_str and _check_string_for_sql(left_str):
                     return sql_injection_issue()
-    
+
     # Check keyword arguments
     for kw in context.node.keywords:
         if kw.arg and ("sql" in kw.arg.lower() or "query" in kw.arg.lower()):
@@ -108,7 +130,7 @@ def sql_injection_string_formatting(context):
             if kw_str and _check_string_for_sql(kw_str):
                 if _check_for_string_formatting(kw.value):
                     return sql_injection_issue()
-    
+
     return None
 
 
@@ -119,22 +141,23 @@ def sql_injection_concatenation(context):
     # Only check calls that look like SQL execution
     if not _is_sql_related_call(context):
         return None
-    
+
     # Check for string concatenation in arguments
     for arg in context.node.args:
         if isinstance(arg, ast.BinOp) and isinstance(arg.op, ast.Add):
             # String concatenation found
             left_str = _get_string(arg.left)
             right_str = _get_string(arg.right)
-            
+
             # Check if any part contains SQL
-            if (left_str and _check_string_for_sql(left_str)) or \
-               (right_str and _check_string_for_sql(right_str)):
+            if (left_str and _check_string_for_sql(left_str)) or (
+                right_str and _check_string_for_sql(right_str)
+            ):
                 return sql_injection_issue(
                     "Possible SQL injection via string concatenation. "
                     "Use parameterized queries instead."
                 )
-    
+
     # Check keyword arguments for concatenation
     for kw in context.node.keywords:
         if kw.arg and ("sql" in kw.arg.lower() or "query" in kw.arg.lower()):
@@ -143,5 +166,5 @@ def sql_injection_concatenation(context):
                     "Possible SQL injection via string concatenation in keyword argument. "
                     "Use parameterized queries instead."
                 )
-    
+
     return None

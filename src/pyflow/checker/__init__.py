@@ -1,5 +1,3 @@
-
-
 # Security checker for pyflow
 # NOTE: Current, the security checker does not use the facilities in pyflow.
 from .pattern.core.manager import SecurityManager

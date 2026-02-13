@@ -97,7 +97,9 @@ def _has_ldap_scheme_literal(node):
     if isinstance(node, ast.JoinedStr):
         return any(_has_ldap_scheme_literal(part) for part in node.values)
     if isinstance(node, ast.BinOp):
-        return _has_ldap_scheme_literal(node.left) or _has_ldap_scheme_literal(node.right)
+        return _has_ldap_scheme_literal(node.left) or _has_ldap_scheme_literal(
+            node.right
+        )
     if isinstance(node, ast.Call):
         return any(_has_ldap_scheme_literal(arg) for arg in node.args) or any(
             _has_ldap_scheme_literal(kw.value) for kw in node.keywords
@@ -136,8 +138,16 @@ def ldap_simple_bind_user_input(context):
         return None
 
     node = context.node
-    username = node.args[0] if len(node.args) > 0 else _get_kwarg(node, "who", "user", "username")
-    password = node.args[1] if len(node.args) > 1 else _get_kwarg(node, "cred", "pw", "password")
+    username = (
+        node.args[0]
+        if len(node.args) > 0
+        else _get_kwarg(node, "who", "user", "username")
+    )
+    password = (
+        node.args[1]
+        if len(node.args) > 1
+        else _get_kwarg(node, "cred", "pw", "password")
+    )
 
     if _is_user_controlled(username) or _is_user_controlled(password):
         return _ldap_issue(
@@ -161,8 +171,16 @@ def ldap_initialize_and_bind_chain(context):
     if not _is_initialize_call(node.func.value):
         return None
 
-    username = node.args[0] if len(node.args) > 0 else _get_kwarg(node, "who", "user", "username")
-    password = node.args[1] if len(node.args) > 1 else _get_kwarg(node, "cred", "pw", "password")
+    username = (
+        node.args[0]
+        if len(node.args) > 0
+        else _get_kwarg(node, "who", "user", "username")
+    )
+    password = (
+        node.args[1]
+        if len(node.args) > 1
+        else _get_kwarg(node, "cred", "pw", "password")
+    )
     if _is_user_controlled(username) or _is_user_controlled(password):
         return _ldap_issue(
             "Possible LDAP injection: ldap.initialize() result is bound with user-controlled credentials.",
@@ -180,11 +198,19 @@ def ldap_search_unsanitized_filter(context):
         return None
 
     node = context.node
-    base_dn = node.args[0] if len(node.args) > 0 else _get_kwarg(node, "base", "dn", "base_dn")
-    filter_str = node.args[2] if len(node.args) > 2 else _get_kwarg(node, "filterstr", "filter")
+    base_dn = (
+        node.args[0]
+        if len(node.args) > 0
+        else _get_kwarg(node, "base", "dn", "base_dn")
+    )
+    filter_str = (
+        node.args[2] if len(node.args) > 2 else _get_kwarg(node, "filterstr", "filter")
+    )
 
     dn_user_controlled = _is_user_controlled(base_dn) and not _is_escape_call(base_dn)
-    filter_user_controlled = _is_user_controlled(filter_str) and not _is_escape_call(filter_str)
+    filter_user_controlled = _is_user_controlled(filter_str) and not _is_escape_call(
+        filter_str
+    )
 
     if filter_user_controlled:
         return _ldap_issue(

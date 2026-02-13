@@ -80,7 +80,9 @@ class LocalizationQueries:
         return [name for name, _ in results[:max_results]]
 
     def get_localization_candidates(
-        self, symptom_function: Union[str, object], suspicious_variable: Optional[str] = None
+        self,
+        symptom_function: Union[str, object],
+        suspicious_variable: Optional[str] = None,
     ) -> List[LocalizationCandidate]:
         """
         Get candidate functions that may contain a bug affecting the symptom.

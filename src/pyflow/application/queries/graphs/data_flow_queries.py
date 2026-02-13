@@ -119,9 +119,7 @@ class DataFlowQueries:
         # This is a simplified implementation
         return self._extract_reaching_defs_from_ssa(ssa_cfg, code)
 
-    def _get_reaching_defs_from_defuse(
-        self, code
-    ) -> Dict[str, List[ReachingDef]]:
+    def _get_reaching_defs_from_defuse(self, code) -> Dict[str, List[ReachingDef]]:
         """Extract reaching definitions using def-use analysis.
 
         Args:
@@ -180,9 +178,7 @@ class DataFlowQueries:
 
         return reaching_defs
 
-    def _collect_defs_from_cfg(
-        self, cfg, code
-    ) -> Dict[str, List[ReachingDef]]:
+    def _collect_defs_from_cfg(self, cfg, code) -> Dict[str, List[ReachingDef]]:
         """Collect definitions from CFG blocks.
 
         Args:
@@ -217,14 +213,23 @@ class DataFlowQueries:
                                     ReachingDef(
                                         variable=var_name,
                                         def_location=getattr(stmt, "lineno", None),
-                                        def_value=self._describe_value(stmt.value) if hasattr(stmt, "value") else None,
-                                        is_call=hasattr(stmt, "value") and hasattr(stmt.value, "func"),
+                                        def_value=(
+                                            self._describe_value(stmt.value)
+                                            if hasattr(stmt, "value")
+                                            else None
+                                        ),
+                                        is_call=hasattr(stmt, "value")
+                                        and hasattr(stmt.value, "func"),
                                     )
                                 )
 
                 # Add successors to queue
                 if hasattr(block, "next"):
-                    for successor in (block.next.values() if isinstance(block.next, dict) else [block.next]):
+                    for successor in (
+                        block.next.values()
+                        if isinstance(block.next, dict)
+                        else [block.next]
+                    ):
                         if successor and successor not in visited:
                             queue.append(successor)
         except Exception:
@@ -329,9 +334,7 @@ class DataFlowQueries:
             return None
         return store_graph
 
-    def _get_aliases_from_storegraph(
-        self, code, store_graph
-    ) -> Dict[str, AliasInfo]:
+    def _get_aliases_from_storegraph(self, code, store_graph) -> Dict[str, AliasInfo]:
         """Extract alias information from store graph.
 
         Args:
@@ -521,9 +524,7 @@ class DataFlowQueries:
         # For now, mark all defined variables as potentially aliased
         return aliases
 
-    def get_points_to(
-        self, function: Union[str, object]
-    ) -> Dict[str, PointsToInfo]:
+    def get_points_to(self, function: Union[str, object]) -> Dict[str, PointsToInfo]:
         """Return points-to information for all variables in a function.
 
         This tells you what objects each variable may point to during analysis.

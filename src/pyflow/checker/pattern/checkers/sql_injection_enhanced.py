@@ -38,8 +38,18 @@ DJANGO_CURSOR_FUNCTIONS = [
 ]
 
 SQL_KEYWORDS = [
-    "SELECT", "INSERT", "UPDATE", "DELETE", "DROP", "CREATE", "ALTER",
-    "UNION", "EXEC", "EXECUTE", "GRANT", "REVOKE",
+    "SELECT",
+    "INSERT",
+    "UPDATE",
+    "DELETE",
+    "DROP",
+    "CREATE",
+    "ALTER",
+    "UNION",
+    "EXEC",
+    "EXECUTE",
+    "GRANT",
+    "REVOKE",
 ]
 
 
@@ -57,9 +67,25 @@ def _is_user_input(node):
     if isinstance(node, ast.Name):
         name = node.id.lower()
         suspicious_names = [
-            'user', 'input', 'data', 'payload', 'request', 'form', 'query',
-            'param', 'arg', 'value', 'id', 'name', 'username', 'password',
-            'email', 'search', 'filter', 'sort', 'order',
+            "user",
+            "input",
+            "data",
+            "payload",
+            "request",
+            "form",
+            "query",
+            "param",
+            "arg",
+            "value",
+            "id",
+            "name",
+            "username",
+            "password",
+            "email",
+            "search",
+            "filter",
+            "sort",
+            "order",
         ]
         return any(sn in name for sn in suspicious_names)
     return False
@@ -114,12 +140,14 @@ def django_orm_extra_injection(context):
                         confidence="HIGH",
                         cwe=issue.Cwe.SQL_INJECTION,
                         text="Django ORM extra() with f-string in 'where' parameter. "
-                             "This is a SQL injection vulnerability. "
-                             "Use parameterized queries instead.",
+                        "This is a SQL injection vulnerability. "
+                        "Use parameterized queries instead.",
                     )
 
                 # Check for % formatting
-                if isinstance(where_value, ast.BinOp) and isinstance(where_value.op, ast.Mod):
+                if isinstance(where_value, ast.BinOp) and isinstance(
+                    where_value.op, ast.Mod
+                ):
                     left_str = _get_string(where_value.left)
                     if left_str and _contains_sql_keyword(left_str):
                         return issue.Issue(
@@ -127,20 +155,27 @@ def django_orm_extra_injection(context):
                             confidence="HIGH",
                             cwe=issue.Cwe.SQL_INJECTION,
                             text="Django ORM extra() with % formatting containing SQL. "
-                                 "This is a SQL injection vulnerability.",
+                            "This is a SQL injection vulnerability.",
                         )
 
                 # Check for .format()
                 if isinstance(where_value, ast.Call):
-                    if hasattr(where_value.func, 'attr') and where_value.func.attr == "format":
-                        format_str = _get_string(where_value.func.value) if hasattr(where_value.func, 'value') else None
+                    if (
+                        hasattr(where_value.func, "attr")
+                        and where_value.func.attr == "format"
+                    ):
+                        format_str = (
+                            _get_string(where_value.func.value)
+                            if hasattr(where_value.func, "value")
+                            else None
+                        )
                         if format_str and _contains_sql_keyword(format_str):
                             return issue.Issue(
                                 severity="HIGH",
                                 confidence="HIGH",
                                 cwe=issue.Cwe.SQL_INJECTION,
                                 text="Django ORM extra() with .format() containing SQL. "
-                                     "This is a SQL injection vulnerability.",
+                                "This is a SQL injection vulnerability.",
                             )
 
         # Check 'select' parameter
@@ -153,7 +188,7 @@ def django_orm_extra_injection(context):
                         confidence="HIGH",
                         cwe=issue.Cwe.SQL_INJECTION,
                         text="Django ORM extra() with f-string in 'select' parameter. "
-                             "This is a SQL injection vulnerability.",
+                        "This is a SQL injection vulnerability.",
                     )
 
     return None
@@ -206,8 +241,8 @@ def sqlalchemy_raw_sql_injection(context):
                             confidence="HIGH",
                             cwe=issue.Cwe.SQL_INJECTION,
                             text="SQLAlchemy execute() with f-string containing SQL keywords. "
-                                 "This is a SQL injection vulnerability. "
-                                 "Use parameterized queries with :param or ? placeholders.",
+                            "This is a SQL injection vulnerability. "
+                            "Use parameterized queries with :param or ? placeholders.",
                         )
 
                 # Check if f-string contains a variable
@@ -217,8 +252,8 @@ def sqlalchemy_raw_sql_injection(context):
                         confidence="MEDIUM",
                         cwe=issue.Cwe.SQL_INJECTION,
                         text="SQLAlchemy execute() with f-string. "
-                             "This pattern can lead to SQL injection if "
-                             "the interpolated value is user-controlled.",
+                        "This pattern can lead to SQL injection if "
+                        "the interpolated value is user-controlled.",
                     )
 
         # % formatting
@@ -230,20 +265,24 @@ def sqlalchemy_raw_sql_injection(context):
                     confidence="HIGH",
                     cwe=issue.Cwe.SQL_INJECTION,
                     text="SQLAlchemy execute() with % formatting containing SQL. "
-                         "This is a SQL injection vulnerability.",
+                    "This is a SQL injection vulnerability.",
                 )
 
         # .format()
         if isinstance(first_arg, ast.Call):
-            if hasattr(first_arg.func, 'attr') and first_arg.func.attr == "format":
-                format_str = _get_string(first_arg.func.value) if hasattr(first_arg.func, 'value') else None
+            if hasattr(first_arg.func, "attr") and first_arg.func.attr == "format":
+                format_str = (
+                    _get_string(first_arg.func.value)
+                    if hasattr(first_arg.func, "value")
+                    else None
+                )
                 if format_str and _contains_sql_keyword(format_str):
                     return issue.Issue(
                         severity="HIGH",
                         confidence="HIGH",
                         cwe=issue.Cwe.SQL_INJECTION,
                         text="SQLAlchemy execute() with .format() containing SQL. "
-                             "This is a SQL injection vulnerability.",
+                        "This is a SQL injection vulnerability.",
                     )
 
     return None
@@ -276,7 +315,9 @@ def sqlalchemy_dynamic_table_names(context):
         return None
 
     # Check if this is a SQLAlchemy or Django cursor call
-    is_sql = any(sa in func_name for sa in SQLALCHEMY_FUNCTIONS + DJANGO_CURSOR_FUNCTIONS)
+    is_sql = any(
+        sa in func_name for sa in SQLALCHEMY_FUNCTIONS + DJANGO_CURSOR_FUNCTIONS
+    )
 
     if not is_sql:
         return None
@@ -295,8 +336,8 @@ def sqlalchemy_dynamic_table_names(context):
                             confidence="MEDIUM",
                             cwe=issue.Cwe.SQL_INJECTION,
                             text="SQL query with user-controlled table/column name. "
-                                 "Table and column names cannot be parameterized. "
-                                 "Use an allowlist of permitted names.",
+                            "Table and column names cannot be parameterized. "
+                            "Use an allowlist of permitted names.",
                         )
 
     # Check keywords
@@ -308,7 +349,7 @@ def sqlalchemy_dynamic_table_names(context):
                     confidence="MEDIUM",
                     cwe=issue.Cwe.SQL_INJECTION,
                     text="Dynamic table/column name in SQL query. "
-                         "Use an allowlist of permitted names.",
+                    "Use an allowlist of permitted names.",
                 )
 
     return None
@@ -360,8 +401,8 @@ def django_cursor_raw_sql(context):
                             confidence="HIGH",
                             cwe=issue.Cwe.SQL_INJECTION,
                             text="Django cursor.execute() with f-string containing user input. "
-                                 "This is a SQL injection vulnerability. "
-                                 "Use parameterized queries with %s placeholders.",
+                            "This is a SQL injection vulnerability. "
+                            "Use parameterized queries with %s placeholders.",
                         )
 
         # % formatting
@@ -375,35 +416,43 @@ def django_cursor_raw_sql(context):
                         confidence="HIGH",
                         cwe=issue.Cwe.SQL_INJECTION,
                         text="Django cursor.execute() with % formatting and user input. "
-                             "This is a SQL injection vulnerability.",
+                        "This is a SQL injection vulnerability.",
                     )
 
         # .format()
         if isinstance(first_arg, ast.Call):
-            if hasattr(first_arg.func, 'attr') and first_arg.func.attr == "format":
-                format_str = _get_string(first_arg.func.value) if hasattr(first_arg.func, 'value') else None
+            if hasattr(first_arg.func, "attr") and first_arg.func.attr == "format":
+                format_str = (
+                    _get_string(first_arg.func.value)
+                    if hasattr(first_arg.func, "value")
+                    else None
+                )
                 if format_str and _contains_sql_keyword(format_str):
                     return issue.Issue(
                         severity="HIGH",
                         confidence="HIGH",
                         cwe=issue.Cwe.SQL_INJECTION,
                         text="Django cursor.execute() with .format() containing SQL. "
-                             "This is a SQL injection vulnerability.",
+                        "This is a SQL injection vulnerability.",
                     )
 
     # Check if parameters are missing
     has_params = len(node.args) > 1 or any(
-        kw.arg for kw in node.keywords if kw.arg in ['params', 'placeholders']
+        kw.arg for kw in node.keywords if kw.arg in ["params", "placeholders"]
     )
 
     # Only check first_arg if it was defined in one of the above checks
-    if not has_params and 'first_arg' in locals() and isinstance(first_arg, (ast.JoinedStr, ast.BinOp)):
+    if (
+        not has_params
+        and "first_arg" in locals()
+        and isinstance(first_arg, (ast.JoinedStr, ast.BinOp))
+    ):
         return issue.Issue(
             severity="LOW",
             confidence="LOW",
             cwe=issue.Cwe.SQL_INJECTION,
             text="Raw SQL in execute() without parameters. "
-                 "Ensure this does not include user input.",
+            "Ensure this does not include user input.",
         )
 
     return None
@@ -458,8 +507,8 @@ def sqlalchemy_in_operator_injection(context):
                                         confidence="MEDIUM",
                                         cwe=issue.Cwe.SQL_INJECTION,
                                         text="SQL IN clause with user input. "
-                                             "This can lead to SQL injection if "
-                                             "the user input contains commas or SQL.",
+                                        "This can lead to SQL injection if "
+                                        "the user input contains commas or SQL.",
                                     )
 
     return None
@@ -506,8 +555,8 @@ def nosql_injection(context):
                                 confidence="HIGH",
                                 cwe=issue.Cwe.SQL_INJECTION,
                                 text="MongoDB $where with user input. "
-                                     "$where executes JavaScript and is vulnerable to injection. "
-                                     "Use query operators like $eq instead.",
+                                "$where executes JavaScript and is vulnerable to injection. "
+                                "Use query operators like $eq instead.",
                             )
 
             # Check for string formatting
@@ -519,7 +568,7 @@ def nosql_injection(context):
                         confidence="HIGH",
                         cwe=issue.Cwe.SQL_INJECTION,
                         text="MongoDB $where with string formatting. "
-                                     "This is a NoSQL injection vulnerability.",
+                        "This is a NoSQL injection vulnerability.",
                     )
 
     return None

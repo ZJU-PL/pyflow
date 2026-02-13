@@ -82,7 +82,9 @@ def _safe_cfg_label(node: Any) -> str:
         return "CFG"
 
 
-def _collect_local_defs_uses(root: Any, *, root_code: Optional[py_ast.Code]) -> Tuple[Set[py_ast.Local], Set[py_ast.Local]]:
+def _collect_local_defs_uses(
+    root: Any, *, root_code: Optional[py_ast.Code]
+) -> Tuple[Set[py_ast.Local], Set[py_ast.Local]]:
     duv = py_defuse.DefUseVisitor()
     _IntraproceduralDFS(duv, root_code=root_code).process(root)
     return set(duv.lcldef.keys()), set(duv.lcluse.keys())
@@ -125,7 +127,9 @@ class PDGConstructor:
 
         return pdg
 
-    def _reachable_cfg_nodes(self, entry: cfg_graph.CFGBlock) -> List[cfg_graph.CFGBlock]:
+    def _reachable_cfg_nodes(
+        self, entry: cfg_graph.CFGBlock
+    ) -> List[cfg_graph.CFGBlock]:
         visited: Set[cfg_graph.CFGBlock] = set()
         order: List[cfg_graph.CFGBlock] = []
         stack: List[cfg_graph.CFGBlock] = [entry]
@@ -140,19 +144,27 @@ class PDGConstructor:
                     stack.append(nxt)
         return order
 
-    def _add_pdg_nodes(self, pdg: ProgramDependenceGraph, cfg_nodes: Sequence[cfg_graph.CFGBlock]) -> None:
+    def _add_pdg_nodes(
+        self, pdg: ProgramDependenceGraph, cfg_nodes: Sequence[cfg_graph.CFGBlock]
+    ) -> None:
         root_code = getattr(pdg.cfg, "code", None)
 
         for cnode in cfg_nodes:
             # Always create a block/anchor node so control dependence wiring is stable
             if isinstance(cnode, cfg_graph.Entry):
-                anchor = pdg.add_node("entry", cfg_node=cnode, label=_safe_cfg_label(cnode))
+                anchor = pdg.add_node(
+                    "entry", cfg_node=cnode, label=_safe_cfg_label(cnode)
+                )
                 pdg.entry = anchor
             elif isinstance(cnode, cfg_graph.Exit):
-                anchor = pdg.add_node("exit", cfg_node=cnode, label=_safe_cfg_label(cnode))
+                anchor = pdg.add_node(
+                    "exit", cfg_node=cnode, label=_safe_cfg_label(cnode)
+                )
                 pdg.exit_nodes.append(anchor)
             else:
-                anchor = pdg.add_node("block", cfg_node=cnode, label=_safe_cfg_label(cnode))
+                anchor = pdg.add_node(
+                    "block", cfg_node=cnode, label=_safe_cfg_label(cnode)
+                )
 
             pdg.set_cfg_anchor(cnode, anchor)
             pdg.add_cfg_content(cnode, anchor)
@@ -160,21 +172,29 @@ class PDGConstructor:
             # Block contents at statement/condition granularity
             if isinstance(cnode, cfg_graph.Suite):
                 for op in list(getattr(cnode, "ops", ())):
-                    n = pdg.add_node("stmt", cfg_node=cnode, ast_node=op, label=_safe_ast_label(op))
+                    n = pdg.add_node(
+                        "stmt", cfg_node=cnode, ast_node=op, label=_safe_ast_label(op)
+                    )
                     pdg.add_cfg_content(cnode, n)
             elif isinstance(cnode, cfg_graph.Switch):
                 cond = cnode.condition
-                n = pdg.add_node("cond", cfg_node=cnode, ast_node=cond, label=_safe_ast_label(cond))
+                n = pdg.add_node(
+                    "cond", cfg_node=cnode, ast_node=cond, label=_safe_ast_label(cond)
+                )
                 pdg.add_cfg_content(cnode, n)
                 pdg.set_cfg_anchor(cnode, n)
             elif isinstance(cnode, cfg_graph.TypeSwitch):
                 cond = cnode.original.conditional
-                n = pdg.add_node("cond", cfg_node=cnode, ast_node=cond, label=_safe_ast_label(cond))
+                n = pdg.add_node(
+                    "cond", cfg_node=cnode, ast_node=cond, label=_safe_ast_label(cond)
+                )
                 pdg.add_cfg_content(cnode, n)
                 pdg.set_cfg_anchor(cnode, n)
             elif isinstance(cnode, cfg_graph.Merge):
                 for phi in list(getattr(cnode, "phi", ())):
-                    n = pdg.add_node("stmt", cfg_node=cnode, ast_node=phi, label=_safe_ast_label(phi))
+                    n = pdg.add_node(
+                        "stmt", cfg_node=cnode, ast_node=phi, label=_safe_ast_label(phi)
+                    )
                     pdg.add_cfg_content(cnode, n)
 
     def _add_control_edges_from_cfg(
@@ -200,7 +220,9 @@ class PDGConstructor:
             postdom[node] = dj_node
 
         roots = [pdg.cfg.normalTerminal, pdg.cfg.failTerminal, pdg.cfg.errorTerminal]
-        cfg_dom.evaluate([r for r in roots if r is not None], forward_callback, bind_callback)
+        cfg_dom.evaluate(
+            [r for r in roots if r is not None], forward_callback, bind_callback
+        )
 
         def ipdom(node: cfg_graph.CFGBlock) -> Optional[cfg_graph.CFGBlock]:
             dj = postdom.get(node)

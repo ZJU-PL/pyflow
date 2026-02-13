@@ -104,9 +104,7 @@ def run_security_analysis(targets, args):
 
         # Run benchmark with specified taint engine
         runner = MicroBenchRunner(
-            engine=args.engine,
-            taint_engine=args.taint_engine,
-            verbose=args.verbose
+            engine=args.engine, taint_engine=args.taint_engine, verbose=args.verbose
         )
         results = runner.run_benchmark(bench_path)
         runner.print_results(results)
@@ -125,7 +123,9 @@ def run_security_analysis(targets, args):
                 verbose=args.verbose,
                 recursive=args.recursive,
                 exclude=tuple(args.exclude.split(",")) if args.exclude else tuple(),
-                taint_engine=args.taint_engine if args.taint_engine != "both" else "ast",
+                taint_engine=(
+                    args.taint_engine if args.taint_engine != "both" else "ast"
+                ),
             )
             manager = SemanticManager(
                 config=config, debug=args.debug, verbose=args.verbose, quiet=False

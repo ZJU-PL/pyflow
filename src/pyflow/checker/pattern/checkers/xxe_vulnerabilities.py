@@ -22,8 +22,14 @@ def _check_parser_has_dtd_or_entity_resolution(call_node):
         if keyword.arg:
             arg_lower = keyword.arg.lower()
             # Check for dangerous settings
-            if arg_lower in ('load_dtd', 'dtd_loader', 'resolve_entities',
-                            'entity_resolution', 'no_network', 'dtd_validation'):
+            if arg_lower in (
+                "load_dtd",
+                "dtd_loader",
+                "resolve_entities",
+                "entity_resolution",
+                "no_network",
+                "dtd_validation",
+            ):
                 # Get the value - check if it's True (dangerous) or False (safe)
                 if isinstance(keyword.value, ast.Constant):
                     if keyword.value.value is True:
@@ -49,8 +55,11 @@ def lxml_html_parser_entity_sub(context):
         call_node = context.node
         # HTMLParser may have different dangerous parameters
         for keyword in call_node.keywords:
-            if keyword.arg and keyword.arg.lower() in ('entity_substitution',):
-                if isinstance(keyword.value, ast.Constant) and keyword.value.value is True:
+            if keyword.arg and keyword.arg.lower() in ("entity_substitution",):
+                if (
+                    isinstance(keyword.value, ast.Constant)
+                    and keyword.value.value is True
+                ):
                     return xxe_issue()
 
 
@@ -64,7 +73,7 @@ def lxml_fromstring_with_dangerous_parser(context):
         if len(call_node.args) >= 2:
             parser_arg = call_node.args[1]
             if isinstance(parser_arg, ast.Call):
-                if parser_arg.func.attr in ['XMLParser', 'HTMLParser']:
+                if parser_arg.func.attr in ["XMLParser", "HTMLParser"]:
                     if _check_parser_has_dtd_or_entity_resolution(parser_arg):
                         return xxe_issue()
 
@@ -73,7 +82,10 @@ def lxml_fromstring_with_dangerous_parser(context):
 @test.with_id("B304")
 def xml_dom_minidom_parse(context):
     """Check for xml.dom.minidom parsing (can expand entities)"""
-    if context.call_function_name_qual in ["xml.dom.minidom.parse", "xml.dom.minidom.parseString"]:
+    if context.call_function_name_qual in [
+        "xml.dom.minidom.parse",
+        "xml.dom.minidom.parseString",
+    ]:
         # minidom can expand entities by default
         return xxe_issue()
 
@@ -97,7 +109,7 @@ def expat_parser_create(context):
         # ParserCreate returns a parser - we can't easily check its configuration
         # but this is a potential warning point
         for keyword in call_node.keywords:
-            if keyword.arg and keyword.arg.lower() in ('namespace_separator',):
+            if keyword.arg and keyword.arg.lower() in ("namespace_separator",):
                 return xxe_issue()
 
 
@@ -105,7 +117,9 @@ def expat_parser_create(context):
 @test.with_id("B307")
 def defusedxml_lxml_safe(context):
     """Check for safe defusedxml lxml usage (should NOT flag)"""
-    if context.call_function_name_qual and context.call_function_name_qual.startswith("defusedxml.lxml"):
+    if context.call_function_name_qual and context.call_function_name_qual.startswith(
+        "defusedxml.lxml"
+    ):
         # defusedxml is the safe alternative - skip these
         pass
 

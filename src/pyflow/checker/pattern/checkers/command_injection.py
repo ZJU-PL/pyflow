@@ -76,7 +76,9 @@ def _name_looks_user_controlled(name):
 
 def _looks_like_user_source_attr(node):
     if isinstance(node, ast.Attribute):
-        return _name_looks_user_controlled(node.attr) or _looks_like_user_source_attr(node.value)
+        return _name_looks_user_controlled(node.attr) or _looks_like_user_source_attr(
+            node.value
+        )
     if isinstance(node, ast.Name):
         return _name_looks_user_controlled(node.id)
     if isinstance(node, ast.Subscript):
@@ -89,7 +91,11 @@ def _is_string_formatting(node):
         return True
     if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Mod):
         return True
-    if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "format":
+    if (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "format"
+    ):
         return True
     if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
         left_string = isinstance(node.left, (ast.Str, ast.JoinedStr)) or (
@@ -126,28 +132,36 @@ def _is_user_controlled_command_path(node):
 
 def _is_user_input(node):
     """Check if a node represents user-controlled input.
-    
+
     Conservative implementation to reduce false positives.
     Only flags high-confidence user input sources.
     """
     if node is None:
         return False
-    
+
     # Constants are NEVER user-controlled
     if isinstance(node, (ast.Constant, ast.Str, ast.Num)):
         return False
-    
+
     # List/Tuple/Dict literals - check contents
     if isinstance(node, (ast.List, ast.Tuple, ast.Set)):
         return any(_is_user_input(elt) for elt in node.elts)
     if isinstance(node, ast.Dict):
         return any(_is_user_input(v) for v in node.values) if node.values else False
-    
+
     if isinstance(node, ast.Name):
         # Only flag HIGH-CONFIDENCE markers
         name = node.id.lower()
-        return name in ("input", "raw_input", "request", "args", "query", "form", "payload")
-    
+        return name in (
+            "input",
+            "raw_input",
+            "request",
+            "args",
+            "query",
+            "form",
+            "payload",
+        )
+
     if isinstance(node, ast.Attribute):
         attr = node.attr.lower()
         # High-risk Flask/Django request attributes
@@ -161,10 +175,10 @@ def _is_user_input(node):
                 if "request" in base.lower():
                     return True
         return False
-    
+
     if isinstance(node, ast.Subscript):
         return _is_user_input(node.value) or _is_user_input(node.slice)
-    
+
     if isinstance(node, ast.Call):
         if isinstance(node.func, ast.Name) and node.func.id in ("input", "raw_input"):
             return True
@@ -173,13 +187,16 @@ def _is_user_input(node):
             if attr in ("get", "getvalue", "get_json", "json"):
                 return True
         return any(_is_user_input(arg) for arg in node.args)
-    
+
     if isinstance(node, ast.JoinedStr):
-        return any(isinstance(v, ast.FormattedValue) and _is_user_input(v.value) for v in node.values)
-    
+        return any(
+            isinstance(v, ast.FormattedValue) and _is_user_input(v.value)
+            for v in node.values
+        )
+
     if isinstance(node, ast.BinOp):
         return _is_user_input(node.left) or _is_user_input(node.right)
-    
+
     return False
 
 
@@ -213,7 +230,9 @@ def subprocess_run_shell_true_user_input(context):
 
     cmd = _first_arg(context.node)
     if _is_dangerous_command_expr(cmd):
-        return _new_issue("subprocess.run() with shell=True uses user-controlled command input.")
+        return _new_issue(
+            "subprocess.run() with shell=True uses user-controlled command input."
+        )
     return None
 
 
@@ -227,7 +246,9 @@ def subprocess_call_shell_true_user_input(context):
 
     cmd = _first_arg(context.node)
     if _is_dangerous_command_expr(cmd):
-        return _new_issue("subprocess.call() with shell=True uses user-controlled command input.")
+        return _new_issue(
+            "subprocess.call() with shell=True uses user-controlled command input."
+        )
     return None
 
 
@@ -241,7 +262,9 @@ def subprocess_popen_shell_true_user_input(context):
 
     cmd = _first_arg(context.node)
     if _is_dangerous_command_expr(cmd):
-        return _new_issue("subprocess.Popen() with shell=True uses user-controlled command input.")
+        return _new_issue(
+            "subprocess.Popen() with shell=True uses user-controlled command input."
+        )
     return None
 
 
@@ -276,15 +299,22 @@ def popen2_shell_true(context):
         return None
 
     if _is_shell_true(context) or _is_dangerous_command_expr(_first_arg(context.node)):
-        return _new_issue("popen2.Popen() with shell=True or dynamic command may allow command injection.")
+        return _new_issue(
+            "popen2.Popen() with shell=True or dynamic command may allow command injection."
+        )
     return None
 
 
 @test.checks("Call")
 @test.with_id("B707")
 def commands_module_usage(context):
-    if context.call_function_name_qual in {"commands.getoutput", "commands.getstatusoutput"}:
-        return _new_issue("commands module executes shell commands and may allow command injection.")
+    if context.call_function_name_qual in {
+        "commands.getoutput",
+        "commands.getstatusoutput",
+    }:
+        return _new_issue(
+            "commands module executes shell commands and may allow command injection."
+        )
     return None
 
 
@@ -295,12 +325,16 @@ def command_string_formatting(context):
     node = context.node
     cmd = _first_arg(node)
 
-    if call_qual in COMMAND_SINKS and (_is_string_formatting(cmd) or _is_shlex_join_with_user_input(cmd)):
+    if call_qual in COMMAND_SINKS and (
+        _is_string_formatting(cmd) or _is_shlex_join_with_user_input(cmd)
+    ):
         return _new_issue(
             "Command string is built via formatting or shlex.join with user input; this may enable command injection."
         )
 
     if call_qual == "shlex.join" and node.args and _is_user_input(node.args[0]):
-        return _new_issue("shlex.join() is used with user input to construct a shell command.")
+        return _new_issue(
+            "shlex.join() is used with user input to construct a shell command."
+        )
 
     return None

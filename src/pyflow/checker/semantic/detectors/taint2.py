@@ -50,6 +50,7 @@ DEFAULT_SINKS = {
 @dataclass
 class FunctionSummary:
     """Summary of taint analysis for a function."""
+
     name: str
     has_source: bool = False
     returns_tainted: bool = False
@@ -142,7 +143,9 @@ class TaintDetector2(Detector):
         known_callees = set(function_trees.keys()) | set(return_param_deps.keys())
         summaries: Dict[str, FunctionSummary] = {}
         tainted_params: Dict[str, Set[str]] = {name: set() for name in known_callees}
-        tainted_param_keys: Dict[str, Dict[str, Set[str]]] = {name: {} for name in known_callees}
+        tainted_param_keys: Dict[str, Dict[str, Set[str]]] = {
+            name: {} for name in known_callees
+        }
         returns_unconditional: Dict[str, bool] = {name: False for name in known_callees}
         for name in known_callees:
             vararg_names.setdefault(name, None)
@@ -159,13 +162,16 @@ class TaintDetector2(Detector):
                 callee: summary.has_source for callee, summary in summaries.items()
             }
             callee_param_taint_outputs = {
-                callee: summary.param_taint_outputs for callee, summary in summaries.items()
+                callee: summary.param_taint_outputs
+                for callee, summary in summaries.items()
             }
             callee_param_key_writes = {
-                callee: summary.param_key_writes for callee, summary in summaries.items()
+                callee: summary.param_key_writes
+                for callee, summary in summaries.items()
             }
             callee_param_key_taint_writes = {
-                callee: summary.param_key_taint_writes for callee, summary in summaries.items()
+                callee: summary.param_key_taint_writes
+                for callee, summary in summaries.items()
             }
             next_summaries: Dict[str, FunctionSummary] = {}
             next_unconditional: Dict[str, bool] = {}
@@ -310,7 +316,9 @@ class TaintDetector2(Detector):
         )
         return summary, analyzer.call_param_taints, analyzer.call_param_key_taints
 
-    def _summary_changed(self, old: Optional[FunctionSummary], new: FunctionSummary) -> bool:
+    def _summary_changed(
+        self, old: Optional[FunctionSummary], new: FunctionSummary
+    ) -> bool:
         if old is None:
             return True
         return (
@@ -328,7 +336,10 @@ class TaintDetector2(Detector):
     def _extract_param_names(self, tree: ast.AST, name: str) -> List[str]:
         """Extract parameter names from function AST."""
         for node in ast.walk(tree):
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == name:
+            if (
+                isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                and node.name == name
+            ):
                 return self._collect_param_names(node.args)
         return []
 
@@ -337,7 +348,10 @@ class TaintDetector2(Detector):
     ) -> Tuple[Optional[str], Optional[str]]:
         """Extract *args/**kwargs parameter names (if any) from function AST."""
         for node in ast.walk(tree):
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == name:
+            if (
+                isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                and node.name == name
+            ):
                 vararg = node.args.vararg.arg if node.args.vararg else None
                 kwarg = node.args.kwarg.arg if node.args.kwarg else None
                 return vararg, kwarg
@@ -382,7 +396,9 @@ class TaintDetector2(Detector):
                 deps = self._extract_ipa_return_deps(context.returns, params)
                 if deps:
                     return_param_deps.setdefault(name, set()).update(deps)
-            returns_value[name] = returns_value.get(name, False) or bool(context.returns)
+            returns_value[name] = returns_value.get(name, False) or bool(
+                context.returns
+            )
 
         return return_param_deps, returns_value
 
@@ -508,7 +524,9 @@ class _LocalTaintAnalyzer2(ast.NodeVisitor):
             if value is None:
                 return None
             return value if isinstance(expr.op, ast.UAdd) else -value
-        if isinstance(expr, ast.BinOp) and isinstance(expr.op, (ast.Add, ast.Sub, ast.Mult)):
+        if isinstance(expr, ast.BinOp) and isinstance(
+            expr.op, (ast.Add, ast.Sub, ast.Mult)
+        ):
             left = self._const_int(expr.left)
             right = self._const_int(expr.right)
             if left is None or right is None:
@@ -518,7 +536,11 @@ class _LocalTaintAnalyzer2(ast.NodeVisitor):
             if isinstance(expr.op, ast.Sub):
                 return left - right
             return left * right
-        if isinstance(expr, ast.Call) and self._call_fullname(expr.func) == "len" and expr.args:
+        if (
+            isinstance(expr, ast.Call)
+            and self._call_fullname(expr.func) == "len"
+            and expr.args
+        ):
             arg0 = expr.args[0]
             if isinstance(arg0, ast.Name) and arg0.id in self.list_lengths:
                 return self.list_lengths[arg0.id]
@@ -538,7 +560,11 @@ class _LocalTaintAnalyzer2(ast.NodeVisitor):
                 return all(values)  # type: ignore[arg-type]
             if isinstance(expr.op, ast.Or):
                 return any(values)  # type: ignore[arg-type]
-        if isinstance(expr, ast.Compare) and len(expr.ops) == 1 and len(expr.comparators) == 1:
+        if (
+            isinstance(expr, ast.Compare)
+            and len(expr.ops) == 1
+            and len(expr.comparators) == 1
+        ):
             left = expr.left
             right = expr.comparators[0]
             left_int = self._const_int(left)
@@ -594,7 +620,9 @@ class _LocalTaintAnalyzer2(ast.NodeVisitor):
         self.tainted_paths.add(path)
         self.paths_by_root.setdefault(path[0], set()).add(path)
 
-    def _record_literal_taint_paths(self, prefix: Tuple[str, ...], expr: ast.AST) -> None:
+    def _record_literal_taint_paths(
+        self, prefix: Tuple[str, ...], expr: ast.AST
+    ) -> None:
         """Record tainted leaf paths inside dict/list/tuple literals under prefix."""
         if isinstance(expr, ast.Dict):
             for k, v in zip(expr.keys, expr.values):
@@ -707,7 +735,9 @@ class _LocalTaintAnalyzer2(ast.NodeVisitor):
                     self.tainted.discard(target.id)
                     self._clear_container_taint(target.id)
                     continue
-                elif isinstance(node.value, ast.Constant) and isinstance(node.value.value, int):
+                elif isinstance(node.value, ast.Constant) and isinstance(
+                    node.value.value, int
+                ):
                     self.int_parity[target.id] = node.value.value % 2
                     self.int_values[target.id] = node.value.value
 
@@ -775,7 +805,9 @@ class _LocalTaintAnalyzer2(ast.NodeVisitor):
                 key_expr_is_tainted = self._expr_is_tainted(target.slice)
 
                 # Tainted keys taint the container structure even if the stored value is safe.
-                if base and (value_is_source or value_is_tainted or key_expr_is_tainted):
+                if base and (
+                    value_is_source or value_is_tainted or key_expr_is_tainted
+                ):
                     if key_expr_is_tainted:
                         # Only dict keys are exposed via `keys()`; track this separately so
                         # `values()` remains precise when only keys are tainted.
@@ -801,7 +833,10 @@ class _LocalTaintAnalyzer2(ast.NodeVisitor):
             elif isinstance(target, (ast.Tuple, ast.List)):
                 # Destructuring assignment / unpacking.
                 # 1) Dict key iteration destructuring: `k1, k2 = d` where `d` is a dict literal.
-                if isinstance(node.value, ast.Name) and node.value.id in self.dict_key_order:
+                if (
+                    isinstance(node.value, ast.Name)
+                    and node.value.id in self.dict_key_order
+                ):
                     keys = self.dict_key_order[node.value.id]
                     for idx, elt in enumerate(target.elts):
                         if isinstance(elt, ast.Name) and idx < len(keys):
@@ -810,11 +845,20 @@ class _LocalTaintAnalyzer2(ast.NodeVisitor):
                     continue
 
                 # 2) Starred unpacking into a rest list: `a, *rest = [..]`
-                star_indices = [i for i, elt in enumerate(target.elts) if isinstance(elt, ast.Starred)]
+                star_indices = [
+                    i
+                    for i, elt in enumerate(target.elts)
+                    if isinstance(elt, ast.Starred)
+                ]
                 if star_indices and len(star_indices) == 1:
                     star_i = star_indices[0]
                     star_elt = target.elts[star_i]
-                    rest_name = star_elt.value.id if isinstance(star_elt, ast.Starred) and isinstance(star_elt.value, ast.Name) else None
+                    rest_name = (
+                        star_elt.value.id
+                        if isinstance(star_elt, ast.Starred)
+                        and isinstance(star_elt.value, ast.Name)
+                        else None
+                    )
                     if rest_name and isinstance(node.value, (ast.List, ast.Tuple)):
                         values = list(node.value.elts)
                         left = target.elts[:star_i]
@@ -822,12 +866,18 @@ class _LocalTaintAnalyzer2(ast.NodeVisitor):
                         if len(values) >= len(left) + len(right):
                             # Left bindings
                             for idx, elt in enumerate(left):
-                                if isinstance(elt, ast.Name) and idx < len(values) and self._expr_is_tainted(values[idx]):
+                                if (
+                                    isinstance(elt, ast.Name)
+                                    and idx < len(values)
+                                    and self._expr_is_tainted(values[idx])
+                                ):
                                     self.tainted.add(elt.id)
                             # Right bindings
                             for r_idx, elt in enumerate(reversed(right)):
                                 src_idx = len(values) - 1 - r_idx
-                                if isinstance(elt, ast.Name) and self._expr_is_tainted(values[src_idx]):
+                                if isinstance(elt, ast.Name) and self._expr_is_tainted(
+                                    values[src_idx]
+                                ):
                                     self.tainted.add(elt.id)
                             # Rest list bindings
                             rest_values = values[len(left) : len(values) - len(right)]
@@ -836,11 +886,15 @@ class _LocalTaintAnalyzer2(ast.NodeVisitor):
                             self._clear_paths_for_root(rest_name)
                             for idx, v in enumerate(rest_values):
                                 if isinstance(v, (ast.Dict, ast.List, ast.Tuple)):
-                                    self._record_literal_taint_paths((rest_name, str(idx)), v)
+                                    self._record_literal_taint_paths(
+                                        (rest_name, str(idx)), v
+                                    )
                                 elif self._expr_is_tainted(v):
                                     self._record_tainted_path((rest_name, str(idx)))
                                 if self._expr_is_tainted(v):
-                                    self._mark_container_key_tainted(rest_name, str(idx))
+                                    self._mark_container_key_tainted(
+                                        rest_name, str(idx)
+                                    )
                             continue
 
                 # 3) Simple positional destructuring.
@@ -852,9 +906,14 @@ class _LocalTaintAnalyzer2(ast.NodeVisitor):
                     if isinstance(node.value, (ast.Tuple, ast.List, ast.Set)):
                         for idx, elt in enumerate(target.elts):
                             if isinstance(elt, ast.Name):
-                                if idx < len(node.value.elts) and self._expr_is_tainted(node.value.elts[idx]):
+                                if idx < len(node.value.elts) and self._expr_is_tainted(
+                                    node.value.elts[idx]
+                                ):
                                     self.tainted.add(elt.id)
-                    elif isinstance(node.value, ast.Name) and node.value.id in self.tainted_containers:
+                    elif (
+                        isinstance(node.value, ast.Name)
+                        and node.value.id in self.tainted_containers
+                    ):
                         for elt in target.elts:
                             if isinstance(elt, ast.Name):
                                 self.tainted.add(elt.id)
@@ -913,7 +972,10 @@ class _LocalTaintAnalyzer2(ast.NodeVisitor):
         if isinstance(node.target, ast.Name):
             if value_is_tainted:
                 self.tainted.add(node.target.id)
-            if isinstance(node.value, ast.Name) and node.value.id in self.tainted_containers:
+            if (
+                isinstance(node.value, ast.Name)
+                and node.value.id in self.tainted_containers
+            ):
                 self._mark_container_tainted(node.target.id)
             if isinstance(node.value, ast.Name):
                 src_key = self._alias_key(node.value.id)
@@ -985,7 +1047,9 @@ class _LocalTaintAnalyzer2(ast.NodeVisitor):
             if callee in self.known_callees:
                 tainted_params, _ = self._tainted_params_for_call(node, callee)
                 if tainted_params:
-                    self.call_param_taints.setdefault(callee, set()).update(tainted_params)
+                    self.call_param_taints.setdefault(callee, set()).update(
+                        tainted_params
+                    )
                 key_taints = self._tainted_param_keys_for_call(node, callee)
                 if key_taints:
                     merged = self.call_param_key_taints.setdefault(callee, {})
@@ -1031,7 +1095,9 @@ class _LocalTaintAnalyzer2(ast.NodeVisitor):
         for case in node.cases:
             bindings = self._collect_match_bindings(case.pattern)
             for name in bindings:
-                if self._binding_captures_subject(case.pattern, name, subject_is_tainted):
+                if self._binding_captures_subject(
+                    case.pattern, name, subject_is_tainted
+                ):
                     self.tainted.add(name)
         self.generic_visit(node)
 
@@ -1045,7 +1111,11 @@ class _LocalTaintAnalyzer2(ast.NodeVisitor):
             iter_fullname = self._call_fullname(node.iter.func)
             if iter_fullname == "enumerate":
                 # Mark both index and value as potentially tainted if iter is tainted
-                iter_is_tainted = self._expr_is_tainted(node.iter.args[0]) if node.iter.args else False
+                iter_is_tainted = (
+                    self._expr_is_tainted(node.iter.args[0])
+                    if node.iter.args
+                    else False
+                )
                 if iter_is_tainted:
                     for target in node.target.elts:
                         if isinstance(target, ast.Name):
@@ -1063,7 +1133,7 @@ class _LocalTaintAnalyzer2(ast.NodeVisitor):
                 self._visit_block(node.body)
                 self._visit_block(node.orelse)
                 return
-        
+
         # Handle normal for loops: for target in iter
         iter_is_tainted = self._expr_is_tainted(node.iter)
         if iter_is_tainted and isinstance(node.target, ast.Name):
@@ -1072,7 +1142,7 @@ class _LocalTaintAnalyzer2(ast.NodeVisitor):
             for elt in node.target.elts:
                 if isinstance(elt, ast.Name):
                     self.tainted.add(elt.id)
-        
+
         self._visit_block(node.body)
         self._visit_block(node.orelse)
 
@@ -1206,9 +1276,11 @@ class _LocalTaintAnalyzer2(ast.NodeVisitor):
         if isinstance(expr, ast.Compare):
             return False
         if isinstance(expr, ast.IfExp):
-            return self._expr_is_tainted(expr.body) or self._expr_is_tainted(
-                expr.orelse
-            ) or self._expr_is_tainted(expr.test)
+            return (
+                self._expr_is_tainted(expr.body)
+                or self._expr_is_tainted(expr.orelse)
+                or self._expr_is_tainted(expr.test)
+            )
         if isinstance(expr, (ast.List, ast.Tuple, ast.Set)):
             return any(self._expr_is_tainted(elt) for elt in expr.elts)
         if isinstance(expr, ast.Dict):
@@ -1227,7 +1299,11 @@ class _LocalTaintAnalyzer2(ast.NodeVisitor):
                 if container:
                     if method in {"get", "pop"}:
                         key_expr = expr.args[0] if expr.args else None
-                        key = self._subscript_key(key_expr) if key_expr is not None else None
+                        key = (
+                            self._subscript_key(key_expr)
+                            if key_expr is not None
+                            else None
+                        )
                         if self._is_container_key_tainted(container, key):
                             return True
                         if key is None and self._is_container_values_tainted(container):
@@ -1239,15 +1315,21 @@ class _LocalTaintAnalyzer2(ast.NodeVisitor):
                         if self._is_container_keys_tainted(container):
                             return True
                     elif method == "items":
-                        if self._is_container_values_tainted(container) or self._is_container_keys_tainted(container):
+                        if self._is_container_values_tainted(
+                            container
+                        ) or self._is_container_keys_tainted(container):
                             return True
 
             if fullname == "getattr" and len(expr.args) >= 2:
                 base = self._expr_base_name(expr.args[0])
                 attr = self._const_str(expr.args[1])
-                if base and attr and (
-                    attr in self.tainted_attrs.get(base, set())
-                    or "*" in self.tainted_attrs.get(base, set())
+                if (
+                    base
+                    and attr
+                    and (
+                        attr in self.tainted_attrs.get(base, set())
+                        or "*" in self.tainted_attrs.get(base, set())
+                    )
                 ):
                     return True
                 if base and not attr and self.tainted_attrs.get(base):
@@ -1263,16 +1345,22 @@ class _LocalTaintAnalyzer2(ast.NodeVisitor):
         if isinstance(expr, ast.Attribute):
             base, attr = self._attribute_base_and_attr(expr)
             base_key = self._alias_key(base) if base else ""
-            if base and attr and (
-                attr in self.tainted_attrs.get(base_key, set())
-                or "*" in self.tainted_attrs.get(base_key, set())
+            if (
+                base
+                and attr
+                and (
+                    attr in self.tainted_attrs.get(base_key, set())
+                    or "*" in self.tainted_attrs.get(base_key, set())
+                )
             ):
                 return True
         if isinstance(expr, ast.Lambda):
             return False
         if isinstance(expr, ast.JoinedStr):
             for part in expr.values:
-                if isinstance(part, ast.FormattedValue) and self._expr_is_tainted(part.value):
+                if isinstance(part, ast.FormattedValue) and self._expr_is_tainted(
+                    part.value
+                ):
                     return True
             return False
         if isinstance(expr, ast.FormattedValue):
@@ -1299,7 +1387,11 @@ class _LocalTaintAnalyzer2(ast.NodeVisitor):
             if left is None or right is None:
                 return None
             return (left + right) % 2
-        if isinstance(expr, ast.Call) and self._call_fullname(expr.func) == "len" and expr.args:
+        if (
+            isinstance(expr, ast.Call)
+            and self._call_fullname(expr.func) == "len"
+            and expr.args
+        ):
             arg0 = expr.args[0]
             if isinstance(arg0, ast.Name) and arg0.id in self.alternating_taint_arrays:
                 # Assume an odd-length array in the benchmark suite.
@@ -1324,9 +1416,9 @@ class _LocalTaintAnalyzer2(ast.NodeVisitor):
                 return True
             if has_unknown and tainted_params:
                 return True
-            if self.callee_returns_tainted.get(callee, False) and self.callee_has_source.get(
+            if self.callee_returns_tainted.get(
                 callee, False
-            ):
+            ) and self.callee_has_source.get(callee, False):
                 return True
             return False
         return self.callee_returns_tainted.get(callee, False)
@@ -1542,7 +1634,9 @@ class _LocalTaintAnalyzer2(ast.NodeVisitor):
                 elem = node.args[0]
                 if self._expr_is_tainted(elem):
                     key = self._subscript_key(elem)
-                    self._mark_container_key_tainted(container_name, key if key is not None else None)
+                    self._mark_container_key_tainted(
+                        container_name, key if key is not None else None
+                    )
         elif method in {"update"}:
             # dict.update(other) / set.update(iterable) / list.extend(iterable)
             # Conservatively treat tainted inputs as tainting an unknown key/element.
@@ -1608,14 +1702,18 @@ class _LocalTaintAnalyzer2(ast.NodeVisitor):
                 names.update(self._collect_match_bindings(subpattern))
         return names
 
-    def _binding_captures_subject(self, pattern: ast.pattern, binding_name: str, subject_is_tainted: bool) -> bool:
+    def _binding_captures_subject(
+        self, pattern: ast.pattern, binding_name: str, subject_is_tainted: bool
+    ) -> bool:
         if not subject_is_tainted:
             return False
         if isinstance(pattern, ast.MatchAs):
             if pattern.name == binding_name:
                 return True
             if pattern.pattern:
-                return self._binding_captures_subject(pattern.pattern, binding_name, subject_is_tainted)
+                return self._binding_captures_subject(
+                    pattern.pattern, binding_name, subject_is_tainted
+                )
         return False
 
     def _apply_callee_param_taint_outputs(self, node: ast.Call, callee: str) -> None:
@@ -1690,7 +1788,9 @@ class _LocalTaintAnalyzer2(ast.NodeVisitor):
     def _apply_param_field_effects_to_arg(
         self, arg: ast.AST, keys: Set[str], tainted_keys: Set[str]
     ) -> None:
-        self._apply_param_field_effects_to_names(self._names_in_expr(arg), keys, tainted_keys)
+        self._apply_param_field_effects_to_names(
+            self._names_in_expr(arg), keys, tainted_keys
+        )
 
     def _apply_param_field_effects_to_names(
         self, names: Set[str], keys: Set[str], tainted_keys: Set[str]
@@ -1723,7 +1823,9 @@ class _LocalTaintAnalyzer2(ast.NodeVisitor):
             return {base} if base else set()
         return set()
 
-    def _record_param_key_write(self, base: str, key: Optional[str], tainted: bool) -> None:
+    def _record_param_key_write(
+        self, base: str, key: Optional[str], tainted: bool
+    ) -> None:
         param = self._param_name_for(base)
         if not param:
             return
@@ -1938,7 +2040,9 @@ class _LocalTaintAnalyzer2(ast.NodeVisitor):
                             else:
                                 merged: Set[str] = set()
                                 for alias in self._aliases_for(source):
-                                    merged.update(self.tainted_container_keys.get(alias, set()))
+                                    merged.update(
+                                        self.tainted_container_keys.get(alias, set())
+                                    )
                                 if "*" in merged:
                                     tainted_keys.add("*")
                                 else:
@@ -1970,7 +2074,9 @@ class _LocalTaintAnalyzer2(ast.NodeVisitor):
                         src = elt.value.id
                         merged_keys: Set[str] = set()
                         for alias in self._aliases_for(src):
-                            merged_keys.update(self.tainted_container_keys.get(alias, set()))
+                            merged_keys.update(
+                                self.tainted_container_keys.get(alias, set())
+                            )
                         if src in self.tainted_containers or "*" in merged_keys:
                             tainted_indices.add("*")
                             return tainted_indices
@@ -2023,7 +2129,11 @@ class _LocalTaintAnalyzer2(ast.NodeVisitor):
 
     def _callee_param_names(self, node: ast.Call, callee: str) -> List[str]:
         params = self.callee_param_names.get(callee, [])
-        if isinstance(node.func, ast.Attribute) and params and params[0] in {"self", "cls"}:
+        if (
+            isinstance(node.func, ast.Attribute)
+            and params
+            and params[0] in {"self", "cls"}
+        ):
             return params[1:]
         return params
 

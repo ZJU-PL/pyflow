@@ -129,51 +129,78 @@ def _name_looks_user_controlled(name):
 
 def _is_user_controlled(node):
     """Best-effort check for user-controlled values in AST expressions.
-    
+
     This function is conservative to reduce false positives.
     Only considers data as user-controlled if there's strong evidence.
     """
     if node is None:
         return False
-    
+
     # Constants (strings, numbers, etc.) are NEVER user-controlled
     if isinstance(node, (ast.Constant, ast.Str, ast.Num)):
         return False
-    
+
     # List/Tuple/Dict literals - check if any element is user-controlled
     if isinstance(node, (ast.List, ast.Tuple)):
         return any(_is_user_controlled(elt) for elt in node.elts)
     if isinstance(node, ast.Dict):
-        return any(_is_user_controlled(v) for v in node.values) if node.values else False
-    
+        return (
+            any(_is_user_controlled(v) for v in node.values) if node.values else False
+        )
+
     if isinstance(node, ast.Name):
         # Only flag if name strongly suggests user input
         name_lower = node.id.lower()
         # High-confidence user input markers only
-        high_confidence_markers = ("input", "user_input", "request_data", "post_data", 
-                                   "get_data", "form_data", "body", "payload")
-        return any(marker == name_lower for marker in high_confidence_markers) or \
-               name_lower in ("request", "args", "query")
-    
+        high_confidence_markers = (
+            "input",
+            "user_input",
+            "request_data",
+            "post_data",
+            "get_data",
+            "form_data",
+            "body",
+            "payload",
+        )
+        return any(
+            marker == name_lower for marker in high_confidence_markers
+        ) or name_lower in ("request", "args", "query")
+
     if isinstance(node, ast.Attribute):
         dotted = _get_qualified_name(node)
         if dotted:
             # Check for Flask/Django request attributes
-            if any(dotted.startswith(prefix) for prefix in 
-                   ("flask.request.", "request.", "django.request.", "http.request.")):
+            if any(
+                dotted.startswith(prefix)
+                for prefix in (
+                    "flask.request.",
+                    "request.",
+                    "django.request.",
+                    "http.request.",
+                )
+            ):
                 return True
             # Check for specific high-risk attributes
-            if any(dotted.endswith(suffix) for suffix in 
-                   (".args", ".form", ".json", ".data", ".get_data", ".post_data")):
+            if any(
+                dotted.endswith(suffix)
+                for suffix in (
+                    ".args",
+                    ".form",
+                    ".json",
+                    ".data",
+                    ".get_data",
+                    ".post_data",
+                )
+            ):
                 return True
         return _is_user_controlled(node.value)
-    
+
     if isinstance(node, ast.Subscript):
         # Check container[user_input] pattern
         if isinstance(node.slice, (ast.Name, ast.Call)):
             return _is_user_controlled(node.value) or _is_user_controlled(node.slice)
         return _is_user_controlled(node.value)
-    
+
     if isinstance(node, ast.Call):
         callee = _get_qualified_name(node.func)
         if callee in USER_INPUT_CALLS:
@@ -185,9 +212,11 @@ def _is_user_controlled(node):
         ):
             return True
         return any(_is_user_controlled(arg) for arg in node.args) or any(
-            _is_user_controlled(kw.value) for kw in node.keywords if kw.value is not None
+            _is_user_controlled(kw.value)
+            for kw in node.keywords
+            if kw.value is not None
         )
-    
+
     # For other complex expressions (BinOp, etc.), be conservative
     # Only flag if there's clear user input involvement
     return False

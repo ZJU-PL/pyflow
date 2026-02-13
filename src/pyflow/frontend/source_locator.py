@@ -29,6 +29,7 @@ class FunctionSpan:
 
 def _iter_function_spans(tree: ast.AST) -> Iterable[FunctionSpan]:
     stack: List[str] = []
+
     # NodeVisitor doesn't support generators directly, so we manually drive a stack.
     # We implement a small custom traversal that yields spans.
     def walk(node: ast.AST) -> Iterable[FunctionSpan]:

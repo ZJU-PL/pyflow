@@ -78,7 +78,9 @@ class FunctionExtractor:
             func_node = None
             for node in python_ast.walk(tree):
                 if (
-                    isinstance(node, (python_ast.FunctionDef, python_ast.AsyncFunctionDef))
+                    isinstance(
+                        node, (python_ast.FunctionDef, python_ast.AsyncFunctionDef)
+                    )
                     and node.name == func.__name__
                 ):
                     func_node = node
@@ -163,7 +165,11 @@ class FunctionExtractor:
         # Initialize the annotation properly
         origin = [f"converted_function({func_name})"]
         try:
-            if func is not None and hasattr(func, "__code__") and func.__code__ is not None:
+            if (
+                func is not None
+                and hasattr(func, "__code__")
+                and func.__code__ is not None
+            ):
                 origin.append(
                     f"source({func.__code__.co_filename}:{func.__code__.co_firstlineno})"
                 )
@@ -223,7 +229,9 @@ class FunctionExtractor:
                     if p.default is inspect._empty:
                         per_param_defaults.append(None)
                     else:
-                        per_param_defaults.append(pyflow_ast.Existing(Object(p.default)))
+                        per_param_defaults.append(
+                            pyflow_ast.Existing(Object(p.default))
+                        )
                 elif p.kind == inspect.Parameter.VAR_POSITIONAL:
                     vararg = pyflow_ast.Local(p.name)
                 elif p.kind == inspect.Parameter.VAR_KEYWORD:
@@ -244,7 +252,9 @@ class FunctionExtractor:
                     idx = start + i
                     try:
                         default_value = python_ast.literal_eval(default_node)
-                        per_param_defaults[idx] = pyflow_ast.Existing(Object(default_value))
+                        per_param_defaults[idx] = pyflow_ast.Existing(
+                            Object(default_value)
+                        )
                     except Exception:
                         per_param_defaults[idx] = pyflow_ast.Existing(Object(None))
 
@@ -256,7 +266,9 @@ class FunctionExtractor:
                         continue
                     try:
                         default_value = python_ast.literal_eval(default_node)
-                        per_param_defaults[base + i] = pyflow_ast.Existing(Object(default_value))
+                        per_param_defaults[base + i] = pyflow_ast.Existing(
+                            Object(default_value)
+                        )
                     except Exception:
                         per_param_defaults[base + i] = pyflow_ast.Existing(Object(None))
 
@@ -268,11 +280,15 @@ class FunctionExtractor:
         params = [pyflow_ast.Local(name) for name in param_names]
 
         # Collapse to trailing-contiguous defaults as required by CalleeParams.
-        first_default = next((i for i, d in enumerate(per_param_defaults) if d is not None), None)
+        first_default = next(
+            (i for i, d in enumerate(per_param_defaults) if d is not None), None
+        )
         defaults = []
         if first_default is not None:
             for d in per_param_defaults[first_default:]:
-                defaults.append(d if d is not None else pyflow_ast.Existing(Object(None)))
+                defaults.append(
+                    d if d is not None else pyflow_ast.Existing(Object(None))
+                )
 
         return pyflow_ast.CodeParameters(
             selfparam=None,
@@ -293,7 +309,9 @@ class FunctionExtractor:
                 print(f"Found function: {node.name}")
 
             # Convert Python AST function to pyflow AST
-            pyflow_code = self._convert_python_function_to_pyflow(node, None, filename=filename)
+            pyflow_code = self._convert_python_function_to_pyflow(
+                node, None, filename=filename
+            )
 
             # Add to program
             if hasattr(program, "liveCode"):
@@ -313,7 +331,10 @@ class FunctionExtractor:
                 traceback.print_exc()
 
     def extract_class(
-        self, node: python_ast.ClassDef, program: Program, filename: Optional[str] = None
+        self,
+        node: python_ast.ClassDef,
+        program: Program,
+        filename: Optional[str] = None,
     ) -> None:
         """Extract information from a class definition."""
         try:
@@ -323,8 +344,12 @@ class FunctionExtractor:
             # This provides method bodies to the analysis pipeline without requiring
             # full class-object modeling in the interface.
             for child in node.body:
-                if isinstance(child, (python_ast.FunctionDef, python_ast.AsyncFunctionDef)):
-                    code = self._convert_python_function_to_pyflow(child, None, filename=filename)
+                if isinstance(
+                    child, (python_ast.FunctionDef, python_ast.AsyncFunctionDef)
+                ):
+                    code = self._convert_python_function_to_pyflow(
+                        child, None, filename=filename
+                    )
                     code.setCodeName(f"{node.name}.{child.name}")
                     if hasattr(program, "liveCode"):
                         program.liveCode.add(code)

@@ -64,7 +64,7 @@ class GraphQueryEngine:
                 if not src_name:
                     continue
                 callgraph.add_node(src_name)
-                for (_, dst) in context.invokeOut.keys():
+                for _, dst in context.invokeOut.keys():
                     dst_name = self.context.context_name(dst)
                     if dst_name:
                         callgraph.add_edge(src_name, dst_name)
@@ -74,7 +74,7 @@ class GraphQueryEngine:
     def get_cfg_structure(self, function: Union[str, object]) -> Dict[str, Any]:
         """
         Return a JSON-friendly dictionary representation of the CFG.
-        
+
         Structure:
         {
             "name": "function_name",
@@ -91,23 +91,23 @@ class GraphQueryEngine:
         cfg = self.get_cfg(function)
         code = self.context.resolve_function(function)
         name = self.context.code_name(code)
-        
+
         blocks_data = []
         edges_data = []
-        
+
         visited = set()
         queue = [cfg.entryTerminal]
-        
+
         # Helper to get block ID safely
         def get_bid(b):
-            return getattr(b, 'bid', id(b))
+            return getattr(b, "bid", id(b))
 
         while queue:
             block = queue.pop(0)
             if block in visited:
                 continue
             visited.add(block)
-            
+
             # Add block info
             # Note: This is a simplified view. Real CFG blocks have complex content.
             block_info = {
@@ -116,21 +116,19 @@ class GraphQueryEngine:
                 # "operations": str(block) # simplistic
             }
             blocks_data.append(block_info)
-            
+
             # Follow edges
             # CFG blocks use .next dictionary mapping exit name to successor
-            if hasattr(block, 'next') and isinstance(block.next, dict):
+            if hasattr(block, "next") and isinstance(block.next, dict):
                 for exit_type, target in block.next.items():
-                    edges_data.append({
-                        "src": get_bid(block),
-                        "dst": get_bid(target),
-                        "type": exit_type
-                    })
+                    edges_data.append(
+                        {
+                            "src": get_bid(block),
+                            "dst": get_bid(target),
+                            "type": exit_type,
+                        }
+                    )
                     if target not in visited:
                         queue.append(target)
-        
-        return {
-            "name": name,
-            "blocks": blocks_data,
-            "edges": edges_data
-        }
+
+        return {"name": name, "blocks": blocks_data, "edges": edges_data}

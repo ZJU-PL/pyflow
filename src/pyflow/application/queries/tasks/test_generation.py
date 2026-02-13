@@ -246,7 +246,9 @@ class TestGenerationQueries:
                 if target not in visited:
                     new_visited = visited.copy()
                     new_visited.add(target)
-                    self._dfs_paths(target, current_path, new_visited, all_paths, max_paths)
+                    self._dfs_paths(
+                        target, current_path, new_visited, all_paths, max_paths
+                    )
         else:
             all_paths.append(current_path)
 

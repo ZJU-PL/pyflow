@@ -70,7 +70,11 @@ def _contains_dangerous_exceptions(handlers):
     for exc_type, _ in handlers:
         if exc_type in CRITICAL_EXCEPTIONS:
             return True
-        if exc_type == "Exception" and exc_type not in ["OSError", "ValueError", "TypeError"]:
+        if exc_type == "Exception" and exc_type not in [
+            "OSError",
+            "ValueError",
+            "TypeError",
+        ]:
             return True
     return False
 
@@ -111,9 +115,9 @@ def try_except_pass(context):
                     confidence="HIGH",
                     cwe=issue.Cwe.IMPROPER_ERROR_HANDLING,
                     text="Try-except block with a bare 'except:' clause and 'pass' statement. "
-                         "This pattern silently swallows all exceptions and may hide important "
-                         "errors or security failures. Consider logging the exception or "
-                         "removing the try-except block entirely.",
+                    "This pattern silently swallows all exceptions and may hide important "
+                    "errors or security failures. Consider logging the exception or "
+                    "removing the try-except block entirely.",
                 )
             else:
                 return issue.Issue(
@@ -121,8 +125,8 @@ def try_except_pass(context):
                     confidence="MEDIUM",
                     cwe=issue.Cwe.IMPROPER_ERROR_HANDLING,
                     text=f"Try-except block with 'except {exc_type}: pass'. "
-                         "This pattern silently swallows {exc_type} exceptions. "
-                         "Consider logging the exception or handling it appropriately.",
+                    "This pattern silently swallows {exc_type} exceptions. "
+                    "Consider logging the exception or handling it appropriately.",
                 )
 
 
@@ -146,8 +150,18 @@ def try_except_pass_password(context):
 
     # Keywords that indicate auth/security context
     AUTH_KEYWORDS = [
-        "password", "auth", "login", "credential", "secret", "token",
-        "verify", "check", "permission", "admin", "user", "session",
+        "password",
+        "auth",
+        "login",
+        "credential",
+        "secret",
+        "token",
+        "verify",
+        "check",
+        "permission",
+        "admin",
+        "user",
+        "session",
     ]
 
     # Check parent context for auth-related names
@@ -170,8 +184,8 @@ def try_except_pass_password(context):
                     confidence="MEDIUM",
                     cwe=issue.Cwe.WEAK_CREDENTIALS,
                     text="Try-except-pass pattern in authentication context. "
-                         "Silently swallowing exceptions during authentication may "
-                         "mask failed security checks or hide authentication errors.",
+                    "Silently swallowing exceptions during authentication may "
+                    "mask failed security checks or hide authentication errors.",
                 )
 
     return None
@@ -215,8 +229,8 @@ def try_except_raise(context):
                             confidence="MEDIUM",
                             cwe=issue.Cwe.IMPROPER_ERROR_HANDLING,
                             text=f"Raising generic exception '{exc_name}'. "
-                                 "Consider raising a more specific exception type "
-                                 "to provide better error information.",
+                            "Consider raising a more specific exception type "
+                            "to provide better error information.",
                         )
 
     return None
@@ -251,8 +265,8 @@ def try_except_continue(context):
                     confidence="HIGH",
                     cwe=issue.Cwe.IMPROPER_ERROR_HANDLING,
                     text="Try-except block with continue statement. "
-                         "This pattern silently skips items in a loop when exceptions occur. "
-                         "Consider logging the exception or handling it explicitly.",
+                    "This pattern silently skips items in a loop when exceptions occur. "
+                    "Consider logging the exception or handling it explicitly.",
                 )
             else:
                 return issue.Issue(
@@ -260,8 +274,8 @@ def try_except_continue(context):
                     confidence="MEDIUM",
                     cwe=issue.Cwe.IMPROPER_ERROR_HANDLING,
                     text=f"Try-except block with continue for {exc_type}. "
-                         "This pattern silently skips processing on exception. "
-                         "Consider logging or explicit error handling.",
+                    "This pattern silently skips processing on exception. "
+                    "Consider logging or explicit error handling.",
                 )
 
     return None
@@ -296,8 +310,8 @@ def try_except_generic(context):
                     confidence="MEDIUM",
                     cwe=issue.Cwe.IMPROPER_ERROR_HANDLING,
                     text="Try-except block catches generic 'Exception' or 'BaseException'. "
-                         "Consider catching more specific exception types to avoid "
-                         "hiding unexpected errors like KeyboardInterrupt or SystemExit.",
+                    "Consider catching more specific exception types to avoid "
+                    "hiding unexpected errors like KeyboardInterrupt or SystemExit.",
                 )
 
     return None

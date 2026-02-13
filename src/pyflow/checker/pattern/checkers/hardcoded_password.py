@@ -179,7 +179,7 @@ def hardcoded_password_string(context):
     node_str = _get_string(node)
     if node_str is None:
         return None
-    
+
     # Skip placeholder patterns and very short strings
     if _is_placeholder(node_str):
         return None

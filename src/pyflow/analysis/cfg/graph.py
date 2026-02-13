@@ -60,7 +60,7 @@ class CFGBlock(object):
 
     def __repr__(self):
         """Return string representation including region name."""
-        region_name = getattr(self.region, 'name', None)
+        region_name = getattr(self.region, "name", None)
         if region_name:
             return f"<CFGBlock '{region_name}'>"
         return f"<CFGBlock>"

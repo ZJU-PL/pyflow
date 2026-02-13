@@ -16,7 +16,12 @@ from .core import (
     get_server_mode_description,
     resolve_capabilities,
 )
-from .graphs import CallGraphQueries, ControlFlowQueries, DataFlowQueries, IpaFunctionSummary
+from .graphs import (
+    CallGraphQueries,
+    ControlFlowQueries,
+    DataFlowQueries,
+    IpaFunctionSummary,
+)
 
 
 class SemanticQueryService:

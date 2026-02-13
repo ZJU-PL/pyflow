@@ -275,7 +275,9 @@ class ASTConverter:
             if len(node.ops) != len(node.comparators) or not node.ops:
                 return pyflow_ast.Existing(Object(None))
 
-            def single(op: python_ast.AST, a: PythonASTNode, b: PythonASTNode) -> PythonASTNode:
+            def single(
+                op: python_ast.AST, a: PythonASTNode, b: PythonASTNode
+            ) -> PythonASTNode:
                 op_map = {
                     python_ast.Eq: "interpreter__eq__",
                     python_ast.NotEq: "interpreter__ne__",
@@ -291,7 +293,9 @@ class ASTConverter:
                 if isinstance(op, python_ast.In):
                     return self._call_named("interpreter__contains__", [b, a])
                 if isinstance(op, python_ast.NotIn):
-                    return pyflow_ast.Not(self._call_named("interpreter__contains__", [b, a]))
+                    return pyflow_ast.Not(
+                        self._call_named("interpreter__contains__", [b, a])
+                    )
                 return pyflow_ast.Existing(Object(None))
 
             comps: List[PythonASTNode] = []
@@ -411,7 +415,11 @@ class ASTConverter:
             return self._convert_expression_safe(node.value)
 
         elif isinstance(node, python_ast.Yield):
-            expr = self._convert_expression_safe(node.value) if node.value else pyflow_ast.Existing(Object(None))
+            expr = (
+                self._convert_expression_safe(node.value)
+                if node.value
+                else pyflow_ast.Existing(Object(None))
+            )
             return pyflow_ast.Yield(expr)
 
         elif isinstance(node, python_ast.YieldFrom):
@@ -476,9 +484,7 @@ class ASTConverter:
             return pyflow_ast.Existing(Object(None))
         return result
 
-    def _convert_function_def(
-        self, node: python_ast.AST
-    ) -> Optional[PythonASTNode]:
+    def _convert_function_def(self, node: python_ast.AST) -> Optional[PythonASTNode]:
         """Convert Python AST FunctionDef to pyflow AST."""
         # Convert function arguments
         codeparams = self._convert_function_args(node.args, ensure_return=True)
@@ -547,7 +553,9 @@ class ASTConverter:
         params = [pyflow_ast.Local(name) for name in param_names]
 
         # Per-parameter default list (may include None holes).
-        per_param_defaults: List[Optional[pyflow_ast.Existing]] = [None] * len(param_names)
+        per_param_defaults: List[Optional[pyflow_ast.Existing]] = [None] * len(
+            param_names
+        )
 
         # Positional defaults apply to the last N of (posonly + regular).
         positional_names = [*posonly, *regular]
@@ -576,11 +584,15 @@ class ASTConverter:
                     per_param_defaults[base + i] = pyflow_ast.Existing(Object(None))
 
         # Collapse to trailing-contiguous defaults as required by CalleeParams.
-        first_default = next((i for i, d in enumerate(per_param_defaults) if d is not None), None)
+        first_default = next(
+            (i for i, d in enumerate(per_param_defaults) if d is not None), None
+        )
         defaults: List[pyflow_ast.Existing] = []
         if first_default is not None:
             for d in per_param_defaults[first_default:]:
-                defaults.append(d if d is not None else pyflow_ast.Existing(Object(None)))
+                defaults.append(
+                    d if d is not None else pyflow_ast.Existing(Object(None))
+                )
 
         # Handle *args and **kwargs
         vararg = None
@@ -621,7 +633,11 @@ class ASTConverter:
         """Convert Python AST ImportFrom to pyflow AST."""
         module = node.module or ""
         level = int(getattr(node, "level", 0) or 0)
-        fromlist = [a.name for a in (node.names or []) if getattr(a, "name", None) not in (None, "*")]
+        fromlist = [
+            a.name
+            for a in (node.names or [])
+            if getattr(a, "name", None) not in (None, "*")
+        ]
 
         tmp = self._tmp_local("importfrom", node)
         suite = pyflow_ast.Suite(
@@ -825,7 +841,9 @@ class ASTConverter:
             )
         return None
 
-    def _convert_store(self, target: python_ast.AST, value: PythonASTNode) -> PythonASTNode:
+    def _convert_store(
+        self, target: python_ast.AST, value: PythonASTNode
+    ) -> PythonASTNode:
         if isinstance(target, python_ast.Name):
             return pyflow_ast.Assign(value, [pyflow_ast.Local(target.id)])
         if isinstance(target, python_ast.Attribute):

@@ -124,7 +124,7 @@ class AnalysisSession:
         program: Program, all_source_code: Dict[str, str]
     ) -> Tuple[Dict[str, str], Dict[str, str], Dict[str, Dict[str, str]]]:
         """Map function names to source, track file origins and imports.
-        
+
         Returns:
             name_to_source: Maps function name to its source code
             func_to_file: Maps function name to its defining file
@@ -133,7 +133,7 @@ class AnalysisSession:
         name_to_source: Dict[str, str] = {}
         func_to_file: Dict[str, str] = {}
         file_imports: Dict[str, Dict[str, str]] = {}
-        
+
         # Collect from interface (callable objects)
         interface = getattr(program, "interface", None)
         funcs = getattr(interface, "func", []) if interface else []
@@ -146,6 +146,7 @@ class AnalysisSession:
             func_filename = ""
             try:
                 import inspect
+
                 src = inspect.getsource(func_obj)
                 func_filename = getattr(func_obj, "__code__", None)
                 func_filename = getattr(func_filename, "co_filename", "") or ""
@@ -157,7 +158,7 @@ class AnalysisSession:
             if src:
                 name_to_source[name] = src
                 func_to_file[name] = func_filename
-        
+
         # Collect from AST with import tracking
         for filename, src in all_source_code.items():
             file_imports[filename] = {}
@@ -165,7 +166,7 @@ class AnalysisSession:
                 tree = ast.parse(src)
             except SyntaxError:
                 continue
-            
+
             # Track imports
             for node in ast.walk(tree):
                 if isinstance(node, ast.Import):
@@ -175,8 +176,10 @@ class AnalysisSession:
                     if node.module:
                         for alias in node.names:
                             imported = f"{node.module}.{alias.name}"
-                            file_imports[filename][alias.asname or alias.name] = imported
-            
+                            file_imports[filename][
+                                alias.asname or alias.name
+                            ] = imported
+
             # Collect functions
             func_nodes = [
                 node
@@ -187,14 +190,16 @@ class AnalysisSession:
                 for node in func_nodes:
                     if node.name in name_to_source:
                         continue
-                    if getattr(node, "lineno", None) and getattr(node, "end_lineno", None):
+                    if getattr(node, "lineno", None) and getattr(
+                        node, "end_lineno", None
+                    ):
                         lines = src.splitlines()
                         func_src = "\n".join(lines[node.lineno - 1 : node.end_lineno])
                     else:
                         func_src = ast.get_source_segment(src, node) or src
                     name_to_source[node.name] = func_src
                     func_to_file[node.name] = filename
-        
+
         return name_to_source, func_to_file, file_imports
 
     # --------------------------------------------------------------- analysis

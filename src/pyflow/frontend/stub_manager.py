@@ -9,6 +9,7 @@ import operator
 
 from pyflow.language.python import ast as pyflow_ast
 
+
 # Expose makeStubs at module scope so tests can patch it directly.
 #
 # The decompilation-based stub pipeline has been removed from the frontend.
@@ -65,7 +66,11 @@ class StubManager:
                     [pyflow_ast.Local("internal_return")],
                 )
 
-            if op_name in ("interpreter__neg__", "interpreter__pos__", "interpreter__invert__"):
+            if op_name in (
+                "interpreter__neg__",
+                "interpreter__pos__",
+                "interpreter__invert__",
+            ):
                 return pyflow_ast.CodeParameters(
                     None,
                     [pyflow_ast.Local("a")],
@@ -79,7 +84,11 @@ class StubManager:
             if op_name == "interpreter_setattr":
                 return pyflow_ast.CodeParameters(
                     None,
-                    [pyflow_ast.Local("obj"), pyflow_ast.Local("name"), pyflow_ast.Local("value")],
+                    [
+                        pyflow_ast.Local("obj"),
+                        pyflow_ast.Local("name"),
+                        pyflow_ast.Local("value"),
+                    ],
                     [],
                     [],
                     None,
@@ -105,7 +114,11 @@ class StubManager:
             if op_name == "interpreter_ifexp":
                 return pyflow_ast.CodeParameters(
                     None,
-                    [pyflow_ast.Local("cond"), pyflow_ast.Local("t"), pyflow_ast.Local("f")],
+                    [
+                        pyflow_ast.Local("cond"),
+                        pyflow_ast.Local("t"),
+                        pyflow_ast.Local("f"),
+                    ],
                     [],
                     [],
                     None,
@@ -216,7 +229,9 @@ class StubManager:
                     "interpreter__ge__": create_stub_code("interpreter__ge__"),
                     "interpreter__is__": create_stub_code("interpreter__is__"),
                     "interpreter__is_not__": create_stub_code("interpreter__is_not__"),
-                    "interpreter__contains__": create_stub_code("interpreter__contains__"),
+                    "interpreter__contains__": create_stub_code(
+                        "interpreter__contains__"
+                    ),
                     "interpreter__neg__": create_stub_code("interpreter__neg__"),
                     "interpreter__pos__": create_stub_code("interpreter__pos__"),
                     "interpreter__invert__": create_stub_code("interpreter__invert__"),

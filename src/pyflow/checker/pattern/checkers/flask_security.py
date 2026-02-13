@@ -24,7 +24,9 @@ from ..core import test_properties as test
 
 
 WEAK_SECRET_RE = re.compile(r"^[a-zA-Z0-9]{0,16}$")
-HARDCODED_SECRET_RE = re.compile(r"secret[_-]?key\s*=\s*['\"][^'\"]+['\"]", re.IGNORECASE)
+HARDCODED_SECRET_RE = re.compile(
+    r"secret[_-]?key\s*=\s*['\"][^'\"]+['\"]", re.IGNORECASE
+)
 
 
 def _flask_issue(text, severity="MEDIUM", confidence="MEDIUM", cwe=None):
@@ -43,7 +45,17 @@ def _is_user_input(node):
         return False
     if isinstance(node, ast.Name):
         name = node.id.lower()
-        markers = ("user", "input", "request", "form", "body", "data", "payload", "param", "query")
+        markers = (
+            "user",
+            "input",
+            "request",
+            "form",
+            "body",
+            "data",
+            "payload",
+            "param",
+            "query",
+        )
         return any(marker in name for marker in markers)
     if isinstance(node, ast.Attribute):
         return _is_user_input(node.value) or any(
@@ -73,7 +85,11 @@ def flask_debug_in_production(context):
     """Detect Flask app with debug=True in production."""
     if context.call_function_name in ("run", "debug"):
         for kw in context.node.keywords:
-            if kw.arg == "debug" and isinstance(kw.value, ast.Constant) and kw.value.value is True:
+            if (
+                kw.arg == "debug"
+                and isinstance(kw.value, ast.Constant)
+                and kw.value.value is True
+            ):
                 return _flask_issue(
                     "Flask debug mode enabled - may expose sensitive debug information.",
                     severity="HIGH",
@@ -107,7 +123,10 @@ def session_cookie_secure_false(context):
     """Detect SESSION_COOKIE_SECURE=False."""
     if context.node.targets and isinstance(context.node.targets[0], ast.Name):
         if context.node.targets[0].id == "SESSION_COOKIE_SECURE":
-            if isinstance(context.node.value, ast.Constant) and context.node.value.value is False:
+            if (
+                isinstance(context.node.value, ast.Constant)
+                and context.node.value.value is False
+            ):
                 return _flask_issue(
                     "SESSION_COOKIE_SECURE=False allows session cookies over HTTP.",
                     severity="MEDIUM",
@@ -123,7 +142,10 @@ def session_cookie_httponly_false(context):
     """Detect SESSION_COOKIE_HTTPONLY=False."""
     if context.node.targets and isinstance(context.node.targets[0], ast.Name):
         if context.node.targets[0].id == "SESSION_COOKIE_HTTPONLY":
-            if isinstance(context.node.value, ast.Constant) and context.node.value.value is False:
+            if (
+                isinstance(context.node.value, ast.Constant)
+                and context.node.value.value is False
+            ):
                 return _flask_issue(
                     "SESSION_COOKIE_HTTPONLY=False allows JavaScript access to session cookies.",
                     severity="MEDIUM",
@@ -151,7 +173,10 @@ def permanent_session_lifetime(context):
 @test.with_id("F106")
 def send_file_unsafe_path(context):
     """Detect send_file with user-controlled path."""
-    if context.call_function_name_qual in ("flask.send_file", "flask.send_from_directory"):
+    if context.call_function_name_qual in (
+        "flask.send_file",
+        "flask.send_from_directory",
+    ):
         if context.node.args and _is_user_input(context.node.args[0]):
             return _flask_issue(
                 "send_file() with user-controlled path may allow path traversal.",
@@ -210,7 +235,11 @@ def flask_debug_mode_traceback(context):
     if context.call_function_name == "run":
         debug_enabled = False
         for kw in context.node.keywords:
-            if kw.arg == "debug" and isinstance(kw.value, ast.Constant) and kw.value.value is True:
+            if (
+                kw.arg == "debug"
+                and isinstance(kw.value, ast.Constant)
+                and kw.value.value is True
+            ):
                 debug_enabled = True
         if debug_enabled:
             return _flask_issue(

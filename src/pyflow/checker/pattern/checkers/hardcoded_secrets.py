@@ -51,7 +51,9 @@ PASSWORD_NAME_RE = re.compile(r"(?:password|passwd|pwd|passphrase)", re.IGNORECA
 TOKEN_NAME_RE = re.compile(
     r"(?:token|api[_-]?key|access[_-]?key|client[_-]?secret|secret)", re.IGNORECASE
 )
-JWT_NAME_RE = re.compile(r"(?:jwt|json[_-]?web[_-]?token).*(?:secret|key)", re.IGNORECASE)
+JWT_NAME_RE = re.compile(
+    r"(?:jwt|json[_-]?web[_-]?token).*(?:secret|key)", re.IGNORECASE
+)
 ENCRYPTION_KEY_NAME_RE = re.compile(
     r"(?:encrypt(?:ion)?|crypto|cipher|aes|des|rsa).*(?:key|secret)|"
     r"(?:key|secret).*(?:encrypt(?:ion)?|crypto|cipher|aes|des|rsa)",
@@ -189,7 +191,9 @@ def hardcoded_database_password(context):
     """Detect database connection strings with inline passwords."""
     match = _find_match(DATABASE_PASSWORD_RE, _collect_strings(context.node.value))
     if match:
-        return _new_issue("Possible database connection string with hardcoded password detected")
+        return _new_issue(
+            "Possible database connection string with hardcoded password detected"
+        )
 
 
 @test.checks("Assign")

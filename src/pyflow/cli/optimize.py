@@ -88,12 +88,12 @@ def add_optimize_parser(subparsers):
     parser.add_argument(
         "--suggest-only",
         action="store_true",
-        help="Generate optimization suggestions without modifying code (default)"
+        help="Generate optimization suggestions without modifying code (default)",
     )
     parser.add_argument(
         "--apply-optimizations",
         action="store_true",
-        help="Apply optimization passes to modify the code/AST"
+        help="Apply optimization passes to modify the code/AST",
     )
     parser.add_argument("--opt-passes", nargs="*", help="Specific optimization passes")
     parser.add_argument(
@@ -389,11 +389,15 @@ def run_suggestions(compiler, program):
             program.ipa_analysis = ipa_result
 
         # Capture initial metrics
-        initial_code_count = len(getattr(program, 'liveCode', []))
-        initial_contexts = len(program.ipa_analysis.contexts) if hasattr(program, 'ipa_analysis') and program.ipa_analysis else 0
+        initial_code_count = len(getattr(program, "liveCode", []))
+        initial_contexts = (
+            len(program.ipa_analysis.contexts)
+            if hasattr(program, "ipa_analysis") and program.ipa_analysis
+            else 0
+        )
         initial_funcs = set()
-        for code in getattr(program, 'liveCode', []):
-            if code and hasattr(code, 'name') and code.name:
+        for code in getattr(program, "liveCode", []):
+            if code and hasattr(code, "name") and code.name:
                 initial_funcs.add(code.name)
 
         # Run CPA analysis
@@ -406,18 +410,22 @@ def run_suggestions(compiler, program):
         # Analyze functions for *args/**kwargs BEFORE normalization
         funcs_with_varargs = []
         funcs_with_kwargs = []
-        for code in getattr(program, 'liveCode', []):
-            if code and hasattr(code, 'ast') and code.ast:
+        for code in getattr(program, "liveCode", []):
+            if code and hasattr(code, "ast") and code.ast:
                 ast = code.ast
-                func_name = getattr(code, 'name', None)
-                if hasattr(ast, 'args') and ast.args:
-                    if getattr(ast.args, 'vararg', None):
+                func_name = getattr(code, "name", None)
+                if hasattr(ast, "args") and ast.args:
+                    if getattr(ast.args, "vararg", None):
                         funcs_with_varargs.append(func_name)
-                    if getattr(ast.args, 'kwarg', None):
+                    if getattr(ast.args, "kwarg", None):
                         funcs_with_kwargs.append(func_name)
 
         # Capture initial context count for clone analysis
-        contexts_before_clone = len(program.ipa_analysis.contexts) if hasattr(program, 'ipa_analysis') and program.ipa_analysis else 0
+        contexts_before_clone = (
+            len(program.ipa_analysis.contexts)
+            if hasattr(program, "ipa_analysis") and program.ipa_analysis
+            else 0
+        )
 
         # Run optimization passes one by one
         with compiler.console.scope("analyzing"):
@@ -440,13 +448,17 @@ def run_suggestions(compiler, program):
             storeelimination.evaluate(compiler, program)
 
         # Capture final metrics
-        final_code_count = len(getattr(program, 'liveCode', []))
+        final_code_count = len(getattr(program, "liveCode", []))
         final_funcs = set()
-        for code in getattr(program, 'liveCode', []):
-            if code and hasattr(code, 'name') and code.name:
+        for code in getattr(program, "liveCode", []):
+            if code and hasattr(code, "name") and code.name:
                 final_funcs.add(code.name)
 
-        contexts_after_clone = len(program.ipa_analysis.contexts) if hasattr(program, 'ipa_analysis') and program.ipa_analysis else 0
+        contexts_after_clone = (
+            len(program.ipa_analysis.contexts)
+            if hasattr(program, "ipa_analysis") and program.ipa_analysis
+            else 0
+        )
 
         # Find removed functions
         removed_funcs = initial_funcs - final_funcs
@@ -474,20 +486,22 @@ def run_suggestions(compiler, program):
             )
 
         # Check for unresolved calls (type hints needed)
-        if hasattr(program, 'cpa_result') and program.cpa_result:
-            if hasattr(program.cpa_result, 'unresolved'):
-                unresolved = getattr(program.cpa_result, 'unresolved', [])
-                unresolved_count = len(unresolved) if isinstance(unresolved, list) else 0
+        if hasattr(program, "cpa_result") and program.cpa_result:
+            if hasattr(program.cpa_result, "unresolved"):
+                unresolved = getattr(program.cpa_result, "unresolved", [])
+                unresolved_count = (
+                    len(unresolved) if isinstance(unresolved, list) else 0
+                )
                 if unresolved_count > 0:
                     suggestions["Type Analysis"].append(
                         f"  {unresolved_count} unresolved calls - add type hints for better precision"
                     )
 
         # Method call optimizations
-        if hasattr(program, 'liveCode') and len(program.liveCode) > 0:
+        if hasattr(program, "liveCode") and len(program.liveCode) > 0:
             has_method_calls = False
             for code in program.liveCode:
-                if code and hasattr(code, 'ast') and code.ast:
+                if code and hasattr(code, "ast") and code.ast:
                     # Check for method calls in AST
                     pass
             if has_method_calls:
@@ -499,7 +513,9 @@ def run_suggestions(compiler, program):
         print("\n" + "=" * 60)
         print("OPTIMIZATION ANALYSIS RESULTS")
         print("=" * 60)
-        print(f"\nInitial: {initial_code_count} functions, {contexts_before_clone} contexts")
+        print(
+            f"\nInitial: {initial_code_count} functions, {contexts_before_clone} contexts"
+        )
         print(f"After:   {final_code_count} functions, {contexts_after_clone} contexts")
 
         has_suggestions = False
@@ -514,7 +530,9 @@ def run_suggestions(compiler, program):
             print("\nNo optimization opportunities found.")
 
         contexts_added = max(0, final_code_count - initial_code_count)
-        print(f"\n✓ Summary: {len(removed_funcs)} dead functions removed, {contexts_added} contexts added")
+        print(
+            f"\n✓ Summary: {len(removed_funcs)} dead functions removed, {contexts_added} contexts added"
+        )
         print("=" * 60)
         compiler.console.output("Suggestion mode completed")
 

@@ -4,7 +4,7 @@ Null dereference detector.
 Detects potential null pointer dereferences (NPD) where variables assigned None
 are later accessed without null checks.
 
-These heuristics are intentionally light-weight but leverage PyFlow's semantic 
+These heuristics are intentionally light-weight but leverage PyFlow's semantic
 context (function names, call graph reachability, etc.) to reduce noise.
 """
 
@@ -25,7 +25,7 @@ class NullDereferenceDetector(Detector):
 
     def run(self, session: AnalysisSession) -> List[Issue]:
         reports: List[Issue] = []
-        
+
         # Get call graph for reachability analysis
         # Handle case where IPA analysis is not available
         try:
@@ -34,7 +34,7 @@ class NullDereferenceDetector(Detector):
         except Exception:
             # If callgraph is not available, analyze all files
             reachable = set()
-        
+
         for fname, src in session.sources_by_name.items():
             if reachable and fname not in reachable:
                 # Skip unreachable code to stay context-aware

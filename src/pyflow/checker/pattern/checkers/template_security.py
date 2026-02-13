@@ -85,10 +85,10 @@ def jinja2_autoescape_off(context):
                         confidence="HIGH",
                         cwe=issue.Cwe.XSS,
                         text="Jinja2 Environment created with autoescape=False. "
-                             "This disables automatic escaping of HTML content and "
-                             "can lead to Cross-Site Scripting (XSS) vulnerabilities. "
-                             "Only disable autoescape if you are certain that all "
-                             "rendered content is already safe (e.g., using a sanitizer).",
+                        "This disables automatic escaping of HTML content and "
+                        "can lead to Cross-Site Scripting (XSS) vulnerabilities. "
+                        "Only disable autoescape if you are certain that all "
+                        "rendered content is already safe (e.g., using a sanitizer).",
                     )
 
     return None
@@ -129,8 +129,8 @@ def jinja2_mark_safe(context):
                 confidence="MEDIUM",
                 cwe=issue.Cwe.XSS,
                 text="Jinja2 Markup concatenation with potentially user-controlled data. "
-                     "Using Markup() + user_input can introduce XSS if the user input "
-                     "contains malicious HTML/JavaScript.",
+                "Using Markup() + user_input can introduce XSS if the user input "
+                "contains malicious HTML/JavaScript.",
             )
 
     if func_name == "jinja2.Markup" or func_name == "jinja2.utils.Markup":
@@ -144,8 +144,8 @@ def jinja2_mark_safe(context):
                     confidence="MEDIUM",
                     cwe=issue.Cwe.XSS,
                     text="Jinja2 Markup() used with potentially user-controlled data. "
-                         "mark_safe() bypasses XSS protection. Ensure the content "
-                         "has been properly sanitized with a library like bleach.",
+                    "mark_safe() bypasses XSS protection. Ensure the content "
+                    "has been properly sanitized with a library like bleach.",
                 )
 
     return None
@@ -190,9 +190,9 @@ def jinja2_template_injection(context):
                     confidence="HIGH",
                     cwe=issue.Cwe.CODE_INJECTION,
                     text="Jinja2 template created using f-string. "
-                         "This pattern can lead to Server-Side Template Injection (SSTI) "
-                         "if the string contains user input. Use render_template() "
-                         "with separate template files instead.",
+                    "This pattern can lead to Server-Side Template Injection (SSTI) "
+                    "if the string contains user input. Use render_template() "
+                    "with separate template files instead.",
                 )
 
             # .format() call on string
@@ -205,8 +205,8 @@ def jinja2_template_injection(context):
                             confidence="MEDIUM",
                             cwe=issue.Cwe.CODE_INJECTION,
                             text="Jinja2 template with .format() call. "
-                                 "If the format string contains user input, this can "
-                                 "lead to Server-Side Template Injection (SSTI).",
+                            "If the format string contains user input, this can "
+                            "lead to Server-Side Template Injection (SSTI).",
                         )
 
     # Check for Template() with f-string
@@ -219,8 +219,8 @@ def jinja2_template_injection(context):
                     confidence="HIGH",
                     cwe=issue.Cwe.CODE_INJECTION,
                     text="Jinja2 Template created from f-string. "
-                         "This is a Server-Side Template Injection (SSTI) vulnerability. "
-                         "Never include user input directly in template source code.",
+                    "This is a Server-Side Template Injection (SSTI) vulnerability. "
+                    "Never include user input directly in template source code.",
                 )
 
     # Check for from_string with dangerous argument
@@ -233,7 +233,7 @@ def jinja2_template_injection(context):
                     confidence="HIGH",
                     cwe=issue.Cwe.CODE_INJECTION,
                     text="Jinja2 from_string() with f-string template. "
-                         "This is a Server-Side Template Injection (SSTI) vulnerability.",
+                    "This is a Server-Side Template Injection (SSTI) vulnerability.",
                 )
 
     return None
@@ -267,8 +267,8 @@ def jinja2_unsafe_loader(context):
                     confidence="LOW",
                     cwe=issue.Cwe.PATH_TRAVERSAL,
                     text="Jinja2 FileSystemLoader with variable path. "
-                         "Ensure the path cannot be manipulated to load "
-                         "templates from unintended directories.",
+                    "Ensure the path cannot be manipulated to load "
+                    "templates from unintended directories.",
                 )
 
     return None
@@ -303,8 +303,8 @@ def django_mark_safe(context):
                     confidence="MEDIUM",
                     cwe=issue.Cwe.XSS,
                     text="Django's mark_safe() used with potentially user-controlled data. "
-                         "Ensure the content has been properly sanitized. "
-                         "Consider using bleach.clean() for HTML content.",
+                    "Ensure the content has been properly sanitized. "
+                    "Consider using bleach.clean() for HTML content.",
                 )
 
     return None

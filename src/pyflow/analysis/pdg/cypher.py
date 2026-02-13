@@ -113,7 +113,11 @@ def tokenize(query: str) -> List[Token]:
             emit("RANGE", i, i + 2)
             i += 2
             continue
-        if query.startswith("<=", i) or query.startswith(">=", i) or query.startswith("!=", i):
+        if (
+            query.startswith("<=", i)
+            or query.startswith(">=", i)
+            or query.startswith("!=", i)
+        ):
             emit("OP", i, i + 2)
             i += 2
             continue
@@ -150,9 +154,11 @@ def tokenize(query: str) -> List[Token]:
                 c = query[i]
                 if c == "\\":
                     if i + 1 >= n:
-                        raise CypherSyntaxError(f"Unterminated string at position {start}")
+                        raise CypherSyntaxError(
+                            f"Unterminated string at position {start}"
+                        )
                     esc = query[i + 1]
-                    if esc in ('\\', '"', "'"):
+                    if esc in ("\\", '"', "'"):
                         out.append(esc)
                     elif esc == "n":
                         out.append("\n")
@@ -209,6 +215,7 @@ def tokenize(query: str) -> List[Token]:
 
 # --- AST ---
 
+
 @dataclass(frozen=True)
 class NodePattern:
     var: Optional[str]
@@ -257,6 +264,7 @@ class Query:
 
 
 # --- Expressions ---
+
 
 class Expr:
     pass
@@ -309,6 +317,7 @@ class FuncCall(Expr):
 
 # --- Parser ---
 
+
 class _Parser:
     __slots__ = ("tokens", "i", "query")
 
@@ -336,7 +345,9 @@ class _Parser:
 
     def expect(self, kind: str, text_upper: Optional[str] = None) -> Token:
         tok = self.peek()
-        if tok.kind != kind or (text_upper is not None and tok.text.upper() != text_upper):
+        if tok.kind != kind or (
+            text_upper is not None and tok.text.upper() != text_upper
+        ):
             want = text_upper if text_upper is not None else kind
             raise CypherSyntaxError(f"Expected {want} at position {tok.pos}")
         return self.pop()
@@ -438,7 +449,9 @@ class _Parser:
                 while True:
                     key_tok = self.peek()
                     if key_tok.kind not in ("IDENT", "STRING"):
-                        raise CypherSyntaxError(f"Expected property key at position {key_tok.pos}")
+                        raise CypherSyntaxError(
+                            f"Expected property key at position {key_tok.pos}"
+                        )
                     key = self.pop().text
                     if key_tok.kind == "STRING":
                         key = key[1:-1]
@@ -498,7 +511,9 @@ class _Parser:
                     while True:
                         key_tok = self.peek()
                         if key_tok.kind not in ("IDENT", "STRING"):
-                            raise CypherSyntaxError(f"Expected property key at position {key_tok.pos}")
+                            raise CypherSyntaxError(
+                                f"Expected property key at position {key_tok.pos}"
+                            )
                         key = self.pop().text
                         if key_tok.kind == "STRING":
                             key = key[1:-1]
@@ -517,7 +532,9 @@ class _Parser:
             self.expect("-")
 
         if direction_left and direction_right:
-            raise CypherSyntaxError("Relationship cannot be both left and right directed")
+            raise CypherSyntaxError(
+                "Relationship cannot be both left and right directed"
+            )
 
         direction = "--"
         if direction_left:
@@ -647,7 +664,9 @@ class _Parser:
                 expr = Attr(expr, attr)
             return expr
 
-        raise CypherSyntaxError(f"Unexpected token {tok.kind}:{tok.text!r} at position {tok.pos}")
+        raise CypherSyntaxError(
+            f"Unexpected token {tok.kind}:{tok.text!r} at position {tok.pos}"
+        )
 
 
 def parse(query: str) -> Query:
@@ -655,6 +674,7 @@ def parse(query: str) -> Query:
 
 
 # --- Execution ---
+
 
 def _get_attr(obj: Any, name: str) -> Any:
     if isinstance(obj, PDGNode):
@@ -692,10 +712,14 @@ def _get_attr(obj: Any, name: str) -> Any:
     if isinstance(obj, dict) and name in obj:
         return obj[name]
 
-    raise CypherExecutionError(f"Cannot access property {name!r} on {type(obj).__name__}")
+    raise CypherExecutionError(
+        f"Cannot access property {name!r} on {type(obj).__name__}"
+    )
 
 
-def _eval_expr(expr: Expr, row: Dict[str, Any], params: Optional[Dict[str, Any]]) -> Any:
+def _eval_expr(
+    expr: Expr, row: Dict[str, Any], params: Optional[Dict[str, Any]]
+) -> Any:
     if isinstance(expr, Literal):
         return expr.value
     if isinstance(expr, ParamRef):
@@ -720,9 +744,13 @@ def _eval_expr(expr: Expr, row: Dict[str, Any], params: Optional[Dict[str, Any]]
         raise CypherExecutionError(f"Unsupported unary op: {expr.op}")
     if isinstance(expr, Binary):
         if expr.op == "AND":
-            return bool(_eval_expr(expr.left, row, params)) and bool(_eval_expr(expr.right, row, params))
+            return bool(_eval_expr(expr.left, row, params)) and bool(
+                _eval_expr(expr.right, row, params)
+            )
         if expr.op == "OR":
-            return bool(_eval_expr(expr.left, row, params)) or bool(_eval_expr(expr.right, row, params))
+            return bool(_eval_expr(expr.left, row, params)) or bool(
+                _eval_expr(expr.right, row, params)
+            )
 
         left = _eval_expr(expr.left, row, params)
         right = _eval_expr(expr.right, row, params)
@@ -753,11 +781,18 @@ def _eval_expr(expr: Expr, row: Dict[str, Any], params: Optional[Dict[str, Any]]
             return a
         if fname == "type" and len(args) == 1:
             return type(args[0]).__name__
-        raise CypherExecutionError(f"Unsupported function: {expr.name}({len(args)} args)")
+        raise CypherExecutionError(
+            f"Unsupported function: {expr.name}({len(args)} args)"
+        )
     raise CypherExecutionError(f"Unsupported expression node: {type(expr).__name__}")
 
 
-def _node_matches(pdg_node: PDGNode, pat: NodePattern, row: Dict[str, Any], params: Optional[Dict[str, Any]]) -> bool:
+def _node_matches(
+    pdg_node: PDGNode,
+    pat: NodePattern,
+    row: Dict[str, Any],
+    params: Optional[Dict[str, Any]],
+) -> bool:
     if pat.labels:
         # Labels map to PDGNode.kind
         if pdg_node.kind not in pat.labels:
@@ -770,7 +805,12 @@ def _node_matches(pdg_node: PDGNode, pat: NodePattern, row: Dict[str, Any], para
     return True
 
 
-def _edge_matches(edge: PDGEdge, pat: RelPattern, row: Dict[str, Any], params: Optional[Dict[str, Any]]) -> bool:
+def _edge_matches(
+    edge: PDGEdge,
+    pat: RelPattern,
+    row: Dict[str, Any],
+    params: Optional[Dict[str, Any]],
+) -> bool:
     if pat.types:
         if edge.kind not in pat.types:
             return False
@@ -782,7 +822,9 @@ def _edge_matches(edge: PDGEdge, pat: RelPattern, row: Dict[str, Any], params: O
     return True
 
 
-def _bind_var(row: Dict[str, Any], name: Optional[str], value: Any) -> Optional[Dict[str, Any]]:
+def _bind_var(
+    row: Dict[str, Any], name: Optional[str], value: Any
+) -> Optional[Dict[str, Any]]:
     if name is None:
         return row
     if name in row:
@@ -792,7 +834,9 @@ def _bind_var(row: Dict[str, Any], name: Optional[str], value: Any) -> Optional[
     return new
 
 
-def _iter_edges_for_direction(node: PDGNode, direction: str) -> Iterator[Tuple[PDGEdge, PDGNode]]:
+def _iter_edges_for_direction(
+    node: PDGNode, direction: str
+) -> Iterator[Tuple[PDGEdge, PDGNode]]:
     if direction == "->":
         for e in node.edges_out:
             yield e, e.target
@@ -935,7 +979,11 @@ def _match_chain(
                         bound_rel = cur_row[rel_pat.var]
 
                     for edge_seq, neighbor in _iter_paths(
-                        cur_node, rel_pat, bound_value=bound_rel, row=cur_row, params=params
+                        cur_node,
+                        rel_pat,
+                        bound_value=bound_rel,
+                        row=cur_row,
+                        params=params,
                     ):
                         if not _node_matches(neighbor, node_pat, cur_row, params):
                             continue
@@ -988,7 +1036,11 @@ def execute(
 
         def eval_for_order(expr: Expr, row: Dict[str, Any]) -> Any:
             # Allow ORDER BY <return-alias> (Cypher-like behavior)
-            if isinstance(expr, VarRef) and expr.name not in row and expr.name in alias_expr:
+            if (
+                isinstance(expr, VarRef)
+                and expr.name not in row
+                and expr.name in alias_expr
+            ):
                 return _eval_expr(alias_expr[expr.name], row, params)
             return _eval_expr(expr, row, params)
 
@@ -999,19 +1051,33 @@ def execute(
         # Apply descending per item by stable sorts from last to first.
         for idx in range(len(ast.order_by) - 1, -1, -1):
             if ast.order_by[idx].descending:
-                rows.sort(key=lambda r, i=idx: eval_for_order(ast.order_by[i].expr, r), reverse=True)
+                rows.sort(
+                    key=lambda r, i=idx: eval_for_order(ast.order_by[i].expr, r),
+                    reverse=True,
+                )
 
     if ast.returns and ast.returns[0].expr is None:
         # RETURN *
         result = [dict(r) for r in rows]
     else:
-        def is_aggregate(expr: Expr) -> bool:
-            return isinstance(expr, FuncCall) and expr.name.lower() in ("count", "collect")
 
-        has_agg = any(item.expr is not None and is_aggregate(item.expr) for item in ast.returns)
-        has_non_agg = any(item.expr is not None and not is_aggregate(item.expr) for item in ast.returns)
+        def is_aggregate(expr: Expr) -> bool:
+            return isinstance(expr, FuncCall) and expr.name.lower() in (
+                "count",
+                "collect",
+            )
+
+        has_agg = any(
+            item.expr is not None and is_aggregate(item.expr) for item in ast.returns
+        )
+        has_non_agg = any(
+            item.expr is not None and not is_aggregate(item.expr)
+            for item in ast.returns
+        )
         if has_agg and has_non_agg:
-            raise CypherExecutionError("Mixing aggregations and non-aggregated RETURN items is not supported (use separate queries)")
+            raise CypherExecutionError(
+                "Mixing aggregations and non-aggregated RETURN items is not supported (use separate queries)"
+            )
 
         if has_agg:
             record: Dict[str, Any] = {}
@@ -1023,7 +1089,11 @@ def execute(
 
                 key = item.alias or "expr"
                 if fname == "count":
-                    if len(expr.args) == 1 and isinstance(expr.args[0], Literal) and expr.args[0].value == "*":
+                    if (
+                        len(expr.args) == 1
+                        and isinstance(expr.args[0], Literal)
+                        and expr.args[0].value == "*"
+                    ):
                         record[key] = len(rows)
                     elif len(expr.args) == 1:
                         cnt = 0
@@ -1052,7 +1122,9 @@ def execute(
                     if key is None:
                         if isinstance(item.expr, VarRef):
                             key = item.expr.name
-                        elif isinstance(item.expr, Attr) and isinstance(item.expr.base, VarRef):
+                        elif isinstance(item.expr, Attr) and isinstance(
+                            item.expr.base, VarRef
+                        ):
                             key = f"{item.expr.base.name}.{item.expr.name}"
                         else:
                             key = "expr"

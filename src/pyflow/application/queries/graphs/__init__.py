@@ -1,7 +1,7 @@
 """
 Low-level graph query interfaces.
 
-These modules provide direct access to graph structures (call graph, CFG, SSA, 
+These modules provide direct access to graph structures (call graph, CFG, SSA,
 CDG, data flow) for users who need fine-grained control.
 """
 

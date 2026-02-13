@@ -59,9 +59,7 @@ class SemanticManager:
 
     def filter_results(self, sev_filter, conf_filter):
         """Filter results by severity and confidence thresholds."""
-        results = [
-            i for i in self.results if i.filter(sev_filter, conf_filter)
-        ]
+        results = [i for i in self.results if i.filter(sev_filter, conf_filter)]
         return results
 
     def results_count(self, sev_filter=b_constants.LOW, conf_filter=b_constants.LOW):
@@ -86,7 +84,7 @@ class SemanticManager:
             path_obj = Path(path) if isinstance(path, str) else path
             if path_obj.is_file():
                 try:
-                    with open(path_obj, 'r', encoding='utf-8') as f:
+                    with open(path_obj, "r", encoding="utf-8") as f:
                         lines = f.readlines()
                     total_lines += len(lines)
                     self.metrics.files += 1
@@ -95,13 +93,13 @@ class SemanticManager:
             elif path_obj.is_dir():
                 for py_file in path_obj.rglob("*.py"):
                     try:
-                        with open(py_file, 'r', encoding='utf-8') as f:
+                        with open(py_file, "r", encoding="utf-8") as f:
                             lines = f.readlines()
                         total_lines += len(lines)
                         self.metrics.files += 1
                     except (IOError, OSError):
                         pass
-        
+
         self.metrics.lines = total_lines
         self.metrics.data["_totals"]["loc"] = total_lines
         self.metrics.data["_totals"]["files"] = self.metrics.files
@@ -148,5 +146,5 @@ class SemanticManager:
         """Set the metrics object."""
         self._metrics = value
         # Add data property to metrics if it doesn't exist
-        if not hasattr(value, 'data'):
+        if not hasattr(value, "data"):
             value.data = self._build_metrics_data(value)

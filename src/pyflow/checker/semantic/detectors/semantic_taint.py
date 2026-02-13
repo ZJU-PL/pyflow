@@ -25,6 +25,7 @@ from typing import Dict, List, Optional, Set, Tuple, Any
 @dataclass
 class TaintState:
     """Tracks taint state for variables and expressions."""
+
     tainted: Set[str] = field(default_factory=set)
     sanitized: Set[str] = field(default_factory=set)
     # Track object property taint: obj.attr -> Set of tainted attributes
@@ -38,6 +39,7 @@ class TaintState:
 @dataclass
 class FunctionInfo:
     """Information about a function for interprocedural analysis."""
+
     name: str
     file: str
     params: List[str] = field(default_factory=list)
@@ -228,12 +230,15 @@ VALIDATORS = {
 def get_cwe_for_sink(sink: str) -> int:
     """Map sink to appropriate CWE."""
     sink_lower = sink.lower()
-    
+
     if any(x in sink_lower for x in ["eval", "exec", "__import__", "compile"]):
         return 94  # Code Injection
     elif any(x in sink_lower for x in ["system", "popen", "subprocess", "commands"]):
         return 78  # OS Command Injection
-    elif any(x in sink_lower for x in ["cursor", "session", "execute", "query", "raw", "extra"]):
+    elif any(
+        x in sink_lower
+        for x in ["cursor", "session", "execute", "query", "raw", "extra"]
+    ):
         return 89  # SQL Injection
     elif any(x in sink_lower for x in ["pickle", "yaml", "marshal", "jsonpickle"]):
         return 502  # Deserialization
@@ -252,6 +257,7 @@ def get_cwe_for_sink(sink: str) -> int:
 # =============================================================================
 # HELPER FUNCTIONS
 # =============================================================================
+
 
 def get_call_name(node: ast.Call) -> str:
     """Get qualified name from a Call node."""
@@ -315,32 +321,33 @@ def is_sink_call(node: ast.AST) -> Tuple[bool, str]:
 # COMPREHENSIVE SEMANTIC TAINT DETECTOR
 # =============================================================================
 
+
 class SemanticTaintDetector:
     """
     Comprehensive semantic taint analyzer with full interprocedural support.
     """
-    
+
     name = "semantic_taint"
     description = "Advanced taint detection with semantic analysis."
-    
+
     def __init__(self):
         self.functions: Dict[str, FunctionInfo] = {}
         self.issues: List[Dict] = []
-    
+
     def analyze(self, sources_by_name: Dict[str, str]) -> List[Dict]:
         """Run semantic taint analysis on provided sources."""
         self.functions = {}
         self.issues = []
-        
+
         # Phase 1: Parse all functions and build call graph
         self._parse_functions(sources_by_name)
-        
+
         # Phase 2: Interprocedural taint analysis
         self._interprocedural_analysis()
-        
+
         # Phase 3: Report issues
         return self.issues
-    
+
     def _parse_functions(self, sources_by_name: Dict[str, str]) -> None:
         """Parse all source files and extract function information."""
         for fname, src in sources_by_name.items():
@@ -349,7 +356,7 @@ class SemanticTaintDetector:
                 self._extract_functions(fname, tree)
             except Exception:
                 continue
-    
+
     def _extract_functions(self, fname: str, tree: ast.AST) -> None:
         """Extract function information from AST."""
         for node in ast.walk(tree):
@@ -359,32 +366,32 @@ class SemanticTaintDetector:
                     file=fname,
                     params=[arg.arg for arg in node.args.args],
                 )
-                
+
                 # Analyze function body
                 self._analyze_function_body(node, func_info)
-                
+
                 # Store function info
                 key = f"{fname}:{node.name}"
                 self.functions[key] = func_info
-    
-    def _analyze_function_body(self, node: ast.FunctionDef, func_info: FunctionInfo) -> None:
+
+    def _analyze_function_body(
+        self, node: ast.FunctionDef, func_info: FunctionInfo
+    ) -> None:
         """Analyze a function body for taint sources, sinks, and calls."""
         for child in ast.walk(node):
             if isinstance(child, ast.Call):
                 call_name = get_call_name(child)
                 func_info.calls.add(call_name)
-                
+
                 # Check if this is a source call
                 if call_name in TAINT_SOURCES:
                     func_info.sources.add(call_name)
-                
+
                 # Check if this is a sink call
                 is_sink, sink_name = is_sink_call(child)
                 if is_sink:
-                    func_info.params_to_sink.update(
-                        self._get_arg_names(child)
-                    )
-    
+                    func_info.params_to_sink.update(self._get_arg_names(child))
+
     def _get_arg_names(self, node: ast.Call) -> Set[str]:
         """Get variable names from call arguments."""
         names = set()
@@ -392,7 +399,7 @@ class SemanticTaintDetector:
             if isinstance(arg, ast.Name):
                 names.add(arg.id)
         return names
-    
+
     def _interprocedural_analysis(self) -> None:
         """Perform interprocedural taint analysis."""
         # Fixed-point iteration for propagating taint information
@@ -410,68 +417,65 @@ class SemanticTaintDetector:
                                 if param not in func.param_returns:
                                     func.param_returns.add(param)
                                     changed = True
-                
+
                 # Check if parameters flow to returns
                 if func.param_returns and not func.returns_tainted:
                     func.returns_tainted = True
                     changed = True
-    
+
     def _report_issue(
-        self,
-        file: str,
-        line: int,
-        col: int,
-        sink: str,
-        source: str,
-        cwe: int
+        self, file: str, line: int, col: int, sink: str, source: str, cwe: int
     ) -> None:
         """Report a taint flow issue."""
-        self.issues.append({
-            "file": file,
-            "line": line,
-            "col": col,
-            "sink": sink,
-            "source": source,
-            "cwe": cwe,
-            "severity": "HIGH",
-            "confidence": "HIGH",
-            "text": f"Taint flow: {source} -> {sink}"
-        })
+        self.issues.append(
+            {
+                "file": file,
+                "line": line,
+                "col": col,
+                "sink": sink,
+                "source": source,
+                "cwe": cwe,
+                "severity": "HIGH",
+                "confidence": "HIGH",
+                "text": f"Taint flow: {source} -> {sink}",
+            }
+        )
 
 
 # =============================================================================
 # SIMPLIFIED DETECTOR FOR PYFLOW INTEGRATION
 # =============================================================================
 
+
 class SimpleSemanticTaintDetector:
     """
     Simplified semantic taint detector that works within PyFlow's framework.
     """
-    
+
     name = "semantic_taint"
     description = "Semantic taint tracking with source-sink analysis."
-    
+
     def __init__(self):
         self.issues = []
-    
+
     def analyze_file(self, src: str, filename: str = "unknown") -> List[Dict]:
         """Analyze a single file for taint flows."""
         self.issues = []
-        
+
         try:
             tree = ast.parse(src)
         except Exception:
             return self.issues
-        
+
         # Track taint state
         state = TaintState()
-        
+
         # Visit all nodes
         for node in ast.walk(tree):
             self._visit(node, state, filename)
-        
+
         return self.issues
-    
+
     def _visit(self, node: ast.AST, state: TaintState, filename: str) -> None:
         """Visit and analyze AST node."""
         if isinstance(node, ast.Call):
@@ -486,37 +490,39 @@ class SimpleSemanticTaintDetector:
             self._visit_for(node, state, filename)
         elif isinstance(node, ast.With):
             self._visit_with(node, state, filename)
-    
+
     def _visit_call(self, node: ast.Call, state: TaintState, filename: str) -> None:
         """Visit function call."""
         call_name = get_call_name(node)
-        
+
         # Check for taint source
         if call_name in TAINT_SOURCES:
             # Mark any variable assigned to this as tainted
             pass
-        
+
         # Check for sink with tainted input
         is_sink, sink_name = is_sink_call(node)
         if is_sink:
             for arg in node.args:
                 if self._is_arg_tainted(arg, state):
                     cwe = get_cwe_for_sink(sink_name)
-                    self.issues.append({
-                        "file": filename,
-                        "line": getattr(node, "lineno", 0),
-                        "col": getattr(node, "col_offset", 0),
-                        "sink": sink_name,
-                        "cwe": cwe,
-                        "severity": "HIGH",
-                        "confidence": "HIGH",
-                        "text": f"Taint flow detected: untrusted input reaches '{sink_name}'"
-                    })
-        
+                    self.issues.append(
+                        {
+                            "file": filename,
+                            "line": getattr(node, "lineno", 0),
+                            "col": getattr(node, "col_offset", 0),
+                            "sink": sink_name,
+                            "cwe": cwe,
+                            "severity": "HIGH",
+                            "confidence": "HIGH",
+                            "text": f"Taint flow detected: untrusted input reaches '{sink_name}'",
+                        }
+                    )
+
         # Check for sanitizers
         if is_sanitizer_call(node):
             self._mark_args_sanitized(node, state)
-    
+
     def _is_arg_tainted(self, arg: ast.AST, state: TaintState) -> bool:
         """Check if argument is tainted."""
         if isinstance(arg, ast.Name):
@@ -546,7 +552,7 @@ class SimpleSemanticTaintDetector:
             if call_name in TAINT_SOURCES:
                 return True
         return False
-    
+
     def _get_base_name(self, node: ast.AST) -> str:
         """Get base name from attribute chain."""
         if isinstance(node, ast.Attribute):
@@ -554,13 +560,13 @@ class SimpleSemanticTaintDetector:
         elif isinstance(node, ast.Name):
             return node.id
         return ""
-    
+
     def _mark_args_sanitized(self, node: ast.Call, state: TaintState) -> None:
         """Mark call arguments as sanitized."""
         for arg in node.args:
             if isinstance(arg, ast.Name):
                 state.sanitized.add(arg.id)
-    
+
     def _visit_assign(self, node: ast.Assign, state: TaintState, filename: str) -> None:
         """Visit assignment statement."""
         for target in node.targets:
@@ -573,11 +579,11 @@ class SimpleSemanticTaintDetector:
                     # Check if taint is preserved
                     if not value_tainted and not self._is_sanitized(node.value, state):
                         pass  # Keep existing taint
-                
+
                 # Track aliases
                 if isinstance(node.value, ast.Name):
                     state.aliases[target.id] = node.value.id
-            
+
             elif isinstance(target, ast.Attribute):
                 # obj.attr = value
                 base = self._get_base_name(target)
@@ -586,7 +592,7 @@ class SimpleSemanticTaintDetector:
                         state.tainted_attrs[base] = set()
                     if self._is_value_tainted(node.value, state):
                         state.tainted_attrs[base].add(target.attr)
-            
+
             elif isinstance(target, ast.Subscript):
                 # container[key] = value
                 if isinstance(target.value, ast.Name):
@@ -597,7 +603,7 @@ class SimpleSemanticTaintDetector:
                             state.tainted_keys[base] = set()
                         if self._is_value_tainted(node.value, state):
                             state.tainted_keys[base].add(key)
-    
+
     def _is_value_tainted(self, value: ast.AST, state: TaintState) -> bool:
         """Check if value expression is tainted."""
         if isinstance(value, ast.Name):
@@ -608,19 +614,21 @@ class SimpleSemanticTaintDetector:
             call_name = get_call_name(value)
             return call_name in TAINT_SOURCES
         elif isinstance(value, ast.BinOp):
-            return self._is_value_tainted(value.left, state) or \
-                   self._is_value_tainted(value.right, state)
+            return self._is_value_tainted(value.left, state) or self._is_value_tainted(
+                value.right, state
+            )
         elif isinstance(value, ast.IfExp):
-            return self._is_value_tainted(value.body, state) or \
-                   self._is_value_tainted(value.orelse, state)
+            return self._is_value_tainted(value.body, state) or self._is_value_tainted(
+                value.orelse, state
+            )
         return False
-    
+
     def _is_sanitized(self, value: ast.AST, state: TaintState) -> bool:
         """Check if value goes through a sanitizer."""
         if isinstance(value, ast.Call):
             return is_sanitizer_call(value)
         return False
-    
+
     def _get_key_name(self, node: ast.AST) -> Optional[str]:
         """Get key name from subscript slice."""
         if isinstance(node, ast.Name):
@@ -628,27 +636,29 @@ class SimpleSemanticTaintDetector:
         elif isinstance(node, ast.Constant):
             return str(node.value)
         return None
-    
-    def _visit_function(self, node: ast.FunctionDef, state: TaintState, filename: str) -> None:
+
+    def _visit_function(
+        self, node: ast.FunctionDef, state: TaintState, filename: str
+    ) -> None:
         """Visit function definition - track parameters."""
         # Analyze function body with function-local state
         func_state = TaintState()
-        
+
         # Function parameters are initially untainted unless from source
         for arg in node.args.args:
             func_state.tainted.add(arg.arg)
-        
+
         # Analyze body
         for child in ast.walk(node):
             self._visit(child, func_state, filename)
-    
+
     def _visit_return(self, node: ast.Return, state: TaintState, filename: str) -> None:
         """Visit return statement - track return taint."""
         if isinstance(node.value, ast.Name):
             if node.value.id in state.tainted:
                 # Function returns tainted value
                 pass
-    
+
     def _visit_for(self, node: ast.For, state: TaintState, filename: str) -> None:
         """Visit for loop - track iterator taint."""
         if isinstance(node.iter, ast.Call):
@@ -657,7 +667,7 @@ class SimpleSemanticTaintDetector:
                 # Iterator yields tainted values
                 if isinstance(node.target, ast.Name):
                     state.tainted.add(node.target.id)
-    
+
     def _visit_with(self, node: ast.With, state: TaintState, filename: str) -> None:
         """Visit with statement."""
         for item in node.items:

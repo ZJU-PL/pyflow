@@ -63,12 +63,20 @@ def resolve_capabilities(mode: MCPServerMode) -> Dict[str, Dict[str, Optional[st
 
     if mode is MCPServerMode.BASIC:
         basic = {
-            key: value for key, value in full.items() if key in {"cfg", "callgraph", "callers", "callees", "function_summaries"}
+            key: value
+            for key, value in full.items()
+            if key in {"cfg", "callgraph", "callers", "callees", "function_summaries"}
         }
         basic["store_graph"] = {"available": False, "note": "Disabled in BASIC mode."}
         basic["lifetime"] = {"available": False, "note": "Disabled in BASIC mode."}
-        basic["ssa"] = {"available": False, "note": "SSA is disabled to keep the footprint small."}
-        basic["cdg"] = {"available": False, "note": "CDG requires full SSA/CPA results."}
+        basic["ssa"] = {
+            "available": False,
+            "note": "SSA is disabled to keep the footprint small.",
+        }
+        basic["cdg"] = {
+            "available": False,
+            "note": "CDG requires full SSA/CPA results.",
+        }
         basic["reaching_defs"] = full["reaching_defs"]
         basic["aliases"] = full["aliases"]
         basic["points_to"] = full["points_to"]

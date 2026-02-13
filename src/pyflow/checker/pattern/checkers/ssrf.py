@@ -118,9 +118,9 @@ def requests_user_url(context):
                 confidence="MEDIUM",
                 cwe=issue.Cwe.SERVER_SIDE_REQUEST_FORGERY,
                 text="requests function with variable URL parameter. "
-                     "This can lead to Server-Side Request Forgery (SSRF). "
-                     "Validate the URL against an allowlist of permitted hosts "
-                     "and reject private IP addresses.",
+                "This can lead to Server-Side Request Forgery (SSRF). "
+                "Validate the URL against an allowlist of permitted hosts "
+                "and reject private IP addresses.",
             )
 
     # Check 'url' keyword argument
@@ -132,7 +132,7 @@ def requests_user_url(context):
                     confidence="MEDIUM",
                     cwe=issue.Cwe.SERVER_SIDE_REQUEST_FORGERY,
                     text="requests function with variable 'url' keyword argument. "
-                         "This can lead to Server-Side Request Forgery (SSRF).",
+                    "This can lead to Server-Side Request Forgery (SSRF).",
                 )
 
     return None
@@ -174,7 +174,7 @@ def urllib_user_url(context):
                 confidence="MEDIUM",
                 cwe=issue.Cwe.SERVER_SIDE_REQUEST_FORGERY,
                 text="urllib function with variable URL parameter. "
-                     "This can lead to Server-Side Request Forgery (SSRF).",
+                "This can lead to Server-Side Request Forgery (SSRF).",
             )
 
     return None
@@ -237,8 +237,8 @@ def internal_metadata_access(context):
                             confidence="HIGH",
                             cwe=issue.Cwe.SERVER_SIDE_REQUEST_FORGERY,
                             text=f"Request to cloud metadata endpoint ({pattern}). "
-                                 "This can leak sensitive credentials or allow privilege escalation. "
-                                 "Never make requests to metadata endpoints from untrusted code.",
+                            "This can leak sensitive credentials or allow privilege escalation. "
+                            "Never make requests to metadata endpoints from untrusted code.",
                         )
 
     return None
@@ -277,13 +277,17 @@ def socket_internal_connection(context):
                     host_arg = connect_arg.elts[0]
                     if isinstance(host_arg, ast.Constant):
                         host = host_arg.value
-                        if host in ["localhost", "127.0.0.1"] or host.startswith("192.168.") or host.startswith("10."):
+                        if (
+                            host in ["localhost", "127.0.0.1"]
+                            or host.startswith("192.168.")
+                            or host.startswith("10.")
+                        ):
                             return issue.Issue(
                                 severity="LOW",
                                 confidence="LOW",
                                 cwe=issue.Cwe.SERVER_SIDE_REQUEST_FORGERY,
                                 text=f"Socket connection to internal host ({host}). "
-                                     "This could be part of an SSRF attack to access internal services.",
+                                "This could be part of an SSRF attack to access internal services.",
                             )
 
     return None
@@ -328,7 +332,14 @@ def no_url_validation(context):
     if isinstance(parent, ast.FunctionDef):
         parent_name = parent.name.lower()
 
-    validation_keywords = ["validate", "allowlist", "whitelist", "check", "sanitize", "filter"]
+    validation_keywords = [
+        "validate",
+        "allowlist",
+        "whitelist",
+        "check",
+        "sanitize",
+        "filter",
+    ]
 
     # If function name doesn't suggest validation, flag it
     if not any(kw in parent_name for kw in validation_keywords):
@@ -340,9 +351,9 @@ def no_url_validation(context):
                     confidence="LOW",
                     cwe=issue.Cwe.SERVER_SIDE_REQUEST_FORGERY,
                     text="HTTP request without obvious URL validation. "
-                         "Consider implementing URL validation to prevent SSRF attacks. "
-                         "Validate: scheme (http/https), hostname (no private IPs), "
-                         "and reject file:// or other dangerous schemes.",
+                    "Consider implementing URL validation to prevent SSRF attacks. "
+                    "Validate: scheme (http/https), hostname (no private IPs), "
+                    "and reject file:// or other dangerous schemes.",
                 )
 
     return None
@@ -380,7 +391,14 @@ def dangerous_url_scheme(context):
     if not (is_requests or is_urllib):
         return None
 
-    dangerous_schemes = ["file://", "gopher://", "dict://", "ldap://", "sftp://", "smb://"]
+    dangerous_schemes = [
+        "file://",
+        "gopher://",
+        "dict://",
+        "ldap://",
+        "sftp://",
+        "smb://",
+    ]
 
     if len(node.args) > 0:
         first_arg = node.args[0]
@@ -394,8 +412,8 @@ def dangerous_url_scheme(context):
                             confidence="HIGH",
                             cwe=issue.Cwe.SERVER_SIDE_REQUEST_FORGERY,
                             text=f"Dangerous URL scheme '{scheme}' detected. "
-                                 f"This scheme can be exploited for SSRF attacks. "
-                                 f"Allow only http:// and https:// schemes.",
+                            f"This scheme can be exploited for SSRF attacks. "
+                            f"Allow only http:// and https:// schemes.",
                         )
 
     return None
