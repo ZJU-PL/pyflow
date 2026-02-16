@@ -64,7 +64,18 @@ class TestSimpleCase(TestCompoundConstraintBase):
 
         self.code = ast.Code(
             "test",
-            ast.CodeParameters(None, [x, y], ["x", "y"], [], None, None, [ret]),
+            ast.CodeParameters(
+                selfparam=None,
+                posonlyparams=[],
+                posonlynames=[],
+                params=[x, y],
+                paramnames=["x", "y"],
+                defaults=[],
+                vparam=None,
+                kparam=None,
+                returnparams=[ret],
+                type_params=None,
+            ),
             self.body,
         )
 
@@ -185,7 +196,18 @@ class TestCallLoadCase(TestCompoundConstraintBase):
 
         self.code = ast.Code(
             "loadTest",
-            ast.CodeParameters(None, [x], ["x"], [], None, None, [ret]),
+            ast.CodeParameters(
+                selfparam=None,
+                posonlyparams=[],
+                posonlynames=[],
+                params=[x],
+                paramnames=["x"],
+                defaults=[],
+                vparam=None,
+                kparam=None,
+                returnparams=[ret],
+                type_params=None,
+            ),
             body,
         )
 
@@ -292,7 +314,18 @@ class TestVArgCase(TestCompoundConstraintBase):
 
         self.code = ast.Code(
             "buildTreeTest",
-            ast.CodeParameters(None, [x, y, z], ["x", "y", "z"], [], None, None, [ret]),
+            ast.CodeParameters(
+                selfparam=None,
+                posonlyparams=[],
+                posonlynames=[],
+                params=[x, y, z],
+                paramnames=["x", "y", "z"],
+                defaults=[],
+                vparam=None,
+                kparam=None,
+                returnparams=[ret],
+                type_params=None,
+            ),
             body,
         )
 
@@ -451,8 +484,19 @@ class TestVParamCase(TestCompoundConstraintBase):
         body = ast.Suite([ast.Return([vargs])])
 
         self.code = ast.Code(
-            "buildTupleTest",
-            ast.CodeParameters(None, [], [], [], vargs, None, [ret]),
+            "vargsTest",
+            ast.CodeParameters(
+                selfparam=None,
+                posonlyparams=[],
+                posonlynames=[],
+                params=[],
+                paramnames=[],
+                defaults=[],
+                vparam=vargs,
+                kparam=None,
+                returnparams=[ret],
+                type_params=None,
+            ),
             body,
         )
 
@@ -576,7 +620,18 @@ class TestRecursiveCase(TestCompoundConstraintBase):
 
         code = ast.Code(
             "reverseTestDummy",
-            ast.CodeParameters(None, [l, n], ["l", "n"], [], None, None, [ret]),
+            ast.CodeParameters(
+                selfparam=None,
+                posonlyparams=[],
+                posonlynames=[],
+                params=[l, n],
+                paramnames=["l", "n"],
+                defaults=[],
+                vparam=None,
+                kparam=None,
+                returnparams=[ret],
+                type_params=None,
+            ),
             body,
         )
 
@@ -619,10 +674,20 @@ class TestRecursiveCase(TestCompoundConstraintBase):
         self.tailRef = self.refs(self.tailSlot)
         self.nullRef = self.refs()
 
-        # Pre-declare
         self.code = ast.Code(
             "reverseTest",
-            ast.CodeParameters(None, [l, n], ["l", "n"], [], None, None, [ret]),
+            ast.CodeParameters(
+                selfparam=None,
+                posonlyparams=[],
+                posonlynames=[],
+                params=[l, n],
+                paramnames=["l", "n"],
+                defaults=[],
+                vparam=None,
+                kparam=None,
+                returnparams=[ret],
+                type_params=None,
+            ),
             ast.Suite([]),
         )
 
@@ -749,7 +814,20 @@ class TestAllocateCase(TestCompoundConstraintBase):
         )
 
         fakecode = ast.Code(
-            "bogus", ast.CodeParameters(None, [], [], [], None, None, []), self.code
+            "bogus",
+            ast.CodeParameters(
+                selfparam=None,
+                posonlyparams=[],
+                posonlynames=[],
+                params=[],
+                paramnames=[],
+                defaults=[],
+                vparam=None,
+                kparam=None,
+                returnparams=[],
+                type_params=None,
+            ),
+            self.code
         )
 
         lc = self.sys.cpacanonical.localName(fakecode, x, self.context)

@@ -114,7 +114,16 @@ class InterproceduralDataflow(object):
         self.externalFunction = ast.Code(
             "external",
             ast.CodeParameters(
-                None, [], [], [], None, None, [ast.Local("internal_return")]
+                selfparam=None,
+                posonlyparams=[],
+                posonlynames=[],
+                params=[],
+                paramnames=[],
+                defaults=[],
+                vparam=None,
+                kparam=None,
+                returnparams=[ast.Local("internal_return")],
+                type_params=None,
             ),
             ast.Suite([]),
         )

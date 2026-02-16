@@ -13,7 +13,16 @@ import operator
 def noself(code):
     p = code.codeparameters
     code.codeparameters = ast.CodeParameters(
-        None, p.params, p.paramnames, p.defaults, p.vparam, p.kparam, p.returnparams
+        selfparam=None,
+        posonlyparams=p.posonlyparams,
+        posonlynames=p.posonlynames,
+        params=p.params,
+        paramnames=p.paramnames,
+        defaults=p.defaults,
+        vparam=p.vparam,
+        kparam=p.kparam,
+        returnparams=p.returnparams,
+        type_params=p.type_params,
     )
     return code
 

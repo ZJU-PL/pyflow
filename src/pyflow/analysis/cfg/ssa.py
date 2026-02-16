@@ -164,16 +164,19 @@ class SSARename(TypeDispatcher):
         params = [self.clone(p, frame) for p in cparam.params]
         vparam = self.clone(cparam.vparam, frame)
         kparam = self.clone(cparam.kparam, frame)
+        posonlyparams = [self.clone(p, frame) for p in cparam.posonlyparams]
 
-        # Construct the parameters
         self.g.code.codeparameters = ast.CodeParameters(
-            selfparam,
-            params,
-            cparam.paramnames,
-            cparam.defaults,
-            vparam,
-            kparam,
-            cparam.returnparams,
+            selfparam=selfparam,
+            posonlyparams=posonlyparams,
+            posonlynames=cparam.posonlynames,
+            params=params,
+            paramnames=cparam.paramnames,
+            defaults=cparam.defaults,
+            vparam=vparam,
+            kparam=kparam,
+            returnparams=cparam.returnparams,
+            type_params=cparam.type_params,
         )
 
         self.currentFrame = frame

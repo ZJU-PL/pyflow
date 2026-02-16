@@ -365,7 +365,18 @@ class ExtractDataflow(TypeDispatcher):
 
     @dispatch(ast.Yield)
     def visitYield(self, node, targets=None):
-        # Yield statements in generators - skip for dataflow analysis
+        return None
+
+    @dispatch(ast.YieldFrom)
+    def visitYieldFrom(self, node, targets=None):
+        if node.expr:
+            self(node.expr)
+        return None
+
+    @dispatch(ast.ShortCircutAnd, ast.ShortCircutOr)
+    def visitShortCircutBool(self, node, targets=None):
+        for term in node.terms:
+            self(term)
         return None
 
     @dispatch(ast.MakeFunction)

@@ -296,7 +296,6 @@ class ASTConverter:
             return pyflow_ast.Existing(Object(None))
 
         elif isinstance(node, python_ast.Compare):
-            # Handle comparisons (==, !=, <, >, etc.)
             left = self._convert_expression_safe(node.left)
             if len(node.ops) != len(node.comparators) or not node.ops:
                 return pyflow_ast.Existing(Object(None))
@@ -334,10 +333,9 @@ class ASTConverter:
             if len(comps) == 1:
                 return comps[0]
 
-            # Chained comparisons: approximate by conjunction of each comparison.
-            expr = comps[0]
+            expr: PythonASTNode = comps[0]
             for c in comps[1:]:
-                expr = self._call_named("interpreter_booland", [expr, c])
+                expr = pyflow_ast.ShortCircutAnd([expr, c])
             return expr
 
         elif isinstance(node, python_ast.BinOp):
@@ -407,35 +405,44 @@ class ASTConverter:
             return pyflow_ast.GetAttr(value, attr_name)
 
         elif isinstance(node, python_ast.BoolOp):
-            # Approximate boolean ops using helper stubs (no short-circuit).
             values = [self._convert_expression_safe(v) for v in node.values]
             if not values:
                 return pyflow_ast.Existing(Object(None))
             if isinstance(node.op, python_ast.And):
-                op_name = "interpreter_booland"
+                return pyflow_ast.ShortCircutAnd(values)
             elif isinstance(node.op, python_ast.Or):
-                op_name = "interpreter_boolor"
+                return pyflow_ast.ShortCircutOr(values)
             else:
                 return pyflow_ast.Existing(Object(None))
-            expr: PythonASTNode = values[0]
-            for v in values[1:]:
-                expr = self._call_named(op_name, [expr, v])
-            return expr
 
         elif isinstance(node, python_ast.IfExp):
-            # Ternary expression: a if cond else b (approximate via helper stub).
             test = self._convert_expression_safe(node.test)
             body = self._convert_expression_safe(node.body)
             orelse = self._convert_expression_safe(node.orelse)
-            return self._call_named("interpreter_ifexp", [test, body, orelse])
+            result = self._tmp_local("ifexp", node)
+            return pyflow_ast.Suite([
+                pyflow_ast.Switch(
+                    condition=pyflow_ast.Condition(pyflow_ast.Suite([]), test),
+                    t=pyflow_ast.Suite([pyflow_ast.Assign(body, [result])]),
+                    f=pyflow_ast.Suite([pyflow_ast.Assign(orelse, [result])]),
+                ),
+            ])
 
         elif isinstance(node, python_ast.JoinedStr):
-            # f-strings: try to constant-evaluate, otherwise approximate.
-            try:
-                value = python_ast.literal_eval(node)
-                return pyflow_ast.Existing(Object(value))
-            except Exception:
-                return pyflow_ast.Existing(Object(None))
+            parts = []
+            for value in node.values:
+                if isinstance(value, python_ast.Constant):
+                    parts.append(pyflow_ast.Existing(Object(str(value.value))))
+                elif hasattr(python_ast, "FormattedValue") and isinstance(value, python_ast.FormattedValue):
+                    conv = value.conversion if hasattr(value, "conversion") else -1
+                    format_spec = None
+                    if hasattr(value, "format_spec") and value.format_spec:
+                        format_spec = self._convert_expression_safe(value.format_spec)
+                    expr = self._convert_expression_safe(value.value)
+                    parts.append(self._call_named("interpreter_format", [expr, pyflow_ast.Existing(Object(conv)), format_spec or pyflow_ast.Existing(Object(None))]))
+                else:
+                    parts.append(self._convert_expression_safe(value))
+            return self._call_named("interpreter_join_str", [pyflow_ast.BuildList(parts)])
 
         elif isinstance(node, python_ast.FormattedValue):
             return self._convert_expression_safe(node.value)
@@ -450,28 +457,19 @@ class ASTConverter:
 
         elif isinstance(node, python_ast.YieldFrom):
             expr = self._convert_expression_safe(node.value)
-            return pyflow_ast.Yield(expr)
+            return pyflow_ast.YieldFrom(expr)
 
         elif isinstance(node, python_ast.ListComp):
-            # Approximate comprehensions as a singleton list of the element.
-            return pyflow_ast.BuildList([self._convert_expression_safe(node.elt)])
+            return self._convert_list_comp(node)
 
         elif isinstance(node, python_ast.SetComp):
-            try:
-                value = python_ast.literal_eval(node)
-                return pyflow_ast.Existing(Object(value))
-            except Exception:
-                return pyflow_ast.BuildList([self._convert_expression_safe(node.elt)])
+            return self._convert_set_comp(node)
 
         elif isinstance(node, python_ast.DictComp):
-            try:
-                value = python_ast.literal_eval(node)
-                return pyflow_ast.Existing(Object(value))
-            except Exception:
-                return pyflow_ast.BuildMap()
+            return self._convert_dict_comp(node)
 
         elif isinstance(node, python_ast.GeneratorExp):
-            return pyflow_ast.Existing(Object(None))
+            return self._convert_gen_exp(node)
 
         elif hasattr(python_ast, "NamedExpr") and isinstance(node, python_ast.NamedExpr):
             # Handle walrus operator (:=) - Python 3.8+
@@ -519,17 +517,19 @@ class ASTConverter:
         return result
 
     def _convert_function_def(self, node: python_ast.AST) -> Optional[PythonASTNode]:
-        """Convert Python AST FunctionDef to pyflow AST."""
-        # Convert function arguments
-        codeparams = self._convert_function_args(node.args, ensure_return=True)
+        """Convert Python AST FunctionDef to pyflow AST.
+        
+        Supports type parameters for generic functions (Python 3.12+).
+        """
+        type_params_node = getattr(node, 'type_params', None)
+        codeparams = self._convert_function_args(
+            node.args, ensure_return=True, type_params_node=type_params_node
+        )
 
-        # Convert function body
         body = self.convert_python_ast_to_pyflow(node.body)
 
-        # Create Code object
         code = pyflow_ast.Code(node.name, codeparams, body)
 
-        # Initialize annotation
         code.annotation = CodeAnnotation(
             contexts=None,
             descriptive=False,
@@ -547,7 +547,10 @@ class ASTConverter:
             interpreter=False,
         )
 
-        # Wrap in FunctionDef node
+        type_params = None
+        if type_params_node:
+            type_params = self._convert_type_params(type_params_node)
+
         return pyflow_ast.FunctionDef(
             node.name,
             code,
@@ -555,47 +558,70 @@ class ASTConverter:
                 self._convert_expression_safe(decorator)
                 for decorator in node.decorator_list
             ],
+            type_params,
         )
 
     def _convert_class_def(self, node: python_ast.ClassDef) -> Optional[PythonASTNode]:
-        """Convert Python AST ClassDef to pyflow AST."""
-        # Convert base classes
+        """Convert Python AST ClassDef to pyflow AST.
+        
+        Supports:
+        - Metaclass keyword argument
+        - __init_subclass__ keywords
+        - Type parameters for generic classes (Python 3.12+)
+        """
         bases = [self._convert_expression_safe(base) for base in node.bases]
 
-        # Convert class body
+        keywords = []
+        for kw in getattr(node, 'keywords', []):
+            if kw.arg is not None:
+                keywords.append((kw.arg, self._convert_expression_safe(kw.value)))
+
         body = self.convert_python_ast_to_pyflow(node.body)
 
-        # Wrap in ClassDef node
+        type_params = None
+        if hasattr(node, 'type_params') and node.type_params:
+            type_params = self._convert_type_params(node.type_params)
+
         return pyflow_ast.ClassDef(
             node.name,
             bases,
+            keywords,
             body,
             [
                 self._convert_expression_safe(decorator)
                 for decorator in node.decorator_list
             ],
+            type_params,
         )
 
     def _convert_function_args(
-        self, args_node: python_ast.arguments, *, ensure_return: bool = False
+        self, args_node: python_ast.arguments, *, ensure_return: bool = False, type_params_node=None
     ) -> pyflow_ast.CodeParameters:
-        """Convert Python AST arguments to pyflow AST CodeParameters."""
+        """Convert Python AST arguments to pyflow AST CodeParameters.
+        
+        Supports:
+        - Positional-only parameters (Python 3.8+)
+        - Keyword-only parameters
+        - Type parameters for generics (Python 3.12+)
+        """
         posonly = [a.arg for a in getattr(args_node, "posonlyargs", [])]
+        posonly_params = [pyflow_ast.Local(name) for name in posonly]
+        
         regular = [a.arg for a in getattr(args_node, "args", [])]
+        regular_params = [pyflow_ast.Local(name) for name in regular]
+        
         kwonly = [a.arg for a in getattr(args_node, "kwonlyargs", [])]
-        param_names = [*posonly, *regular, *kwonly]
-        params = [pyflow_ast.Local(name) for name in param_names]
-
-        # Per-parameter default list (may include None holes).
-        per_param_defaults: List[Optional[pyflow_ast.Existing]] = [None] * len(
-            param_names
-        )
-
-        # Positional defaults apply to the last N of (posonly + regular).
-        positional_names = [*posonly, *regular]
+        kwonly_params = [pyflow_ast.Local(name) for name in kwonly]
+        
+        all_positional_names = [*posonly, *regular]
+        all_params = [*posonly_params, *regular_params, *kwonly_params]
+        param_names = [*all_positional_names, *kwonly]
+        
+        per_param_defaults: List[Optional[pyflow_ast.Existing]] = [None] * len(param_names)
+        
         pos_defaults = list(getattr(args_node, "defaults", []) or [])
         if pos_defaults:
-            start = len(positional_names) - len(pos_defaults)
+            start = len(all_positional_names) - len(pos_defaults)
             for i, default_node in enumerate(pos_defaults):
                 idx = start + i
                 try:
@@ -604,10 +630,9 @@ class ASTConverter:
                 except Exception:
                     per_param_defaults[idx] = pyflow_ast.Existing(Object(None))
 
-        # Keyword-only defaults align with kwonlyargs (can contain None holes).
         kw_defaults = list(getattr(args_node, "kw_defaults", []) or [])
         if kwonly and kw_defaults:
-            base = len(positional_names)
+            base = len(all_positional_names)
             for i, default_node in enumerate(kw_defaults):
                 if default_node is None:
                     continue
@@ -617,7 +642,6 @@ class ASTConverter:
                 except Exception:
                     per_param_defaults[base + i] = pyflow_ast.Existing(Object(None))
 
-        # Collapse to trailing-contiguous defaults as required by CalleeParams.
         first_default = next(
             (i for i, d in enumerate(per_param_defaults) if d is not None), None
         )
@@ -628,7 +652,6 @@ class ASTConverter:
                     d if d is not None else pyflow_ast.Existing(Object(None))
                 )
 
-        # Handle *args and **kwargs
         vararg = None
         if args_node.vararg:
             vararg = pyflow_ast.Local(args_node.vararg.arg)
@@ -637,16 +660,33 @@ class ASTConverter:
         if args_node.kwarg:
             kwarg = pyflow_ast.Local(args_node.kwarg.arg)
 
-        # Create CodeParameters object
+        type_params = None
+        if type_params_node is not None:
+            type_params = self._convert_type_params(type_params_node)
+
         return pyflow_ast.CodeParameters(
             selfparam=None,
-            params=params,
-            paramnames=param_names,
+            posonlyparams=posonly_params,
+            posonlynames=posonly,
+            params=regular_params,
+            paramnames=regular,
             defaults=defaults,
             vparam=vararg,
             kparam=kwarg,
             returnparams=[pyflow_ast.Local("ret0")] if ensure_return else [],
+            type_params=type_params,
         )
+
+    def _convert_type_params(self, type_params_node) -> pyflow_ast.TypeParams:
+        """Convert Python 3.12+ type parameters to pyflow AST."""
+        params = []
+        for tp in type_params_node:
+            name = tp.name if hasattr(tp, 'name') else str(tp)
+            bound = None
+            if hasattr(tp, 'bound') and tp.bound:
+                bound = self._convert_expression_safe(tp.bound)
+            params.append(pyflow_ast.TypeParam(name, bound))
+        return pyflow_ast.TypeParams(params)
 
     def _convert_import(self, node: python_ast.Import) -> Optional[PythonASTNode]:
         """Convert Python AST Import to pyflow AST."""
@@ -829,19 +869,48 @@ class ASTConverter:
         return pyflow_ast.Assert(test_expr, msg_expr)
 
     def _convert_with(self, node: python_ast.With) -> Optional[PythonASTNode]:
-        """Convert Python AST With to pyflow AST."""
-        pre = pyflow_ast.Suite([])
+        """Convert Python AST With to pyflow AST with proper context manager semantics.
+        
+        Models the full context manager protocol:
+        1. Evaluate context expression
+        2. Call __enter__ on the context manager
+        3. Assign result to optional_vars (if present)
+        4. Execute body
+        5. Call __exit__ on the context manager (guaranteed via try-finally)
+        """
+        suite = pyflow_ast.Suite([])
+        
         for item in node.items:
-            ctx = self._convert_expression_safe(item.context_expr)
+            ctx_expr = self._convert_expression_safe(item.context_expr)
+            ctx_local = self._tmp_local("ctx_mgr", item)
+            
+            suite.append(pyflow_ast.Assign(ctx_expr, [ctx_local]))
+            
+            enter_result = self._call_named("interpreter_enter", [ctx_local])
+            
             if item.optional_vars is not None:
-                tmp = self._tmp_local("with", item)
-                pre.append(pyflow_ast.Assign(ctx, [tmp]))
-                pre.append(self._convert_store(item.optional_vars, tmp))
+                suite.append(self._convert_store(item.optional_vars, enter_result))
             else:
-                pre.append(pyflow_ast.Discard(ctx))
-
+                suite.append(pyflow_ast.Discard(enter_result))
+        
         body = self.convert_python_ast_to_pyflow(node.body)
-        return pyflow_ast.Suite([pre, body])
+        
+        finally_suite = pyflow_ast.Suite([])
+        for item in reversed(node.items):
+            ctx_local = self._tmp_local("ctx_mgr", item)
+            exc_type = pyflow_ast.Existing(Object(None))
+            exc_val = pyflow_ast.Existing(Object(None))
+            exc_tb = pyflow_ast.Existing(Object(None))
+            exit_call = self._call_named("interpreter_exit", [ctx_local, exc_type, exc_val, exc_tb])
+            finally_suite.append(pyflow_ast.Discard(exit_call))
+        
+        return pyflow_ast.TryExceptFinally(
+            body=body,
+            handlers=[],
+            defaultHandler=None,
+            else_=pyflow_ast.Suite([]),
+            finally_=finally_suite,
+        )
 
     def _binary_op_name(self, op: python_ast.AST) -> Optional[str]:
         op_map = {
@@ -1005,29 +1074,56 @@ class ASTConverter:
         )
 
     def _convert_async_with(self, node) -> Optional[PythonASTNode]:
-        """Convert Python AST AsyncWith to pyflow AST.
+        """Convert Python AST AsyncWith to pyflow AST with proper async context manager semantics.
         
-        Async context managers are modeled with async enter/exit semantics.
+        Models the full async context manager protocol:
+        1. Evaluate context expression
+        2. Call __aenter__ on the context manager
+        3. Assign result to optional_vars (if present)
+        4. Execute body
+        5. Call __aexit__ on the context manager (guaranteed via try-finally)
         """
-        pre = pyflow_ast.Suite([])
+        suite = pyflow_ast.Suite([])
+        
         for item in node.items:
-            ctx = self._convert_expression_safe(item.context_expr)
-            ctx = self._call_named("interpreter_async_with", [ctx])
+            ctx_expr = self._convert_expression_safe(item.context_expr)
+            ctx_local = self._tmp_local("async_ctx_mgr", item)
+            
+            suite.append(pyflow_ast.Assign(ctx_expr, [ctx_local]))
+            
+            enter_result = self._call_named("interpreter_aenter", [ctx_local])
+            
             if item.optional_vars is not None:
-                tmp = self._tmp_local("async_with", item)
-                pre.append(pyflow_ast.Assign(ctx, [tmp]))
-                pre.append(self._convert_store(item.optional_vars, tmp))
+                suite.append(self._convert_store(item.optional_vars, enter_result))
             else:
-                pre.append(pyflow_ast.Discard(ctx))
-
+                suite.append(pyflow_ast.Discard(enter_result))
+        
         body = self.convert_python_ast_to_pyflow(node.body)
-        return pyflow_ast.Suite([pre, body])
+        
+        finally_suite = pyflow_ast.Suite([])
+        for item in reversed(node.items):
+            ctx_local = self._tmp_local("async_ctx_mgr", item)
+            exc_type = pyflow_ast.Existing(Object(None))
+            exc_val = pyflow_ast.Existing(Object(None))
+            exc_tb = pyflow_ast.Existing(Object(None))
+            exit_call = self._call_named("interpreter_aexit", [ctx_local, exc_type, exc_val, exc_tb])
+            finally_suite.append(pyflow_ast.Discard(pyflow_ast.Await(exit_call)))
+        
+        return pyflow_ast.TryExceptFinally(
+            body=body,
+            handlers=[],
+            defaultHandler=None,
+            else_=pyflow_ast.Suite([]),
+            finally_=finally_suite,
+        )
 
     def _convert_match(self, node) -> Optional[PythonASTNode]:
         """Convert Python AST Match (pattern matching, Python 3.10+) to pyflow AST.
         
-        Pattern matching is converted to a series of conditional checks
-        (similar to a chain of if-elif-else statements).
+        Pattern matching is converted with proper binding semantics:
+        - Subject is evaluated once and stored in a temp variable
+        - Each case is checked in order with proper pattern matching
+        - Pattern bindings are properly captured
         """
         subject = self._convert_expression_safe(node.subject)
         tmp_subject = self._tmp_local("match_subject", node)
@@ -1038,38 +1134,41 @@ class ASTConverter:
         
         cases = []
         for i, case in enumerate(node.cases):
+            bindings: List[PythonASTNode] = []
             case_body = self.convert_python_ast_to_pyflow(case.body)
             
             if hasattr(case, 'pattern'):
-                condition = self._convert_pattern(case.pattern, tmp_subject)
+                condition = self._convert_pattern_with_bindings(case.pattern, tmp_subject, bindings)
                 if case.guard:
                     guard = self._convert_expression_safe(case.guard)
                     condition = self._call_named("interpreter_booland", [condition, guard])
-                cases.append((condition, case_body))
+                cases.append((condition, bindings, case_body))
             else:
-                cases.append((None, case_body))
+                cases.append((None, [], case_body))
         
         if not cases:
             return suite
         
-        result = cases[-1][1]
-        for condition, body in reversed(cases[:-1]):
+        result = pyflow_ast.Suite(cases[-1][2].blocks if hasattr(cases[-1][2], 'blocks') else [cases[-1][2]])
+        for condition, bindings, body in reversed(cases[:-1]):
+            full_body = pyflow_ast.Suite(list(bindings) + (body.blocks if hasattr(body, 'blocks') else [body]))
             if condition is None:
-                result = body
+                result = full_body
             else:
                 result = pyflow_ast.Switch(
                     condition=pyflow_ast.Condition(pyflow_ast.Suite([]), condition),
-                    t=body,
+                    t=full_body,
                     f=result,
                 )
         
         suite.append(result)
         return suite
 
-    def _convert_pattern(self, pattern, subject: PythonASTNode) -> PythonASTNode:
-        """Convert a match pattern to a condition check.
+    def _convert_pattern_with_bindings(self, pattern, subject: PythonASTNode, bindings: List[PythonASTNode]) -> PythonASTNode:
+        """Convert a match pattern to a condition check, collecting bindings.
         
         Returns a condition expression that evaluates to True if the pattern matches.
+        Bindings are appended to the bindings list as Assign statements.
         """
         if hasattr(python_ast, "MatchValue") and isinstance(pattern, python_ast.MatchValue):
             value = self._convert_expression_safe(pattern.value)
@@ -1082,24 +1181,30 @@ class ASTConverter:
             ])
         
         elif hasattr(python_ast, "MatchSequence") and isinstance(pattern, python_ast.MatchSequence):
-            length_check = self._call_named("interpreter_match_sequence", [subject])
+            length_check = self._call_named("interpreter_match_sequence_len", [
+                subject, 
+                pyflow_ast.Existing(Object(len(pattern.patterns)))
+            ])
             if not pattern.patterns:
                 return length_check
             result = length_check
             for i, sub_pattern in enumerate(pattern.patterns):
                 idx = pyflow_ast.Existing(Object(i))
                 elem = self._call_named("interpreter_getitem", [subject, idx])
-                sub_condition = self._convert_pattern(sub_pattern, elem)
-                result = self._call_named("interpreter_booland", [result, sub_condition])
+                sub_condition = self._convert_pattern_with_bindings(sub_pattern, elem, bindings)
+                result = pyflow_ast.ShortCircutAnd([result, sub_condition])
             return result
         
         elif hasattr(python_ast, "MatchMapping") and isinstance(pattern, python_ast.MatchMapping):
-            result = self._call_named("interpreter_match_mapping", [subject])
+            result = self._call_named("interpreter_match_mapping_len", [
+                subject,
+                pyflow_ast.Existing(Object(len(pattern.keys)))
+            ])
             for key, sub_pattern in zip(pattern.keys, pattern.patterns):
                 key_expr = self._convert_expression_safe(key)
                 value = self._call_named("interpreter_getitem", [subject, key_expr])
-                sub_condition = self._convert_pattern(sub_pattern, value)
-                result = self._call_named("interpreter_booland", [result, sub_condition])
+                sub_condition = self._convert_pattern_with_bindings(sub_pattern, value, bindings)
+                result = pyflow_ast.ShortCircutAnd([result, sub_condition])
             return result
         
         elif hasattr(python_ast, "MatchClass") and isinstance(pattern, python_ast.MatchClass):
@@ -1107,36 +1212,42 @@ class ASTConverter:
             result = self._call_named("interpreter_match_class", [subject, cls])
             for i, sub_pattern in enumerate(pattern.patterns):
                 idx = pyflow_ast.Existing(Object(i))
-                elem = self._call_named("interpreter_getattr", [subject, idx])
-                sub_condition = self._convert_pattern(sub_pattern, elem)
-                result = self._call_named("interpreter_booland", [result, sub_condition])
+                elem = self._call_named("interpreter_getitem", [subject, idx])
+                sub_condition = self._convert_pattern_with_bindings(sub_pattern, elem, bindings)
+                result = pyflow_ast.ShortCircutAnd([result, sub_condition])
             for attr_name, sub_pattern in zip(pattern.kwd_attrs, pattern.kwd_patterns):
                 attr = self._call_named("interpreter_getattr", [
                     subject, 
                     pyflow_ast.Existing(Object(attr_name))
                 ])
-                sub_condition = self._convert_pattern(sub_pattern, attr)
-                result = self._call_named("interpreter_booland", [result, sub_condition])
+                sub_condition = self._convert_pattern_with_bindings(sub_pattern, attr, bindings)
+                result = pyflow_ast.ShortCircutAnd([result, sub_condition])
             return result
         
         elif hasattr(python_ast, "MatchStar") and isinstance(pattern, python_ast.MatchStar):
             if pattern.name:
-                return pyflow_ast.Existing(Object(True))
+                rest = self._call_named("interpreter_match_rest", [subject])
+                bindings.append(pyflow_ast.Assign(rest, [pyflow_ast.Local(pattern.name)]))
             return pyflow_ast.Existing(Object(True))
         
         elif hasattr(python_ast, "MatchAs") and isinstance(pattern, python_ast.MatchAs):
             if pattern.pattern is None:
+                if pattern.name:
+                    bindings.append(pyflow_ast.Assign(subject, [pyflow_ast.Local(pattern.name)]))
                 return pyflow_ast.Existing(Object(True))
-            sub_condition = self._convert_pattern(pattern.pattern, subject)
+            sub_condition = self._convert_pattern_with_bindings(pattern.pattern, subject, bindings)
+            if pattern.name:
+                bindings.append(pyflow_ast.Assign(subject, [pyflow_ast.Local(pattern.name)]))
             return sub_condition
         
         elif hasattr(python_ast, "MatchOr") and isinstance(pattern, python_ast.MatchOr):
             if not pattern.patterns:
                 return pyflow_ast.Existing(Object(False))
-            result = self._convert_pattern(pattern.patterns[0], subject)
-            for sub_pattern in pattern.patterns[1:]:
-                sub_condition = self._convert_pattern(sub_pattern, subject)
-                result = self._call_named("interpreter_boolor", [result, sub_condition])
+            or_bindings_list: List[List[PythonASTNode]] = [[] for _ in pattern.patterns]
+            result = self._convert_pattern_with_bindings(pattern.patterns[0], subject, or_bindings_list[0])
+            for i, sub_pattern in enumerate(pattern.patterns[1:], 1):
+                sub_condition = self._convert_pattern_with_bindings(sub_pattern, subject, or_bindings_list[i])
+                result = pyflow_ast.ShortCircutOr([result, sub_condition])
             return result
         
         return pyflow_ast.Existing(Object(True))
@@ -1144,8 +1255,10 @@ class ASTConverter:
     def _convert_try_star(self, node) -> Optional[PythonASTNode]:
         """Convert Python AST TryStar (exception groups, Python 3.11+) to pyflow AST.
         
-        Exception groups are handled similarly to regular try-except,
-        with special handling for exception group matching.
+        Exception groups use except* syntax which can:
+        - Match multiple exception types from a single exception group
+        - Handle partial matches (some exceptions handled, others re-raised)
+        - Use exception group specific matching
         """
         try_body = self.convert_python_ast_to_pyflow(node.body)
 
@@ -1163,8 +1276,18 @@ class ASTConverter:
 
             handler_body = self.convert_python_ast_to_pyflow(handler.body)
 
+            preamble = pyflow_ast.Suite([])
+            if exc_name and exc_type:
+                preamble.append(pyflow_ast.Assign(
+                    self._call_named("interpreter_exception_group_extract", [
+                        pyflow_ast.Local("__exc_group__"),
+                        exc_type
+                    ]),
+                    [exc_name]
+                ))
+
             exc_handler = pyflow_ast.ExceptionHandler(
-                preamble=pyflow_ast.Suite([]),
+                preamble=preamble,
                 type=exc_type,
                 value=exc_name,
                 body=handler_body,
@@ -1266,69 +1389,80 @@ class ASTConverter:
     def _convert_comprehension(self, node, result_type: str) -> PythonASTNode:
         """Convert list/set/dict comprehensions and generator expressions.
         
-        Comprehensions are modeled as nested loops with append operations.
-        This preserves the iteration semantics better than a simple singleton.
+        Comprehensions are modeled as nested loops with append operations,
+        preserving iteration semantics and handling if-conditions.
         """
         generators = node.generators
         
         if result_type == "dict":
             key_expr = self._convert_expression_safe(node.key)
             value_expr = self._convert_expression_safe(node.value)
-            result = pyflow_ast.BuildMap()
+            result_init = pyflow_ast.BuildMap()
         else:
             element = self._convert_expression_safe(node.elt)
-            if result_type == "list":
-                result = pyflow_ast.BuildList([])
-            elif result_type == "set":
-                result = pyflow_ast.BuildList([])
-            else:
-                result = pyflow_ast.Existing(Object(None))
+            result_init = pyflow_ast.BuildList([])
         
         if not generators:
             if result_type == "list":
                 return pyflow_ast.BuildList([element])
-            return result
+            elif result_type == "dict":
+                return pyflow_ast.BuildMap()
+            return result_init
         
         result_local = self._tmp_local("comp_result", node)
-        suite = pyflow_ast.Suite([
-            pyflow_ast.Assign(result, [result_local])
-        ])
         
         inner_body = pyflow_ast.Suite([])
         
-        for i, gen in enumerate(reversed(generators)):
+        if result_type == "dict":
+            inner_body.append(pyflow_ast.Discard(
+                self._call_named("interpreter_setitem", [
+                    result_local, key_expr, value_expr
+                ])
+            ))
+        else:
+            inner_body.append(pyflow_ast.Discard(
+                self._call_named("interpreter_list_append", [result_local, element])
+            ))
+        
+        for gen in reversed(generators):
             iter_expr = self._convert_expression_safe(gen.iter)
             
             if isinstance(gen.target, python_ast.Name):
                 index = pyflow_ast.Local(gen.target.id)
             else:
                 index = self._tmp_local("comp_idx", gen)
+                store = self._convert_store(gen.target, index)
+                inner_body = pyflow_ast.Suite([store, inner_body])
             
-            if i == 0:
-                if result_type == "dict":
-                    inner_body.append(pyflow_ast.Discard(
-                        self._call_named("interpreter_setitem", [
-                            result_local, key_expr, value_expr
-                        ])
-                    ))
-                elif result_type == "list":
-                    inner_body.append(pyflow_ast.Discard(
-                        self._call_named("interpreter_list_append", [result_local, element])
-                    ))
-            else:
-                inner_body = pyflow_ast.For(
-                    iterator=iter_expr,
-                    index=index,
-                    loopPreamble=pyflow_ast.Suite([]),
-                    bodyPreamble=pyflow_ast.Suite([]),
-                    body=inner_body,
-                    else_=pyflow_ast.Suite([]),
-                )
+            if gen.ifs:
+                for if_cond in reversed(gen.ifs):
+                    cond = self._convert_expression_safe(if_cond)
+                    inner_body = pyflow_ast.Suite([
+                        pyflow_ast.Switch(
+                            condition=pyflow_ast.Condition(pyflow_ast.Suite([]), cond),
+                            t=inner_body,
+                            f=pyflow_ast.Suite([]),
+                        )
+                    ])
+            
+            body_preamble = pyflow_ast.Suite([])
+            if not isinstance(gen.target, python_ast.Name):
+                pass
+            
+            inner_body = pyflow_ast.For(
+                iterator=iter_expr,
+                index=index,
+                loopPreamble=pyflow_ast.Suite([]),
+                bodyPreamble=body_preamble,
+                body=inner_body,
+                else_=pyflow_ast.Suite([]),
+            )
         
-        suite.append(inner_body)
-        suite.append(pyflow_ast.Discard(result_local))
-        
-        return result
+        return pyflow_ast.Suite([
+            pyflow_ast.Assign(result_init, [result_local]),
+            inner_body,
+            pyflow_ast.Discard(result_local),
+        ])
 
     def _convert_list_comp(self, node) -> PythonASTNode:
         """Convert list comprehension with proper iteration modeling."""
@@ -1345,9 +1479,78 @@ class ASTConverter:
     def _convert_gen_exp(self, node) -> PythonASTNode:
         """Convert generator expression.
         
-        Generator expressions are lazy and don't materialize all values.
-        We model them as creating a generator object.
+        Generator expressions are lazy. We model them by creating a 
+        generator function that yields values.
         """
-        return self._call_named("interpreter_make_generator", [
-            pyflow_ast.Existing(Object("<generator>"))
+        generators = node.generators
+        element = self._convert_expression_safe(node.elt)
+        
+        if not generators:
+            return self._call_named("interpreter_make_generator", [element])
+        
+        gen_func_codeparams = pyflow_ast.CodeParameters(
+            selfparam=None,
+            posonlyparams=[],
+            posonlynames=[],
+            params=[],
+            paramnames=[],
+            defaults=[],
+            vparam=None,
+            kparam=None,
+            returnparams=[pyflow_ast.Local("ret0")],
+            type_params=None,
+        )
+        
+        inner_body = pyflow_ast.Suite([
+            pyflow_ast.Discard(pyflow_ast.Yield(element))
         ])
+        
+        for gen in reversed(generators):
+            iter_expr = self._convert_expression_safe(gen.iter)
+            
+            if isinstance(gen.target, python_ast.Name):
+                index = pyflow_ast.Local(gen.target.id)
+            else:
+                index = self._tmp_local("gen_idx", gen)
+                store = self._convert_store(gen.target, index)
+                inner_body = pyflow_ast.Suite([store, inner_body])
+            
+            if gen.ifs:
+                for if_cond in reversed(gen.ifs):
+                    cond = self._convert_expression_safe(if_cond)
+                    inner_body = pyflow_ast.Suite([
+                        pyflow_ast.Switch(
+                            condition=pyflow_ast.Condition(pyflow_ast.Suite([]), cond),
+                            t=inner_body,
+                            f=pyflow_ast.Suite([]),
+                        )
+                    ])
+            
+            inner_body = pyflow_ast.For(
+                iterator=iter_expr,
+                index=index,
+                loopPreamble=pyflow_ast.Suite([]),
+                bodyPreamble=pyflow_ast.Suite([]),
+                body=inner_body,
+                else_=pyflow_ast.Suite([]),
+            )
+        
+        code = pyflow_ast.Code("<genexpr>", gen_func_codeparams, pyflow_ast.Suite([inner_body]))
+        code.annotation = CodeAnnotation(
+            contexts=None,
+            descriptive=False,
+            primitive=False,
+            staticFold=False,
+            dynamicFold=False,
+            origin=["converted_genexpr"],
+            live=None,
+            killed=None,
+            codeReads=None,
+            codeModifies=None,
+            codeAllocates=None,
+            lowered=False,
+            runtime=False,
+            interpreter=False,
+        )
+        
+        return pyflow_ast.MakeFunction(defaults=[], cells=[], code=code)

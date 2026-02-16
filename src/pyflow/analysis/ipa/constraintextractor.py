@@ -358,10 +358,20 @@ class ConstraintExtractor(TypeDispatcher):
 
     @dispatch(ast.Yield)
     def visitYield(self, node, targets=None):
-        # Yield statements in generators - evaluate the expression for side effects
-        # The generator protocol is handled separately during code analysis
         if node.expr:
             self(node.expr)
+        return None
+
+    @dispatch(ast.YieldFrom)
+    def visitYieldFrom(self, node, targets=None):
+        if node.expr:
+            self(node.expr)
+        return None
+
+    @dispatch(ast.ShortCircutAnd, ast.ShortCircutOr)
+    def visitShortCircutBool(self, node, targets=None):
+        for term in node.terms:
+            self(term)
         return None
 
     @dispatch(ast.FunctionDef)

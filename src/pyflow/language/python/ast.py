@@ -203,6 +203,14 @@ class Yield(Expression):
     __fields__ = "expr:Expression"
 
 
+class YieldFrom(Expression):
+    """Represents a yield from expression (Python 3.3+).
+    
+    Delegates iteration to another iterable.
+    """
+    __fields__ = "expr:Expression"
+
+
 class Await(Expression):
     """Represents an await expression (Python 3.5+ async/await)."""
     __fields__ = "expr:Expression"
@@ -222,6 +230,22 @@ class NamedExpr(Expression):
 
     def isPure(self):
         return False
+
+
+class TypeParam(PythonASTNode):
+    """Represents a type parameter for generics (Python 3.12+).
+    
+    Used in TypeVar, ParamSpec, TypeVarTuple declarations.
+    """
+    __fields__ = "name:str bound:Expression?"
+
+
+class TypeParams(PythonASTNode):
+    """Represents type parameters for a generic class/function (Python 3.12+).
+    
+    Example: class MyClass[T: int, U]: ...
+    """
+    __fields__ = "params:TypeParam*"
 
 
 class GetIter(Expression):
@@ -567,17 +591,25 @@ ParameterDecl = (Local, DoNotCare)
 
 
 class CodeParameters(PythonASTNode):
-    # TODO support paramnames:str?* (different than paramnames:str*?)
+    """Function/method parameters with full Python 3.x support.
+    
+    Supports:
+    - Positional-only parameters (Python 3.8+)
+    - Keyword-only parameters
+    - Type parameters for generics (Python 3.12+)
+    """
     __fields__ = """selfparam:ParameterDecl?
+            posonlyparams:ParameterDecl* posonlynames:str*
             params:ParameterDecl* paramnames:str?* defaults:Existing*
             vparam:ParameterDecl? kparam:ParameterDecl?
-            returnparams:ParameterDecl*"""
+            returnparams:ParameterDecl*
+            type_params:TypeParams?"""
 
     def codeParameters(self):
         return util.python.calling.CalleeParams(
             self.selfparam,
-            self.params,
-            self.paramnames,
+            self.posonlyparams + self.params,
+            self.posonlynames + self.paramnames,
             self.defaults,
             self.vparam,
             self.kparam,
@@ -664,11 +696,22 @@ class Check(LLExpression):
 
 
 class FunctionDef(CompoundStatement):
-    __fields__ = "name:str code:Code decorators:Expression*"
+    """Function definition with full Python 3.x support.
+    
+    Supports type parameters for generic functions (Python 3.12+).
+    """
+    __fields__ = "name:str code:Code decorators:Expression* type_params:TypeParams?"
 
 
 class ClassDef(CompoundStatement):
-    __fields__ = "name:str bases:Expression* body:Suite decorators:Expression*"
+    """Class definition with full Python 3.x support.
+    
+    Supports:
+    - Metaclass keyword argument
+    - __init_subclass__ via keywords
+    - Type parameters for generic classes (Python 3.12+)
+    """
+    __fields__ = "name:str bases:Expression* keywords:* body:Suite decorators:Expression* type_params:TypeParams?"
 
 
 class Phi(PythonASTNode):

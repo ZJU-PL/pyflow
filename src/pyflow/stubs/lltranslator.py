@@ -428,13 +428,16 @@ class LLTranslator(TypeDispatcher):
             if num != len(p.returnparams):
                 returnparams = [ast.Local("internal_return_%d" % i) for i in range(num)]
                 self.code.codeparameters = ast.CodeParameters(
-                    p.selfparam,
-                    p.params,
-                    p.paramnames,
-                    p.defaults,
-                    p.vparam,
-                    p.kparam,
-                    returnparams,
+                    selfparam=p.selfparam,
+                    posonlyparams=p.posonlyparams,
+                    posonlynames=p.posonlynames,
+                    params=p.params,
+                    paramnames=p.paramnames,
+                    defaults=p.defaults,
+                    vparam=p.vparam,
+                    kparam=p.kparam,
+                    returnparams=returnparams,
+                    type_params=p.type_params,
                 )
 
         else:

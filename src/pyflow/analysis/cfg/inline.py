@@ -180,15 +180,17 @@ class CFGCloner(object):
 
         newG = cfg.Code()
 
-        # Create a basic code object for inlining
         codeparams = ast.CodeParameters(
-            None,  # selfparam
-            [self.lcl(p) for p in g.code.params],  # params
-            [],  # paramnames
-            [],  # defaults
-            None,  # vparam
-            None,  # kparam
-            [self.lcl(g.returnParam)],  # returnparams
+            selfparam=None,
+            posonlyparams=[],
+            posonlynames=[],
+            params=[self.lcl(p) for p in g.code.params],
+            paramnames=[],
+            defaults=[],
+            vparam=None,
+            kparam=None,
+            returnparams=[self.lcl(g.returnParam)],
+            type_params=None,
         )
         newG.code = ast.Code(g.code.name + "_clone", codeparams, ast.Suite([]))
 

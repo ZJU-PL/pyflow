@@ -243,29 +243,30 @@ class MarkLive(TypeDispatcher):
         Returns:
             CodeParameters with unused parameters replaced by DoNotCare
         """
-        # Insert don't care for unused parameters.
-        # selfparam is a special case, it's OK if it disappears in descriptive stubs.
         selfparam = self.filterParam(node.selfparam)
 
         if self.descriptive():
-            # Descriptive mode: preserve all parameters
             params = node.params
+            posonlyparams = node.posonlyparams
             vparam = node.vparam
             kparam = node.kparam
         else:
-            # Normal mode: filter unused parameters
             params = [self.filterParam(p) for p in node.params]
+            posonlyparams = [self.filterParam(p) for p in node.posonlyparams]
             vparam = self.filterParam(node.vparam)
             kparam = self.filterParam(node.kparam)
 
         return ast.CodeParameters(
-            selfparam,
-            params,
-            node.paramnames,
-            node.defaults,
-            vparam,
-            kparam,
-            node.returnparams,
+            selfparam=selfparam,
+            posonlyparams=posonlyparams,
+            posonlynames=node.posonlynames,
+            params=params,
+            paramnames=node.paramnames,
+            defaults=node.defaults,
+            vparam=vparam,
+            kparam=kparam,
+            returnparams=node.returnparams,
+            type_params=node.type_params,
         )
 
 

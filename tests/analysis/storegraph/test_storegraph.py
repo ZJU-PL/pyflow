@@ -32,8 +32,18 @@ class TestStoreGraph(unittest.TestCase):
         """Test slot name creation for different types."""
         from pyflow.language.python import ast
 
-        # Create a mock code object
-        code = ast.Code("test", ast.CodeParameters(None, [], [], [], None, None, []), ast.Suite([]))
+        code = ast.Code("test", ast.CodeParameters(
+            selfparam=None,
+            posonlyparams=[],
+            posonlynames=[],
+            params=[],
+            paramnames=[],
+            defaults=[],
+            vparam=None,
+            kparam=None,
+            returnparams=[],
+            type_params=None,
+        ), ast.Suite([]))
 
         # Test local slot name
         local_slot = canonicalobjects.LocalSlotName(code, ast.Local("x"), None)

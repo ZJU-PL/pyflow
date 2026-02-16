@@ -43,99 +43,59 @@ class StubManager:
 
         def params_for(op_name):
             """Return CodeParameters tailored to the stub signature."""
-            # Most interpreter_* operations are binary; interpreter_call accepts vargs/kargs.
-            if op_name == "interpreter_call":
+            def make_params(params_list, varg=None, kwarg=None):
                 return pyflow_ast.CodeParameters(
-                    None,
+                    selfparam=None,
+                    posonlyparams=[],
+                    posonlynames=[],
+                    params=params_list,
+                    paramnames=[p.name for p in params_list if hasattr(p, 'name')],
+                    defaults=[],
+                    vparam=varg,
+                    kparam=kwarg,
+                    returnparams=[pyflow_ast.Local("internal_return")],
+                    type_params=None,
+                )
+
+            if op_name == "interpreter_call":
+                return make_params(
                     [pyflow_ast.Local("func")],
-                    [],
-                    [],
-                    pyflow_ast.Local("vargs"),
-                    pyflow_ast.Local("kargs"),
-                    [pyflow_ast.Local("internal_return")],
+                    varg=pyflow_ast.Local("vargs"),
+                    kwarg=pyflow_ast.Local("kargs"),
                 )
 
             if op_name in ("convertToBool", "invertedConvertToBool"):
-                return pyflow_ast.CodeParameters(
-                    None,
-                    [pyflow_ast.Local("x")],
-                    [],
-                    [],
-                    None,
-                    None,
-                    [pyflow_ast.Local("internal_return")],
-                )
+                return make_params([pyflow_ast.Local("x")])
 
             if op_name in (
                 "interpreter__neg__",
                 "interpreter__pos__",
                 "interpreter__invert__",
             ):
-                return pyflow_ast.CodeParameters(
-                    None,
-                    [pyflow_ast.Local("a")],
-                    [],
-                    [],
-                    None,
-                    None,
-                    [pyflow_ast.Local("internal_return")],
-                )
+                return make_params([pyflow_ast.Local("a")])
 
             if op_name == "interpreter_setattr":
-                return pyflow_ast.CodeParameters(
-                    None,
-                    [
-                        pyflow_ast.Local("obj"),
-                        pyflow_ast.Local("name"),
-                        pyflow_ast.Local("value"),
-                    ],
-                    [],
-                    [],
-                    None,
-                    None,
-                    [pyflow_ast.Local("internal_return")],
-                )
+                return make_params([
+                    pyflow_ast.Local("obj"),
+                    pyflow_ast.Local("name"),
+                    pyflow_ast.Local("value"),
+                ])
 
             if op_name == "interpreter_setitem":
-                return pyflow_ast.CodeParameters(
-                    None,
-                    [
-                        pyflow_ast.Local("obj"),
-                        pyflow_ast.Local("subscript"),
-                        pyflow_ast.Local("value"),
-                    ],
-                    [],
-                    [],
-                    None,
-                    None,
-                    [pyflow_ast.Local("internal_return")],
-                )
+                return make_params([
+                    pyflow_ast.Local("obj"),
+                    pyflow_ast.Local("subscript"),
+                    pyflow_ast.Local("value"),
+                ])
 
             if op_name == "interpreter_ifexp":
-                return pyflow_ast.CodeParameters(
-                    None,
-                    [
-                        pyflow_ast.Local("cond"),
-                        pyflow_ast.Local("t"),
-                        pyflow_ast.Local("f"),
-                    ],
-                    [],
-                    [],
-                    None,
-                    None,
-                    [pyflow_ast.Local("internal_return")],
-                )
+                return make_params([
+                    pyflow_ast.Local("cond"),
+                    pyflow_ast.Local("t"),
+                    pyflow_ast.Local("f"),
+                ])
 
-            # Default to two positional params so binary ops bind correctly.
-            return pyflow_ast.CodeParameters(
-                None,
-                [pyflow_ast.Local("a"), pyflow_ast.Local("b")],
-                [],
-                [],
-                None,
-                None,
-                [pyflow_ast.Local("internal_return")],
-            )
+            return make_params([pyflow_ast.Local("a"), pyflow_ast.Local("b")])
 
         # Map stub names to simple Python callables used for dynamic folding.
         dynfold = {

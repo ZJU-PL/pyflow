@@ -87,7 +87,12 @@ class ConvertCalls(TypeDispatcher):
         ast.MakeFunction,
         ast.Import,
         ast.Yield,
+        ast.YieldFrom,
         ast.Raise,
+        ast.ShortCircutAnd,
+        ast.ShortCircutOr,
+        ast.TypeParam,
+        ast.TypeParams,
     )
     def visitOK(self, node):
         return node.rewriteChildren(self)

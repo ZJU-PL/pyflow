@@ -47,6 +47,11 @@ class GetOps(TypeDispatcher):
         ast.FunctionDef,
         ast.ClassDef,
         ast.Raise,
+        ast.ShortCircutAnd,
+        ast.ShortCircutOr,
+        ast.YieldFrom,
+        ast.TypeParam,
+        ast.TypeParams,
     )
     def visitOK(self, node):
         """Visit nodes that contain child nodes.

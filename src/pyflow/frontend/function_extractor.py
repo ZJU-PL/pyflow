@@ -108,9 +108,17 @@ class FunctionExtractor:
 
     def _create_minimal_code(self, func: Any) -> pyflow_ast.Code:
         """Create a minimal pyflow AST Code node with an empty Suite."""
-        # Provide a default single return param to satisfy IPA's visitReturn assertions
         codeparams = pyflow_ast.CodeParameters(
-            None, [], [], [], None, None, [pyflow_ast.Local("ret0")]
+            selfparam=None,
+            posonlyparams=[],
+            posonlynames=[],
+            params=[],
+            paramnames=[],
+            defaults=[],
+            vparam=None,
+            kparam=None,
+            returnparams=[pyflow_ast.Local("ret0")],
+            type_params=None,
         )
         suite = pyflow_ast.Suite([])
         code = pyflow_ast.Code(func.__name__, codeparams, suite)
@@ -151,13 +159,16 @@ class FunctionExtractor:
         # Ensure at least one return parameter for IPA
         if not codeparams.returnparams:
             codeparams = pyflow_ast.CodeParameters(
-                codeparams.selfparam,
-                codeparams.params,
-                codeparams.paramnames,
-                tuple(codeparams.defaults),
-                codeparams.vparam,
-                codeparams.kparam,
-                [pyflow_ast.Local("ret0")],
+                selfparam=codeparams.selfparam,
+                posonlyparams=codeparams.posonlyparams,
+                posonlynames=codeparams.posonlynames,
+                params=codeparams.params,
+                paramnames=codeparams.paramnames,
+                defaults=tuple(codeparams.defaults),
+                vparam=codeparams.vparam,
+                kparam=codeparams.kparam,
+                returnparams=[pyflow_ast.Local("ret0")],
+                type_params=codeparams.type_params,
             )
 
         code = pyflow_ast.Code(func_name, codeparams, body)
@@ -279,7 +290,6 @@ class FunctionExtractor:
 
         params = [pyflow_ast.Local(name) for name in param_names]
 
-        # Collapse to trailing-contiguous defaults as required by CalleeParams.
         first_default = next(
             (i for i, d in enumerate(per_param_defaults) if d is not None), None
         )
@@ -292,12 +302,15 @@ class FunctionExtractor:
 
         return pyflow_ast.CodeParameters(
             selfparam=None,
+            posonlyparams=[],
+            posonlynames=[],
             params=params,
             paramnames=param_names,
             defaults=tuple(defaults),
             vparam=vararg,
             kparam=kwarg,
             returnparams=[pyflow_ast.Local("ret0")],
+            type_params=None,
         )
 
     def extract_function(

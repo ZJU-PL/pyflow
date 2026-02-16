@@ -173,23 +173,24 @@ class TestComprehensions(unittest.TestCase):
     def setUp(self):
         self.converter = ASTConverter(verbose=False)
 
-    def test_list_comp_returns_build_list(self):
-        """Test that list comprehension returns BuildList."""
+    def test_list_comp_returns_suite(self):
+        """Test that list comprehension returns a Suite with proper loop structure."""
         source = "[x for x in range(10)]"
         tree = python_ast.parse(source, mode='eval')
         node = tree.body
         
         result = self.converter._convert_expression(node)
-        self.assertIsInstance(result, pyflow_ast.BuildList)
+        self.assertIsInstance(result, pyflow_ast.Suite)
+        self.assertTrue(any(isinstance(b, pyflow_ast.For) for b in result.blocks))
 
     def test_gen_exp_not_none(self):
-        """Test that generator expression doesn't return None."""
+        """Test that generator expression returns MakeFunction (a generator function)."""
         source = "(x for x in range(10))"
         tree = python_ast.parse(source, mode='eval')
         node = tree.body
         
         result = self.converter._convert_expression(node)
-        self.assertIsNotNone(result)
+        self.assertIsInstance(result, pyflow_ast.MakeFunction)
 
 
 if __name__ == "__main__":

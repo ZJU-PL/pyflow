@@ -248,13 +248,16 @@ class ArgumentNormalizationTransform(TypeDispatcher):
         returnparams = p.returnparams
 
         node.codeparameters = ast.CodeParameters(
-            selfparam,
-            parameters,
-            parameternames,
-            defaults,
-            vparam,
-            kparam,
-            returnparams,
+            selfparam=selfparam,
+            posonlyparams=p.posonlyparams,
+            posonlynames=p.posonlynames,
+            params=parameters,
+            paramnames=parameternames,
+            defaults=defaults,
+            vparam=vparam,
+            kparam=kparam,
+            returnparams=returnparams,
+            type_params=p.type_params,
         )
         node.ast = self(node.ast)
 

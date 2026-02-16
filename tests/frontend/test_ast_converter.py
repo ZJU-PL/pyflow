@@ -262,12 +262,11 @@ while x > 0:
         self.assertIsInstance(not_in_result, pyflow_ast.Not)
 
     def test_convert_chained_comparison(self):
-        """Chained comparisons should be approximated as a boolean conjunction."""
+        """Chained comparisons should use ShortCircutAnd for proper semantics."""
         tree = python_ast.parse("a < b < c", mode="eval")
         result = self.converter._convert_expression(tree.body)
-        self.assertIsInstance(result, pyflow_ast.Call)
-        self.assertIsInstance(result.expr, pyflow_ast.Existing)
-        self.assertEqual(result.expr.object.pyobj, "interpreter_booland")
+        self.assertIsInstance(result, pyflow_ast.ShortCircutAnd)
+        self.assertEqual(len(result.terms), 2)
 
     def test_convert_subscript_expression(self):
         """Test converting subscript expression."""
@@ -279,20 +278,18 @@ while x > 0:
         self.assertIsInstance(result, pyflow_ast.Call)
 
     def test_convert_boolop_and(self):
-        """Boolean operations should be approximated via helper stubs."""
+        """Boolean AND operations should use ShortCircutAnd for proper short-circuit semantics."""
         tree = python_ast.parse("a and b and c", mode="eval")
         result = self.converter._convert_expression(tree.body)
-        self.assertIsInstance(result, pyflow_ast.Call)
-        self.assertIsInstance(result.expr, pyflow_ast.Existing)
-        self.assertEqual(result.expr.object.pyobj, "interpreter_booland")
+        self.assertIsInstance(result, pyflow_ast.ShortCircutAnd)
+        self.assertEqual(len(result.terms), 3)
 
     def test_convert_ifexp(self):
-        """Ternary expressions should be approximated via helper stubs."""
+        """Ternary expressions should use Switch for proper short-circuit semantics."""
         tree = python_ast.parse("x if c else y", mode="eval")
         result = self.converter._convert_expression(tree.body)
-        self.assertIsInstance(result, pyflow_ast.Call)
-        self.assertIsInstance(result.expr, pyflow_ast.Existing)
-        self.assertEqual(result.expr.object.pyobj, "interpreter_ifexp")
+        self.assertIsInstance(result, pyflow_ast.Suite)
+        self.assertTrue(any(isinstance(b, pyflow_ast.Switch) for b in result.blocks))
 
     def test_convert_attribute_expression(self):
         """Test converting attribute expression."""
@@ -407,7 +404,7 @@ finally:
         self.assertIsInstance(result, pyflow_ast.Suite)
 
     def test_convert_with_statement(self):
-        """Test converting with statement."""
+        """Test converting with statement with proper context manager protocol."""
         source = """
 with open('file.txt') as f:
     content = f.read()
@@ -416,9 +413,9 @@ with open('file.txt') as f:
         node = tree.body[0]
         
         result = self.converter._convert_node(node)
-        self.assertIsInstance(result, pyflow_ast.Suite)
-        # Should bind "f" via an Assign somewhere in the result
-        self.assertTrue(any(isinstance(b, pyflow_ast.Assign) for b in result.blocks))
+        self.assertIsInstance(result, pyflow_ast.TryExceptFinally)
+        self.assertIsInstance(result.body, pyflow_ast.Suite)
+        self.assertIsInstance(result.finally_, pyflow_ast.Suite)
 
     def test_convert_import_statement(self):
         """Test converting import statement."""
