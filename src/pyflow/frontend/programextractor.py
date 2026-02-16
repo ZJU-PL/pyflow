@@ -75,6 +75,7 @@ class Extractor:
         self.failures = 0
         self._source_files = {}  # Track source files for better error reporting
         self._module_imports: Dict[str, Dict[str, str]] = {}  # module -> {name -> qualified}
+        self._current_file_path: Optional[str] = None  # Current file being processed
 
         # Initialize desc attribute (program description)
         from pyflow.language.python.program import ProgramDescription
@@ -108,6 +109,7 @@ class Extractor:
             Program: Program object containing extracted information.
         """
         try:
+            self._current_file_path = filename  # Store for relative import resolution
             tree = ast.parse(source, filename)
             return self._extract_from_ast(tree, filename)
         except SyntaxError as e:
@@ -174,6 +176,7 @@ class Extractor:
             print(f"DEBUG: Extracting from AST for {filename}")
 
         module_name = self._get_module_name(filename)
+        self._current_file_path = filename  # Store for relative import resolution
         
         self._extract_imports(tree, module_name)
 
@@ -182,9 +185,11 @@ class Extractor:
             if isinstance(node, ast.ClassDef):
                 class_definitions.append(node)
 
+        # Register classes in hierarchy first (needed for base class resolution)
         for node in class_definitions:
             self._register_class_in_hierarchy(node, module_name)
 
+        # Extract functions and classes
         for node in getattr(tree, "body", []) or []:
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 if self.verbose:
@@ -194,6 +199,18 @@ class Extractor:
                 if self.verbose:
                     print(f"DEBUG: Found class definition: {node.name}")
                 self.function_extractor.extract_class(node, program, filename)
+
+        # Register module with cross-module resolver
+        if self.cross_module_resolver:
+            self.cross_module_resolver.register_module(
+                module_name=module_name,
+                classes={
+                    cls_info.name: cls_info
+                    for cls_info in self.class_hierarchy.classes.values()
+                    if cls_info.module == module_name
+                },
+                imports=self._module_imports.get(module_name, {}),
+            )
 
         program.class_hierarchy = self.class_hierarchy
         program.cross_module_resolver = self.cross_module_resolver
@@ -219,27 +236,57 @@ class Extractor:
         return basename
 
     def _extract_imports(self, tree: ast.AST, module_name: str) -> None:
-        """Extract import statements and build import mapping for the module."""
+        """Extract import statements and build import mapping for the module.
+        
+        Enhanced to handle:
+        - Relative imports (from .module import ...)
+        - Absolute imports
+        - Import aliases
+        """
         imports: Dict[str, str] = {}
+        
+        # Get the directory of the current module for relative imports
+        import os
+        module_dir = None
+        if hasattr(self, "_current_file_path"):
+            module_dir = os.path.dirname(self._current_file_path)
         
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
                 for alias in node.names:
-                    local_name = alias.asname or alias.name
+                    local_name = alias.asname or alias.name.split(".")[-1]
                     imports[local_name] = alias.name
             elif isinstance(node, ast.ImportFrom):
                 if node.module:
+                    # Absolute import
                     for alias in node.names:
                         if alias.name == "*":
                             continue
                         local_name = alias.asname or alias.name
                         qualified = f"{node.module}.{alias.name}"
                         imports[local_name] = qualified
+                elif node.level > 0:
+                    # Relative import (from .module import ...)
+                    # Note: Full resolution of relative imports requires package structure
+                    # For now, we mark them with a special prefix
+                    for alias in node.names:
+                        if alias.name == "*":
+                            continue
+                        local_name = alias.asname or alias.name
+                        # Store relative import info for later resolution
+                        relative_path = "." * node.level
+                        if node.module:
+                            relative_path += node.module
+                        imports[local_name] = f"<relative:{relative_path}.{alias.name}>"
         
         self._module_imports[module_name] = imports
+        
+        # Register imports with cross-module resolver
+        if self.cross_module_resolver:
+            self.cross_module_resolver.imports[module_name] = imports
 
     def _register_class_in_hierarchy(self, node: ast.ClassDef, module_name: str) -> None:
-        """Register a class in the class hierarchy with MRO support."""
+        """Register a class in the class hierarchy with enhanced MRO support."""
         class_name = node.name
         qualified_name = f"{module_name}.{class_name}"
         
@@ -260,6 +307,7 @@ class Extractor:
         methods: Set[str] = set()
         attributes: Set[str] = set()
         
+        # Extract more detailed information
         for item in node.body:
             if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 methods.add(item.name)
@@ -267,9 +315,29 @@ class Extractor:
                 for target in item.targets:
                     if isinstance(target, ast.Name):
                         attributes.add(target.id)
+                    elif isinstance(target, ast.Attribute):
+                        # Handle class attributes like cls.attr
+                        if isinstance(target.value, ast.Name) and target.value.id == class_name:
+                            attributes.add(target.attr)
         
         imported_names = self._module_imports.get(module_name, {})
-        resolved_bases = self.class_hierarchy.resolve_bases(base_names, module_name, imported_names)
+        
+        # Enhanced base class resolution with better error reporting
+        resolved_bases = []
+        unresolved_bases = []
+        for base_name in base_names:
+            resolved = self.class_hierarchy.resolve_base_class(
+                base_name, module_name, imported_names
+            )
+            if resolved:
+                resolved_bases.append(resolved)
+            else:
+                unresolved_bases.append(base_name)
+                if self.verbose:
+                    print(
+                        f"WARNING: Could not resolve base class '{base_name}' "
+                        f"for class '{qualified_name}'"
+                    )
         
         self.class_hierarchy.register_class(
             name=class_name,
@@ -283,6 +351,9 @@ class Extractor:
         cls_info = self.class_hierarchy.get_class_info(qualified_name)
         if cls_info:
             cls_info.resolved_bases = resolved_bases
+            # Store unresolved bases for potential later resolution
+            if unresolved_bases:
+                cls_info.bases = base_names  # Keep original names for retry
 
     def getObject(self, obj: Any) -> Object:
         """Get or create an object representation for static analysis."""
@@ -469,17 +540,29 @@ def extractProgram(compiler: CompilerContext, program: Program) -> None:
 
 
 def create_interface_from_paths(python_files, args):
-    """Create a basic interface from multiple Python files using dependency resolver."""
+    """Create a basic interface from multiple Python files using enhanced dependency resolver."""
     from pyflow.application import interface
     from pyflow.frontend.dependency_resolver import DependencyResolver
+    from pyflow.frontend.class_hierarchy import ClassHierarchy
 
     interface_decl = interface.InterfaceDeclaration()
     all_source_code = {}
+
+    # Create shared class hierarchy for cross-module analysis
+    class_hierarchy = ClassHierarchy(verbose=getattr(args, "verbose", False))
+    
+    # Get search paths from args if available
+    search_paths = getattr(args, "search_paths", None)
+    if search_paths is None:
+        import sys
+        search_paths = list(sys.path)
 
     resolver = DependencyResolver(
         strategy=getattr(args, "dependency_strategy", "auto"),
         verbose=getattr(args, "verbose", False),
         safe_modules=["math", "os", "sys", "re", "json", "datetime", "collections"],
+        search_paths=search_paths,
+        class_hierarchy=class_hierarchy,
     )
 
     for file_path in python_files:
@@ -509,5 +592,13 @@ def create_interface_from_paths(python_files, args):
         except Exception as e:
             if args.verbose:
                 print(f"Warning: Could not parse file {file_path}: {e}")
+
+    # Report missing dependencies if verbose
+    if args.verbose:
+        missing = resolver.get_missing_dependencies()
+        if missing:
+            print("\nMissing dependencies report:")
+            for module, importing_files in missing.items():
+                print(f"  {module}: imported by {len(importing_files)} file(s)")
 
     return interface_decl, all_source_code
