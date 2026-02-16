@@ -390,21 +390,21 @@ finally:
 
     def test_convert_global_statement(self):
         """Test converting global statement."""
-        source = "global x"
+        source = "global x, y"
         tree = python_ast.parse(source)
         node = tree.body[0]
         
         result = self.converter._convert_node(node)
-        self.assertIsInstance(result, pyflow_ast.Discard)
+        self.assertIsInstance(result, pyflow_ast.Suite)
 
     def test_convert_nonlocal_statement(self):
         """Test converting nonlocal statement."""
-        source = "nonlocal x"
+        source = "nonlocal x, y"
         tree = python_ast.parse(source)
         node = tree.body[0]
         
         result = self.converter._convert_node(node)
-        self.assertIsInstance(result, pyflow_ast.Discard)
+        self.assertIsInstance(result, pyflow_ast.Suite)
 
     def test_convert_with_statement(self):
         """Test converting with statement."""

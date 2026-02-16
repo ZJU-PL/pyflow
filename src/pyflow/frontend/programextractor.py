@@ -13,7 +13,7 @@ NOTE: This extractor is intentionally source/AST-based (no bytecode decompilatio
 
 import ast
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 
 from pyflow.application.program import Program
 from pyflow.application.context import CompilerContext
@@ -24,6 +24,7 @@ from .function_extractor import FunctionExtractor
 from .object_manager import ObjectManager
 from .stub_manager import StubManager
 from .source_locator import best_source_for_callable
+from .class_hierarchy import ClassHierarchy, ClassInfo, CrossModuleResolver
 
 
 class Extractor:
@@ -47,6 +48,9 @@ class Extractor:
         function_extractor: Extractor for functions and classes.
         object_manager: Manager for object representations.
         stubs: Stub files for backward compatibility.
+        class_hierarchy: ClassHierarchy for MRO and cross-module resolution.
+        cross_module_resolver: CrossModuleResolver for resolving across modules.
+        _module_imports: Cache of imports per module for base class resolution.
     """
 
     def __init__(
@@ -70,6 +74,7 @@ class Extractor:
         self.errors = 0
         self.failures = 0
         self._source_files = {}  # Track source files for better error reporting
+        self._module_imports: Dict[str, Dict[str, str]] = {}  # module -> {name -> qualified}
 
         # Initialize desc attribute (program description)
         from pyflow.language.python.program import ProgramDescription
@@ -81,6 +86,12 @@ class Extractor:
         self.function_extractor = FunctionExtractor(verbose)
         self.object_manager = ObjectManager(
             verbose, self.function_extractor, self.stub_manager
+        )
+
+        # Initialize class hierarchy for cross-module analysis
+        self.class_hierarchy = ClassHierarchy(verbose=verbose)
+        self.cross_module_resolver = CrossModuleResolver(
+            self.class_hierarchy, verbose=verbose
         )
 
         # Expose stubs for backward compatibility
@@ -162,9 +173,18 @@ class Extractor:
         if self.verbose:
             print(f"DEBUG: Extracting from AST for {filename}")
 
-        # Prefer module-level definitions. Using ast.walk would also include nested
-        # functions and methods multiple times, which is rarely what we want for
-        # entry point discovery.
+        module_name = self._get_module_name(filename)
+        
+        self._extract_imports(tree, module_name)
+
+        class_definitions = []
+        for node in getattr(tree, "body", []) or []:
+            if isinstance(node, ast.ClassDef):
+                class_definitions.append(node)
+
+        for node in class_definitions:
+            self._register_class_in_hierarchy(node, module_name)
+
         for node in getattr(tree, "body", []) or []:
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 if self.verbose:
@@ -175,12 +195,94 @@ class Extractor:
                     print(f"DEBUG: Found class definition: {node.name}")
                 self.function_extractor.extract_class(node, program, filename)
 
+        program.class_hierarchy = self.class_hierarchy
+        program.cross_module_resolver = self.cross_module_resolver
+
         if self.verbose:
             print(
                 f"DEBUG: Extraction complete, liveCode has {len(program.liveCode)} functions"
             )
+            print(
+                f"DEBUG: Class hierarchy has {len(self.class_hierarchy.classes)} classes"
+            )
 
         return program
+
+    def _get_module_name(self, filename: str) -> str:
+        """Convert a filename to a module name."""
+        import os
+        if filename == "<string>":
+            return "__main__"
+        basename = os.path.basename(filename)
+        if basename.endswith(".py"):
+            return basename[:-3]
+        return basename
+
+    def _extract_imports(self, tree: ast.AST, module_name: str) -> None:
+        """Extract import statements and build import mapping for the module."""
+        imports: Dict[str, str] = {}
+        
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    local_name = alias.asname or alias.name
+                    imports[local_name] = alias.name
+            elif isinstance(node, ast.ImportFrom):
+                if node.module:
+                    for alias in node.names:
+                        if alias.name == "*":
+                            continue
+                        local_name = alias.asname or alias.name
+                        qualified = f"{node.module}.{alias.name}"
+                        imports[local_name] = qualified
+        
+        self._module_imports[module_name] = imports
+
+    def _register_class_in_hierarchy(self, node: ast.ClassDef, module_name: str) -> None:
+        """Register a class in the class hierarchy with MRO support."""
+        class_name = node.name
+        qualified_name = f"{module_name}.{class_name}"
+        
+        base_names = []
+        for base in node.bases:
+            if isinstance(base, ast.Name):
+                base_names.append(base.id)
+            elif isinstance(base, ast.Attribute):
+                parts = []
+                current = base
+                while isinstance(current, ast.Attribute):
+                    parts.append(current.attr)
+                    current = current.value
+                if isinstance(current, ast.Name):
+                    parts.append(current.id)
+                base_names.append(".".join(reversed(parts)))
+        
+        methods: Set[str] = set()
+        attributes: Set[str] = set()
+        
+        for item in node.body:
+            if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                methods.add(item.name)
+            elif isinstance(item, ast.Assign):
+                for target in item.targets:
+                    if isinstance(target, ast.Name):
+                        attributes.add(target.id)
+        
+        imported_names = self._module_imports.get(module_name, {})
+        resolved_bases = self.class_hierarchy.resolve_bases(base_names, module_name, imported_names)
+        
+        self.class_hierarchy.register_class(
+            name=class_name,
+            bases=base_names,
+            module=module_name,
+            methods=methods,
+            attributes=attributes,
+            ast_node=node,
+        )
+        
+        cls_info = self.class_hierarchy.get_class_info(qualified_name)
+        if cls_info:
+            cls_info.resolved_bases = resolved_bases
 
     def getObject(self, obj: Any) -> Object:
         """Get or create an object representation for static analysis."""
@@ -220,6 +322,75 @@ class Extractor:
             AbstractObject: The abstract instance representing instances of the type
         """
         return self.object_manager.get_instance(typeobj)
+
+    def resolve_method(self, class_name: str, method_name: str) -> Optional[str]:
+        """Resolve a method through the class hierarchy using MRO.
+
+        Args:
+            class_name: The qualified or simple class name
+            method_name: The method name to resolve
+
+        Returns:
+            The qualified name of the class that defines the method, or None
+        """
+        qualified_name = self._resolve_class_name(class_name)
+        if qualified_name:
+            return self.class_hierarchy.resolve_method(qualified_name, method_name)
+        return None
+
+    def resolve_attribute(self, class_name: str, attr_name: str) -> Optional[str]:
+        """Resolve an attribute through the class hierarchy using MRO.
+
+        Args:
+            class_name: The qualified or simple class name
+            attr_name: The attribute name to resolve
+
+        Returns:
+            The qualified name of the class that defines the attribute, or None
+        """
+        qualified_name = self._resolve_class_name(class_name)
+        if qualified_name:
+            return self.class_hierarchy.resolve_attribute(qualified_name, attr_name)
+        return None
+
+    def get_mro(self, class_name: str) -> List[str]:
+        """Get the Method Resolution Order for a class.
+
+        Args:
+            class_name: The qualified or simple class name
+
+        Returns:
+            List of qualified class names in MRO order
+        """
+        qualified_name = self._resolve_class_name(class_name)
+        if qualified_name:
+            return self.class_hierarchy.get_mro(qualified_name)
+        return []
+
+    def get_all_subclasses(self, class_name: str) -> Set[str]:
+        """Get all subclasses of a class.
+
+        Args:
+            class_name: The qualified or simple class name
+
+        Returns:
+            Set of qualified names of all subclasses
+        """
+        qualified_name = self._resolve_class_name(class_name)
+        if qualified_name:
+            return self.class_hierarchy.get_all_subclasses(qualified_name)
+        return set()
+
+    def _resolve_class_name(self, class_name: str) -> Optional[str]:
+        """Resolve a class name to its qualified name."""
+        if class_name in self.class_hierarchy.classes:
+            return class_name
+        
+        for module_name, name_map in self.class_hierarchy.name_to_qualified.items():
+            if class_name in name_map:
+                return name_map[class_name]
+        
+        return None
 
     def convertFunction(
         self,

@@ -203,7 +203,33 @@ class Yield(Expression):
     __fields__ = "expr:Expression"
 
 
+class Await(Expression):
+    """Represents an await expression (Python 3.5+ async/await)."""
+    __fields__ = "expr:Expression"
+
+
+class AsyncYield(Expression):
+    """Represents an async yield (yield in async generator)."""
+    __fields__ = "expr:Expression"
+
+
+class NamedExpr(Expression):
+    """Represents a named/walrus expression (:=) - Python 3.8+.
+    
+    Both assigns to target and returns the value.
+    """
+    __fields__ = "target:Local value:Expression"
+
+    def isPure(self):
+        return False
+
+
 class GetIter(Expression):
+    __fields__ = "expr:Expression"
+
+
+class AsyncGetIter(Expression):
+    """Represents async iteration (async for)."""
     __fields__ = "expr:Expression"
 
 
@@ -427,6 +453,26 @@ class EndFinally(ControlFlow):
 
 class Assert(ControlFlow):
     __fields__ = "test message?"
+
+
+class GlobalDecl(Statement):
+    """Declares a global variable reference in a function scope."""
+    __fields__ = "name:Local"
+
+
+class NonlocalDecl(Statement):
+    """Declares a nonlocal variable reference (closure cell) in a function scope."""
+    __fields__ = "name:Local"
+
+
+class AnnAssign(Statement):
+    """Annotated assignment: x: int = 5 or just x: int."""
+    __fields__ = "target:Local annotation:Expression value:Expression?"
+
+
+class TypeAlias(Statement):
+    """Type alias declaration: type X = Y (Python 3.12+)."""
+    __fields__ = "name:str params:* value:Expression"
 
 
 ###########

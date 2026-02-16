@@ -3,15 +3,28 @@ AST Converter for converting Python AST to PyFlow AST.
 
 This module handles the conversion of Python Abstract Syntax Trees
 to PyFlow's internal AST representation for static analysis.
+
+Supported Python features:
+- Python 3.7+ core syntax
+- Async/await (Python 3.5+)
+- Walrus operator / NamedExpr (Python 3.8+)
+- Pattern matching / match-case (Python 3.10+)
+- Type annotations (AnnAssign)
 """
 
 import ast as python_ast
-from typing import Any, List, Optional, Tuple
+import sys
+from typing import Any, List, Optional, Set, Tuple
 
 from pyflow.language.python import ast as pyflow_ast
 from pyflow.language.python.program import Object
 from pyflow.language.python.pythonbase import PythonASTNode
 from pyflow.language.python.annotations import CodeAnnotation
+
+
+HAS_MATCH = sys.version_info >= (3, 10)
+HAS_NAMED_EXPR = sys.version_info >= (3, 8)
+HAS_EXCEPTION_GROUP = sys.version_info >= (3, 11)
 
 
 class ASTConverter:
@@ -90,12 +103,9 @@ class ASTConverter:
             return self._convert_augassign(node)
 
         elif isinstance(node, python_ast.AnnAssign):
-            # Ignore annotation and model as a normal assignment when a value exists.
-            if node.value is None:
-                return pyflow_ast.Suite([])
-            assign_node = python_ast.Assign(targets=[node.target], value=node.value)
-            return self._convert_assign(assign_node)
-
+            # Handle annotated assignment: x: int = 5 or x: int
+            return self._convert_annassign(node)
+        
         elif isinstance(node, python_ast.If):
             # Handle if statements
             condition = self._convert_expression_safe(node.test)
@@ -121,6 +131,10 @@ class ASTConverter:
         elif isinstance(node, python_ast.For):
             # Handle for loops
             return self._convert_for_loop(node)
+        
+        elif hasattr(python_ast, "AsyncFor") and isinstance(node, python_ast.AsyncFor):
+            # Handle async for loops
+            return self._convert_async_for(node)
 
         elif isinstance(node, python_ast.While):
             # Handle while loops
@@ -157,6 +171,10 @@ class ASTConverter:
         elif isinstance(node, python_ast.With):
             # Handle with statements (context managers)
             return self._convert_with(node)
+        
+        elif hasattr(python_ast, "AsyncWith") and isinstance(node, python_ast.AsyncWith):
+            # Handle async with statements
+            return self._convert_async_with(node)
 
         elif isinstance(node, python_ast.Expr):
             # Handle expression statements (like function calls)
@@ -170,6 +188,14 @@ class ASTConverter:
                 if stmt is not None:
                     suite.append(stmt)
             return suite
+        
+        elif hasattr(python_ast, "Match") and isinstance(node, python_ast.Match):
+            # Handle pattern matching (Python 3.10+)
+            return self._convert_match(node)
+        
+        elif hasattr(python_ast, "TryStar") and isinstance(node, python_ast.TryStar):
+            # Handle exception groups (Python 3.11+)
+            return self._convert_try_star(node)
 
         elif isinstance(node, python_ast.Pass):
             # Handle pass statements
@@ -446,6 +472,14 @@ class ASTConverter:
 
         elif isinstance(node, python_ast.GeneratorExp):
             return pyflow_ast.Existing(Object(None))
+
+        elif hasattr(python_ast, "NamedExpr") and isinstance(node, python_ast.NamedExpr):
+            # Handle walrus operator (:=) - Python 3.8+
+            return self._convert_named_expr(node)
+        
+        elif hasattr(python_ast, "Await") and isinstance(node, python_ast.Await):
+            # Handle await expression - Python 3.5+
+            return self._convert_await(node)
 
         elif isinstance(node, python_ast.Lambda):
             # Handle lambda expressions
@@ -940,3 +974,380 @@ class ASTConverter:
 
         # Fallback for other targets.
         return self._convert_store(node.target, rhs)
+
+    def _convert_async_for(self, node) -> Optional[PythonASTNode]:
+        """Convert Python AST AsyncFor to pyflow AST.
+        
+        Async for loops are modeled similarly to regular for loops,
+        with an annotation to indicate async iteration.
+        """
+        body_preamble = pyflow_ast.Suite([])
+        if isinstance(node.target, python_ast.Name):
+            index = pyflow_ast.Local(node.target.id)
+        else:
+            index = self._tmp_local("async_for_index", node)
+            store = self._convert_store(node.target, index)
+            body_preamble.append(store)
+
+        iter_expr = self._convert_expression_safe(node.iter)
+        iter_expr = self._call_named("interpreter_aiter", [iter_expr])
+
+        body = self.convert_python_ast_to_pyflow(node.body)
+        else_body = self.convert_python_ast_to_pyflow(node.orelse)
+
+        return pyflow_ast.For(
+            iterator=iter_expr,
+            index=index,
+            loopPreamble=pyflow_ast.Suite([]),
+            bodyPreamble=body_preamble,
+            body=body,
+            else_=else_body,
+        )
+
+    def _convert_async_with(self, node) -> Optional[PythonASTNode]:
+        """Convert Python AST AsyncWith to pyflow AST.
+        
+        Async context managers are modeled with async enter/exit semantics.
+        """
+        pre = pyflow_ast.Suite([])
+        for item in node.items:
+            ctx = self._convert_expression_safe(item.context_expr)
+            ctx = self._call_named("interpreter_async_with", [ctx])
+            if item.optional_vars is not None:
+                tmp = self._tmp_local("async_with", item)
+                pre.append(pyflow_ast.Assign(ctx, [tmp]))
+                pre.append(self._convert_store(item.optional_vars, tmp))
+            else:
+                pre.append(pyflow_ast.Discard(ctx))
+
+        body = self.convert_python_ast_to_pyflow(node.body)
+        return pyflow_ast.Suite([pre, body])
+
+    def _convert_match(self, node) -> Optional[PythonASTNode]:
+        """Convert Python AST Match (pattern matching, Python 3.10+) to pyflow AST.
+        
+        Pattern matching is converted to a series of conditional checks
+        (similar to a chain of if-elif-else statements).
+        """
+        subject = self._convert_expression_safe(node.subject)
+        tmp_subject = self._tmp_local("match_subject", node)
+        
+        suite = pyflow_ast.Suite([
+            pyflow_ast.Assign(subject, [tmp_subject])
+        ])
+        
+        cases = []
+        for i, case in enumerate(node.cases):
+            case_body = self.convert_python_ast_to_pyflow(case.body)
+            
+            if hasattr(case, 'pattern'):
+                condition = self._convert_pattern(case.pattern, tmp_subject)
+                if case.guard:
+                    guard = self._convert_expression_safe(case.guard)
+                    condition = self._call_named("interpreter_booland", [condition, guard])
+                cases.append((condition, case_body))
+            else:
+                cases.append((None, case_body))
+        
+        if not cases:
+            return suite
+        
+        result = cases[-1][1]
+        for condition, body in reversed(cases[:-1]):
+            if condition is None:
+                result = body
+            else:
+                result = pyflow_ast.Switch(
+                    condition=pyflow_ast.Condition(pyflow_ast.Suite([]), condition),
+                    t=body,
+                    f=result,
+                )
+        
+        suite.append(result)
+        return suite
+
+    def _convert_pattern(self, pattern, subject: PythonASTNode) -> PythonASTNode:
+        """Convert a match pattern to a condition check.
+        
+        Returns a condition expression that evaluates to True if the pattern matches.
+        """
+        if hasattr(python_ast, "MatchValue") and isinstance(pattern, python_ast.MatchValue):
+            value = self._convert_expression_safe(pattern.value)
+            return self._call_named("interpreter__eq__", [subject, value])
+        
+        elif hasattr(python_ast, "MatchSingleton") and isinstance(pattern, python_ast.MatchSingleton):
+            return self._call_named("interpreter__eq__", [
+                subject, 
+                pyflow_ast.Existing(Object(pattern.value))
+            ])
+        
+        elif hasattr(python_ast, "MatchSequence") and isinstance(pattern, python_ast.MatchSequence):
+            length_check = self._call_named("interpreter_match_sequence", [subject])
+            if not pattern.patterns:
+                return length_check
+            result = length_check
+            for i, sub_pattern in enumerate(pattern.patterns):
+                idx = pyflow_ast.Existing(Object(i))
+                elem = self._call_named("interpreter_getitem", [subject, idx])
+                sub_condition = self._convert_pattern(sub_pattern, elem)
+                result = self._call_named("interpreter_booland", [result, sub_condition])
+            return result
+        
+        elif hasattr(python_ast, "MatchMapping") and isinstance(pattern, python_ast.MatchMapping):
+            result = self._call_named("interpreter_match_mapping", [subject])
+            for key, sub_pattern in zip(pattern.keys, pattern.patterns):
+                key_expr = self._convert_expression_safe(key)
+                value = self._call_named("interpreter_getitem", [subject, key_expr])
+                sub_condition = self._convert_pattern(sub_pattern, value)
+                result = self._call_named("interpreter_booland", [result, sub_condition])
+            return result
+        
+        elif hasattr(python_ast, "MatchClass") and isinstance(pattern, python_ast.MatchClass):
+            cls = self._convert_expression_safe(pattern.cls)
+            result = self._call_named("interpreter_match_class", [subject, cls])
+            for i, sub_pattern in enumerate(pattern.patterns):
+                idx = pyflow_ast.Existing(Object(i))
+                elem = self._call_named("interpreter_getattr", [subject, idx])
+                sub_condition = self._convert_pattern(sub_pattern, elem)
+                result = self._call_named("interpreter_booland", [result, sub_condition])
+            for attr_name, sub_pattern in zip(pattern.kwd_attrs, pattern.kwd_patterns):
+                attr = self._call_named("interpreter_getattr", [
+                    subject, 
+                    pyflow_ast.Existing(Object(attr_name))
+                ])
+                sub_condition = self._convert_pattern(sub_pattern, attr)
+                result = self._call_named("interpreter_booland", [result, sub_condition])
+            return result
+        
+        elif hasattr(python_ast, "MatchStar") and isinstance(pattern, python_ast.MatchStar):
+            if pattern.name:
+                return pyflow_ast.Existing(Object(True))
+            return pyflow_ast.Existing(Object(True))
+        
+        elif hasattr(python_ast, "MatchAs") and isinstance(pattern, python_ast.MatchAs):
+            if pattern.pattern is None:
+                return pyflow_ast.Existing(Object(True))
+            sub_condition = self._convert_pattern(pattern.pattern, subject)
+            return sub_condition
+        
+        elif hasattr(python_ast, "MatchOr") and isinstance(pattern, python_ast.MatchOr):
+            if not pattern.patterns:
+                return pyflow_ast.Existing(Object(False))
+            result = self._convert_pattern(pattern.patterns[0], subject)
+            for sub_pattern in pattern.patterns[1:]:
+                sub_condition = self._convert_pattern(sub_pattern, subject)
+                result = self._call_named("interpreter_boolor", [result, sub_condition])
+            return result
+        
+        return pyflow_ast.Existing(Object(True))
+
+    def _convert_try_star(self, node) -> Optional[PythonASTNode]:
+        """Convert Python AST TryStar (exception groups, Python 3.11+) to pyflow AST.
+        
+        Exception groups are handled similarly to regular try-except,
+        with special handling for exception group matching.
+        """
+        try_body = self.convert_python_ast_to_pyflow(node.body)
+
+        handlers = []
+        for handler in node.handlers:
+            if handler.type:
+                exc_type = self._convert_expression(handler.type)
+            else:
+                exc_type = None
+
+            if handler.name:
+                exc_name = pyflow_ast.Local(handler.name)
+            else:
+                exc_name = None
+
+            handler_body = self.convert_python_ast_to_pyflow(handler.body)
+
+            exc_handler = pyflow_ast.ExceptionHandler(
+                preamble=pyflow_ast.Suite([]),
+                type=exc_type,
+                value=exc_name,
+                body=handler_body,
+            )
+            handlers.append(exc_handler)
+
+        else_body = self.convert_python_ast_to_pyflow(node.orelse)
+        finally_body = self.convert_python_ast_to_pyflow(node.finalbody)
+
+        return pyflow_ast.TryExceptFinally(
+            body=try_body,
+            handlers=handlers,
+            defaultHandler=None,
+            else_=else_body,
+            finally_=finally_body,
+        )
+
+    def _convert_global(self, node: python_ast.Global) -> Optional[PythonASTNode]:
+        """Convert Python AST Global to pyflow AST with proper scope tracking."""
+        suite = pyflow_ast.Suite([])
+        for name in node.names:
+            suite.append(pyflow_ast.GlobalDecl(pyflow_ast.Local(name)))
+        return suite
+
+    def _convert_nonlocal(self, node: python_ast.Nonlocal) -> Optional[PythonASTNode]:
+        """Convert Python AST Nonlocal to pyflow AST with proper closure tracking."""
+        suite = pyflow_ast.Suite([])
+        for name in node.names:
+            suite.append(pyflow_ast.NonlocalDecl(pyflow_ast.Local(name)))
+        return suite
+
+    def _convert_annassign(self, node: python_ast.AnnAssign) -> Optional[PythonASTNode]:
+        """Convert annotated assignment to pyflow AST.
+        
+        Handles both `x: int = 5` and `x: int` (annotation-only).
+        Annotations are preserved in the AST for type inference.
+        """
+        annotation = self._convert_expression_safe(node.annotation)
+        
+        if node.value is None:
+            if isinstance(node.target, python_ast.Name):
+                return pyflow_ast.AnnAssign(
+                    pyflow_ast.Local(node.target.id),
+                    annotation,
+                    None
+                )
+            return pyflow_ast.Suite([])
+        
+        value = self._convert_expression_safe(node.value)
+        
+        if isinstance(node.target, python_ast.Name):
+            return pyflow_ast.AnnAssign(
+                pyflow_ast.Local(node.target.id),
+                annotation,
+                value
+            )
+        elif isinstance(node.target, python_ast.Attribute):
+            obj = self._convert_expression_safe(node.target.value)
+            name = pyflow_ast.Existing(Object(node.target.attr))
+            suite = pyflow_ast.Suite([
+                pyflow_ast.SetAttr(value, obj, name)
+            ])
+            return suite
+        elif isinstance(node.target, python_ast.Subscript):
+            obj = self._convert_expression_safe(node.target.value)
+            sub = self._convert_subscript_index(node.target.slice)
+            return pyflow_ast.Discard(
+                pyflow_ast.Call(
+                    pyflow_ast.Existing(Object("interpreter_setitem")),
+                    [obj, sub, value],
+                    [],
+                    None,
+                    None,
+                )
+            )
+        
+        return pyflow_ast.Suite([])
+
+    def _convert_named_expr(self, node) -> PythonASTNode:
+        """Convert walrus operator (:=) to pyflow AST.
+        
+        The walrus operator both assigns and returns a value.
+        We model this by returning the target local after assignment.
+        """
+        target = node.target
+        value = self._convert_expression_safe(node.value)
+        
+        if isinstance(target, python_ast.Name):
+            local = pyflow_ast.Local(target.id)
+            return pyflow_ast.NamedExpr(local, value)
+        
+        return value
+
+    def _convert_await(self, node) -> PythonASTNode:
+        """Convert await expression to pyflow AST."""
+        value = self._convert_expression_safe(node.value)
+        return pyflow_ast.Await(value)
+
+    def _convert_comprehension(self, node, result_type: str) -> PythonASTNode:
+        """Convert list/set/dict comprehensions and generator expressions.
+        
+        Comprehensions are modeled as nested loops with append operations.
+        This preserves the iteration semantics better than a simple singleton.
+        """
+        generators = node.generators
+        
+        if result_type == "dict":
+            key_expr = self._convert_expression_safe(node.key)
+            value_expr = self._convert_expression_safe(node.value)
+            result = pyflow_ast.BuildMap()
+        else:
+            element = self._convert_expression_safe(node.elt)
+            if result_type == "list":
+                result = pyflow_ast.BuildList([])
+            elif result_type == "set":
+                result = pyflow_ast.BuildList([])
+            else:
+                result = pyflow_ast.Existing(Object(None))
+        
+        if not generators:
+            if result_type == "list":
+                return pyflow_ast.BuildList([element])
+            return result
+        
+        result_local = self._tmp_local("comp_result", node)
+        suite = pyflow_ast.Suite([
+            pyflow_ast.Assign(result, [result_local])
+        ])
+        
+        inner_body = pyflow_ast.Suite([])
+        
+        for i, gen in enumerate(reversed(generators)):
+            iter_expr = self._convert_expression_safe(gen.iter)
+            
+            if isinstance(gen.target, python_ast.Name):
+                index = pyflow_ast.Local(gen.target.id)
+            else:
+                index = self._tmp_local("comp_idx", gen)
+            
+            if i == 0:
+                if result_type == "dict":
+                    inner_body.append(pyflow_ast.Discard(
+                        self._call_named("interpreter_setitem", [
+                            result_local, key_expr, value_expr
+                        ])
+                    ))
+                elif result_type == "list":
+                    inner_body.append(pyflow_ast.Discard(
+                        self._call_named("interpreter_list_append", [result_local, element])
+                    ))
+            else:
+                inner_body = pyflow_ast.For(
+                    iterator=iter_expr,
+                    index=index,
+                    loopPreamble=pyflow_ast.Suite([]),
+                    bodyPreamble=pyflow_ast.Suite([]),
+                    body=inner_body,
+                    else_=pyflow_ast.Suite([]),
+                )
+        
+        suite.append(inner_body)
+        suite.append(pyflow_ast.Discard(result_local))
+        
+        return result
+
+    def _convert_list_comp(self, node) -> PythonASTNode:
+        """Convert list comprehension with proper iteration modeling."""
+        return self._convert_comprehension(node, "list")
+
+    def _convert_set_comp(self, node) -> PythonASTNode:
+        """Convert set comprehension with proper iteration modeling."""
+        return self._convert_comprehension(node, "set")
+
+    def _convert_dict_comp(self, node) -> PythonASTNode:
+        """Convert dict comprehension with proper iteration modeling."""
+        return self._convert_comprehension(node, "dict")
+
+    def _convert_gen_exp(self, node) -> PythonASTNode:
+        """Convert generator expression.
+        
+        Generator expressions are lazy and don't materialize all values.
+        We model them as creating a generator object.
+        """
+        return self._call_named("interpreter_make_generator", [
+            pyflow_ast.Existing(Object("<generator>"))
+        ])

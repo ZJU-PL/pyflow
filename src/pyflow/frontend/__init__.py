@@ -11,8 +11,18 @@ Submodules:
     function_extractor: Extracts function definitions and their metadata.
     object_manager: Manages objects and their properties during analysis.
     stub_manager: Handles type stubs for builtins and standard library.
+    class_hierarchy: Class hierarchy tracking and MRO resolution for cross-module analysis.
 
 The frontend module is responsible for transforming raw Python source code
 into a form suitable for the analysis pipeline, including AST conversion,
 dependency resolution, and program structure extraction.
 """
+
+from .class_hierarchy import ClassHierarchy, ClassInfo, CrossModuleResolver, MROError
+
+__all__ = [
+    "ClassHierarchy",
+    "ClassInfo", 
+    "CrossModuleResolver",
+    "MROError",
+]

@@ -12,6 +12,7 @@ throughout the analysis pipeline.
 - Entry Points: Functions/methods where analysis starts
 - Live Code: Set of code elements that are reachable
 - Analysis Results: Results from various analyses (e.g., IPA)
+- Class Hierarchy: Cross-module class hierarchy with MRO resolution
 """
 
 from . import interface
@@ -27,6 +28,7 @@ class Program(object):
     - Analysis results (store graph, IPA results, etc.)
     - Live code tracking
     - Statistics
+    - Class hierarchy for cross-module MRO resolution
 
     **Lifecycle:**
     1. Creation: Program is created with empty interface
@@ -45,6 +47,8 @@ class Program(object):
         cpa_analysis: Results from Constraint Propagation Analysis (optional)
         lifetime_analysis: Results from lifetime analysis (optional)
         semantic_queries: Cached semantic query service (optional)
+        class_hierarchy: ClassHierarchy for MRO and cross-module resolution
+        cross_module_resolver: CrossModuleResolver for resolving across modules
     """
 
     __slots__ = (
@@ -58,6 +62,8 @@ class Program(object):
         "lifetime_analysis",
         "semantic_queries",
         "semantic_queries_mode",
+        "class_hierarchy",
+        "cross_module_resolver",
     )
 
     def __init__(self):
@@ -71,6 +77,7 @@ class Program(object):
         - Empty live code set (populated during analysis)
         - No statistics
         - No IPA analysis results
+        - No class hierarchy (populated during extraction)
         """
         self.interface = interface.InterfaceDeclaration()
         self.storeGraph = None
@@ -82,6 +89,8 @@ class Program(object):
         self.lifetime_analysis = None
         self.semantic_queries = None
         self.semantic_queries_mode = None
+        self.class_hierarchy = None
+        self.cross_module_resolver = None
 
     def get_semantic_queries(self, compiler, server_mode=None):
         """Get or create a semantic query service for this program."""
