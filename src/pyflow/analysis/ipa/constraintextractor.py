@@ -261,44 +261,145 @@ class ConstraintExtractor(TypeDispatcher):
     def visitList(self, node):
         return [self(child) for child in node]
 
-    @dispatch(ast.BuildList)
-    def visitBuildList(self, node, targets=None):
-        # Evaluate list elements for side effects; lists themselves are pure values
-        elts = self(node.args)
-        if targets is not None:
-            # Assign a placeholder temp if needed
-            temp = self.context.local(ast.Local("tmp_list"))
-            # No actual allocation modeled here; just propagate existence
-            for _ in elts:
-                pass
-            self.context.assign(temp, targets[0])
-        else:
-            return None
+    # ------------------------------------------------------------------
+    # Container literal helpers
+    # ------------------------------------------------------------------
+
+    # Sentinel keys – must match those used in cpa/constraintextractor.py
+    _LIST_SUMMARY_KEY = "*"
+    _DICT_SUMMARY_KEY = "*"
+
+    def _existingNode(self, pyobj):
+        """Return an ObjectName for a constant Python object.
+
+        Args:
+            pyobj: Python object (int, str, …)
+
+        Returns:
+            ObjectName with GLBL qualifier for the constant.
+        """
+        from .constraints import qualifiers
+        xtype = self.analysis.canonical.existingType(self.analysis.pyObj(pyobj))
+        return self.analysis.objectName(xtype, qualifiers.GLBL)
+
+    def _existingTemp(self, pyobj):
+        """Return a ConstraintNode pre-loaded with a constant object.
+
+        Args:
+            pyobj: Python object to use as the constant value.
+
+        Returns:
+            ConstraintNode holding the constant ObjectName.
+        """
+        obj = self._existingNode(pyobj)
+        lcl = self.context.local(ast.Local("_ck_%s" % str(pyobj)[:16]))
+        lcl.updateSingleValue(obj)
+        return lcl
+
+    def _allocateContainer(self, node, python_type, target):
+        """Emit an allocation for a container type into *target*.
+
+        Args:
+            node:        AST node (operation anchor).
+            python_type: Python type (list, tuple, dict).
+            target:      ConstraintNode to receive the new object.
+        """
+        type_node = self._existingNode(python_type)
+        type_lcl = self.context.local(ast.Local("_ctype"))
+        type_lcl.updateSingleValue(type_node)
+        self.context.allocate(node, type_lcl, target)
+
+    def _storeContainerLength(self, node, container_lcl, length):
+        """Store the integer *length* into the LowLevel/length slot.
+
+        Args:
+            node:          AST node (operation anchor).
+            container_lcl: ConstraintNode for the container object.
+            length:        Integer length value.
+        """
+        length_key = self._existingTemp("length")
+        length_val = self._existingTemp(length)
+        self.context.store(length_val, container_lcl, "LowLevel", length_key)
+
+    # ------------------------------------------------------------------
+    # BuildTuple  –  precise per-index Array slots
+    # ------------------------------------------------------------------
 
     @dispatch(ast.BuildTuple)
     def visitBuildTuple(self, node, targets=None):
-        # Evaluate tuple elements for side effects; tuples themselves are pure values
-        elts = self(node.args)
-        if targets is not None:
-            # Assign a placeholder temp if needed
-            temp = self.context.local(ast.Local("tmp_tuple"))
-            # No actual allocation modeled here; just propagate existence
-            for _ in elts:
-                pass
-            self.context.assign(temp, targets[0])
-        else:
+        """Model a tuple literal with precise per-index Array slots."""
+        arg_nodes = [self(arg) for arg in node.args]
+
+        if targets is None:
             return None
+
+        assert len(targets) == 1
+        target = targets[0]
+
+        self._allocateContainer(node, tuple, target)
+        self._storeContainerLength(node, target, len(node.args))
+
+        for i, arg_node in enumerate(arg_nodes):
+            if arg_node is not None:
+                idx_key = self._existingTemp(i)
+                self.context.store(arg_node, target, "Array", idx_key)
+
+    # ------------------------------------------------------------------
+    # BuildList  –  summary Array slot (array smashing)
+    # ------------------------------------------------------------------
+
+    @dispatch(ast.BuildList)
+    def visitBuildList(self, node, targets=None):
+        """Model a list literal using a summary Array/"*" slot."""
+        arg_nodes = [self(arg) for arg in node.args]
+
+        if targets is None:
+            return None
+
+        assert len(targets) == 1
+        target = targets[0]
+
+        self._allocateContainer(node, list, target)
+        self._storeContainerLength(node, target, len(node.args))
+
+        summary_key = self._existingTemp(self._LIST_SUMMARY_KEY)
+        for arg_node in arg_nodes:
+            if arg_node is not None:
+                self.context.store(arg_node, target, "Array", summary_key)
+
+    # ------------------------------------------------------------------
+    # BuildMap  –  precise Dictionary slots for constant keys, summary otherwise
+    # ------------------------------------------------------------------
 
     @dispatch(ast.BuildMap)
     def visitBuildMap(self, node, targets=None):
-        # Evaluate map elements for side effects; maps themselves are pure values
-        # Note: BuildMap is used for dict literals
-        if targets is not None:
-            # Assign a placeholder temp if needed
-            temp = self.context.local(ast.Local("tmp_dict"))
-            self.context.assign(temp, targets[0])
-        else:
+        """Model a dict literal with per-key Dictionary slots where possible."""
+        pairs = list(zip(node.args[0::2], node.args[1::2]))
+        evaluated = [(self(k), self(v)) for k, v in pairs]
+
+        if targets is None:
             return None
+
+        assert len(targets) == 1
+        target = targets[0]
+
+        self._allocateContainer(node, dict, target)
+        self._storeContainerLength(node, target, len(pairs))
+
+        summary_key = None  # created lazily
+
+        for (k_node, _v_node), (k_lcl, v_lcl) in zip(pairs, evaluated):
+            if v_lcl is None:
+                continue
+
+            if isinstance(k_node, ast.Existing):
+                key_lcl = self._existingTemp(k_node.object)
+            else:
+                if summary_key is None:
+                    summary_key = self._existingTemp(self._DICT_SUMMARY_KEY)
+                key_lcl = summary_key
+
+            self.context.store(v_lcl, target, "Dictionary", key_lcl)
 
     @dispatch(ast.BuildSlice)
     def visitBuildSlice(self, node, targets=None):

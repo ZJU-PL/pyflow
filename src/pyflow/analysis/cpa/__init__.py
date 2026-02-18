@@ -244,11 +244,7 @@ class InterproceduralDataflow(object):
                 func = sig.params[1]
                 inst = sig.params[2]
                 return self.canonical.methodType(func, inst, instObj, op)
-        elif (
-            pyobj is types.TupleType
-            or pyobj is types.ListType
-            or pyobj is types.DictionaryType
-        ):
+        elif pyobj in (tuple, list, dict):
             # Containers are named by the signature of the context they're allocated in.
             return self.canonical.contextType(context, instObj, op)
 

@@ -425,6 +425,11 @@ class IsConstraint(CachedConstraint):
             self.emitFalse()
 
 
+# Sentinel key string used for summary (smashed) container slots.
+# Must match the sentinels used in the constraint extractors.
+_CONTAINER_SUMMARY_KEY = "*"
+
+
 class LoadConstraint(CachedConstraint):
     """Constraint for loading values from object fields (x = obj.field).
 
@@ -436,6 +441,13 @@ class LoadConstraint(CachedConstraint):
     The constraint considers all combinations of object types and key types,
     and creates field accesses in the store graph. If target is None, the
     load is being discarded (e.g., in a descriptive stub).
+
+    For container slot types ("Array" and "Dictionary") a summary-slot
+    fallback is applied: when the exact per-index/per-key slot is absent
+    (or empty) on the object, the constraint also connects the summary
+    slot (keyed by ``_CONTAINER_SUMMARY_KEY``) to the target.  This
+    ensures that loads from lists/dicts modelled with array-smashing still
+    propagate element types to their consumers.
 
     Attributes:
         op: Operation context for logging
@@ -469,6 +481,28 @@ class LoadConstraint(CachedConstraint):
 
         CachedConstraint.__init__(self, sys, expr, key)
 
+    def _connectSummarySlot(self, obj, region_hint):
+        """Connect the summary slot (if present) to *target*.
+
+        For "Array" and "Dictionary" slot types, if the object has a
+        summary slot (keyed by ``_CONTAINER_SUMMARY_KEY``) we wire it to
+        the target so that smashed-container element types flow through.
+
+        Args:
+            obj:         ObjectNode for the container.
+            region_hint: RegionNode to use when creating the summary slot.
+        """
+        if self.slottype not in ("Array", "Dictionary"):
+            return
+        summary_key_obj = self.sys.extractor.getObject(_CONTAINER_SUMMARY_KEY)
+        summary_name = self.sys.canonical.fieldName(self.slottype, summary_key_obj)
+        # Only connect if the summary slot already exists (don't create it here).
+        if summary_name in obj.slots:
+            summary_field = obj.slots[summary_name]
+            if self.target:
+                self.sys.createAssign(summary_field, self.target)
+            self.sys.logRead(self.op, summary_field)
+
     def concreteUpdate(self, exprType, keyType):
         assert keyType.isExisting() or keyType.isExternal(), keyType
 
@@ -478,10 +512,13 @@ class LoadConstraint(CachedConstraint):
         if self.target:
             field = obj.field(name, self.target.region)
             self.sys.createAssign(field, self.target)
+            # Also pull from the summary slot (for smashed lists/dicts).
+            self._connectSummarySlot(obj, self.target.region)
         else:
             # The load is being discarded.  This is probally in a
             # descriptive stub.  As such, we want to log the read.
             field = obj.field(name, self.expr.region.group.regionHint)
+            self._connectSummarySlot(obj, self.expr.region.group.regionHint)
 
         self.sys.logRead(self.op, field)
 

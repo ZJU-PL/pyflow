@@ -300,40 +300,167 @@ class ExtractDataflow(TypeDispatcher):
             targets,
         )
 
-    @dispatch(ast.BuildList)
-    def visitBuildList(self, node, targets=None):
-        # Evaluate list elements for side effects; then assign a simple placeholder slot
-        _ = self(node.args)
-        if targets is not None:
-            assert len(targets) == 1
-            placeholder_local = ast.Local("tmp_list")
-            src_slot = self.localSlot(placeholder_local)
-            self.assign(src_slot, targets[0])
-        else:
-            return None
+    # ------------------------------------------------------------------
+    # Container literal helpers
+    # ------------------------------------------------------------------
+
+    def _existingKeySlot(self, pyobj):
+        """Return an initialised slot for a constant key object.
+
+        Args:
+            pyobj: Python object to use as the key (int index, string, sentinel …)
+
+        Returns:
+            SlotNode already initialised with the existingType for *pyobj*.
+        """
+        obj = self.system.extractor.getObject(pyobj)
+        slot = self.existingSlot(obj)
+        slot.initializeType(self.system.canonical.existingType(obj))
+        return slot
+
+    def _allocateContainer(self, node, python_type, targets):
+        """Emit an AllocateConstraint for a container type.
+
+        Args:
+            node:        AST node (used as the operation anchor).
+            python_type: The Python type object (list, tuple, dict …).
+            targets:     Single-element list of destination SlotNodes.
+
+        Returns:
+            OpContext for the allocation (reuse for subsequent stores).
+        """
+        op = self.contextOp(node)
+        type_obj = self.system.extractor.getObject(python_type)
+        type_slot = self.existingSlot(type_obj)
+        type_slot.initializeType(self.system.canonical.existingType(type_obj))
+        constraints.AllocateConstraint(self.system, op, type_slot, targets[0])
+        return op
+
+    def _storeContainerLength(self, op, target_slot, length):
+        """Store the integer *length* into the LowLevel/length slot of a container.
+
+        Args:
+            op:          OpContext for the store.
+            target_slot: SlotNode for the container object.
+            length:      Integer length value.
+        """
+        length_key_slot = self._existingKeySlot("length")
+        length_val_slot = self._existingKeySlot(length)
+        constraints.StoreConstraint(
+            self.system, op, target_slot, "LowLevel", length_key_slot, length_val_slot
+        )
+
+    # ------------------------------------------------------------------
+    # BuildTuple  –  precise per-index Array slots
+    # ------------------------------------------------------------------
 
     @dispatch(ast.BuildTuple)
     def visitBuildTuple(self, node, targets=None):
-        # Evaluate tuple elements for side effects; then assign a simple placeholder slot
-        _ = self(node.args)
-        if targets is not None:
-            assert len(targets) == 1
-            placeholder_local = ast.Local("tmp_tuple")
-            src_slot = self.localSlot(placeholder_local)
-            self.assign(src_slot, targets[0])
-        else:
+        """Model a tuple literal with precise per-index Array slots.
+
+        Each element is stored into Array/<i> on the freshly allocated tuple
+        object, mirroring the *args tuple mechanism used by the CPA engine.
+        """
+        # Evaluate all element expressions first (may have side effects).
+        arg_slots = [self(arg) for arg in node.args]
+
+        if targets is None:
             return None
+
+        assert len(targets) == 1
+
+        op = self._allocateContainer(node, tuple, targets)
+        self._storeContainerLength(op, targets[0], len(node.args))
+
+        for i, arg_slot in enumerate(arg_slots):
+            if arg_slot is not None:
+                idx_key_slot = self._existingKeySlot(i)
+                constraints.StoreConstraint(
+                    self.system, op, targets[0], "Array", idx_key_slot, arg_slot
+                )
+
+    # ------------------------------------------------------------------
+    # BuildList  –  summary Array slot (array smashing)
+    # ------------------------------------------------------------------
+
+    # Sentinel key used for the summary (smashed) element slot.
+    _LIST_SUMMARY_KEY = "*"
+
+    @dispatch(ast.BuildList)
+    def visitBuildList(self, node, targets=None):
+        """Model a list literal using a summary Array slot.
+
+        All elements are merged into a single Array/"*" slot so that any
+        subsequent load from the list returns the union of element types.
+        The length is stored precisely when it is statically known.
+        """
+        arg_slots = [self(arg) for arg in node.args]
+
+        if targets is None:
+            return None
+
+        assert len(targets) == 1
+
+        op = self._allocateContainer(node, list, targets)
+        self._storeContainerLength(op, targets[0], len(node.args))
+
+        summary_key_slot = self._existingKeySlot(self._LIST_SUMMARY_KEY)
+        for arg_slot in arg_slots:
+            if arg_slot is not None:
+                constraints.StoreConstraint(
+                    self.system, op, targets[0], "Array", summary_key_slot, arg_slot
+                )
+
+    # ------------------------------------------------------------------
+    # BuildMap  –  precise Dictionary slots for constant keys, summary otherwise
+    # ------------------------------------------------------------------
+
+    # Sentinel key used for the summary (smashed) value slot.
+    _DICT_SUMMARY_KEY = "*"
 
     @dispatch(ast.BuildMap)
     def visitBuildMap(self, node, targets=None):
-        # Evaluate map elements for side effects; maps themselves are pure values
-        if targets is not None:
-            assert len(targets) == 1
-            # For maps, we don't have direct access to keys/values, just pass
-            pass
-        else:
-            # Return None for maps
+        """Model a dict literal with per-key Dictionary slots where possible.
+
+        For each (key, value) pair:
+        - If the key is an ast.Existing constant, store into Dictionary/<key>.
+        - Otherwise merge into the summary Dictionary/"*" slot.
+
+        This gives precise lookup for string/int-keyed dicts (the common case)
+        while remaining sound for dynamic keys.
+        """
+        # node.args is a flat list [key0, val0, key1, val1, …]
+        pairs = list(zip(node.args[0::2], node.args[1::2]))
+
+        # Evaluate all sub-expressions first.
+        evaluated = [(self(k), self(v)) for k, v in pairs]
+
+        if targets is None:
             return None
+
+        assert len(targets) == 1
+
+        op = self._allocateContainer(node, dict, targets)
+        self._storeContainerLength(op, targets[0], len(pairs))
+
+        summary_key_slot = None  # created lazily
+
+        for (k_node, _v_node), (k_slot, v_slot) in zip(pairs, evaluated):
+            if v_slot is None:
+                continue
+
+            if isinstance(k_node, ast.Existing):
+                # Precise: use the constant key object directly.
+                key_slot = self._existingKeySlot(k_node.object)
+            else:
+                # Dynamic key: fall back to summary slot.
+                if summary_key_slot is None:
+                    summary_key_slot = self._existingKeySlot(self._DICT_SUMMARY_KEY)
+                key_slot = summary_key_slot
+
+            constraints.StoreConstraint(
+                self.system, op, targets[0], "Dictionary", key_slot, v_slot
+            )
 
     @dispatch(ast.BuildSlice)
     def visitBuildSlice(self, node, targets=None):
