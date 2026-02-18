@@ -450,10 +450,13 @@ class UnaryTreeVisitor(object):
                 self._apply(context, branch)
 
     def _apply(self, context, a):
-        # See if we've alread computed this.
+        # Bug 27 fix: the original code always called self.compute(context, a)
+        # even on a cache hit, making the cache useless and causing visitor
+        # side-effects to be applied multiple times.  Return early on a hit.
         key = a
         if key in self.cache:
             self.cacheHit += 1
+            return  # Already visited — do not recompute.
         else:
             self.cacheMiss += 1
 
@@ -463,10 +466,9 @@ class UnaryTreeVisitor(object):
     def __call__(self, context, a):
         self.cacheHit = 0
         self.cacheMiss = 0
-        result = self._apply(context, a)
+        self._apply(context, a)
         # print("%d/%d" % (self.cacheHit, self.cacheHit+self.cacheMiss))
         self.cache.clear()  # HACK don't retain cache between computations?
-        return result
 
 
 class BinaryTreeFunction(object):

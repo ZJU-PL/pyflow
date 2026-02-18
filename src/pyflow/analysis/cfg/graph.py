@@ -124,11 +124,12 @@ class CFGBlock(object):
         """
         raise NotImplementedError
 
-    def removePrev(self, other):
+    def removePrev(self, other, name):
         """Remove a predecessor block.
 
         Args:
             other: Predecessor block to remove.
+            name: Exit name from the predecessor.
 
         Note:
             This method should be implemented by subclasses.
@@ -453,8 +454,9 @@ class SingleEntryBlock(CFGBlock):
         Args:
             other: Block to redirect entries to
         """
-        if self._prev[0] is not None:
-            self.prev.redirectExit(self, other)
+        prev = self._prev[0]
+        if prev is not None:
+            prev.redirectExit(self, other)
 
     @property
     def prev(self):

@@ -133,11 +133,11 @@ class CFGClonerPre(TypeDispatcher):
 
     @dispatch(cfg.Entry, cfg.Exit, cfg.Yield)
     def visitEntry(self, node):
-        return type(node)()
+        return type(node)(node.region)
 
     @dispatch(cfg.Merge)
     def visitMerge(self, node):
-        merge = cfg.Merge()
+        merge = cfg.Merge(node.region)
 
         merge.phi = [self.astcloner(phi) for phi in node.phi]
 
@@ -145,11 +145,11 @@ class CFGClonerPre(TypeDispatcher):
 
     @dispatch(cfg.Switch)
     def visitSwitch(self, node):
-        return cfg.Switch(self.astcloner(node.condition))
+        return cfg.Switch(node.region, self.astcloner(node.condition))
 
     @dispatch(cfg.Suite)
     def visitSuite(self, node):
-        suite = cfg.Suite()
+        suite = cfg.Suite(node.region)
         for op in node.ops:
             suite.ops.append(self.astcloner(op))
         return suite
@@ -275,8 +275,10 @@ class InlineTransform(TypeDispatcher):
                     break
 
                 # POSTAMBLE transfer the return value
+                # Bug 3 fix: ast.Assign stores targets in op.lcls (a list),
+                # not op.target.  Also the argument order is (expr, lcls).
                 if isinstance(op, ast.Assign):
-                    current.ops.append(ast.Assign(op.target, cloned.returnParam))
+                    current.ops.append(ast.Assign(cloned.returnParam, op.lcls))
             else:
                 current.ops.append(op)
 

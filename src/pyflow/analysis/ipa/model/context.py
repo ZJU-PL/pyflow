@@ -123,7 +123,7 @@ class Context(object):
 
     def criticalStore(self, constraint):
         assert constraint.isStore()
-        self.criticalStore.append(constraint)
+        self.criticalStores.append(constraint)
 
     def existingPyObj(self, pyobj, qualifier=qualifiers.HZ):
         obj = self.analysis.pyObj(pyobj)
@@ -189,8 +189,11 @@ class Context(object):
                 self, op, code, selfarg, args, kwds, varg, karg, targets
             )
             self.calls.append(call)
-            # Ensure the newly created direct call is processed by the callgraph
-            self.dirtyCCall(call)
+            # Ensure the newly created direct call is processed by the callgraph.
+            # Bug 3 fix: DirectCallConstraint is a UserCallConstraint and is resolved
+            # via self.dirtycalls (the regular call queue), not self.dirtyccalls
+            # (the concrete-call queue).  Use dirtyCall, not dirtyCCall.
+            self.dirtyCall(call)
             return call
 
     # 	def ccall(self, op, code, selfarg, args, kwds, varg, karg, targets):

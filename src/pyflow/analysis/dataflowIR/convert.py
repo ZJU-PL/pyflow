@@ -211,7 +211,10 @@ def gatedMerge(hyperblock, pairs):
         TODO: Handle single-pair case (should this create a gate instead?)
     """
     if len(pairs) == 1:
-        assert False, "single gated merge?"
+        # Bug 16 fix: a single-pair gated merge is valid — just create a gate.
+        # The original code hit ``assert False`` here, crashing on certain
+        # control flow patterns.  A single-pair merge is semantically
+        # equivalent to a gate, so we handle it gracefully.
         pred, value = pairs[0]
         result = gate(pred, value)
     else:

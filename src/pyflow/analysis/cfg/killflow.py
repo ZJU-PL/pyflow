@@ -258,10 +258,10 @@ class FlowKiller(TypeDispatcher):
         self.yields |= self.opFlow.yields
 
         if not self.opFlow.normal:
-            assert False
-            # HACK should convert into a suite?
-            node.killExit("t")
-            node.killExit("f")
+            # The condition itself raises NoNormalFlow (e.g. always-raising expr).
+            # Kill both branches since neither can be reached.
+            node.killExit("true")
+            node.killExit("false")
 
         if not self.opFlow.fails:
             node.killExit("fail")

@@ -433,7 +433,13 @@ class ForwardESSA(TypeDispatcher):
 
     @dispatch(ast.Store)
     def processStore(self, node):
-        self.logReadLocals(node, node.children())
+        # Bug 26 fix: ast.Store has no .children() method.  The original code
+        # called ``self.logReadLocals(node, node.children())`` which raised
+        # AttributeError at runtime.  The correct approach is to pass the
+        # node itself to logReadLocals so that visitChildren is invoked on it,
+        # collecting all ast.Local children (matching the pattern used by
+        # processDiscard).
+        self.logReadLocals(node, node)
         self.logReadFields(node)
         self.renameModifiedFields(node)
         self.logModifiedFields(node)

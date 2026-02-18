@@ -95,7 +95,11 @@ class LivenessKiller(TypeDispatcher):
             for read in node.reads:
                 read.removeUse(node)
 
-            if node.modify is not None:
+            # Bug H fix: only call removeDefn when the slot's defn still points
+            # to this merge.  If the slot was already redirected or cleared by a
+            # previous DCE pass, removeDefn would fire its ``assert self.defn is op``
+            # and crash.  Guard with an identity check before calling.
+            if node.modify is not None and node.modify.defn is node:
                 node.modify.removeDefn(node)
 
             node.reads = []

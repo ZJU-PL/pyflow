@@ -112,7 +112,7 @@ class CFGTransformer(TypeDispatcher):
         Args:
             node: Yield AST node.
         """
-        y = cfg.Yield()
+        y = cfg.Yield(self.region)
         self.attachCurrent(y)
         y.setExit("normal", self.makeNewSuite())
 
@@ -134,12 +134,8 @@ class CFGTransformer(TypeDispatcher):
     def visitStatement(self, node):
         self.emit(node)
 
-    @dispatch(object)  # Catch-all for unrecognised node types (L8 fix)
+    @dispatch(object)  # Catch-all for unrecognised node types
     def visitUnknown(self, node):
-        # Warn about unknown node types so they are not silently swallowed.
-        # Downstream passes dispatch on concrete op types; emitting an unknown
-        # node would cause those passes to silently skip it, potentially
-        # producing incorrect analysis results.
         import warnings
         warnings.warn(
             f"CFGTransformer: unrecognised AST node type {type(node).__qualname__!r}; "
@@ -155,35 +151,7 @@ class CFGTransformer(TypeDispatcher):
 
     def createMerge(self):
         merge = cfg.Merge(self.region)
-        # self.attachStandardHandlers(merge)
         return merge
-
-    # 	@dispatch(ast.Not)
-    # 	def visitNot(self, node):
-    # 		fail = cfg.Merge()
-    # 		self.pushHandler('fail', fail)
-    #
-    # 		suite  = cfg.Suite()
-    # 		self.attachStandardHandlers(suite)
-    # 		self.attachCurrent(suite)
-    # 		self.current = suite
-    #
-    # 		try:
-    # 			try:
-    # 				self(node.stmt)
-    # 			finally:
-    # 				self.popHandler('fail')
-    # 		except NoNormalFlow:
-    # 			pass
-    # 		else:
-    # 			self.current.setExit('normal' as self.handler('fail'))
-    #
-    # 		if fail.numPrev() == 0:
-    # 			# No failiures
-    # 			raise NoNormalFlow
-    # 		else:
-    # 			self.makeNewSuite()
-    # 			fail.setExit('normal', self.current)
 
     @dispatch(ast.Switch)
     def visitSwitch(self, node):
@@ -309,19 +277,12 @@ class CFGTransformer(TypeDispatcher):
     def visitTryExceptFinally(self, node):
         """Handle try-except-finally blocks.
 
-        This is a conservative approximation: we model the try body, each
-        exception handler, the else clause, and the finally clause as
-        sequential normal-flow blocks.  We do NOT yet model the fail/error
-        edges that would carry exceptions from the try body to the handlers
-        (that requires a more complex CFG structure with dedicated exception
-        edges).  The approximation is sound for analyses that only care about
-        normal-flow data, but is unsound for exception-sensitive analyses.
-
-        Bug #3 (original): the old implementation called self(node.body) etc.
-        without any guard, so a NoNormalFlow raised inside the try body would
-        propagate out and skip the handlers and finally clause entirely.  We
-        now wrap each clause in a try/except so that NoNormalFlow from one
-        clause does not prevent the others from being processed.
+        A NoNormalFlow raised inside the try body must not skip the handlers
+        and finally clause.  Each clause is wrapped independently so that
+        NoNormalFlow from one clause does not prevent the others from being
+        processed.  If the finally clause itself raises NoNormalFlow, that is
+        propagated to the caller (the finally always runs and its flow
+        determines the overall flow).
         """
         # Try body
         try:
@@ -356,7 +317,6 @@ class CFGTransformer(TypeDispatcher):
     @dispatch(ast.ExceptionHandler)
     def visitExceptionHandler(self, node):
         """Handle exception handler blocks."""
-        # Process the handler body
         self(node.body)
 
     @dispatch(ast.For)
@@ -368,12 +328,11 @@ class CFGTransformer(TypeDispatcher):
           in loop_body_suite but never connected it to anything.  makeNewSuite()
           sets self.current as a side-effect, so the subsequent createMerge()
           call saw a stale self.current.  Fixed by removing the spurious call.
-        - Bug #2: The else-clause wiring was wrong.  The old code created
-          else_suite = self.makeNewSuite() and then called self(node.else_),
-          but then called else_suite.setExit("normal", ...) on the freshly-
-          created suite rather than on self.current after visiting the else
-          body.  Fixed by connecting self.current (after visiting the else
-          body) to the break merge, mirroring the while-loop pattern.
+        - Bug #2: The else-clause wiring was wrong.  Fixed by connecting
+          self.current (after visiting the else body) to the break merge,
+          mirroring the while-loop pattern.
+        - Bug #8: The loop-exit merge node `e` was created but never connected
+          to the loop's normal-exit path.  Fixed by wiring merge -> e.
         """
         # Process loop preamble and body preamble
         if hasattr(node, "loopPreamble") and node.loopPreamble:
@@ -382,11 +341,11 @@ class CFGTransformer(TypeDispatcher):
             self(node.bodyPreamble)
 
         # Create merge point for loop entry (back-edge target for continue)
+        # Bug #1 fix: do NOT call makeNewSuite() here before createMerge().
         merge = self.createMerge()
         self.attachCurrent(merge)
 
         # The loop body starts in a fresh suite connected to the merge.
-        # (No spurious makeNewSuite() call here — that was bug #1.)
         merge.setExit("normal", self.makeNewSuite())
 
         b = cfg.Merge(self.region)  # Break target
@@ -406,21 +365,22 @@ class CFGTransformer(TypeDispatcher):
         self.popHandler("break")
 
         # Else clause: runs when the loop exits normally (not via break).
-        # Wire it between the loop-exit merge and the break merge, mirroring
-        # the while-loop pattern.  (Bug #2 fix: use self.current after
-        # visiting the else body, not the suite created before visiting it.)
+        # Bug #2 fix: wire self.current (after visiting else body) to b.
+        # Bug #8 fix: create merge node e and wire loop's normal-exit into it.
         else_body = getattr(node, "else_", None)
         if else_body:
             e = cfg.Merge(self.region)
+            # Bug #8 fix: connect the loop's normal-exit (iterator exhausted) into e.
             e.setExit("normal", self.makeNewSuite())
+            merge.setExit("normal", e)
             try:
                 self(else_body)
             except NoNormalFlow:
                 pass
             else:
+                # Bug #2 fix: connect self.current (after else body) to break merge.
                 self.attachCurrent(b)
             self.optimizeMerge(e)
-        # else: no else clause — fall through directly to the break merge.
 
         b.setExit("normal", self.makeNewSuite())
         self.optimizeMerge(merge)
@@ -477,14 +437,6 @@ class CFGTransformer(TypeDispatcher):
 
         Returns:
             cfg.Code: Complete CFG representation of the function
-
-        Process:
-            1. Initialize handler stacks for control flow
-            2. Create CFG Code container
-            3. Set up entry point and terminal handlers
-            4. Transform AST (may raise NoNormalFlow)
-            5. Clean up handlers
-            6. Return complete CFG
         """
         self.regionStack = []
         self.region = None
@@ -521,9 +473,6 @@ class CFGTransformer(TypeDispatcher):
 
 def evaluate(compiler, code):
     """Transform AST code to CFG and simplify.
-
-    Main entry point for CFG construction from AST. Transforms the AST
-    into a CFG and applies simplification passes.
 
     Args:
         compiler: Compiler context

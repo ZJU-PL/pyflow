@@ -152,9 +152,30 @@ class ConstraintExtractor(TypeDispatcher):
         if kargs is not None:
             kargs = None  # Ignore **kwargs
 
-        # Handle cases where both selfarg and vargs are None (e.g., function calls without 'self')
-        if expr is None and vargs is None:
-            # Skip this call as it's likely an invalid/unresolvable call
+        # Bug N fix: the original code silently dropped calls where both
+        # ``expr`` (the callee) and ``vargs`` are None, returning None without
+        # creating any constraint.  This caused call sites whose callee
+        # expression could not be resolved (e.g. an attribute load that
+        # returned None from visitGetAttr) to be completely ignored, making
+        # the analysis unsound — the callee's side-effects and return values
+        # were never modelled.
+        #
+        # The correct behaviour is to still forward the call to
+        # context.call(), which will create a CallConstraint.  The constraint
+        # will simply have no objects to dispatch to (because expr is None),
+        # so it will be a no-op at solve time — but it is correctly recorded
+        # in the constraint graph and will be re-evaluated if expr later
+        # receives values.
+        #
+        # We only skip the call if *both* expr and vargs are None AND there
+        # are no positional args, because in that degenerate case there is
+        # truly nothing to dispatch on.
+        if expr is None and vargs is None and not args:
+            import logging
+            logging.getLogger(__name__).debug(
+                "call: skipping unresolvable call at %r (expr=None, vargs=None, args=[])",
+                node,
+            )
             return None
 
         self.context.call(node, expr, args, kwds, vargs, kargs, targets)

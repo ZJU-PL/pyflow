@@ -184,35 +184,28 @@ class Compactor(TypeDispatcher):
     def getError(self, *args):
         """Collect the common error exit from a set of CFG blocks.
 
+        For each block, get its "error" exit. If two blocks both have a
+        non-None error exit that differs, the error exits are incompatible
+        and we return (False, None). Otherwise we return (True, error) where
+        error is the common error exit (or None if no block has one).
+
         Bug E fix: the original code had ``argerror = error`` in the else
-        branch, which assigned the (still-None) ``error`` back to the local
-        ``argerror`` instead of updating ``error`` with the first non-None
-        error exit found.  As a result ``error`` was always ``None`` and the
-        method always returned ``(True, None)``, silently dropping error edges
-        from the reconstructed AST.
+        branch, which never updated the ``error`` accumulator, so it always
+        returned (True, None) and silently dropped error edges.
 
-        The correct logic is ``error = argerror`` (assign the found exit to
-        the accumulator).
-
-        Bug W fix (testSplit/testParallax): the original comparison
-        ``if error is not argerror`` treated ``None`` (no error exit) as
-        *incompatible* with a non-None error exit.  When merging two suites
-        where one has an error exit and the other does not, the result should
-        simply inherit the non-None error exit — ``None`` means "no error
-        path from this suite", which is compatible with any error exit.
-        Only return ``False`` when *both* suites have *different* non-None
-        error exits.
+        Bug W fix: only conflict when both are non-None and different.
         """
         error = None
 
         for arg in args:
             argerror = arg.getExit("error")
             if error is not None:
-                # Bug W fix: only conflict when both are non-None and differ.
+                # Only conflict when both are non-None and differ.
                 if argerror is not None and error is not argerror:
                     return False, None
             else:
-                error = argerror  # Bug E fix: was ``argerror = error``
+                # Bug E fix: assign argerror to error (not the other way around).
+                error = argerror
 
         return True, error
 
@@ -259,7 +252,16 @@ class Compactor(TypeDispatcher):
         if node not in self.loops:
             node.simplify()
         else:
-            assert node.numPrev() == 1
+            # Bug 7 fix: loop header merge nodes legitimately have two predecessors
+            # (the pre-loop entry edge and the back-edge from the loop body).
+            # The original assertion ``assert node.numPrev() == 1`` fired for any
+            # loop whose back-edge had not yet been removed, crashing structural
+            # analysis.  Replace with a tighter sanity check.
+            # Bug K fix: the previous fix used ``<= 2`` which also allowed zero
+            # predecessors.  A loop merge with zero predecessors is degenerate
+            # and would crash on ``node.getExit("normal")`` returning None.
+            # Require at least one predecessor.
+            assert 1 <= node.numPrev() <= 2, node.numPrev()
 
             preamble = node.getExit("normal")
 

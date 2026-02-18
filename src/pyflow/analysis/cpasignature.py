@@ -80,7 +80,19 @@ class CPASignature(canonical.CanonicalObject):
         """Check if this signature subsumes another signature.
 
         A signature subsumes another if it's more general (e.g., has Any types
-        where the other has specific types).
+        where the other has specific types).  ``self`` subsumes ``other`` when:
+        - They have the same code and number of parameters.
+        - For every parameter position (including selfparam), ``self`` is at
+          least as general as ``other``: either the types are equal, or
+          ``self`` has ``Any`` where ``other`` has a concrete type.
+        - At least one position where ``self`` has ``Any`` and ``other`` does
+          not (otherwise ``self`` is not strictly more general).
+
+        Bug fix: the original implementation only compared ``self.params`` and
+        completely ignored ``self.selfparam`` / ``other.selfparam``.  If
+        ``self.selfparam is Any`` and ``other.selfparam`` is a concrete type,
+        the method returned ``False`` (no subsumption detected) even though
+        ``self`` is strictly more general in the self parameter.
 
         Args:
             other: Other signature to compare against.
@@ -88,16 +100,25 @@ class CPASignature(canonical.CanonicalObject):
         Returns:
             bool: True if this signature subsumes the other.
         """
-        if self.classification() == other.classification():
-            subsume = False
-            for sparam, oparam in zip(self.params, other.params):
-                if sparam is Any and oparam is not Any:
-                    subsume = True
-                elif sparam != oparam:
-                    return False
-            return subsume
-        else:
+        if self.classification() != other.classification():
             return False
+
+        subsume = False
+
+        # Check selfparam
+        if self.selfparam is Any and other.selfparam is not Any:
+            subsume = True
+        elif self.selfparam != other.selfparam:
+            return False
+
+        # Check positional params
+        for sparam, oparam in zip(self.params, other.params):
+            if sparam is Any and oparam is not Any:
+                subsume = True
+            elif sparam != oparam:
+                return False
+
+        return subsume
 
     def numParams(self):
         return len(self.params)

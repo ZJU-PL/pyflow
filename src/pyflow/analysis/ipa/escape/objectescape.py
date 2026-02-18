@@ -17,7 +17,7 @@ for name, enum in nameToEnum.items():
     enumToName[enum] = name
 
 
-def repr(flags):
+def flags_repr(flags):
     parts = []
 
     for enum, name in enumToName.items():
@@ -32,6 +32,10 @@ def repr(flags):
         return "|".join(parts)
     else:
         return "empty"
+
+
+# Alias used by tests (objectescape.repr(...))
+repr = flags_repr
 
 
 ### Analysis ###

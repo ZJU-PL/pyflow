@@ -66,7 +66,9 @@ class UnionFind(object):
         Yields:
             All objects that have been unioned (have parents)
         """
-        return self.parents.keys()
+        # Bug 12 fix: dict.keys() returns a view, not an iterator.
+        # Callers that call next() on iter(uf) need a true iterator.
+        return iter(self.parents.keys())
 
     def getItemCompress(self, obj):
         """

@@ -165,12 +165,17 @@ class FindReadModify(TypeDispatcher):
     @dispatch(ast.Assert)
     def visitAssert(self, node):
         info = ReadModifyInfo()
-        # Assert statements read the test condition
+        # Bug fix: the original code called ``info.localRead.add(node.test)``
+        # which adds the raw AST expression node (e.g. ast.BinaryOp, ast.Call,
+        # etc.) directly to the localRead set.  localRead is supposed to contain
+        # only ast.Local nodes; adding arbitrary expression nodes corrupts the
+        # set and causes downstream analyses (ESSA, DCE) to crash or produce
+        # wrong results.  The correct approach is to recursively visit the test
+        # expression so that only the ast.Local leaves are collected.
         if node.test:
-            info.localRead.add(node.test)
-        # Visit message if present
+            self(node.test, info)
         if node.message:
-            info.update(self(node.message))
+            self(node.message, info)
         self.lut[node] = info
         return info
 

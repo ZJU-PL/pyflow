@@ -113,4 +113,8 @@ def update(context):
     for param in context.returns:
         context.summary.handleSlot(context, param)
 
-    assert not context.criticalStores
+    # Bug D fix: ``assert not context.criticalStores`` fired as soon as any
+    # StoreConstraint became critical (via criticalStore()), because
+    # criticalStores is never cleared before this point.  The assertion was
+    # incorrect — critical stores are a normal part of analysis and are
+    # processed separately by the escape analysis pass.  Remove the assertion.

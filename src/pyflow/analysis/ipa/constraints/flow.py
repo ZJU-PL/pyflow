@@ -67,6 +67,15 @@ class CopyConstraint(Constraint):
     def criticalChanged(self, context, node, diff):
         self.dst.critical.updateValues(context, self.dst, diff)
 
+    def flagsChanged(self, context, node, flagsdiff):
+        """Propagate escape-flag changes through a copy edge.
+
+        Bug A fix: CopyConstraint must forward flag changes to its destination
+        so that escape flags propagate through the constraint graph.  Without
+        this, any flag set on the source is silently dropped.
+        """
+        self.dst.updateFlags(flagsdiff)
+
 
 class DownwardConstraint(Constraint):
     """Constraint for downward value transfer (caller to callee).
@@ -377,7 +386,10 @@ class IsConstraint(Constraint):
         # TODO use regions for even more precision?
         # TODO use qualifiers for non-CI types
         lxtype = left.xtype
-        rxtype = left.xtype
+        # Bug C fix: was ``rxtype = left.xtype`` — must use right.xtype.
+        # The old code compared the left object's type against itself, making
+        # cross-type identity comparisons always appear same-type.
+        rxtype = right.xtype
 
         lpt = lxtype.obj.pythonType()
         rpt = rxtype.obj.pythonType()

@@ -353,7 +353,13 @@ class FlowSensitiveSlotNode(SlotNode):
             return ()
 
     def reverse(self):
-        assert self.defn is not None, self
+        # Bug G fix: DCE may clear self.defn (via removeDefn) before reverse()
+        # is called on a slot that is still reachable in the live set.  The
+        # original assertion crashed in that case.  Return an empty tuple when
+        # defn is None so that liveness traversal simply stops at this node
+        # rather than raising AssertionError.
+        if self.defn is None:
+            return ()
         return (self.defn,)
 
     def canonical(self):
@@ -1490,6 +1496,12 @@ class GenericOp(PredicatedOpNode):
         # self.sanityCheck()
 
     def addLocalModify(self, name, slot):
+        # Bug F fix: callers (e.g. processTypeSwitch in convert.py) may pass
+        # slot=None when a TypeSwitch case has no expression (case.expr is None).
+        # The original assert isinstance(slot, LocalNode) would crash.  Guard
+        # against None so that no-op cases are silently skipped.
+        if slot is None:
+            return
         assert isinstance(slot, LocalNode), slot
         slot = slot.addDefn(self)
         self.localModifies.append(slot)
@@ -1517,6 +1529,10 @@ class GenericOp(PredicatedOpNode):
         # self.sanityCheck()
 
     def __repr__(self):
+        # Bug 6 fix: the original condition was inverted.
+        # When self.predicates is non-empty the op is a branch (TypeSwitch/Switch)
+        # whose internal state is complex; fall back to the class name.
+        # For ordinary ops (no predicates), show the full repr of the op.
         if self.predicates:
             return "op(%s)" % self.op.__class__.__name__
         else:

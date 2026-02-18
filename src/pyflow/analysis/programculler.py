@@ -112,16 +112,37 @@ class CallGraphFinder(Finder):
 
 
 def makeCGF(interface):
+    """Build a CallGraphFinder from the program interface.
+
+    Bug fix: the original code silently swallowed *all* exceptions (both
+    ``AssertionError`` and bare ``Exception``) with empty ``except`` blocks.
+    This meant that bugs in annotation processing or context lookup were
+    silently ignored, producing an incomplete call graph with no diagnostic.
+
+    The fix logs unexpected exceptions at WARNING level so they are visible
+    without crashing the analysis.  The ``AssertionError`` case (context not
+    in code.annotation.contexts) is a legitimate "not yet analysed" condition
+    and is still skipped, but now with a debug-level log message.
+    """
+    import logging
+    _LOG = logging.getLogger(__name__)
+
     cgf = CallGraphFinder()
     entry_code_contexts = interface.entryCodeContexts()
     for code, context in entry_code_contexts:
         try:
-            assert context in code.annotation.contexts
+            if context not in code.annotation.contexts:
+                _LOG.debug(
+                    "makeCGF: context %r not in annotation.contexts for %r; skipping",
+                    context, code,
+                )
+                continue
             cgf.process((code, context))
-        except AssertionError as e:
-            pass
         except Exception as e:
-            pass
+            _LOG.warning(
+                "makeCGF: unexpected error processing (%r, %r): %s",
+                code, context, e, exc_info=True,
+            )
 
     return cgf
 

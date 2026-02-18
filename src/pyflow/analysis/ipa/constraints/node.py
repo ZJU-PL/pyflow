@@ -281,6 +281,17 @@ class ConstraintNode(object):
         for constraint in self.next:
             constraint.changed(self.context, self, diff)
 
+        # Bug 9 fix: propagate flag changes (escape flags) to downstream
+        # constraints.  The original code only propagated valuediff and
+        # silently dropped flagsdiff, making escape analysis unsound.
+        flagsdiff = self.flagsdiff
+        if flagsdiff:
+            self.flags |= flagsdiff
+            self.flagsdiff = 0
+            for constraint in self.next:
+                if hasattr(constraint, "flagsChanged"):
+                    constraint.flagsChanged(self.context, self, flagsdiff)
+
     def __repr__(self):
         return "slot(%r/%d)" % (self.name, id(self))
 

@@ -167,17 +167,19 @@ def evaluateDataflow(dataflow):
 
     loads = collectLoads(dataflow)
 
-    print("LOADS", len(loads))
-
     eliminated = 0
 
     # HACK keep evaluating each load until no further transforms are possible.
     changed = True
     while changed:
         changed = False
-        for load in loads:
+        for load in list(loads):
             if attemptTransform(load, pg):
                 eliminated += 1
                 changed = True
-
-    print("ELIMINATED", eliminated)
+                # Bug I fix: remove the eliminated load from the set so that
+                # subsequent iterations do not re-visit it.  Without this,
+                # already-eliminated loads (localModifies == []) are re-checked
+                # every iteration, causing unnecessary work and potentially
+                # confusing downstream logic.
+                loads.discard(load)

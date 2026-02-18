@@ -208,7 +208,9 @@ class ConcreteCallConstraint(AbstractCall):
     def splitChanged(self):
         if not self.dirty:
             self.dirty = True
-            self.context.dirtyDCall(self)
+            # Bug B fix: Context has no dirtyDCall; ConcreteCallConstraint is a
+            # concrete call and must be queued via dirtyCCall (the ccall queue).
+            self.context.dirtyCCall(self)
 
     def __repr__(self):
         return "[DCALL %s %r(%r, %r, *%r, **%r) -> %r]" % (
@@ -250,14 +252,18 @@ class ConcreteCallConstraint(AbstractCall):
                 self.cache[key] = None
 
                 vargSlots = self.vargObjSlots(vargObj)
+                # Bug 4 fix: Context.fcall signature is
+                #   fcall(op, code, selfarg, args, vargSlots, defaultSlots, targets)
+                # The original code passed kwds/karg/targets in the wrong positions,
+                # causing TypeError.  ConcreteCallConstraint has no defaults, so
+                # pass an empty list for defaultSlots.
                 context.fcall(
                     self.op,
                     self.code,
                     self.selfarg,
                     self.args,
-                    self.kwds,
                     vargSlots,
-                    self.karg,
+                    [],           # defaultSlots (none for concrete calls)
                     self.targets,
                 )
 

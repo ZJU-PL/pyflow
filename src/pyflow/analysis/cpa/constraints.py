@@ -191,13 +191,19 @@ class CachedConstraint(Constraint):
         Generates Cartesian product of all input slot types and calls
         concreteUpdate() for each new combination. Uses cache to avoid
         redundant processing.
+
+        Bug fix: the original code added ``args`` to the cache but then called
+        ``self.concreteUpdate(*args)`` unconditionally (outside the ``if``
+        block), so every combination was processed on every update, defeating
+        the purpose of the cache.  The ``concreteUpdate`` call must be inside
+        the ``if`` block so it is only invoked for genuinely new combinations.
         """
         values = [slotRefs(slot) for slot in self.observing]
 
         for args in itertools.product(*values):
-            if not args in self.cache:
+            if args not in self.cache:
                 self.cache.add(args)
-            self.concreteUpdate(*args)
+                self.concreteUpdate(*args)
 
     def attach(self):
         """Attach this constraint to the system and register dependencies.
@@ -262,22 +268,39 @@ class AssignmentConstraint(Constraint):
 
     __slots__ = "sourceslot", "destslot"
 
+    def __new__(cls, sys, sourceslot, destslot):
+        """Guard object creation when destslot is DoNotCare.
+
+        Bug fix: the original ``__init__`` did an early ``return`` before
+        calling ``Constraint.__init__``, leaving ``self.sys`` and
+        ``self.dirty`` uninitialised.  Any code that later called ``.mark()``
+        or ``.process()`` on the partially-constructed object would raise
+        ``AttributeError``.
+
+        The correct fix is to suppress object creation entirely when
+        ``destslot`` is ``DoNotCare`` by returning ``None`` from ``__new__``.
+        Callers that do ``AssignmentConstraint(sys, src, DoNotCare)`` will
+        receive ``None`` and must not use the return value.
+        """
+        if destslot is analysis.cpasignature.DoNotCare:
+            return None
+        return super().__new__(cls)
+
     def __init__(self, sys, sourceslot, destslot):
         """Initialize an assignment constraint.
 
         Args:
             sys: The CPA system instance
             sourceslot: Source slot (must be SlotNode)
-            destslot: Destination slot (SlotNode or DoNotCare)
-
-        Note:
-            If destslot is DoNotCare, the constraint is not created (early return)
+            destslot: Destination slot (must be SlotNode; DoNotCare is
+                      handled by ``__new__`` which returns None instead)
         """
-        assert isinstance(sourceslot, storegraph.SlotNode), sourceslot
-        # Handle DoNotCare case - if destslot is DoNotCare, we don't need to create this constraint
         if destslot is analysis.cpasignature.DoNotCare:
+            # __new__ returned None; __init__ is still called by Python but
+            # self is None so we must not touch any attributes.
             return
 
+        assert isinstance(sourceslot, storegraph.SlotNode), sourceslot
         assert isinstance(destslot, storegraph.SlotNode), destslot
 
         self.sourceslot = sourceslot
@@ -923,9 +946,9 @@ class SimpleCallConstraint(CachedConstraint):
             self.clearInvocations()
 
         for args in itertools.product(*values):
-            if not args in self.cache:
+            if args not in self.cache:
                 self.cache.add(args)
-            self.concreteUpdate(*args)
+                self.concreteUpdate(*args)
 
     def writes(self):
         if self.caller.returnargs:

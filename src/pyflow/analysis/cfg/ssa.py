@@ -188,9 +188,6 @@ class SSARename(TypeDispatcher):
 
     @dispatch(cfg.Suite)
     def visitCFGSuite(self, node):
-        # Bug #5 fix: node.prev may be None when the suite has no predecessor
-        # yet (e.g. suites created during phi-expansion before wiring).
-        # Fall back to an empty frame rather than crashing with KeyError.
         prev = node.prev
         if prev is None or prev not in self.frames:
             self.currentFrame = {}
@@ -321,14 +318,13 @@ class SSARename(TypeDispatcher):
     def visitDiscard(self, node):
         """Rewrite a Discard node, eliminating it if its expression is a constant.
 
-        Bug U fix: the original code checked ``isinstance(node, ast.Existing)``
-        which is always ``False`` because ``node`` is an ``ast.Discard``, not
-        an ``ast.Existing``.  The intent was to eliminate discards of constant
-        expressions (e.g. ``_ = 42``), so the check should be on
-        ``node.expr`` (the wrapped expression), not on ``node`` itself.
+        The check must be on ``result.expr`` (the wrapped expression after
+        rewriting children), not on ``node`` itself (which is always
+        ``ast.Discard``).  Checking ``isinstance(node, ast.Existing)`` is
+        always ``False`` and would never eliminate any discard.
         """
         result = node.rewriteChildren(self)
-        # Bug U fix: check node.expr (the wrapped expression), not node itself.
+        # Check result.expr (the wrapped expression), not node itself.
         if isinstance(result.expr, ast.Existing):
             return None
         return result
@@ -402,6 +398,18 @@ class SSARename(TypeDispatcher):
                     arguments = []
                     for prev in merge.reverse():
                         arguments.append(self.frames[prev].get(name))
+
+                    # Bug J fix: self.frames[prev].get(name) returns None when
+                    # the variable was never defined on that predecessor path
+                    # (e.g. the predecessor was not yet processed, or the
+                    # variable is undefined on that branch).  Passing None into
+                    # self.read and into ast.Phi causes downstream passes to
+                    # crash with AttributeError.  Filter out None arguments
+                    # before updating the read set and creating the phi node.
+                    arguments = [a for a in arguments if a is not None]
+                    if not arguments:
+                        defer.append((merge, name))
+                        continue
 
                     self.read.update(arguments)
 

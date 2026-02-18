@@ -26,14 +26,17 @@ class DFSTraversal(object):
         self.processed = set()
 
     def mark(self, node):
-        """Mark a node (unused in current implementation).
+        """Mark a node for processing.
+
+        This method is not used by the current recursive DFS implementation,
+        but is provided for interface compatibility. The original body
+        referenced ``self.enqueued`` and ``self.queue`` which were never
+        initialised, causing ``AttributeError`` if called. It is now a no-op.
 
         Args:
             node: Node to mark (ignored)
         """
-        if node not in self.enqueued:
-            self.enqueued.add(node)
-            self.queue.append(node)
+        pass
 
     def handleNode(self, node):
         """Handle a node during DFS traversal.
@@ -70,7 +73,9 @@ class DFSTraversal(object):
         for node in dataflow.existing.values():
             self.handleNode(node)
         self.handleNode(dataflow.null)
-        self.handleNode(dataflow.entryPredicate)
+        # Guard: entryPredicate is None until initPredicate() is called.
+        if dataflow.entryPredicate is not None:
+            self.handleNode(dataflow.entryPredicate)
 
 
 def dfs(dataflow, callback):

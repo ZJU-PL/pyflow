@@ -81,21 +81,23 @@ class ExtractDataflow(TypeDispatcher):
         return self.system.extractor.stubs.exports
 
     def doOnce(self, node):
-        """Check if a node should be processed (currently always True).
+        """Check if a node should be processed only once.
 
-        This method is intended to ensure nodes are only processed once,
-        but currently always returns True. The processed set is maintained
-        for potential future use.
+        Bug M fix: the original implementation had ``return True`` as the
+        very first statement, making the rest of the method dead code.  This
+        caused every node to be processed on every visit, creating duplicate
+        constraints (e.g. duplicate CallConstraints for the same call site)
+        which bloated the constraint graph and could cause incorrect analysis
+        results.  The fix removes the early ``return True`` so that the
+        processed-set guard actually runs.
 
         Args:
             node: AST node to check
 
         Returns:
-            bool: Always True (process the node)
+            bool: True if the node has not been processed before (first visit)
         """
-        return True
-
-        if not node in self.processed:
+        if node not in self.processed:
             self.processed.add(node)
             return True
         else:

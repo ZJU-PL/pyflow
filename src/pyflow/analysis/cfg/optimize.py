@@ -46,27 +46,23 @@ class CFGOptPost(TypeDispatcher):
     def constToBool(self, node):
         """Convert a constant node to a boolean value.
 
+        When ``obj`` has no ``pyobj`` attribute (i.e. it is an abstract object
+        rather than a concrete Python constant), we cannot determine its truth
+        value.  Raise ``AttributeError`` so the caller can conservatively skip
+        folding rather than silently assuming ``True`` (which would miscompile
+        programs by always taking the "true" branch).
+
         Args:
             node: Constant AST node.
 
         Returns:
             bool: Boolean value of the constant.
 
-        Bug C fix: the original fallback was ``getattr(obj, "pyobj", obj)``.
-        When ``obj`` is an ``Object`` instance that has no ``pyobj`` attribute
-        the fallback returns the ``Object`` itself, and ``bool(Object(...))``
-        is always ``True`` because every non-None Python object is truthy.
-        This caused constant-folding to always take the "true" branch for
-        abstract objects, silently miscompiling programs.
-
-        The correct fix is to return ``True`` conservatively (i.e. do NOT
-        fold) when the Python value is not available, so that both branches
-        are preserved.  We signal this by raising ``AttributeError`` which
-        the caller (``visitSwitch``) should guard against.
+        Raises:
+            AttributeError: If the object has no pyobj (cannot constant-fold).
         """
         obj = node.object
         if not hasattr(obj, "pyobj"):
-            # Cannot determine the Python value — do not fold.
             raise AttributeError("Object has no pyobj; cannot constant-fold")
         return bool(obj.pyobj)
 
@@ -81,7 +77,7 @@ class CFGOptPost(TypeDispatcher):
             try:
                 result = self.constToBool(node.condition)
             except AttributeError:
-                # Bug C fix: Object has no pyobj — cannot fold; leave both branches.
+                # Cannot determine truth value — leave both branches intact.
                 return
 
             normal = (node.getExit("true"), "true")

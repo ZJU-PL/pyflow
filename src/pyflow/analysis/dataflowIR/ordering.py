@@ -102,7 +102,12 @@ class OrderSearcher(object):
         for node in dataflow.existing.values():
             self.mark(node)
         self.mark(dataflow.null)
-        self.mark(dataflow.entryPredicate)
+        # Bug 9 fix: entryPredicate is None until initPredicate() is called.
+        # Guard against passing None to mark(), which would add None to the
+        # queue and cause AttributeError in handleNode() when None.forward()
+        # is called.
+        if dataflow.entryPredicate is not None:
+            self.mark(dataflow.entryPredicate)
 
         # Process queue
         while self.queue:

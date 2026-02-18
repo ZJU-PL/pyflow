@@ -225,7 +225,17 @@ class ImageBuilder(object):
         """
         pt = root.xtype.obj.pythonType()
 
-        for t in type.mro(pt):
+        # Bug L fix: ``type.mro(pt)`` is the unbound C-level slot of the
+        # built-in ``type`` object.  It only works when ``pt`` is an actual
+        # type; for non-type objects (e.g. user-defined class instances that
+        # are not themselves metaclasses) it raises TypeError.  Use
+        # ``pt.__mro__`` when available, and fall back to ``type.mro(pt)``
+        # only for real types.
+        if isinstance(pt, type):
+            mro_list = type.mro(pt)
+        else:
+            mro_list = list(getattr(pt, "__mro__", (pt,)))
+        for t in mro_list:
             fieldtypes = getattr(t, "__fieldtypes__", None)
             if not isinstance(fieldtypes, dict):
                 continue

@@ -5,6 +5,9 @@ analysis across function boundaries with context-sensitive precision.
 """
 
 import time
+import logging
+
+LOG = logging.getLogger(__name__)
 
 from pyflow.optimization.callconverter import callConverter
 from pyflow.analysis.storegraph import setmanager
@@ -204,14 +207,14 @@ class IPAnalysis(object):
             bool: True if call graph changed
         """
         if self.trace:
-            print("update")
+            LOG.debug("update")
         changed = False
 
         # HACK dictionary size may change...
         for context in tuple(self.contexts.values()):
             changed |= context.updateCallgraph()
         if self.trace:
-            print("return", changed)
+            LOG.debug("return %s", changed)
         return changed
 
     def updateConstraints(self):
@@ -232,7 +235,7 @@ class IPAnalysis(object):
         Iterates until fixed point (no more changes).
         """
         if self.trace:
-            print("top down")
+            LOG.debug("top down")
         dirty = True
         while dirty:
             self.updateConstraints()
