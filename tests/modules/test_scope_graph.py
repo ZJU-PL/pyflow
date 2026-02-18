@@ -256,15 +256,16 @@ result = f(5)
         """Test adding a load reference."""
         sg = ScopeGraph()
         sg.add_reference("Mod", "my_var", "load")
-        
-        self.assertEqual(sg.references["Mod"], "my_var")
+        # Bug M fix: add_reference now appends to a list instead of overwriting.
+        # Use assertIn (consistent with all other tests in this file).
+        self.assertIn("my_var", sg.references["Mod"])
 
     def test_add_reference_store(self):
         """Test adding a store reference."""
         sg = ScopeGraph()
         sg.add_reference("Mod", "my_var", "store")
-        
-        self.assertEqual(sg.declarations["Mod"], "my_var")
+        # Bug M fix: add_reference now appends to a list instead of overwriting.
+        self.assertIn("my_var", sg.declarations["Mod"])
 
     def test_add_reference_unknown_context(self):
         """Test that unknown context raises exception."""

@@ -980,7 +980,8 @@ class Exit(PredicatedOpNode):
         return ()
 
     def reverse(self):
-        return [self.predicate] + self.reads.values()
+        # dict.values() returns a view in Python 3, not a list; convert explicitly.
+        return [self.predicate] + list(self.reads.values())
 
     def sanityCheck(self):
         for slot in self.reads.values():
@@ -1522,14 +1523,16 @@ class GenericOp(PredicatedOpNode):
             return "op(%r)" % self.op
 
     def forward(self):
-        return self.localModifies + self.heapModifies.values() + self.predicates
+        # dict.values() returns a view in Python 3, not a list; convert explicitly.
+        return self.localModifies + list(self.heapModifies.values()) + self.predicates
 
     def reverse(self):
+        # dict.values() returns a view in Python 3, not a list; convert explicitly.
         return (
             [self.predicate]
-            + self.localReads.values()
-            + self.heapReads.values()
-            + self.heapPsedoReads.values()
+            + list(self.localReads.values())
+            + list(self.heapReads.values())
+            + list(self.heapPsedoReads.values())
         )
 
     def sanityCheck(self):

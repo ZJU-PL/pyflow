@@ -51,8 +51,24 @@ class CFGOptPost(TypeDispatcher):
 
         Returns:
             bool: Boolean value of the constant.
+
+        Bug C fix: the original fallback was ``getattr(obj, "pyobj", obj)``.
+        When ``obj`` is an ``Object`` instance that has no ``pyobj`` attribute
+        the fallback returns the ``Object`` itself, and ``bool(Object(...))``
+        is always ``True`` because every non-None Python object is truthy.
+        This caused constant-folding to always take the "true" branch for
+        abstract objects, silently miscompiling programs.
+
+        The correct fix is to return ``True`` conservatively (i.e. do NOT
+        fold) when the Python value is not available, so that both branches
+        are preserved.  We signal this by raising ``AttributeError`` which
+        the caller (``visitSwitch``) should guard against.
         """
-        return bool(node.object.pyobj)
+        obj = node.object
+        if not hasattr(obj, "pyobj"):
+            # Cannot determine the Python value — do not fold.
+            raise AttributeError("Object has no pyobj; cannot constant-fold")
+        return bool(obj.pyobj)
 
     @dispatch(cfg.Switch)
     def visitSwitch(self, node):
@@ -62,7 +78,11 @@ class CFGOptPost(TypeDispatcher):
             node: Switch CFG node to optimize.
         """
         if self.isConst(node.condition):
-            result = self.constToBool(node.condition)
+            try:
+                result = self.constToBool(node.condition)
+            except AttributeError:
+                # Bug C fix: Object has no pyobj — cannot fold; leave both branches.
+                return
 
             normal = (node.getExit("true"), "true")
             culled = (node.getExit("false"), "false")

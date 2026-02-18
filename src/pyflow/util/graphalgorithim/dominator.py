@@ -323,10 +323,16 @@ class IDomFinder(object):
 
     def process(self, node):
         """
-        Process a node and build dominance information.
+        Process a node and build dominance information using an explicit stack.
 
         Performs a DFS traversal, assigning pre/post numbers and collecting
         predecessor information.
+
+        Bug #8 fix: the original implementation was recursive.  For functions
+        with deep call chains or large loop bodies Python's default recursion
+        limit (~1000) would be exceeded, raising RecursionError.  We now use
+        an explicit stack (the same approach already used by
+        ReversePostorderCrawler in this file) to avoid that limit.
 
         Parameters
         ----------
@@ -338,25 +344,42 @@ class IDomFinder(object):
         DomInfo
             The dominance information for the node
         """
-        if node not in self.domInfo:
-            info = DomInfo()
-            self.domInfo[node] = info
-            info.pre = self.uid
-            self.uid += 1
-
-            # Process all successors
-            for child in self.forwardCallback(node):
-                childInfo = self.process(child)
-                childInfo.prev.append(node)  # Record predecessor
-
-            info.post = self.uid
-            self.uid += 1
-
-            self.order.append(node)
-
-            return info
-        else:
+        if node in self.domInfo:
             return self.domInfo[node]
+
+        # Explicit DFS stack.  Each entry is (node, parent, iterator_of_children).
+        # We push a node when we first visit it (pre-order) and pop it when all
+        # its children have been processed (post-order).
+        root_info = DomInfo()
+        self.domInfo[node] = root_info
+        root_info.pre = self.uid
+        self.uid += 1
+
+        stack = [(node, None, iter(self.forwardCallback(node)))]
+
+        while stack:
+            current, parent, children_iter = stack[-1]
+            try:
+                child = next(children_iter)
+                if child not in self.domInfo:
+                    child_info = DomInfo()
+                    self.domInfo[child] = child_info
+                    child_info.pre = self.uid
+                    self.uid += 1
+                    child_info.prev.append(current)
+                    stack.append((child, current, iter(self.forwardCallback(child))))
+                else:
+                    # Already visited: just record the predecessor edge.
+                    self.domInfo[child].prev.append(current)
+            except StopIteration:
+                # All children of current have been processed.
+                cur_info = self.domInfo[current]
+                cur_info.post = self.uid
+                self.uid += 1
+                self.order.append(current)
+                stack.pop()
+
+        return self.domInfo[node]
 
     def findCompatable(self, current, other):
         """
@@ -449,6 +472,17 @@ class IDomFinder(object):
 def findIDoms(roots, forwardCallback):
     """
     Find immediate dominators using the tree-based algorithm.
+
+    This is the algorithm used by ``dom.evaluate`` (and therefore by SSA
+    construction).  It is distinct from ``dominatorTree`` / ``dominatorTree``
+    which uses a fixed-point iteration approach.  Both algorithms produce the
+    same result; ``findIDoms`` is generally faster on sparse graphs.
+
+    L7 note: the two implementations (``dominatorTree`` and ``findIDoms``) are
+    intentionally kept separate.  ``dominatorTree`` is used by callers that
+    need the full dominator-tree dict; ``findIDoms`` is used by the DJ-graph
+    builder in ``dom.py``.  They share the ``intersect`` helper but otherwise
+    operate independently.
 
     Parameters
     ----------

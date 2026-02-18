@@ -96,18 +96,26 @@ class FunctionCloner(TypeDispatcher):
     def visitCode(self, node):
         """Get cloned code object.
 
-        Returns the cloned code from codeMap. If code wasn't in liveCode,
-        returns None (handles dead direct calls).
+        Returns the cloned code from codeMap.  If the code was not in
+        liveCode (i.e. it is a dead direct call target), returns the
+        *original* node rather than None.
+
+        Bug #10 fix: the original implementation returned None for dead
+        direct calls.  The caller (``default``) then called
+        ``node.rewriteCloned(self)`` which stored None in the cloned
+        node's code field.  Any downstream pass that dereferenced the
+        code field would crash with AttributeError or TypeError.
+
+        Returning the original node is safe: dead code is never executed,
+        and downstream passes that check liveCode will skip it.
 
         Args:
             node: Original Code AST node
 
         Returns:
-            Cloned Code AST node, or None if not in codeMap
+            Cloned Code AST node, or the original node if not in codeMap
         """
-        # We may encounter dead direct calls that specify an uncloned target.
-        # Return None in this case.
-        return self.codeMap.get(node)
+        return self.codeMap.get(node, node)
 
     @dispatch(ast.leafTypes)
     def visitLeaf(self, node):

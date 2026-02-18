@@ -285,11 +285,21 @@ while x > 0:
         self.assertEqual(len(result.terms), 3)
 
     def test_convert_ifexp(self):
-        """Ternary expressions should use Switch for proper short-circuit semantics."""
+        """Ternary expressions are modelled as a Call to interpreter_ifexp.
+
+        Bug fix: IfExp cannot return a Suite because it appears in expression
+        position.  The converter returns a Call node so that downstream
+        analyses see a single expression node.
+        """
         tree = python_ast.parse("x if c else y", mode="eval")
         result = self.converter._convert_expression(tree.body)
-        self.assertIsInstance(result, pyflow_ast.Suite)
-        self.assertTrue(any(isinstance(b, pyflow_ast.Switch) for b in result.blocks))
+        # Must be an expression node (Call), not a Suite.
+        self.assertIsInstance(result, pyflow_ast.Call)
+        # The call must reference the synthetic helper.
+        self.assertIsInstance(result.expr, pyflow_ast.Existing)
+        self.assertEqual(result.expr.object.pyobj, "interpreter_ifexp")
+        # Three arguments: test, body, orelse
+        self.assertEqual(len(result.args), 3)
 
     def test_convert_attribute_expression(self):
         """Test converting attribute expression."""

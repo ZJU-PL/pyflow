@@ -392,14 +392,17 @@ class DependencyResolver:
 
             module_name = self._get_module_name_from_path(file_path)
 
-            # Extract classes first (they may contain methods)
+            # Extract classes first (they may contain methods).
+            # Single-underscore private classes are skipped at the top level
+            # (consistent with the original behaviour for functions).
             for node in _iter_toplevel_class_nodes(tree):
                 if node.name.startswith("_"):
                     continue
-                
+
                 classes[node.name] = self._extract_class_info(node, module_name, file_path)
 
-            # Extract top-level functions
+            # Extract top-level functions; single-underscore private functions
+            # are intentionally excluded (they are implementation details).
             for node in _iter_toplevel_function_nodes(tree):
                 if node.name.startswith("_"):
                     continue

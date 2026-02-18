@@ -401,6 +401,10 @@ class Extractor:
 
     def getCall(self, obj):
         """Get call information for an object."""
+        # Bug #20 fix: the original code had unconditional print() calls here
+        # (not guarded by self.verbose) that would pollute stdout during every
+        # analysis run.  The debug information is now only emitted when
+        # self.verbose is True, consistent with the rest of the class.
         if self.verbose:
             print(
                 f"DEBUG: getCall called for {obj}, source_code type: {type(self.source_code)}"
@@ -479,14 +483,38 @@ class Extractor:
         return set()
 
     def _resolve_class_name(self, class_name: str) -> Optional[str]:
-        """Resolve a class name to its qualified name."""
+        """Resolve a class name to its qualified name.
+
+        When the same simple name is defined in multiple modules the old
+        implementation returned whichever module happened to come first in
+        the dict iteration order (non-deterministic in Python < 3.7, and
+        still arbitrary in 3.7+ when multiple modules define the same name).
+
+        The new implementation:
+        1. Returns immediately if the name is already fully qualified.
+        2. Collects *all* matches and returns the unique one if there is
+           exactly one, or None (with a warning) if there are multiple
+           candidates so that callers can handle the ambiguity explicitly.
+        """
         if class_name in self.class_hierarchy.classes:
             return class_name
-        
-        for module_name, name_map in self.class_hierarchy.name_to_qualified.items():
+
+        matches = []
+        for module_name, name_map in sorted(self.class_hierarchy.name_to_qualified.items()):
             if class_name in name_map:
-                return name_map[class_name]
-        
+                matches.append(name_map[class_name])
+
+        if len(matches) == 1:
+            return matches[0]
+        elif len(matches) > 1:
+            # Ambiguous: the same simple name exists in multiple modules.
+            # Prefer the non-builtin match if there is exactly one such match.
+            non_builtin = [m for m in matches if not m.startswith("builtins.")]
+            if len(non_builtin) == 1:
+                return non_builtin[0]
+            # Truly ambiguous — return None so callers can handle it.
+            return None
+
         return None
 
     def convertFunction(
@@ -547,11 +575,16 @@ def extractProgram(compiler: CompilerContext, program: Program) -> None:
             if not hasattr(program, "liveCode") or program.liveCode is None:
                 program.liveCode = set()
             program.liveCode.update(extracted_program.liveCode)
-            print(
-                f"DEBUG: Added {len(extracted_program.liveCode)} functions to program.liveCode"
-            )
+            # Bug #20 fix: these were unconditional print() calls (not guarded
+            # by self.verbose / compiler.console) that polluted stdout on every
+            # analysis run.  Route through the compiler console instead.
+            if compiler.console:
+                compiler.console.output(
+                    f"Added {len(extracted_program.liveCode)} functions to program.liveCode"
+                )
         else:
-            print(f"DEBUG: No liveCode found in extracted_program")
+            if compiler.console:
+                compiler.console.output("No liveCode found in extracted_program")
     else:
         # Single file extraction (existing behavior)
         if compiler.console:

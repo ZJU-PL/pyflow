@@ -605,9 +605,16 @@ class SimpleSemanticTaintDetector:
                             state.tainted_keys[base].add(key)
 
     def _is_value_tainted(self, value: ast.AST, state: TaintState) -> bool:
-        """Check if value expression is tainted."""
+        """Check if value expression is tainted.
+
+        Bug N fix: the original code returned ``True`` when a variable was in
+        ``state.sanitized``, treating sanitized values as tainted — the exact
+        opposite of the intended behaviour.  Sanitized variables should NOT be
+        considered tainted.
+        """
         if isinstance(value, ast.Name):
-            return value.id in state.tainted or value.id in state.sanitized
+            # Bug N fix: removed ``or value.id in state.sanitized``
+            return value.id in state.tainted and value.id not in state.sanitized
         elif isinstance(value, ast.Attribute):
             return get_call_name(value) in state.tainted
         elif isinstance(value, ast.Call):
@@ -640,13 +647,27 @@ class SimpleSemanticTaintDetector:
     def _visit_function(
         self, node: ast.FunctionDef, state: TaintState, filename: str
     ) -> None:
-        """Visit function definition - track parameters."""
-        # Analyze function body with function-local state
+        """Visit function definition - track parameters.
+
+        Bug O fix: the original code unconditionally added every function
+        parameter to ``func_state.tainted``, meaning every parameter was
+        treated as user-controlled tainted input.  This caused every call
+        to any function to be flagged as a taint flow, producing massive
+        false-positive rates.
+
+        Parameters are only tainted if they are explicitly named as taint
+        sources (e.g. ``request``, ``user_input``).  By default they are
+        untainted; taint propagates into them when the caller passes a
+        tainted value (handled by ``_visit_assign`` / ``_visit_call``).
+        """
         func_state = TaintState()
 
-        # Function parameters are initially untainted unless from source
+        # Bug O fix: do NOT pre-taint all parameters.
+        # Only mark parameters whose names match known taint-source patterns.
+        source_param_hints = {"request", "user_input", "data", "body", "query"}
         for arg in node.args.args:
-            func_state.tainted.add(arg.arg)
+            if arg.arg in source_param_hints or arg.arg in TAINT_SOURCES:
+                func_state.tainted.add(arg.arg)
 
         # Analyze body
         for child in ast.walk(node):

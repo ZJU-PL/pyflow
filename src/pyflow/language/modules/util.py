@@ -116,7 +116,7 @@ def find_local_modules(import_smts):
     module_name_plus = [
         "random",
         "unittest",
-        "warning",
+        "warnings",  # Bug T fix: was "warning" (missing 's'); stdlib module is "warnings"
         "os",
         "pandas",
         "IPython",
@@ -268,12 +268,22 @@ class Unit:
         else:
             raise Exception("Error!!")
 
-    def remove():
-        """Remove this node (not implemented)."""
+    def remove(self):
+        """Remove this node (not implemented).
+
+        Bug R fix: the original definition was missing ``self``, making it a
+        static method.  Calling ``unit.remove()`` would raise ``TypeError:
+        remove() takes 0 positional arguments but 1 was given``.
+        """
         return None
 
-    def replace():
-        """Replace this node (not implemented)."""
+    def replace(self, new_node=None):
+        """Replace this node (not implemented).
+
+        Bug R fix: the original definition was missing ``self``, making it a
+        static method.  Calling ``unit.replace()`` would raise ``TypeError:
+        replace() takes 0 positional arguments but 1 was given``.
+        """
         return 0
 
 

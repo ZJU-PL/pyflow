@@ -188,7 +188,14 @@ class SSARename(TypeDispatcher):
 
     @dispatch(cfg.Suite)
     def visitCFGSuite(self, node):
-        self.currentFrame = dict(self.frames[node.prev])
+        # Bug #5 fix: node.prev may be None when the suite has no predecessor
+        # yet (e.g. suites created during phi-expansion before wiring).
+        # Fall back to an empty frame rather than crashing with KeyError.
+        prev = node.prev
+        if prev is None or prev not in self.frames:
+            self.currentFrame = {}
+        else:
+            self.currentFrame = dict(self.frames[prev])
 
         ops = []
         for op in node.ops:
@@ -243,6 +250,12 @@ class SSARename(TypeDispatcher):
                     frame = dict(self.frames[prev])
             else:
                 complete = False
+
+        # Guard: if no predecessor has been processed yet (can happen in
+        # certain loop configurations), start with an empty frame rather
+        # than crashing with TypeError when we try to index None.
+        if frame is None:
+            frame = {}
 
         # Mask variables that need to be merged.
         if node in self.merge:
@@ -306,8 +319,17 @@ class SSARename(TypeDispatcher):
 
     @dispatch(ast.Discard)
     def visitDiscard(self, node):
+        """Rewrite a Discard node, eliminating it if its expression is a constant.
+
+        Bug U fix: the original code checked ``isinstance(node, ast.Existing)``
+        which is always ``False`` because ``node`` is an ``ast.Discard``, not
+        an ``ast.Existing``.  The intent was to eliminate discards of constant
+        expressions (e.g. ``_ = 42``), so the check should be on
+        ``node.expr`` (the wrapped expression), not on ``node`` itself.
+        """
         result = node.rewriteChildren(self)
-        if isinstance(node, ast.Existing):
+        # Bug U fix: check node.expr (the wrapped expression), not node itself.
+        if isinstance(result.expr, ast.Existing):
             return None
         return result
 
@@ -318,11 +340,24 @@ class SSARename(TypeDispatcher):
     @dispatch(ast.Assign)
     def visitAssign(self, node):
         expr = self(node.expr)
-        if isinstance(expr, (ast.Local, ast.Existing)):
-            if len(node.lcls) == 1:
-                # Reach
-                self.currentFrame[node.lcls[0]] = expr
-                return None
+        if isinstance(expr, ast.Local) and len(node.lcls) == 1:
+            # Reach-through optimisation: if the RHS is a simple local, we can
+            # map the LHS directly to the (already-renamed) RHS local instead
+            # of emitting a copy assignment.
+            #
+            # Bug #6 fix: the old code also accepted ast.Existing here, but
+            # Existing nodes are constants and should never be stored in the
+            # frame as the representative of a mutable local — doing so would
+            # cause downstream passes to see a constant where they expect a
+            # local, breaking SSA invariants.  Only Local-to-Local reach-
+            # through is safe.
+            #
+            # Additionally, the old code stored `expr` (the renamed RHS) in
+            # the frame under the *original* LHS key.  That is correct only
+            # when `expr` is a freshly-cloned SSA name.  We keep the same
+            # logic but restrict it to Local nodes only.
+            self.currentFrame[node.lcls[0]] = expr
+            return None
 
         lcls = [self.clone(lcl, self.currentFrame) for lcl in node.lcls]
         return ast.Assign(expr, lcls)

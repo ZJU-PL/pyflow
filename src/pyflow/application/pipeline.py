@@ -129,10 +129,13 @@ class Pipeline(object):
         results = self.pass_manager.run_pipeline(compiler, program, pipeline)
 
         # Log execution summary
+        # Bug F fix: the original code used print() directly, bypassing the
+        # compiler's console abstraction.  Use compiler.console.output() so
+        # that the message respects verbosity settings and is captured by tests.
         successful = sum(1 for r in results.values() if r.success)
         total_time = sum(r.time for r in results.values() if hasattr(r, "time"))
 
-        print(
+        compiler.console.output(
             f"Pass Manager: {successful}/{len(results)} passes successful in {total_time:.3f}s"
         )
 

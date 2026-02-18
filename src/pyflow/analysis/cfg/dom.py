@@ -161,68 +161,12 @@ class MakeDJGraph(object):
             return self.getNode(node)
 
 
-class Bank(object):
-    def __init__(self, numLevels):
-        self.levels = [None for i in range(numLevels)]
-        self.current = numLevels - 1
-
-    def insertNode(self, node):
-        assert node.next is None
-        node.next = self.levels[node.level]
-        self.levels[node.level] = node
-
-    def getNode(self):
-        i = self.current
-
-        while i >= 0:
-            djnode = self.levels[i]
-            if djnode is not None:
-                assert djnode.level == i
-
-                self.levels[i] = djnode.next
-                self.current = i
-                return djnode
-            else:
-                i -= 1
-        return None
-
-
-class PlacePhi(object):
-    def __init__(self, na, numLevels):
-        self.bank = Bank(numLevels)
-
-        for djnode in na:
-            djnode.alpha = True
-            self.bank.insertNode(djnode)
-
-        self.idf = []
-        self.main()
-
-    def main(self):
-        current = self.bank.getNode()
-        while current:
-            print("MAIN", current.node, current.level)
-            self.currentLevel = current.level
-            self.visit(current)
-            current = self.bank.getNode()
-
-    def visit(self, djnode):
-        if djnode.visited:
-            print("skip", djnode.node)
-            return
-        djnode.visited = True
-
-        for j in djnode.j:
-            if j.level <= self.currentLevel:
-                if not j.inPhi:
-                    j.inPhi = True
-                    self.idf.append(j)
-                    if not j.alpha:
-                        self.bank.insertNode(j)
-
-        for d in djnode.d:
-            self.visit(d)
-
+# L2 fix: PlacePhi and its helper Bank were dead code.  PlacePhi was never
+# called anywhere in the codebase; the live phi-placement algorithm is
+# FullIDF below.  Additionally, PlacePhi accessed DJNode attributes
+# (visited, alpha, inPhi, next) that are not declared in DJNode.__slots__,
+# so any call to PlacePhi would have raised AttributeError immediately.
+# Both classes have been removed.
 
 # Note that this doesn't actually find the entire dominance frontier,
 # just the closest merges.

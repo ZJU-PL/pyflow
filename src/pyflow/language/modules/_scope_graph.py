@@ -237,6 +237,12 @@ class ScopeGraph(ast.NodeVisitor):
 
         Records a name reference (load/del) or declaration (store) in a scope.
 
+        Bug M fix: the original code used ``self.references[scope_name] = name``
+        and ``self.declarations[scope_name] = name``, which *replaced* the
+        entire list with a single string.  Subsequent calls for the same scope
+        would overwrite all previously recorded names.  The fix uses ``.append``
+        (after ensuring the list exists) so that all names are accumulated.
+
         Args:
             scope_name: Scope name
             name: Name being referenced/declared
@@ -245,16 +251,17 @@ class ScopeGraph(ast.NodeVisitor):
         Raises:
             Exception: If context is unknown
         """
-        if ctx == "load":
-            self.references[scope_name] = name
-
-        elif ctx == "del":
-            # deletion operation is deemed as using the reference
-            self.references[scope_name] = name
+        if ctx in ("load", "del"):
+            # deletion is treated as a use of the reference
+            if scope_name not in self.references:
+                self.references[scope_name] = []
+            self.references[scope_name].append(name)  # Bug M fix: was = name
 
         elif ctx == "store":
             self._add_declared()
-            self.declarations[scope_name] = name
+            if scope_name not in self.declarations:
+                self.declarations[scope_name] = []
+            self.declarations[scope_name].append(name)  # Bug M fix: was = name
 
         else:
             raise Exception("Unknown context for given name reference")
@@ -302,20 +309,30 @@ class ScopeGraph(ast.NodeVisitor):
         #    print(k, v )
 
     def MRO_resolve(self, start_name):
+        """Compute the MRO traversal order for a class.
+
+        Bug L fix: the original method computed ``cls_name_order`` but never
+        returned it — the result was silently discarded.  The method now
+        returns the computed list.
+
+        Also note: the traversal uses a FIFO queue (BFS), not DFS, despite
+        the variable being named ``dfs_queue``.  The variable has been renamed
+        to ``bfs_queue`` for clarity.
+        """
         if start_name not in self.MRO_graph:
-            raise "Cannot locate the given name"
+            raise Exception("Cannot locate the given name")
 
         init_names = self.MRO_graph[start_name]
 
         cls_name_order = []
         is_visited = set()
-        dfs_queue = queue.Queue()
+        bfs_queue = queue.Queue()  # Bug L fix: renamed from dfs_queue (it's BFS)
 
         for name in init_names:
-            dfs_queue.put(name)
+            bfs_queue.put(name)
 
-        while not dfs_queue.empty():
-            cur_name = dfs_queue.get()
+        while not bfs_queue.empty():
+            cur_name = bfs_queue.get()
             if cur_name not in is_visited:
                 is_visited.add(cur_name)
             else:
@@ -324,9 +341,9 @@ class ScopeGraph(ast.NodeVisitor):
             if cur_name in self.MRO_graph:
                 tmp_names = self.MRO_graph[cur_name]
                 for name in tmp_names:
-                    dfs_queue.put(name)
+                    bfs_queue.put(name)
 
-        # print(cls_name_order)
+        return cls_name_order  # Bug L fix: was missing — result was never returned
 
     def MRO_resolve_method(self, cls_name, method_name):
         """Resolve method using Method Resolution Order (MRO).

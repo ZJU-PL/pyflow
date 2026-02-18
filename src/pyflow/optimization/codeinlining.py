@@ -88,15 +88,30 @@ class CodeInliningAnalysis(TypeDispatcher):
         self.terminal = True
 
     def processSwitch(self, cases):
+        """Analyse a set of switch cases for terminal/inlinability.
+
+        Bug #11 fix: the original code used ``|=`` (bitwise OR) on booleans
+        and set ``self.terminal |= allterminal`` at the end, meaning that if
+        *any* branch was terminal the whole switch was treated as terminal.
+        That is wrong: a switch is only terminal if *all* branches are
+        terminal (i.e. every path through the switch ends in a return).
+
+        The corrected logic:
+        - ``allterminal`` starts as True (identity for AND).
+        - After visiting each case, AND the case's terminal flag in.
+        - Only set ``self.terminal = True`` if every case was terminal.
+        """
         original = self.terminal
-        allterminal = original
+        # Start with True: a switch is terminal only if ALL branches are.
+        allterminal = True
 
         for case in cases:
             self.terminal = original
             self(case)
-            allterminal |= self.terminal
+            allterminal = allterminal and self.terminal
 
-        self.terminal |= allterminal
+        # Restore the pre-switch terminal state, then apply the switch result.
+        self.terminal = original or allterminal
 
     @dispatch(ast.Switch)
     def visitSwitch(self, node):
@@ -408,18 +423,24 @@ class CodeInliningTransform(TypeDispatcher):
             # 			print(node.code.annotation.origin)
             return None
 
-        # Eliminate the call
-        self.analysis.numOps[self.code] -= 1
+        # Bug #12 fix: the original code modified numOps *before* calling
+        # opinline.process().  If process() raised an exception the op counts
+        # were permanently corrupted, causing subsequent inlining decisions to
+        # be based on wrong sizes.  We now perform the actual inlining first
+        # and only update the counts if it succeeds.
+        result = self.opinline.process(
+            self.code, node, allCode, map, selfarg, args, returnargs
+        )
 
-        # Add the new ops
-        # This is approximate, as post-inlining simplification can reduce the number
+        # Inlining succeeded — update op counts.
+        # Eliminate the call (-1) and add the inlined body's ops.
+        # This is approximate: post-inlining simplification may reduce the count.
+        self.analysis.numOps[self.code] -= 1
         self.analysis.numOps[self.code] += self.analysis.numOps[allCode]
 
         self.modified = True
 
-        return self.opinline.process(
-            self.code, node, allCode, map, selfarg, args, returnargs
-        )
+        return result
 
     def processInvocations(self, node):
         invokes = node.annotation.invokes

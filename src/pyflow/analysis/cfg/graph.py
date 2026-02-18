@@ -815,9 +815,12 @@ class Merge(MultiEntryBlock):
         assert isinstance(other, CFGBlock)
         assert not self.phi
 
-        old, self.prev = self.prev, []
+        # Use self._prev (the actual attribute), not self.prev (which does not
+        # exist on MultiEntryBlock).  Swap atomically so that redirectExit
+        # calls below see an empty predecessor list and don't recurse.
+        old, self._prev = self._prev, []
 
-        for prev in old:
+        for prev, prevName in old:
             prev.redirectExit(self, other)
 
 

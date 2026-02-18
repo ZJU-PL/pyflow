@@ -64,18 +64,51 @@ class NullDereferenceDetector(Detector):
 
 
 class _NullDerefVisitor(ast.NodeVisitor):
-    """Find names set to None and later dereferenced without a guard."""
+    """Find names set to None and later dereferenced without a guard.
+
+    Bug #17 fix: the original implementation used module-level (instance-level)
+    sets ``none_assigned`` and ``guarded`` that accumulated state across the
+    entire module AST.  A variable assigned ``None`` in one function would be
+    flagged as a null-dereference hazard in a completely unrelated function
+    later in the same file, producing false positives.
+
+    The fix resets per-function state when entering a function definition so
+    that each function is analysed independently.
+    """
 
     def __init__(self):
         self.none_assigned: Set[str] = set()
         self.guarded: Set[str] = set()
-        self.suspects: List[tuple[int, str]] = []
+        self.suspects: List[tuple] = []
+
+    def _reset_function_state(self):
+        """Reset per-function tracking sets when entering a new function scope."""
+        self.none_assigned = set()
+        self.guarded = set()
+
+    def visit_FunctionDef(self, node: ast.FunctionDef):
+        # Save outer-scope state, analyse the function body with fresh sets,
+        # then restore the outer-scope state.
+        saved_assigned = self.none_assigned
+        saved_guarded = self.guarded
+        self._reset_function_state()
+        self.generic_visit(node)
+        self.none_assigned = saved_assigned
+        self.guarded = saved_guarded
+
+    # Async functions have the same scoping rules.
+    visit_AsyncFunctionDef = visit_FunctionDef
 
     def visit_Assign(self, node: ast.Assign):
         if isinstance(node.value, ast.Constant) and node.value.value is None:
             for target in node.targets:
                 if isinstance(target, ast.Name):
                     self.none_assigned.add(target.id)
+        # A non-None assignment clears the "may be None" flag for that name.
+        elif not (isinstance(node.value, ast.Constant) and node.value.value is None):
+            for target in node.targets:
+                if isinstance(target, ast.Name):
+                    self.none_assigned.discard(target.id)
         self.generic_visit(node)
 
     def visit_If(self, node: ast.If):
@@ -95,7 +128,5 @@ class _NullDerefVisitor(ast.NodeVisitor):
         self.generic_visit(node)
 
     def generic_visit(self, node):
-        # Note: This detector doesn't use parent tracking, so we don't need
-        # to set parent attributes. Standard traversal is sufficient.
         for child in ast.iter_child_nodes(node):
             self.visit(child)

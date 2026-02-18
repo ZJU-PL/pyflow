@@ -191,12 +191,20 @@ class PassCache:
     """Simple cache for pass results based on program state."""
 
     def __init__(self):
+        # Map from (object_id, object_type) -> {pass_name -> PassResult}.
+        # Including the type makes it much less likely that a new object
+        # allocated at the same address as a previously-collected one will
+        # incorrectly receive stale cached results.
         self._cache: Dict[str, Dict[str, PassResult]] = {}
 
     def _get_program_key(self, program) -> str:
-        """Generate a cache key based on program state."""
-        # Use program identity and some hash of its state
-        return str(id(program))
+        """Generate a cache key based on program state.
+
+        We combine the object's id() with its type name so that a new
+        object allocated at the same address as a garbage-collected one
+        does not accidentally inherit stale cached results.
+        """
+        return f"{type(program).__qualname__}@{id(program)}"
 
     def get(self, program, pass_name: str) -> Optional[PassResult]:
         """Get cached result for a pass on a program."""
@@ -284,8 +292,30 @@ class PassManager:
         self.pass_order = order
 
     def build_pipeline(self, pass_names: List[str]) -> "PassPipeline":
-        """Build a pipeline from a list of pass names."""
-        return PassPipeline(self, pass_names)
+        """Build a pipeline from a list of pass names.
+
+        Automatically inserts required dependencies for each requested pass
+        so that callers do not need to enumerate transitive prerequisites.
+        The final order respects the topological dependency order computed
+        by ``_resolve_dependencies``.
+        """
+        # Collect the full set of passes needed (requested + their deps).
+        needed: Set[str] = set()
+
+        def collect(name: str):
+            if name in needed or name not in self.passes:
+                return
+            needed.add(name)
+            for dep in self.passes[name].info.dependencies:
+                collect(dep)
+
+        for name in pass_names:
+            collect(name)
+
+        # Emit them in the globally-resolved dependency order so that
+        # prerequisites always run before the passes that need them.
+        ordered = [p for p in self.pass_order if p in needed]
+        return PassPipeline(self, ordered)
 
     def run_pipeline(
         self, compiler, program, pipeline: "PassPipeline"

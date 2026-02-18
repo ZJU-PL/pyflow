@@ -135,26 +135,50 @@ class AnalysisSession:
         file_imports: Dict[str, Dict[str, str]] = {}
 
         # Collect from interface (callable objects)
+        #
+        # Bug #18 fix: the original code called ``inspect.getsource(func_obj)``
+        # unconditionally.  When ``func_obj`` is a PyFlow-internal proxy object
+        # (e.g. ``_ASTFunctionProxy``) rather than a real Python function,
+        # ``inspect.getsource`` raises ``TypeError`` (not ``OSError``), which
+        # was caught, but more importantly it also raises ``OSError`` when the
+        # source file is not available (e.g. built-in functions, C extensions,
+        # or functions defined in a REPL).  The original ``except (OSError,
+        # TypeError)`` clause was correct for those cases, but the code then
+        # fell through to ``all_source_code[func_filename]`` using an empty
+        # ``func_filename`` string, which would silently return the wrong
+        # source (the first file in the dict, if any).
+        #
+        # The fix:
+        # 1. Only call ``inspect.getsource`` on objects that are genuine Python
+        #    functions/methods (i.e. have a ``__code__`` attribute).
+        # 2. Derive ``func_filename`` from ``__code__.co_filename`` *before*
+        #    attempting getsource, so the fallback path always has the right
+        #    filename even when getsource fails.
+        import inspect
+
         interface = getattr(program, "interface", None)
         funcs = getattr(interface, "func", []) if interface else []
         for func_obj, _ in funcs:
             name = getattr(func_obj, "__name__", None)
             if not name:
                 continue
-            # Get source
-            src = None
-            func_filename = ""
-            try:
-                import inspect
 
-                src = inspect.getsource(func_obj)
-                func_filename = getattr(func_obj, "__code__", None)
-                func_filename = getattr(func_filename, "co_filename", "") or ""
-            except (OSError, TypeError):
-                pass
-            if not src:
-                if func_filename and func_filename in all_source_code:
-                    src = all_source_code[func_filename]
+            # Derive the filename first (safe even for proxy objects).
+            code_obj = getattr(func_obj, "__code__", None)
+            func_filename = getattr(code_obj, "co_filename", "") or ""
+
+            src = None
+            # Only attempt inspect.getsource for real Python callables.
+            if code_obj is not None and callable(func_obj):
+                try:
+                    src = inspect.getsource(func_obj)
+                except (OSError, TypeError):
+                    pass
+
+            # Fallback: use the whole file source if we have it.
+            if not src and func_filename and func_filename in all_source_code:
+                src = all_source_code[func_filename]
+
             if src:
                 name_to_source[name] = src
                 func_to_file[name] = func_filename

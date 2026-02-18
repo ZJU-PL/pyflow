@@ -89,13 +89,17 @@ class ASTCloner(TypeDispatcher):
     def visitLocal(self, node):
         """Visit local variable nodes.
 
+        Bug B fix: ``ast.Local`` has no ``.type`` attribute in PyFlow's AST.
+        The original code called ``self(node.type)`` which raised AttributeError
+        at runtime.  Local nodes only carry a name; we clone them directly.
+
         Args:
             node: Local variable AST node.
 
         Returns:
             Cloned local variable node.
         """
-        result = ast.Local(self(node.type), node.name)
+        result = ast.Local(node.name)
         result.annotation = node.annotation
         return self.adjustOrigin(result)
 
@@ -220,11 +224,15 @@ class InlineTransform(TypeDispatcher):
 
     @dispatch(cfg.Suite)
     def visitSuite(self, node):
-        failTerminal = cfg.Merge() if node.getExit("fail") else None
-        errorTerminal = cfg.Merge() if node.getExit("error") else None
+        # Bug A fix: cfg.Merge() and cfg.Suite() require a region argument.
+        # The original code passed no argument, causing TypeError at construction
+        # time.  Pass node.region so the cloned blocks belong to the same region.
+        region = node.region
+        failTerminal = cfg.Merge(region) if node.getExit("fail") else None
+        errorTerminal = cfg.Merge(region) if node.getExit("error") else None
 
         def makeSuite():
-            suite = cfg.Suite()
+            suite = cfg.Suite(region)
             suite.setExit("fail", failTerminal)
             suite.setExit("error", errorTerminal)
             return suite
@@ -244,7 +252,8 @@ class InlineTransform(TypeDispatcher):
                 cloner = CFGCloner(call.annotation.origin)
                 cloned = cloner.process(invokes)
 
-                print("\t", invokes.code.name)
+                # Bug A fix: stray debug print removed.
+                # print("\t", invokes.code.name)
 
                 # PREAMBLE, evaluate arguments
                 for p, a in zip(cloned.code.params, call.arguments):

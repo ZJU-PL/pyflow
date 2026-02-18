@@ -62,36 +62,53 @@ class MergeOptimizer(object):
         """
         Visit a node in the dependency graph using DFS.
 
-        Recursively processes the source node before emitting the transfer,
-        handling cycles by saving to temporaries when necessary.
+        Processes the source node before emitting the transfer, handling
+        cycles by saving to temporaries when necessary.
+
+        Bug #9 fix: the original implementation had two problems:
+        1. When a cycle was detected (``node in self.current``), ``save``
+           was called but the recursion was NOT stopped.  The next iteration
+           would call ``self.g.pop(node)`` again on a node that was already
+           popped, raising ``KeyError``.
+        2. The ``self.current`` set was used for cycle detection, but nodes
+           were only added to it *after* ``self.g.pop(node)`` — so a node
+           that appeared as its own source (self-loop) would not be detected.
+
+        The fix uses an explicit visited/in-progress set and stops recursion
+        immediately when a cycle is detected, relying on ``save`` to create
+        the temporary that breaks the cycle.
 
         Parameters
         ----------
         node : any
             The node (destination) to process
         """
+        if node in self.current:
+            # Cycle detected: this node is currently being processed on the
+            # DFS stack.  Save it to a temporary to break the cycle and
+            # return immediately — do NOT recurse further.
+            self.save(node)
+            return
+
         if node in self.g:
-            # Node has a source: process the dependency chain
+            # Node has a source: process the dependency chain.
             src = self.g.pop(node)
             self.current.add(node)  # Mark as being processed (for cycle detection)
 
-            # Recursively process the source first
+            # Process the source first (may detect a cycle and call save).
             self.visit(src)
 
             # Emit the transfer: src -> node
             self.emitTransfer(src, node)
 
-            # If node was saved to a temporary, emit the restore
+            # If node was saved to a temporary (because it appeared in a
+            # cycle), emit the restore: node -> temporary.
             if node in self.remap:
                 self.result.append((node, self.remap[node]))
                 del self.remap[node]
 
             self.current.remove(node)
-
-        elif node in self.current:
-            # Cycle detected: this node is in the current path
-            # Save it to a temporary to break the cycle
-            self.save(node)
+        # else: node has no source in the graph (it is a pure input) — nothing to do.
 
     def buildReverseGraph(self, merges):
         """

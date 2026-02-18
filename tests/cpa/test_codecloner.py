@@ -92,9 +92,14 @@ class TestFunctionCloner(unittest.TestCase):
         self.assertEqual(result, self.cloned_code1)
 
     def test_visitCode_not_in_map(self):
+        # Bug #10 fix: visitCode used to return None for dead direct calls
+        # (code objects not in liveCode / codeMap).  The fix makes it return
+        # the *original* node instead, so that downstream passes that
+        # dereference the code field don't crash with AttributeError.
         unknown_code = Mock()
         result = self.cloner.visitCode(unknown_code)
-        self.assertIsNone(result)
+        # The original node must be returned (not None).
+        self.assertIs(result, unknown_code)
 
     def test_visitLeaf(self):
         leaf = "test_string"

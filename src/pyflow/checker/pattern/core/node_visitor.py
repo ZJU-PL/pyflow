@@ -184,12 +184,32 @@ class SecurityNodeVisitor:
         Tracks imports from specific modules, handling both regular imports
         and relative imports (when module is None). Runs import-level tests.
 
+        Bug P fix: the original code called ``self.visit_Import(node)`` for
+        relative imports (``node.module is None``).  However ``ast.ImportFrom``
+        nodes have a different structure from ``ast.Import`` nodes — their
+        ``node.names`` entries are the *imported names* (e.g. ``foo`` in
+        ``from . import foo``), not module names.  Passing an ``ImportFrom``
+        node to ``visit_Import`` caused ``self.imports.add(nodename.name)``
+        to record the imported *symbol* name as if it were a module name,
+        corrupting the import tracking state.
+
+        The fix handles relative imports inline: record each imported name
+        with an empty module prefix and run the ``ImportFrom`` tests.
+
         Args:
             node: AST ImportFrom node
         """
         if node.module is None:
-            # Relative import - treat as regular import
-            return self.visit_Import(node)
+            # Relative import (e.g. ``from . import foo``).
+            # Bug P fix: do NOT delegate to visit_Import — handle inline.
+            for nodename in node.names:
+                imported_name = nodename.name
+                alias = nodename.asname or nodename.name
+                self.import_aliases[alias] = imported_name
+                self.imports.add(imported_name)
+                self.context.update({"module": "", "name": imported_name})
+            self.update_scores(self.tester.run_tests(self.context, "ImportFrom"))
+            return
 
         for nodename in node.names:
             full_name = f"{node.module}.{nodename.name}"

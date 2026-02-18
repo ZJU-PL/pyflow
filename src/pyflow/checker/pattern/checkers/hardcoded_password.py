@@ -118,43 +118,11 @@ def _report(value):
     )
 
 
-def _get_string(node):
-    """
-    Extract a string value from AST string nodes.
-
-    Handles both Python < 3.8 (ast.Str) and Python 3.8+ (ast.Constant)
-    for compatibility.
-
-    Args:
-        node: AST node (Str, Constant, or other)
-
-    Returns:
-        String value, or None if not a string node
-    """
-    if isinstance(node, ast.Str):
-        return node.s
-    if isinstance(node, ast.Constant) and isinstance(node.value, str):
-        return node.value
-    return None
-
-
-def _report(value):
-    """
-    Create a hardcoded password issue.
-
-    Args:
-        value: The hardcoded password value found
-
-    Returns:
-        Issue object with LOW severity, MEDIUM confidence
-    """
-    return issue.Issue(
-        severity="LOW",
-        confidence="MEDIUM",
-        cwe=issue.Cwe.HARD_CODED_PASSWORD,
-        text=f"Possible hardcoded password: '{value}'",
-    )
-
+# Bug J fix: _get_string and _report were defined twice in this file.
+# The second definitions (below) silently overwrote the first ones, which
+# is harmless in this case because both definitions are identical, but it
+# is dead code that creates confusion and maintenance risk.  The duplicate
+# definitions have been removed.
 
 @test.checks("Str")
 @test.with_id("B105")

@@ -182,15 +182,37 @@ class Compactor(TypeDispatcher):
         self.simplifySuite(result)
 
     def getError(self, *args):
+        """Collect the common error exit from a set of CFG blocks.
+
+        Bug E fix: the original code had ``argerror = error`` in the else
+        branch, which assigned the (still-None) ``error`` back to the local
+        ``argerror`` instead of updating ``error`` with the first non-None
+        error exit found.  As a result ``error`` was always ``None`` and the
+        method always returned ``(True, None)``, silently dropping error edges
+        from the reconstructed AST.
+
+        The correct logic is ``error = argerror`` (assign the found exit to
+        the accumulator).
+
+        Bug W fix (testSplit/testParallax): the original comparison
+        ``if error is not argerror`` treated ``None`` (no error exit) as
+        *incompatible* with a non-None error exit.  When merging two suites
+        where one has an error exit and the other does not, the result should
+        simply inherit the non-None error exit — ``None`` means "no error
+        path from this suite", which is compatible with any error exit.
+        Only return ``False`` when *both* suites have *different* non-None
+        error exits.
+        """
         error = None
 
         for arg in args:
             argerror = arg.getExit("error")
-            if error:
-                if error is not argerror:
+            if error is not None:
+                # Bug W fix: only conflict when both are non-None and differ.
+                if argerror is not None and error is not argerror:
                     return False, None
             else:
-                argerror = error
+                error = argerror  # Bug E fix: was ``argerror = error``
 
         return True, error
 

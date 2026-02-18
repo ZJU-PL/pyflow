@@ -220,8 +220,10 @@ def register_standard_passes(pass_manager):
         pass_manager.register_pass(pass_class())
 
     # Set up dependencies based on the current hardcoded pipeline
-    # IPA should run before CPA (CPA needs call graph from IPA)
-    ipa_pass = pass_manager.passes["ipa"]
+    # IPA should run before CPA (CPA needs call graph from IPA).
+    # Bug G fix: the original code stored ``ipa_pass = pass_manager.passes["ipa"]``
+    # but never used the variable.  The dead assignment was harmless but
+    # misleading; removed to keep the code clean.
     cpa_pass = pass_manager.passes["cpa"]
     cpa_pass.info.dependencies.add("ipa")
 

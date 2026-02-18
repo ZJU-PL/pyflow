@@ -262,9 +262,18 @@ class IPAnalysis(object):
         Args:
             context: Context to process
 
-        Raises:
-            AssertionError: If recursive cycle detected
+        Note:
+            Recursive contexts (cycles in the call graph) are detected via
+            ``self.path`` and skipped rather than raising an assertion error.
+            The previous assertion was incorrect: it fired for any DAG sharing
+            (a callee reachable from two callers), not just true recursion.
         """
+        if context in self.path:
+            # True recursion: this context is currently on the DFS stack.
+            # Skip it to avoid infinite recursion; the fixed-point iteration
+            # in topDown() will eventually propagate the correct values.
+            return
+
         if context not in self.processed:
             self.processed.add(context)
             self.path.append(context)
@@ -286,8 +295,7 @@ class IPAnalysis(object):
                 self.updateConstraints()  # TODO only once?
 
             self.path.pop()
-        else:
-            assert context not in self.path, "Recursive cycle detected in call graph"
+        # else: already fully processed (DAG sharing) — nothing to do.
 
     def bottomUp(self):
         """Perform bottom-up analysis pass.
@@ -296,7 +304,7 @@ class IPAnalysis(object):
         Processes contexts in reverse topological order, computing and
         applying summaries.
         """
-        print("bottom up")
+        # Bug #19 fix: removed unconditional print("bottom up") debug statement.
         self.processed = set()
         self.path = []
 

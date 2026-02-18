@@ -14,7 +14,13 @@ Key functions:
 import os
 
 
-_local_modules = list()
+# Bug K fix: the original code used a module-level mutable list ``_local_modules``
+# as a cache.  The cache was never cleared between calls, so if
+# ``get_directory_modules`` was called for a second (different) directory in the
+# same process it would return the stale results from the first call.
+# The fix uses a dict keyed by directory so each directory has its own cache
+# entry and results are never mixed.
+_local_modules_cache: dict = {}
 
 
 def get_directory_modules(directory):
@@ -30,23 +36,26 @@ def get_directory_modules(directory):
         list: List of (module_name, file_path) tuples
             Example: [('__init__', 'example/import_test_project/__init__.py'), ...]
     """
-    if _local_modules and os.path.dirname(_local_modules[0][1]) == directory:
-        return _local_modules
-
     if not os.path.isdir(directory):
         # example/import_test_project/A.py -> example/import_test_project
         directory = os.path.dirname(directory)
 
     if directory == "":
-        return _local_modules
+        return []
 
+    # Bug K fix: use per-directory cache instead of a single shared list.
+    if directory in _local_modules_cache:
+        return _local_modules_cache[directory]
+
+    modules = []
     for path in os.listdir(directory):
         if _is_python_file(path):
             # A.py -> A
             module_name = os.path.splitext(path)[0]
-            _local_modules.append((module_name, os.path.join(directory, path)))
+            modules.append((module_name, os.path.join(directory, path)))
 
-    return _local_modules
+    _local_modules_cache[directory] = modules
+    return modules
 
 
 def get_modules(path, prepend_module_root=True):

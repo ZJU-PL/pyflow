@@ -1,5 +1,8 @@
-# Use a JIT?
-usePsyco = True
+# usePsyco was a flag for the Psyco JIT compiler, which was only available
+# for CPython 2.x and has been unmaintained since ~2012.  It is kept here
+# as a no-op boolean so that any code that reads this flag does not break,
+# but it has no effect on Python 3.
+usePsyco = False
 
 debugOnFailiure = False
 

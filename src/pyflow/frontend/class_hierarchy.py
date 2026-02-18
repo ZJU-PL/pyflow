@@ -241,19 +241,31 @@ class ClassHierarchy:
         return resolved
     
     def _invalidate_cache(self, qualified_name: str):
-        """Invalidate MRO cache for a class and its subclasses."""
+        """Invalidate MRO cache for a class and its subclasses.
+
+        Bug I fix: the original code iterated ``self._method_cache.items()``
+        inside a loop that deleted from the same dict, which raises
+        ``RuntimeError: dictionary changed size during iteration`` in Python 3.
+        The fix snapshots the keys first with ``list(...)`` before deleting.
+        """
         to_remove = [qualified_name]
-        
+
         for qname in list(self._mro_cache.keys()):
             if qualified_name in self._mro_cache.get(qname, []):
                 to_remove.append(qname)
-        
+
         for qname in to_remove:
             self._mro_cache.pop(qname, None)
-            
-            for (cls, method), _ in list(self._method_cache.items()):
-                if cls == qname:
-                    del self._method_cache[(cls, method)]
+
+            # Bug I fix: snapshot keys before iterating so that deletions
+            # inside the loop do not mutate the dict we are iterating over.
+            keys_to_delete = [
+                (cls, method)
+                for (cls, method) in list(self._method_cache.keys())
+                if cls == qname
+            ]
+            for key in keys_to_delete:
+                self._method_cache.pop(key, None)
     
     def get_class_info(self, qualified_name: str) -> Optional[ClassInfo]:
         """Get class information by qualified name."""
@@ -362,7 +374,10 @@ class ClassHierarchy:
                 if lst and lst[0] == candidate:
                     lst.pop(0)
         
-        if result[-1] != "builtins.object" and "builtins.object" not in result:
+        # Append builtins.object only when:
+        # 1. It is not already anywhere in the result list, AND
+        # 2. The class being computed is not builtins.object itself.
+        if class_name != "builtins.object" and "builtins.object" not in result:
             result.append("builtins.object")
         
         return result
@@ -416,21 +431,31 @@ class ClassHierarchy:
         
         return None
     
-    def get_all_subclasses(self, qualified_name: str) -> Set[str]:
+    def get_all_subclasses(self, qualified_name: str, _visited: Optional[Set[str]] = None) -> Set[str]:
         """Get all subclasses of a class (transitive closure).
         
         Args:
             qualified_name: The class to find subclasses for
+            _visited: Internal set used to detect cycles (do not pass externally)
             
         Returns:
             Set of qualified names of all subclasses
         """
+        if _visited is None:
+            _visited = set()
+
+        # Guard against cycles in the class hierarchy (which _compute_mro
+        # raises MROError for, but register_class does not prevent).
+        if qualified_name in _visited:
+            return set()
+        _visited.add(qualified_name)
+
         subclasses = set()
         
         for cls_qname, cls_info in self.classes.items():
             if qualified_name in cls_info.resolved_bases:
                 subclasses.add(cls_qname)
-                subclasses.update(self.get_all_subclasses(cls_qname))
+                subclasses.update(self.get_all_subclasses(cls_qname, _visited))
         
         return subclasses
     

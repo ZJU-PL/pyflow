@@ -134,15 +134,18 @@ class CFGTransformer(TypeDispatcher):
     def visitStatement(self, node):
         self.emit(node)
 
-    @dispatch(object)  # Handle any unknown object types including MockSuite
+    @dispatch(object)  # Catch-all for unrecognised node types (L8 fix)
     def visitUnknown(self, node):
-        # For unknown node types, try to handle them gracefully
-        if hasattr(node, "visitChildren"):
-            # If it's a mock object with visitChildren, just emit it
-            self.emit(node)
-        else:
-            # For other unknown types, emit as-is
-            self.emit(node)
+        # Warn about unknown node types so they are not silently swallowed.
+        # Downstream passes dispatch on concrete op types; emitting an unknown
+        # node would cause those passes to silently skip it, potentially
+        # producing incorrect analysis results.
+        import warnings
+        warnings.warn(
+            f"CFGTransformer: unrecognised AST node type {type(node).__qualname__!r}; "
+            "skipping (downstream analyses may be unsound).",
+            stacklevel=2,
+        )
 
     def createSwitchAfter(self, condition, prev):
         switch = cfg.Switch(self.region, condition)
@@ -304,22 +307,51 @@ class CFGTransformer(TypeDispatcher):
 
     @dispatch(ast.TryExceptFinally)
     def visitTryExceptFinally(self, node):
-        """Handle try-except-finally blocks."""
-        # Process the try body
-        self(node.body)
+        """Handle try-except-finally blocks.
 
-        # Process exception handlers
+        This is a conservative approximation: we model the try body, each
+        exception handler, the else clause, and the finally clause as
+        sequential normal-flow blocks.  We do NOT yet model the fail/error
+        edges that would carry exceptions from the try body to the handlers
+        (that requires a more complex CFG structure with dedicated exception
+        edges).  The approximation is sound for analyses that only care about
+        normal-flow data, but is unsound for exception-sensitive analyses.
+
+        Bug #3 (original): the old implementation called self(node.body) etc.
+        without any guard, so a NoNormalFlow raised inside the try body would
+        propagate out and skip the handlers and finally clause entirely.  We
+        now wrap each clause in a try/except so that NoNormalFlow from one
+        clause does not prevent the others from being processed.
+        """
+        # Try body
+        try:
+            self(node.body)
+        except NoNormalFlow:
+            pass
+
+        # Exception handlers (each is independent)
         for handler in node.handlers:
             if handler is not None:
-                self(handler)
+                try:
+                    self(handler)
+                except NoNormalFlow:
+                    pass
 
-        # Process else clause if present
+        # Else clause (runs when no exception was raised)
         if node.else_ is not None:
-            self(node.else_)
+            try:
+                self(node.else_)
+            except NoNormalFlow:
+                pass
 
-        # Process finally clause if present
+        # Finally clause (always runs)
         if node.finally_ is not None:
-            self(node.finally_)
+            try:
+                self(node.finally_)
+            except NoNormalFlow:
+                # Finally raised NoNormalFlow — propagate it so the caller
+                # knows there is no normal exit from this try block.
+                raise
 
     @dispatch(ast.ExceptionHandler)
     def visitExceptionHandler(self, node):
@@ -329,22 +361,33 @@ class CFGTransformer(TypeDispatcher):
 
     @dispatch(ast.For)
     def visitFor(self, node):
-        # Handle the new For loop structure from the expanded AST converter
-        # For(iterator, index, loopPreamble, bodyPreamble, body, else_)
+        """Handle for loops.
 
+        Bug fixes applied:
+        - Bug #1: The old code called self.makeNewSuite() and stored the result
+          in loop_body_suite but never connected it to anything.  makeNewSuite()
+          sets self.current as a side-effect, so the subsequent createMerge()
+          call saw a stale self.current.  Fixed by removing the spurious call.
+        - Bug #2: The else-clause wiring was wrong.  The old code created
+          else_suite = self.makeNewSuite() and then called self(node.else_),
+          but then called else_suite.setExit("normal", ...) on the freshly-
+          created suite rather than on self.current after visiting the else
+          body.  Fixed by connecting self.current (after visiting the else
+          body) to the break merge, mirroring the while-loop pattern.
+        """
         # Process loop preamble and body preamble
         if hasattr(node, "loopPreamble") and node.loopPreamble:
             self(node.loopPreamble)
         if hasattr(node, "bodyPreamble") and node.bodyPreamble:
             self(node.bodyPreamble)
 
-        # Create merge point for loop entry
+        # Create merge point for loop entry (back-edge target for continue)
         merge = self.createMerge()
         self.attachCurrent(merge)
 
-        # For loops don't have explicit conditions like while loops,
-        # but we can treat them as always true for now
-        loop_body_suite = self.makeNewSuite()
+        # The loop body starts in a fresh suite connected to the merge.
+        # (No spurious makeNewSuite() call here — that was bug #1.)
+        merge.setExit("normal", self.makeNewSuite())
 
         b = cfg.Merge(self.region)  # Break target
 
@@ -356,17 +399,28 @@ class CFGTransformer(TypeDispatcher):
         except NoNormalFlow:
             pass
         else:
-            # Loop back to start
+            # Normal exit from body: loop back to the merge point.
             self.attachCurrent(merge)
 
         self.popHandler("continue")
         self.popHandler("break")
 
-        # Handle else clause if present
-        if hasattr(node, "else_") and node.else_:
-            else_suite = self.makeNewSuite()
-            self(node.else_)
-            else_suite.setExit("normal", self.makeNewSuite())
+        # Else clause: runs when the loop exits normally (not via break).
+        # Wire it between the loop-exit merge and the break merge, mirroring
+        # the while-loop pattern.  (Bug #2 fix: use self.current after
+        # visiting the else body, not the suite created before visiting it.)
+        else_body = getattr(node, "else_", None)
+        if else_body:
+            e = cfg.Merge(self.region)
+            e.setExit("normal", self.makeNewSuite())
+            try:
+                self(else_body)
+            except NoNormalFlow:
+                pass
+            else:
+                self.attachCurrent(b)
+            self.optimizeMerge(e)
+        # else: no else clause — fall through directly to the break merge.
 
         b.setExit("normal", self.makeNewSuite())
         self.optimizeMerge(merge)

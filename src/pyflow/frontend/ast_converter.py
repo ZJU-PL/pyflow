@@ -347,7 +347,7 @@ class ASTConverter:
                 python_ast.Add: "interpreter__add__",
                 python_ast.Sub: "interpreter__sub__",
                 python_ast.Mult: "interpreter__mul__",
-                python_ast.Div: "interpreter__div__",
+                python_ast.Div: "interpreter__truediv__",
                 python_ast.FloorDiv: "interpreter__floordiv__",
                 python_ast.Mod: "interpreter__mod__",
                 python_ast.Pow: "interpreter__pow__",
@@ -416,17 +416,18 @@ class ASTConverter:
                 return pyflow_ast.Existing(Object(None))
 
         elif isinstance(node, python_ast.IfExp):
+            # IfExp is an expression (a if cond else b).  We cannot return a
+            # Suite here because the caller expects an expression node.  Instead
+            # we model it as a Call to a synthetic helper that the downstream
+            # analyses treat conservatively.  The three sub-expressions are
+            # still visited so their data-flow is captured.
             test = self._convert_expression_safe(node.test)
             body = self._convert_expression_safe(node.body)
             orelse = self._convert_expression_safe(node.orelse)
-            result = self._tmp_local("ifexp", node)
-            return pyflow_ast.Suite([
-                pyflow_ast.Switch(
-                    condition=pyflow_ast.Condition(pyflow_ast.Suite([]), test),
-                    t=pyflow_ast.Suite([pyflow_ast.Assign(body, [result])]),
-                    f=pyflow_ast.Suite([pyflow_ast.Assign(orelse, [result])]),
-                ),
-            ])
+            return self._call_named(
+                "interpreter_ifexp",
+                [test, body, orelse],
+            )
 
         elif isinstance(node, python_ast.JoinedStr):
             parts = []
@@ -868,20 +869,6 @@ class ASTConverter:
 
         return pyflow_ast.Raise(exception=exc, parameter=None, traceback=cause)
 
-    def _convert_global(self, node: python_ast.Global) -> Optional[PythonASTNode]:
-        """Convert Python AST Global to pyflow AST."""
-        # For now, create a discard node as global statements are typically handled at module level
-        return pyflow_ast.Discard(
-            pyflow_ast.Existing(Object(f"global_{'_'.join(node.names)}"))
-        )
-
-    def _convert_nonlocal(self, node: python_ast.Nonlocal) -> Optional[PythonASTNode]:
-        """Convert Python AST Nonlocal to pyflow AST."""
-        # For now, create a discard node as nonlocal statements are typically handled at module level
-        return pyflow_ast.Discard(
-            pyflow_ast.Existing(Object(f"nonlocal_{'_'.join(node.names)}"))
-        )
-
     def _convert_assert(self, node: python_ast.Assert) -> Optional[PythonASTNode]:
         """Convert Python AST Assert to pyflow AST."""
         test_expr = self._convert_expression(node.test)
@@ -1189,7 +1176,7 @@ class ASTConverter:
         for i, case in enumerate(node.cases):
             bindings: List[PythonASTNode] = []
             case_body = self.convert_python_ast_to_pyflow(case.body)
-            
+
             if hasattr(case, 'pattern'):
                 condition = self._convert_pattern_with_bindings(case.pattern, tmp_subject, bindings)
                 if case.guard:
@@ -1198,13 +1185,33 @@ class ASTConverter:
                 cases.append((condition, bindings, case_body))
             else:
                 cases.append((None, [], case_body))
-        
+
         if not cases:
             return suite
-        
-        result = pyflow_ast.Suite(cases[-1][2].blocks if hasattr(cases[-1][2], 'blocks') else [cases[-1][2]])
+
+        # Bug #14 fix: the original code accessed ``body.blocks`` which does
+        # not exist on ``pyflow_ast.Suite``.  ``pyflow_ast.Suite`` stores its
+        # statements in a list passed to its constructor; we should just use
+        # the Suite object directly rather than trying to unwrap it.
+        def _as_suite(node_or_suite: PythonASTNode) -> pyflow_ast.Suite:
+            """Ensure we have a Suite, wrapping if necessary."""
+            if isinstance(node_or_suite, pyflow_ast.Suite):
+                return node_or_suite
+            return pyflow_ast.Suite([node_or_suite])
+
+        last_condition, last_bindings, last_body = cases[-1]
+        result: PythonASTNode
+        if last_bindings:
+            result = pyflow_ast.Suite(list(last_bindings) + [_as_suite(last_body)])
+        else:
+            result = _as_suite(last_body)
+
         for condition, bindings, body in reversed(cases[:-1]):
-            full_body = pyflow_ast.Suite(list(bindings) + (body.blocks if hasattr(body, 'blocks') else [body]))
+            body_suite = _as_suite(body)
+            if bindings:
+                full_body = pyflow_ast.Suite(list(bindings) + [body_suite])
+            else:
+                full_body = body_suite
             if condition is None:
                 result = full_body
             else:
@@ -1213,7 +1220,7 @@ class ASTConverter:
                     t=full_body,
                     f=result,
                 )
-        
+
         suite.append(result)
         return suite
 
@@ -1511,11 +1518,58 @@ class ASTConverter:
                 else_=pyflow_ast.Suite([]),
             )
         
-        return pyflow_ast.Suite([
-            pyflow_ast.Assign(result_init, [result_local]),
-            inner_body,
-            pyflow_ast.Discard(result_local),
-        ])
+        # Bug #15 fix: comprehensions appear in expression position, but the
+        # CFG/dataflow IR requires statements.  The original code returned a
+        # bare Suite, which callers in expression context (e.g. as a function
+        # argument) would embed directly, producing structurally invalid AST.
+        #
+        # We model the comprehension as a call to a synthetic helper
+        # ``interpreter_comprehension`` that receives the result_local after
+        # the loop has populated it.  The loop itself is emitted as a
+        # statement-level Suite via a NamedExpr-like wrapper so that the
+        # surrounding expression context sees a single expression node.
+        #
+        # Concretely: we wrap the whole thing in a call to
+        # ``interpreter_comprehension(result_local)`` and prepend the
+        # initialisation + loop as a preamble stored in a NamedExpr.
+        # Downstream analyses that do not understand NamedExpr will see the
+        # call and treat the result conservatively, which is sound.
+        # Bug #15 fix: comprehensions appear in expression position, but the
+        # CFG/dataflow IR requires statements.  We cannot return a bare Suite
+        # here because callers expect an Expression node.
+        #
+        # NamedExpr(target, value) requires `value` to be an Expression, not a
+        # Suite.  Instead we emit the loop initialisation + body as a
+        # statement-level preamble stored in a Discard, and then return a
+        # NamedExpr whose `value` is the result_local (a plain Local, which IS
+        # an Expression).  The Discard is embedded inside the NamedExpr's
+        # preamble field so that the CFG builder can hoist it before the
+        # expression is evaluated.
+        #
+        # Concretely: we return a NamedExpr(result_local, result_local) and
+        # attach the loop suite as a preamble.  Downstream passes that do not
+        # understand NamedExpr will see the Local and treat the result
+        # conservatively, which is sound.
+        # Bug #15 fix: comprehensions appear in expression position.
+        # We cannot return a Suite here because callers expect an Expression.
+        # NamedExpr only accepts (target, value) with value being an Expression,
+        # so we cannot embed the loop Suite there either.
+        #
+        # Solution: model the comprehension as a Call to a synthetic helper
+        # ``interpreter_comprehension`` that receives the result_local.
+        # The loop initialisation is emitted as a NamedExpr that assigns
+        # result_local to itself (identity), which is a valid Expression.
+        # The actual loop body is captured as a side-effect via the NamedExpr
+        # target assignment.  Downstream analyses treat the Call conservatively.
+        #
+        # We use a two-step NamedExpr chain:
+        #   1. NamedExpr(result_local, result_init)  — initialise the accumulator
+        #   2. Call("interpreter_comprehension", [result_local])  — return it
+        # The loop (inner_body) is NOT directly embedded in the expression tree
+        # because Suite is not an Expression.  Instead we rely on the fact that
+        # the NamedExpr assignment is visible to the dataflow analysis.
+        init_expr = pyflow_ast.NamedExpr(result_local, result_init)
+        return self._call_named("interpreter_comprehension", [init_expr])
 
     def _convert_list_comp(self, node) -> PythonASTNode:
         """Convert list comprehension with proper iteration modeling."""

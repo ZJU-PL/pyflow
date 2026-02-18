@@ -120,7 +120,65 @@ class ChainedFunctionTransformer:
         return self.visit_chain(node)
 
     def visit_Return(self, node):
-        return self.visit_chain(node)
+        """Transform chained calls in a return statement.
+
+        Bug S fix: the original code called ``self.visit_chain(node)`` which
+        internally did::
+
+            type(node)(
+                value=...,
+                **{field: value for field, value in ast.iter_fields(node)
+                   if field != "value"},
+            )
+
+        For ``ast.Return``, ``ast.iter_fields`` yields ``("value", ...)``
+        only — so the spread is empty and the reconstruction is fine.
+        However, ``ast.Assign`` (used for the inner temporaries) requires a
+        ``targets`` field.  The real problem is that ``visit_chain`` uses
+        ``type(node)(...)`` to reconstruct the *outer* node, which works for
+        ``ast.Assign`` (has ``targets``) but is fragile for ``ast.Return``
+        because Python 3.8+ AST nodes require ``lineno``/``col_offset`` to be
+        set before ``ast.fix_missing_locations`` is called.
+
+        The safe fix: handle ``ast.Return`` explicitly.  We only need to
+        transform the ``value`` field; the rest of the node is unchanged.
+        """
+        if (
+            node.value is not None
+            and isinstance(node.value, ast.Call)
+            and isinstance(node.value.func, ast.Attribute)
+            and isinstance(node.value.func.value, ast.Call)
+        ):
+            # There is a chained call in the return value.
+            # Extract the inner call into a temporary assignment, then return
+            # the outer call applied to the temporary.
+            temp_var_id = "__chain_tmp_1"
+            inner_assign = ast.Assign(
+                targets=[ast.Name(id=temp_var_id, ctx=ast.Store())],
+                value=node.value.func.value,
+                lineno=node.lineno,
+                col_offset=node.col_offset,
+            )
+            ast.copy_location(inner_assign, node)
+            inner_stmts = self.visit_chain(inner_assign, depth=2)
+
+            outer_return = ast.Return(
+                value=ast.Call(
+                    func=ast.Attribute(
+                        value=ast.Name(id=temp_var_id, ctx=ast.Load()),
+                        attr=node.value.func.attr,
+                        ctx=ast.Load(),
+                    ),
+                    args=node.value.args,
+                    keywords=node.value.keywords,
+                )
+            )
+            ast.copy_location(outer_return, node)
+            ast.copy_location(outer_return.value, node)
+            ast.copy_location(outer_return.value.func, node)
+            return [*inner_stmts, outer_return]
+        else:
+            return [self.generic_visit(node)]
 
 
 class IfExpRewriter(ast.NodeTransformer):

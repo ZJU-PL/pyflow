@@ -227,18 +227,23 @@ class LeakDetector(Detector):
         This performs a simplified backward data flow analysis to check
         if there's a path from any close() to the open().
 
-        Returns:
-            True if a close() can reach the open() on some path
-        """
-        # This is a simplified implementation
-        # Full implementation would:
-        # 1. Find the CFG node containing the open()
-        # 2. Perform backward analysis to find all nodes that reach it
-        # 3. Check if any of those nodes contain a close() call for var_name
+        Bug Q fix: the original implementation returned ``bool(close_calls)``
+        unconditionally — if *any* close() call existed *anywhere* in the
+        file, it returned ``True`` for *every* open() call, even if the
+        close() was in a completely different function or branch.  This
+        suppressed all resource-leak reports whenever any close() was present.
 
-        # For now, conservative heuristic: if close_calls exist, might be safe
-        # (Full analysis requires detailed CFG traversal)
-        return bool(close_calls)
+        The corrected heuristic: a close() is considered to "reach" an open()
+        only if the close() appears *after* the open() in the same source
+        (i.e. its line number is greater).  This is still a conservative
+        approximation (it doesn't account for control flow), but it is far
+        less likely to suppress genuine leaks.
+
+        Returns:
+            True if a close() plausibly covers this open() on some path
+        """
+        # Bug Q fix: require at least one close() that comes after the open().
+        return any(close_lineno > open_lineno for close_lineno in close_calls)
 
     # ----------------------------------------------------------- scope leaks
     def _scope_leak_reports(self, session: AnalysisSession) -> List[Issue]:
