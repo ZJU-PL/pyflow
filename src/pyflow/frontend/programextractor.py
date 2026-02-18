@@ -226,61 +226,87 @@ class Extractor:
         return program
 
     def _get_module_name(self, filename: str) -> str:
-        """Convert a filename to a module name."""
+        """Convert a filename to a qualified module name.
+
+        Uses the path relative to the current working directory so that two
+        files with the same basename in different packages produce distinct
+        module names (e.g. ``pkg.utils`` vs ``other.utils`` instead of both
+        being ``utils``).
+        """
         import os
-        if filename == "<string>":
+        if filename in ("<string>", "") or filename.startswith("<"):
             return "__main__"
-        basename = os.path.basename(filename)
-        if basename.endswith(".py"):
-            return basename[:-3]
-        return basename
+        try:
+            abs_path = os.path.realpath(filename)
+            cwd = os.path.realpath(os.getcwd())
+            rel = os.path.relpath(abs_path, cwd)
+        except ValueError:
+            # On Windows, relpath can fail across drives.
+            rel = os.path.basename(filename)
+        # Strip .py extension
+        if rel.endswith(".py"):
+            rel = rel[:-3]
+        # Convert path separators to dots; drop leading ".." components that
+        # can't be represented as a valid dotted name.
+        parts = rel.replace(os.sep, ".").split(".")
+        parts = [p for p in parts if p and p != ".."]
+        if not parts:
+            # Absolute path fallback: just use the stem of the filename.
+            stem = os.path.splitext(os.path.basename(filename))[0]
+            return stem or "__main__"
+        return ".".join(parts)
 
     def _extract_imports(self, tree: ast.AST, module_name: str) -> None:
         """Extract import statements and build import mapping for the module.
-        
-        Enhanced to handle:
-        - Relative imports (from .module import ...)
-        - Absolute imports
-        - Import aliases
+
+        Handles:
+        - Regular absolute imports
+        - ``from module import name`` (including aliases)
+        - ``from module import *`` — recorded as a sentinel entry so that
+          downstream analyses know the entire namespace of *module* is visible
+          in this scope
+        - Relative imports (``from . import ...``)
         """
         imports: Dict[str, str] = {}
-        
-        # Get the directory of the current module for relative imports
-        import os
-        module_dir = None
-        if hasattr(self, "_current_file_path"):
-            module_dir = os.path.dirname(self._current_file_path)
-        
+
+        # Sentinel key used to record star imports in the imports dict.
+        # Value is a list of the star-imported module names.
+        STAR_KEY = "<star_imports>"
+
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
                 for alias in node.names:
                     local_name = alias.asname or alias.name.split(".")[-1]
                     imports[local_name] = alias.name
+
             elif isinstance(node, ast.ImportFrom):
-                if node.module:
-                    # Absolute import
-                    for alias in node.names:
-                        if alias.name == "*":
-                            continue
-                        local_name = alias.asname or alias.name
-                        qualified = f"{node.module}.{alias.name}"
-                        imports[local_name] = qualified
-                elif node.level > 0:
-                    # Relative import (from .module import ...)
-                    # Note: Full resolution of relative imports requires package structure
-                    # For now, we mark them with a special prefix
-                    for alias in node.names:
-                        if alias.name == "*":
-                            continue
-                        local_name = alias.asname or alias.name
-                        # Store relative import info for later resolution
-                        relative_path = "." * node.level
-                        if node.module:
-                            relative_path += node.module
-                        imports[local_name] = f"<relative:{relative_path}.{alias.name}>"
-        
+                source_module = node.module or ""
+                level = node.level or 0
+
+                # Build the effective module prefix for relative imports.
+                if level > 0:
+                    # Approximate: mark relative prefix so callers can detect it.
+                    rel_prefix = "." * level + (source_module or "")
+                    effective_module = f"<relative:{rel_prefix}>"
+                else:
+                    effective_module = source_module
+
+                for alias in node.names:
+                    if alias.name == "*":
+                        # Record the star import so cross-module resolvers can
+                        # widen this scope with all exported names from the module.
+                        star_list = imports.setdefault(STAR_KEY, [])
+                        star_list.append(effective_module)
+                        continue
+                    local_name = alias.asname or alias.name
+                    if source_module:
+                        qualified = f"{source_module}.{alias.name}"
+                    else:
+                        qualified = alias.name
+                    imports[local_name] = qualified
+
         self._module_imports[module_name] = imports
-        
+
         # Register imports with cross-module resolver
         if self.cross_module_resolver:
             self.cross_module_resolver.imports[module_name] = imports

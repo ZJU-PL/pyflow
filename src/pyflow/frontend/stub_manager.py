@@ -135,6 +135,24 @@ class StubManager:
             "object__getattribute__": getattr,
             "convertToBool": bool,
             "invertedConvertToBool": lambda x: not bool(x),
+            # Context manager protocol
+            "interpreter_enter": lambda cm: cm.__enter__(),
+            "interpreter_exit": lambda cm, et, ev, tb: cm.__exit__(et, ev, tb),
+            "interpreter_aenter": None,   # async; no simple fold
+            "interpreter_aexit": None,
+            "interpreter_aiter": None,
+            # String formatting
+            "interpreter_format": format,
+            "interpreter_join_str": lambda parts: "".join(str(p) for p in parts),
+            # Container helpers
+            "interpreter_list_append": lambda lst, item: lst.append(item),
+            "interpreter_build_set": lambda *args: set(args),
+            # Pattern matching helpers (no simple Python equivalent)
+            "interpreter_match_sequence_len": None,
+            "interpreter_match_mapping_len": None,
+            "interpreter_match_class": isinstance,
+            "interpreter_match_rest": None,
+            "interpreter_getattr": getattr,
         }
 
         def create_stub_code(name):
@@ -221,6 +239,35 @@ class StubManager:
                     "methoddescriptor__call__": create_stub_code(
                         "methoddescriptor__call__"
                     ),
+                    # Context manager protocol stubs
+                    "interpreter_enter": create_stub_code("interpreter_enter"),
+                    "interpreter_exit": create_stub_code("interpreter_exit"),
+                    "interpreter_aenter": create_stub_code("interpreter_aenter"),
+                    "interpreter_aexit": create_stub_code("interpreter_aexit"),
+                    "interpreter_aiter": create_stub_code("interpreter_aiter"),
+                    # String formatting stubs
+                    "interpreter_format": create_stub_code("interpreter_format"),
+                    "interpreter_join_str": create_stub_code("interpreter_join_str"),
+                    # Container helper stubs
+                    "interpreter_list_append": create_stub_code(
+                        "interpreter_list_append"
+                    ),
+                    "interpreter_build_set": create_stub_code("interpreter_build_set"),
+                    # Pattern matching stubs (Python 3.10+)
+                    "interpreter_match_sequence_len": create_stub_code(
+                        "interpreter_match_sequence_len"
+                    ),
+                    "interpreter_match_mapping_len": create_stub_code(
+                        "interpreter_match_mapping_len"
+                    ),
+                    "interpreter_match_class": create_stub_code(
+                        "interpreter_match_class"
+                    ),
+                    "interpreter_match_rest": create_stub_code(
+                        "interpreter_match_rest"
+                    ),
+                    # Generic attribute access helper
+                    "interpreter_getattr": create_stub_code("interpreter_getattr"),
                 }
             },
         )()

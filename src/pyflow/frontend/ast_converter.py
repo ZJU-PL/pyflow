@@ -395,7 +395,7 @@ class ASTConverter:
                 return pyflow_ast.Existing(Object(value))
             except Exception:
                 elts = [self._convert_expression(elt) for elt in node.elts]
-                return pyflow_ast.BuildList(elts)  # Fallback approximation
+                return pyflow_ast.BuildSet(elts)
 
         elif isinstance(node, python_ast.Attribute):
             # Handle attribute access: obj.attr
@@ -704,9 +704,21 @@ class ASTConverter:
     def _convert_import_from(
         self, node: python_ast.ImportFrom
     ) -> Optional[PythonASTNode]:
-        """Convert Python AST ImportFrom to pyflow AST."""
+        """Convert Python AST ImportFrom to pyflow AST.
+
+        Star imports (``from mod import *``) are no longer silently dropped.
+        Instead, the Import node is emitted with ``fromlist=["*"]`` so that
+        downstream analyses can see that the module's entire namespace was
+        pulled in.  The result is stored in a dedicated temporary so that
+        alias-resolution passes can iterate over it.
+        """
         module = node.module or ""
         level = int(getattr(node, "level", 0) or 0)
+
+        # Separate regular names from the wildcard.
+        has_star = any(
+            getattr(a, "name", None) == "*" for a in (node.names or [])
+        )
         fromlist = [
             a.name
             for a in (node.names or [])
@@ -722,6 +734,17 @@ class ASTConverter:
                 )
             ]
         )
+
+        # Emit the star import as a separate Import node with fromlist=["*"].
+        # Downstream analyses can recognise this pattern and widen the scope.
+        if has_star:
+            star_tmp = self._tmp_local("star_import", node)
+            suite.append(
+                pyflow_ast.Assign(
+                    pyflow_ast.Import(module, ["*"], level),
+                    [star_tmp],
+                )
+            )
 
         for alias in node.names or []:
             if alias.name == "*":
@@ -966,20 +989,50 @@ class ASTConverter:
                 )
             )
         if isinstance(target, (python_ast.Tuple, python_ast.List)):
-            # Model simple unpacking without introducing UnpackSequence (not handled by all analyses).
             suite = pyflow_ast.Suite([])
-            for i, elt in enumerate(target.elts):
-                if not isinstance(elt, python_ast.Name):
-                    return pyflow_ast.Discard(value)
-                idx = pyflow_ast.Existing(Object(i))
-                rhs = pyflow_ast.Call(
-                    pyflow_ast.Existing(Object("interpreter_getitem")),
-                    [value, idx],
-                    [],
-                    None,
-                    None,
+            elts = target.elts
+
+            # Find starred element (e.g. a, *b, c = seq), if any.
+            starred_idx = next(
+                (i for i, e in enumerate(elts) if isinstance(e, python_ast.Starred)),
+                None,
+            )
+
+            if starred_idx is None:
+                # Simple element-wise unpacking: a, b, c = seq
+                for i, elt in enumerate(elts):
+                    idx = pyflow_ast.Existing(Object(i))
+                    rhs = self._call_named("interpreter_getitem", [value, idx])
+                    suite.append(self._convert_store(elt, rhs))
+            else:
+                # Starred unpacking: a, *b, c = seq
+                n_after = len(elts) - starred_idx - 1
+
+                # Elements before the starred target.
+                for i in range(starred_idx):
+                    idx = pyflow_ast.Existing(Object(i))
+                    rhs = self._call_named("interpreter_getitem", [value, idx])
+                    suite.append(self._convert_store(elts[i], rhs))
+
+                # The starred target receives seq[starred_idx : -n_after or None].
+                star_target = elts[starred_idx].value  # unwrap Starred node
+                stop = (
+                    pyflow_ast.Existing(Object(-n_after))
+                    if n_after > 0
+                    else pyflow_ast.Existing(Object(None))
                 )
-                suite.append(pyflow_ast.Assign(rhs, [pyflow_ast.Local(elt.id)]))
+                slice_node = pyflow_ast.BuildSlice(
+                    pyflow_ast.Existing(Object(starred_idx)), stop, None
+                )
+                star_rhs = self._call_named("interpreter_getitem", [value, slice_node])
+                suite.append(self._convert_store(star_target, star_rhs))
+
+                # Elements after the starred target (use negative indices).
+                for j, elt in enumerate(elts[starred_idx + 1 :]):
+                    idx = pyflow_ast.Existing(Object(-(n_after - j)))
+                    rhs = self._call_named("interpreter_getitem", [value, idx])
+                    suite.append(self._convert_store(elt, rhs))
+
             return suite
         return pyflow_ast.Discard(value)
 

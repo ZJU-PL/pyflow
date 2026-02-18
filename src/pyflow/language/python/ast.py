@@ -382,6 +382,19 @@ class BuildMap(Expression):
         return True
 
 
+class BuildSet(Expression):
+    """Represents a set literal: {a, b, c}.
+
+    Preserves set semantics (unique membership) rather than approximating
+    as a list.
+    """
+
+    __fields__ = "args:Expression*"
+
+    def isPure(self):
+        return True
+
+
 class BuildSlice(Expression):
     __fields__ = "start:Expression? stop:Expression? step:Expression?"
 
