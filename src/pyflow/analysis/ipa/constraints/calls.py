@@ -11,8 +11,11 @@ arguments and return values.
 """
 
 import itertools
+import logging
 from ..calling import cpa, transfer, callbinder
 from . import node
+
+LOG = logging.getLogger(__name__)
 
 
 class AbstractCall(object):
@@ -52,7 +55,13 @@ class UserCallConstraint(AbstractCall):
         self.karg = karg
         self.targets = targets
 
-        assert self.selfarg or self.varg
+        self._unresolved_callee = self.selfarg is None and self.varg is None
+        if self._unresolved_callee:
+            LOG.warning(
+                "creating call constraint with unresolved callee at %r; "
+                "call will be skipped until callee information is available",
+                op,
+            )
 
         if self.selfarg:
             self.selfarg.attachExactSplit(self.splitChanged)
@@ -93,13 +102,32 @@ class UserCallConstraint(AbstractCall):
         if tupleObj is None:
             return slots
 
-        assert tupleObj.obj().pythonType() is tuple, tupleObj
+        if tupleObj.obj().pythonType() is not tuple:
+            LOG.warning(
+                "expected tuple object for vargs/defaults at %r, got %r; "
+                "ignoring variable/default argument expansion",
+                self.op,
+                tupleObj,
+            )
+            return slots
 
         analysis = self.context.analysis
 
         lengthSlot = self.context.field(tupleObj, "LowLevel", analysis.pyObj("length"))
-        assert len(lengthSlot.values) == 1, tupleObj
+        if len(lengthSlot.values) != 1:
+            LOG.warning(
+                "tuple length is ambiguous at %r; ignoring variable/default argument expansion",
+                self.op,
+            )
+            return slots
         length = tuple(lengthSlot.values)[0].pyObj()
+        if not isinstance(length, int) or length < 0:
+            LOG.warning(
+                "tuple length is non-concrete at %r (%r); ignoring variable/default argument expansion",
+                self.op,
+                length,
+            )
+            return slots
 
         for i in range(length):
             slot = self.context.field(tupleObj, "Array", analysis.pyObj(i))
@@ -117,10 +145,20 @@ class UserCallConstraint(AbstractCall):
             selfObj, "Attribute", self.context.analysis.funcDefaultName
         )
         if defaultsSlot.null:
-            assert len(defaultsSlot.values) == 0
+            if defaultsSlot.values:
+                LOG.warning(
+                    "defaults slot has mixed null/non-null state at %r; "
+                    "ignoring defaults for conservativeness",
+                    self.op,
+                )
             return []
 
-        assert len(defaultsSlot.values) == 1
+        if len(defaultsSlot.values) != 1:
+            LOG.warning(
+                "defaults slot is ambiguous at %r; ignoring defaults for conservativeness",
+                self.op,
+            )
+            return []
 
         defaultsObj = tuple(defaultsSlot.values)[0]
 
@@ -130,10 +168,19 @@ class UserCallConstraint(AbstractCall):
         elif pt is tuple:
             return self.tupleSlots(defaultsObj)
         else:
-            assert False, "__defaults__ is a %r?" % pt
+            LOG.warning(
+                "unsupported __defaults__ type at %r: %r; ignoring defaults",
+                self.op,
+                pt,
+            )
+            return []
 
     def resolve(self, context):
         self.dirty = False
+
+        if self._unresolved_callee:
+            # Conservatively keep analysis running without crashing.
+            return
 
         for (selfobj, selflcl), (vargobj, varglcl) in itertools.product(
             self.selfObjects().items(), self.vargObjects().items()
@@ -141,6 +188,13 @@ class UserCallConstraint(AbstractCall):
             key = (selfobj, vargobj)
             if key not in self.cache:
                 self.cache[key] = None
+
+                if selfobj is None:
+                    LOG.warning(
+                        "skipping unresolved indirect call at %r (callee object is None)",
+                        self.op,
+                    )
+                    continue
 
                 code = self.getCode(context, selfobj)
 
@@ -293,6 +347,7 @@ class FlatCallConstraint(AbstractCall):
             len(self.defaultSlots),
             returnarglen,
         )
+        self._invalid_info_logged = False
 
         if self.info.maybeOK():
             if self.selfarg is not None:
@@ -310,8 +365,17 @@ class FlatCallConstraint(AbstractCall):
                 if arg is not None:
                     arg.attachTypeSplit(self.splitChanged)
         else:
-            # If the call signature cannot be matched, mark dirty to re-evaluate later
-            self.dirty = True
+            # The call shape cannot be represented by the current transfer model.
+            # Keep the engine running and surface this as a warning instead of
+            # trying to build impossible invocations.
+            if not self._invalid_info_logged:
+                LOG.warning(
+                    "skipping call binding for %r: %s",
+                    self.op,
+                    self.info.reason,
+                )
+                self._invalid_info_logged = True
+            self.dirty = False
 
     def splitChanged(self):
         if not self.dirty:
@@ -332,6 +396,16 @@ class FlatCallConstraint(AbstractCall):
         self.dirty = False
 
         info = self.info
+        if not info.maybeOK():
+            if not self._invalid_info_logged:
+                LOG.warning(
+                    "skipping call binding for %r: %s",
+                    self.op,
+                    info.reason,
+                )
+                self._invalid_info_logged = True
+            return
+
         ctsb = cpa.CPATypeSigBuilder(context.analysis, self, info)
         info.transfer(ctsb, ctsb)
         sigs = ctsb.signatures()

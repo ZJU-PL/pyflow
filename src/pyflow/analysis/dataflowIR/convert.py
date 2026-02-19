@@ -346,6 +346,9 @@ class CodeToDataflow(TypeDispatcher):
         # TODO predicated merge / mux?
         states = [state for state in states if state is not None]
 
+        if not states:
+            return None
+
         if len(states) == 1:
             # TODO is this sound?  Does it interfere with hyperblock definition?
             state = states.pop()
@@ -523,7 +526,22 @@ class CodeToDataflow(TypeDispatcher):
         node.visitChildren(self)
 
     def handleExit(self):
-        state = self.mergeStates(self.returns)
+        returns = list(self.returns)
+
+        # Preserve Python's implicit fallthrough return: if control can still
+        # reach the end of the body, include that state in exit construction.
+        if self.current is not None:
+            returns.append(self.popState())
+
+        state = self.mergeStates(returns)
+
+        if state is None:
+            # No reachable return path (e.g. body always raises/loops forever).
+            # Still materialize an exit node so downstream passes have a graph
+            # endpoint, but leave it with no outgoing value mapping.
+            self.dataflow.exit = graph.Exit(self.dataflow.entry.hyperblock)
+            self.dataflow.exit.setPredicate(self.dataflow.entryPredicate)
+            return
 
         killed = self.code.annotation.killed.merged
 

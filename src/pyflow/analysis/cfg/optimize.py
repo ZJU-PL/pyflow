@@ -43,6 +43,17 @@ class CFGOptPost(TypeDispatcher):
         # HACK unsound
         return isinstance(node, ast.Existing)
 
+    def isSafeFoldCondition(self, node):
+        """Return True only for conditions that are sound to fold.
+
+        We currently restrict folding to concrete boolean constants to avoid
+        collapsing branches on abstract/non-boolean Existing objects.
+        """
+        if not isinstance(node, ast.Existing):
+            return False
+        obj = node.object
+        return hasattr(obj, "pyobj") and isinstance(obj.pyobj, bool)
+
     def constToBool(self, node):
         """Convert a constant node to a boolean value.
 
@@ -73,7 +84,7 @@ class CFGOptPost(TypeDispatcher):
         Args:
             node: Switch CFG node to optimize.
         """
-        if self.isConst(node.condition):
+        if self.isSafeFoldCondition(node.condition):
             try:
                 result = self.constToBool(node.condition)
             except AttributeError:

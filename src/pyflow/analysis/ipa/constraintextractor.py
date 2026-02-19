@@ -5,10 +5,15 @@ into IPA constraint nodes and constraints. It traverses the AST and
 builds the constraint graph for inter-procedural analysis.
 """
 
+import logging
+import types
+
 from pyflow.util.typedispatch import *
 from pyflow.language.python import ast, program
 from .constraints import qualifiers
 from .calling import cpa
+
+LOG = logging.getLogger(__name__)
 
 
 class MarkParameters(TypeDispatcher):
@@ -97,6 +102,7 @@ class ConstraintExtractor(TypeDispatcher):
         self.code = code
 
         self.existing = {}
+        self._tmpuid = 0
 
     @dispatch(ast.leafTypes)
     def visitLeaf(self, node):
@@ -122,6 +128,58 @@ class ConstraintExtractor(TypeDispatcher):
         lcl.updateSingleValue(obj)
         return lcl
 
+    def _freshLocal(self, prefix):
+        lcl = self.context.local(ast.Local("%s_%d" % (prefix, self._tmpuid)))
+        self._tmpuid += 1
+        return lcl
+
+    def _unknownValueNode(self, prefix="unknown"):
+        """Return a conservative unknown value node (nullable object instance)."""
+        lcl = self._freshLocal(prefix)
+        inst = self.analysis.pyObjInst(object)
+        xtype = self.analysis.canonical.contextType(self.context.signature, inst, None)
+        obj = self.analysis.objectName(xtype, qualifiers.HZ)
+        lcl.markNull()
+        lcl.updateSingleValue(obj)
+        return lcl
+
+    def _assignUnknownTargets(self, targets, prefix, warning):
+        if not targets:
+            return
+        LOG.warning(warning)
+        unknown = self._unknownValueNode(prefix)
+        for target in targets:
+            self.context.assign(unknown, target)
+
+    def _normalizeKeywordArguments(self, node, args, kwds, kargs):
+        """Conservatively lower keyword arguments into positional flow."""
+        if not kwds and kargs is None:
+            return args, kwds, kargs
+
+        normalized = list(args)
+
+        for item in kwds or ():
+            if isinstance(item, (tuple, list)) and len(item) == 2:
+                _, value = item
+            else:
+                value = item
+                LOG.warning(
+                    "call %r has malformed kwds entry %r; treating as value-only",
+                    node,
+                    item,
+                )
+            if value is not None:
+                normalized.append(value)
+
+        if kargs is not None:
+            normalized.append(kargs)
+
+        LOG.warning(
+            "call %r uses keyword arguments; lowering to conservative positional flow",
+            node,
+        )
+        return normalized, [], None
+
     @dispatch(ast.Existing)
     def visitExisting(self, node, targets=None):
         obj = self.existingObject(node.object)
@@ -145,12 +203,7 @@ class ConstraintExtractor(TypeDispatcher):
         return None
 
     def call(self, node, expr, args, kwds, vargs, kargs, targets):
-        # Handle keyword arguments gracefully - skip for now
-        # This allows functions with **kwargs to be analyzed without crashing
-        if kwds:
-            kwds = []  # Ignore keyword arguments
-        if kargs is not None:
-            kargs = None  # Ignore **kwargs
+        args, kwds, kargs = self._normalizeKeywordArguments(node, args, kwds, kargs)
 
         # Bug N fix: the original code silently dropped calls where both
         # ``expr`` (the callee) and ``vargs`` are None, returning None without
@@ -171,8 +224,7 @@ class ConstraintExtractor(TypeDispatcher):
         # are no positional args, because in that degenerate case there is
         # truly nothing to dispatch on.
         if expr is None and vargs is None and not args:
-            import logging
-            logging.getLogger(__name__).debug(
+            LOG.warning(
                 "call: skipping unresolvable call at %r (expr=None, vargs=None, args=[])",
                 node,
             )
@@ -181,12 +233,7 @@ class ConstraintExtractor(TypeDispatcher):
         self.context.call(node, expr, args, kwds, vargs, kargs, targets)
 
     def dcall(self, node, code, expr, args, kwds, vargs, kargs, targets):
-        # Handle keyword arguments gracefully - skip for now
-        # This allows functions with **kwargs to be analyzed without crashing
-        if kwds:
-            kwds = []  # Ignore keyword arguments
-        if kargs is not None:
-            kargs = None  # Ignore **kwargs
+        args, kwds, kargs = self._normalizeKeywordArguments(node, args, kwds, kargs)
 
         self.context.dcall(node, code, expr, args, kwds, vargs, kargs, targets)
 
@@ -329,6 +376,14 @@ class ConstraintExtractor(TypeDispatcher):
         type_lcl = self.context.local(ast.Local("_ctype"))
         type_lcl.updateSingleValue(type_node)
         self.context.allocate(node, type_lcl, target)
+
+    def _allocateBuiltinObject(self, node, python_type, targets):
+        if targets is None:
+            return None
+        assert len(targets) == 1
+        target = targets[0]
+        self._allocateContainer(node, python_type, target)
+        return target
 
     def _storeContainerLength(self, node, container_lcl, length):
         """Store the integer *length* into the LowLevel/length slot.
@@ -500,34 +555,18 @@ class ConstraintExtractor(TypeDispatcher):
     def visitFunctionDef(self, node, targets=None):
         # Evaluate function definition for side effects (name, decorators, etc.)
         # The actual function body is handled separately via the code object
-        if targets is not None:
-            # Assign a placeholder temp if needed
-            temp = self.context.local(ast.Local("tmp_funcdef"))
-            self.context.assign(temp, targets[0])
-        else:
-            return None
+        return self._allocateBuiltinObject(node, types.FunctionType, targets)
 
     @dispatch(ast.ClassDef)
     def visitClassDef(self, node, targets=None):
         # Evaluate class definition for side effects (name, bases, decorators, body)
         # Class definitions themselves don't need complex analysis for IPA
-        if targets is not None:
-            # Assign a placeholder temp if needed
-            temp = self.context.local(ast.Local("tmp_classdef"))
-            self.context.assign(temp, targets[0])
-        else:
-            return None
+        return self._allocateBuiltinObject(node, type, targets)
 
     @dispatch(ast.MakeFunction)
     def visitMakeFunction(self, node, targets=None):
-        # Lambda functions are treated as pure values for IPA analysis
-        # The lambda body is analyzed separately when the lambda is called
-        # For now, we just return a placeholder since lambdas are first-class values
-        if targets is not None:
-            temp = self.context.local(ast.Local("tmp_lambda"))
-            self.context.assign(temp, targets[0])
-        else:
-            return None
+        # Materialize a callable object to preserve downstream call flow.
+        return self._allocateBuiltinObject(node, types.FunctionType, targets)
 
     @dispatch(ast.Import)
     def visitImport(self, node, targets=None):
@@ -542,9 +581,17 @@ class ConstraintExtractor(TypeDispatcher):
         name = self(node.name)
         if obj is None:
             if targets is None:
-                return None
+                LOG.warning(
+                    "unresolved attribute read at %r; returning conservative unknown",
+                    node,
+                )
+                return self._unknownValueNode("unknown_attr")
             else:
-                # Can't load attribute from None, assign None to target
+                self._assignUnknownTargets(
+                    targets,
+                    "unknown_attr",
+                    "unresolved attribute read assigned to target(s); using conservative unknown",
+                )
                 return
         if targets is None:
             tmp = self.context.local(ast.Local("attr_tmp"))

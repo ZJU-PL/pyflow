@@ -9,10 +9,14 @@ context maintains:
 - Summary (function summary for reuse)
 """
 
+import logging
+
 from . import invocation, region, objectname
 from pyflow.analysis.ipa.constraints import flow, calls, qualifiers, node
 
 from pyflow.analysis.ipa.summary import Summary
+
+LOG = logging.getLogger(__name__)
 
 
 class Context(object):
@@ -172,17 +176,33 @@ class Context(object):
         self.summary.dirty = True
 
     def call(self, op, selfarg, args, kwds, varg, karg, targets):
-        assert not kwds
-        assert not karg
+        if kwds or karg:
+            LOG.warning(
+                "context.call received unsupported keyword arguments at %r; "
+                "proceeding with conservative positional-only handling",
+                op,
+            )
 
         call = calls.CallConstraint(self, op, selfarg, args, kwds, varg, karg, targets)
         self.calls.append(call)
         return call
 
     def dcall(self, op, code, selfarg, args, kwds, varg, karg, targets):
+        if code is None:
+            LOG.warning(
+                "context.dcall received DirectCall with no code at %r; "
+                "falling back to indirect call resolution",
+                op,
+            )
+            return self.call(op, selfarg, args, kwds, varg, karg, targets)
+
         if selfarg is None and varg is None and karg is None:
-            assert not kwds
-            assert not karg
+            if kwds:
+                LOG.warning(
+                    "context.dcall received keyword arguments at %r in flat-call path; "
+                    "proceeding with conservative positional-only handling",
+                    op,
+                )
             return self.fcall(op, code, selfarg, args, [], [], targets)
         else:
             call = calls.DirectCallConstraint(
