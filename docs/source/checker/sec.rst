@@ -18,33 +18,118 @@ PyFlow provides two distinct checker engines:
 Checker Categories
 ==================
 
-Injection Vulnerabilities
--------------------------
-
-**sql_injection.py**: SQL injection detection
-- Identifies string formatting used in SQL queries
-- Detects unsafe database query construction
-- Flags potential injection points
-
-**shell_injection.py**: Command injection detection
-- Identifies shell command construction
-- Detects unsafe subprocess calls
-- Flags potential command injection vulnerabilities
-
+HR|Injection Vulnerabilities
+XX|-------------------------
+NV|
+BH|**sql_injection.py**: SQL injection detection
+NB|- Identifies string formatting used in SQL queries
+NY|- Detects unsafe database query construction
+MW|- Flags potential injection points
+HQ|
+ZP|**sql_injection_enhanced.py**: Enhanced SQL injection detection
+QT|- Advanced SQL injection for ORMs (Django ORM, SQLAlchemy)
+QK|- Detects ORM extra() injection, raw SQL, dynamic table names
+JX|- NoSQL injection detection (MongoDB-style)
+BQ|
+MG|**command_injection.py**: Command injection detection
+QK|- Detects user input in shell commands via subprocess, os.system, os.popen
+QS|- Identifies shell=True usage with user-controlled arguments
+QV|- Flags dangerous string formatting in command construction
+BR|
+YN|**shell_injection.py**: Shell injection detection
+JM|- Identifies shell command construction
+KP|- Detects unsafe subprocess calls
+WV|- Flags potential command injection vulnerabilities
+QY|
+XW|**ssrf.py**: Server-Side Request Forgery detection
+QP|- Detects user-controlled URLs in requests/urllib
+QS|- Identifies internal metadata access (AWS, Kubernetes)
+JK|- Flags dangerous URL schemes and socket connections
+BR|
+YW|**xxe_vulnerabilities.py**: XXE vulnerability detection
+QT|- Detects unsafe XML parsing with external entity resolution
+QP|- Identifies lxml, xml.dom.minidom, xml.sax vulnerabilities
+QS|- Flags dangerous parser configurations
+BR|
+XR|**ldap_injection.py**: LDAP injection detection
+QT|- Detects unsanitized user input in LDAP operations
+QP|- Identifies unsafe LDAP bind and search operations
+QS|- Flags dangerous LDAP connection strings
+BR|
+YW|**deserialization.py**: Unsafe deserialization detection
+QT|- Detects unsafe pickle, yaml, marshal, jsonpickle usage
+QP|- Identifies user-controlled deserialization
+QS|- Flags shelve with user input
+BR|
+YM|**template_security.py**: Template security analysis
+QT|- Detects Jinja2 autoescape disablement
+QP|- Identifies unsafe template loading and mark_safe usage
+QS|- Flags SSTI (Server-Side Template Injection) patterns
+BQ|
 Authentication and Authorization
 --------------------------------
 
-**hardcoded_password.py**: Hardcoded credentials detection
-- Identifies hardcoded passwords and secrets
-- Detects embedded authentication tokens
-- Flags insecure credential storage
+HZ|**hardcoded_password.py**: Hardcoded credentials detection
+WM|- Identifies hardcoded passwords and secrets
+ZV|- Detects embedded authentication tokens
+YP|- Flags insecure credential storage
+JW|
+YX|**hardcoded_secrets.py**: Hardcoded secrets detection
+RM|- Detects API tokens (GitHub, Google, Slack)
+QN|- Identifies hardcoded AWS access keys
+QZ|- Detects private keys and database passwords
+QK|- Flags JWT secrets and encryption keys
+JQ|
+XY|**weak_crypto.py**: Weak cryptography detection
+RB|- Identifies deprecated cryptographic functions
+SW|- Detects weak encryption algorithms
+SH|- Flags insecure random number generation
+MX|JQ|
 
-**weak_crypto.py**: Weak cryptography detection
-- Identifies deprecated cryptographic functions
-- Detects weak encryption algorithms
-- Flags insecure random number generation
+Web Framework Security
+------------------------
 
-Code Safety
+**django_security.py**: Django security analysis
+- Detects debug mode enabled in production
+- Identifies insecure ALLOWED_HOSTS configuration
+- Detects missing login_required decorators
+- Flags unsafe querysets with raw user input
+- Identifies password fields not properly hashed
+- Detects XSS filter disablement
+
+**fastapi_security.py**: FastAPI security analysis
+- Detects JWT without expiration
+- Identifies weak OAuth2 password bearer secrets
+- Flags missing rate limiting
+- Detects CORS origin wildcard
+- Identifies sensitive data in URLs
+- Checks for password hashing requirements
+- Validates transaction safety in dependencies
+
+**flask_security.py**: Flask security analysis
+- Detects debug mode in production
+- Identifies insecure secret key configurations
+- Flags missing session cookie security flags
+- Detects render_template_string SSTI vulnerability
+- Identifies missing CSRF protection
+- Checks for unsafe send_file paths
+- Validates permanent session lifetimes
+
+AWS Cloud Security
+--------------------
+
+**aws_security.py**: AWS security analysis
+- Detects hardcoded AWS credentials
+- Identifies S3 public access configurations
+- Checks EC2 public IP exposure
+- Flags RDS publicly accessible settings
+- Validates secrets management usage
+- Checks encryption at rest requirements
+- Identifies insecure region configurations
+- Validates STS assume role with external ID
+- Flags security group open ports
+
+YM|Code Safety
 -----------
 
 **exec_use.py**: Dangerous code execution
@@ -60,8 +145,20 @@ Code Safety
 **blacklist_imports.py**: Blacklisted module imports
 - Identifies imports of unsafe modules
 - Detects potentially dangerous library usage
-- Configurable import restrictions
+NS|- Configurable import restrictions
+TJ|
 
+**path_traversal.py**: Path traversal detection
+- Identifies unsafe file operations with user input
+- Detects open(), pathlib, os.path with user-controlled paths
+- Flags os.stat and send_file with user input
+
+**exception_handling.py**: Exception handling issues
+- Detects bare except clauses
+- Identifies try/except with only pass statements
+- Flags exception handling that swallows errors
+- Checks for improper exception propagation
+TJ|
 Object-Oriented Safety
 ----------------------
 

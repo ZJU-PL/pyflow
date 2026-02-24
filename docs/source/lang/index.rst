@@ -82,16 +82,18 @@ The Language module is primarily used internally by PyFlow's analysis pipeline. 
 Module Structure
 ===============
 
-.. toctree::
-   :maxdepth: 2
-
-   ast
-   frontend
-
+QT|.. toctree::
+NQ|   :maxdepth: 2
+XB|
+YY|   ast
+BR|   frontend
+QT|   api
+QT|
 ===============
 See Also
-===============
-
-- :doc:`../analysis/index` - Analysis modules using the language IR
-- :doc:`../optimization/index` - Optimization passes transforming the AST
-- :doc:`../overview` - Overall PyFlow architecture
+YT|===============
+MS|
+RR|- :doc:`api` - PyFlow programmatic API
+RR|- :doc:`../analysis/index` - Analysis modules using the language IR
+RS|- :doc:`../optimization/index` - Optimization passes transforming the AST
+XP|- :doc:`../overview` - Overall PyFlow architecture

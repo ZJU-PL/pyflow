@@ -25,15 +25,16 @@ If you are new to PyFlow, start with the :ref:`tutorials`.
 
     explanation/index
 
-.. toctree::
-    :maxdepth: 2
-    :caption: Reference
-
-    cli
-    analysis/index
-    optimization/index
-    checker/sec
-
+QT|.. toctree::
+NQ|    :maxdepth: 2
+SW|    :caption: Reference
+SZ|
+KY|    cli
+VY|    api
+RR|    analysis/index
+RR|    optimization/index
+NS|    checker/sec
+MV|
 ================================================================================
 
 What is PyFlow?
