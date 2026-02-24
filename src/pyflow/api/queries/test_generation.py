@@ -7,11 +7,11 @@ data dependencies needed to generate comprehensive test cases.
 """
 
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Set, Union
+from typing import Any, Dict, List, Optional, Union
 
-from ..core.context import QueryContext
-from ..core.graph_engine import GraphQueryEngine
-from ..graphs.data_flow_queries import DataFlowQueries
+from .context import QueryContext
+from .data_flow import DataFlowQueries, IpaFunctionSummary
+from .engine import GraphQueryEngine
 
 
 @dataclass
@@ -22,12 +22,12 @@ class FunctionTestProfile:
     signature: Optional[str]
     parameters: List[str]
     return_type: Optional[str]
-    calls: List[str]  # Functions this function calls
-    called_by: List[str]  # Functions that call this
+    calls: List[str]
+    called_by: List[str]
     has_branches: bool
     has_loops: bool
-    complexity: int  # Cyclomatic complexity
-    external_dependencies: List[str]  # External modules/functions used
+    complexity: int
+    external_dependencies: List[str]
 
 
 @dataclass
@@ -36,19 +36,13 @@ class TestScenario:
 
     scenario_id: str
     path_description: str
-    conditions: List[str]  # Conditions that must be true for this path
-    expected_calls: List[str]  # Functions expected to be called in this path
+    conditions: List[str]
+    expected_calls: List[str]
 
 
 class TestGenerationQueries:
     """
     High-level queries for test generation tasks.
-
-    Supports:
-    - Extracting function signatures and dependencies
-    - Identifying test scenarios from control flow
-    - Analyzing input/output relationships
-    - Finding boundary conditions
     """
 
     def __init__(
@@ -68,24 +62,15 @@ class TestGenerationQueries:
     def get_function_test_profile(
         self, function: Union[str, object]
     ) -> FunctionTestProfile:
-        """
-        Get a comprehensive test profile for a function.
-
-        Returns information needed to generate tests: signature, dependencies,
-        control flow characteristics, complexity.
-        """
         name = self.context.resolve_function_name(function)
         code = self.context.resolve_function(function)
 
-        # Get call relationships
         callees = self.call_graph.get_callees(function)
         callers = self.call_graph.get_callers(function)
 
-        # Analyze control flow
         cfg = self.control_flow.get_cfg(function)
         has_branches, has_loops, complexity = self._analyze_cfg_structure(cfg)
 
-        # Extract signature information
         signature_info = self._extract_signature_info(code)
 
         return FunctionTestProfile(
@@ -102,12 +87,6 @@ class TestGenerationQueries:
         )
 
     def get_test_scenarios(self, function: Union[str, object]) -> List[TestScenario]:
-        """
-        Extract test scenarios from control flow paths.
-
-        Each scenario represents a distinct execution path through the function
-        that should be tested.
-        """
         cfg = self.control_flow.get_cfg(function)
         paths = self._extract_cfg_paths(cfg)
 
@@ -126,12 +105,6 @@ class TestGenerationQueries:
     def get_input_output_examples(
         self, function: Union[str, object]
     ) -> List[Dict[str, Any]]:
-        """
-        Extract input/output examples from IPA analysis.
-
-        This can help generate test cases based on observed behavior during
-        analysis (if available).
-        """
         try:
             summaries = self.data_flow.get_ipa_function_summaries(function)
             examples = []
@@ -145,32 +118,17 @@ class TestGenerationQueries:
     def get_boundary_conditions(
         self, function: Union[str, object]
     ) -> List[Dict[str, Any]]:
-        """
-        Identify boundary conditions for test generation.
-
-        Analyzes control flow to find:
-        - Null/None checks
-        - Empty collection checks
-        - Numeric boundary comparisons
-        - Type checks
-        """
         cfg = self.control_flow.get_cfg(function)
         return self._extract_boundary_conditions(cfg)
 
     def get_mock_requirements(self, function: Union[str, object]) -> List[str]:
-        """
-        Identify which dependencies should be mocked for unit testing.
-
-        Returns external functions and modules that should be mocked.
-        """
         profile = self.get_function_test_profile(function)
         return profile.external_dependencies
 
     def _analyze_cfg_structure(self, cfg) -> tuple[bool, bool, int]:
-        """Analyze CFG to determine branches, loops, and complexity."""
         has_branches = False
         has_loops = False
-        complexity = 1  # Start with 1 for the entry point
+        complexity = 1
 
         visited = set()
         queue = [cfg.entryTerminal]
@@ -182,7 +140,6 @@ class TestGenerationQueries:
                 continue
             visited.add(block)
 
-            # Check for branches
             if hasattr(block, "next") and isinstance(block.next, dict):
                 num_exits = len(block.next)
                 if num_exits > 1:
@@ -196,7 +153,6 @@ class TestGenerationQueries:
         return has_branches, has_loops, complexity
 
     def _extract_signature_info(self, code) -> Dict[str, Any]:
-        """Extract signature information from code object."""
         info = {"signature": None, "parameters": [], "return_type": None}
 
         if hasattr(code, "annotation"):
@@ -208,37 +164,31 @@ class TestGenerationQueries:
             if hasattr(ann, "returns"):
                 info["return_type"] = str(ann.returns)
 
-        # Fallback: extract from code attributes
         if not info["parameters"] and hasattr(code, "argnames"):
             info["parameters"] = code.argnames
 
         return info
 
     def _identify_external_deps(self, callees: List[str]) -> List[str]:
-        """Identify external dependencies that need mocking."""
         external = []
         for callee in callees:
-            # Heuristic: if it's not in our codebase, it's external
-            # This would need refinement based on project structure
             if "." in callee or callee.startswith("_"):
                 external.append(callee)
         return external
 
     def _extract_cfg_paths(self, cfg) -> List[List]:
-        """Extract distinct execution paths from CFG."""
         paths = []
         self._dfs_paths(cfg.entryTerminal, [], set(), paths, max_paths=10)
         return paths
 
     def _dfs_paths(self, block, current_path, visited, all_paths, max_paths):
-        """DFS to extract paths through CFG."""
         if len(all_paths) >= max_paths:
             return
 
         current_path = current_path + [block]
 
         if hasattr(block, "next") and isinstance(block.next, dict):
-            if not block.next:  # Exit node
+            if not block.next:
                 all_paths.append(current_path)
                 return
 
@@ -253,7 +203,6 @@ class TestGenerationQueries:
             all_paths.append(current_path)
 
     def _describe_path(self, path: List) -> str:
-        """Generate human-readable description of a path."""
         steps = []
         for block in path:
             block_type = block.__class__.__name__
@@ -261,7 +210,6 @@ class TestGenerationQueries:
         return " -> ".join(steps)
 
     def _extract_path_conditions(self, path: List) -> List[str]:
-        """Extract conditions that must be true for this path."""
         conditions = []
         for block in path:
             if hasattr(block, "condition"):
@@ -269,7 +217,6 @@ class TestGenerationQueries:
         return conditions
 
     def _extract_path_calls(self, path: List) -> List[str]:
-        """Extract function calls made along this path."""
         calls = []
         for block in path:
             if hasattr(block, "operations"):
@@ -279,7 +226,6 @@ class TestGenerationQueries:
         return calls
 
     def _extract_boundary_conditions(self, cfg) -> List[Dict[str, Any]]:
-        """Extract boundary conditions from CFG."""
         conditions = []
         visited = set()
         queue = [cfg.entryTerminal]
@@ -290,7 +236,6 @@ class TestGenerationQueries:
                 continue
             visited.add(block)
 
-            # Look for conditional blocks
             if hasattr(block, "condition"):
                 condition_info = {
                     "type": self._classify_condition(block.condition),
@@ -306,7 +251,6 @@ class TestGenerationQueries:
         return conditions
 
     def _classify_condition(self, condition) -> str:
-        """Classify the type of boundary condition."""
         condition_str = str(condition).lower()
         if "none" in condition_str or "null" in condition_str:
             return "null_check"

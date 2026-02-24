@@ -65,6 +65,9 @@ python_files = ["test_*.py", "*_test.py"]
 python_classes = ["Test*"]
 python_functions = ["test*"]
 norecursedirs = ["tests/full"]
+markers = [
+    "integration: integration tests (CLI, full pipeline); run with -m integration",
+]
 addopts = [
     "--strict-markers",
     "--strict-config",

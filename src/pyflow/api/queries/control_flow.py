@@ -1,14 +1,14 @@
 """
-Control-flow helpers for coding agents.
+Control-flow query helpers for PyFlow.
 
 These queries expose CFG/SSA/CDG insights via the GraphQueryEngine without
 forcing consumers to depend on the engine directly.
 """
 
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, Union
 
-from ..core.context import QueryContext
-from ..core.graph_engine import GraphQueryEngine
+from .context import QueryContext
+from .engine import GraphQueryEngine
 
 
 class ControlFlowQueries:

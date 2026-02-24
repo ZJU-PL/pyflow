@@ -1,5 +1,5 @@
 """
-Shared context for query engines.
+Shared context for PyFlow query engines.
 """
 
 from typing import Optional, Union
@@ -10,6 +10,7 @@ from pyflow.application.errors import TemporaryLimitation
 class QueryContext:
     """
     Encapsulates the state required for querying semantic facts.
+
     Holds references to the compiler and program, and provides
     common resolution logic.
     """

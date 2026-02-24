@@ -66,7 +66,7 @@ from .program import Program
 from .pipeline import Pipeline
 from .context import Context
 from .errors import CompilerAbort
-from .queries import SemanticQueryService, IpaFunctionSummary
+from pyflow.api.queries import SemanticQueryService, IpaFunctionSummary
 
 # Pass manager system
 from .passmanager import (

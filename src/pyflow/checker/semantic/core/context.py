@@ -11,7 +11,7 @@ from typing import Dict, Iterable, List, Optional, Sequence, Tuple, Union
 from pyflow.application.context import CompilerContext
 from pyflow.application.pipeline import Pipeline
 from pyflow.application.program import Program
-from pyflow.application.queries.service import SemanticQueryService
+from pyflow.api.queries import SemanticQueryService
 from pyflow.frontend.programextractor import (
     Extractor,
     create_interface_from_paths,

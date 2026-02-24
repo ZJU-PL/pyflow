@@ -1,27 +1,23 @@
 """
 Semantic query service for PyFlow.
 
-This service reorganizes node-centric facts into agent-ready groupings such as
-"call graph driven" insights for patch/test reasoning and "semantic fact"
-answers for unit test generation or alias/lifetime-aware tasks.
+This service provides a unified facade for querying analysis results,
+wrapping the various query classes for convenient access.
 """
 
-from typing import Dict, Optional, Union, List, Any
+from typing import Any, Dict, List, Optional, Union
 
-from .core import (
+from .call_graph import CallGraphQueries
+from .capabilities import (
     DEFAULT_MODE,
     MCPServerMode,
-    QueryContext,
-    GraphQueryEngine,
     get_server_mode_description,
     resolve_capabilities,
 )
-from .graphs import (
-    CallGraphQueries,
-    ControlFlowQueries,
-    DataFlowQueries,
-    IpaFunctionSummary,
-)
+from .context import QueryContext
+from .control_flow import ControlFlowQueries
+from .data_flow import DataFlowQueries, IpaFunctionSummary
+from .engine import GraphQueryEngine
 
 
 class SemanticQueryService:
@@ -67,12 +63,11 @@ class SemanticQueryService:
     def _reset_graph_cache(self):
         self.graph_engine.reset_cache()
 
-    # Delegate to GraphQueryEngine
+    # Control flow queries
     def get_cfg(self, function: Union[str, object]):
         return self.control_flow_queries.get_cfg(function)
 
     def get_cfg_structure(self, function: Union[str, object]) -> Dict[str, Any]:
-        """Return a JSON-friendly structure of the CFG."""
         return self.control_flow_queries.get_cfg_structure(function)
 
     def get_ssa(self, function: Union[str, object]):
@@ -81,10 +76,10 @@ class SemanticQueryService:
     def get_cdg(self, function: Union[str, object]):
         return self.control_flow_queries.get_cdg(function)
 
+    # Call graph queries
     def get_callgraph(self):
         return self.call_graph_queries.get_callgraph()
 
-    # Call-graph driven helpers for patch/test reasoning
     def get_callers(self, function: Union[str, object]) -> List[str]:
         return self.call_graph_queries.get_callers(function)
 
@@ -106,7 +101,7 @@ class SemanticQueryService:
     ) -> Optional[List[str]]:
         return self.call_graph_queries.get_shortest_path(source, target)
 
-    # Semantic facts for unit test generation and alias reasoning
+    # Data flow queries
     def get_reaching_defs(self, function: Union[str, object]):
         return self.data_flow_queries.get_reaching_defs(function)
 

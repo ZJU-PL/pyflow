@@ -2,12 +2,13 @@
 Graph query engine for PyFlow.
 """
 
-from typing import Dict, Optional, Union, Any, List
+from typing import Any, Dict, List, Optional, Union
 
 from pyflow.analysis.callgraph import CallGraph
-from pyflow.analysis.cfg import transform as cfg_transform
 from pyflow.analysis.cfg import ssa as cfg_ssa
+from pyflow.analysis.cfg import transform as cfg_transform
 from pyflow.analysis.cdg import construct_cdg
+
 from .context import QueryContext
 
 
@@ -98,7 +99,6 @@ class GraphQueryEngine:
         visited = set()
         queue = [cfg.entryTerminal]
 
-        # Helper to get block ID safely
         def get_bid(b):
             return getattr(b, "bid", id(b))
 
@@ -108,17 +108,12 @@ class GraphQueryEngine:
                 continue
             visited.add(block)
 
-            # Add block info
-            # Note: This is a simplified view. Real CFG blocks have complex content.
             block_info = {
                 "id": get_bid(block),
                 "type": block.__class__.__name__,
-                # "operations": str(block) # simplistic
             }
             blocks_data.append(block_info)
 
-            # Follow edges
-            # CFG blocks use .next dictionary mapping exit name to successor
             if hasattr(block, "next") and isinstance(block.next, dict):
                 for exit_type, target in block.next.items():
                     edges_data.append(

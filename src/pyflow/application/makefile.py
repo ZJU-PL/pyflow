@@ -31,8 +31,11 @@ from pyflow.util.application.console import Console
 
 from pyflow.application import context
 from pyflow.application.program import Program
-
-from . import interface
+from pyflow.api.entrypoints import (
+    ExistingWrapper,
+    InstanceWrapper,
+    ClassDeclaration,
+)
 
 
 def importDeep(name):
@@ -97,10 +100,10 @@ class Makefile(object):
         self.outdir = os.path.normpath(os.path.join(self.workingdir, path))
 
     def declConst(self, value):
-        return interface.ExistingWrapper(value)
+        return ExistingWrapper(value)
 
     def declInstance(self, typename):
-        return interface.InstanceWrapper(typename)
+        return InstanceWrapper(typename)
 
     def declConfig(self, **kargs):
         for k, v in kargs.items():
@@ -111,7 +114,7 @@ class Makefile(object):
 
     def declClass(self, cls):
         assert isinstance(cls, type), cls
-        wrapped = interface.ClassDeclaration(cls)
+        wrapped = ClassDeclaration(cls)
         self.interface.cls.append(wrapped)
         return wrapped
 
@@ -164,9 +167,9 @@ class Makefile(object):
             "func": self.declFunction,
             "cls": self.declClass,
             "entryPoint": self.declEntryPoint,
-            # Attribute declarations
-            "attrslot": interface.AttrDeclaration,
-            "arrayslot": interface.ArrayDeclaration,
+            # Attribute declarations (stubs for DSL compatibility)
+            "attrslot": (lambda *args, **kwargs: None),
+            "arrayslot": (lambda *args, **kwargs: None),
         }
 
         f = open(self.filename)

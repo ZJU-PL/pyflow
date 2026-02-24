@@ -372,10 +372,10 @@ def find_python_files(directory, args):
 
 def create_interface_from_paths(python_files, args):
     """Create a basic interface from multiple Python files using dependency resolver."""
-    from pyflow.application import interface
+    from pyflow.api.entrypoints import InterfaceDeclaration
     from pyflow.frontend.dependency_resolver import DependencyResolver
 
-    interface_decl = interface.InterfaceDeclaration()
+    interface_decl = InterfaceDeclaration()
     all_source_code = {}
 
     resolver = DependencyResolver(

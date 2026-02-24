@@ -133,31 +133,24 @@ Create custom output formatters:
 
 .. code-block:: python
 
-   from pyflow.application.interface.formatter import OutputFormatter
+    from pyflow.analysis.callgraph.formats import generate_text_output
 
-   class MyCustomFormatter(OutputFormatter):
-       """Custom output formatter."""
+    def my_custom_formatter(call_graph, args):
+        """Custom output formatter."""
+        # Custom formatting logic
+        return f"Custom: {len(call_graph.get())} functions"
 
-       def format_callgraph(self, callgraph):
-           """Format call graph output."""
-           # Custom formatting logic
-           return custom_string_representation
-
-       def format_cfg(self, cfg):
-           """Format CFG output."""
-           # Custom formatting logic
-           return custom_string_representation
-
-   # Register the formatter
-   from pyflow.interface.formatter import FormatterRegistry
-   FormatterRegistry.register("my_format", MyCustomFormatter)
+    # Use the formatter with your call graph
+    output = my_custom_formatter(call_graph, args)
 
 Using Custom Formatter
 ----------------------
 
-.. code-block:: bash
+.. code-block:: python
 
-   pyflow callgraph input.py --format my_format
+   # Use your custom formatter directly
+   output = my_custom_formatter(call_graph, args)
+   print(output)
 
 Advanced Configuration
 ======================

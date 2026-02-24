@@ -54,8 +54,8 @@ class TestCPA(unittest.TestCase):
             (
                 func,
                 (
-                    pyflow.application.interface.ExistingWrapper(3),
-                    pyflow.application.interface.ExistingWrapper(5),
+                    pyflow.api.entrypoints.ExistingWrapper(3),
+                    pyflow.api.entrypoints.ExistingWrapper(5),
                 ),
             )
         )
@@ -100,7 +100,7 @@ class TestCPA(unittest.TestCase):
         program = pyflow.application.program.Program()
 
         program.interface.func.append(
-            (func, (pyflow.application.interface.ExistingWrapper(5),))
+            (func, (pyflow.api.entrypoints.ExistingWrapper(5),))
         )
 
         compiler.program = program

@@ -244,9 +244,9 @@ class TestExtractProgram(unittest.TestCase):
 
     def test_extract_program_with_interface(self):
         """Test extractProgram with interface."""
-        from pyflow.application import interface
+        from pyflow.api.entrypoints import InterfaceDeclaration
         
-        interface_decl = interface.InterfaceDeclaration()
+        interface_decl = InterfaceDeclaration()
         self.program.interface = interface_decl
         
         extractor = Extractor(self.compiler, verbose=False)

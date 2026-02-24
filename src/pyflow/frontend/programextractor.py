@@ -600,11 +600,11 @@ def extractProgram(compiler: CompilerContext, program: Program) -> None:
 
 def create_interface_from_paths(python_files, args):
     """Create a basic interface from multiple Python files using enhanced dependency resolver."""
-    from pyflow.application import interface
+    from pyflow.api.entrypoints import InterfaceDeclaration
     from pyflow.frontend.dependency_resolver import DependencyResolver
     from pyflow.frontend.class_hierarchy import ClassHierarchy
 
-    interface_decl = interface.InterfaceDeclaration()
+    interface_decl = InterfaceDeclaration()
     all_source_code = {}
 
     # Create shared class hierarchy for cross-module analysis

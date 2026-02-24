@@ -22,13 +22,16 @@ that defines the example code to be compiled and tested.
 
 from __future__ import absolute_import
 
-import unittest
 import os.path
+import unittest
 
-from .fullcompiler import compileExample
+import pytest
 
+from .fullcompiler import compileExample, FULL_INTEGRATION
 from pyflow.util.debug.debugger import conditionalDebugOnFailiure
 import pyflow.config
+
+pytestmark = pytest.mark.integration
 
 
 example = True
@@ -70,21 +73,15 @@ class FullTestBase(unittest.TestCase):
 
     def compare(self, name, *args):
         """Compare the output of a function between original and generated modules.
-        
-        Args:
-            name: Name of the function to compare
-            *args: Arguments to pass to the function
-            
-        Note: Currently disabled (no-op). To enable actual comparison,
-        uncomment the implementation below that calls both versions and
-        asserts equality.
+
+        When PYFLOW_FULL_INTEGRATION is set, both modules are loaded and
+        outputs are asserted equal. Otherwise this is a no-op.
         """
-        pass  # HACK test is disabled
-
-
-# 		original = getattr(self.module, name)
-# 		generated = getattr(self.generated, name)
-# 		self.assertEqual(original(*args), generated(*args))
+        if not FULL_INTEGRATION or self.module is None or self.generated is None:
+            return
+        original = getattr(self.module, name)
+        generated = getattr(self.generated, name)
+        self.assertEqual(original(*args), generated(*args))
 
 if example:
 

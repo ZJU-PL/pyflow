@@ -1,33 +1,28 @@
 """
-Application Interface Declarations.
+Interface declarations for PyFlow analysis.
 
 This module provides data structures for declaring and representing
 program entry points and class interfaces in the PyFlow analysis framework.
-
-Classes:
-    ClassDeclaration: Declares a class with its initialization, attributes, and methods.
-    EntryPoint: Represents a callable entry point with argument information.
-    InterfaceDeclaration: Aggregates function and class declarations into analyzable interfaces.
-
-These structures are used during program extraction to convert Python code
-into a form suitable for static analysis. Interface declarations translate
-functions, classes, and their methods into unified entry points that the
-analysis pipeline can process.
-
-Example:
-    >>> decl = InterfaceDeclaration()
-    >>> cls = ClassDeclaration(MyClass)
-    >>> cls.init(arg1, arg2)
-    >>> cls.method('method_name', arg1)
-    >>> decl.cls.append(cls)
-    >>> decl.translate(extractor)  # Convert to entry points
 """
 
-import pyflow.util as util
-from .argwrapper import *
+from .entry_point import EntryPoint
+from .wrappers import ExistingWrapper, InstanceWrapper, nullWrapper
 
 
-class ClassDeclaration(object):
+class ClassDeclaration:
+    """
+    Declares a class with its initialization, attributes, and methods.
+
+    Used to define how a class should be analyzed, including which
+    constructor signatures, attributes, and method signatures to include.
+
+    Attributes:
+        typeobj: The class type object
+        _init: List of constructor argument tuples
+        _attr: List of attribute names
+        _method: Dict mapping method names to argument tuples
+    """
+
     def __init__(self, cls):
         self.typeobj = cls
         self._init = []
@@ -43,62 +38,37 @@ class ClassDeclaration(object):
     def method(self, name, *args):
         if name not in self._method:
             self._method[name] = []
-
         self._method[name].append(args)
 
 
-class EntryPoint(object):
-    __slots__ = "code", "selfarg", "args", "kwds", "varg", "karg", "group", "contexts"
+class InterfaceDeclaration:
+    """
+    Aggregates function and class declarations into analyzable interfaces.
 
-    def __init__(self, code, selfarg, args, kwds, varg, karg):
-        assert isinstance(selfarg, ArgumentWrapper), selfarg
+    This is the main entry point for declaring what should be analyzed.
+    Function and class declarations are added, then translated into
+    EntryPoints for the analysis pipeline.
 
-        for arg in args:
-            assert isinstance(arg, ArgumentWrapper), arg
+    Attributes:
+        func: List of (function, args) tuples for function entry points
+        cls: List of ClassDeclaration objects for class entry points
+        entryPoint: List of EntryPoint objects after translation
+        translated: Whether translate() has been called
+    """
 
-        assert not kwds
-
-        assert isinstance(varg, ArgumentWrapper), varg
-        assert isinstance(karg, ArgumentWrapper), karg
-
-        self.code = code
-        self.selfarg = selfarg
-        self.args = args
-        self.kwds = kwds
-        self.varg = varg
-        self.karg = karg
-        self.group = None
-        self.contexts = []
-
-    def name(self):
-        return self.code.codeName()
-
-    def __repr__(self):
-        return "EntryPoint(%r, %d)" % (self.code, len(self.args))
-
-
-class InterfaceDeclaration(object):
     __slots__ = "func", "cls", "entryPoint", "translated"
 
     def __init__(self):
-
         self.func = []
         self.cls = []
-
-        # Entry points, derived from other declarations.
         self.entryPoint = []
-
         self.translated = False
 
     def translate(self, extractor):
         assert not self.translated
-        # print(f"DEBUG: Interface translate called with {len(self.func)} functions")
-
         self.entryPoint = []
-
         self._extractFunc(extractor)
         self._extractCls(extractor)
-
         self.translated = True
 
     def createEntryPoint(
@@ -120,17 +90,13 @@ class InterfaceDeclaration(object):
     def _createEntryPoint(self, code, selfarg, args, kwds, varg, karg, group):
         ep = EntryPoint(code, selfarg, args, kwds, varg, karg)
         ep.group = group if group is not None else ep
-
         self.entryPoint.append(ep)
         return ep
 
     def _extractFunc(self, extractor):
         for expr, args in self.func:
-            # print(f"DEBUG: Interface translating function {expr.__name__ if hasattr(expr, '__name__') else 'unknown'}")
             fobj, code = extractor.getObjectCall(expr)
-            # Free functions should not pass a self argument
             selfarg = nullWrapper
-            # If no args provided, synthesize placeholder args to match arity
             if not args:
                 try:
                     num_params = len(code.codeparameters.params)
@@ -138,14 +104,13 @@ class InterfaceDeclaration(object):
                     num_params = 0
                 args = [ExistingWrapper(None) for _ in range(num_params)]
 
-            ep = self.createEntryPoint(
+            self.createEntryPoint(
                 code, selfarg, tuple(args), [], nullWrapper, nullWrapper, None
             )
 
     def getMethCode(self, cls, name, extractor):
         meth = getattr(cls.typeobj, name)
         func = meth.im_func
-
         fobj, code = extractor.getObjectCall(func)
         selfarg = ExistingWrapper(func)
         return selfarg, code
@@ -158,7 +123,6 @@ class InterfaceDeclaration(object):
             call = extractor.stubs.exports["interpreter_call"]
             getter = extractor.stubs.exports["interpreter_getattribute"]
 
-            # Type call/init
             group = None
             for args in cls._init:
                 ep = self.createEntryPoint(
@@ -167,11 +131,9 @@ class InterfaceDeclaration(object):
                 if group is None:
                     group = ep
 
-            # Attribute getters
-            # TODO setters
             for attr in cls._attr:
                 name = ExistingWrapper(attr)
-                ep = self.createEntryPoint(
+                self.createEntryPoint(
                     getter,
                     nullWrapper,
                     (inst, name),
@@ -181,7 +143,6 @@ class InterfaceDeclaration(object):
                     None,
                 )
 
-            # Method calls
             for name, arglist in cls._method.items():
                 selfarg, code = self.getMethCode(cls, name, extractor)
 

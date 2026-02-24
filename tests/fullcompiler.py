@@ -1,6 +1,15 @@
+import os
 import time
 import importlib.util
 from pyflow.application.makefile import Makefile
+
+# Set PYFLOW_FULL_INTEGRATION=1 to enable loading and comparing compiled modules
+# (default: disabled so tests run quickly and avoid import failures from generated code).
+FULL_INTEGRATION = os.environ.get("PYFLOW_FULL_INTEGRATION", "").lower() in (
+    "1",
+    "true",
+    "yes",
+)
 
 compileCache = {}
 loadCache = {}
@@ -22,7 +31,8 @@ def compileExample(filename):
 
         compileCache[filename] = make
 
-    return None, None  # HACK prevents further compilation
+    if not FULL_INTEGRATION:
+        return None, None
 
     if not filename in loadCache:
         make = compileCache[filename]

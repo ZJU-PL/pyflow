@@ -15,7 +15,7 @@ throughout the analysis pipeline.
 - Class Hierarchy: Cross-module class hierarchy with MRO resolution
 """
 
-from . import interface
+from pyflow.api.entrypoints import InterfaceDeclaration
 
 
 class Program(object):
@@ -79,7 +79,7 @@ class Program(object):
         - No IPA analysis results
         - No class hierarchy (populated during extraction)
         """
-        self.interface = interface.InterfaceDeclaration()
+        self.interface = InterfaceDeclaration()
         self.storeGraph = None
         self.entryPoints = []
         self.liveCode = set()
@@ -94,8 +94,7 @@ class Program(object):
 
     def get_semantic_queries(self, compiler, server_mode=None):
         """Get or create a semantic query service for this program."""
-        from .queries import SemanticQueryService
-        from .queries import DEFAULT_MODE
+        from pyflow.api.queries import SemanticQueryService, DEFAULT_MODE
 
         mode = server_mode or DEFAULT_MODE
         if (

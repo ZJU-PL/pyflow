@@ -1,17 +1,15 @@
 """
-Call-graph driven helpers for coding agents.
+Call-graph query helpers for PyFlow.
 
 These queries surface agent-friendly insights such as reachable functions,
 callers, and shortest call paths without exposing the raw graph objects
-directly. They are intended to support workflows like patch generation
-and change-impact understanding where agents care about high-level
-function interactions.
+directly.
 """
 
 from typing import Dict, List, Optional, Set, Union
 
-from ..core.context import QueryContext
-from ..core.graph_engine import GraphQueryEngine
+from .context import QueryContext
+from .engine import GraphQueryEngine
 
 
 class CallGraphQueries:
