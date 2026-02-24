@@ -182,7 +182,7 @@ def makeInteger(collector):
 
     @replaceAttr(int, "__lt__")
     @llfunc
-    def int__le__(self, other):
+    def int__lt__(self, other):
         if isinstance(other, int):
             return prim_int_lt(self, other)
         elif isinstance(other, float):
@@ -202,7 +202,7 @@ def makeInteger(collector):
 
     @replaceAttr(int, "__gt__")
     @llfunc
-    def int__lge__(self, other):
+    def int__gt__(self, other):
         if isinstance(other, int):
             return prim_int_gt(self, other)
         elif isinstance(other, float):

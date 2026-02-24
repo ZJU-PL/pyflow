@@ -31,6 +31,14 @@ TupleIteratorType = type(iter(()))
 ListIteratorType = type(iter([]))
 XRangeIteratorType = type(iter(range(1)))
 
+# Dict iterator types
+DictKeyIteratorType = type(iter({}.keys()))
+DictValueIteratorType = type(iter({}.values()))
+DictItemIteratorType = type(iter({}.items()))
+
+# Set iterator type
+SetIteratorType = type(iter(set()))
+
 
 # Types that require stub generation for static analysis
 # These types have C-level implementations that need Python stubs to be analyzed
