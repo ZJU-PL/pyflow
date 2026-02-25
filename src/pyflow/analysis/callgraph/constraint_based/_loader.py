@@ -40,7 +40,7 @@ class _LoaderMixin:
                 if not imported_path:
                     continue
                 try:
-                    with open(imported_path, "r") as handle:
+                    with open(imported_path, "r", encoding="utf-8") as handle:
                         src = handle.read()
                 except OSError:
                     continue
@@ -73,9 +73,26 @@ class _LoaderMixin:
         package_parts = current_module.split(".")
         if package_parts and package_parts[-1] == "__init__":
             package_parts = package_parts[:-1]
-        if level > len(package_parts):
+            is_package_module = True
+        else:
+            module_info = self.modules.get(current_module)
+            is_package_module = bool(
+                module_info
+                and module_info.path
+                and os.path.basename(module_info.path) == "__init__.py"
+            )
+            if not is_package_module and "." not in current_module and current_module != "main":
+                # Without a loaded module path we cannot always distinguish
+                # package modules from top-level .py modules.
+                # Prefer package anchoring for non-entry single-segment names.
+                is_package_module = True
+        if package_parts and not is_package_module:
+            package_parts = package_parts[:-1]
+
+        ascents = level - 1
+        if ascents > len(package_parts):
             return imported_module
-        prefix = ".".join(package_parts[: len(package_parts) - level + 1])
+        prefix = ".".join(package_parts[: len(package_parts) - ascents])
 
         if imported_module:
             return f"{prefix}.{imported_module}" if prefix else imported_module

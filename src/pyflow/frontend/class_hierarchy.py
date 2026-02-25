@@ -82,8 +82,8 @@ class ClassHierarchy:
     """
     
     BUILTIN_TYPES = {
-        "object", "type", "int", "float", "str", "bool", "list", "dict",
-        "set", "tuple", "frozenset", "bytes", "bytearray", "complex",
+        "object", "type", "int", "float", "str", "bool", "List", "Dict",
+        "Set", "Tuple", "Frozenset", "bytes", "bytearray", "complex",
         "NoneType", "ellipsis", "range", "slice", "Exception", "BaseException",
     }
     

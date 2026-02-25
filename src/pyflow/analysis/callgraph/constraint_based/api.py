@@ -26,6 +26,8 @@ def extract_call_graph_constraint(
     verbose: bool = False,
     context_sensitive: bool = False,
     context_depth: int = 1,
+    fixpoint_max_iterations: Optional[int] = None,
+    warn_on_fixpoint_truncation: bool = True,
 ) -> CallGraph:
     """
     Extract call graph from source code using the constraint-style analyser.
@@ -43,11 +45,19 @@ def extract_call_graph_constraint(
         Enable call-site context sensitivity for parameter/return propagation.
     context_depth:
         Call-string depth when context sensitivity is enabled.
+    fixpoint_max_iterations:
+        Optional iteration cap for the solver worklist. When omitted, a
+        heuristic cap is used.
+    warn_on_fixpoint_truncation:
+        Emit a runtime warning when the fixpoint iteration cap is reached
+        before convergence.
     """
     entry_path = source_path or _discover_entry_path_from_stack()
     options = AnalysisOptions(
         context_sensitive=context_sensitive,
         context_depth=max(0, int(context_depth)),
+        fixpoint_max_iterations=fixpoint_max_iterations,
+        warn_on_fixpoint_truncation=warn_on_fixpoint_truncation,
     )
     builder = ConstraintCallGraphBuilder(
         source_code,
@@ -63,10 +73,12 @@ def analyze_file_constraint(
     verbose: bool = False,
     context_sensitive: bool = False,
     context_depth: int = 1,
+    fixpoint_max_iterations: Optional[int] = None,
+    warn_on_fixpoint_truncation: bool = True,
 ) -> str:
     """Analyze a Python file and return a text rendering of the call graph."""
     try:
-        with open(filepath, "r") as handle:
+        with open(filepath, "r", encoding="utf-8") as handle:
             source = handle.read()
         graph = extract_call_graph_constraint(
             source_code=source,
@@ -74,6 +86,8 @@ def analyze_file_constraint(
             verbose=verbose,
             context_sensitive=context_sensitive,
             context_depth=context_depth,
+            fixpoint_max_iterations=fixpoint_max_iterations,
+            warn_on_fixpoint_truncation=warn_on_fixpoint_truncation,
         )
         return generate_text_output(graph, None)
     except Exception as exc:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import warnings
 from collections import deque
 from typing import Dict, Set, Sequence, Tuple
 
@@ -24,13 +25,49 @@ from .model import (
 class _AnalyzerMixin:
     """Fixpoint iteration and per-scope/block analysis."""
 
+    def _pattern_bound_names(self, pattern: ast.pattern) -> Set[str]:
+        if isinstance(pattern, ast.MatchAs):
+            return {pattern.name} if pattern.name else set()
+        if isinstance(pattern, ast.MatchStar):
+            return {pattern.name} if pattern.name else set()
+        if isinstance(pattern, ast.MatchMapping):
+            names: Set[str] = set()
+            for inner in pattern.patterns:
+                names.update(self._pattern_bound_names(inner))
+            if pattern.rest:
+                names.add(pattern.rest)
+            return names
+        if isinstance(pattern, ast.MatchSequence):
+            names: Set[str] = set()
+            for inner in pattern.patterns:
+                names.update(self._pattern_bound_names(inner))
+            return names
+        if isinstance(pattern, ast.MatchClass):
+            names: Set[str] = set()
+            for inner in pattern.patterns:
+                names.update(self._pattern_bound_names(inner))
+            for inner in pattern.kwd_patterns:
+                names.update(self._pattern_bound_names(inner))
+            return names
+        if isinstance(pattern, ast.MatchOr):
+            names: Set[str] = set()
+            for inner in pattern.patterns:
+                names.update(self._pattern_bound_names(inner))
+            return names
+        return set()
+
     def _run_fixpoint(self) -> None:
-        queue: deque[tuple[str, ContextKey]] = deque(
+        queue: deque[Tuple[str, ContextKey]] = deque(
             (scope_name, self._root_context()) for scope_name in self.scopes
         )
         in_queue = set(queue)
         iterations = 0
-        max_iterations = max(256, len(self.scopes) * 256)
+        configured_max = self.options.fixpoint_max_iterations
+        max_iterations = (
+            max(1, int(configured_max))
+            if configured_max is not None
+            else max(256, len(self.scopes) * 256)
+        )
 
         while queue and iterations < max_iterations:
             iterations += 1
@@ -64,6 +101,18 @@ class _AnalyzerMixin:
                         queue.append(candidate)
                         in_queue.add(candidate)
 
+        self.fixpoint_iterations = iterations
+        self.fixpoint_truncated = bool(queue)
+        if self.fixpoint_truncated and self.options.warn_on_fixpoint_truncation:
+            warnings.warn(
+                (
+                    "Constraint call graph fixpoint hit the iteration cap "
+                    f"({max_iterations}) before convergence; results may be incomplete."
+                ),
+                RuntimeWarning,
+                stacklevel=2,
+            )
+
     def _analyze_scope(self, scope: ScopeInfo, scope_context: ContextKey) -> ScopeResult:
         env = copy_env(self.module_bindings.get(scope.module, {}))
         scope_ctx_key = (scope.name, scope_context)
@@ -83,7 +132,7 @@ class _AnalyzerMixin:
 
         callees: Set[str] = set()
         returns: Set[AbstractValue] = set()
-        input_changed_scope_contexts: Set[tuple[str, ContextKey]] = set()
+        input_changed_scope_contexts: Set[Tuple[str, ContextKey]] = set()
         instance_field_changed = False
 
         env, block_returns, block_callees, block_inputs, block_field_changed = (
@@ -117,16 +166,16 @@ class _AnalyzerMixin:
         scope_context: ContextKey,
         statements: Sequence[ast.stmt],
         env: Dict[str, Set[AbstractValue]],
-    ) -> tuple[
+    ) -> Tuple[
         Dict[str, Set[AbstractValue]],
         Set[AbstractValue],
         Set[str],
-        Set[tuple[str, ContextKey]],
+        Set[Tuple[str, ContextKey]],
         bool,
     ]:
         returns: Set[AbstractValue] = set()
         callees: Set[str] = set()
-        input_changed_scope_contexts: Set[tuple[str, ContextKey]] = set()
+        input_changed_scope_contexts: Set[Tuple[str, ContextKey]] = set()
         instance_field_changed = False
 
         for stmt in statements:
@@ -271,7 +320,7 @@ class _AnalyzerMixin:
                     instance_field_changed or else_changed or final_changed
                 )
 
-            elif isinstance(stmt, ast.With):
+            elif isinstance(stmt, (ast.With, ast.AsyncWith)):
                 for item in stmt.items:
                     self._eval_expr(
                         scope, scope_context, item.context_expr, env, callees,
@@ -286,6 +335,38 @@ class _AnalyzerMixin:
                 callees.update(with_calls)
                 input_changed_scope_contexts.update(with_inputs)
                 instance_field_changed = instance_field_changed or with_changed
+
+            elif isinstance(stmt, ast.Match):
+                self._eval_expr(
+                    scope, scope_context, stmt.subject, env, callees, input_changed_scope_contexts
+                )
+                merged_env = copy_env(env)
+                for case in stmt.cases:
+                    case_env = copy_env(env)
+                    for bound_name in self._pattern_bound_names(case.pattern):
+                        case_env.setdefault(bound_name, set()).add(UNKNOWN_VALUE)
+                    if case.guard is not None:
+                        self._eval_expr(
+                            scope,
+                            scope_context,
+                            case.guard,
+                            case_env,
+                            callees,
+                            input_changed_scope_contexts,
+                        )
+                    (
+                        branch_env,
+                        branch_ret,
+                        branch_calls,
+                        branch_inputs,
+                        branch_field_changed,
+                    ) = self._process_block(scope, scope_context, case.body, case_env)
+                    merged_env = join_envs(merged_env, branch_env)
+                    returns.update(branch_ret)
+                    callees.update(branch_calls)
+                    input_changed_scope_contexts.update(branch_inputs)
+                    instance_field_changed = instance_field_changed or branch_field_changed
+                env = merged_env
 
             elif isinstance(stmt, ast.Import):
                 self._bind_import(stmt, scope.module, env)

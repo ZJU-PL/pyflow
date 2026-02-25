@@ -1511,7 +1511,7 @@ class ASTConverter:
         """
         generators = node.generators
 
-        if result_type == "dict":
+        if result_type == "Dict":
             result_init = pyflow_ast.BuildMap()
 
             def make_add_stmt(result_local: pyflow_ast.Local) -> PythonASTNode:
@@ -1521,7 +1521,7 @@ class ASTConverter:
                     self._call_named("interpreter_setitem", [result_local, key_expr, value_expr])
                 )
 
-        elif result_type == "set":
+        elif result_type == "Set":
             element = self._convert_expression_safe(node.elt)
             result_init = pyflow_ast.BuildSet([])
 
@@ -1540,11 +1540,11 @@ class ASTConverter:
                 )
 
         if not generators:
-            if result_type == "list":
+            if result_type == "List":
                 return pyflow_ast.BuildList([element])
-            if result_type == "dict":
+            if result_type == "Dict":
                 return pyflow_ast.BuildMap()
-            if result_type == "set":
+            if result_type == "Set":
                 return pyflow_ast.BuildSet([element])
             return result_init
 

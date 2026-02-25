@@ -5,7 +5,7 @@ from __future__ import annotations
 import ast
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import DefaultDict, Dict, Mapping, Optional, Set, TypeAlias, List
+from typing import DefaultDict, Dict, Mapping, Optional, Set, TypeAlias, List, Tuple
 
 FUNC_KIND = "func"
 CLASS_KIND = "class"
@@ -17,7 +17,7 @@ BOUND_CLASS_METHOD_KIND = "bound_class_method"
 STRING_KIND = "string"
 UNKNOWN_KIND = "unknown"
 
-ContextKey: TypeAlias = tuple[str, ...]
+ContextKey: TypeAlias = Tuple[str, ...]
 GLOBAL_CONTEXT: ContextKey = ("<global>",)
 
 
@@ -34,6 +34,8 @@ UNKNOWN_VALUE = AbstractValue(UNKNOWN_KIND, "<unknown>")
 class AnalysisOptions:
     context_sensitive: bool = False
     context_depth: int = 1
+    fixpoint_max_iterations: Optional[int] = None
+    warn_on_fixpoint_truncation: bool = True
 
 
 @dataclass
@@ -87,7 +89,7 @@ class ScopeInfo:
 class ScopeResult:
     callees: Set[str]
     returns: Set[AbstractValue]
-    input_changed_scope_contexts: Set[tuple[str, ContextKey]]
+    input_changed_scope_contexts: Set[Tuple[str, ContextKey]]
     module_binding_changed: bool
     instance_field_changed: bool
 
@@ -124,7 +126,7 @@ def make_bound_method(method_qualname: str, receiver_class: str) -> AbstractValu
     return make_value(BOUND_METHOD_KIND, f"{method_qualname}|{receiver_class}")
 
 
-def parse_bound_method(value: AbstractValue) -> tuple[str, str]:
+def parse_bound_method(value: AbstractValue) -> Tuple[str, str]:
     method, receiver_class = value.name.split("|", 1)
     return method, receiver_class
 
@@ -133,7 +135,7 @@ def make_bound_class_method(method_qualname: str, receiver_class: str) -> Abstra
     return make_value(BOUND_CLASS_METHOD_KIND, f"{method_qualname}|{receiver_class}")
 
 
-def parse_bound_class_method(value: AbstractValue) -> tuple[str, str]:
+def parse_bound_class_method(value: AbstractValue) -> Tuple[str, str]:
     method, receiver_class = value.name.split("|", 1)
     return method, receiver_class
 

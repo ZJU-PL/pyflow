@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import ast
-from typing import Dict, Iterable, List, Mapping, Optional, Set
+from typing import Dict, Iterable, List, Mapping, Optional, Set, Tuple
 
 from .model import (
     AbstractValue,
@@ -41,19 +41,61 @@ class _ResolverMixin:
         call_node: ast.Call,
         env: Dict[str, Set[AbstractValue]],
         callees: Set[str],
-        input_changed_scope_contexts: Set[tuple[str, ContextKey]],
+        input_changed_scope_contexts: Set[Tuple[str, ContextKey]],
     ) -> Set[AbstractValue]:
-        arg_values = [
-            self._eval_expr(caller_scope, caller_context, arg, env, callees, input_changed_scope_contexts)
-            for arg in call_node.args
-        ]
-        kwarg_values = {
-            keyword.arg: self._eval_expr(
-                caller_scope, caller_context, keyword.value, env, callees, input_changed_scope_contexts
+        arg_values: List[Set[AbstractValue]] = []
+        star_arg_values: List[Set[AbstractValue]] = []
+        for arg in call_node.args:
+            if isinstance(arg, ast.Starred):
+                unpacked = self._eval_expr(
+                    caller_scope,
+                    caller_context,
+                    arg.value,
+                    env,
+                    callees,
+                    input_changed_scope_contexts,
+                )
+                expanded = self._iterable_members(unpacked)
+                star_arg_values.append(expanded or {UNKNOWN_VALUE})
+                continue
+            arg_values.append(
+                self._eval_expr(
+                    caller_scope, caller_context, arg, env, callees, input_changed_scope_contexts
+                )
             )
-            for keyword in call_node.keywords
-            if keyword.arg is not None
-        }
+
+        kwarg_values: Dict[str, Set[AbstractValue]] = {}
+        dynamic_kwarg_values: Set[AbstractValue] = set()
+        for keyword in call_node.keywords:
+            values = self._eval_expr(
+                caller_scope,
+                caller_context,
+                keyword.value,
+                env,
+                callees,
+                input_changed_scope_contexts,
+            )
+            if keyword.arg is not None:
+                kwarg_values.setdefault(keyword.arg, set()).update(values)
+                continue
+
+            if not values:
+                dynamic_kwarg_values.add(UNKNOWN_VALUE)
+                continue
+
+            for unpacked in values:
+                if unpacked.kind == CONTAINER_KIND:
+                    key_map = self.container_key_values.get(unpacked.name, {})
+                    if key_map:
+                        for key_name, key_values in key_map.items():
+                            kwarg_values.setdefault(key_name, set()).update(key_values)
+                    element_values = self.container_elements.get(unpacked.name, set())
+                    if element_values:
+                        dynamic_kwarg_values.update(element_values)
+                    else:
+                        dynamic_kwarg_values.add(UNKNOWN_VALUE)
+                else:
+                    dynamic_kwarg_values.add(unpacked)
 
         if not target_values and isinstance(call_node.func, ast.Name):
             maybe_builtin = call_node.func.id
@@ -75,7 +117,12 @@ class _ResolverMixin:
                     )
                     callee_context = self._normalize_context_for_scope(callee_name, raw_context)
                     changed = self._bind_call_arguments(
-                        callee_name, callee_context, arg_values, kwarg_values
+                        callee_name,
+                        callee_context,
+                        arg_values,
+                        kwarg_values,
+                        star_arg_values=star_arg_values,
+                        dynamic_kwarg_values=dynamic_kwarg_values,
                     )
                     if changed:
                         input_changed_scope_contexts.add((callee_name, callee_context))
@@ -106,7 +153,12 @@ class _ResolverMixin:
                     )
                     callee_context = self._normalize_context_for_scope(init_name, raw_context)
                     changed = self._bind_call_arguments(
-                        init_name, callee_context, implicit_values, kwarg_values
+                        init_name,
+                        callee_context,
+                        implicit_values,
+                        kwarg_values,
+                        star_arg_values=star_arg_values,
+                        dynamic_kwarg_values=dynamic_kwarg_values,
                     )
                     if changed:
                         input_changed_scope_contexts.add((init_name, callee_context))
@@ -121,7 +173,12 @@ class _ResolverMixin:
                 )
                 callee_context = self._normalize_context_for_scope(method_name, callee_context)
                 changed = self._bind_call_arguments(
-                    method_name, callee_context, implicit_values, kwarg_values
+                    method_name,
+                    callee_context,
+                    implicit_values,
+                    kwarg_values,
+                    star_arg_values=star_arg_values,
+                    dynamic_kwarg_values=dynamic_kwarg_values,
                 )
                 if changed:
                     input_changed_scope_contexts.add((method_name, callee_context))
@@ -137,7 +194,12 @@ class _ResolverMixin:
                 )
                 callee_context = self._normalize_context_for_scope(method_name, callee_context)
                 changed = self._bind_call_arguments(
-                    method_name, callee_context, implicit_values, kwarg_values
+                    method_name,
+                    callee_context,
+                    implicit_values,
+                    kwarg_values,
+                    star_arg_values=star_arg_values,
+                    dynamic_kwarg_values=dynamic_kwarg_values,
                 )
                 if changed:
                     input_changed_scope_contexts.add((method_name, callee_context))
@@ -161,7 +223,12 @@ class _ResolverMixin:
                     )
                     callee_context = self._normalize_context_for_scope(call_name, callee_context)
                     changed = self._bind_call_arguments(
-                        call_name, callee_context, implicit_values, kwarg_values
+                        call_name,
+                        callee_context,
+                        implicit_values,
+                        kwarg_values,
+                        star_arg_values=star_arg_values,
+                        dynamic_kwarg_values=dynamic_kwarg_values,
                     )
                     if changed:
                         input_changed_scope_contexts.add((call_name, callee_context))
@@ -187,6 +254,8 @@ class _ResolverMixin:
         callee_context: ContextKey,
         arg_values: List[Set[AbstractValue]],
         kwarg_values: Mapping[str, Set[AbstractValue]],
+        star_arg_values: Optional[List[Set[AbstractValue]]] = None,
+        dynamic_kwarg_values: Optional[Set[AbstractValue]] = None,
     ) -> bool:
         scope = self.scopes[callee_scope_name]
         changed = False
@@ -211,6 +280,23 @@ class _ResolverMixin:
                 current.update(values)
                 changed = changed or len(current) != before
 
+        if star_arg_values:
+            pooled_star_values: Set[AbstractValue] = set()
+            for values in star_arg_values:
+                pooled_star_values.update(values)
+            if pooled_star_values:
+                for index in range(len(arg_values), len(scope.params)):
+                    param_name = scope.params[index]
+                    current = param_inputs.setdefault(param_name, set())
+                    before = len(current)
+                    current.update(pooled_star_values)
+                    changed = changed or len(current) != before
+                if scope.vararg:
+                    current = param_inputs.setdefault(scope.vararg, set())
+                    before = len(current)
+                    current.update(pooled_star_values)
+                    changed = changed or len(current) != before
+
         for kw_name, kw_values in kwarg_values.items():
             if kw_name in scope.params:
                 current = param_inputs.setdefault(kw_name, set())
@@ -222,6 +308,12 @@ class _ResolverMixin:
                 before = len(current)
                 current.update(kw_values)
                 changed = changed or len(current) != before
+
+        if dynamic_kwarg_values and scope.kwarg:
+            current = param_inputs.setdefault(scope.kwarg, set())
+            before = len(current)
+            current.update(dynamic_kwarg_values)
+            changed = changed or len(current) != before
 
         return changed
 
@@ -389,15 +481,18 @@ class _ResolverMixin:
                     out.add(make_func(f"{base_value.name}.{attr_name}"))
 
             elif base_value.kind == CLASS_KIND:
-                class_info = self.classes.get(base_value.name)
-                if class_info and attr_name in class_info.methods:
+                for klass in self._mro(base_value.name):
+                    class_info = self.classes.get(klass)
+                    if not class_info or attr_name not in class_info.methods:
+                        continue
                     method_name = class_info.methods[attr_name]
                     if attr_name in class_info.static_methods:
                         out.add(make_func(method_name))
                     elif attr_name in class_info.class_methods:
-                        out.add(make_bound_class_method(method_name, class_info.qualname))
+                        out.add(make_bound_class_method(method_name, base_value.name))
                     else:
-                        out.add(make_bound_method(method_name, class_info.qualname))
+                        out.add(make_bound_method(method_name, base_value.name))
+                    break
 
                 for klass in self._mro(base_value.name):
                     class_attr_values = self.class_fields.get(klass, {}).get(attr_name, set())

@@ -250,9 +250,11 @@ class _CollectorMixin:
                             continue
                         local_name = alias.asname or alias.name
                         if alias.name in source_exports:
-                            env[local_name].update(source_exports[alias.name])
+                            env.setdefault(local_name, set()).update(source_exports[alias.name])
                         else:
-                            env[local_name].add(make_func(f"{source_module}.{alias.name}"))
+                            env.setdefault(local_name, set()).add(
+                                make_func(f"{source_module}.{alias.name}")
+                            )
 
             self.module_bindings[module_name] = env
 

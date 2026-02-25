@@ -236,7 +236,7 @@ class Object(AbstractObject):
     def __repr__(self):
         if isinstance(self.pyobj, dict):
             # Simplifies large, global dictionaries.
-            r = "dict" + repr(tuple(self.pyobj.keys()))
+            r = "Dict" + repr(tuple(self.pyobj.keys()))
         else:
             r = repr(self.pyobj)
 

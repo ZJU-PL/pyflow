@@ -72,6 +72,12 @@ abstract values per symbol:
 - Explainability for dynamic uncertainty:
   - explicit summary nodes `<dynamic>.<scope>@line:col` when unresolved call
     targets remain.
+- Async/control-flow support:
+  - `await` expressions and `async with` blocks are analyzed,
+  - `match/case` branch bodies are included in scope/block analysis.
+- Solver safety controls:
+  - configurable fixpoint iteration cap (`fixpoint_max_iterations`),
+  - optional truncation warning (`warn_on_fixpoint_truncation`).
 
 ## Current Limitations
 - Container precision is intentionally coarse (element sets are merged).

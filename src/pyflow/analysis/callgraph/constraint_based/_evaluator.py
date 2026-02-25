@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import ast
-from typing import Dict, Set, Sequence
+from typing import Dict, Set, Sequence, Tuple
 
 from .model import (
     AbstractValue,
@@ -46,7 +46,7 @@ class _EvaluatorMixin:
         generators: Sequence[ast.comprehension],
         env: Dict[str, Set[AbstractValue]],
         callees: Set[str],
-        input_changed_scope_contexts: Set[tuple[str, ContextKey]],
+        input_changed_scope_contexts: Set[Tuple[str, ContextKey]],
     ) -> Dict[str, Set[AbstractValue]]:
         comp_env = copy_env(env)
         for generator in generators:
@@ -68,7 +68,7 @@ class _EvaluatorMixin:
         expr: ast.AST,
         env: Dict[str, Set[AbstractValue]],
         callees: Set[str],
-        input_changed_scope_contexts: Set[tuple[str, ContextKey]],
+        input_changed_scope_contexts: Set[Tuple[str, ContextKey]],
     ) -> Set[AbstractValue]:
         if isinstance(expr, ast.Name):
             return set(self._lookup_name(scope.module, expr.id, env))
@@ -77,6 +77,13 @@ class _EvaluatorMixin:
             if isinstance(expr.value, str):
                 return {make_string(expr.value)}
             return set()
+
+        if isinstance(expr, ast.Starred):
+            base_values = self._eval_expr(
+                scope, scope_context, expr.value, env, callees, input_changed_scope_contexts
+            )
+            members = self._iterable_members(base_values)
+            return members or {UNKNOWN_VALUE}
 
         if isinstance(expr, ast.Attribute):
             base_values = self._eval_expr(
@@ -127,6 +134,11 @@ class _EvaluatorMixin:
                 input_changed_scope_contexts=input_changed_scope_contexts,
             )
 
+        if isinstance(expr, ast.Await):
+            return self._eval_expr(
+                scope, scope_context, expr.value, env, callees, input_changed_scope_contexts
+            )
+
         if isinstance(expr, ast.Lambda):
             return {UNKNOWN_VALUE}
 
@@ -137,10 +149,10 @@ class _EvaluatorMixin:
                     self._eval_expr(scope, scope_context, item, env, callees, input_changed_scope_contexts)
                 )
             kind = (
-                "tuple" if isinstance(expr, ast.Tuple)
-                else "set" if isinstance(expr, ast.Set) else "list"
+                "Tuple" if isinstance(expr, ast.Tuple)
+                else "Set" if isinstance(expr, ast.Set) else "List"
             )
-            container = self._new_container(kind, scope, expr)
+            container = self._new_container(kind, scope, scope_context, expr)
             self.container_elements[container.name].update(out)
             return {container}
 
@@ -156,7 +168,7 @@ class _EvaluatorMixin:
                     key_values.append(evaluated_key)
                 else:
                     key_values.append(set())
-            container = self._new_container("dict", scope, expr)
+            container = self._new_container("dict", scope, scope_context, expr)
             for index, value in enumerate(expr.values):
                 evaluated_value = self._eval_expr(
                     scope, scope_context, value, env, callees, input_changed_scope_contexts
@@ -174,7 +186,7 @@ class _EvaluatorMixin:
             elements = self._eval_expr(
                 scope, scope_context, expr.elt, comp_env, callees, input_changed_scope_contexts
             )
-            container = self._new_container("listcomp", scope, expr)
+            container = self._new_container("listcomp", scope, scope_context, expr)
             self.container_elements[container.name].update(elements)
             return {container}
 
@@ -185,7 +197,7 @@ class _EvaluatorMixin:
             elements = self._eval_expr(
                 scope, scope_context, expr.elt, comp_env, callees, input_changed_scope_contexts
             )
-            container = self._new_container("setcomp", scope, expr)
+            container = self._new_container("setcomp", scope, scope_context, expr)
             self.container_elements[container.name].update(elements)
             return {container}
 
@@ -199,7 +211,7 @@ class _EvaluatorMixin:
             value_out = self._eval_expr(
                 scope, scope_context, expr.value, comp_env, callees, input_changed_scope_contexts
             )
-            container = self._new_container("dictcomp", scope, expr)
+            container = self._new_container("dictcomp", scope, scope_context, expr)
             self.container_elements[container.name].update(value_out)
             for key_name in self._string_constants(key_out):
                 self.container_key_values[container.name][key_name].update(value_out)
@@ -212,7 +224,7 @@ class _EvaluatorMixin:
             elements = self._eval_expr(
                 scope, scope_context, expr.elt, comp_env, callees, input_changed_scope_contexts
             )
-            container = self._new_container("generator", scope, expr)
+            container = self._new_container("generator", scope, scope_context, expr)
             self.container_elements[container.name].update(elements)
             return {container}
 

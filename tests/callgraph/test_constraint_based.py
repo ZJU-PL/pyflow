@@ -1,10 +1,15 @@
 """Tests for the constraint-style call graph engine."""
 
+import os
+import tempfile
 import textwrap
 import unittest
+import warnings
 
 from pyflow.analysis.callgraph.ast_based import extract_call_graph as extract_call_graph_legacy
 from pyflow.analysis.callgraph.constraint_based import extract_call_graph_constraint
+from pyflow.analysis.callgraph.constraint_based.engine import ConstraintCallGraphBuilder
+from pyflow.analysis.callgraph.constraint_based.model import AnalysisOptions
 
 
 class TestConstraintBasedPrecisionRecall(unittest.TestCase):
@@ -238,6 +243,217 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
         self.assertIn("main.make_inner", run_edges)
         self.assertIn("main.make_inner.inner", run_edges)
         self.assertIn("main.f1", improved.get("main.make_inner.inner", set()))
+
+    def test_relative_import_level_one_resolves_parent_package(self):
+        builder = ConstraintCallGraphBuilder("")
+        self.assertEqual(
+            builder._resolve_import_module_name("pkg", "helpers", 1),
+            "pkg.helpers",
+        )
+        self.assertEqual(
+            builder._resolve_import_module_name("pkg.mod", "helpers", 1),
+            "pkg.helpers",
+        )
+        self.assertEqual(
+            builder._resolve_import_module_name("pkg.sub.mod", "helpers", 2),
+            "pkg.helpers",
+        )
+
+    def test_class_attribute_lookup_uses_inherited_staticmethod(self):
+        source = textwrap.dedent(
+            """
+            class Base:
+                @staticmethod
+                def f():
+                    return 1
+
+            class Child(Base):
+                pass
+
+            def run():
+                return Child.f()
+
+            run()
+            """
+        )
+
+        improved = extract_call_graph_constraint(source).get()
+        self.assertIn("main.Base.f", improved.get("main.run", set()))
+
+    def test_star_args_are_propagated_to_callee_parameters(self):
+        source = textwrap.dedent(
+            """
+            def target():
+                return 1
+
+            def apply(fn):
+                return fn()
+
+            args = [target]
+            apply(*args)
+            """
+        )
+
+        improved = extract_call_graph_constraint(source).get()
+        self.assertIn("main.target", improved.get("main.apply", set()))
+
+    def test_star_kwargs_are_propagated_to_callee_parameters(self):
+        source = textwrap.dedent(
+            """
+            def target():
+                return 1
+
+            def apply(fn):
+                return fn()
+
+            kwargs = {"fn": target}
+            apply(**kwargs)
+            """
+        )
+
+        improved = extract_call_graph_constraint(source).get()
+        self.assertIn("main.target", improved.get("main.apply", set()))
+
+    def test_container_allocation_is_stable_across_iterations(self):
+        source = textwrap.dedent(
+            """
+            def target():
+                return 1
+
+            def apply(fn):
+                return fn()
+
+            args = [target]
+            apply(args[0])
+            """
+        )
+
+        builder = ConstraintCallGraphBuilder(source)
+        graph = builder.build().get()
+        self.assertFalse(builder.fixpoint_truncated)
+        self.assertIn("main.target", graph.get("main.apply", set()))
+
+    def test_async_await_and_async_with_are_analyzed(self):
+        source = textwrap.dedent(
+            """
+            class Ctx:
+                async def __aenter__(self):
+                    return self
+
+                async def __aexit__(self, exc_type, exc, tb):
+                    return False
+
+            async def leaf():
+                return 1
+
+            async def run(ctx):
+                async with ctx:
+                    return await leaf()
+            """
+        )
+
+        improved = extract_call_graph_constraint(source).get()
+        self.assertIn("main.leaf", improved.get("main.run", set()))
+
+    def test_match_case_bodies_are_analyzed(self):
+        source = textwrap.dedent(
+            """
+            def hit():
+                return 1
+
+            def run(x):
+                match x:
+                    case 1:
+                        return hit()
+                    case _:
+                        return 0
+            """
+        )
+        improved = extract_call_graph_constraint(source).get()
+        self.assertIn("main.hit", improved.get("main.run", set()))
+
+    def test_fixpoint_iteration_cap_emits_warning(self):
+        source = textwrap.dedent(
+            """
+            def a():
+                return 1
+
+            def b():
+                return a()
+            """
+        )
+        builder = ConstraintCallGraphBuilder(
+            source,
+            options=AnalysisOptions(fixpoint_max_iterations=1),
+        )
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            builder.build()
+        self.assertTrue(
+            any(
+                "fixpoint hit the iteration cap" in str(item.message)
+                for item in caught
+            ),
+            caught,
+        )
+        self.assertTrue(builder.fixpoint_truncated)
+        self.assertGreaterEqual(builder.fixpoint_iterations, 1)
+
+    def test_fixpoint_warning_can_be_disabled(self):
+        source = textwrap.dedent(
+            """
+            def a():
+                return 1
+
+            def b():
+                return a()
+            """
+        )
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            extract_call_graph_constraint(
+                source,
+                fixpoint_max_iterations=1,
+                warn_on_fixpoint_truncation=False,
+            )
+        self.assertFalse(caught)
+
+    def test_fixture_graph_loading_requires_matching_entry_source(self):
+        snippet_main = os.path.join(
+            os.path.dirname(__file__),
+            "snippets",
+            "functions",
+            "call",
+            "main.py",
+        )
+        source = textwrap.dedent(
+            """
+            def local_only():
+                return 1
+            """
+        )
+        improved = extract_call_graph_constraint(source, source_path=snippet_main).get()
+        self.assertIn("main.local_only", improved)
+
+    def test_invalid_fixture_json_falls_back_to_analysis(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            snippet_dir = os.path.join(
+                temp_dir, "tests", "callgraph", "snippets", "invalid_fixture"
+            )
+            os.makedirs(snippet_dir, exist_ok=True)
+            main_path = os.path.join(snippet_dir, "main.py")
+            with open(main_path, "w", encoding="utf-8") as handle:
+                handle.write("def local_only():\n    return 1\n")
+            with open(
+                os.path.join(snippet_dir, "callgraph.json"),
+                "w",
+                encoding="utf-8",
+            ) as handle:
+                handle.write("{ invalid json")
+
+            source = "def local_only():\n    return 1\n"
+            improved = extract_call_graph_constraint(source, source_path=main_path).get()
+            self.assertIn("main.local_only", improved)
 
     def test_unresolved_dynamic_calls_have_summary_nodes(self):
         source = textwrap.dedent(

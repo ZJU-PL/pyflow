@@ -62,6 +62,8 @@ cg1 = extract_call_graph_constraint(
     source_code,
     context_sensitive=True,
     context_depth=1,
+    fixpoint_max_iterations=5000,
+    warn_on_fixpoint_truncation=True,
 )
 ```
 
