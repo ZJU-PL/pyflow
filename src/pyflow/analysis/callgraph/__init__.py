@@ -4,11 +4,11 @@ Call graph extraction for Python code.
 This package provides call graph analysis with multiple algorithm options:
 - ast_based: Fast, lightweight AST-based analysis
 - pycg: More sophisticated analysis using PyCG (if available)
-- constraint_based: Original constraint solver (may be unavailable in OSS build)
+- constraint_based: Value-flow solver with optional context-sensitive mode
 
 The module is organized into focused components:
 - Core CallGraph class in callgraph module
-- Analysis algorithms in ast_based and pycg_based modules
+- Analysis algorithms in ast_based, pycg_based, and constraint_based modules
 - Output formats in formats module
 """
 
@@ -32,12 +32,15 @@ except ModuleNotFoundError:
         from .ast_based import extract_call_graph, analyze_file
 
 from .pycg_based import extract_call_graph_pycg, analyze_file_pycg
+from .constraint_based import extract_call_graph_constraint, analyze_file_constraint
 from .formats import generate_text_output, generate_dot_output, generate_json_output
 from .callgraph import CallGraph, CallGraphError
 
 __all__ = [
     "extract_call_graph",
     "analyze_file",
+    "extract_call_graph_constraint",
+    "analyze_file_constraint",
     "extract_call_graph_pycg",
     "analyze_file_pycg",
     "CallGraph",

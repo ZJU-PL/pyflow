@@ -4,6 +4,7 @@ This module provides call graph analysis for Python code with multiple algorithm
 
 ## Available Algorithms
 
+- **constraint_based**: Interprocedural abstract-value propagation (default when available)
 - **ast_based**: Fast, lightweight AST-based analysis using Python's `ast` module
 - **pycg**: More sophisticated analysis using the PyCG library (if available)
 
@@ -12,6 +13,17 @@ This module provides call graph analysis for Python code with multiple algorithm
 ```
 callgraph/
 ├── __init__.py          # Main module exports
+├── constraint_based/    # Constraint-style value-flow implementation
+│   ├── __init__.py      # Public API
+│   ├── api.py           # Wrapper helpers
+│   ├── engine.py        # Solver/worklist engine (mixins composition)
+│   ├── model.py         # Abstract values + data model
+│   ├── _loader.py       # Module loading and import resolution
+│   ├── _collector.py    # Symbol collection and scope initialization
+│   ├── _analyzer.py     # Fixpoint loop and block/scope analysis
+│   ├── _evaluator.py    # Expression evaluation
+│   ├── _resolver.py     # Target invocation, MRO, and attribute resolution
+│   └── DESIGN_NOTE.md   # Algorithm design/tradeoffs
 ├── ast_based.py         # AST-based algorithm
 ├── pycg_based.py        # PyCG-based algorithm
 ├── formats.py           # Output format generators
@@ -24,7 +36,7 @@ callgraph/
 ```python
 from pyflow.analysis.callgraph import extract_call_graph, analyze_file
 
-# AST-based analysis
+# Default analysis (constraint-based when available)
 graph = extract_call_graph(source_code)
 output = analyze_file("example.py")
 ```
@@ -36,6 +48,21 @@ from pyflow.analysis.callgraph import extract_call_graph_pycg, analyze_file_pycg
 # PyCG-based analysis
 graph = extract_call_graph_pycg(source_code)
 output = analyze_file_pycg("example.py")
+```
+
+### Constraint-Based Modes
+```python
+from pyflow.analysis.callgraph import extract_call_graph_constraint
+
+# Context-insensitive (default)
+cg0 = extract_call_graph_constraint(source_code)
+
+# Call-site context-sensitive
+cg1 = extract_call_graph_constraint(
+    source_code,
+    context_sensitive=True,
+    context_depth=1,
+)
 ```
 
 ### Output Formats
@@ -51,7 +78,7 @@ json_output = generate_json_output(graph, None)
 ## CLI Usage
 
 ```bash
-# AST-based algorithm (default)
+# Default algorithm (constraint_based in this package)
 pyflow callgraph example.py
 
 # PyCG algorithm
@@ -65,5 +92,3 @@ pyflow callgraph --output graph.txt example.py
 
 - No IPA/CPA integration
 - Limited to single-file analysis
-
-
