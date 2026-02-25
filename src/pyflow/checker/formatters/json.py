@@ -72,12 +72,21 @@ This formatter outputs the issues in JSON format.
 import datetime
 import json
 import logging
-import operator
 import sys
 
 from ..pattern.core.test_properties import accepts_baseline
 
 LOG = logging.getLogger(__name__)
+
+
+def _issue_sort_key(data: dict) -> tuple:
+    return (
+        str(data.get("filename", "")),
+        int(data.get("line_number", -1) or -1),
+        str(data.get("test_id", "")),
+        str(data.get("test_name", "")),
+        str(data.get("issue_text", "")),
+    )
 
 
 @accepts_baseline
@@ -94,6 +103,9 @@ def report(manager, fileobj, sev_level, conf_level, lines=-1):
     machine_output = {"results": [], "errors": []}
     for fname, reason in manager.get_skipped():
         machine_output["errors"].append({"filename": fname, "reason": reason})
+    machine_output["errors"] = sorted(
+        machine_output["errors"], key=lambda x: (x["filename"], x["reason"])
+    )
 
     results = manager.get_issue_list(sev_level=sev_level, conf_level=conf_level)
 
@@ -117,11 +129,7 @@ def report(manager, fileobj, sev_level, conf_level, lines=-1):
                 "https://pyflow.readthedocs.io/"  # TODO: Update with actual docs URL
             )
 
-    itemgetter = operator.itemgetter
-    if manager.agg_type == "vuln":
-        machine_output["results"] = sorted(collector, key=itemgetter("test_name"))
-    else:
-        machine_output["results"] = sorted(collector, key=itemgetter("filename"))
+    machine_output["results"] = sorted(collector, key=_issue_sort_key)
 
     machine_output["metrics"] = manager.metrics.data
 

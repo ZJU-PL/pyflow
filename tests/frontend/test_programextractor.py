@@ -114,6 +114,14 @@ class MyClass:
         self.assertIsInstance(program, Program)
         self.assertEqual(self.extractor.errors, 1)
 
+    def test_program_includes_frontend_telemetry(self):
+        """Extraction should attach frontend precision telemetry to the Program."""
+        source = "def a(**x):\n    return f(**x, **x)\n"
+        program = self.extractor.extract_from_source(source, "pkg/test.py")
+        self.assertTrue(hasattr(program, "frontend_telemetry"))
+        telemetry = program.frontend_telemetry
+        self.assertIsInstance(telemetry, dict)
+
     def test_get_object(self):
         """Test getting an object representation."""
         obj = self.extractor.getObject(42)
@@ -207,6 +215,28 @@ class MyClass:
         tree = ast.parse(source)
         program = self.extractor._extract_from_ast(tree, "test.py")
         self.assertIsInstance(program, Program)
+
+    def test_extract_imports_resolves_relative_module(self):
+        """Relative imports should resolve to concrete dotted modules."""
+        source = "from .helpers import tool\n"
+        tree = ast.parse(source)
+        self.extractor.source_code = {}
+        self.extractor._extract_imports(tree, "pkg.sub.mod")
+        imports = self.extractor._module_imports["pkg.sub.mod"]
+        self.assertEqual(imports["tool"], "pkg.sub.helpers.tool")
+
+    def test_extract_imports_expands_star_from_source_map(self):
+        """Star imports should expand when source for imported module is available."""
+        source = "from pkg.lib import *\n"
+        tree = ast.parse(source)
+        self.extractor.source_code = {
+            "pkg/lib.py": "def exposed():\n    return 1\n\ndef _hidden():\n    return 2\n"
+        }
+        self.extractor._extract_imports(tree, "pkg.consumer")
+        imports = self.extractor._module_imports["pkg.consumer"]
+        self.assertIn("exposed", imports)
+        self.assertEqual(imports["exposed"], "pkg.lib.exposed")
+        self.assertNotIn("_hidden", imports)
 
 
 class TestExtractProgram(unittest.TestCase):

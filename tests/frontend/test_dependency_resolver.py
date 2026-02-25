@@ -166,6 +166,22 @@ def _private_func():
         # Private functions should be filtered out
         self.assertNotIn("_private_func", functions)
 
+    def test_extract_functions_private_functions_with_toggle(self):
+        """Private top-level functions can be included with include_private."""
+        resolver = DependencyResolver(
+            strategy="ast_only", verbose=False, include_private=True
+        )
+        source = """
+def public_func():
+    return 1
+
+def _private_func():
+    return 2
+"""
+        functions = resolver.extract_functions(source, "pkg/mod.py")
+        self.assertIn("public_func", functions)
+        self.assertIn("_private_func", functions)
+
     def test_create_safe_exec_globals(self):
         """Test creating safe execution globals."""
         globals_dict = self.resolver._create_safe_exec_globals()
@@ -328,6 +344,34 @@ def func2(x, y):
         functions = resolver.extract_functions(source, "example.py")
         self.assertIn("outer", functions)
         self.assertNotIn("inner", functions)
+
+    def test_get_module_name_from_path_uses_dotted_name(self):
+        """Module naming should preserve package path segments."""
+        resolver = DependencyResolver(strategy="ast_only", verbose=False)
+        module = resolver._get_module_name_from_path("tests/frontend/sample_module.py")
+        self.assertTrue(module.endswith("tests.frontend.sample_module"))
+
+    def test_import_graph_records_edges(self):
+        """Resolver should track deterministic module import graph edges."""
+        resolver = DependencyResolver(strategy="ast_only", verbose=False)
+        source = "import os\nfrom .pkg import mod\n"
+        resolver.extract_functions(source, "proj/app/main.py")
+        graph = resolver.get_import_graph()
+        self.assertIn("proj.app.main", graph)
+        self.assertIn("os", graph["proj.app.main"])
+        self.assertIn("proj.app.pkg", graph["proj.app.main"])
+
+    def test_source_map_resolution_prefers_in_memory_files(self):
+        """Module source lookup should prefer provided source map."""
+        resolver = DependencyResolver(
+            strategy="ast_only",
+            verbose=False,
+            source_files={"proj/pkg/util.py": "def f():\n    return 1\n"},
+        )
+        path = resolver._find_module_source("proj.pkg.util")
+        self.assertEqual(path, "proj/pkg/util.py")
+        telemetry = resolver.get_telemetry()
+        self.assertGreaterEqual(telemetry["source_map_hits"], 1)
 
 
 if __name__ == "__main__":

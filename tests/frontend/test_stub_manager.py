@@ -83,6 +83,8 @@ class TestStubManager(unittest.TestCase):
         exports = self.stub_manager.stubs.exports
         self.assertIn('interpreter_call', exports)
         self.assertIn('interpreter_getitem', exports)
+        self.assertIn('interpreter_merge_kwargs', exports)
+        self.assertIn('interpreter_merge_varargs', exports)
 
     def test_stubs_code_structure(self):
         """Test that stub codes have correct structure."""
@@ -163,6 +165,20 @@ class TestStubManager(unittest.TestCase):
         if hasattr(code, 'body'):
             body = code.body
             self.assertIsNotNone(body)
+
+    def test_async_and_pattern_helpers_have_dynamic_fold(self):
+        """Async/pattern helper stubs should expose conservative dynamic folds."""
+        exports = self.stub_manager.stubs.exports
+        for name in (
+            "interpreter_aiter",
+            "interpreter_aenter",
+            "interpreter_aexit",
+            "interpreter_match_sequence_len",
+            "interpreter_match_mapping_len",
+            "interpreter_match_rest",
+        ):
+            code = exports[name]
+            self.assertIsNotNone(code.annotation.dynamicFold)
 
 
 if __name__ == "__main__":

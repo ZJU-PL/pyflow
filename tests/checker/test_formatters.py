@@ -147,6 +147,23 @@ class TestJsonFormatter(unittest.TestCase):
         import os
         os.unlink(f.name)
 
+    def test_report_is_deterministically_sorted(self):
+        """JSON output ordering should be stable across issue ordering."""
+        issue_a = MockIssue(test_id="B302", test="z_test", fname="b.py", lineno=20)
+        issue_b = MockIssue(test_id="B101", test="a_test", fname="a.py", lineno=5)
+        self.manager._issues = [issue_a, issue_b]
+        import tempfile
+        import os
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            json_formatter.report(self.manager, f, "LOW", "LOW")
+            out_path = f.name
+        with open(out_path, "r", encoding="utf-8") as rf:
+            data = json.load(rf)
+        os.unlink(out_path)
+        self.assertEqual(data["results"][0]["filename"], "a.py")
+        self.assertEqual(data["results"][1]["filename"], "b.py")
+
 
 class TestTextFormatter(unittest.TestCase):
     """Test cases for text formatter."""
@@ -180,6 +197,14 @@ class TestTextFormatter(unittest.TestCase):
         self.assertIn("Issue:", result)
         self.assertIn("B301", result)
         self.assertIn("Test issue", result)
+
+    def test_get_results_is_deterministically_sorted(self):
+        """Text formatter should emit issues in deterministic order."""
+        issue_a = MockIssue(test_id="B302", test="z_test", fname="b.py", lineno=20)
+        issue_b = MockIssue(test_id="B101", test="a_test", fname="a.py", lineno=5)
+        self.manager._issues = [issue_a, issue_b]
+        result = text_formatter.get_results(self.manager, "LOW", "LOW", -1)
+        self.assertLess(result.find("a.py"), result.find("b.py"))
 
     def test_output_issue_str(self):
         """Test _output_issue_str function."""
@@ -317,6 +342,20 @@ class TestSarifFormatter(unittest.TestCase):
         self.assertIn("tool", result["runs"][0])
         self.assertIn("results", result["runs"][0])
         self.assertEqual(len(result["runs"][0]["results"]), 1)
+
+    def test_sarif_report_is_deterministically_sorted(self):
+        """SARIF output should be stable regardless of input issue order."""
+        issue_a = MockIssue(test_id="B302", test="z_test", fname="b.py", lineno=20)
+        issue_b = MockIssue(test_id="B101", test="a_test", fname="a.py", lineno=5)
+        self.manager._issues = [issue_a, issue_b]
+        output = io.StringIO()
+        sarif_formatter.report(self.manager, output, "LOW", "LOW")
+        output.seek(0)
+        data = json.load(output)
+        run = data["runs"][0]
+        self.assertEqual(run["results"][0]["locations"][0]["physicalLocation"]["artifactLocation"]["uri"], "a.py")
+        self.assertEqual(run["artifacts"][0]["location"]["uri"], "a.py")
+        self.assertEqual(run["tool"]["driver"]["rules"][0]["id"], "B101")
 
 
 if __name__ == "__main__":

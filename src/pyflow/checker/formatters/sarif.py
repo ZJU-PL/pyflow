@@ -86,6 +86,16 @@ from .utils import wrap_file_object
 LOG = logging.getLogger(__name__)
 
 
+def _issue_sort_key(issue) -> tuple:
+    return (
+        str(getattr(issue, "fname", "")),
+        int(getattr(issue, "lineno", -1) or -1),
+        str(getattr(issue, "test_id", "")),
+        str(getattr(issue, "test", "")),
+        str(getattr(issue, "text", "")),
+    )
+
+
 def _map_severity_to_sarif_level(severity: str) -> str:
     """Map PyFlow severity levels to SARIF result levels.
 
@@ -172,7 +182,9 @@ def _collect_unique_rules_and_artifacts(
         if artifact_key not in artifacts:
             artifacts[artifact_key] = _create_sarif_artifact(issue.fname)
 
-    return rules, artifacts
+    sorted_rules = dict(sorted(rules.items(), key=lambda kv: kv[0]))
+    sorted_artifacts = dict(sorted(artifacts.items(), key=lambda kv: kv[0]))
+    return sorted_rules, sorted_artifacts
 
 
 @accepts_baseline
@@ -197,6 +209,7 @@ def report(manager, fileobj, sev_level, conf_level, lines=-1):
             issues.extend(results[r])
     else:
         issues = results
+    issues = sorted(issues, key=_issue_sort_key)
 
     # If no issues, return empty SARIF document
     if not issues:

@@ -41,6 +41,16 @@ from .utils import wrap_file_object
 LOG = logging.getLogger(__name__)
 
 
+def _issue_sort_key(issue) -> tuple:
+    return (
+        str(getattr(issue, "fname", "")),
+        int(getattr(issue, "lineno", -1) or -1),
+        str(getattr(issue, "test_id", "")),
+        str(getattr(issue, "test", "")),
+        str(getattr(issue, "text", "")),
+    )
+
+
 def get_verbose_details(manager):
     bits = []
     bits.append(f"Files in scope ({len(manager.files_list)}):")
@@ -97,7 +107,8 @@ def get_results(manager, sev_level, conf_level, lines):
     if not len(issues):
         return "\tNo issues identified."
 
-    for issue in issues:
+    ordered_issues = sorted(issues, key=_issue_sort_key)
+    for issue in ordered_issues:
         # if not a baseline or only one candidate we know the issue
         if not baseline or len(issues[issue]) == 1:
             bits.append(_output_issue_str(issue, "", lines=lines))
@@ -108,7 +119,7 @@ def get_results(manager, sev_level, conf_level, lines):
                 _output_issue_str(issue, "", show_lineno=False, show_code=False)
             )
             bits.append("\n-- Candidate Issues --")
-            for candidate in issues[issue]:
+            for candidate in sorted(issues[issue], key=_issue_sort_key):
                 bits.append(_output_issue_str(candidate, candidate_indent, lines=lines))
                 bits.append("\n")
         bits.append("-" * 50)
@@ -144,7 +155,7 @@ def report(manager, fileobj, sev_level, conf_level, lines=-1):
         ]
     )
 
-    skipped = manager.get_skipped()
+    skipped = sorted(manager.get_skipped(), key=lambda s: (s[0], s[1]))
     bits.extend([get_metrics(manager), f"Files skipped ({len(skipped)}):"])
     bits.extend(f"\t{skip[0]} ({skip[1]})" for skip in skipped)
 

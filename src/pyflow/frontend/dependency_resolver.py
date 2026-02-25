@@ -18,7 +18,7 @@ Usage Examples:
     resolver = DependencyResolver(strategy="strict")
 
 Available Strategies:
-    - AUTO: Try runtime execution first, fallback to AST parsing if imports fail
+    - AUTO: Use AST parsing only (side-effect free)
     - STUBS: Create stub modules for missing dependencies, attempt runtime execution
     - NOOP: Pre-create no-op stubs for all potential missing imports
     - STRICT: Fail immediately if any dependencies can't be resolved
@@ -31,6 +31,7 @@ handling the "missing dependencies" problem in a principled manner.
 import ast as python_ast
 import builtins
 import inspect
+import os
 from dataclasses import dataclass
 from typing import Dict, List, Any, Optional, Callable, Iterable, Tuple
 from enum import Enum
@@ -208,7 +209,7 @@ def _signature_from_ast(args: python_ast.arguments) -> inspect.Signature:
 class DependencyStrategy(Enum):
     """Available strategies for handling import dependencies."""
 
-    AUTO = "auto"  # Try runtime execution, fallback to AST parsing
+    AUTO = "auto"  # Side-effect free AST extraction (default)
     STUBS = "stubs"  # Create stub modules for missing dependencies
     NOOP = "noop"  # Treat missing functions as no-ops
     STRICT = "strict"  # Fail if dependencies can't be resolved
@@ -235,6 +236,8 @@ class DependencyResolver:
         safe_modules: Optional[List[str]] = None,
         search_paths: Optional[List[str]] = None,
         class_hierarchy: Optional[Any] = None,
+        include_private: bool = False,
+        source_files: Optional[Dict[str, str]] = None,
     ):
         """
         Initialize the dependency resolver.
@@ -245,6 +248,8 @@ class DependencyResolver:
             safe_modules: List of modules to include in safe execution environment
             search_paths: Additional paths to search for module source files
             class_hierarchy: Optional ClassHierarchy instance for cross-module class tracking
+            include_private: Include top-level names that start with "_" during AST extraction
+            source_files: Optional map of filename -> source used for in-memory resolution
         """
         self.strategy = DependencyStrategy(strategy)
         self.verbose = verbose
@@ -259,11 +264,26 @@ class DependencyResolver:
         ]
         self.search_paths = search_paths or []
         self.class_hierarchy = class_hierarchy
+        self.include_private = include_private
+        self.source_files = dict(source_files or {})
 
         # Cache for resolved modules to avoid repeated work
         self._module_cache: Dict[str, Dict[str, Any]] = {}
         # Track missing dependencies for better error reporting
         self._missing_dependencies: Dict[str, List[str]] = {}  # module -> [importing_files]
+        # Import graph: module -> imported modules
+        self._import_graph: Dict[str, set[str]] = {}
+        # Telemetry for precision/performance troubleshooting
+        self._telemetry: Dict[str, int] = {
+            "files_processed": 0,
+            "runtime_exec_attempts": 0,
+            "runtime_exec_failures": 0,
+            "ast_extract_failures": 0,
+            "private_defs_filtered": 0,
+            "missing_dependencies": 0,
+            "import_edges": 0,
+            "source_map_hits": 0,
+        }
 
     def extract_functions(self, source: str, file_path: str) -> Dict[str, Any]:
         """
@@ -277,6 +297,8 @@ class DependencyResolver:
             Dictionary mapping function names to function objects
         """
         file_path = str(file_path)
+        self._telemetry["files_processed"] += 1
+        self.source_files[file_path] = source
         if self.strategy == DependencyStrategy.STRICT:
             return self._extract_with_runtime(source, file_path)
         elif self.strategy == DependencyStrategy.STUBS:
@@ -290,6 +312,7 @@ class DependencyResolver:
 
     def _extract_with_runtime(self, source: str, file_path: str) -> Dict[str, Any]:
         """Extract functions using runtime execution only."""
+        self._telemetry["runtime_exec_attempts"] += 1
         exec_globals = self._create_safe_exec_globals()
         exec_globals["__file__"] = file_path
 
@@ -298,12 +321,14 @@ class DependencyResolver:
             exec(compiled, exec_globals)
             return self._filter_functions(exec_globals, file_path)
         except Exception as e:
+            self._telemetry["runtime_exec_failures"] += 1
             if self.verbose:
                 print(f"ERROR: Runtime extraction failed for {file_path}: {e}")
             return {}
 
     def _extract_with_stubs(self, source: str, file_path: str) -> Dict[str, Any]:
         """Extract functions using runtime execution with enhanced stub modules."""
+        self._telemetry["runtime_exec_attempts"] += 1
         exec_globals = self._create_safe_exec_globals()
         exec_globals["__file__"] = file_path
 
@@ -327,6 +352,7 @@ class DependencyResolver:
                 if functions:
                     return functions
             except Exception as stub_e:
+                self._telemetry["runtime_exec_failures"] += 1
                 if self.verbose:
                     print(f"DEBUG: Even with stubs, execution failed: {stub_e}")
 
@@ -347,6 +373,7 @@ class DependencyResolver:
 
     def _extract_noop(self, source: str, file_path: str) -> Dict[str, Any]:
         """Extract functions but treat all external dependencies as no-ops."""
+        self._telemetry["runtime_exec_attempts"] += 1
         exec_globals = self._create_safe_exec_globals()
         exec_globals["__file__"] = file_path
 
@@ -357,8 +384,7 @@ class DependencyResolver:
             source_file = self._find_module_source(module_name)
             if source_file:
                 try:
-                    with open(source_file, "r", encoding="utf-8") as f:
-                        module_source = f.read()
+                    module_source = self._load_source(source_file)
                     module_functions = self._extract_ast_functions(module_source, source_file)
                     module_classes = self._module_cache.get(source_file, {}).get("classes", {})
                     exec_globals[module_name] = self._create_enhanced_stub_module(
@@ -375,6 +401,7 @@ class DependencyResolver:
             exec(compiled, exec_globals)
             return self._filter_functions(exec_globals, file_path)
         except Exception as e:
+            self._telemetry["runtime_exec_failures"] += 1
             if self.verbose:
                 print(f"DEBUG: No-op extraction failed for {file_path}: {e}")
             return {}
@@ -391,12 +418,14 @@ class DependencyResolver:
             classes = {}
 
             module_name = self._get_module_name_from_path(file_path)
+            self._record_import_edges(tree, module_name, file_path)
 
             # Extract classes first (they may contain methods).
-            # Single-underscore private classes are skipped at the top level
-            # (consistent with the original behaviour for functions).
+            # By default single-underscore private classes are skipped at the top
+            # level (consistent with the original behaviour for functions).
             for node in _iter_toplevel_class_nodes(tree):
-                if node.name.startswith("_"):
+                if (not self.include_private) and node.name.startswith("_"):
+                    self._telemetry["private_defs_filtered"] += 1
                     continue
 
                 classes[node.name] = self._extract_class_info(node, module_name, file_path)
@@ -404,7 +433,8 @@ class DependencyResolver:
             # Extract top-level functions; single-underscore private functions
             # are intentionally excluded (they are implementation details).
             for node in _iter_toplevel_function_nodes(tree):
-                if node.name.startswith("_"):
+                if (not self.include_private) and node.name.startswith("_"):
+                    self._telemetry["private_defs_filtered"] += 1
                     continue
 
                 lineno = int(getattr(node, "lineno", 1) or 1)
@@ -439,6 +469,7 @@ class DependencyResolver:
 
             return functions
         except Exception as e:
+            self._telemetry["ast_extract_failures"] += 1
             if self.verbose:
                 print(f"DEBUG: AST extraction failed for {file_path}: {e}")
             return {}
@@ -500,14 +531,73 @@ class DependencyResolver:
         }
 
     def _get_module_name_from_path(self, file_path: str) -> str:
-        """Extract module name from file path."""
+        """Extract a dotted module name from file path.
+
+        The old implementation used basename-only names (e.g. "util"), which
+        collapsed modules from different packages into the same namespace.
+        """
         import os
         if file_path == "<string>" or file_path.startswith("<"):
             return "__pyflow_module__"
-        basename = os.path.basename(file_path)
-        if basename.endswith(".py"):
-            return basename[:-3]
-        return basename
+        try:
+            abs_path = os.path.realpath(file_path)
+            cwd = os.path.realpath(os.getcwd())
+            rel = os.path.relpath(abs_path, cwd)
+        except ValueError:
+            rel = os.path.basename(file_path)
+
+        if rel.endswith(".py"):
+            rel = rel[:-3]
+
+        parts = rel.replace(os.sep, ".").split(".")
+        parts = [p for p in parts if p and p != ".."]
+        if parts and parts[-1] == "__init__":
+            parts = parts[:-1]
+
+        if not parts:
+            stem = os.path.splitext(os.path.basename(file_path))[0]
+            return stem or "__pyflow_module__"
+        return ".".join(parts)
+
+    def _resolve_imported_module(
+        self, current_module: str, imported_module: str, level: int
+    ) -> str:
+        """Resolve an import module considering relative import level."""
+        if level <= 0:
+            return imported_module
+        parts = [p for p in current_module.split(".") if p]
+        if parts and parts[-1] == "__init__":
+            parts = parts[:-1]
+        else:
+            parts = parts[:-1]
+        ups = max(level - 1, 0)
+        if ups >= len(parts):
+            base = []
+        else:
+            base = parts[: len(parts) - ups]
+        if imported_module:
+            base.extend([p for p in imported_module.split(".") if p])
+        return ".".join(base)
+
+    def _record_import_edges(
+        self, tree: python_ast.AST, current_module: str, file_path: str
+    ) -> None:
+        edges = self._import_graph.setdefault(current_module, set())
+        for node in python_ast.walk(tree):
+            if isinstance(node, python_ast.Import):
+                for alias in node.names:
+                    target = alias.name
+                    if target:
+                        edges.add(target)
+            elif isinstance(node, python_ast.ImportFrom):
+                target = self._resolve_imported_module(
+                    current_module,
+                    node.module or "",
+                    int(getattr(node, "level", 0) or 0),
+                )
+                if target:
+                    edges.add(target)
+        self._telemetry["import_edges"] = sum(len(v) for v in self._import_graph.values())
 
     def _extract_auto(self, source: str, file_path: str) -> Dict[str, Any]:
         """Auto strategy: prefer AST parsing to avoid executing user code.
@@ -569,8 +659,7 @@ class DependencyResolver:
                         print(f"DEBUG: Found source file for '{module_name}': {source_file}")
                     try:
                         # Try to extract from source file
-                        with open(source_file, "r", encoding="utf-8") as f:
-                            module_source = f.read()
+                        module_source = self._load_source(source_file)
                         module_functions = self._extract_ast_functions(module_source, source_file)
                         module_classes = self._module_cache.get(source_file, {}).get("classes", {})
                         
@@ -602,6 +691,9 @@ class DependencyResolver:
                 if module_name not in self._missing_dependencies:
                     self._missing_dependencies[module_name] = []
                 self._missing_dependencies[module_name].append(file_path)
+                self._telemetry["missing_dependencies"] = sum(
+                    len(v) for v in self._missing_dependencies.values()
+                )
                 
                 exec_globals[module_name] = self._create_stub_module(module_name)
 
@@ -735,8 +827,17 @@ class DependencyResolver:
         Returns:
             Path to source file if found, None otherwise
         """
-        import os
         import sys
+
+        # First prefer in-memory source map (deterministic and side-effect free).
+        source_map = self._build_module_source_map()
+        if module_name in source_map:
+            self._telemetry["source_map_hits"] += 1
+            return source_map[module_name]
+        init_name = f"{module_name}.__init__"
+        if init_name in source_map:
+            self._telemetry["source_map_hits"] += 1
+            return source_map[init_name]
         
         # Convert module name to file path components
         parts = module_name.split(".")
@@ -771,6 +872,29 @@ class DependencyResolver:
                     return init_file
         
         return None
+
+    def _build_module_source_map(self) -> Dict[str, str]:
+        mapping: Dict[str, str] = {}
+        for filename in self.source_files.keys():
+            module = self._get_module_name_from_path(filename)
+            mapping[module] = filename
+            if module.endswith(".__init__"):
+                mapping[module[: -len(".__init__")]] = filename
+        return mapping
+
+    def _load_source(self, file_path: str) -> str:
+        if file_path in self.source_files:
+            return self.source_files[file_path]
+        with open(file_path, "r", encoding="utf-8") as f:
+            return f.read()
+
+    def get_import_graph(self) -> Dict[str, List[str]]:
+        """Get a deterministic snapshot of the import graph."""
+        return {k: sorted(v) for k, v in sorted(self._import_graph.items())}
+
+    def get_telemetry(self) -> Dict[str, int]:
+        """Get resolver telemetry counters."""
+        return dict(self._telemetry)
 
     def _create_stub_module(self, module_name: str) -> Any:
         """Create a stub module that provides no-op functions."""

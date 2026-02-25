@@ -64,6 +64,7 @@ class Program(object):
         "semantic_queries_mode",
         "class_hierarchy",
         "cross_module_resolver",
+        "frontend_telemetry",
     )
 
     def __init__(self):
@@ -91,6 +92,7 @@ class Program(object):
         self.semantic_queries_mode = None
         self.class_hierarchy = None
         self.cross_module_resolver = None
+        self.frontend_telemetry = None
 
     def get_semantic_queries(self, compiler, server_mode=None):
         """Get or create a semantic query service for this program."""

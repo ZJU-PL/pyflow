@@ -98,7 +98,9 @@ class Extractor:
         # Expose stubs for backward compatibility
         self.stubs = self.stub_manager.stubs
 
-    def extract_from_source(self, source: str, filename: str = "<string>") -> Program:
+    def extract_from_source(
+        self, source: str, filename: str = "<string>", *, reset_telemetry: bool = True
+    ) -> Program:
         """Extract program information from Python source code.
 
         Args:
@@ -109,6 +111,8 @@ class Extractor:
             Program: Program object containing extracted information.
         """
         try:
+            if reset_telemetry:
+                self.function_extractor.ast_converter.reset_telemetry()
             self._current_file_path = filename  # Store for relative import resolution
             tree = ast.parse(source, filename)
             return self._extract_from_ast(tree, filename)
@@ -146,13 +150,16 @@ class Extractor:
         """Extract program information from multiple Python files."""
         combined_program = Program()
         self._source_files = source_files
+        self.function_extractor.ast_converter.reset_telemetry()
 
         for filename, source in source_files.items():
             if self.verbose:
                 print(f"Processing file: {filename}")
 
             try:
-                file_program = self.extract_from_source(source, filename)
+                file_program = self.extract_from_source(
+                    source, filename, reset_telemetry=False
+                )
                 # Add extracted functions to combined program
                 if hasattr(file_program, "liveCode") and file_program.liveCode:
                     if (
@@ -166,6 +173,9 @@ class Extractor:
                     print(f"Error processing {filename}: {e}")
                 self.errors += 1
 
+        combined_program.frontend_telemetry = (
+            self.function_extractor.ast_converter.get_telemetry()
+        )
         return combined_program
 
     def _extract_from_ast(self, tree: ast.AST, filename: str) -> Program:
@@ -214,6 +224,7 @@ class Extractor:
 
         program.class_hierarchy = self.class_hierarchy
         program.cross_module_resolver = self.cross_module_resolver
+        program.frontend_telemetry = self.function_extractor.ast_converter.get_telemetry()
 
         if self.verbose:
             print(
@@ -283,13 +294,10 @@ class Extractor:
                 source_module = node.module or ""
                 level = node.level or 0
 
-                # Build the effective module prefix for relative imports.
-                if level > 0:
-                    # Approximate: mark relative prefix so callers can detect it.
-                    rel_prefix = "." * level + (source_module or "")
-                    effective_module = f"<relative:{rel_prefix}>"
-                else:
-                    effective_module = source_module
+                # Resolve relative imports against the current module.
+                effective_module = self._resolve_import_from_module(
+                    module_name, source_module, int(level)
+                )
 
                 for alias in node.names:
                     if alias.name == "*":
@@ -297,10 +305,12 @@ class Extractor:
                         # widen this scope with all exported names from the module.
                         star_list = imports.setdefault(STAR_KEY, [])
                         star_list.append(effective_module)
+                        for exported in self._expand_star_import_names(effective_module):
+                            imports.setdefault(exported, f"{effective_module}.{exported}")
                         continue
                     local_name = alias.asname or alias.name
-                    if source_module:
-                        qualified = f"{source_module}.{alias.name}"
+                    if effective_module:
+                        qualified = f"{effective_module}.{alias.name}"
                     else:
                         qualified = alias.name
                     imports[local_name] = qualified
@@ -310,6 +320,106 @@ class Extractor:
         # Register imports with cross-module resolver
         if self.cross_module_resolver:
             self.cross_module_resolver.imports[module_name] = imports
+
+    def _resolve_import_from_module(
+        self, current_module: str, source_module: str, level: int
+    ) -> str:
+        """Resolve ``from ... import ...`` source to a dotted module name."""
+        if level <= 0:
+            return source_module
+
+        parts = [p for p in current_module.split(".") if p]
+        if parts and parts[-1] == "__init__":
+            parts = parts[:-1]
+        else:
+            parts = parts[:-1]
+
+        ups = max(level - 1, 0)
+        if ups >= len(parts):
+            base = []
+        else:
+            base = parts[: len(parts) - ups]
+
+        if source_module:
+            base.extend([p for p in source_module.split(".") if p])
+        return ".".join(base)
+
+    def _expand_star_import_names(self, module_name: str) -> List[str]:
+        """Expand ``from module import *`` names when source is available."""
+        source_map = self._build_module_source_map()
+        module_source = source_map.get(module_name)
+        if module_source is None:
+            init_name = f"{module_name}.__init__"
+            module_source = source_map.get(init_name)
+        if module_source is None:
+            return []
+
+        try:
+            tree = ast.parse(module_source)
+        except SyntaxError:
+            return []
+
+        explicit_all: Optional[List[str]] = None
+        discovered: Set[str] = set()
+
+        for node in getattr(tree, "body", []) or []:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                if not node.name.startswith("_"):
+                    discovered.add(node.name)
+                continue
+
+            if isinstance(node, ast.Assign):
+                for target in node.targets:
+                    if isinstance(target, ast.Name):
+                        if target.id == "__all__":
+                            explicit_all = self._extract_literal_string_list(node.value)
+                        elif not target.id.startswith("_"):
+                            discovered.add(target.id)
+                continue
+
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    local = alias.asname or alias.name.split(".")[-1]
+                    if not local.startswith("_"):
+                        discovered.add(local)
+                continue
+
+            if isinstance(node, ast.ImportFrom):
+                for alias in node.names:
+                    if alias.name == "*":
+                        continue
+                    local = alias.asname or alias.name
+                    if not local.startswith("_"):
+                        discovered.add(local)
+
+        if explicit_all is not None:
+            return [name for name in explicit_all if isinstance(name, str)]
+        return sorted(discovered)
+
+    def _extract_literal_string_list(self, node: ast.AST) -> Optional[List[str]]:
+        """Extract a static list/tuple/set of string values."""
+        if isinstance(node, (ast.List, ast.Tuple, ast.Set)):
+            out: List[str] = []
+            for elt in node.elts:
+                if isinstance(elt, ast.Constant) and isinstance(elt.value, str):
+                    out.append(elt.value)
+                else:
+                    return None
+            return out
+        return None
+
+    def _build_module_source_map(self) -> Dict[str, str]:
+        """Build module-name -> source mapping from in-memory source_code dict."""
+        if not isinstance(self.source_code, dict):
+            return {}
+
+        mapping: Dict[str, str] = {}
+        for filename, source in self.source_code.items():
+            module = self._get_module_name(filename)
+            mapping[module] = source
+            if module.endswith(".__init__"):
+                mapping[module[: -len(".__init__")]] = source
+        return mapping
 
     def _register_class_in_hierarchy(self, node: ast.ClassDef, module_name: str) -> None:
         """Register a class in the class hierarchy with enhanced MRO support."""
@@ -622,6 +732,7 @@ def create_interface_from_paths(python_files, args):
         safe_modules=["math", "os", "sys", "re", "json", "datetime", "collections"],
         search_paths=search_paths,
         class_hierarchy=class_hierarchy,
+        source_files=all_source_code,
     )
 
     for file_path in python_files:
@@ -629,6 +740,7 @@ def create_interface_from_paths(python_files, args):
             with open(file_path, "r", encoding="utf-8") as f:
                 source = f.read()
             all_source_code[str(file_path)] = source
+            resolver.source_files[str(file_path)] = source
 
             functions = resolver.extract_functions(source, str(file_path))
 
@@ -659,5 +771,10 @@ def create_interface_from_paths(python_files, args):
             print("\nMissing dependencies report:")
             for module, importing_files in missing.items():
                 print(f"  {module}: imported by {len(importing_files)} file(s)")
+        telemetry = resolver.get_telemetry()
+        if telemetry:
+            print("\nDependency resolver telemetry:")
+            for key in sorted(telemetry):
+                print(f"  {key}: {telemetry[key]}")
 
     return interface_decl, all_source_code

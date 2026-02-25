@@ -14,7 +14,7 @@ Supported Python features:
 
 import ast as python_ast
 import sys
-from typing import Any, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from pyflow.language.python import ast as pyflow_ast
 from pyflow.language.python.program import Object
@@ -32,9 +32,49 @@ class ASTConverter:
 
     def __init__(self, verbose: bool = True):
         self.verbose = verbose
+        # Collected approximation notes for debugging and tests.
+        self.approximation_warnings: List[str] = []
+        self._telemetry: Dict[str, int] = {
+            "unsupported_expr": 0,
+            "unsupported_stmt": 0,
+            "unknown_augassign": 0,
+            "merged_varargs": 0,
+            "merged_kwargs": 0,
+        }
 
     def _tmp_local(self, hint: str, node: python_ast.AST) -> pyflow_ast.Local:
         return pyflow_ast.Local(f"__pyflow_tmp_{hint}_{id(node)}")
+
+    def _warn_approx(self, node: python_ast.AST, detail: str) -> None:
+        line = getattr(node, "lineno", "?")
+        msg = f"{type(node).__name__}@{line}: {detail}"
+        self.approximation_warnings.append(msg)
+        if self.verbose:
+            print(f"WARN: {msg}")
+
+    def _unsupported_expr(self, node: python_ast.AST, detail: str) -> PythonASTNode:
+        self._telemetry["unsupported_expr"] += 1
+        self._warn_approx(node, detail)
+        return self._call_named(
+            "interpreter_unsupported_expr",
+            [
+                pyflow_ast.Existing(Object(type(node).__name__)),
+                pyflow_ast.Existing(Object(detail)),
+            ],
+        )
+
+    def _unsupported_stmt(self, node: python_ast.AST, detail: str) -> PythonASTNode:
+        self._telemetry["unsupported_stmt"] += 1
+        self._warn_approx(node, detail)
+        return pyflow_ast.Discard(
+            self._call_named(
+                "interpreter_unsupported_stmt",
+                [
+                    pyflow_ast.Existing(Object(type(node).__name__)),
+                    pyflow_ast.Existing(Object(detail)),
+                ],
+            )
+        )
 
     def _call_named(
         self,
@@ -52,6 +92,16 @@ class ASTConverter:
             vargs,
             kargs,
         )
+
+    def reset_telemetry(self) -> None:
+        self.approximation_warnings = []
+        for key in self._telemetry:
+            self._telemetry[key] = 0
+
+    def get_telemetry(self) -> Dict[str, Any]:
+        out: Dict[str, Any] = dict(self._telemetry)
+        out["approximation_warnings"] = len(self.approximation_warnings)
+        return out
 
     def _convert_subscript_index(self, slice_node: python_ast.AST) -> PythonASTNode:
         sl = slice_node
@@ -202,11 +252,10 @@ class ASTConverter:
             return pyflow_ast.Suite([])
 
         else:
-            # For unhandled node types, create a generic discard
+            # Keep unsupported statements explicit so callers can audit precision loss.
             if hasattr(node, "value"):
                 return pyflow_ast.Discard(self._convert_expression(node.value))
-            else:
-                return pyflow_ast.Suite([])
+            return self._unsupported_stmt(node, "unhandled statement node")
 
     def _convert_expression(self, node: python_ast.AST) -> PythonASTNode:
         """Convert Python AST expressions to pyflow AST expressions."""
@@ -236,8 +285,9 @@ class ASTConverter:
                     if vargs is None:
                         vargs = star
                     else:
-                        # Approximate multiple *args by packing them into a list.
-                        vargs = pyflow_ast.BuildList([vargs, star])
+                        # Preserve intent of repeated unpacking with a merge helper.
+                        self._telemetry["merged_varargs"] += 1
+                        vargs = self._call_named("interpreter_merge_varargs", [vargs, star])
                 else:
                     args.append(self._convert_expression_safe(arg))
 
@@ -251,8 +301,11 @@ class ASTConverter:
                         if kargs is None:
                             kargs = converted_value
                         else:
-                            # Multiple **kwargs: conservative approximation.
-                            kargs = pyflow_ast.BuildMap()
+                            # Preserve chained unpacking with an explicit merge helper.
+                            self._telemetry["merged_kwargs"] += 1
+                            kargs = self._call_named(
+                                "interpreter_merge_kwargs", [kargs, converted_value]
+                            )
                     else:
                         keywords.append((kw.arg, converted_value))
 
@@ -293,12 +346,12 @@ class ASTConverter:
                     None,
                     None,
                 )
-            return pyflow_ast.Existing(Object(None))
+            return self._unsupported_expr(node, "unknown unary operator")
 
         elif isinstance(node, python_ast.Compare):
             left = self._convert_expression_safe(node.left)
             if len(node.ops) != len(node.comparators) or not node.ops:
-                return pyflow_ast.Existing(Object(None))
+                return self._unsupported_expr(node, "malformed comparison")
 
             def single(
                 op: python_ast.AST, a: PythonASTNode, b: PythonASTNode
@@ -321,7 +374,7 @@ class ASTConverter:
                     return pyflow_ast.Not(
                         self._call_named("interpreter__contains__", [b, a])
                     )
-                return pyflow_ast.Existing(Object(None))
+                return self._unsupported_expr(node, "unsupported comparison operator")
 
             comps: List[PythonASTNode] = []
             cur_left = left
@@ -413,7 +466,7 @@ class ASTConverter:
             elif isinstance(node.op, python_ast.Or):
                 return pyflow_ast.ShortCircutOr(values)
             else:
-                return pyflow_ast.Existing(Object(None))
+                return self._unsupported_expr(node, "unsupported boolean operator")
 
         elif isinstance(node, python_ast.IfExp):
             # IfExp is an expression (a if cond else b).  We cannot return a
@@ -505,8 +558,7 @@ class ASTConverter:
             return pyflow_ast.MakeFunction(defaults=[], cells=[], code=code)
 
         else:
-            # Fallback for unhandled expressions
-            return pyflow_ast.Existing(Object(None))
+            return self._unsupported_expr(node, "unhandled expression node")
 
     def _convert_expression_safe(self, node: Optional[python_ast.AST]) -> PythonASTNode:
         """Convert Python AST expressions to pyflow AST expressions with None protection."""
@@ -1042,8 +1094,13 @@ class ASTConverter:
         rhs = self._convert_expression_safe(node.value)
         op_name = self._binary_op_name(node.op)
         if op_name is None:
-            # Unknown op: fall back to assignment of RHS (conservative/approximate).
-            return self._convert_store(node.target, rhs)
+            self._telemetry["unknown_augassign"] += 1
+            self._warn_approx(node, "unknown augmented assignment operator")
+            tagged_rhs = self._call_named(
+                "interpreter_unknown_augassign",
+                [pyflow_ast.Existing(Object(type(node.op).__name__)), rhs],
+            )
+            return self._convert_store(node.target, tagged_rhs)
 
         op = pyflow_ast.Existing(Object(op_name))
 
@@ -1394,7 +1451,7 @@ class ASTConverter:
                     annotation,
                     None
                 )
-            return pyflow_ast.Suite([])
+            return self._unsupported_stmt(node, "annotation-only assignment target unsupported")
         
         value = self._convert_expression_safe(node.value)
         
@@ -1424,7 +1481,7 @@ class ASTConverter:
                 )
             )
         
-        return pyflow_ast.Suite([])
+        return self._unsupported_stmt(node, "annotated assignment target unsupported")
 
     def _convert_named_expr(self, node) -> PythonASTNode:
         """Convert walrus operator (:=) to pyflow AST.
@@ -1453,123 +1510,122 @@ class ASTConverter:
         preserving iteration semantics and handling if-conditions.
         """
         generators = node.generators
-        
+
         if result_type == "dict":
-            key_expr = self._convert_expression_safe(node.key)
-            value_expr = self._convert_expression_safe(node.value)
             result_init = pyflow_ast.BuildMap()
+
+            def make_add_stmt(result_local: pyflow_ast.Local) -> PythonASTNode:
+                key_expr = self._convert_expression_safe(node.key)
+                value_expr = self._convert_expression_safe(node.value)
+                return pyflow_ast.Discard(
+                    self._call_named("interpreter_setitem", [result_local, key_expr, value_expr])
+                )
+
+        elif result_type == "set":
+            element = self._convert_expression_safe(node.elt)
+            result_init = pyflow_ast.BuildSet([])
+
+            def make_add_stmt(result_local: pyflow_ast.Local) -> PythonASTNode:
+                return pyflow_ast.Discard(
+                    self._call_named("interpreter_set_add", [result_local, element])
+                )
+
         else:
             element = self._convert_expression_safe(node.elt)
             result_init = pyflow_ast.BuildList([])
-        
+
+            def make_add_stmt(result_local: pyflow_ast.Local) -> PythonASTNode:
+                return pyflow_ast.Discard(
+                    self._call_named("interpreter_list_append", [result_local, element])
+                )
+
         if not generators:
             if result_type == "list":
                 return pyflow_ast.BuildList([element])
-            elif result_type == "dict":
+            if result_type == "dict":
                 return pyflow_ast.BuildMap()
+            if result_type == "set":
+                return pyflow_ast.BuildSet([element])
             return result_init
-        
+
         result_local = self._tmp_local("comp_result", node)
-        
-        inner_body = pyflow_ast.Suite([])
-        
-        if result_type == "dict":
-            inner_body.append(pyflow_ast.Discard(
-                self._call_named("interpreter_setitem", [
-                    result_local, key_expr, value_expr
-                ])
-            ))
-        else:
-            inner_body.append(pyflow_ast.Discard(
-                self._call_named("interpreter_list_append", [result_local, element])
-            ))
-        
+        inner_body: PythonASTNode = pyflow_ast.Suite([make_add_stmt(result_local)])
+
         for gen in reversed(generators):
             iter_expr = self._convert_expression_safe(gen.iter)
-            
+
             if isinstance(gen.target, python_ast.Name):
                 index = pyflow_ast.Local(gen.target.id)
             else:
                 index = self._tmp_local("comp_idx", gen)
                 store = self._convert_store(gen.target, index)
                 inner_body = pyflow_ast.Suite([store, inner_body])
-            
+
             if gen.ifs:
                 for if_cond in reversed(gen.ifs):
                     cond = self._convert_expression_safe(if_cond)
-                    inner_body = pyflow_ast.Suite([
-                        pyflow_ast.Switch(
-                            condition=pyflow_ast.Condition(pyflow_ast.Suite([]), cond),
-                            t=inner_body,
-                            f=pyflow_ast.Suite([]),
-                        )
-                    ])
-            
-            body_preamble = pyflow_ast.Suite([])
-            if not isinstance(gen.target, python_ast.Name):
-                pass
-            
+                    inner_body = pyflow_ast.Suite(
+                        [
+                            pyflow_ast.Switch(
+                                condition=pyflow_ast.Condition(pyflow_ast.Suite([]), cond),
+                                t=inner_body,
+                                f=pyflow_ast.Suite([]),
+                            )
+                        ]
+                    )
+
             inner_body = pyflow_ast.For(
                 iterator=iter_expr,
                 index=index,
                 loopPreamble=pyflow_ast.Suite([]),
-                bodyPreamble=body_preamble,
+                bodyPreamble=pyflow_ast.Suite([]),
                 body=inner_body,
                 else_=pyflow_ast.Suite([]),
             )
-        
-        # Bug #15 fix: comprehensions appear in expression position, but the
-        # CFG/dataflow IR requires statements.  The original code returned a
-        # bare Suite, which callers in expression context (e.g. as a function
-        # argument) would embed directly, producing structurally invalid AST.
-        #
-        # We model the comprehension as a call to a synthetic helper
-        # ``interpreter_comprehension`` that receives the result_local after
-        # the loop has populated it.  The loop itself is emitted as a
-        # statement-level Suite via a NamedExpr-like wrapper so that the
-        # surrounding expression context sees a single expression node.
-        #
-        # Concretely: we wrap the whole thing in a call to
-        # ``interpreter_comprehension(result_local)`` and prepend the
-        # initialisation + loop as a preamble stored in a NamedExpr.
-        # Downstream analyses that do not understand NamedExpr will see the
-        # call and treat the result conservatively, which is sound.
-        # Bug #15 fix: comprehensions appear in expression position, but the
-        # CFG/dataflow IR requires statements.  We cannot return a bare Suite
-        # here because callers expect an Expression node.
-        #
-        # NamedExpr(target, value) requires `value` to be an Expression, not a
-        # Suite.  Instead we emit the loop initialisation + body as a
-        # statement-level preamble stored in a Discard, and then return a
-        # NamedExpr whose `value` is the result_local (a plain Local, which IS
-        # an Expression).  The Discard is embedded inside the NamedExpr's
-        # preamble field so that the CFG builder can hoist it before the
-        # expression is evaluated.
-        #
-        # Concretely: we return a NamedExpr(result_local, result_local) and
-        # attach the loop suite as a preamble.  Downstream passes that do not
-        # understand NamedExpr will see the Local and treat the result
-        # conservatively, which is sound.
-        # Bug #15 fix: comprehensions appear in expression position.
-        # We cannot return a Suite here because callers expect an Expression.
-        # NamedExpr only accepts (target, value) with value being an Expression,
-        # so we cannot embed the loop Suite there either.
-        #
-        # Solution: model the comprehension as a Call to a synthetic helper
-        # ``interpreter_comprehension`` that receives the result_local.
-        # The loop initialisation is emitted as a NamedExpr that assigns
-        # result_local to itself (identity), which is a valid Expression.
-        # The actual loop body is captured as a side-effect via the NamedExpr
-        # target assignment.  Downstream analyses treat the Call conservatively.
-        #
-        # We use a two-step NamedExpr chain:
-        #   1. NamedExpr(result_local, result_init)  — initialise the accumulator
-        #   2. Call("interpreter_comprehension", [result_local])  — return it
-        # The loop (inner_body) is NOT directly embedded in the expression tree
-        # because Suite is not an Expression.  Instead we rely on the fact that
-        # the NamedExpr assignment is visible to the dataflow analysis.
-        init_expr = pyflow_ast.NamedExpr(result_local, result_init)
-        return self._call_named("interpreter_comprehension", [init_expr])
+
+        comp_body = pyflow_ast.Suite(
+            [
+                pyflow_ast.Assign(result_init, [result_local]),
+                inner_body,
+                pyflow_ast.Return([result_local]),
+            ]
+        )
+        comp_params = pyflow_ast.CodeParameters(
+            selfparam=None,
+            posonlyparams=[],
+            posonlynames=[],
+            params=[],
+            paramnames=[],
+            defaults=[],
+            vparam=None,
+            kparam=None,
+            returnparams=[pyflow_ast.Local("ret0")],
+            type_params=None,
+        )
+        comp_code = pyflow_ast.Code(f"<{result_type}comp>", comp_params, comp_body)
+        comp_code.annotation = CodeAnnotation(
+            contexts=None,
+            descriptive=False,
+            primitive=False,
+            staticFold=False,
+            dynamicFold=False,
+            origin=[f"converted_{result_type}comp"],
+            live=None,
+            killed=None,
+            codeReads=None,
+            codeModifies=None,
+            codeAllocates=None,
+            lowered=False,
+            runtime=False,
+            interpreter=False,
+        )
+        return pyflow_ast.Call(
+            pyflow_ast.MakeFunction(defaults=[], cells=[], code=comp_code),
+            [],
+            [],
+            None,
+            None,
+        )
 
     def _convert_list_comp(self, node) -> PythonASTNode:
         """Convert list comprehension with proper iteration modeling."""

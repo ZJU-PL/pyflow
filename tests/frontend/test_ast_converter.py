@@ -221,6 +221,15 @@ while x > 0:
         self.assertIsNotNone(result.vargs)
         self.assertIsNotNone(result.kargs)
 
+    def test_convert_call_with_multiple_kwargs_uses_merge_helper(self):
+        """Repeated **kwargs should be represented with merge helper calls."""
+        tree = python_ast.parse("func(**a, **b)", mode="eval")
+        result = self.converter._convert_expression(tree.body)
+        self.assertIsInstance(result, pyflow_ast.Call)
+        self.assertIsInstance(result.kargs, pyflow_ast.Call)
+        self.assertIsInstance(result.kargs.expr, pyflow_ast.Existing)
+        self.assertEqual(result.kargs.expr.object.pyobj, "interpreter_merge_kwargs")
+
     def test_convert_binop_expression(self):
         """Test converting binary operation."""
         source = "a + b"
@@ -345,6 +354,37 @@ while x > 0:
         
         result = self.converter._convert_expression(node)
         self.assertIsInstance(result, pyflow_ast.MakeFunction)
+
+    def test_convert_comprehension_returns_callable_expression(self):
+        """Comprehensions should lower to callable expression preserving loop body."""
+        tree = python_ast.parse("[x for x in xs if x]", mode="eval")
+        result = self.converter._convert_expression(tree.body)
+        self.assertIsInstance(result, pyflow_ast.Call)
+        self.assertIsInstance(result.expr, pyflow_ast.MakeFunction)
+
+    def test_unhandled_expression_emits_tagged_helper(self):
+        """Unsupported expression nodes should be explicit, not silent None."""
+        class UnknownExpr(python_ast.AST):
+            _fields = ()
+
+        result = self.converter._convert_expression(UnknownExpr())
+        self.assertIsInstance(result, pyflow_ast.Call)
+        self.assertIsInstance(result.expr, pyflow_ast.Existing)
+        self.assertEqual(result.expr.object.pyobj, "interpreter_unsupported_expr")
+
+    def test_converter_telemetry_counts_approximations(self):
+        """Telemetry should count approximation paths."""
+        self.converter.reset_telemetry()
+        tree = python_ast.parse("func(**a, **b)", mode="eval")
+        self.converter._convert_expression(tree.body)
+
+        class UnknownExpr(python_ast.AST):
+            _fields = ()
+
+        self.converter._convert_expression(UnknownExpr())
+        telemetry = self.converter.get_telemetry()
+        self.assertGreaterEqual(telemetry["merged_kwargs"], 1)
+        self.assertGreaterEqual(telemetry["unsupported_expr"], 1)
 
     def test_convert_try_except(self):
         """Test converting try-except block."""

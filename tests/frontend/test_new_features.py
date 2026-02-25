@@ -174,26 +174,15 @@ class TestComprehensions(unittest.TestCase):
         self.converter = ASTConverter(verbose=False)
 
     def test_list_comp_returns_suite(self):
-        """Test that list comprehension returns an expression node (Call).
-
-        Bug #15 fix: comprehensions appear in expression position so the
-        converter must return an Expression, not a Suite.  The result is now
-        a Call to the synthetic helper ``interpreter_comprehension`` whose
-        single argument is a NamedExpr that initialises the accumulator.
-        """
+        """List comprehension should lower to callable expression IR."""
         source = "[x for x in range(10)]"
         tree = python_ast.parse(source, mode='eval')
         node = tree.body
 
         result = self.converter._convert_expression(node)
-        # Must be an expression node (Call), not a Suite.
         self.assertIsInstance(result, pyflow_ast.Call)
-        # The call must reference the synthetic comprehension helper.
-        self.assertIsInstance(result.expr, pyflow_ast.Existing)
-        self.assertEqual(result.expr.object.pyobj, "interpreter_comprehension")
-        # The single argument must be a NamedExpr (accumulator initialisation).
-        self.assertEqual(len(result.args), 1)
-        self.assertIsInstance(result.args[0], pyflow_ast.NamedExpr)
+        self.assertIsInstance(result.expr, pyflow_ast.MakeFunction)
+        self.assertEqual(len(result.args), 0)
 
     def test_gen_exp_not_none(self):
         """Test that generator expression returns MakeFunction (a generator function)."""

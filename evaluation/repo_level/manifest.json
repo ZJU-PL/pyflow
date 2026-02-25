@@ -1,0 +1,30 @@
+{
+  "projects": [
+    {
+      "name": "cli_tool",
+      "path": "corpus/cli_tool",
+      "python_files": 13
+    },
+    {
+      "name": "data_pipeline",
+      "path": "corpus/data_pipeline",
+      "python_files": 6
+    },
+    {
+      "name": "ml_utils",
+      "path": "corpus/ml_utils",
+      "python_files": 10
+    },
+    {
+      "name": "repo_sample",
+      "path": "corpus/repo_sample",
+      "python_files": 12
+    },
+    {
+      "name": "web_framework",
+      "path": "corpus/web_framework",
+      "python_files": 10
+    }
+  ],
+  "version": 1
+}

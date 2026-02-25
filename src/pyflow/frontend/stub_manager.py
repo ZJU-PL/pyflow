@@ -97,6 +97,50 @@ class StubManager:
 
             return make_params([pyflow_ast.Local("a"), pyflow_ast.Local("b")])
 
+        def _safe_merge_varargs(a, b):
+            try:
+                left = list(a if isinstance(a, (list, tuple)) else [a])
+                right = list(b if isinstance(b, (list, tuple)) else [b])
+                return left + right
+            except Exception:
+                return []
+
+        def _safe_merge_kwargs(a, b):
+            out = {}
+            try:
+                out.update(dict(a))
+            except Exception:
+                pass
+            try:
+                out.update(dict(b))
+            except Exception:
+                pass
+            return out
+
+        def _safe_aiter(obj):
+            try:
+                return obj.__aiter__()
+            except Exception:
+                try:
+                    return iter(obj)
+                except Exception:
+                    return iter(())
+
+        def _safe_aenter(cm):
+            try:
+                return cm.__aenter__()
+            except Exception:
+                return cm
+
+        def _safe_aexit(cm, et, ev, tb):
+            try:
+                fn = getattr(cm, "__aexit__", None)
+                if callable(fn):
+                    return fn(et, ev, tb)
+            except Exception:
+                pass
+            return False
+
         # Map stub names to simple Python callables used for dynamic folding.
         dynfold = {
             "interpreter_getattribute": getattr,
@@ -138,9 +182,9 @@ class StubManager:
             # Context manager protocol
             "interpreter_enter": lambda cm: cm.__enter__(),
             "interpreter_exit": lambda cm, et, ev, tb: cm.__exit__(et, ev, tb),
-            "interpreter_aenter": None,   # async; no simple fold
-            "interpreter_aexit": None,
-            "interpreter_aiter": None,
+            "interpreter_aenter": _safe_aenter,
+            "interpreter_aexit": _safe_aexit,
+            "interpreter_aiter": _safe_aiter,
             # String formatting
             "interpreter_format": format,
             "interpreter_join_str": lambda parts: "".join(str(p) for p in parts),
@@ -148,11 +192,21 @@ class StubManager:
             "interpreter_list_append": lambda lst, item: lst.append(item),
             "interpreter_build_set": lambda *args: set(args),
             # Pattern matching helpers (no simple Python equivalent)
-            "interpreter_match_sequence_len": None,
-            "interpreter_match_mapping_len": None,
+            "interpreter_match_sequence_len": lambda seq, n: bool(
+                hasattr(seq, "__len__") and len(seq) == n
+            ),
+            "interpreter_match_mapping_len": lambda mapping, n: bool(
+                hasattr(mapping, "__len__") and len(mapping) >= n
+            ),
             "interpreter_match_class": isinstance,
-            "interpreter_match_rest": None,
+            "interpreter_match_rest": lambda subject: subject,
             "interpreter_getattr": getattr,
+            "interpreter_merge_varargs": _safe_merge_varargs,
+            "interpreter_merge_kwargs": _safe_merge_kwargs,
+            "interpreter_set_add": lambda s, item: (s.add(item), s)[1],
+            "interpreter_unsupported_expr": lambda node, detail: None,
+            "interpreter_unsupported_stmt": lambda node, detail: None,
+            "interpreter_unknown_augassign": lambda op, rhs: rhs,
         }
 
         def create_stub_code(name):
@@ -253,6 +307,22 @@ class StubManager:
                         "interpreter_list_append"
                     ),
                     "interpreter_build_set": create_stub_code("interpreter_build_set"),
+                    "interpreter_set_add": create_stub_code("interpreter_set_add"),
+                    "interpreter_merge_varargs": create_stub_code(
+                        "interpreter_merge_varargs"
+                    ),
+                    "interpreter_merge_kwargs": create_stub_code(
+                        "interpreter_merge_kwargs"
+                    ),
+                    "interpreter_unsupported_expr": create_stub_code(
+                        "interpreter_unsupported_expr"
+                    ),
+                    "interpreter_unsupported_stmt": create_stub_code(
+                        "interpreter_unsupported_stmt"
+                    ),
+                    "interpreter_unknown_augassign": create_stub_code(
+                        "interpreter_unknown_augassign"
+                    ),
                     # Pattern matching stubs (Python 3.10+)
                     "interpreter_match_sequence_len": create_stub_code(
                         "interpreter_match_sequence_len"
