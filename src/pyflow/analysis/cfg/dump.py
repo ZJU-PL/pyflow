@@ -242,7 +242,7 @@ def evaluate(compiler, cfg):
     ctd = CFGToDot(g)
     ctd.process(cfg)
 
-    directory = "summaries"
+    directory = "tmp/summaries"
     name = cfg.code.name
 
     dumpGraph(directory, name, "svg", g)

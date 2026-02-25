@@ -347,5 +347,5 @@ def process(compiler, dataflow, name, dump=False):
     cfg = structuralanalysis.processCFG(compiler, cfg)
 
     if dump:
-        dumpcfgir.process(compiler, cfg, "summaries/dataflow", name)
+        dumpcfgir.process(compiler, cfg, "tmp/summaries/dataflow", name)
     return cfg

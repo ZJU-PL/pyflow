@@ -21,7 +21,7 @@ def dumpAnalysisResults(analysis):
     Args:
         analysis: IPAnalysis object containing analysis results.
     """
-    dumper = Dumper("summaries/ipa")
+    dumper = Dumper("tmp/summaries/ipa")
 
     dumper.index(analysis.contexts.values(), analysis.root)
 

@@ -101,34 +101,6 @@ def _analyze_call_node(call_node, caller_name, function_names, graph):
             pass
 
 
-def _analyze_assignment_calls(
-    assign_node, target_name, caller_name, function_names, graph
-):
-    """Analyze calls that happen after an assignment like a = func; a()()."""
-    # This is a simplified approach - in a more complete implementation,
-    # we'd need to track variable assignments and their usage in subsequent calls
-    # For now, we'll handle the specific case from the test: a = func; a()()
-
-    # Find the next statement after the assignment
-    parent = getattr(assign_node, "_parent", None)
-    if parent and hasattr(parent, "body"):
-        try:
-            assign_idx = parent.body.index(assign_node)
-            if assign_idx + 1 < len(parent.body):
-                next_node = parent.body[assign_idx + 1]
-                if isinstance(next_node, ast.Expr) and isinstance(
-                    next_node.value, ast.Call
-                ):
-                    call = next_node.value
-                    if isinstance(call.func, ast.Name) and call.func.id == target_name:
-                        # This is a call like a() after a = func
-                        # The actual callee would be whatever was assigned to a
-                        # For this specific test case, we need to detect that a()() calls func
-                        _analyze_assigned_call(call, caller_name, function_names, graph)
-        except (ValueError, AttributeError):
-            pass
-
-
 def _find_subsequent_calls(
     assign_node, var_name, func_name, caller_name, function_names, graph
 ):
