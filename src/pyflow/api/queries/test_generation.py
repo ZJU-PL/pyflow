@@ -6,8 +6,11 @@ exposing function signatures, input/output behavior, control flow paths, and
 data dependencies needed to generate comprehensive test cases.
 """
 
+from collections import deque
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Union
+
+from pyflow.application.errors import TemporaryLimitation
 
 from .context import QueryContext
 from .data_flow import DataFlowQueries, IpaFunctionSummary
@@ -112,7 +115,7 @@ class TestGenerationQueries:
                 if hasattr(summary.summary, "examples"):
                     examples.extend(summary.summary.examples)
             return examples
-        except Exception:
+        except (TemporaryLimitation, ValueError, TypeError, AttributeError):
             return []
 
     def get_boundary_conditions(
@@ -131,10 +134,10 @@ class TestGenerationQueries:
         complexity = 1
 
         visited = set()
-        queue = [cfg.entryTerminal]
+        queue = deque([cfg.entryTerminal])
 
         while queue:
-            block = queue.pop(0)
+            block = queue.popleft()
             if block in visited:
                 has_loops = True
                 continue
@@ -178,27 +181,65 @@ class TestGenerationQueries:
 
     def _extract_cfg_paths(self, cfg) -> List[List]:
         paths = []
-        self._dfs_paths(cfg.entryTerminal, [], set(), paths, max_paths=10)
+        self._dfs_paths(
+            cfg.entryTerminal,
+            [],
+            set(),
+            paths,
+            max_paths=10,
+            depth=0,
+            max_depth=64,
+        )
         return paths
 
-    def _dfs_paths(self, block, current_path, visited, all_paths, max_paths):
+    def _dfs_paths(
+        self, block, current_path, visited, all_paths, max_paths, depth, max_depth
+    ):
         if len(all_paths) >= max_paths:
+            return
+        if depth >= max_depth:
+            all_paths.append(current_path + [block])
             return
 
         current_path = current_path + [block]
+        current_visited = visited | {block}
 
-        if hasattr(block, "next") and isinstance(block.next, dict):
-            if not block.next:
+        nxt = getattr(block, "next", None)
+        if isinstance(nxt, dict):
+            if not nxt:
                 all_paths.append(current_path)
                 return
 
-            for target in block.next.values():
-                if target not in visited:
-                    new_visited = visited.copy()
-                    new_visited.add(target)
+            progressed = False
+            for target in nxt.values():
+                if target is None:
+                    continue
+                if target not in current_visited:
+                    progressed = True
                     self._dfs_paths(
-                        target, current_path, new_visited, all_paths, max_paths
+                        target,
+                        current_path,
+                        current_visited,
+                        all_paths,
+                        max_paths,
+                        depth + 1,
+                        max_depth,
                     )
+            if not progressed:
+                all_paths.append(current_path)
+        elif nxt is not None:
+            if nxt in current_visited:
+                all_paths.append(current_path)
+            else:
+                self._dfs_paths(
+                    nxt,
+                    current_path,
+                    current_visited,
+                    all_paths,
+                    max_paths,
+                    depth + 1,
+                    max_depth,
+                )
         else:
             all_paths.append(current_path)
 
@@ -228,10 +269,10 @@ class TestGenerationQueries:
     def _extract_boundary_conditions(self, cfg) -> List[Dict[str, Any]]:
         conditions = []
         visited = set()
-        queue = [cfg.entryTerminal]
+        queue = deque([cfg.entryTerminal])
 
         while queue:
-            block = queue.pop(0)
+            block = queue.popleft()
             if block in visited:
                 continue
             visited.add(block)

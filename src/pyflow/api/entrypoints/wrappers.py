@@ -77,5 +77,7 @@ class NullWrapper(ArgumentWrapper):
     def __nonzero__(self):
         return False
 
+    __bool__ = __nonzero__
+
 
 nullWrapper = NullWrapper()

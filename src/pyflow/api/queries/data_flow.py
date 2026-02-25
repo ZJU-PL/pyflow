@@ -5,12 +5,16 @@ These queries expose IPA/lifetime/store graph insights without forcing
 consumers to interact with the raw analysis objects directly.
 """
 
+import logging
 from dataclasses import dataclass, field
+from collections import deque
 from typing import Any, Dict, List, Optional, Set, Union
 
 from pyflow.application.errors import TemporaryLimitation
 
 from .context import QueryContext
+
+LOG = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -53,8 +57,9 @@ class ReachingDef:
 class DataFlowQueries:
     """Encapsulates IPA-driven facts in a task-aware facade."""
 
-    def __init__(self, context: QueryContext):
+    def __init__(self, context: QueryContext, graph_engine=None):
         self.context = context
+        self.graph_engine = graph_engine
 
     def get_reaching_defs(
         self, function: Union[str, object]
@@ -65,18 +70,48 @@ class DataFlowQueries:
         except ValueError as e:
             raise ValueError(f"Cannot resolve function: {e}")
 
-        try:
-            ssa_cfg = self.context.graph_engine.get_ssa(code)
-        except Exception:
+        if self.graph_engine is None:
             return self._get_reaching_defs_from_defuse(code)
 
-        return self._extract_reaching_defs_from_ssa(ssa_cfg, code)
+        try:
+            ssa_cfg = self.graph_engine.get_ssa(code)
+        except (ValueError, TypeError, AttributeError):
+            LOG.debug("Falling back to def-use reaching defs for %r", function, exc_info=True)
+            return self._get_reaching_defs_from_defuse(code)
+
+        reaching_defs = self._extract_reaching_defs_from_ssa(ssa_cfg, code)
+        if reaching_defs:
+            return reaching_defs
+        return self._get_reaching_defs_from_defuse(code)
+
+    def get_variable_uses(self, function: Union[str, object], variable: str) -> List[str]:
+        """Return use locations for a single variable via def-use traversal."""
+        try:
+            code = self.context.resolve_function(function)
+        except ValueError as e:
+            raise ValueError(f"Cannot resolve function: {e}")
+
+        from pyflow.language.python.defuse import DefUseVisitor, DFS
+
+        visitor = DefUseVisitor()
+        dfs = DFS(visitor.visit)
+        dfs.process(code)
+
+        uses: List[str] = []
+        for lcl, use_locations in visitor.lcluse.items():
+            if self._get_var_name(lcl) != variable:
+                continue
+            for loc in use_locations:
+                lineno = getattr(loc, "lineno", None)
+                uses.append(f"line {lineno}" if lineno is not None else str(loc))
+
+        return uses
 
     def _get_reaching_defs_from_defuse(self, code) -> Dict[str, List[ReachingDef]]:
         from pyflow.language.python.defuse import DefUseVisitor, DFS
 
         visitor = DefUseVisitor()
-        dfs = DFS(visitor)
+        dfs = DFS(visitor.visit)
         dfs.process(code)
 
         reaching_defs: Dict[str, List[ReachingDef]] = {}
@@ -98,74 +133,58 @@ class DataFlowQueries:
     def _extract_reaching_defs_from_ssa(
         self, ssa_cfg, code
     ) -> Dict[str, List[ReachingDef]]:
-        reaching_defs: Dict[str, List[ReachingDef]] = {}
-
-        try:
-            entry = getattr(ssa_cfg, "entryTerminal", None)
-            if entry:
-                reaching_defs = self._collect_defs_from_cfg(ssa_cfg, code)
-        except Exception:
-            pass
-
-        return reaching_defs
+        entry = getattr(ssa_cfg, "entryTerminal", None)
+        if entry is None:
+            return {}
+        return self._collect_defs_from_cfg(ssa_cfg, code)
 
     def _collect_defs_from_cfg(self, cfg, code) -> Dict[str, List[ReachingDef]]:
         reaching_defs: Dict[str, List[ReachingDef]] = {}
+        visited = set()
+        queue = deque([cfg.entryTerminal]) if hasattr(cfg, "entryTerminal") else deque()
 
-        try:
-            visited = set()
-            queue = [cfg.entryTerminal] if hasattr(cfg, "entryTerminal") else []
+        while queue:
+            block = queue.popleft()
+            if block in visited:
+                continue
+            visited.add(block)
 
-            while queue:
-                block = queue.pop(0)
-                if block in visited:
+            for stmt in self._get_block_statements(block):
+                targets = getattr(stmt, "targets", None)
+                if not targets:
                     continue
-                visited.add(block)
+                for target in targets:
+                    var_name = getattr(target, "id", None)
+                    if not var_name:
+                        continue
+                    reaching_defs.setdefault(var_name, []).append(
+                        ReachingDef(
+                            variable=var_name,
+                            def_location=getattr(stmt, "lineno", None),
+                            def_value=(
+                                self._describe_value(stmt.value)
+                                if hasattr(stmt, "value")
+                                else None
+                            ),
+                            is_call=hasattr(stmt, "value") and hasattr(stmt.value, "func"),
+                        )
+                    )
 
-                for stmt in self._get_block_statements(block):
-                    if hasattr(stmt, "targets"):
-                        for target in stmt.targets:
-                            if hasattr(target, "id"):
-                                var_name = target.id
-                                if var_name not in reaching_defs:
-                                    reaching_defs[var_name] = []
-                                reaching_defs[var_name].append(
-                                    ReachingDef(
-                                        variable=var_name,
-                                        def_location=getattr(stmt, "lineno", None),
-                                        def_value=(
-                                            self._describe_value(stmt.value)
-                                            if hasattr(stmt, "value")
-                                            else None
-                                        ),
-                                        is_call=hasattr(stmt, "value")
-                                        and hasattr(stmt.value, "func"),
-                                    )
-                                )
-
-                if hasattr(block, "next"):
-                    for successor in (
-                        block.next.values()
-                        if isinstance(block.next, dict)
-                        else [block.next]
-                    ):
-                        if successor and successor not in visited:
-                            queue.append(successor)
-        except Exception:
-            pass
+            nxt = getattr(block, "next", None)
+            successors = nxt.values() if isinstance(nxt, dict) else [nxt]
+            for successor in successors:
+                if successor and successor not in visited:
+                    queue.append(successor)
 
         return reaching_defs
 
     def _get_block_statements(self, block) -> List[Any]:
-        try:
-            if hasattr(block, "statements"):
-                return block.statements
-            elif hasattr(block, "ops"):
-                return block.ops
-            elif hasattr(block, "body"):
-                return block.body
-        except Exception:
-            pass
+        if hasattr(block, "statements"):
+            return block.statements
+        if hasattr(block, "ops"):
+            return block.ops
+        if hasattr(block, "body"):
+            return block.body
         return []
 
     def _describe_value(self, value) -> Optional[str]:

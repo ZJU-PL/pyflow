@@ -34,7 +34,11 @@ class EntryPoint:
         for arg in args:
             assert isinstance(arg, ArgumentWrapper), arg
 
-        assert not kwds
+        for item in kwds:
+            assert isinstance(item, (tuple, list)) and len(item) == 2, item
+            name, kwarg = item
+            assert isinstance(name, str), name
+            assert isinstance(kwarg, ArgumentWrapper), kwarg
 
         assert isinstance(varg, ArgumentWrapper), varg
         assert isinstance(karg, ArgumentWrapper), karg
@@ -42,7 +46,7 @@ class EntryPoint:
         self.code = code
         self.selfarg = selfarg
         self.args = args
-        self.kwds = kwds
+        self.kwds = tuple(kwds)
         self.varg = varg
         self.karg = karg
         self.group = None

@@ -3,7 +3,7 @@ Configuration helpers for MCP server modes.
 """
 
 from enum import Enum
-from typing import Dict, Optional
+from typing import Dict, Optional, TypedDict
 
 
 class MCPServerMode(Enum):
@@ -17,6 +17,11 @@ class MCPServerMode(Enum):
 DEFAULT_MODE = MCPServerMode.FULL
 
 
+class CapabilityInfo(TypedDict):
+    available: bool
+    note: Optional[str]
+
+
 def get_server_mode_description(mode: MCPServerMode) -> str:
     descriptions = {
         MCPServerMode.BASIC: "Lightweight mode exposing only CFG/callgraph facts.",
@@ -26,7 +31,7 @@ def get_server_mode_description(mode: MCPServerMode) -> str:
     return descriptions.get(mode, "Custom MCP mode.")
 
 
-def resolve_capabilities(mode: MCPServerMode) -> Dict[str, Dict[str, Optional[str]]]:
+def resolve_capabilities(mode: MCPServerMode) -> Dict[str, CapabilityInfo]:
     """Return capability declarations for the requested MCP mode."""
     full = {
         "cfg": {"available": True, "note": None},
@@ -86,11 +91,11 @@ def resolve_capabilities(mode: MCPServerMode) -> Dict[str, Dict[str, Optional[st
         advanced = dict(full)
         advanced["aliases"] = {
             "available": True,
-            "note": "Requires CPA/store graph wiring (not yet implemented).",
+            "note": "Requires store graph from IPA/CPA; precision depends on graph coverage.",
         }
         advanced["points_to"] = {
             "available": True,
-            "note": "Requires CPA/store graph wiring (not yet implemented).",
+            "note": "Requires store graph from IPA/CPA; precision depends on graph coverage.",
         }
         advanced["reaching_defs"] = {
             "available": True,

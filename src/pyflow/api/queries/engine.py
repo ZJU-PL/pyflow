@@ -2,7 +2,8 @@
 Graph query engine for PyFlow.
 """
 
-from typing import Any, Dict, List, Optional, Union
+from collections import deque
+from typing import Any, Dict, List, Optional, Set, Union
 
 from pyflow.analysis.callgraph import CallGraph
 from pyflow.analysis.cfg import ssa as cfg_ssa
@@ -23,6 +24,7 @@ class GraphQueryEngine:
         self._ssa_cache: Dict[object, object] = {}
         self._cdg_cache: Dict[object, object] = {}
         self._callgraph_cache: Optional[CallGraph] = None
+        self._callgraph_aliases: Dict[str, Set[str]] = {}
 
     def reset_cache(self):
         """Clear all internal caches."""
@@ -30,6 +32,7 @@ class GraphQueryEngine:
         self._ssa_cache.clear()
         self._cdg_cache.clear()
         self._callgraph_cache = None
+        self._callgraph_aliases = {}
 
     def get_cfg(self, function: Union[str, object]):
         """Return a CFG for the given function."""
@@ -60,17 +63,31 @@ class GraphQueryEngine:
         if self._callgraph_cache is None:
             ipa = self.context.require_ipa()
             callgraph = CallGraph()
+            self._callgraph_aliases = {}
             for context in ipa.contexts.values():
-                src_name = self.context.context_name(context)
+                src_code = getattr(getattr(context, "signature", None), "code", None)
+                src_name = self.context.code_identifier(src_code)
                 if not src_name:
                     continue
                 callgraph.add_node(src_name)
+                for alias in self.context.code_aliases(src_code):
+                    self._callgraph_aliases.setdefault(alias, set()).add(src_name)
                 for _, dst in context.invokeOut.keys():
-                    dst_name = self.context.context_name(dst)
+                    dst_code = getattr(getattr(dst, "signature", None), "code", None)
+                    dst_name = self.context.code_identifier(dst_code)
                     if dst_name:
                         callgraph.add_edge(src_name, dst_name)
+                        for alias in self.context.code_aliases(dst_code):
+                            self._callgraph_aliases.setdefault(alias, set()).add(
+                                dst_name
+                            )
             self._callgraph_cache = callgraph
         return self._callgraph_cache
+
+    def get_callgraph_aliases(self) -> Dict[str, Set[str]]:
+        """Return alias -> node-name mapping for the cached call graph."""
+        self.get_callgraph()
+        return {alias: set(nodes) for alias, nodes in self._callgraph_aliases.items()}
 
     def get_cfg_structure(self, function: Union[str, object]) -> Dict[str, Any]:
         """
@@ -97,13 +114,13 @@ class GraphQueryEngine:
         edges_data = []
 
         visited = set()
-        queue = [cfg.entryTerminal]
+        queue = deque([cfg.entryTerminal])
 
         def get_bid(b):
             return getattr(b, "bid", id(b))
 
         while queue:
-            block = queue.pop(0)
+            block = queue.popleft()
             if block in visited:
                 continue
             visited.add(block)
@@ -114,8 +131,11 @@ class GraphQueryEngine:
             }
             blocks_data.append(block_info)
 
-            if hasattr(block, "next") and isinstance(block.next, dict):
-                for exit_type, target in block.next.items():
+            nxt = getattr(block, "next", None)
+            if isinstance(nxt, dict):
+                for exit_type, target in nxt.items():
+                    if target is None:
+                        continue
                     edges_data.append(
                         {
                             "src": get_bid(block),
@@ -125,5 +145,15 @@ class GraphQueryEngine:
                     )
                     if target not in visited:
                         queue.append(target)
+            elif nxt is not None:
+                edges_data.append(
+                    {
+                        "src": get_bid(block),
+                        "dst": get_bid(nxt),
+                        "type": "normal",
+                    }
+                )
+                if nxt not in visited:
+                    queue.append(nxt)
 
         return {"name": name, "blocks": blocks_data, "edges": edges_data}

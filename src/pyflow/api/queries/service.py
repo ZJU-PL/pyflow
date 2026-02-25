@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional, Union
 from .call_graph import CallGraphQueries
 from .capabilities import (
     DEFAULT_MODE,
+    CapabilityInfo,
     MCPServerMode,
     get_server_mode_description,
     resolve_capabilities,
@@ -18,6 +19,8 @@ from .context import QueryContext
 from .control_flow import ControlFlowQueries
 from .data_flow import DataFlowQueries, IpaFunctionSummary
 from .engine import GraphQueryEngine
+from .localization import LocalizationCandidate, LocalizationQueries, ProgramSlice
+from .test_generation import FunctionTestProfile, TestGenerationQueries, TestScenario
 
 
 class SemanticQueryService:
@@ -38,13 +41,27 @@ class SemanticQueryService:
         self.graph_engine = GraphQueryEngine(self.context)
         self.control_flow_queries = ControlFlowQueries(self.context, self.graph_engine)
         self.call_graph_queries = CallGraphQueries(self.context, self.graph_engine)
-        self.data_flow_queries = DataFlowQueries(self.context)
+        self.data_flow_queries = DataFlowQueries(self.context, self.graph_engine)
+        self.localization_queries = LocalizationQueries(
+            self.context,
+            self.graph_engine,
+            self.call_graph_queries,
+            self.control_flow_queries,
+            self.data_flow_queries,
+        )
+        self.test_generation_queries = TestGenerationQueries(
+            self.context,
+            self.graph_engine,
+            self.call_graph_queries,
+            self.control_flow_queries,
+            self.data_flow_queries,
+        )
 
         self.compiler = compiler
         self.program = program
         self.server_mode = server_mode or DEFAULT_MODE
 
-    def capabilities(self) -> Dict[str, Dict[str, Optional[str]]]:
+    def capabilities(self) -> Dict[str, CapabilityInfo]:
         """Return supported query capabilities and notes for tooling."""
         capabilities = resolve_capabilities(self.server_mode)
         capabilities["_server_mode"] = {
@@ -124,3 +141,63 @@ class SemanticQueryService:
         self, function: Optional[Union[str, object]] = None
     ) -> List[IpaFunctionSummary]:
         return self.data_flow_queries.get_ipa_function_summaries(function)
+
+    # Localization queries
+    def find_related_functions(
+        self, keywords: List[str], max_results: int = 10
+    ) -> List[str]:
+        return self.localization_queries.find_related_functions(keywords, max_results)
+
+    def get_localization_candidates(
+        self,
+        symptom_function: Union[str, object],
+        suspicious_variable: Optional[str] = None,
+    ) -> List[LocalizationCandidate]:
+        return self.localization_queries.get_localization_candidates(
+            symptom_function, suspicious_variable
+        )
+
+    def compute_backward_slice(
+        self, function: Union[str, object], variable: Optional[str] = None
+    ) -> ProgramSlice:
+        return self.localization_queries.compute_backward_slice(function, variable)
+
+    def compute_forward_slice(
+        self, function: Union[str, object], variable: Optional[str] = None
+    ) -> ProgramSlice:
+        return self.localization_queries.compute_forward_slice(function, variable)
+
+    def trace_data_flow(
+        self, function: Union[str, object], variable: str
+    ) -> Dict[str, Any]:
+        return self.localization_queries.trace_data_flow(function, variable)
+
+    def find_feature_entry_points(self, feature_functions: List[str]) -> List[str]:
+        return self.localization_queries.find_feature_entry_points(feature_functions)
+
+    def get_change_impact(
+        self, changed_function: Union[str, object]
+    ) -> Dict[str, Union[str, List[str]]]:
+        return self.localization_queries.get_change_impact(changed_function)
+
+    # Test generation queries
+    def get_function_test_profile(
+        self, function: Union[str, object]
+    ) -> FunctionTestProfile:
+        return self.test_generation_queries.get_function_test_profile(function)
+
+    def get_test_scenarios(self, function: Union[str, object]) -> List[TestScenario]:
+        return self.test_generation_queries.get_test_scenarios(function)
+
+    def get_input_output_examples(
+        self, function: Union[str, object]
+    ) -> List[Dict[str, Any]]:
+        return self.test_generation_queries.get_input_output_examples(function)
+
+    def get_boundary_conditions(
+        self, function: Union[str, object]
+    ) -> List[Dict[str, Any]]:
+        return self.test_generation_queries.get_boundary_conditions(function)
+
+    def get_mock_requirements(self, function: Union[str, object]) -> List[str]:
+        return self.test_generation_queries.get_mock_requirements(function)

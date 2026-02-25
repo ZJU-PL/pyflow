@@ -2,7 +2,8 @@
 Shared context for PyFlow query engines.
 """
 
-from typing import Optional, Union
+import os
+from typing import List, Optional, Union
 
 from pyflow.application.errors import TemporaryLimitation
 
@@ -48,6 +49,34 @@ class QueryContext:
             return function.__name__
         raise TypeError("Expected a function name or a PyFlow code object.")
 
+    def code_identifier(self, code) -> Optional[str]:
+        """Get a collision-resistant identifier for a code object."""
+        if code is None:
+            return None
+        name = self.code_name(code)
+        if name is None:
+            return None
+
+        annotation = getattr(code, "annotation", None)
+        origin = getattr(annotation, "origin", None)
+        filename = getattr(origin, "filename", None)
+        lineno = getattr(origin, "lineno", None)
+        if filename:
+            location = f"{os.path.abspath(filename)}:{lineno if lineno is not None else '?'}"
+            return f"{name}@{location}"
+        return f"{name}@id:{id(code):x}"
+
+    def code_aliases(self, code) -> List[str]:
+        """Return aliases that may refer to a code object in public queries."""
+        aliases: List[str] = []
+        base = self.code_name(code)
+        if base:
+            aliases.append(base)
+        identifier = self.code_identifier(code)
+        if identifier and identifier not in aliases:
+            aliases.append(identifier)
+        return aliases
+
     def context_name(self, context) -> Optional[str]:
         """Get the name of the code associated with an IPA context."""
         code = getattr(context.signature, "code", None)
@@ -65,13 +94,35 @@ class QueryContext:
 
     def _find_function_by_name(self, function_name: str):
         """Find a function code object by name in the program."""
+        matches = []
+        seen = set()
+
+        def maybe_add(code):
+            if code is None:
+                return
+            code_id = id(code)
+            if code_id in seen:
+                return
+            aliases = self.code_aliases(code)
+            if function_name in aliases:
+                seen.add(code_id)
+                matches.append(code)
+
         for code in getattr(self.program, "liveCode", []):
-            if hasattr(code, "codeName") and code.codeName() == function_name:
-                return code
+            maybe_add(code)
 
         interface = getattr(self.program, "interface", None)
         if interface and hasattr(interface, "entryPoint"):
             for ep in interface.entryPoint:
-                if hasattr(ep.code, "codeName") and ep.code.codeName() == function_name:
-                    return ep.code
-        return None
+                maybe_add(getattr(ep, "code", None))
+
+        if not matches:
+            return None
+        if len(matches) > 1:
+            choices = ", ".join(self.code_identifier(code) or "<unknown>" for code in matches[:5])
+            if len(matches) > 5:
+                choices += ", ..."
+            raise ValueError(
+                f"Function name '{function_name}' is ambiguous. Use one of: {choices}"
+            )
+        return matches[0]

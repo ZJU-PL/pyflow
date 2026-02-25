@@ -85,7 +85,74 @@ class InterfaceDeclaration:
         if karg is None:
             karg = nullWrapper
 
-        return self._createEntryPoint(code, selfarg, args, kwds, varg, karg, group)
+        kwds = self._normalize_kwds(kwds)
+        args, unresolved_kwds = self._apply_kwds_to_args(code, args, kwds)
+        if unresolved_kwds:
+            unresolved_names = ", ".join(name for name, _ in unresolved_kwds)
+            raise ValueError(
+                f"Unsupported keyword arguments for entry point: {unresolved_names}"
+            )
+
+        return self._createEntryPoint(
+            code, selfarg, args, unresolved_kwds, varg, karg, group
+        )
+
+    def _normalize_kwds(self, kwds):
+        if isinstance(kwds, dict):
+            items = kwds.items()
+        else:
+            items = kwds
+
+        normalized = []
+        for item in items:
+            if not isinstance(item, (tuple, list)) or len(item) != 2:
+                raise TypeError(
+                    "Keyword arguments must be provided as (name, ArgumentWrapper) pairs."
+                )
+            name, value = item
+            if not isinstance(name, str):
+                raise TypeError("Keyword argument names must be strings.")
+            normalized.append((name, value))
+        return normalized
+
+    def _apply_kwds_to_args(self, code, args, kwds):
+        if not kwds:
+            return tuple(args), []
+
+        params = None
+        try:
+            if hasattr(code, "codeParameters"):
+                params = list(code.codeParameters().paramnames)
+            elif hasattr(code, "codeparameters"):
+                params = list(code.codeparameters.paramnames)
+        except Exception:
+            params = None
+
+        if not params:
+            return tuple(args), kwds
+
+        mapped_args = list(args)
+        consumed = set()
+        unresolved = []
+        original_len = len(mapped_args)
+
+        for name, value in kwds:
+            if name in consumed:
+                raise ValueError(f"Duplicate keyword argument '{name}'.")
+            consumed.add(name)
+            if name not in params:
+                unresolved.append((name, value))
+                continue
+            index = params.index(name)
+            if index < original_len:
+                raise ValueError(
+                    f"Argument '{name}' passed by both position and keyword."
+                )
+            while len(mapped_args) <= index:
+                mapped_args.append(ExistingWrapper(None))
+            mapped_args[index] = value
+
+        return tuple(mapped_args), unresolved
 
     def _createEntryPoint(self, code, selfarg, args, kwds, varg, karg, group):
         ep = EntryPoint(code, selfarg, args, kwds, varg, karg)
@@ -110,7 +177,7 @@ class InterfaceDeclaration:
 
     def getMethCode(self, cls, name, extractor):
         meth = getattr(cls.typeobj, name)
-        func = meth.im_func
+        func = getattr(meth, "__func__", getattr(meth, "im_func", meth))
         fobj, code = extractor.getObjectCall(func)
         selfarg = ExistingWrapper(func)
         return selfarg, code
@@ -162,6 +229,8 @@ class InterfaceDeclaration:
 
     def __nonzero__(self):
         return bool(self.func) or bool(self.cls)
+
+    __bool__ = __nonzero__
 
     def entryCode(self):
         return frozenset([point.code for point in self.entryPoint])
