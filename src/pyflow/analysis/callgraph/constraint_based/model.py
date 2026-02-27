@@ -62,6 +62,9 @@ class FunctionInfo:
     qualname: str
     module: str
     node: ast.AST
+    posonly_params: List[str]
+    pos_or_kw_params: List[str]
+    kwonly_params: List[str]
     params: List[str]
     vararg: Optional[str]
     kwarg: Optional[str]
@@ -69,6 +72,9 @@ class FunctionInfo:
     is_staticmethod: bool
     is_classmethod: bool
     owner_class: Optional[str]
+    global_names: set[str]
+    nonlocal_names: set[str]
+    parent_scope: Optional[str]
     closure_vars: set[str]
 
 
@@ -77,11 +83,17 @@ class ScopeInfo:
     name: str
     module: str
     body: List[ast.stmt]
+    posonly_params: List[str]
+    pos_or_kw_params: List[str]
+    kwonly_params: List[str]
     params: List[str]
     vararg: Optional[str]
     kwarg: Optional[str]
     method_self_param: Optional[str]
     method_cls_param: Optional[str]
+    global_names: set[str]
+    nonlocal_names: set[str]
+    parent_scope: Optional[str]
     closure_vars: set[str]
 
 
@@ -92,6 +104,7 @@ class ScopeResult:
     input_changed_scope_contexts: Set[Tuple[str, ContextKey]]
     module_binding_changed: bool
     instance_field_changed: bool
+    nonlocal_binding_changed: bool
 
 
 def make_value(kind: str, name: str) -> AbstractValue:

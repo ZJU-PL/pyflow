@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import warnings
 from typing import Dict, Iterable, List, Mapping, Optional, Set, Tuple
 
 from .model import (
@@ -16,7 +17,6 @@ from .model import (
     INSTANCE_KIND,
     MODULE_KIND,
     ScopeInfo,
-    STRING_KIND,
     UNKNOWN_KIND,
     UNKNOWN_VALUE,
     make_bound_class_method,
@@ -32,6 +32,43 @@ from .model import (
 
 class _ResolverMixin:
     """Resolves call targets, binds arguments, and walks MRO for attribute lookup."""
+
+    def _class_lookup_order(self, class_name: str) -> list[str]:
+        if class_name in self._invalid_mro_classes:
+            queue = [class_name]
+            seen: Set[str] = set()
+            order: list[str] = []
+            while queue:
+                current = queue.pop(0)
+                if current in seen:
+                    continue
+                seen.add(current)
+                order.append(current)
+                class_info = self.classes.get(current)
+                if class_info:
+                    queue.extend(class_info.bases)
+            return order
+        return self._mro(class_name)
+
+    def _apply_callee_side_effects(
+        self,
+        callee_scope_name: str,
+        callee_context: ContextKey,
+        env: Dict[str, Set[AbstractValue]],
+    ) -> bool:
+        changed = False
+        scope_key = (callee_scope_name, callee_context)
+        for name, values in self.scope_global_writes.get(scope_key, {}).items():
+            current = env.setdefault(name, set())
+            before = len(current)
+            current.update(values)
+            changed = changed or len(current) != before
+        for name, values in self.scope_nonlocal_writes.get(scope_key, {}).items():
+            current = env.setdefault(name, set())
+            before = len(current)
+            current.update(values)
+            changed = changed or len(current) != before
+        return changed
 
     def _invoke_targets(
         self,
@@ -103,14 +140,12 @@ class _ResolverMixin:
                 target_values = {make_func(f"<builtin>.{maybe_builtin}")}
 
         out: Set[AbstractValue] = set()
-        resolved_any = False
         unresolved_dynamic = not target_values
 
         for target in target_values:
             if target.kind == FUNC_KIND:
                 callee_name = target.name
                 callees.add(callee_name)
-                resolved_any = True
                 if callee_name in self.scopes:
                     raw_context = self._derive_callee_context(
                         caller_scope.name, caller_context, call_node
@@ -127,6 +162,7 @@ class _ResolverMixin:
                     if changed:
                         input_changed_scope_contexts.add((callee_name, callee_context))
                     out.update(self.scope_returns[(callee_name, callee_context)])
+                    self._apply_callee_side_effects(callee_name, callee_context, env)
                 elif callee_name == "<builtin>.map":
                     if arg_values:
                         for callback in arg_values[0]:
@@ -142,7 +178,6 @@ class _ResolverMixin:
 
             elif target.kind == CLASS_KIND:
                 class_name = target.name
-                resolved_any = True
                 out.add(make_instance(class_name))
                 init_name = f"{class_name}.__init__"
                 if init_name in self.scopes:
@@ -162,11 +197,11 @@ class _ResolverMixin:
                     )
                     if changed:
                         input_changed_scope_contexts.add((init_name, callee_context))
+                    self._apply_callee_side_effects(init_name, callee_context, env)
 
             elif target.kind == BOUND_METHOD_KIND:
                 method_name, receiver_class = parse_bound_method(target)
                 callees.add(method_name)
-                resolved_any = True
                 implicit_values = [{make_instance(receiver_class)}] + arg_values
                 callee_context = self._derive_callee_context(
                     caller_scope.name, caller_context, call_node
@@ -183,11 +218,11 @@ class _ResolverMixin:
                 if changed:
                     input_changed_scope_contexts.add((method_name, callee_context))
                 out.update(self.scope_returns[(method_name, callee_context)])
+                self._apply_callee_side_effects(method_name, callee_context, env)
 
             elif target.kind == BOUND_CLASS_METHOD_KIND:
                 method_name, receiver_class = parse_bound_class_method(target)
                 callees.add(method_name)
-                resolved_any = True
                 implicit_values = [{make_class(receiver_class)}] + arg_values
                 callee_context = self._derive_callee_context(
                     caller_scope.name, caller_context, call_node
@@ -204,10 +239,12 @@ class _ResolverMixin:
                 if changed:
                     input_changed_scope_contexts.add((method_name, callee_context))
                 out.update(self.scope_returns[(method_name, callee_context)])
+                self._apply_callee_side_effects(method_name, callee_context, env)
 
             elif target.kind == INSTANCE_KIND:
                 called = False
-                for klass in self._mro(target.name):
+                lookup_order = self._class_lookup_order(target.name)
+                for klass in lookup_order:
                     class_info = self.classes.get(klass)
                     if not class_info:
                         continue
@@ -215,7 +252,6 @@ class _ResolverMixin:
                     if not call_name:
                         continue
                     called = True
-                    resolved_any = True
                     callees.add(call_name)
                     implicit_values = [{make_instance(target.name)}] + arg_values
                     callee_context = self._derive_callee_context(
@@ -233,7 +269,9 @@ class _ResolverMixin:
                     if changed:
                         input_changed_scope_contexts.add((call_name, callee_context))
                     out.update(self.scope_returns[(call_name, callee_context)])
-                    break
+                    self._apply_callee_side_effects(call_name, callee_context, env)
+                    if target.name not in self._invalid_mro_classes:
+                        break
                 if not called:
                     unresolved_dynamic = True
                     out.add(UNKNOWN_VALUE)
@@ -266,10 +304,14 @@ class _ResolverMixin:
         param_inputs = self.scope_inputs.setdefault(
             scope_key, {param: set() for param in scope.params}
         )
+        positional_params = [*scope.posonly_params, *scope.pos_or_kw_params]
+        pos_or_kw_set = set(scope.pos_or_kw_params)
+        kwonly_set = set(scope.kwonly_params)
+        posonly_set = set(scope.posonly_params)
 
         for index, values in enumerate(arg_values):
-            if index < len(scope.params):
-                param_name = scope.params[index]
+            if index < len(positional_params):
+                param_name = positional_params[index]
                 current = param_inputs.setdefault(param_name, set())
                 before = len(current)
                 current.update(values)
@@ -285,8 +327,8 @@ class _ResolverMixin:
             for values in star_arg_values:
                 pooled_star_values.update(values)
             if pooled_star_values:
-                for index in range(len(arg_values), len(scope.params)):
-                    param_name = scope.params[index]
+                for index in range(len(arg_values), len(positional_params)):
+                    param_name = positional_params[index]
                     current = param_inputs.setdefault(param_name, set())
                     before = len(current)
                     current.update(pooled_star_values)
@@ -298,11 +340,14 @@ class _ResolverMixin:
                     changed = changed or len(current) != before
 
         for kw_name, kw_values in kwarg_values.items():
-            if kw_name in scope.params:
+            if kw_name in pos_or_kw_set or kw_name in kwonly_set:
                 current = param_inputs.setdefault(kw_name, set())
                 before = len(current)
                 current.update(kw_values)
                 changed = changed or len(current) != before
+            elif kw_name in posonly_set:
+                # Positional-only parameters cannot be bound by keyword.
+                continue
             elif scope.kwarg:
                 current = param_inputs.setdefault(scope.kwarg, set())
                 before = len(current)
@@ -352,11 +397,29 @@ class _ResolverMixin:
         values: Set[AbstractValue],
         env: Dict[str, Set[AbstractValue]],
         weak: bool = False,
+        global_writes: Optional[Dict[str, Set[AbstractValue]]] = None,
+        nonlocal_writes: Optional[Dict[str, Set[AbstractValue]]] = None,
     ) -> bool:
         if not values:
             values = {UNKNOWN_VALUE}
 
         if isinstance(target, ast.Name):
+            if target.id in scope.global_names:
+                if weak:
+                    env.setdefault(target.id, set()).update(values)
+                else:
+                    env[target.id] = set(values)
+                if global_writes is not None:
+                    global_writes.setdefault(target.id, set()).update(values)
+                return False
+            if target.id in scope.nonlocal_names:
+                if weak:
+                    env.setdefault(target.id, set()).update(values)
+                else:
+                    env[target.id] = set(values)
+                if nonlocal_writes is not None:
+                    nonlocal_writes.setdefault(target.id, set()).update(values)
+                return False
             if weak:
                 env.setdefault(target.id, set()).update(values)
             else:
@@ -365,8 +428,20 @@ class _ResolverMixin:
 
         if isinstance(target, (ast.Tuple, ast.List)):
             changed = False
+            item_values = self._iterable_members(values) or {UNKNOWN_VALUE}
             for elt in target.elts:
-                changed = self._assign_target(scope, elt, values, env, weak=True) or changed
+                changed = (
+                    self._assign_target(
+                        scope,
+                        elt,
+                        item_values,
+                        env,
+                        weak=weak,
+                        global_writes=global_writes,
+                        nonlocal_writes=nonlocal_writes,
+                    )
+                    or changed
+                )
             return changed
 
         if isinstance(target, ast.Attribute):
@@ -376,6 +451,13 @@ class _ResolverMixin:
                     owner = self._owner_class_for_scope(scope.name)
                     if owner:
                         current = self.instance_fields[owner][target.attr]
+                        before = len(current)
+                        current.update(values)
+                        return len(current) != before
+                if scope.method_cls_param and base_name == scope.method_cls_param:
+                    owner = self._owner_class_for_scope(scope.name)
+                    if owner:
+                        current = self.class_fields[owner][target.attr]
                         before = len(current)
                         current.update(values)
                         return len(current) != before
@@ -447,7 +529,6 @@ class _ResolverMixin:
 
             if value.kind == INSTANCE_KIND:
                 descriptor_mro = self._mro(value.name)
-                invoked_descriptor = False
                 for descriptor_class in descriptor_mro:
                     descriptor_info = self.classes.get(descriptor_class)
                     if not descriptor_info:
@@ -459,7 +540,6 @@ class _ResolverMixin:
                         out.add(make_bound_method(get_method, value.name))
                     else:
                         out.add(make_bound_class_method(get_method, value.name))
-                    invoked_descriptor = True
                     break
                 out.add(value)
                 continue
@@ -481,7 +561,9 @@ class _ResolverMixin:
                     out.add(make_func(f"{base_value.name}.{attr_name}"))
 
             elif base_value.kind == CLASS_KIND:
-                for klass in self._mro(base_value.name):
+                class_order = self._class_lookup_order(base_value.name)
+                stop_after_first = base_value.name not in self._invalid_mro_classes
+                for klass in class_order:
                     class_info = self.classes.get(klass)
                     if not class_info or attr_name not in class_info.methods:
                         continue
@@ -492,9 +574,10 @@ class _ResolverMixin:
                         out.add(make_bound_class_method(method_name, base_value.name))
                     else:
                         out.add(make_bound_method(method_name, base_value.name))
-                    break
+                    if stop_after_first:
+                        break
 
-                for klass in self._mro(base_value.name):
+                for klass in class_order:
                     class_attr_values = self.class_fields.get(klass, {}).get(attr_name, set())
                     out.update(
                         self._descriptor_bind_values(
@@ -505,18 +588,21 @@ class _ResolverMixin:
                     )
 
             elif base_value.kind == INSTANCE_KIND:
-                for klass in self._mro(base_value.name):
+                class_order = self._class_lookup_order(base_value.name)
+                stop_after_first = base_value.name not in self._invalid_mro_classes
+                for klass in class_order:
                     class_info = self.classes.get(klass)
                     if class_info and attr_name in class_info.methods:
                         method_name = class_info.methods[attr_name]
                         if attr_name in class_info.static_methods:
                             out.add(make_func(method_name))
                         elif attr_name in class_info.class_methods:
-                            out.add(make_bound_class_method(method_name, klass))
+                            out.add(make_bound_class_method(method_name, base_value.name))
                         else:
                             out.add(make_bound_method(method_name, base_value.name))
-                        break
-                for klass in self._mro(base_value.name):
+                        if stop_after_first:
+                            break
+                for klass in class_order:
                     out.update(self.instance_fields.get(klass, {}).get(attr_name, set()))
                     class_attr_values = self.class_fields.get(klass, {}).get(attr_name, set())
                     out.update(
@@ -549,11 +635,34 @@ class _ResolverMixin:
         merge_input.append(list(class_info.bases))
 
         linearized: list[str] = [class_name]
-        linearized.extend(self._c3_merge(merge_input))
+        merged = self._c3_merge(merge_input)
+        if merged is None:
+            self._invalid_mro_classes.add(class_name)
+            warnings.warn(
+                (
+                    f"Inconsistent MRO detected for {class_name}; "
+                    "falling back to conservative attribute dispatch."
+                ),
+                RuntimeWarning,
+                stacklevel=2,
+            )
+            seen = {class_name}
+            queue = list(class_info.bases)
+            while queue:
+                base = queue.pop(0)
+                if base in seen:
+                    continue
+                seen.add(base)
+                linearized.append(base)
+                base_info = self.classes.get(base)
+                if base_info:
+                    queue.extend(base_info.bases)
+        else:
+            linearized.extend(merged)
         self._mro_cache[class_name] = list(linearized)
         return linearized
 
-    def _c3_merge(self, sequences: list[list[str]]) -> list[str]:
+    def _c3_merge(self, sequences: list[list[str]]) -> Optional[list[str]]:
         result: list[str] = []
         pending = [list(seq) for seq in sequences if seq]
 
@@ -567,7 +676,7 @@ class _ResolverMixin:
                 break
 
             if candidate is None:
-                candidate = pending[0][0]
+                return None
 
             result.append(candidate)
             next_pending: list[list[str]] = []
@@ -595,13 +704,46 @@ class _ResolverMixin:
                         return set(module_bindings.get(expr.attr, set()))
         return set()
 
+    def _register_imported_module_chain(self, module_name: str) -> None:
+        if not module_name:
+            return
+        self.module_bindings.setdefault(module_name, {})
+        parts = module_name.split(".")
+        for idx in range(1, len(parts)):
+            parent = ".".join(parts[:idx])
+            child = ".".join(parts[: idx + 1])
+            attr = parts[idx]
+            parent_bindings = self.module_bindings.setdefault(parent, {})
+            parent_bindings.setdefault(attr, set()).add(make_module(child))
+
+    def _bind_import_alias(
+        self,
+        imported_name: str,
+        local_name: str,
+        env: Dict[str, Set[AbstractValue]],
+        explicit_alias: bool = False,
+    ) -> None:
+        if not imported_name:
+            return
+        root_name = imported_name.split(".")[0]
+        if not explicit_alias and "." in imported_name and local_name == root_name:
+            env[local_name] = {make_module(root_name)}
+        else:
+            env[local_name] = {make_module(imported_name)}
+        self._register_imported_module_chain(imported_name)
+
     def _bind_import(
         self, stmt: ast.Import, module_name: str, env: Dict[str, Set[AbstractValue]]
     ) -> None:
         for alias in stmt.names:
             imported_name = alias.name
             as_name = alias.asname or imported_name.split(".")[0]
-            env[as_name] = {make_module(imported_name)}
+            self._bind_import_alias(
+                imported_name,
+                as_name,
+                env,
+                explicit_alias=alias.asname is not None,
+            )
 
     def _bind_import_from(
         self, stmt: ast.ImportFrom, module_name: str, env: Dict[str, Set[AbstractValue]]
@@ -623,7 +765,17 @@ class _ResolverMixin:
             if alias.name in source_exports:
                 env.setdefault(local_name, set()).update(source_exports[alias.name])
             else:
-                env.setdefault(local_name, set()).add(make_func(f"{source_module}.{alias.name}"))
+                candidate_module = f"{source_module}.{alias.name}"
+                if candidate_module in self.modules or self._resolve_module_file(candidate_module):
+                    env.setdefault(local_name, set()).add(make_module(candidate_module))
+                    self._register_imported_module_chain(candidate_module)
+                    self.module_bindings.setdefault(source_module, {}).setdefault(
+                        alias.name, set()
+                    ).add(make_module(candidate_module))
+                else:
+                    env.setdefault(local_name, set()).add(
+                        make_func(f"{source_module}.{alias.name}")
+                    )
 
     def _merge_bindings(
         self,

@@ -86,7 +86,14 @@ class ConstraintCallGraphBuilder(
         self.scope_inputs: Dict[Tuple[str, ContextKey], Dict[str, Set[AbstractValue]]] = {}
         self.scope_returns: Dict[Tuple[str, ContextKey], Set[AbstractValue]] = defaultdict(set)
         self.scope_callees: Dict[Tuple[str, ContextKey], Set[str]] = defaultdict(set)
+        self.scope_global_writes: Dict[
+            Tuple[str, ContextKey], Dict[str, Set[AbstractValue]]
+        ] = defaultdict(dict)
+        self.scope_nonlocal_writes: Dict[
+            Tuple[str, ContextKey], Dict[str, Set[AbstractValue]]
+        ] = defaultdict(dict)
         self._mro_cache: Dict[str, list[str]] = {}
+        self._invalid_mro_classes: Set[str] = set()
         self._container_cache: Dict[
             Tuple[str, ContextKey, str, int, int], AbstractValue
         ] = {}

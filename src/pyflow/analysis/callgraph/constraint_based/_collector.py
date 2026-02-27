@@ -15,7 +15,6 @@ from .model import (
     decorator_id,
     make_class,
     make_func,
-    make_module,
     copy_env,
 )
 
@@ -88,6 +87,33 @@ class _CollectorMixin:
         closure.update(nonlocal_names)
         return closure
 
+    def _infer_global_nonlocal_names(
+        self, node: ast.FunctionDef | ast.AsyncFunctionDef
+    ) -> tuple[set[str], set[str]]:
+        global_names: Set[str] = set()
+        nonlocal_names: Set[str] = set()
+
+        class ScopeDirectiveVisitor(ast.NodeVisitor):
+            def visit_Global(self, inner: ast.Global) -> None:
+                global_names.update(inner.names)
+
+            def visit_Nonlocal(self, inner: ast.Nonlocal) -> None:
+                nonlocal_names.update(inner.names)
+
+            def visit_FunctionDef(self, inner: ast.FunctionDef) -> None:
+                return
+
+            def visit_AsyncFunctionDef(self, inner: ast.AsyncFunctionDef) -> None:
+                return
+
+            def visit_ClassDef(self, inner: ast.ClassDef) -> None:
+                return
+
+        visitor = ScopeDirectiveVisitor()
+        for stmt in node.body:
+            visitor.visit(stmt)
+        return set(global_names), set(nonlocal_names)
+
     def _collect_nested_functions(
         self,
         module_name: str,
@@ -97,6 +123,7 @@ class _CollectorMixin:
         for stmt in statements:
             if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 nested_qualname = f"{parent_qualname}.{stmt.name}"
+                global_names, nonlocal_names = self._infer_global_nonlocal_names(stmt)
                 self.functions[nested_qualname] = self._build_function_info(
                     module_name,
                     nested_qualname,
@@ -105,6 +132,9 @@ class _CollectorMixin:
                     is_staticmethod=False,
                     is_classmethod=False,
                     owner_class=None,
+                    parent_scope=parent_qualname,
+                    global_names=global_names,
+                    nonlocal_names=nonlocal_names,
                     closure_vars=self._infer_closure_vars(stmt),
                 )
                 self._collect_nested_functions(module_name, nested_qualname, stmt.body)
@@ -118,6 +148,7 @@ class _CollectorMixin:
             for node in module_info.tree.body:
                 if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                     qualname = f"{module_name}.{node.name}"
+                    global_names, nonlocal_names = self._infer_global_nonlocal_names(node)
                     self.functions[qualname] = self._build_function_info(
                         module_name,
                         qualname,
@@ -126,6 +157,9 @@ class _CollectorMixin:
                         is_staticmethod=False,
                         is_classmethod=False,
                         owner_class=None,
+                        parent_scope=None,
+                        global_names=global_names,
+                        nonlocal_names=nonlocal_names,
                         closure_vars=self._infer_closure_vars(node),
                     )
                     exports[node.name].add(make_func(qualname))
@@ -160,6 +194,7 @@ class _CollectorMixin:
                             "classmethod" in decorator_names
                             or "builtins.classmethod" in decorator_names
                         )
+                        global_names, nonlocal_names = self._infer_global_nonlocal_names(child)
                         self.functions[method_qualname] = self._build_function_info(
                             module_name,
                             method_qualname,
@@ -168,6 +203,9 @@ class _CollectorMixin:
                             is_staticmethod=is_staticmethod,
                             is_classmethod=is_classmethod,
                             owner_class=class_qualname,
+                            parent_scope=None,
+                            global_names=global_names,
+                            nonlocal_names=nonlocal_names,
                             closure_vars=self._infer_closure_vars(child),
                         )
                         class_info.methods[child.name] = method_qualname
@@ -203,18 +241,25 @@ class _CollectorMixin:
         is_staticmethod: bool,
         is_classmethod: bool,
         owner_class: Optional[str],
+        parent_scope: Optional[str],
+        global_names: Set[str],
+        nonlocal_names: Set[str],
         closure_vars: Set[str],
     ) -> FunctionInfo:
         assert isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-        params = [arg.arg for arg in node.args.posonlyargs]
-        params.extend(arg.arg for arg in node.args.args)
-        params.extend(arg.arg for arg in node.args.kwonlyargs)
+        posonly_params = [arg.arg for arg in node.args.posonlyargs]
+        pos_or_kw_params = [arg.arg for arg in node.args.args]
+        kwonly_params = [arg.arg for arg in node.args.kwonlyargs]
+        params = [*posonly_params, *pos_or_kw_params, *kwonly_params]
         vararg = node.args.vararg.arg if node.args.vararg else None
         kwarg = node.args.kwarg.arg if node.args.kwarg else None
         return FunctionInfo(
             qualname=qualname,
             module=module_name,
             node=node,
+            posonly_params=posonly_params,
+            pos_or_kw_params=pos_or_kw_params,
+            kwonly_params=kwonly_params,
             params=params,
             vararg=vararg,
             kwarg=kwarg,
@@ -222,6 +267,9 @@ class _CollectorMixin:
             is_staticmethod=is_staticmethod,
             is_classmethod=is_classmethod,
             owner_class=owner_class,
+            global_names=set(global_names),
+            nonlocal_names=set(nonlocal_names),
+            parent_scope=parent_scope,
             closure_vars=set(closure_vars),
         )
 
@@ -232,29 +280,9 @@ class _CollectorMixin:
 
             for node in module_info.tree.body:
                 if isinstance(node, ast.Import):
-                    for alias in node.names:
-                        imported_name = alias.name
-                        as_name = alias.asname or imported_name.split(".")[0]
-                        env[as_name] = {make_module(imported_name)}
+                    self._bind_import(node, module_name, env)
                 elif isinstance(node, ast.ImportFrom):
-                    source_module = self._resolve_import_module_name(
-                        module_name, node.module, node.level
-                    )
-                    if not source_module:
-                        continue
-                    source_exports = self.module_bindings.get(source_module, {})
-                    for alias in node.names:
-                        if alias.name == "*":
-                            for exported_name, exported_values in source_exports.items():
-                                env[exported_name].update(exported_values)
-                            continue
-                        local_name = alias.asname or alias.name
-                        if alias.name in source_exports:
-                            env.setdefault(local_name, set()).update(source_exports[alias.name])
-                        else:
-                            env.setdefault(local_name, set()).add(
-                                make_func(f"{source_module}.{alias.name}")
-                            )
+                    self._bind_import_from(node, module_name, env)
 
             self.module_bindings[module_name] = env
 
@@ -276,11 +304,17 @@ class _CollectorMixin:
                 name=module_name,
                 module=module_name,
                 body=list(module_info.tree.body),
+                posonly_params=[],
+                pos_or_kw_params=[],
+                kwonly_params=[],
                 params=[],
                 vararg=None,
                 kwarg=None,
                 method_self_param=None,
                 method_cls_param=None,
+                global_names=set(),
+                nonlocal_names=set(),
+                parent_scope=None,
                 closure_vars=set(),
             )
 
@@ -288,20 +322,30 @@ class _CollectorMixin:
             assert isinstance(function_info.node, (ast.FunctionDef, ast.AsyncFunctionDef))
             method_self = None
             method_cls = None
-            if function_info.is_method and function_info.params:
+            positional_method_params = [
+                *function_info.posonly_params,
+                *function_info.pos_or_kw_params,
+            ]
+            if function_info.is_method and positional_method_params:
                 if function_info.is_classmethod:
-                    method_cls = function_info.params[0]
+                    method_cls = positional_method_params[0]
                 elif not function_info.is_staticmethod:
-                    method_self = function_info.params[0]
+                    method_self = positional_method_params[0]
 
             self.scopes[function_info.qualname] = ScopeInfo(
                 name=function_info.qualname,
                 module=function_info.module,
                 body=list(function_info.node.body),
+                posonly_params=list(function_info.posonly_params),
+                pos_or_kw_params=list(function_info.pos_or_kw_params),
+                kwonly_params=list(function_info.kwonly_params),
                 params=list(function_info.params),
                 vararg=function_info.vararg,
                 kwarg=function_info.kwarg,
                 method_self_param=method_self,
                 method_cls_param=method_cls,
+                global_names=set(function_info.global_names),
+                nonlocal_names=set(function_info.nonlocal_names),
+                parent_scope=function_info.parent_scope,
                 closure_vars=set(function_info.closure_vars),
             )
