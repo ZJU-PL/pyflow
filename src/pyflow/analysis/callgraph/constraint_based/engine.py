@@ -14,7 +14,7 @@ import builtins
 import json
 import os
 from collections import defaultdict
-from typing import DefaultDict, Dict, Optional, Set, Tuple
+from typing import DefaultDict, Dict, Optional, Set, Tuple, List
 
 from ..callgraph import CallGraph
 from .model import (
@@ -107,7 +107,7 @@ class ConstraintCallGraphBuilder(
         ] = defaultdict(dict)
 
         # Caches/indexes used by resolver and dependency-driven requeueing.
-        self._mro_cache: Dict[str, list[str]] = {}
+        self._mro_cache: Dict[str, List[str]] = {}
         self._invalid_mro_classes: Set[str] = set()
         self._container_cache: Dict[
             Tuple[str, ContextKey, str, int, int], AbstractValue
@@ -412,7 +412,7 @@ class ConstraintCallGraphBuilder(
         graph = CallGraph()
         mapped: Dict[str, Set[str]] = {}
         for caller, callees in expected_data.items():
-            if not isinstance(caller, str) or not isinstance(callees, list):
+            if not isinstance(caller, str) or not isinstance(callees, List):
                 return None
             if any(not isinstance(value, str) for value in callees):
                 return None

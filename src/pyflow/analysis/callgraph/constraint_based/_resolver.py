@@ -37,7 +37,7 @@ from .model import (
 class _ResolverMixin:
     """Resolves call targets, binds arguments, and walks MRO for attribute lookup."""
 
-    def _class_lookup_order(self, class_name: str) -> list[str]:
+    def _class_lookup_order(self, class_name: str) -> List[str]:
         """
         Return class lookup order.
 
@@ -47,7 +47,7 @@ class _ResolverMixin:
         if class_name in self._invalid_mro_classes:
             queue = [class_name]
             seen: Set[str] = set()
-            order: list[str] = []
+            order: List[str] = []
             while queue:
                 current = queue.pop(0)
                 if current in seen:
@@ -1119,10 +1119,10 @@ class _ResolverMixin:
             return None
         return function_info.owner_class
 
-    def _mro(self, class_name: str) -> list[str]:
+    def _mro(self, class_name: str) -> List[str]:
         """Compute and cache class MRO (C3) with conservative fallback on failure."""
         if class_name in self._mro_cache:
-            return list(self._mro_cache[class_name])
+            return List(self._mro_cache[class_name])
 
         class_info = self.classes.get(class_name)
         if not class_info:
@@ -1130,10 +1130,10 @@ class _ResolverMixin:
             return [class_name]
 
         base_mros = [self._mro(base) for base in class_info.bases]
-        merge_input = [list(seq) for seq in base_mros]
-        merge_input.append(list(class_info.bases))
+        merge_input = [List(seq) for seq in base_mros]
+        merge_input.append(List(class_info.bases))
 
-        linearized: list[str] = [class_name]
+        linearized: List[str] = [class_name]
         merged = self._c3_merge(merge_input)
         if merged is None:
             self._invalid_mro_classes.add(class_name)
@@ -1161,10 +1161,10 @@ class _ResolverMixin:
         self._mro_cache[class_name] = list(linearized)
         return linearized
 
-    def _c3_merge(self, sequences: list[list[str]]) -> Optional[list[str]]:
+    def _c3_merge(self, sequences: List[List[str]]) -> Optional[List[str]]:
         """C3 merge step used by `_mro`; returns None when constraints conflict."""
-        result: list[str] = []
-        pending = [list(seq) for seq in sequences if seq]
+        result: List[str] = []
+        pending = [List(seq) for seq in sequences if seq]
 
         while pending:
             candidate: Optional[str] = None
@@ -1179,7 +1179,7 @@ class _ResolverMixin:
                 return None
 
             result.append(candidate)
-            next_pending: list[list[str]] = []
+            next_pending: List[List[str]] = []
             for seq in pending:
                 filtered = [name for name in seq if name != candidate]
                 if filtered:

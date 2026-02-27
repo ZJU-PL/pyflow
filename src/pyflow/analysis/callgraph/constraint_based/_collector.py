@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import ast
 from collections import defaultdict
-from typing import DefaultDict, Dict, Optional, Sequence, Set
+from typing import DefaultDict, Dict, Optional, Sequence, Set, List
 
 from .model import (
     AbstractValue,
@@ -302,8 +302,8 @@ class _CollectorMixin:
 
     def _collect_lambdas(self, module_name: str, module_tree: ast.Module) -> None:
         """Collect lambda expressions with stable per-scope synthetic names."""
-        scope_stack: list[str] = [module_name]
-        lambda_counters: dict[str, int] = {}
+        scope_stack: List[str] = [module_name]
+        lambda_counters: Dict[str, int] = {}
 
         def _register_lambda(node: ast.Lambda) -> None:
             parent_scope = scope_stack[-1]

@@ -3,16 +3,16 @@
 from __future__ import absolute_import
 
 from pathlib import Path
-
+from typing import Union, List
 import pytest
 
 import pyflow.cli.security as security_cli
 
 
 def _security_args(
-    targets: list[str],
+    targets: List[str],
     *,
-    output: Path | None = None,
+    output: Union[Path, None] = None,
     verbose: bool = False,
 ) -> object:
     """Build a minimal args object for run_security_analysis.

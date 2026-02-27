@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import ast
-from typing import Dict, Set, Sequence, Tuple
+from typing import Dict, Set, Sequence, Tuple, List
 
 from .model import (
     AbstractValue,
@@ -285,7 +285,7 @@ class _EvaluatorMixin:
 
         if isinstance(expr, (ast.List, ast.Tuple, ast.Set)):
             out: Set[AbstractValue] = set()
-            indexed_values: list[Set[AbstractValue]] = []
+            indexed_values: List[Set[AbstractValue]] = []
             for item in expr.elts:
                 values = self._eval_expr(
                     scope,

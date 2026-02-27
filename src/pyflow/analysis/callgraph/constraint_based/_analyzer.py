@@ -5,7 +5,7 @@ from __future__ import annotations
 import ast
 import warnings
 from collections import deque
-from typing import Dict, Mapping, Sequence, Set, Tuple
+from typing import Dict, Mapping, Sequence, Set, Tuple, List
 
 from .model import (
     AbstractValue,
@@ -669,8 +669,8 @@ class _AnalyzerMixin:
                 self._merge_value_maps(global_writes, body_globals)
                 self._merge_value_maps(nonlocal_writes, body_nonlocals)
 
-                handler_envs: list[Dict[str, Set[AbstractValue]]] = []
-                handler_exit_envs: list[Dict[str, Set[AbstractValue]]] = []
+                handler_envs: List[Dict[str, Set[AbstractValue]]] = []
+                handler_exit_envs: List[Dict[str, Set[AbstractValue]]] = []
                 handler_fallthrough = False
                 for handler in stmt.handlers:
                     (
@@ -772,7 +772,7 @@ class _AnalyzerMixin:
                 exit_name = (
                     "__aexit__" if isinstance(stmt, ast.AsyncWith) else "__exit__"
                 )
-                exit_calls: list[Tuple[Set[AbstractValue], ast.expr]] = []
+                exit_calls: List[Tuple[Set[AbstractValue], ast.expr]] = []
                 for item in stmt.items:
                     manager_values = self._eval_expr(
                         scope,

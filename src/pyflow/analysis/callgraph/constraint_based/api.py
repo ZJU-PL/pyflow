@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import inspect
 import os
-from typing import Dict, Optional
+from typing import Dict, Optional, List
 
 from ..callgraph import CallGraph
 from ..formats import generate_text_output
@@ -113,7 +113,7 @@ def extract_value_flow_graph_constraint(
     warn_on_fixpoint_truncation: bool = True,
     allocation_site_sensitive_instances: bool = False,
     allow_fixture_graph_loading: bool = True,
-) -> Dict[str, list[str]]:
+) -> Dict[str, List[str]]:
     """
     Extract a debug value-flow graph from the constraint analyser.
 
