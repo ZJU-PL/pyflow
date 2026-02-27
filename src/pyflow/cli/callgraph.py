@@ -2,10 +2,15 @@
 CLI functionality for call graph analysis.
 """
 
+import json
 import sys
 from pathlib import Path
 
 from pyflow.analysis.callgraph.ast_based import analyze_file as analyze_file_ast
+from pyflow.analysis.callgraph.constraint_based import (
+    analyze_file_constraint,
+    extract_value_flow_graph_constraint,
+)
 from pyflow.analysis.callgraph.pycg_based import analyze_file_pycg
 
 
@@ -19,6 +24,16 @@ def run_callgraph(input_path, args):
         # Generate call graph analysis based on selected algorithm
         if args.algorithm == "simple":
             output = analyze_file_ast(str(input_path))
+        elif args.algorithm == "constraint":
+            output = analyze_file_constraint(
+                str(input_path),
+                verbose=args.verbose,
+                context_sensitive=args.context_sensitive,
+                context_depth=args.context_depth,
+                fixpoint_max_iterations=args.fixpoint_max_iterations,
+                warn_on_fixpoint_truncation=not args.no_fixpoint_warning,
+                allocation_site_sensitive_instances=args.allocation_site_sensitive_instances,
+            )
         elif args.algorithm == "pycg":
             # Use the PyCG-based algorithm
             try:
@@ -33,9 +48,33 @@ def run_callgraph(input_path, args):
             print(f"Error: Unknown algorithm '{args.algorithm}'", file=sys.stderr)
             return 1
 
+        if args.as_graph_output:
+            if args.algorithm != "constraint":
+                print(
+                    "Error: --as-graph-output is currently supported only with --algorithm constraint",
+                    file=sys.stderr,
+                )
+                return 1
+            with open(input_path, "r", encoding="utf-8") as handle:
+                source = handle.read()
+            as_graph = extract_value_flow_graph_constraint(
+                source_code=source,
+                source_path=str(input_path),
+                verbose=args.verbose,
+                context_sensitive=args.context_sensitive,
+                context_depth=args.context_depth,
+                fixpoint_max_iterations=args.fixpoint_max_iterations,
+                warn_on_fixpoint_truncation=not args.no_fixpoint_warning,
+                allocation_site_sensitive_instances=args.allocation_site_sensitive_instances,
+            )
+            with open(args.as_graph_output, "w", encoding="utf-8") as handle:
+                json.dump(as_graph, handle, indent=2, sort_keys=True)
+            if args.verbose:
+                print(f"Value-flow graph written to {args.as_graph_output}")
+
         # Write output
         if args.output:
-            with open(args.output, "w") as f:
+            with open(args.output, "w", encoding="utf-8") as f:
                 f.write(output)
             if args.verbose:
                 print(f"Call graph written to {args.output}")
@@ -75,6 +114,40 @@ def add_callgraph_parser(subparsers):
 
     parser.add_argument(
         "--verbose", "-v", action="store_true", help="Enable verbose output"
+    )
+
+    parser.add_argument(
+        "--context-sensitive",
+        action="store_true",
+        help="Enable call-site context sensitivity (constraint algorithm only)",
+    )
+    parser.add_argument(
+        "--context-depth",
+        type=int,
+        default=1,
+        help="Call-string depth when --context-sensitive is enabled",
+    )
+    parser.add_argument(
+        "--fixpoint-max-iterations",
+        type=int,
+        default=None,
+        help="Cap fixpoint iterations (constraint algorithm only)",
+    )
+    parser.add_argument(
+        "--no-fixpoint-warning",
+        action="store_true",
+        help="Disable warning when fixpoint cap is hit (constraint algorithm only)",
+    )
+    parser.add_argument(
+        "--allocation-site-sensitive-instances",
+        action="store_true",
+        help="Track per-allocation instance identities (constraint algorithm only)",
+    )
+    parser.add_argument(
+        "--as-graph-output",
+        type=Path,
+        default=None,
+        help="Write constraint value-flow assignment graph JSON (debug output)",
     )
 
     parser.set_defaults(func=run_callgraph)

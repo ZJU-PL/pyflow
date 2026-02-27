@@ -36,6 +36,8 @@ class AnalysisOptions:
     context_depth: int = 1
     fixpoint_max_iterations: Optional[int] = None
     warn_on_fixpoint_truncation: bool = True
+    allocation_site_sensitive_instances: bool = False
+    allow_fixture_graph_loading: bool = True
 
 
 @dataclass
@@ -103,7 +105,8 @@ class ScopeResult:
     returns: Set[AbstractValue]
     input_changed_scope_contexts: Set[Tuple[str, ContextKey]]
     module_binding_changed: bool
-    instance_field_changed: bool
+    changed_instance_fields: Set[Tuple[str, str]]
+    changed_class_fields: Set[Tuple[str, str]]
     nonlocal_binding_changed: bool
 
 
@@ -119,8 +122,25 @@ def make_class(name: str) -> AbstractValue:
     return make_value(CLASS_KIND, name)
 
 
-def make_instance(name: str) -> AbstractValue:
+INSTANCE_ALLOC_SEPARATOR = "#"
+
+
+def make_instance(name: str, allocation_site: Optional[str] = None) -> AbstractValue:
+    if allocation_site:
+        return make_value(INSTANCE_KIND, f"{name}{INSTANCE_ALLOC_SEPARATOR}{allocation_site}")
     return make_value(INSTANCE_KIND, name)
+
+
+def parse_instance_name(name: str) -> Tuple[str, Optional[str]]:
+    class_name, separator, allocation_site = name.partition(INSTANCE_ALLOC_SEPARATOR)
+    if not separator:
+        return name, None
+    return class_name, allocation_site or None
+
+
+def instance_class_name(value: AbstractValue) -> str:
+    class_name, _allocation_site = parse_instance_name(value.name)
+    return class_name
 
 
 def make_module(name: str) -> AbstractValue:

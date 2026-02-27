@@ -15,6 +15,7 @@ from .model import (
     decorator_id,
     make_class,
     make_func,
+    make_string,
     copy_env,
 )
 
@@ -87,6 +88,26 @@ class _CollectorMixin:
         closure.update(nonlocal_names)
         return closure
 
+    def _infer_lambda_closure_vars(self, node: ast.Lambda) -> set[str]:
+        local_names: set[str] = {arg.arg for arg in node.args.posonlyargs}
+        local_names.update(arg.arg for arg in node.args.args)
+        local_names.update(arg.arg for arg in node.args.kwonlyargs)
+        if node.args.vararg:
+            local_names.add(node.args.vararg.arg)
+        if node.args.kwarg:
+            local_names.add(node.args.kwarg.arg)
+
+        loaded_names: set[str] = set()
+        stored_names: set[str] = set()
+        for inner in ast.walk(node.body):
+            if isinstance(inner, ast.Name):
+                if isinstance(inner.ctx, ast.Load):
+                    loaded_names.add(inner.id)
+                elif isinstance(inner.ctx, (ast.Store, ast.Del)):
+                    stored_names.add(inner.id)
+        local_names.update(stored_names)
+        return {name for name in loaded_names if name not in local_names}
+
     def _infer_global_nonlocal_names(
         self, node: ast.FunctionDef | ast.AsyncFunctionDef
     ) -> tuple[set[str], set[str]]:
@@ -142,6 +163,72 @@ class _CollectorMixin:
             for body in self._iter_statement_bodies(stmt):
                 self._collect_nested_functions(module_name, parent_qualname, body)
 
+    def _collect_class_symbol(
+        self,
+        module_name: str,
+        node: ast.ClassDef,
+        class_qualname: str,
+        parent_class_qualname: Optional[str] = None,
+    ) -> None:
+        class_info = ClassInfo(
+            qualname=class_qualname,
+            module=module_name,
+            node=node,
+            bases_raw=list(node.bases),
+            bases=[],
+            methods={},
+            static_methods=set(),
+            class_methods=set(),
+        )
+        self.classes[class_qualname] = class_info
+        if parent_class_qualname is not None:
+            self.class_fields[parent_class_qualname][node.name].add(make_class(class_qualname))
+
+        for child in node.body:
+            if isinstance(child, ast.ClassDef):
+                nested_qualname = f"{class_qualname}.{child.name}"
+                self._collect_class_symbol(
+                    module_name,
+                    child,
+                    nested_qualname,
+                    parent_class_qualname=class_qualname,
+                )
+                continue
+            if not isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            method_qualname = f"{class_qualname}.{child.name}"
+            decorator_names = {decorator_id(deco) for deco in child.decorator_list}
+            is_staticmethod = (
+                "staticmethod" in decorator_names
+                or "builtins.staticmethod" in decorator_names
+            )
+            is_classmethod = (
+                "classmethod" in decorator_names
+                or "builtins.classmethod" in decorator_names
+            )
+            global_names, nonlocal_names = self._infer_global_nonlocal_names(child)
+            self.functions[method_qualname] = self._build_function_info(
+                module_name,
+                method_qualname,
+                child,
+                is_method=True,
+                is_staticmethod=is_staticmethod,
+                is_classmethod=is_classmethod,
+                owner_class=class_qualname,
+                parent_scope=None,
+                global_names=global_names,
+                nonlocal_names=nonlocal_names,
+                closure_vars=self._infer_closure_vars(child),
+            )
+            class_info.methods[child.name] = method_qualname
+            if is_staticmethod:
+                class_info.static_methods.add(child.name)
+            if is_classmethod:
+                class_info.class_methods.add(child.name)
+            self._collect_nested_functions(
+                module_name, method_qualname, child.body
+            )
+
     def _collect_symbols(self) -> None:
         for module_name, module_info in self.modules.items():
             exports: DefaultDict[str, Set[AbstractValue]] = defaultdict(set)
@@ -166,71 +253,93 @@ class _CollectorMixin:
                     self._collect_nested_functions(module_name, qualname, node.body)
                 elif isinstance(node, ast.ClassDef):
                     class_qualname = f"{module_name}.{node.name}"
-                    class_info = ClassInfo(
-                        qualname=class_qualname,
-                        module=module_name,
-                        node=node,
-                        bases_raw=list(node.bases),
-                        bases=[],
-                        methods={},
-                        static_methods=set(),
-                        class_methods=set(),
-                    )
-                    self.classes[class_qualname] = class_info
+                    self._collect_class_symbol(module_name, node, class_qualname)
                     exports[node.name].add(make_class(class_qualname))
 
-                    for child in node.body:
-                        if not isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                            continue
-                        method_qualname = f"{class_qualname}.{child.name}"
-                        decorator_names = {
-                            decorator_id(deco) for deco in child.decorator_list
-                        }
-                        is_staticmethod = (
-                            "staticmethod" in decorator_names
-                            or "builtins.staticmethod" in decorator_names
-                        )
-                        is_classmethod = (
-                            "classmethod" in decorator_names
-                            or "builtins.classmethod" in decorator_names
-                        )
-                        global_names, nonlocal_names = self._infer_global_nonlocal_names(child)
-                        self.functions[method_qualname] = self._build_function_info(
-                            module_name,
-                            method_qualname,
-                            child,
-                            is_method=True,
-                            is_staticmethod=is_staticmethod,
-                            is_classmethod=is_classmethod,
-                            owner_class=class_qualname,
-                            parent_scope=None,
-                            global_names=global_names,
-                            nonlocal_names=nonlocal_names,
-                            closure_vars=self._infer_closure_vars(child),
-                        )
-                        class_info.methods[child.name] = method_qualname
-                        if is_staticmethod:
-                            class_info.static_methods.add(child.name)
-                        if is_classmethod:
-                            class_info.class_methods.add(child.name)
-                        self._collect_nested_functions(
-                            module_name, method_qualname, child.body
-                        )
+            self._collect_lambdas(module_name, module_info.tree)
 
             # Basic top-level alias propagation for direct assignments.
             for node in module_info.tree.body:
-                if isinstance(node, ast.Assign) and isinstance(node.value, ast.Name):
+                if not isinstance(node, ast.Assign):
+                    continue
+                assigned_values: Set[AbstractValue] = set()
+                if isinstance(node.value, ast.Name):
                     rhs_name = node.value.id
-                    rhs_values = exports.get(rhs_name, set())
-                    if not rhs_values:
-                        continue
-                    for target in node.targets:
-                        if isinstance(target, ast.Name):
-                            exports[target.id].update(rhs_values)
+                    assigned_values.update(exports.get(rhs_name, set()))
+                elif isinstance(node.value, ast.Constant):
+                    if isinstance(node.value.value, str):
+                        assigned_values.add(make_string(node.value.value))
+                    elif isinstance(node.value.value, int):
+                        assigned_values.add(make_string(f"#{node.value.value}"))
+                if not assigned_values:
+                    continue
+                for target in node.targets:
+                    if isinstance(target, ast.Name):
+                        exports[target.id].update(assigned_values)
 
             self.module_bindings[module_name] = {
                 name: set(values) for name, values in exports.items()
             }
+
+    def _collect_lambdas(self, module_name: str, module_tree: ast.Module) -> None:
+        scope_stack: list[str] = [module_name]
+        lambda_counters: dict[str, int] = {}
+
+        def _register_lambda(node: ast.Lambda) -> None:
+            parent_scope = scope_stack[-1]
+            line = getattr(node, "lineno", -1)
+            col = getattr(node, "col_offset", -1)
+            lambda_counters[parent_scope] = lambda_counters.get(parent_scope, 0) + 1
+            base_name = f"<lambda{lambda_counters[parent_scope]}>"
+            qualname = f"{parent_scope}.{base_name}"
+            suffix = 1
+            while qualname in self.functions:
+                suffix += 1
+                qualname = f"{parent_scope}.{base_name}#{suffix}"
+
+            self.functions[qualname] = self._build_function_info(
+                module_name=module_name,
+                qualname=qualname,
+                node=node,
+                is_method=False,
+                is_staticmethod=False,
+                is_classmethod=False,
+                owner_class=None,
+                parent_scope=parent_scope,
+                global_names=set(),
+                nonlocal_names=set(),
+                closure_vars=self._infer_lambda_closure_vars(node),
+            )
+            self.lambda_functions[(parent_scope, line, col)] = qualname
+            self.lambda_functions_by_node[id(node)] = qualname
+
+        class LambdaCollector(ast.NodeVisitor):
+            def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+                parent_scope = scope_stack[-1]
+                qualname = f"{parent_scope}.{node.name}"
+                scope_stack.append(qualname)
+                self.generic_visit(node)
+                scope_stack.pop()
+
+            def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
+                parent_scope = scope_stack[-1]
+                qualname = f"{parent_scope}.{node.name}"
+                scope_stack.append(qualname)
+                self.generic_visit(node)
+                scope_stack.pop()
+
+            def visit_ClassDef(self, node: ast.ClassDef) -> None:
+                parent_scope = scope_stack[-1]
+                qualname = f"{parent_scope}.{node.name}"
+                scope_stack.append(qualname)
+                self.generic_visit(node)
+                scope_stack.pop()
+
+            def visit_Lambda(self, node: ast.Lambda) -> None:
+                _register_lambda(node)
+                self.generic_visit(node)
+
+        LambdaCollector().visit(module_tree)
 
     def _build_function_info(
         self,
@@ -246,13 +355,15 @@ class _CollectorMixin:
         nonlocal_names: Set[str],
         closure_vars: Set[str],
     ) -> FunctionInfo:
-        assert isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-        posonly_params = [arg.arg for arg in node.args.posonlyargs]
-        pos_or_kw_params = [arg.arg for arg in node.args.args]
-        kwonly_params = [arg.arg for arg in node.args.kwonlyargs]
-        params = [*posonly_params, *pos_or_kw_params, *kwonly_params]
-        vararg = node.args.vararg.arg if node.args.vararg else None
-        kwarg = node.args.kwarg.arg if node.args.kwarg else None
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+            posonly_params = [arg.arg for arg in node.args.posonlyargs]
+            pos_or_kw_params = [arg.arg for arg in node.args.args]
+            kwonly_params = [arg.arg for arg in node.args.kwonlyargs]
+            params = [*posonly_params, *pos_or_kw_params, *kwonly_params]
+            vararg = node.args.vararg.arg if node.args.vararg else None
+            kwarg = node.args.kwarg.arg if node.args.kwarg else None
+        else:
+            raise TypeError(f"Unsupported function node type: {type(node)!r}")
         return FunctionInfo(
             qualname=qualname,
             module=module_name,
@@ -296,6 +407,10 @@ class _CollectorMixin:
                 for value in values:
                     if value.kind == CLASS_KIND and value.name in self.classes:
                         resolved.append(value.name)
+                    elif value.kind == CLASS_KIND:
+                        resolved.append(value.name)
+                    elif value.kind == "func" and "." in value.name:
+                        resolved.append(value.name)
             class_info.bases = resolved
 
     def _initialize_scopes(self) -> None:
@@ -319,23 +434,31 @@ class _CollectorMixin:
             )
 
         for function_info in self.functions.values():
-            assert isinstance(function_info.node, (ast.FunctionDef, ast.AsyncFunctionDef))
             method_self = None
             method_cls = None
             positional_method_params = [
                 *function_info.posonly_params,
                 *function_info.pos_or_kw_params,
             ]
-            if function_info.is_method and positional_method_params:
+            if (
+                function_info.is_method
+                and isinstance(function_info.node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                and positional_method_params
+            ):
                 if function_info.is_classmethod:
                     method_cls = positional_method_params[0]
                 elif not function_info.is_staticmethod:
                     method_self = positional_method_params[0]
 
+            if isinstance(function_info.node, ast.Lambda):
+                body = [ast.Return(value=function_info.node.body)]
+            else:
+                body = list(function_info.node.body)
+
             self.scopes[function_info.qualname] = ScopeInfo(
                 name=function_info.qualname,
                 module=function_info.module,
-                body=list(function_info.node.body),
+                body=body,
                 posonly_params=list(function_info.posonly_params),
                 pos_or_kw_params=list(function_info.pos_or_kw_params),
                 kwonly_params=list(function_info.kwonly_params),

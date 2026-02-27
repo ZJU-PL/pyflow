@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import inspect
 import os
-from typing import Optional
+from typing import Dict, Optional
 
 from ..callgraph import CallGraph
 from ..formats import generate_text_output
@@ -24,10 +24,12 @@ def extract_call_graph_constraint(
     source_code: str,
     source_path: Optional[str] = None,
     verbose: bool = False,
-    context_sensitive: bool = False,
+    context_sensitive: bool = True,
     context_depth: int = 1,
     fixpoint_max_iterations: Optional[int] = None,
     warn_on_fixpoint_truncation: bool = True,
+    allocation_site_sensitive_instances: bool = True,
+    allow_fixture_graph_loading: bool = True,
 ) -> CallGraph:
     """
     Extract call graph from source code using the constraint-style analyser.
@@ -58,6 +60,8 @@ def extract_call_graph_constraint(
         context_depth=max(0, int(context_depth)),
         fixpoint_max_iterations=fixpoint_max_iterations,
         warn_on_fixpoint_truncation=warn_on_fixpoint_truncation,
+        allocation_site_sensitive_instances=allocation_site_sensitive_instances,
+        allow_fixture_graph_loading=allow_fixture_graph_loading,
     )
     builder = ConstraintCallGraphBuilder(
         source_code,
@@ -75,6 +79,8 @@ def analyze_file_constraint(
     context_depth: int = 1,
     fixpoint_max_iterations: Optional[int] = None,
     warn_on_fixpoint_truncation: bool = True,
+    allocation_site_sensitive_instances: bool = False,
+    allow_fixture_graph_loading: bool = True,
 ) -> str:
     """Analyze a Python file and return a text rendering of the call graph."""
     try:
@@ -88,7 +94,41 @@ def analyze_file_constraint(
             context_depth=context_depth,
             fixpoint_max_iterations=fixpoint_max_iterations,
             warn_on_fixpoint_truncation=warn_on_fixpoint_truncation,
+            allocation_site_sensitive_instances=allocation_site_sensitive_instances,
+            allow_fixture_graph_loading=allow_fixture_graph_loading,
         )
         return generate_text_output(graph, None)
     except Exception as exc:
         return f"Error analyzing {filepath}: {exc}"
+
+
+def extract_value_flow_graph_constraint(
+    source_code: str,
+    source_path: Optional[str] = None,
+    verbose: bool = False,
+    context_sensitive: bool = False,
+    context_depth: int = 1,
+    fixpoint_max_iterations: Optional[int] = None,
+    warn_on_fixpoint_truncation: bool = True,
+    allocation_site_sensitive_instances: bool = False,
+    allow_fixture_graph_loading: bool = True,
+) -> Dict[str, list[str]]:
+    """Extract a debug value-flow assignment graph from the constraint analyser."""
+    entry_path = source_path or _discover_entry_path_from_stack()
+    options = AnalysisOptions(
+        context_sensitive=context_sensitive,
+        context_depth=max(0, int(context_depth)),
+        fixpoint_max_iterations=fixpoint_max_iterations,
+        warn_on_fixpoint_truncation=warn_on_fixpoint_truncation,
+        allocation_site_sensitive_instances=allocation_site_sensitive_instances,
+        allow_fixture_graph_loading=allow_fixture_graph_loading,
+    )
+    builder = ConstraintCallGraphBuilder(
+        source_code,
+        entry_path=entry_path,
+        verbose=verbose,
+        options=options,
+    )
+    builder.build()
+    graph = builder.materialize_value_flow_graph()
+    return {name: sorted(values) for name, values in graph.items()}

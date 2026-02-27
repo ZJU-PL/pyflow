@@ -111,8 +111,18 @@ class _AnalyzerMixin:
         return set(env.get(name, initial_values))
 
     def _run_fixpoint(self) -> None:
+        def _is_seed_scope(scope_name: str) -> bool:
+            if scope_name in self.modules:
+                return True
+            function_info = self.functions.get(scope_name)
+            if function_info is None:
+                return True
+            return function_info.parent_scope is None
+
         queue: deque[Tuple[str, ContextKey]] = deque(
-            (scope_name, self._root_context()) for scope_name in self.scopes
+            (scope_name, self._root_context())
+            for scope_name in self.scopes
+            if _is_seed_scope(scope_name)
         )
         in_queue = set(queue)
         iterations = 0
@@ -128,23 +138,19 @@ class _AnalyzerMixin:
             scope_name, scope_context = queue.popleft()
             scope_context = self._normalize_context_for_scope(scope_name, scope_context)
             in_queue.discard((scope_name, scope_context))
+            self._analyzed_scope_contexts.add((scope_name, scope_context))
             scope = self.scopes[scope_name]
             result = self._analyze_scope(scope, scope_context)
             scope_ctx_key = (scope_name, scope_context)
 
-            changed = False
-            if not result.returns.issubset(self.scope_returns[scope_ctx_key]):
-                self.scope_returns[scope_ctx_key].update(result.returns)
-                changed = True
-            if not result.callees.issubset(self.scope_callees[scope_ctx_key]):
-                self.scope_callees[scope_ctx_key].update(result.callees)
-                changed = True
-            if (
-                result.module_binding_changed
-                or result.instance_field_changed
-                or result.nonlocal_binding_changed
-            ):
-                changed = True
+            previous_returns = self.scope_returns.get(scope_ctx_key, set())
+            previous_callees = self.scope_callees.get(scope_ctx_key, set())
+            returns_changed = previous_returns != result.returns
+            callees_changed = previous_callees != result.callees
+            if returns_changed:
+                self.scope_returns[scope_ctx_key] = set(result.returns)
+            if callees_changed:
+                self.scope_callees[scope_ctx_key] = set(result.callees)
 
             for callee_scope, callee_context in result.input_changed_scope_contexts:
                 normalized = self._normalize_context_for_scope(callee_scope, callee_context)
@@ -153,8 +159,25 @@ class _AnalyzerMixin:
                     queue.append(key)
                     in_queue.add(key)
 
+            changed = (
+                returns_changed
+                or callees_changed
+                or result.module_binding_changed
+                or bool(result.changed_instance_fields)
+                or bool(result.changed_class_fields)
+                or result.nonlocal_binding_changed
+            )
             if changed:
-                for candidate in self._known_scope_contexts():
+                impacted: Set[Tuple[str, ContextKey]] = set()
+                if returns_changed or callees_changed or result.nonlocal_binding_changed:
+                    impacted.update(self.call_dependents.get(scope_ctx_key, set()))
+                if result.module_binding_changed:
+                    impacted.update(self.module_dependents.get(scope.module, set()))
+                for field_key in result.changed_instance_fields:
+                    impacted.update(self.instance_field_dependents.get(field_key, set()))
+                for field_key in result.changed_class_fields:
+                    impacted.update(self.class_field_dependents.get(field_key, set()))
+                for candidate in impacted:
                     if candidate not in in_queue:
                         queue.append(candidate)
                         in_queue.add(candidate)
@@ -174,6 +197,9 @@ class _AnalyzerMixin:
     def _analyze_scope(self, scope: ScopeInfo, scope_context: ContextKey) -> ScopeResult:
         env = copy_env(self.module_bindings.get(scope.module, {}))
         scope_ctx_key = (scope.name, scope_context)
+        previous_active_scope_context = self._active_scope_context
+        self._active_scope_context = scope_ctx_key
+        self._register_module_dependency(scope.module, scope_ctx_key)
         param_inputs = self.scope_inputs.setdefault(
             scope_ctx_key,
             {
@@ -188,59 +214,68 @@ class _AnalyzerMixin:
             if captured_values:
                 env[closure_var] = captured_values
 
-        callees: Set[str] = set()
-        returns: Set[AbstractValue] = set()
-        input_changed_scope_contexts: Set[Tuple[str, ContextKey]] = set()
-        instance_field_changed = False
+        try:
+            callees: Set[str] = set()
+            returns: Set[AbstractValue] = set()
+            input_changed_scope_contexts: Set[Tuple[str, ContextKey]] = set()
 
-        (
-            env,
-            block_returns,
-            block_callees,
-            block_inputs,
-            block_field_changed,
-            block_global_writes,
-            block_nonlocal_writes,
-            _,
-        ) = (
-            self._process_block(
-                scope=scope,
-                scope_context=scope_context,
-                statements=scope.body,
-                env=env,
+            (
+                env,
+                block_returns,
+                block_callees,
+                block_inputs,
+                changed_instance_fields,
+                changed_class_fields,
+                block_global_writes,
+                block_nonlocal_writes,
+                _,
+            ) = (
+                self._process_block(
+                    scope=scope,
+                    scope_context=scope_context,
+                    statements=scope.body,
+                    env=env,
+                )
             )
-        )
-        returns.update(block_returns)
-        callees.update(block_callees)
-        input_changed_scope_contexts.update(block_inputs)
-        instance_field_changed = instance_field_changed or block_field_changed
+            returns.update(block_returns)
+            callees.update(block_callees)
+            input_changed_scope_contexts.update(block_inputs)
 
-        module_binding_changed = False
-        if scope.name == scope.module:
-            module_binding_changed = self._merge_bindings(self.module_bindings[scope.module], env)
-        if block_global_writes:
-            module_binding_changed = (
-                self._merge_bindings(self.module_bindings[scope.module], block_global_writes)
-                or module_binding_changed
+            module_binding_changed = False
+            if scope.name == scope.module:
+                previous_module_bindings = self.module_bindings.get(scope.module, {})
+                module_binding_changed = previous_module_bindings != env
+                self.module_bindings[scope.module] = {
+                    name: set(values) for name, values in env.items()
+                }
+            if block_global_writes:
+                module_binding_changed = (
+                    self._merge_bindings(self.module_bindings[scope.module], block_global_writes)
+                    or module_binding_changed
+                )
+
+            previous_global_writes = self.scope_global_writes.get(scope_ctx_key, {})
+            previous_nonlocal_writes = self.scope_nonlocal_writes.get(scope_ctx_key, {})
+            global_changed = previous_global_writes != block_global_writes
+            nonlocal_changed = previous_nonlocal_writes != block_nonlocal_writes
+            self.scope_global_writes[scope_ctx_key] = {
+                name: set(values) for name, values in block_global_writes.items()
+            }
+            self.scope_nonlocal_writes[scope_ctx_key] = {
+                name: set(values) for name, values in block_nonlocal_writes.items()
+            }
+
+            return ScopeResult(
+                callees=callees,
+                returns=returns,
+                input_changed_scope_contexts=input_changed_scope_contexts,
+                module_binding_changed=module_binding_changed,
+                changed_instance_fields=changed_instance_fields,
+                changed_class_fields=changed_class_fields,
+                nonlocal_binding_changed=global_changed or nonlocal_changed,
             )
-
-        global_changed = self._merge_value_maps(
-            self.scope_global_writes.setdefault(scope_ctx_key, {}),
-            block_global_writes,
-        )
-        nonlocal_changed = self._merge_value_maps(
-            self.scope_nonlocal_writes.setdefault(scope_ctx_key, {}),
-            block_nonlocal_writes,
-        )
-
-        return ScopeResult(
-            callees=callees,
-            returns=returns,
-            input_changed_scope_contexts=input_changed_scope_contexts,
-            module_binding_changed=module_binding_changed,
-            instance_field_changed=instance_field_changed,
-            nonlocal_binding_changed=global_changed or nonlocal_changed,
-        )
+        finally:
+            self._active_scope_context = previous_active_scope_context
 
     def _process_block(
         self,
@@ -253,7 +288,8 @@ class _AnalyzerMixin:
         Set[AbstractValue],
         Set[str],
         Set[Tuple[str, ContextKey]],
-        bool,
+        Set[Tuple[str, str]],
+        Set[Tuple[str, str]],
         Dict[str, Set[AbstractValue]],
         Dict[str, Set[AbstractValue]],
         bool,
@@ -261,7 +297,8 @@ class _AnalyzerMixin:
         returns: Set[AbstractValue] = set()
         callees: Set[str] = set()
         input_changed_scope_contexts: Set[Tuple[str, ContextKey]] = set()
-        instance_field_changed = False
+        changed_instance_fields: Set[Tuple[str, str]] = set()
+        changed_class_fields: Set[Tuple[str, str]] = set()
         global_writes: Dict[str, Set[AbstractValue]] = {}
         nonlocal_writes: Dict[str, Set[AbstractValue]] = {}
         falls_through = True
@@ -275,36 +312,38 @@ class _AnalyzerMixin:
                     scope, scope_context, stmt.value, env, callees, input_changed_scope_contexts
                 )
                 for target in stmt.targets:
-                    changed = self._assign_target(
+                    self._assign_target(
                         scope,
                         target,
                         value,
                         env,
                         global_writes=global_writes,
                         nonlocal_writes=nonlocal_writes,
+                        changed_instance_fields=changed_instance_fields,
+                        changed_class_fields=changed_class_fields,
                     )
-                    instance_field_changed = instance_field_changed or changed
 
             elif isinstance(stmt, ast.AnnAssign):
                 if stmt.value is not None:
                     value = self._eval_expr(
                         scope, scope_context, stmt.value, env, callees, input_changed_scope_contexts
                     )
-                    changed = self._assign_target(
+                    self._assign_target(
                         scope,
                         stmt.target,
                         value,
                         env,
                         global_writes=global_writes,
                         nonlocal_writes=nonlocal_writes,
+                        changed_instance_fields=changed_instance_fields,
+                        changed_class_fields=changed_class_fields,
                     )
-                    instance_field_changed = instance_field_changed or changed
 
             elif isinstance(stmt, ast.AugAssign):
                 value = self._eval_expr(
                     scope, scope_context, stmt.value, env, callees, input_changed_scope_contexts
                 )
-                changed = self._assign_target(
+                self._assign_target(
                     scope,
                     stmt.target,
                     value,
@@ -312,13 +351,16 @@ class _AnalyzerMixin:
                     weak=True,
                     global_writes=global_writes,
                     nonlocal_writes=nonlocal_writes,
+                    changed_instance_fields=changed_instance_fields,
+                    changed_class_fields=changed_class_fields,
                 )
-                instance_field_changed = instance_field_changed or changed
 
             elif isinstance(stmt, ast.Expr):
-                self._eval_expr(
+                expr_values = self._eval_expr(
                     scope, scope_context, stmt.value, env, callees, input_changed_scope_contexts
                 )
+                if isinstance(stmt.value, (ast.Yield, ast.YieldFrom)):
+                    returns.update(expr_values)
 
             elif isinstance(stmt, ast.Return):
                 if stmt.value is not None:
@@ -343,7 +385,8 @@ class _AnalyzerMixin:
                     then_ret,
                     then_calls,
                     then_inputs,
-                    then_field_changed,
+                    then_instance_changed,
+                    then_class_changed,
                     then_globals,
                     then_nonlocals,
                     then_fallthrough,
@@ -355,7 +398,8 @@ class _AnalyzerMixin:
                     else_ret,
                     else_calls,
                     else_inputs,
-                    else_field_changed,
+                    else_instance_changed,
+                    else_class_changed,
                     else_globals,
                     else_nonlocals,
                     else_fallthrough,
@@ -375,9 +419,10 @@ class _AnalyzerMixin:
                 callees.update(else_calls)
                 input_changed_scope_contexts.update(then_inputs)
                 input_changed_scope_contexts.update(else_inputs)
-                instance_field_changed = (
-                    instance_field_changed or then_field_changed or else_field_changed
-                )
+                changed_instance_fields.update(then_instance_changed)
+                changed_instance_fields.update(else_instance_changed)
+                changed_class_fields.update(then_class_changed)
+                changed_class_fields.update(else_class_changed)
                 self._merge_value_maps(global_writes, then_globals)
                 self._merge_value_maps(global_writes, else_globals)
                 self._merge_value_maps(nonlocal_writes, then_nonlocals)
@@ -388,7 +433,39 @@ class _AnalyzerMixin:
                     scope, scope_context, stmt.iter, env, callees, input_changed_scope_contexts
                 )
                 body_env = copy_env(env)
-                iter_members = self._iterable_members(iter_values) or {UNKNOWN_VALUE}
+                iter_members = self._iterable_members(iter_values)
+                for iter_value in iter_values:
+                    iter_targets = self._resolve_attribute({iter_value}, "__iter__")
+                    if not iter_targets:
+                        continue
+                    iter_call = ast.copy_location(
+                        ast.Call(func=stmt.iter, args=[], keywords=[]),
+                        stmt.iter,
+                    )
+                    iterated_values = self._invoke_targets(
+                        caller_scope=scope,
+                        caller_context=scope_context,
+                        target_values=iter_targets,
+                        call_node=iter_call,
+                        env=body_env,
+                        callees=callees,
+                        input_changed_scope_contexts=input_changed_scope_contexts,
+                    )
+                    next_targets = self._resolve_attribute(iterated_values, "__next__")
+                    if not next_targets:
+                        continue
+                    next_values = self._invoke_targets(
+                        caller_scope=scope,
+                        caller_context=scope_context,
+                        target_values=next_targets,
+                        call_node=iter_call,
+                        env=body_env,
+                        callees=callees,
+                        input_changed_scope_contexts=input_changed_scope_contexts,
+                    )
+                    iter_members.update(next_values)
+                if not iter_members:
+                    iter_members = {UNKNOWN_VALUE}
                 self._assign_target(
                     scope,
                     stmt.target,
@@ -397,13 +474,16 @@ class _AnalyzerMixin:
                     weak=True,
                     global_writes=global_writes,
                     nonlocal_writes=nonlocal_writes,
+                    changed_instance_fields=changed_instance_fields,
+                    changed_class_fields=changed_class_fields,
                 )
                 (
                     body_env,
                     body_ret,
                     body_calls,
                     body_inputs,
-                    body_field_changed,
+                    body_instance_changed,
+                    body_class_changed,
                     body_globals,
                     body_nonlocals,
                     body_fallthrough,
@@ -415,7 +495,8 @@ class _AnalyzerMixin:
                     else_ret,
                     else_calls,
                     else_inputs,
-                    else_field_changed,
+                    else_instance_changed,
+                    else_class_changed,
                     else_globals,
                     else_nonlocals,
                     else_fallthrough,
@@ -434,9 +515,10 @@ class _AnalyzerMixin:
                 callees.update(else_calls)
                 input_changed_scope_contexts.update(body_inputs)
                 input_changed_scope_contexts.update(else_inputs)
-                instance_field_changed = (
-                    instance_field_changed or body_field_changed or else_field_changed
-                )
+                changed_instance_fields.update(body_instance_changed)
+                changed_instance_fields.update(else_instance_changed)
+                changed_class_fields.update(body_class_changed)
+                changed_class_fields.update(else_class_changed)
                 self._merge_value_maps(global_writes, body_globals)
                 self._merge_value_maps(global_writes, else_globals)
                 self._merge_value_maps(nonlocal_writes, body_nonlocals)
@@ -451,7 +533,8 @@ class _AnalyzerMixin:
                     body_ret,
                     body_calls,
                     body_inputs,
-                    body_field_changed,
+                    body_instance_changed,
+                    body_class_changed,
                     body_globals,
                     body_nonlocals,
                     body_fallthrough,
@@ -463,7 +546,8 @@ class _AnalyzerMixin:
                     else_ret,
                     else_calls,
                     else_inputs,
-                    else_field_changed,
+                    else_instance_changed,
+                    else_class_changed,
                     else_globals,
                     else_nonlocals,
                     else_fallthrough,
@@ -482,9 +566,10 @@ class _AnalyzerMixin:
                 callees.update(else_calls)
                 input_changed_scope_contexts.update(body_inputs)
                 input_changed_scope_contexts.update(else_inputs)
-                instance_field_changed = (
-                    instance_field_changed or body_field_changed or else_field_changed
-                )
+                changed_instance_fields.update(body_instance_changed)
+                changed_instance_fields.update(else_instance_changed)
+                changed_class_fields.update(body_class_changed)
+                changed_class_fields.update(else_class_changed)
                 self._merge_value_maps(global_writes, body_globals)
                 self._merge_value_maps(global_writes, else_globals)
                 self._merge_value_maps(nonlocal_writes, body_nonlocals)
@@ -496,7 +581,8 @@ class _AnalyzerMixin:
                     body_ret,
                     body_calls,
                     body_inputs,
-                    body_field_changed,
+                    body_instance_changed,
+                    body_class_changed,
                     body_globals,
                     body_nonlocals,
                     body_fallthrough,
@@ -506,7 +592,8 @@ class _AnalyzerMixin:
                 returns.update(body_ret)
                 callees.update(body_calls)
                 input_changed_scope_contexts.update(body_inputs)
-                instance_field_changed = instance_field_changed or body_field_changed
+                changed_instance_fields.update(body_instance_changed)
+                changed_class_fields.update(body_class_changed)
                 self._merge_value_maps(global_writes, body_globals)
                 self._merge_value_maps(nonlocal_writes, body_nonlocals)
 
@@ -519,7 +606,8 @@ class _AnalyzerMixin:
                         handler_ret,
                         handler_calls,
                         handler_inputs,
-                        handler_changed,
+                        handler_instance_changed,
+                        handler_class_changed,
                         handler_globals,
                         handler_nonlocals,
                         handler_fall,
@@ -533,7 +621,8 @@ class _AnalyzerMixin:
                     returns.update(handler_ret)
                     callees.update(handler_calls)
                     input_changed_scope_contexts.update(handler_inputs)
-                    instance_field_changed = instance_field_changed or handler_changed
+                    changed_instance_fields.update(handler_instance_changed)
+                    changed_class_fields.update(handler_class_changed)
                     self._merge_value_maps(global_writes, handler_globals)
                     self._merge_value_maps(nonlocal_writes, handler_nonlocals)
 
@@ -545,7 +634,8 @@ class _AnalyzerMixin:
                         else_ret,
                         else_calls,
                         else_inputs,
-                        else_changed,
+                        else_instance_changed,
+                        else_class_changed,
                         else_globals,
                         else_nonlocals,
                         else_fallthrough,
@@ -553,7 +643,8 @@ class _AnalyzerMixin:
                     returns.update(else_ret)
                     callees.update(else_calls)
                     input_changed_scope_contexts.update(else_inputs)
-                    instance_field_changed = instance_field_changed or else_changed
+                    changed_instance_fields.update(else_instance_changed)
+                    changed_class_fields.update(else_class_changed)
                     self._merge_value_maps(global_writes, else_globals)
                     self._merge_value_maps(nonlocal_writes, else_nonlocals)
 
@@ -576,7 +667,8 @@ class _AnalyzerMixin:
                         final_ret,
                         final_calls,
                         final_inputs,
-                        final_changed,
+                        final_instance_changed,
+                        final_class_changed,
                         final_globals,
                         final_nonlocals,
                         final_fallthrough,
@@ -585,7 +677,8 @@ class _AnalyzerMixin:
                     returns.update(final_ret)
                     callees.update(final_calls)
                     input_changed_scope_contexts.update(final_inputs)
-                    instance_field_changed = instance_field_changed or final_changed
+                    changed_instance_fields.update(final_instance_changed)
+                    changed_class_fields.update(final_class_changed)
                     self._merge_value_maps(global_writes, final_globals)
                     self._merge_value_maps(nonlocal_writes, final_nonlocals)
                     falls_through = (
@@ -627,15 +720,16 @@ class _AnalyzerMixin:
                         input_changed_scope_contexts=input_changed_scope_contexts,
                     )
                     if item.optional_vars is not None:
-                        changed = self._assign_target(
+                        self._assign_target(
                             scope,
                             item.optional_vars,
                             entered_values or {UNKNOWN_VALUE},
                             env,
                             global_writes=global_writes,
                             nonlocal_writes=nonlocal_writes,
+                            changed_instance_fields=changed_instance_fields,
+                            changed_class_fields=changed_class_fields,
                         )
-                        instance_field_changed = instance_field_changed or changed
                     exit_calls.append(
                         (self._resolve_attribute(manager_values, exit_name), item.context_expr)
                     )
@@ -645,7 +739,8 @@ class _AnalyzerMixin:
                     with_ret,
                     with_calls,
                     with_inputs,
-                    with_changed,
+                    with_instance_changed,
+                    with_class_changed,
                     with_globals,
                     with_nonlocals,
                     with_fallthrough,
@@ -667,7 +762,8 @@ class _AnalyzerMixin:
                 returns.update(with_ret)
                 callees.update(with_calls)
                 input_changed_scope_contexts.update(with_inputs)
-                instance_field_changed = instance_field_changed or with_changed
+                changed_instance_fields.update(with_instance_changed)
+                changed_class_fields.update(with_class_changed)
                 self._merge_value_maps(global_writes, with_globals)
                 self._merge_value_maps(nonlocal_writes, with_nonlocals)
                 falls_through = with_fallthrough
@@ -695,7 +791,8 @@ class _AnalyzerMixin:
                         branch_ret,
                         branch_calls,
                         branch_inputs,
-                        branch_field_changed,
+                        branch_instance_changed,
+                        branch_class_changed,
                         branch_globals,
                         branch_nonlocals,
                         branch_fallthrough,
@@ -705,7 +802,8 @@ class _AnalyzerMixin:
                     returns.update(branch_ret)
                     callees.update(branch_calls)
                     input_changed_scope_contexts.update(branch_inputs)
-                    instance_field_changed = instance_field_changed or branch_field_changed
+                    changed_instance_fields.update(branch_instance_changed)
+                    changed_class_fields.update(branch_class_changed)
                     self._merge_value_maps(global_writes, branch_globals)
                     self._merge_value_maps(nonlocal_writes, branch_nonlocals)
                 env = merged_env
@@ -718,9 +816,24 @@ class _AnalyzerMixin:
 
             elif isinstance(stmt, ast.Raise):
                 if stmt.exc is not None:
-                    self._eval_expr(
+                    raised_values = self._eval_expr(
                         scope, scope_context, stmt.exc, env, callees, input_changed_scope_contexts
                     )
+                    class_values = {value for value in raised_values if value.kind == "class"}
+                    if class_values:
+                        raise_call = ast.copy_location(
+                            ast.Call(func=stmt.exc, args=[], keywords=[]),
+                            stmt.exc,
+                        )
+                        self._invoke_targets(
+                            caller_scope=scope,
+                            caller_context=scope_context,
+                            target_values=class_values,
+                            call_node=raise_call,
+                            env=env,
+                            callees=callees,
+                            input_changed_scope_contexts=input_changed_scope_contexts,
+                        )
                 falls_through = False
 
             elif isinstance(stmt, ast.Assert):
@@ -742,24 +855,25 @@ class _AnalyzerMixin:
                 if qualname in self.functions:
                     base_values = {make_func(qualname)}
                     env[stmt.name] = set(base_values)
-                    callee_context = self._normalize_context_for_scope(
-                        qualname,
-                        (
-                            (*scope_context, f"def@{scope.name}:{getattr(stmt, 'lineno', -1)}")[
-                                -self.options.context_depth :
-                            ]
-                            if self.options.context_sensitive
-                            and self.options.context_depth > 0
-                            else GLOBAL_CONTEXT
-                        ),
-                    )
-                    captured = {
-                        name: set(env.get(name, set()))
-                        for name in self.functions[qualname].closure_vars
-                        if env.get(name)
-                    }
-                    if captured and self._bind_closure_values(qualname, callee_context, captured):
-                        input_changed_scope_contexts.add((qualname, callee_context))
+                    if scope.name not in self.modules:
+                        callee_context = self._normalize_context_for_scope(
+                            qualname,
+                            (
+                                (*scope_context, f"def@{scope.name}:{getattr(stmt, 'lineno', -1)}")[
+                                    -self.options.context_depth :
+                                ]
+                                if self.options.context_sensitive
+                                and self.options.context_depth > 0
+                                else GLOBAL_CONTEXT
+                            ),
+                        )
+                        captured = {
+                            name: set(env.get(name, set()))
+                            for name in self.functions[qualname].closure_vars
+                            if env.get(name)
+                        }
+                        if captured and self._bind_closure_values(qualname, callee_context, captured):
+                            input_changed_scope_contexts.add((qualname, callee_context))
                     env[stmt.name] = self._apply_decorators(
                         scope=scope,
                         scope_context=scope_context,
@@ -772,7 +886,8 @@ class _AnalyzerMixin:
                     )
 
             elif isinstance(stmt, ast.ClassDef):
-                qualname = f"{scope.module}.{stmt.name}"
+                prefix = scope.name if scope.name not in self.modules else scope.module
+                qualname = f"{prefix}.{stmt.name}"
                 if qualname in self.classes:
                     env[stmt.name] = self._apply_decorators(
                         scope=scope,
@@ -790,7 +905,8 @@ class _AnalyzerMixin:
             returns,
             callees,
             input_changed_scope_contexts,
-            instance_field_changed,
+            changed_instance_fields,
+            changed_class_fields,
             global_writes,
             nonlocal_writes,
             falls_through,

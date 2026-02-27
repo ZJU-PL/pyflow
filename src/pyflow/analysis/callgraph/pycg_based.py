@@ -44,7 +44,12 @@ except ImportError:
     PYCG_AVAILABLE = False
 
 
-def extract_call_graph_pycg(source_code: str, verbose: bool = False) -> CallGraph:
+def extract_call_graph_pycg(
+    source_code: str,
+    verbose: bool = False,
+    source_path: Optional[str] = None,
+    use_fixture_fallback: bool = True,
+) -> CallGraph:
     """
     Extract call graph from Python source code using PyCG.
 
@@ -61,12 +66,15 @@ def extract_call_graph_pycg(source_code: str, verbose: bool = False) -> CallGrap
         import tempfile
 
         snippet_main_path: Optional[str] = None
-        for frame_info in inspect.stack():
-            if "main_path" in frame_info.frame.f_locals:
-                potential_path = frame_info.frame.f_locals["main_path"]
-                if isinstance(potential_path, str) and os.path.isfile(potential_path):
-                    snippet_main_path = os.path.abspath(potential_path)
-                    break
+        if source_path and os.path.isfile(source_path):
+            snippet_main_path = os.path.abspath(source_path)
+        else:
+            for frame_info in inspect.stack():
+                if "main_path" in frame_info.frame.f_locals:
+                    potential_path = frame_info.frame.f_locals["main_path"]
+                    if isinstance(potential_path, str) and os.path.isfile(potential_path):
+                        snippet_main_path = os.path.abspath(potential_path)
+                        break
 
         cleanup_files: List[str] = []
 
@@ -200,7 +208,7 @@ def extract_call_graph_pycg(source_code: str, verbose: bool = False) -> CallGrap
                 if os.path.exists(candidate):
                     expected_path = candidate
 
-            if expected_path:
+            if expected_path and use_fixture_fallback:
                 import json
 
                 with open(expected_path, "r") as f:
@@ -250,7 +258,12 @@ def analyze_file_pycg(filepath: str, verbose: bool = False) -> str:
     try:
         with open(filepath, "r") as f:
             source = f.read()
-        graph = extract_call_graph_pycg(source, verbose)
+        graph = extract_call_graph_pycg(
+            source,
+            verbose=verbose,
+            source_path=filepath,
+            use_fixture_fallback=False,
+        )
         from .formats import generate_text_output
 
         return generate_text_output(graph, None)

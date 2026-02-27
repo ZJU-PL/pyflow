@@ -1,5 +1,6 @@
 """Tests for the constraint-style call graph engine."""
 
+import json
 import os
 import tempfile
 import textwrap
@@ -7,7 +8,10 @@ import unittest
 import warnings
 
 from pyflow.analysis.callgraph.ast_based import extract_call_graph as extract_call_graph_legacy
-from pyflow.analysis.callgraph.constraint_based import extract_call_graph_constraint
+from pyflow.analysis.callgraph.constraint_based import (
+    extract_call_graph_constraint,
+    extract_value_flow_graph_constraint,
+)
 from pyflow.analysis.callgraph.constraint_based.engine import ConstraintCallGraphBuilder
 from pyflow.analysis.callgraph.constraint_based.model import AnalysisOptions
 
@@ -243,6 +247,26 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
         self.assertIn("main.make_inner", run_edges)
         self.assertIn("main.make_inner.inner", run_edges)
         self.assertIn("main.f1", improved.get("main.make_inner.inner", set()))
+
+    def test_lambda_functions_are_modeled_as_concrete_call_targets(self):
+        source = textwrap.dedent(
+            """
+            def target():
+                return 1
+
+            def run():
+                fn = lambda: target()
+                return fn()
+
+            run()
+            """
+        )
+        improved = extract_call_graph_constraint(source).get()
+        run_edges = improved.get("main.run", set())
+        lambda_edges = [edge for edge in run_edges if edge.startswith("main.run.<lambda")]
+        self.assertTrue(lambda_edges, run_edges)
+        for lambda_name in lambda_edges:
+            self.assertIn("main.target", improved.get(lambda_name, set()))
 
     def test_relative_import_level_one_resolves_parent_package(self):
         builder = ConstraintCallGraphBuilder("")
@@ -793,6 +817,37 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
         improved = extract_call_graph_constraint(source, source_path=snippet_main).get()
         self.assertIn("main.local_only", improved)
 
+    def test_fixture_graph_loading_can_be_disabled(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            snippet_dir = os.path.join(
+                temp_dir, "tests", "callgraph", "snippets", "fixture_toggle"
+            )
+            os.makedirs(snippet_dir, exist_ok=True)
+            main_path = os.path.join(snippet_dir, "main.py")
+            with open(main_path, "w", encoding="utf-8") as handle:
+                handle.write("def local_only():\n    return 1\n")
+            with open(
+                os.path.join(snippet_dir, "callgraph.json"),
+                "w",
+                encoding="utf-8",
+            ) as handle:
+                json.dump({"main": ["fake.edge"]}, handle)
+
+            source = "def local_only():\n    return 1\n"
+            fixture_graph = extract_call_graph_constraint(
+                source,
+                source_path=main_path,
+                allow_fixture_graph_loading=True,
+            ).get()
+            analyzed_graph = extract_call_graph_constraint(
+                source,
+                source_path=main_path,
+                allow_fixture_graph_loading=False,
+            ).get()
+
+            self.assertIn("fake.edge", fixture_graph.get("main", set()))
+            self.assertIn("main.local_only", analyzed_graph)
+
     def test_invalid_fixture_json_falls_back_to_analysis(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             snippet_dir = os.path.join(
@@ -829,6 +884,85 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
             any(edge.startswith("<dynamic>.main.run@") for edge in run_edges),
             run_edges,
         )
+
+    def test_dynamic_summary_nodes_include_reason_tags(self):
+        source = textwrap.dedent(
+            """
+            class Box:
+                pass
+
+            def run(x):
+                return x()
+
+            run(Box())
+            """
+        )
+        improved = extract_call_graph_constraint(source).get()
+        run_edges = improved.get("main.run", set())
+        self.assertTrue(
+            any(edge.endswith("[instance_without_call]") for edge in run_edges),
+            run_edges,
+        )
+
+    def test_value_flow_graph_debug_output_exposes_assignments(self):
+        source = textwrap.dedent(
+            """
+            def target():
+                return 1
+
+            alias = target
+            """
+        )
+        as_graph = extract_value_flow_graph_constraint(source)
+        self.assertIn("main.alias", as_graph)
+        self.assertIn("main.target", as_graph["main.alias"])
+
+    def test_allocation_site_sensitive_instances_reduce_cross_instance_field_pollution(self):
+        source = textwrap.dedent(
+            """
+            class Box:
+                def setf(self, fn):
+                    self.fn = fn
+
+                def call(self):
+                    return self.fn()
+
+            def a():
+                return 1
+
+            def b():
+                return 2
+
+            def run():
+                x = Box()
+                y = Box()
+                x.setf(a)
+                y.setf(b)
+                return x.call()
+
+            run()
+            """
+        )
+
+        insensitive = extract_call_graph_constraint(
+            source,
+            context_sensitive=True,
+            context_depth=1,
+            allocation_site_sensitive_instances=False,
+        ).get()
+        sensitive = extract_call_graph_constraint(
+            source,
+            context_sensitive=True,
+            context_depth=1,
+            allocation_site_sensitive_instances=True,
+        ).get()
+
+        insensitive_edges = insensitive.get("main.Box.call", set())
+        sensitive_edges = sensitive.get("main.Box.call", set())
+        self.assertIn("main.a", insensitive_edges)
+        self.assertIn("main.b", insensitive_edges)
+        self.assertIn("main.a", sensitive_edges)
+        self.assertNotIn("main.b", sensitive_edges)
 
 
 if __name__ == "__main__":

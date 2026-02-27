@@ -14,7 +14,7 @@ import builtins
 import json
 import os
 from collections import defaultdict
-from typing import Dict, Optional, Set, Tuple
+from typing import DefaultDict, Dict, Optional, Set, Tuple
 
 from ..callgraph import CallGraph
 from .model import (
@@ -97,6 +97,20 @@ class ConstraintCallGraphBuilder(
         self._container_cache: Dict[
             Tuple[str, ContextKey, str, int, int], AbstractValue
         ] = {}
+        self.lambda_functions: Dict[Tuple[str, int, int], str] = {}
+        self.lambda_functions_by_node: Dict[int, str] = {}
+        self._active_scope_context: Optional[Tuple[str, ContextKey]] = None
+        self.module_dependents: DefaultDict[str, Set[Tuple[str, ContextKey]]] = defaultdict(set)
+        self.instance_field_dependents: DefaultDict[
+            Tuple[str, str], Set[Tuple[str, ContextKey]]
+        ] = defaultdict(set)
+        self.class_field_dependents: DefaultDict[
+            Tuple[str, str], Set[Tuple[str, ContextKey]]
+        ] = defaultdict(set)
+        self.call_dependents: DefaultDict[
+            Tuple[str, ContextKey], Set[Tuple[str, ContextKey]]
+        ] = defaultdict(set)
+        self._analyzed_scope_contexts: Set[Tuple[str, ContextKey]] = set()
         self.fixpoint_iterations = 0
         self.fixpoint_truncated = False
 
@@ -107,9 +121,10 @@ class ConstraintCallGraphBuilder(
         }
 
     def build(self) -> CallGraph:
-        fixture_graph = self._try_load_fixture_graph()
-        if fixture_graph is not None:
-            return fixture_graph
+        if self.options.allow_fixture_graph_loading:
+            fixture_graph = self._try_load_fixture_graph()
+            if fixture_graph is not None:
+                return fixture_graph
 
         self._load_modules()
         self._collect_symbols()
@@ -182,6 +197,118 @@ class ConstraintCallGraphBuilder(
         line = getattr(call_node, "lineno", -1)
         col = getattr(call_node, "col_offset", -1)
         return f"<dynamic>.{scope.name}@{line}:{col}"
+
+    def _dynamic_summary_node_with_reason(
+        self, scope: ScopeInfo, call_node: ast.Call, reason: str
+    ) -> str:
+        line = getattr(call_node, "lineno", -1)
+        col = getattr(call_node, "col_offset", -1)
+        return f"<dynamic>.{scope.name}@{line}:{col}[{reason}]"
+
+    def _register_module_dependency(
+        self,
+        module_name: str,
+        dependent_scope_context: Optional[Tuple[str, ContextKey]] = None,
+    ) -> None:
+        target = dependent_scope_context or self._active_scope_context
+        if target is None:
+            return
+        scope_name, scope_context = target
+        normalized = self._normalize_context_for_scope(scope_name, scope_context)
+        self.module_dependents[module_name].add((scope_name, normalized))
+
+    def _register_instance_field_dependency(
+        self,
+        instance_or_class_name: str,
+        attr_name: str,
+        dependent_scope_context: Optional[Tuple[str, ContextKey]] = None,
+    ) -> None:
+        target = dependent_scope_context or self._active_scope_context
+        if target is None:
+            return
+        scope_name, scope_context = target
+        normalized = self._normalize_context_for_scope(scope_name, scope_context)
+        self.instance_field_dependents[(instance_or_class_name, attr_name)].add(
+            (scope_name, normalized)
+        )
+
+    def _register_class_field_dependency(
+        self,
+        class_name: str,
+        attr_name: str,
+        dependent_scope_context: Optional[Tuple[str, ContextKey]] = None,
+    ) -> None:
+        target = dependent_scope_context or self._active_scope_context
+        if target is None:
+            return
+        scope_name, scope_context = target
+        normalized = self._normalize_context_for_scope(scope_name, scope_context)
+        self.class_field_dependents[(class_name, attr_name)].add((scope_name, normalized))
+
+    def _format_value_for_debug(self, value: AbstractValue) -> str:
+        if value.kind == "func":
+            return value.name
+        if value.kind == "class":
+            return f"class:{value.name}"
+        if value.kind == "instance":
+            return f"instance:{value.name}"
+        if value.kind == "module":
+            return f"module:{value.name}"
+        if value.kind == "bound_method":
+            return f"bound_method:{value.name}"
+        if value.kind == "bound_class_method":
+            return f"bound_class_method:{value.name}"
+        if value.kind == "container":
+            return f"container:{value.name}"
+        if value.kind == "string":
+            return f"str:{value.name}"
+        if value.kind == "unknown":
+            return "<unknown>"
+        return f"{value.kind}:{value.name}"
+
+    def _context_label(self, context: ContextKey) -> str:
+        if context == GLOBAL_CONTEXT:
+            return "<global>"
+        return "|".join(context)
+
+    def materialize_value_flow_graph(self) -> Dict[str, Set[str]]:
+        graph: Dict[str, Set[str]] = {}
+
+        def _add(key: str, values: Set[AbstractValue]) -> None:
+            if not values:
+                return
+            bucket = graph.setdefault(key, set())
+            for value in values:
+                bucket.add(self._format_value_for_debug(value))
+
+        for module_name, bindings in self.module_bindings.items():
+            for symbol_name, values in bindings.items():
+                _add(f"{module_name}.{symbol_name}", values)
+
+        for (scope_name, scope_context), bindings in self.scope_inputs.items():
+            label = self._context_label(scope_context)
+            for symbol_name, values in bindings.items():
+                _add(f"{scope_name}[{label}]::{symbol_name}", values)
+
+        for (scope_name, scope_context), values in self.scope_returns.items():
+            label = self._context_label(scope_context)
+            _add(f"{scope_name}[{label}]::<return>", values)
+
+        for owner_name, fields in self.instance_fields.items():
+            for attr_name, values in fields.items():
+                _add(f"{owner_name}.<instance>.{attr_name}", values)
+
+        for owner_name, fields in self.class_fields.items():
+            for attr_name, values in fields.items():
+                _add(f"{owner_name}.<class>.{attr_name}", values)
+
+        for container_name, values in self.container_elements.items():
+            _add(f"{container_name}[]", values)
+        for container_name, key_values in self.container_key_values.items():
+            for key_name, values in key_values.items():
+                _add(f"{container_name}[{key_name!r}]", values)
+
+        return graph
 
     def _materialize_graph(self) -> CallGraph:
         graph = CallGraph()

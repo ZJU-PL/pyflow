@@ -32,7 +32,11 @@ except ModuleNotFoundError:
         from .ast_based import extract_call_graph, analyze_file
 
 from .pycg_based import extract_call_graph_pycg, analyze_file_pycg
-from .constraint_based import extract_call_graph_constraint, analyze_file_constraint
+from .constraint_based import (
+    extract_call_graph_constraint,
+    analyze_file_constraint,
+    extract_value_flow_graph_constraint,
+)
 from .formats import generate_text_output, generate_dot_output, generate_json_output
 from .callgraph import CallGraph, CallGraphError
 
@@ -41,6 +45,7 @@ __all__ = [
     "analyze_file",
     "extract_call_graph_constraint",
     "analyze_file_constraint",
+    "extract_value_flow_graph_constraint",
     "extract_call_graph_pycg",
     "analyze_file_pycg",
     "CallGraph",
