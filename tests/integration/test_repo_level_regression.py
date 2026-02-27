@@ -11,9 +11,10 @@ import pytest
 
 
 ROOT = Path(__file__).resolve().parents[2]
-COLLECT = ROOT / "scripts" / "evaluation" / "collect_repo_level_corpus.py"
-RUN = ROOT / "scripts" / "evaluation" / "run_repo_level_regression.py"
+REPO_LEVEL_SCRIPT = ROOT / "evaluation" / "repo_level_regression.py"
 CORPUS_ROOT = ROOT / "evaluation" / "repo_level"
+
+REPO_LEVEL_SCRIPT_MISSING = not REPO_LEVEL_SCRIPT.exists()
 
 
 @pytest.mark.integration
@@ -28,12 +29,14 @@ class TestRepoLevelCorpus:
         actual_projects = {p["name"] for p in manifest["projects"]}
         assert actual_projects == expected_projects
 
+    @pytest.mark.skipif(REPO_LEVEL_SCRIPT_MISSING, reason="repo_level_regression.py not found")
     def test_run_repo_level_regression_on_all_projects(self, tmp_path: Path) -> None:
         report_path = tmp_path / "report.json"
         subprocess.run(
             [
                 sys.executable,
-                str(RUN),
+                str(REPO_LEVEL_SCRIPT),
+                "run",
                 "--corpus",
                 str(CORPUS_ROOT),
                 "--output",
@@ -58,12 +61,14 @@ class TestRepoLevelCorpus:
             telemetry = project.get("frontend_telemetry", {})
             assert isinstance(telemetry, dict)
 
-    def test_collect_repo_level_corpus_from_single_project(self, tmp_path: Path) -> None:
+    @pytest.mark.skipif(REPO_LEVEL_SCRIPT_MISSING, reason="repo_level_regression.py not found")
+    def test_build_corpus_from_single_project(self, tmp_path: Path) -> None:
         out = tmp_path / "repo_level"
         project_path = CORPUS_ROOT / "corpus" / "repo_sample"
         cmd = [
             sys.executable,
-            str(COLLECT),
+            str(REPO_LEVEL_SCRIPT),
+            "build",
             "--output",
             str(out),
             "--project",

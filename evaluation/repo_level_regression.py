@@ -1,10 +1,16 @@
 #!/usr/bin/env python3
-"""Run frontend regression checks across a repo-level corpus."""
+"""Repo-level regression: build a corpus of projects and run the frontend on it.
+
+Subcommands:
+  build   Copy project dirs into a corpus and write manifest.json.
+  run     Run the frontend on each project in a corpus and write a report.
+"""
 
 from __future__ import annotations
 
 import argparse
 import json
+import shutil
 from pathlib import Path
 from typing import Dict, List
 
@@ -64,13 +70,49 @@ def _compare_with_baseline(current: Dict[str, object], baseline: Dict[str, objec
     return messages
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--corpus", default="evaluation/repo_level", help="Corpus root")
-    parser.add_argument("--output", required=True, help="Output JSON report")
-    parser.add_argument("--baseline", help="Optional baseline JSON to compare against")
-    args = parser.parse_args()
+def _discover_python_files(root: Path) -> List[Path]:
+    files: List[Path] = []
+    for path in root.rglob("*.py"):
+        if ".git" in path.parts or "__pycache__" in path.parts:
+            continue
+        files.append(path)
+    return files
 
+
+def _copy_project(src: Path, dst_root: Path) -> Dict[str, object]:
+    if not src.is_dir():
+        raise SystemExit(f"Project path is not a directory: {src}")
+    name = src.name
+    dst = dst_root / "corpus" / name
+    if dst.exists():
+        shutil.rmtree(dst)
+    shutil.copytree(src, dst)
+    py_files = _discover_python_files(src)
+    return {
+        "name": name,
+        "path": f"corpus/{name}",
+        "python_files": len(py_files),
+    }
+
+
+def cmd_build(args: argparse.Namespace) -> int:
+    """Build a corpus: copy project dirs and write manifest.json."""
+    output_root = Path(args.output).resolve()
+    output_root.mkdir(parents=True, exist_ok=True)
+    projects: List[Dict[str, object]] = []
+    for proj_str in args.project:
+        projects.append(_copy_project(Path(proj_str).resolve(), output_root))
+    manifest = {"version": 1, "projects": projects}
+    manifest_path = output_root / "manifest.json"
+    manifest_path.write_text(
+        json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    print(f"Wrote manifest: {manifest_path}")
+    return 0
+
+
+def cmd_run(args: argparse.Namespace) -> int:
+    """Run the frontend on each project in a corpus and write a report."""
     corpus_root = Path(args.corpus).resolve()
     manifest_path = corpus_root / "manifest.json"
     manifest = _load_manifest(manifest_path)
@@ -89,7 +131,9 @@ def main() -> int:
 
     output_path = Path(args.output).resolve()
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    output_path.write_text(
+        json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
     print(f"Wrote report: {output_path}")
 
     if args.baseline:
@@ -101,8 +145,35 @@ def main() -> int:
                 print(f"- {d}")
             return 2
         print("No baseline differences.")
-
     return 0
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    build_p = subparsers.add_parser("build", help="Build a corpus from project dirs")
+    build_p.add_argument("--output", required=True, help="Output corpus directory")
+    build_p.add_argument(
+        "--project",
+        action="append",
+        required=True,
+        help="Project directory to include (repeat for multiple)",
+    )
+    build_p.set_defaults(func=cmd_build)
+
+    run_p = subparsers.add_parser("run", help="Run frontend on corpus and write report")
+    run_p.add_argument(
+        "--corpus",
+        default="evaluation/repo_level",
+        help="Corpus root (default: evaluation/repo_level)",
+    )
+    run_p.add_argument("--output", required=True, help="Output report JSON path")
+    run_p.add_argument("--baseline", help="Optional baseline report to compare against")
+    run_p.set_defaults(func=cmd_run)
+
+    args = parser.parse_args()
+    return args.func(args)
 
 
 if __name__ == "__main__":
