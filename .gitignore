@@ -92,6 +92,9 @@ db.sqlite3-journal
 
 # Flask stuff:
 instance/
+# Exception: callgraph test snippet (same name as Flask instance folder)
+!tests/callgraph/snippets/classes/instance/
+!tests/callgraph/snippets/classes/instance/*
 .webassets-cache
 
 # Scrapy stuff:
