@@ -79,13 +79,24 @@ class _AnalyzerMixin:
         callees: Set[str],
         input_changed_scope_contexts: Set[Tuple[str, ContextKey]],
     ) -> Set[AbstractValue]:
+        """
+        Apply decorator chain and return the final bound value set for `name`.
+
+        Decorators are evaluated left-to-right but applied right-to-left, so we
+        pre-evaluate expressions and then invoke targets in reverse order.
+        """
         if not decorators:
             return set(initial_values)
 
         env[name] = set(initial_values)
         evaluated = [
             self._eval_expr(
-                scope, scope_context, decorator, env, callees, input_changed_scope_contexts
+                scope,
+                scope_context,
+                decorator,
+                env,
+                callees,
+                input_changed_scope_contexts,
             )
             for decorator in decorators
         ]
@@ -111,6 +122,14 @@ class _AnalyzerMixin:
         return set(env.get(name, initial_values))
 
     def _run_fixpoint(self) -> None:
+        """
+        Solve interprocedural constraints to a fixpoint over scope-context pairs.
+
+        Worklist strategy:
+        - Seed module scopes and top-level functions in root context.
+        - Requeue direct callees when argument/closure inputs change.
+        - Requeue dependents when outputs/fields/module bindings change.
+        """
         def _is_seed_scope(scope_name: str) -> bool:
             if scope_name in self.modules:
                 return True
@@ -153,7 +172,9 @@ class _AnalyzerMixin:
                 self.scope_callees[scope_ctx_key] = set(result.callees)
 
             for callee_scope, callee_context in result.input_changed_scope_contexts:
-                normalized = self._normalize_context_for_scope(callee_scope, callee_context)
+                normalized = self._normalize_context_for_scope(
+                    callee_scope, callee_context
+                )
                 key = (callee_scope, normalized)
                 if key not in in_queue:
                     queue.append(key)
@@ -169,12 +190,18 @@ class _AnalyzerMixin:
             )
             if changed:
                 impacted: Set[Tuple[str, ContextKey]] = set()
-                if returns_changed or callees_changed or result.nonlocal_binding_changed:
+                if (
+                    returns_changed
+                    or callees_changed
+                    or result.nonlocal_binding_changed
+                ):
                     impacted.update(self.call_dependents.get(scope_ctx_key, set()))
                 if result.module_binding_changed:
                     impacted.update(self.module_dependents.get(scope.module, set()))
                 for field_key in result.changed_instance_fields:
-                    impacted.update(self.instance_field_dependents.get(field_key, set()))
+                    impacted.update(
+                        self.instance_field_dependents.get(field_key, set())
+                    )
                 for field_key in result.changed_class_fields:
                     impacted.update(self.class_field_dependents.get(field_key, set()))
                 for candidate in impacted:
@@ -194,7 +221,15 @@ class _AnalyzerMixin:
                 stacklevel=2,
             )
 
-    def _analyze_scope(self, scope: ScopeInfo, scope_context: ContextKey) -> ScopeResult:
+    def _analyze_scope(
+        self, scope: ScopeInfo, scope_context: ContextKey
+    ) -> ScopeResult:
+        """
+        Analyze one scope instance under one context and return delta summary.
+
+        The returned `ScopeResult` is consumed by `_run_fixpoint` to decide
+        which other scope-context states must be revisited.
+        """
         env = copy_env(self.module_bindings.get(scope.module, {}))
         scope_ctx_key = (scope.name, scope_context)
         previous_active_scope_context = self._active_scope_context
@@ -229,13 +264,11 @@ class _AnalyzerMixin:
                 block_global_writes,
                 block_nonlocal_writes,
                 _,
-            ) = (
-                self._process_block(
-                    scope=scope,
-                    scope_context=scope_context,
-                    statements=scope.body,
-                    env=env,
-                )
+            ) = self._process_block(
+                scope=scope,
+                scope_context=scope_context,
+                statements=scope.body,
+                env=env,
             )
             returns.update(block_returns)
             callees.update(block_callees)
@@ -250,7 +283,9 @@ class _AnalyzerMixin:
                 }
             if block_global_writes:
                 module_binding_changed = (
-                    self._merge_bindings(self.module_bindings[scope.module], block_global_writes)
+                    self._merge_bindings(
+                        self.module_bindings[scope.module], block_global_writes
+                    )
                     or module_binding_changed
                 )
 
@@ -294,6 +329,16 @@ class _AnalyzerMixin:
         Dict[str, Set[AbstractValue]],
         bool,
     ]:
+        """
+        Flow-sensitively interpret a statement block.
+
+        Returns:
+        - updated env for fall-through path,
+        - collected return values and callee edges,
+        - input-change notifications for downstream scopes,
+        - side-effect summaries (instance/class/global/nonlocal writes),
+        - fall-through flag for control-flow composition by enclosing blocks.
+        """
         returns: Set[AbstractValue] = set()
         callees: Set[str] = set()
         input_changed_scope_contexts: Set[Tuple[str, ContextKey]] = set()
@@ -309,7 +354,12 @@ class _AnalyzerMixin:
 
             if isinstance(stmt, ast.Assign):
                 value = self._eval_expr(
-                    scope, scope_context, stmt.value, env, callees, input_changed_scope_contexts
+                    scope,
+                    scope_context,
+                    stmt.value,
+                    env,
+                    callees,
+                    input_changed_scope_contexts,
                 )
                 for target in stmt.targets:
                     self._assign_target(
@@ -326,7 +376,12 @@ class _AnalyzerMixin:
             elif isinstance(stmt, ast.AnnAssign):
                 if stmt.value is not None:
                     value = self._eval_expr(
-                        scope, scope_context, stmt.value, env, callees, input_changed_scope_contexts
+                        scope,
+                        scope_context,
+                        stmt.value,
+                        env,
+                        callees,
+                        input_changed_scope_contexts,
                     )
                     self._assign_target(
                         scope,
@@ -341,7 +396,12 @@ class _AnalyzerMixin:
 
             elif isinstance(stmt, ast.AugAssign):
                 value = self._eval_expr(
-                    scope, scope_context, stmt.value, env, callees, input_changed_scope_contexts
+                    scope,
+                    scope_context,
+                    stmt.value,
+                    env,
+                    callees,
+                    input_changed_scope_contexts,
                 )
                 self._assign_target(
                     scope,
@@ -357,7 +417,12 @@ class _AnalyzerMixin:
 
             elif isinstance(stmt, ast.Expr):
                 expr_values = self._eval_expr(
-                    scope, scope_context, stmt.value, env, callees, input_changed_scope_contexts
+                    scope,
+                    scope_context,
+                    stmt.value,
+                    env,
+                    callees,
+                    input_changed_scope_contexts,
                 )
                 if isinstance(stmt.value, (ast.Yield, ast.YieldFrom)):
                     returns.update(expr_values)
@@ -378,7 +443,12 @@ class _AnalyzerMixin:
 
             elif isinstance(stmt, ast.If):
                 self._eval_expr(
-                    scope, scope_context, stmt.test, env, callees, input_changed_scope_contexts
+                    scope,
+                    scope_context,
+                    stmt.test,
+                    env,
+                    callees,
+                    input_changed_scope_contexts,
                 )
                 (
                     then_env,
@@ -390,9 +460,7 @@ class _AnalyzerMixin:
                     then_globals,
                     then_nonlocals,
                     then_fallthrough,
-                ) = (
-                    self._process_block(scope, scope_context, stmt.body, copy_env(env))
-                )
+                ) = self._process_block(scope, scope_context, stmt.body, copy_env(env))
                 (
                     else_env,
                     else_ret,
@@ -403,8 +471,8 @@ class _AnalyzerMixin:
                     else_globals,
                     else_nonlocals,
                     else_fallthrough,
-                ) = (
-                    self._process_block(scope, scope_context, stmt.orelse, copy_env(env))
+                ) = self._process_block(
+                    scope, scope_context, stmt.orelse, copy_env(env)
                 )
                 if then_fallthrough and else_fallthrough:
                     env = join_envs(then_env, else_env)
@@ -430,7 +498,12 @@ class _AnalyzerMixin:
 
             elif isinstance(stmt, (ast.For, ast.AsyncFor)):
                 iter_values = self._eval_expr(
-                    scope, scope_context, stmt.iter, env, callees, input_changed_scope_contexts
+                    scope,
+                    scope_context,
+                    stmt.iter,
+                    env,
+                    callees,
+                    input_changed_scope_contexts,
                 )
                 body_env = copy_env(env)
                 iter_members = self._iterable_members(iter_values)
@@ -487,9 +560,7 @@ class _AnalyzerMixin:
                     body_globals,
                     body_nonlocals,
                     body_fallthrough,
-                ) = (
-                    self._process_block(scope, scope_context, stmt.body, body_env)
-                )
+                ) = self._process_block(scope, scope_context, stmt.body, body_env)
                 (
                     orelse_env,
                     else_ret,
@@ -500,8 +571,8 @@ class _AnalyzerMixin:
                     else_globals,
                     else_nonlocals,
                     else_fallthrough,
-                ) = (
-                    self._process_block(scope, scope_context, stmt.orelse, copy_env(env))
+                ) = self._process_block(
+                    scope, scope_context, stmt.orelse, copy_env(env)
                 )
                 merged_env = copy_env(env)
                 if body_fallthrough:
@@ -526,7 +597,12 @@ class _AnalyzerMixin:
 
             elif isinstance(stmt, ast.While):
                 self._eval_expr(
-                    scope, scope_context, stmt.test, env, callees, input_changed_scope_contexts
+                    scope,
+                    scope_context,
+                    stmt.test,
+                    env,
+                    callees,
+                    input_changed_scope_contexts,
                 )
                 (
                     body_env,
@@ -538,9 +614,7 @@ class _AnalyzerMixin:
                     body_globals,
                     body_nonlocals,
                     body_fallthrough,
-                ) = (
-                    self._process_block(scope, scope_context, stmt.body, copy_env(env))
-                )
+                ) = self._process_block(scope, scope_context, stmt.body, copy_env(env))
                 (
                     orelse_env,
                     else_ret,
@@ -551,8 +625,8 @@ class _AnalyzerMixin:
                     else_globals,
                     else_nonlocals,
                     else_fallthrough,
-                ) = (
-                    self._process_block(scope, scope_context, stmt.orelse, copy_env(env))
+                ) = self._process_block(
+                    scope, scope_context, stmt.orelse, copy_env(env)
                 )
                 merged_env = copy_env(env)
                 if body_fallthrough:
@@ -586,9 +660,7 @@ class _AnalyzerMixin:
                     body_globals,
                     body_nonlocals,
                     body_fallthrough,
-                ) = (
-                    self._process_block(scope, scope_context, stmt.body, copy_env(env))
-                )
+                ) = self._process_block(scope, scope_context, stmt.body, copy_env(env))
                 returns.update(body_ret)
                 callees.update(body_calls)
                 input_changed_scope_contexts.update(body_inputs)
@@ -611,8 +683,8 @@ class _AnalyzerMixin:
                         handler_globals,
                         handler_nonlocals,
                         handler_fall,
-                    ) = (
-                        self._process_block(scope, scope_context, handler.body, copy_env(env))
+                    ) = self._process_block(
+                        scope, scope_context, handler.body, copy_env(env)
                     )
                     handler_envs.append(handler_env)
                     if handler_fall:
@@ -639,7 +711,9 @@ class _AnalyzerMixin:
                         else_globals,
                         else_nonlocals,
                         else_fallthrough,
-                    ) = self._process_block(scope, scope_context, stmt.orelse, copy_env(body_env))
+                    ) = self._process_block(
+                        scope, scope_context, stmt.orelse, copy_env(body_env)
+                    )
                     returns.update(else_ret)
                     callees.update(else_calls)
                     input_changed_scope_contexts.update(else_inputs)
@@ -672,7 +746,9 @@ class _AnalyzerMixin:
                         final_globals,
                         final_nonlocals,
                         final_fallthrough,
-                    ) = self._process_block(scope, scope_context, stmt.finalbody, final_entry)
+                    ) = self._process_block(
+                        scope, scope_context, stmt.finalbody, final_entry
+                    )
                     env = final_env
                     returns.update(final_ret)
                     callees.update(final_calls)
@@ -681,20 +757,21 @@ class _AnalyzerMixin:
                     changed_class_fields.update(final_class_changed)
                     self._merge_value_maps(global_writes, final_globals)
                     self._merge_value_maps(nonlocal_writes, final_nonlocals)
-                    falls_through = (
-                        final_fallthrough
-                        and (
-                            (body_fallthrough and (not stmt.orelse or else_fallthrough))
-                            or handler_fallthrough
-                        )
+                    falls_through = final_fallthrough and (
+                        (body_fallthrough and (not stmt.orelse or else_fallthrough))
+                        or handler_fallthrough
                     )
                 else:
                     env = before_final_env if before_final_env else copy_env(env)
                     falls_through = bool(before_final_env)
 
             elif isinstance(stmt, (ast.With, ast.AsyncWith)):
-                enter_name = "__aenter__" if isinstance(stmt, ast.AsyncWith) else "__enter__"
-                exit_name = "__aexit__" if isinstance(stmt, ast.AsyncWith) else "__exit__"
+                enter_name = (
+                    "__aenter__" if isinstance(stmt, ast.AsyncWith) else "__enter__"
+                )
+                exit_name = (
+                    "__aexit__" if isinstance(stmt, ast.AsyncWith) else "__exit__"
+                )
                 exit_calls: list[Tuple[Set[AbstractValue], ast.expr]] = []
                 for item in stmt.items:
                     manager_values = self._eval_expr(
@@ -731,7 +808,10 @@ class _AnalyzerMixin:
                             changed_class_fields=changed_class_fields,
                         )
                     exit_calls.append(
-                        (self._resolve_attribute(manager_values, exit_name), item.context_expr)
+                        (
+                            self._resolve_attribute(manager_values, exit_name),
+                            item.context_expr,
+                        )
                     )
 
                 (
@@ -770,7 +850,12 @@ class _AnalyzerMixin:
 
             elif isinstance(stmt, ast.Match):
                 self._eval_expr(
-                    scope, scope_context, stmt.subject, env, callees, input_changed_scope_contexts
+                    scope,
+                    scope_context,
+                    stmt.subject,
+                    env,
+                    callees,
+                    input_changed_scope_contexts,
                 )
                 merged_env = copy_env(env)
                 for case in stmt.cases:
@@ -817,9 +902,16 @@ class _AnalyzerMixin:
             elif isinstance(stmt, ast.Raise):
                 if stmt.exc is not None:
                     raised_values = self._eval_expr(
-                        scope, scope_context, stmt.exc, env, callees, input_changed_scope_contexts
+                        scope,
+                        scope_context,
+                        stmt.exc,
+                        env,
+                        callees,
+                        input_changed_scope_contexts,
                     )
-                    class_values = {value for value in raised_values if value.kind == "class"}
+                    class_values = {
+                        value for value in raised_values if value.kind == "class"
+                    }
                     if class_values:
                         raise_call = ast.copy_location(
                             ast.Call(func=stmt.exc, args=[], keywords=[]),
@@ -838,7 +930,12 @@ class _AnalyzerMixin:
 
             elif isinstance(stmt, ast.Assert):
                 self._eval_expr(
-                    scope, scope_context, stmt.test, env, callees, input_changed_scope_contexts
+                    scope,
+                    scope_context,
+                    stmt.test,
+                    env,
+                    callees,
+                    input_changed_scope_contexts,
                 )
 
             elif isinstance(stmt, ast.Delete):
@@ -859,9 +956,10 @@ class _AnalyzerMixin:
                         callee_context = self._normalize_context_for_scope(
                             qualname,
                             (
-                                (*scope_context, f"def@{scope.name}:{getattr(stmt, 'lineno', -1)}")[
-                                    -self.options.context_depth :
-                                ]
+                                (
+                                    *scope_context,
+                                    f"def@{scope.name}:{getattr(stmt, 'lineno', -1)}",
+                                )[-self.options.context_depth :]
                                 if self.options.context_sensitive
                                 and self.options.context_depth > 0
                                 else GLOBAL_CONTEXT
@@ -872,7 +970,9 @@ class _AnalyzerMixin:
                             for name in self.functions[qualname].closure_vars
                             if env.get(name)
                         }
-                        if captured and self._bind_closure_values(qualname, callee_context, captured):
+                        if captured and self._bind_closure_values(
+                            qualname, callee_context, captured
+                        ):
                             input_changed_scope_contexts.add((qualname, callee_context))
                     env[stmt.name] = self._apply_decorators(
                         scope=scope,

@@ -14,6 +14,12 @@ class _LoaderMixin:
     """Handles loading Python source modules and resolving import paths."""
 
     def _load_modules(self) -> None:
+        """
+        BFS-load import-reachable modules rooted at the entry module.
+
+        Parsing/IO failures are treated conservatively by skipping the module
+        (analysis continues with whatever symbols were available).
+        """
         main_tree = ast.parse(self.source_code)
         self.modules["main"] = ModuleInfo("main", main_tree, self.entry_path)
 
@@ -53,6 +59,7 @@ class _LoaderMixin:
                 queue.append(imported)
 
     def _iter_imported_modules(self, module_info: ModuleInfo) -> Iterable[str]:
+        """Yield imported module names referenced anywhere in the module AST."""
         for node in ast.walk(module_info.tree):
             if isinstance(node, ast.Import):
                 for alias in node.names:
@@ -67,6 +74,12 @@ class _LoaderMixin:
     def _resolve_import_module_name(
         self, current_module: str, imported_module: Optional[str], level: int
     ) -> Optional[str]:
+        """
+        Resolve relative import targets to absolute module names when possible.
+
+        The logic mirrors Python package semantics approximately and intentionally
+        falls back conservatively when package/module boundaries are ambiguous.
+        """
         if level <= 0:
             return imported_module
 
@@ -81,7 +94,11 @@ class _LoaderMixin:
                 and module_info.path
                 and os.path.basename(module_info.path) == "__init__.py"
             )
-            if not is_package_module and "." not in current_module and current_module != "main":
+            if (
+                not is_package_module
+                and "." not in current_module
+                and current_module != "main"
+            ):
                 # Without a loaded module path we cannot always distinguish
                 # package modules from top-level .py modules.
                 # Prefer package anchoring for non-entry single-segment names.
@@ -99,6 +116,7 @@ class _LoaderMixin:
         return prefix or imported_module
 
     def _resolve_module_file(self, module_name: str) -> Optional[str]:
+        """Map module name to a `.py` or package `__init__.py` under project root."""
         if not module_name:
             return None
 

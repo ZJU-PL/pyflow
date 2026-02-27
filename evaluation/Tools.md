@@ -1,8 +1,11 @@
-# Tools for Python Code Analysis
+- Tools
+- Benchmarks
+
+## Tools for Python Code Analysis
 
 
 
-## Static Analysis Frameworks
+### Static Analysis Frameworks
 
 - https://github.com/lkgv/PythonStAn
   + Dataflow Analysis: Liveness analysis, reaching definition analysis, and def-use chains
@@ -20,7 +23,7 @@
 - pyre-check: https://github.com/facebook/pyre-check Developed by Meta (Facebook), designed for performance in large codebases. It includes a security-focused sub-tool called Pysa (?)
 - Pyright: Created by Microsoft (powers VS Code’s Pylance). 
 
-## Bug Finders
+### Bug Finders
 
 - Bandit: The go-to for finding common security flaws (e.g., use of eval(), weak crypto, or insecure permissions).
 - Semgrep: A powerful, polyglot engine that uses pattern matching
@@ -28,8 +31,29 @@
 - SonarQube/SonarCloud: Provides static code analysis for bugs, vulnerabilities, and code smells in Python (via SonarPython plugin).
 
 
-## Linters
+### Linters
 
 - Ruff: https://github.com/astral-sh/ruff. The current industry standard. Written in Rust, it is 10–100x faster than traditional tools. It replaces Flake8, isort, pydocstyle, and many Pylint rules in a single binary.
 - Pylint: https://github.com/pylint-dev/pylint. Extremely thorough and highly configurable.
 - Flake8: A classic "wrapper" that combines Pyflakes (error checking), pycodestyle (PEP 8 style), and McCabe (complexity).
+
+## Benchmarks for Python Code Analysis
+
+
+
+### Security Bug Finding
+
+- BugsInPy: https://github.com/soarsmu/BugsInPy  https://arxiv.org/pdf/2401.15481
+- OWASP Python: https://github.com/OWASP-Benchmark/BenchmarkPython
+- https://github.com/dessertlab/PyResBugs PyResBugs: A Dataset of Residual Python Bugs for Natural Language-Driven Fault Injection
+- An Empirical Study on Static Application Security Testing (SAST) Tools for Python. Liu Zhuohang, Zhi Wang, Haotong Liu, Wanpeng Li. ICSE 26.
+
+
+### Type Checking and Inference
+
+- TypyBench (https://arxiv.org/pdf/2507.22086)  https://github.com/typybench/typybench
+- TypeBugs 
+
+### Callgraph Construction
+
+- pycg

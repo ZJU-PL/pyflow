@@ -13,6 +13,7 @@ from .model import AnalysisOptions
 
 
 def _discover_entry_path_from_stack() -> Optional[str]:
+    """Best-effort helper to infer entry file path for import resolution."""
     for frame_info in inspect.stack():
         maybe_path = frame_info.frame.f_locals.get("main_path")
         if isinstance(maybe_path, str) and os.path.isfile(maybe_path):
@@ -113,7 +114,12 @@ def extract_value_flow_graph_constraint(
     allocation_site_sensitive_instances: bool = False,
     allow_fixture_graph_loading: bool = True,
 ) -> Dict[str, list[str]]:
-    """Extract a debug value-flow assignment graph from the constraint analyser."""
+    """
+    Extract a debug value-flow graph from the constraint analyser.
+
+    The output is intended for diagnostics and inspection, not as a stable
+    public schema.
+    """
     entry_path = source_path or _discover_entry_path_from_stack()
     options = AnalysisOptions(
         context_sensitive=context_sensitive,

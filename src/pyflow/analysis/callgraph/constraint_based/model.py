@@ -1,4 +1,8 @@
-"""Core model/types for constraint-based call graph analysis."""
+"""Core model/types for constraint-based call graph analysis.
+
+The analysis tracks sets of `AbstractValue` objects in environments and heap-
+like maps. The solver computes a fixpoint over these sets.
+"""
 
 from __future__ import annotations
 
@@ -23,6 +27,8 @@ GLOBAL_CONTEXT: ContextKey = ("<global>",)
 
 @dataclass(frozen=True)
 class AbstractValue:
+    """Single abstract atom flowing through constraints."""
+
     kind: str
     name: str
 
@@ -32,6 +38,8 @@ UNKNOWN_VALUE = AbstractValue(UNKNOWN_KIND, "<unknown>")
 
 @dataclass(frozen=True)
 class AnalysisOptions:
+    """Behavioral knobs for precision/runtime tradeoffs and diagnostics."""
+
     context_sensitive: bool = False
     context_depth: int = 1
     fixpoint_max_iterations: Optional[int] = None
@@ -42,6 +50,8 @@ class AnalysisOptions:
 
 @dataclass
 class ModuleInfo:
+    """Loaded module AST and optional originating filesystem path."""
+
     name: str
     tree: ast.Module
     path: Optional[str]
@@ -49,6 +59,8 @@ class ModuleInfo:
 
 @dataclass
 class ClassInfo:
+    """Collected class metadata used for attribute/method resolution."""
+
     qualname: str
     module: str
     node: ast.ClassDef
@@ -61,6 +73,8 @@ class ClassInfo:
 
 @dataclass
 class FunctionInfo:
+    """Collected function/lambda metadata from symbol collection."""
+
     qualname: str
     module: str
     node: ast.AST
@@ -82,6 +96,8 @@ class FunctionInfo:
 
 @dataclass
 class ScopeInfo:
+    """Executable scope view consumed by the analyzer/evaluator."""
+
     name: str
     module: str
     body: List[ast.stmt]
@@ -101,6 +117,8 @@ class ScopeInfo:
 
 @dataclass
 class ScopeResult:
+    """Per-scope fixpoint delta returned by `_analyze_scope`."""
+
     callees: Set[str]
     returns: Set[AbstractValue]
     input_changed_scope_contexts: Set[Tuple[str, ContextKey]]
@@ -126,12 +144,16 @@ INSTANCE_ALLOC_SEPARATOR = "#"
 
 
 def make_instance(name: str, allocation_site: Optional[str] = None) -> AbstractValue:
+    """Create an instance abstract value (optionally allocation-site-sensitive)."""
     if allocation_site:
-        return make_value(INSTANCE_KIND, f"{name}{INSTANCE_ALLOC_SEPARATOR}{allocation_site}")
+        return make_value(
+            INSTANCE_KIND, f"{name}{INSTANCE_ALLOC_SEPARATOR}{allocation_site}"
+        )
     return make_value(INSTANCE_KIND, name)
 
 
 def parse_instance_name(name: str) -> Tuple[str, Optional[str]]:
+    """Split encoded instance name into `(class_name, allocation_site)`."""
     class_name, separator, allocation_site = name.partition(INSTANCE_ALLOC_SEPARATOR)
     if not separator:
         return name, None
@@ -139,6 +161,7 @@ def parse_instance_name(name: str) -> Tuple[str, Optional[str]]:
 
 
 def instance_class_name(value: AbstractValue) -> str:
+    """Return the class component for an instance abstract value."""
     class_name, _allocation_site = parse_instance_name(value.name)
     return class_name
 
@@ -174,12 +197,14 @@ def parse_bound_class_method(value: AbstractValue) -> Tuple[str, str]:
 
 
 def copy_env(env: Mapping[str, Set[AbstractValue]]) -> Dict[str, Set[AbstractValue]]:
+    """Shallow-copy environment where each symbol set is cloned."""
     return {name: set(values) for name, values in env.items()}
 
 
 def join_envs(
     left: Mapping[str, Set[AbstractValue]], right: Mapping[str, Set[AbstractValue]]
 ) -> Dict[str, Set[AbstractValue]]:
+    """Pointwise union join of two environments."""
     out: DefaultDict[str, Set[AbstractValue]] = defaultdict(set)
     for name, values in left.items():
         out[name].update(values)

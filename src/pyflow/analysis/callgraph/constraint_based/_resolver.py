@@ -38,6 +38,12 @@ class _ResolverMixin:
     """Resolves call targets, binds arguments, and walks MRO for attribute lookup."""
 
     def _class_lookup_order(self, class_name: str) -> list[str]:
+        """
+        Return class lookup order.
+
+        Uses C3 MRO when available; falls back to conservative BFS order for
+        classes with invalid/inconsistent MRO.
+        """
         if class_name in self._invalid_mro_classes:
             queue = [class_name]
             seen: Set[str] = set()
@@ -60,6 +66,7 @@ class _ResolverMixin:
         callee_context: ContextKey,
         env: Dict[str, Set[AbstractValue]],
     ) -> bool:
+        """Apply recorded global/nonlocal side effects of a callee into caller env."""
         changed = False
         scope_key = (callee_scope_name, callee_context)
         for name, values in self.scope_global_writes.get(scope_key, {}).items():
@@ -84,6 +91,15 @@ class _ResolverMixin:
         callees: Set[str],
         input_changed_scope_contexts: Set[Tuple[str, ContextKey]],
     ) -> Set[AbstractValue]:
+        """
+        Invoke abstract call targets and accumulate edges/return abstractions.
+
+        This is the interprocedural transfer function. It is responsible for:
+        - argument extraction (`args`, `*args`, `**kwargs`),
+        - call edge emission,
+        - callee input binding and dependency tracking,
+        - conservative dynamic summary node generation when unresolved.
+        """
         caller_scope_key = (
             caller_scope.name,
             self._normalize_context_for_scope(caller_scope.name, caller_context),
@@ -105,7 +121,12 @@ class _ResolverMixin:
                 continue
             arg_values.append(
                 self._eval_expr(
-                    caller_scope, caller_context, arg, env, callees, input_changed_scope_contexts
+                    caller_scope,
+                    caller_context,
+                    arg,
+                    env,
+                    callees,
+                    input_changed_scope_contexts,
                 )
             )
 
@@ -162,10 +183,9 @@ class _ResolverMixin:
                     or unresolved_name == caller_scope.method_self_param
                     or unresolved_name == caller_scope.method_cls_param
                 )
-                caller_is_root_context = (
-                    self._normalize_context_for_scope(caller_scope.name, caller_context)
-                    == ("<global>",)
-                )
+                caller_is_root_context = self._normalize_context_for_scope(
+                    caller_scope.name, caller_context
+                ) == ("<global>",)
                 if (
                     caller_is_root_context
                     and is_parameter_name
@@ -181,10 +201,9 @@ class _ResolverMixin:
                 call_node.func.value, ast.Name
             ):
                 unresolved_name = call_node.func.value.id
-                caller_is_root_context = (
-                    self._normalize_context_for_scope(caller_scope.name, caller_context)
-                    == ("<global>",)
-                )
+                caller_is_root_context = self._normalize_context_for_scope(
+                    caller_scope.name, caller_context
+                ) == ("<global>",)
                 if (
                     caller_is_root_context
                     and unresolved_name in caller_scope.params
@@ -196,10 +215,9 @@ class _ResolverMixin:
                 call_node.func.value, ast.Name
             ):
                 unresolved_name = call_node.func.value.id
-                caller_is_root_context = (
-                    self._normalize_context_for_scope(caller_scope.name, caller_context)
-                    == ("<global>",)
-                )
+                caller_is_root_context = self._normalize_context_for_scope(
+                    caller_scope.name, caller_context
+                ) == ("<global>",)
                 if (
                     caller_is_root_context
                     and unresolved_name in caller_scope.params
@@ -217,16 +235,24 @@ class _ResolverMixin:
                     raw_context = self._derive_callee_context(
                         caller_scope.name, caller_context, call_node
                     )
-                    callee_context = self._normalize_context_for_scope(callee_name, raw_context)
+                    callee_context = self._normalize_context_for_scope(
+                        callee_name, raw_context
+                    )
                     callee_function_info = self.functions.get(callee_name)
                     if callee_function_info and callee_function_info.closure_vars:
-                        active_inputs = self.scope_inputs.get((callee_name, callee_context), {})
+                        active_inputs = self.scope_inputs.get(
+                            (callee_name, callee_context), {}
+                        )
                         has_bound_closure = any(
-                            active_inputs.get(name) for name in callee_function_info.closure_vars
+                            active_inputs.get(name)
+                            for name in callee_function_info.closure_vars
                         )
                         if not has_bound_closure:
                             candidate_contexts = []
-                            for (scope_key, context_key), context_inputs in self.scope_inputs.items():
+                            for (
+                                scope_key,
+                                context_key,
+                            ), context_inputs in self.scope_inputs.items():
                                 if scope_key != callee_name:
                                     continue
                                 if any(
@@ -246,9 +272,14 @@ class _ResolverMixin:
                     )
                     if changed:
                         input_changed_scope_contexts.add((callee_name, callee_context))
-                    if (callee_name, callee_context) not in self._analyzed_scope_contexts:
+                    if (
+                        callee_name,
+                        callee_context,
+                    ) not in self._analyzed_scope_contexts:
                         input_changed_scope_contexts.add((callee_name, callee_context))
-                    self.call_dependents[(callee_name, callee_context)].add(caller_scope_key)
+                    self.call_dependents[(callee_name, callee_context)].add(
+                        caller_scope_key
+                    )
                     out.update(self.scope_returns[(callee_name, callee_context)])
                     self._apply_callee_side_effects(callee_name, callee_context, env)
                 elif callee_name == "<builtin>.map":
@@ -292,7 +323,8 @@ class _ResolverMixin:
                         receiver_dicts = {
                             value.name
                             for value in receiver_values
-                            if value.kind == CONTAINER_KIND and value.name.startswith("dict:")
+                            if value.kind == CONTAINER_KIND
+                            and value.name.startswith("dict:")
                         }
                         source_dicts: Set[str] = set()
                         for values in arg_values:
@@ -307,13 +339,19 @@ class _ResolverMixin:
                                 self.container_elements[receiver_dict].update(
                                     self.container_elements.get(source_dict, set())
                                 )
-                                source_key_map = self.container_key_values.get(source_dict, {})
+                                source_key_map = self.container_key_values.get(
+                                    source_dict, {}
+                                )
                                 for key_name, key_values in source_key_map.items():
-                                    self.container_key_values[receiver_dict][key_name] = set(
-                                        key_values
-                                    )
+                                    self.container_key_values[receiver_dict][
+                                        key_name
+                                    ] = set(key_values)
                     out.add(UNKNOWN_VALUE)
-                elif callee_name in {"<**PyDict**>.items", "<**PyStr**>.join", "<**PyStr**>.split"}:
+                elif callee_name in {
+                    "<**PyDict**>.items",
+                    "<**PyStr**>.join",
+                    "<**PyStr**>.split",
+                }:
                     out.add(UNKNOWN_VALUE)
                 else:
                     last_segment = callee_name.rsplit(".", 1)[-1]
@@ -353,7 +391,9 @@ class _ResolverMixin:
                     raw_context = self._derive_callee_context(
                         caller_scope.name, caller_context, call_node
                     )
-                    callee_context = self._normalize_context_for_scope(init_name, raw_context)
+                    callee_context = self._normalize_context_for_scope(
+                        init_name, raw_context
+                    )
                     if init_name in self.scopes:
                         changed = self._bind_call_arguments(
                             init_name,
@@ -364,10 +404,19 @@ class _ResolverMixin:
                             dynamic_kwarg_values=dynamic_kwarg_values,
                         )
                         if changed:
-                            input_changed_scope_contexts.add((init_name, callee_context))
-                        if (init_name, callee_context) not in self._analyzed_scope_contexts:
-                            input_changed_scope_contexts.add((init_name, callee_context))
-                        self.call_dependents[(init_name, callee_context)].add(caller_scope_key)
+                            input_changed_scope_contexts.add(
+                                (init_name, callee_context)
+                            )
+                        if (
+                            init_name,
+                            callee_context,
+                        ) not in self._analyzed_scope_contexts:
+                            input_changed_scope_contexts.add(
+                                (init_name, callee_context)
+                            )
+                        self.call_dependents[(init_name, callee_context)].add(
+                            caller_scope_key
+                        )
                         self._apply_callee_side_effects(init_name, callee_context, env)
 
             elif target.kind == BOUND_METHOD_KIND:
@@ -375,11 +424,15 @@ class _ResolverMixin:
                 method_name, receiver_instance = parse_bound_method(target)
                 callees.add(method_name)
                 receiver_class, receiver_alloc = parse_instance_name(receiver_instance)
-                implicit_values = [{make_instance(receiver_class, receiver_alloc)}] + arg_values
+                implicit_values = [
+                    {make_instance(receiver_class, receiver_alloc)}
+                ] + arg_values
                 callee_context = self._derive_callee_context(
                     caller_scope.name, caller_context, call_node
                 )
-                callee_context = self._normalize_context_for_scope(method_name, callee_context)
+                callee_context = self._normalize_context_for_scope(
+                    method_name, callee_context
+                )
                 changed = self._bind_call_arguments(
                     method_name,
                     callee_context,
@@ -392,7 +445,9 @@ class _ResolverMixin:
                     input_changed_scope_contexts.add((method_name, callee_context))
                 if (method_name, callee_context) not in self._analyzed_scope_contexts:
                     input_changed_scope_contexts.add((method_name, callee_context))
-                self.call_dependents[(method_name, callee_context)].add(caller_scope_key)
+                self.call_dependents[(method_name, callee_context)].add(
+                    caller_scope_key
+                )
                 out.update(self.scope_returns[(method_name, callee_context)])
                 self._apply_callee_side_effects(method_name, callee_context, env)
 
@@ -404,7 +459,9 @@ class _ResolverMixin:
                 callee_context = self._derive_callee_context(
                     caller_scope.name, caller_context, call_node
                 )
-                callee_context = self._normalize_context_for_scope(method_name, callee_context)
+                callee_context = self._normalize_context_for_scope(
+                    method_name, callee_context
+                )
                 changed = self._bind_call_arguments(
                     method_name,
                     callee_context,
@@ -417,7 +474,9 @@ class _ResolverMixin:
                     input_changed_scope_contexts.add((method_name, callee_context))
                 if (method_name, callee_context) not in self._analyzed_scope_contexts:
                     input_changed_scope_contexts.add((method_name, callee_context))
-                self.call_dependents[(method_name, callee_context)].add(caller_scope_key)
+                self.call_dependents[(method_name, callee_context)].add(
+                    caller_scope_key
+                )
                 out.update(self.scope_returns[(method_name, callee_context)])
                 self._apply_callee_side_effects(method_name, callee_context, env)
 
@@ -438,7 +497,9 @@ class _ResolverMixin:
                     callee_context = self._derive_callee_context(
                         caller_scope.name, caller_context, call_node
                     )
-                    callee_context = self._normalize_context_for_scope(call_name, callee_context)
+                    callee_context = self._normalize_context_for_scope(
+                        call_name, callee_context
+                    )
                     changed = self._bind_call_arguments(
                         call_name,
                         callee_context,
@@ -451,7 +512,9 @@ class _ResolverMixin:
                         input_changed_scope_contexts.add((call_name, callee_context))
                     if (call_name, callee_context) not in self._analyzed_scope_contexts:
                         input_changed_scope_contexts.add((call_name, callee_context))
-                    self.call_dependents[(call_name, callee_context)].add(caller_scope_key)
+                    self.call_dependents[(call_name, callee_context)].add(
+                        caller_scope_key
+                    )
                     out.update(self.scope_returns[(call_name, callee_context)])
                     self._apply_callee_side_effects(call_name, callee_context, env)
                     resolved_callable = True
@@ -470,7 +533,11 @@ class _ResolverMixin:
         if unresolved_dynamic and not resolved_callable and not deferred_parameter_call:
             reasons = unresolved_reasons or {"unresolved"}
             for reason in sorted(reasons):
-                callees.add(self._dynamic_summary_node_with_reason(caller_scope, call_node, reason))
+                callees.add(
+                    self._dynamic_summary_node_with_reason(
+                        caller_scope, call_node, reason
+                    )
+                )
             out.add(UNKNOWN_VALUE)
 
         return out
@@ -484,6 +551,7 @@ class _ResolverMixin:
         star_arg_values: Optional[List[Set[AbstractValue]]] = None,
         dynamic_kwarg_values: Optional[Set[AbstractValue]] = None,
     ) -> bool:
+        """Merge actual argument abstractions into callee parameter input sets."""
         scope = self.scopes[callee_scope_name]
         changed = False
         scope_key = (
@@ -557,6 +625,7 @@ class _ResolverMixin:
         callee_context: ContextKey,
         captured: Mapping[str, Set[AbstractValue]],
     ) -> bool:
+        """Merge captured outer-scope values into closure-variable inputs."""
         scope = self.scopes[callee_scope_name]
         scope_key = (
             callee_scope_name,
@@ -591,6 +660,11 @@ class _ResolverMixin:
         changed_instance_fields: Optional[Set[Tuple[str, str]]] = None,
         changed_class_fields: Optional[Set[Tuple[str, str]]] = None,
     ) -> bool:
+        """
+        Assign abstract values into a target (name, destructuring, attr, subscript).
+
+        Returns `True` when heap-like field/container state changed.
+        """
         if not values:
             values = {UNKNOWN_VALUE}
 
@@ -619,7 +693,9 @@ class _ResolverMixin:
 
         if isinstance(target, (ast.Tuple, ast.List)):
             starred_indices = [
-                index for index, elt in enumerate(target.elts) if isinstance(elt, ast.Starred)
+                index
+                for index, elt in enumerate(target.elts)
+                if isinstance(elt, ast.Starred)
             ]
             indexed_values: Dict[int, Set[AbstractValue]] = {}
             for value in values:
@@ -657,7 +733,9 @@ class _ResolverMixin:
                             src_values = indexed_values.get(src_index, set())
                             if not src_values:
                                 continue
-                            self.container_elements[star_container.name].update(src_values)
+                            self.container_elements[star_container.name].update(
+                                src_values
+                            )
                             self.container_key_values[star_container.name][
                                 f"#{src_index - start}"
                             ].update(src_values)
@@ -686,7 +764,9 @@ class _ResolverMixin:
                         src_index = elt_index
                     else:
                         src_index = sequence_len - (len(target.elts) - elt_index)
-                    assign_values = indexed_values.get(src_index, set()) or {UNKNOWN_VALUE}
+                    assign_values = indexed_values.get(src_index, set()) or {
+                        UNKNOWN_VALUE
+                    }
                     changed = (
                         self._assign_target(
                             scope,
@@ -734,13 +814,17 @@ class _ResolverMixin:
                     if receiver_instances:
                         changed = False
                         for receiver_instance in receiver_instances:
-                            current = self.instance_fields[receiver_instance][target.attr]
+                            current = self.instance_fields[receiver_instance][
+                                target.attr
+                            ]
                             before = len(current)
                             current.update(values)
                             did_change = len(current) != before
                             changed = changed or did_change
                             if did_change and changed_instance_fields is not None:
-                                changed_instance_fields.add((receiver_instance, target.attr))
+                                changed_instance_fields.add(
+                                    (receiver_instance, target.attr)
+                                )
                         return changed
                     owner = self._owner_class_for_scope(scope.name)
                     if owner:
@@ -779,7 +863,9 @@ class _ResolverMixin:
                         return changed
                 base_values = env.get(base_name, set())
                 class_values = {v.name for v in base_values if v.kind == CLASS_KIND}
-                instance_values = {v.name for v in base_values if v.kind == INSTANCE_KIND}
+                instance_values = {
+                    v.name for v in base_values if v.kind == INSTANCE_KIND
+                }
                 changed = False
                 for class_name in class_values:
                     current = self.class_fields[class_name][target.attr]
@@ -796,7 +882,9 @@ class _ResolverMixin:
                     did_change = len(current) != before
                     changed = changed or did_change
                     if did_change and changed_instance_fields is not None:
-                        changed_instance_fields.add((instance_or_class_name, target.attr))
+                        changed_instance_fields.add(
+                            (instance_or_class_name, target.attr)
+                        )
                 return changed
             return False
 
@@ -804,22 +892,25 @@ class _ResolverMixin:
             base_values: Set[AbstractValue] = set()
             if isinstance(target.value, ast.Name):
                 base_values = set(env.get(target.value.id, set()))
-            elif (
-                isinstance(target.value, ast.Subscript)
-                and isinstance(target.value.value, ast.Name)
+            elif isinstance(target.value, ast.Subscript) and isinstance(
+                target.value.value, ast.Name
             ):
                 parent_values = set(env.get(target.value.value.id, set()))
                 parent_keys = self._subscript_keys(target.value)
                 for parent_value in parent_values:
                     if parent_value.kind != CONTAINER_KIND:
                         continue
-                    parent_key_map = self.container_key_values.get(parent_value.name, {})
+                    parent_key_map = self.container_key_values.get(
+                        parent_value.name, {}
+                    )
                     nested_values: Set[AbstractValue] = set()
                     if parent_keys:
                         for key_name in parent_keys:
                             nested_values.update(parent_key_map.get(key_name, set()))
                     else:
-                        nested_values.update(self.container_elements.get(parent_value.name, set()))
+                        nested_values.update(
+                            self.container_elements.get(parent_value.name, set())
+                        )
                     base_values.update(
                         value for value in nested_values if value.kind == CONTAINER_KIND
                     )
@@ -840,7 +931,9 @@ class _ResolverMixin:
                         changed = changed or len(keyed_current) != keyed_before
                     else:
                         if keyed_current != values:
-                            self.container_key_values[base_value.name][key_name] = set(values)
+                            self.container_key_values[base_value.name][key_name] = set(
+                                values
+                            )
                             changed = True
             return changed
 
@@ -852,6 +945,7 @@ class _ResolverMixin:
         name: str,
         env: Mapping[str, Set[AbstractValue]],
     ) -> Set[AbstractValue]:
+        """Resolve symbol from environment or builtin callable namespace."""
         self._register_module_dependency(module_name)
         if name in env:
             return set(env[name])
@@ -865,6 +959,7 @@ class _ResolverMixin:
         owner_class: Optional[str],
         instance_class: Optional[str],
     ) -> Set[AbstractValue]:
+        """Apply descriptor `__get__`-style binding to attribute values."""
         out: Set[AbstractValue] = set()
         for value in values:
             if value.kind == FUNC_KIND:
@@ -898,6 +993,12 @@ class _ResolverMixin:
     def _resolve_attribute(
         self, base_values: Iterable[AbstractValue], attr_name: str
     ) -> Set[AbstractValue]:
+        """
+        Resolve attribute access over modules/classes/instances/containers.
+
+        Also records dependency edges so future field/module updates can requeue
+        impacted scopes.
+        """
         out: Set[AbstractValue] = set()
 
         for base_value in base_values:
@@ -933,7 +1034,9 @@ class _ResolverMixin:
 
                 for klass in class_order:
                     self._register_class_field_dependency(klass, attr_name)
-                    class_attr_values = self.class_fields.get(klass, {}).get(attr_name, set())
+                    class_attr_values = self.class_fields.get(klass, {}).get(
+                        attr_name, set()
+                    )
                     out.update(
                         self._descriptor_bind_values(
                             class_attr_values,
@@ -957,7 +1060,9 @@ class _ResolverMixin:
                         if attr_name in class_info.static_methods:
                             out.add(make_func(method_name))
                         elif attr_name in class_info.class_methods:
-                            out.add(make_bound_class_method(method_name, base_class_name))
+                            out.add(
+                                make_bound_class_method(method_name, base_class_name)
+                            )
                         else:
                             out.add(make_bound_method(method_name, base_instance_name))
                         if stop_after_first:
@@ -965,12 +1070,20 @@ class _ResolverMixin:
                     if class_info is None and "." in klass:
                         out.add(make_func(f"{klass}.{attr_name}"))
                 self._register_instance_field_dependency(base_instance_name, attr_name)
-                out.update(self.instance_fields.get(base_instance_name, {}).get(attr_name, set()))
+                out.update(
+                    self.instance_fields.get(base_instance_name, {}).get(
+                        attr_name, set()
+                    )
+                )
                 for klass in class_order:
                     self._register_instance_field_dependency(klass, attr_name)
-                    out.update(self.instance_fields.get(klass, {}).get(attr_name, set()))
+                    out.update(
+                        self.instance_fields.get(klass, {}).get(attr_name, set())
+                    )
                     self._register_class_field_dependency(klass, attr_name)
-                    class_attr_values = self.class_fields.get(klass, {}).get(attr_name, set())
+                    class_attr_values = self.class_fields.get(klass, {}).get(
+                        attr_name, set()
+                    )
                     out.update(
                         self._descriptor_bind_values(
                             class_attr_values,
@@ -978,9 +1091,17 @@ class _ResolverMixin:
                             instance_class=base_value.name,
                         )
                     )
-                if not out and base_class_name.startswith("dict:") and attr_name == "items":
+                if (
+                    not out
+                    and base_class_name.startswith("dict:")
+                    and attr_name == "items"
+                ):
                     out.add(make_func("<**PyDict**>.items"))
-                if not out and base_class_name.startswith("dict:") and attr_name == "update":
+                if (
+                    not out
+                    and base_class_name.startswith("dict:")
+                    and attr_name == "update"
+                ):
                     out.add(make_func("<**PyDict**>.update"))
 
             elif base_value.kind == CONTAINER_KIND:
@@ -999,6 +1120,7 @@ class _ResolverMixin:
         return function_info.owner_class
 
     def _mro(self, class_name: str) -> list[str]:
+        """Compute and cache class MRO (C3) with conservative fallback on failure."""
         if class_name in self._mro_cache:
             return list(self._mro_cache[class_name])
 
@@ -1040,6 +1162,7 @@ class _ResolverMixin:
         return linearized
 
     def _c3_merge(self, sequences: list[list[str]]) -> Optional[list[str]]:
+        """C3 merge step used by `_mro`; returns None when constraints conflict."""
         result: list[str] = []
         pending = [list(seq) for seq in sequences if seq]
 
@@ -1143,7 +1266,9 @@ class _ResolverMixin:
                 env.setdefault(local_name, set()).update(source_exports[alias.name])
             else:
                 candidate_module = f"{source_module}.{alias.name}"
-                if candidate_module in self.modules or self._resolve_module_file(candidate_module):
+                if candidate_module in self.modules or self._resolve_module_file(
+                    candidate_module
+                ):
                     env.setdefault(local_name, set()).add(make_module(candidate_module))
                     self._register_imported_module_chain(candidate_module)
                     self.module_bindings.setdefault(source_module, {}).setdefault(

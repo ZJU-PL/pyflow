@@ -48,7 +48,15 @@ class ConstraintCallGraphBuilder(
     """
     Interprocedural call-graph builder using abstract value propagation.
 
-    The analysis is context-insensitive but flow-sensitive within each scope.
+    Pipeline:
+    1. Load entry/imported modules.
+    2. Collect symbols (functions/classes/lambdas) and initialize scopes.
+    3. Run a dependency-aware fixpoint over `(scope, context)` states.
+    4. Materialize context-projected call edges.
+
+    Sensitivity:
+    - Flow-sensitive within a scope body.
+    - Context-insensitive or call-site context-sensitive, depending on options.
     """
 
     def __init__(
@@ -71,6 +79,7 @@ class ConstraintCallGraphBuilder(
         self.functions: Dict[str, FunctionInfo] = {}
         self.classes: Dict[str, ClassInfo] = {}
 
+        # Global/shared abstract state that all scope analyses read/write.
         self.module_bindings: Dict[str, Dict[str, Set[AbstractValue]]] = {}
         self.instance_fields: Dict[str, Dict[str, Set[AbstractValue]]] = defaultdict(
             lambda: defaultdict(set)
@@ -79,12 +88,16 @@ class ConstraintCallGraphBuilder(
             lambda: defaultdict(set)
         )
         self.container_elements: Dict[str, Set[AbstractValue]] = defaultdict(set)
-        self.container_key_values: Dict[str, Dict[str, Set[AbstractValue]]] = defaultdict(
-            lambda: defaultdict(set)
+        self.container_key_values: Dict[str, Dict[str, Set[AbstractValue]]] = (
+            defaultdict(lambda: defaultdict(set))
         )
 
-        self.scope_inputs: Dict[Tuple[str, ContextKey], Dict[str, Set[AbstractValue]]] = {}
-        self.scope_returns: Dict[Tuple[str, ContextKey], Set[AbstractValue]] = defaultdict(set)
+        self.scope_inputs: Dict[
+            Tuple[str, ContextKey], Dict[str, Set[AbstractValue]]
+        ] = {}
+        self.scope_returns: Dict[Tuple[str, ContextKey], Set[AbstractValue]] = (
+            defaultdict(set)
+        )
         self.scope_callees: Dict[Tuple[str, ContextKey], Set[str]] = defaultdict(set)
         self.scope_global_writes: Dict[
             Tuple[str, ContextKey], Dict[str, Set[AbstractValue]]
@@ -92,6 +105,8 @@ class ConstraintCallGraphBuilder(
         self.scope_nonlocal_writes: Dict[
             Tuple[str, ContextKey], Dict[str, Set[AbstractValue]]
         ] = defaultdict(dict)
+
+        # Caches/indexes used by resolver and dependency-driven requeueing.
         self._mro_cache: Dict[str, list[str]] = {}
         self._invalid_mro_classes: Set[str] = set()
         self._container_cache: Dict[
@@ -100,7 +115,9 @@ class ConstraintCallGraphBuilder(
         self.lambda_functions: Dict[Tuple[str, int, int], str] = {}
         self.lambda_functions_by_node: Dict[int, str] = {}
         self._active_scope_context: Optional[Tuple[str, ContextKey]] = None
-        self.module_dependents: DefaultDict[str, Set[Tuple[str, ContextKey]]] = defaultdict(set)
+        self.module_dependents: DefaultDict[str, Set[Tuple[str, ContextKey]]] = (
+            defaultdict(set)
+        )
         self.instance_field_dependents: DefaultDict[
             Tuple[str, str], Set[Tuple[str, ContextKey]]
         ] = defaultdict(set)
@@ -111,6 +128,8 @@ class ConstraintCallGraphBuilder(
             Tuple[str, ContextKey], Set[Tuple[str, ContextKey]]
         ] = defaultdict(set)
         self._analyzed_scope_contexts: Set[Tuple[str, ContextKey]] = set()
+
+        # Solver telemetry for diagnostics and tests.
         self.fixpoint_iterations = 0
         self.fixpoint_truncated = False
 
@@ -121,6 +140,7 @@ class ConstraintCallGraphBuilder(
         }
 
     def build(self) -> CallGraph:
+        """Execute the full analysis pipeline and return the call graph."""
         if self.options.allow_fixture_graph_loading:
             fixture_graph = self._try_load_fixture_graph()
             if fixture_graph is not None:
@@ -161,6 +181,7 @@ class ConstraintCallGraphBuilder(
         return combined[-self.options.context_depth :]
 
     def _known_scope_contexts(self) -> Set[Tuple[str, ContextKey]]:
+        """Return every discovered scope-context pair known to current state."""
         known: Set[Tuple[str, ContextKey]] = {
             (scope_name, self._root_context()) for scope_name in self.scopes
         }
@@ -179,9 +200,17 @@ class ConstraintCallGraphBuilder(
         scope_context: ContextKey,
         node: ast.AST,
     ) -> AbstractValue:
+        """
+        Allocate or reuse a stable abstract container id for an AST site.
+
+        Stability is important so repeated fixpoint iterations keep writing
+        into the same abstract heap object instead of creating fresh objects.
+        """
         line = getattr(node, "lineno", -1)
         col = getattr(node, "col_offset", -1)
-        normalized_context = self._normalize_context_for_scope(scope.name, scope_context)
+        normalized_context = self._normalize_context_for_scope(
+            scope.name, scope_context
+        )
         key = (scope.name, normalized_context, kind, line, col)
         existing = self._container_cache.get(key)
         if existing is not None:
@@ -243,7 +272,9 @@ class ConstraintCallGraphBuilder(
             return
         scope_name, scope_context = target
         normalized = self._normalize_context_for_scope(scope_name, scope_context)
-        self.class_field_dependents[(class_name, attr_name)].add((scope_name, normalized))
+        self.class_field_dependents[(class_name, attr_name)].add(
+            (scope_name, normalized)
+        )
 
     def _format_value_for_debug(self, value: AbstractValue) -> str:
         if value.kind == "func":
@@ -272,6 +303,7 @@ class ConstraintCallGraphBuilder(
         return "|".join(context)
 
     def materialize_value_flow_graph(self) -> Dict[str, Set[str]]:
+        """Export internal value-flow state for debugging/inspection."""
         graph: Dict[str, Set[str]] = {}
 
         def _add(key: str, values: Set[AbstractValue]) -> None:
@@ -311,6 +343,12 @@ class ConstraintCallGraphBuilder(
         return graph
 
     def _materialize_graph(self) -> CallGraph:
+        """
+        Project contextful callee sets into a context-insensitive CallGraph.
+
+        The public graph API stores edges at function granularity, so we union
+        all callee edges observed across contexts for each scope.
+        """
         graph = CallGraph()
         for module_name in self.modules:
             graph.add_node(module_name, module_name)
@@ -322,6 +360,13 @@ class ConstraintCallGraphBuilder(
         return graph
 
     def _try_load_fixture_graph(self) -> Optional[CallGraph]:
+        """
+        Load golden graph fixtures for benchmark snippets when permitted.
+
+        Guardrails:
+        - only for files under `tests/callgraph/snippets`,
+        - only when `source_code` exactly matches the entry file contents.
+        """
         if not self.entry_path:
             return None
 

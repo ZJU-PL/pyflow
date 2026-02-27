@@ -72,7 +72,9 @@ def extract_call_graph_pycg(
             for frame_info in inspect.stack():
                 if "main_path" in frame_info.frame.f_locals:
                     potential_path = frame_info.frame.f_locals["main_path"]
-                    if isinstance(potential_path, str) and os.path.isfile(potential_path):
+                    if isinstance(potential_path, str) and os.path.isfile(
+                        potential_path
+                    ):
                         snippet_main_path = os.path.abspath(potential_path)
                         break
 

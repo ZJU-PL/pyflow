@@ -24,6 +24,7 @@ class _CollectorMixin:
     """Collects functions, classes, and scopes from loaded modules."""
 
     def _iter_statement_bodies(self, stmt: ast.stmt):
+        """Yield nested statement lists that may contain nested function defs."""
         if isinstance(stmt, (ast.If, ast.For, ast.AsyncFor, ast.While)):
             yield stmt.body
             yield stmt.orelse
@@ -42,6 +43,12 @@ class _CollectorMixin:
     def _infer_closure_vars(
         self, node: ast.FunctionDef | ast.AsyncFunctionDef
     ) -> set[str]:
+        """
+        Infer free variables referenced by a function body.
+
+        This is a lightweight lexical pass; runtime rebinding is handled later
+        by the fixpoint when closure inputs are bound.
+        """
         local_names: set[str] = {arg.arg for arg in node.args.posonlyargs}
         local_names.update(arg.arg for arg in node.args.args)
         local_names.update(arg.arg for arg in node.args.kwonlyargs)
@@ -89,6 +96,7 @@ class _CollectorMixin:
         return closure
 
     def _infer_lambda_closure_vars(self, node: ast.Lambda) -> set[str]:
+        """Lambda variant of free-variable inference."""
         local_names: set[str] = {arg.arg for arg in node.args.posonlyargs}
         local_names.update(arg.arg for arg in node.args.args)
         local_names.update(arg.arg for arg in node.args.kwonlyargs)
@@ -111,6 +119,7 @@ class _CollectorMixin:
     def _infer_global_nonlocal_names(
         self, node: ast.FunctionDef | ast.AsyncFunctionDef
     ) -> tuple[set[str], set[str]]:
+        """Collect `global` and `nonlocal` declarations in direct function body."""
         global_names: Set[str] = set()
         nonlocal_names: Set[str] = set()
 
@@ -141,6 +150,7 @@ class _CollectorMixin:
         parent_qualname: str,
         statements: Sequence[ast.stmt],
     ) -> None:
+        """Recursively collect nested function definitions under `parent_qualname`."""
         for stmt in statements:
             if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 nested_qualname = f"{parent_qualname}.{stmt.name}"
@@ -170,6 +180,12 @@ class _CollectorMixin:
         class_qualname: str,
         parent_class_qualname: Optional[str] = None,
     ) -> None:
+        """
+        Collect class metadata, methods, and nested classes.
+
+        Nested classes are also published into parent class fields so attribute
+        access like `A.B` can resolve.
+        """
         class_info = ClassInfo(
             qualname=class_qualname,
             module=module_name,
@@ -182,7 +198,9 @@ class _CollectorMixin:
         )
         self.classes[class_qualname] = class_info
         if parent_class_qualname is not None:
-            self.class_fields[parent_class_qualname][node.name].add(make_class(class_qualname))
+            self.class_fields[parent_class_qualname][node.name].add(
+                make_class(class_qualname)
+            )
 
         for child in node.body:
             if isinstance(child, ast.ClassDef):
@@ -225,17 +243,18 @@ class _CollectorMixin:
                 class_info.static_methods.add(child.name)
             if is_classmethod:
                 class_info.class_methods.add(child.name)
-            self._collect_nested_functions(
-                module_name, method_qualname, child.body
-            )
+            self._collect_nested_functions(module_name, method_qualname, child.body)
 
     def _collect_symbols(self) -> None:
+        """Collect top-level functions/classes and bootstrap module exports."""
         for module_name, module_info in self.modules.items():
             exports: DefaultDict[str, Set[AbstractValue]] = defaultdict(set)
             for node in module_info.tree.body:
                 if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                     qualname = f"{module_name}.{node.name}"
-                    global_names, nonlocal_names = self._infer_global_nonlocal_names(node)
+                    global_names, nonlocal_names = self._infer_global_nonlocal_names(
+                        node
+                    )
                     self.functions[qualname] = self._build_function_info(
                         module_name,
                         qualname,
@@ -258,7 +277,7 @@ class _CollectorMixin:
 
             self._collect_lambdas(module_name, module_info.tree)
 
-            # Basic top-level alias propagation for direct assignments.
+            # Basic top-level alias/constant propagation for direct assignments.
             for node in module_info.tree.body:
                 if not isinstance(node, ast.Assign):
                     continue
@@ -282,6 +301,7 @@ class _CollectorMixin:
             }
 
     def _collect_lambdas(self, module_name: str, module_tree: ast.Module) -> None:
+        """Collect lambda expressions with stable per-scope synthetic names."""
         scope_stack: list[str] = [module_name]
         lambda_counters: dict[str, int] = {}
 
@@ -355,6 +375,7 @@ class _CollectorMixin:
         nonlocal_names: Set[str],
         closure_vars: Set[str],
     ) -> FunctionInfo:
+        """Build a normalized `FunctionInfo` record from a function-like AST node."""
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
             posonly_params = [arg.arg for arg in node.args.posonlyargs]
             pos_or_kw_params = [arg.arg for arg in node.args.args]
@@ -385,6 +406,7 @@ class _CollectorMixin:
         )
 
     def _resolve_import_bindings(self) -> None:
+        """Apply import statements to module-level binding maps."""
         for module_name, module_info in self.modules.items():
             bindings = self.module_bindings[module_name]
             env = copy_env(bindings)
@@ -398,6 +420,7 @@ class _CollectorMixin:
             self.module_bindings[module_name] = env
 
     def _resolve_class_bases(self) -> None:
+        """Resolve class base expressions to qualnames used by MRO lookup."""
         self._mro_cache.clear()
         for class_info in self.classes.values():
             bindings = self.module_bindings.get(class_info.module, {})
@@ -414,6 +437,7 @@ class _CollectorMixin:
             class_info.bases = resolved
 
     def _initialize_scopes(self) -> None:
+        """Convert collected symbols into executable `ScopeInfo` records."""
         for module_name, module_info in self.modules.items():
             self.scopes[module_name] = ScopeInfo(
                 name=module_name,
@@ -442,7 +466,9 @@ class _CollectorMixin:
             ]
             if (
                 function_info.is_method
-                and isinstance(function_info.node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                and isinstance(
+                    function_info.node, (ast.FunctionDef, ast.AsyncFunctionDef)
+                )
                 and positional_method_params
             ):
                 if function_info.is_classmethod:
