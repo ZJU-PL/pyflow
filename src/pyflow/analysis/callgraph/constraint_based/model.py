@@ -9,12 +9,7 @@ from __future__ import annotations
 import ast
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import DefaultDict, Dict, List, Mapping, Optional, Set, Tuple
-
-try:
-    from typing import TypeAlias
-except ImportError:
-    from typing_extensions import TypeAlias
+from typing import DefaultDict, Dict, List, Mapping, Optional, Set, Tuple, TypeAlias
 
 FUNC_KIND = "func"
 CLASS_KIND = "class"

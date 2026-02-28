@@ -57,12 +57,12 @@ async def process():
 
 
 class TestWalrusOperator(unittest.TestCase):
-    """Test walrus operator support (Python 3.8+)."""
+    """Test walrus operator support (Python 3.10+)."""
 
     def setUp(self):
         self.converter = ASTConverter(verbose=False)
 
-    @unittest.skipIf(sys.version_info < (3, 8), "Requires Python 3.8+")
+    @unittest.skipIf(sys.version_info < (3, 10), "Requires Python 3.10+")
     def test_convert_walrus_simple(self):
         """Test converting simple walrus operator."""
         source = "(x := 5)"
@@ -72,7 +72,7 @@ class TestWalrusOperator(unittest.TestCase):
         result = self.converter._convert_expression(node)
         self.assertIsInstance(result, pyflow_ast.NamedExpr)
 
-    @unittest.skipIf(sys.version_info < (3, 8), "Requires Python 3.8+")
+    @unittest.skipIf(sys.version_info < (3, 10), "Requires Python 3.10+")
     def test_convert_walrus_in_while(self):
         """Test converting walrus operator in while condition."""
         source = """

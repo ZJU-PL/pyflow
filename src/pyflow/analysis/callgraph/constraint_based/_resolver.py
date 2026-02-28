@@ -1122,7 +1122,7 @@ class _ResolverMixin:
     def _mro(self, class_name: str) -> List[str]:
         """Compute and cache class MRO (C3) with conservative fallback on failure."""
         if class_name in self._mro_cache:
-            return List(self._mro_cache[class_name])
+            return list(self._mro_cache[class_name])
 
         class_info = self.classes.get(class_name)
         if not class_info:
@@ -1130,8 +1130,8 @@ class _ResolverMixin:
             return [class_name]
 
         base_mros = [self._mro(base) for base in class_info.bases]
-        merge_input = [List(seq) for seq in base_mros]
-        merge_input.append(List(class_info.bases))
+        merge_input = [list(seq) for seq in base_mros]
+        merge_input.append(list(class_info.bases))
 
         linearized: List[str] = [class_name]
         merged = self._c3_merge(merge_input)
@@ -1164,7 +1164,7 @@ class _ResolverMixin:
     def _c3_merge(self, sequences: List[List[str]]) -> Optional[List[str]]:
         """C3 merge step used by `_mro`; returns None when constraints conflict."""
         result: List[str] = []
-        pending = [List(seq) for seq in sequences if seq]
+        pending = [list(seq) for seq in sequences if seq]
 
         while pending:
             candidate: Optional[str] = None

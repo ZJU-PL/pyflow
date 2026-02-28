@@ -18,7 +18,7 @@ If you use pyflow in your research or work, please cite the following:
 ## Installation and Usage
 
 ### Prerequisites
-- Python 3.8 or newer
+- Python 3.10 or newer
 - Graphviz (for visualization features)
 
 ### Install from source
