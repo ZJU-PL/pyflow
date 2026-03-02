@@ -67,7 +67,6 @@ pyflow/
 │   │   ├── callgraph/                 # Call graph analysis
 │   │   ├── cdg/                       # Control Dependence Graph
 │   │   ├── cfg/                       # Control Flow Graph analysis
-│   │   ├── cfgIR/                     # CFG Intermediate Representation
 │   │   ├── cpa/                       # Constraint Propagation Analysis
 │   │   ├── cpasignature.py            # CPA signature analysis
 │   │   ├── dataflowIR/                # Dataflow IR analysis
@@ -165,6 +164,5 @@ pyflow/
 ├── requirements-dev.txt               # Legacy dev dependencies (optional)
 └── setup-dev.sh                       # Development setup script
 ```
-
 
 

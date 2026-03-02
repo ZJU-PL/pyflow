@@ -66,10 +66,17 @@ class ASTCloner(TypeDispatcher):
         Returns:
             AST node with adjusted origin.
         """
+        if not hasattr(node, "annotation") or not hasattr(node.annotation, "origin"):
+            return node
+
         origin = node.annotation.origin
         if origin is None:
             origin = [None]
-        node.rewriteAnnotation(origin=self.origin + origin)
+        else:
+            origin = list(origin)
+
+        new_origin = list(self.origin) + origin
+        node.rewriteAnnotation(origin=new_origin)
         return node
 
     @dispatch(str, type(None))
@@ -123,6 +130,10 @@ class ASTCloner(TypeDispatcher):
         ast.Phi,
     )
     def visitOK(self, node):
+        return self.adjustOrigin(node.rewriteChildren(self))
+
+    @defaultdispatch
+    def visitDefault(self, node):
         return self.adjustOrigin(node.rewriteChildren(self))
 
 
@@ -184,21 +195,29 @@ class CFGCloner(object):
 
         newG = cfg.Code()
 
+        original = g.code.codeparameters
+        source_return = getattr(g, "returnParam", None)
+        if source_return is None:
+            if original.returnparams:
+                source_return = original.returnparams[0]
+            else:
+                source_return = ast.Local("ret0")
+
         codeparams = ast.CodeParameters(
-            selfparam=None,
-            posonlyparams=[],
-            posonlynames=[],
-            params=[self.lcl(p) for p in g.code.params],
-            paramnames=[],
-            defaults=[],
-            vparam=None,
-            kparam=None,
-            returnparams=[self.lcl(g.returnParam)],
-            type_params=None,
+            selfparam=self.lcl(original.selfparam),
+            posonlyparams=[self.lcl(p) for p in original.posonlyparams],
+            posonlynames=original.posonlynames,
+            params=[self.lcl(p) for p in original.params],
+            paramnames=original.paramnames,
+            defaults=[self.lcl(d) for d in original.defaults],
+            vparam=self.lcl(original.vparam),
+            kparam=self.lcl(original.kparam),
+            returnparams=[self.lcl(p) for p in (original.returnparams or [source_return])],
+            type_params=self.lcl(original.type_params),
         )
         newG.code = ast.Code(g.code.name + "_clone", codeparams, ast.Suite([]))
 
-        newG.returnParam = self.lcl(g.returnParam)
+        newG.returnParam = codeparams.returnparams[0]
 
         newG.entryTerminal = self.cfgCache[g.entryTerminal]
         newG.normalTerminal = self.cfgCache.get(g.normalTerminal, newG.normalTerminal)

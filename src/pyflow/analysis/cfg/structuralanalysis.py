@@ -150,10 +150,12 @@ class Compactor(TypeDispatcher):
             assert node.region is e.region
 
         ok, exit = self.getCommonExit(*exits)
-        assert ok
+        if not ok:
+            return
 
         ok, error = self.getError(*exits)
-        assert ok
+        if not ok:
+            return
 
         cases = [
             ast.TypeSwitchCase(case.types, case.expr, ast.Suite(e.ops))

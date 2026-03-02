@@ -22,7 +22,6 @@ IR Construction
 * :doc:`cfg` - Control Flow Graph construction and analysis
 * :doc:`cdg` - Control Dependence Graph analysis
 * :doc:`pdg` - Program Dependence Graph construction and queries
-* :doc:`cfgIR` - Control Flow Graph Intermediate Representation
 * :doc:`callgraph` - Call Graph construction and analysis
 
 Data Flow Analysis
@@ -157,7 +156,6 @@ Standard SARIF format for CI/CD integration:
 
     cfg
     cdg
-    cfgIR
     callgraph
     dataflowIR
     fsdf

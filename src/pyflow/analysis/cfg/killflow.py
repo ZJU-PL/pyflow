@@ -134,6 +134,10 @@ class OpFlow(TypeDispatcher):
         node.visitChildren(self)
         # Exception handling can have normal flow
 
+    @dispatch(ast.ExceptionHandler, ast.Suite)
+    def visitCompound(self, node):
+        node.visitChildren(self)
+
     @dispatch(ast.Raise)
     def visitRaise(self, node):
         node.visitChildren(self)
@@ -273,16 +277,19 @@ class FlowKiller(TypeDispatcher):
     def visitTypeSwitch(self, node):
         """Analyze type switch blocks and kill impossible exits.
 
-        Type switches don't have explicit conditions to analyze, but
-        we still check for yield flow and kill impossible exits.
+        Type switches evaluate their conditional expression before selecting a
+        case. Analyze that expression so stale state from the previous node
+        cannot leak into this decision.
 
         Args:
             node: TypeSwitch CFG block to analyze
         """
+        self.opFlow.process(node.original.conditional)
         self.yields |= self.opFlow.yields
 
         if not self.opFlow.normal:
-            assert False
+            for i in range(len(node.original.cases)):
+                node.killExit(i)
 
         if not self.opFlow.fails:
             node.killExit("fail")

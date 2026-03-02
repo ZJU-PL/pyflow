@@ -275,44 +275,14 @@ class CFGTransformer(TypeDispatcher):
 
     @dispatch(ast.TryExceptFinally)
     def visitTryExceptFinally(self, node):
-        """Handle try-except-finally blocks.
+        """Preserve try blocks as structured AST until exception-aware CFG exists.
 
-        A NoNormalFlow raised inside the try body must not skip the handlers
-        and finally clause.  Each clause is wrapped independently so that
-        NoNormalFlow from one clause does not prevent the others from being
-        processed.  If the finally clause itself raises NoNormalFlow, that is
-        propagated to the caller (the finally always runs and its flow
-        determines the overall flow).
+        Linearizing the clauses into the ambient CFG is incorrect because it
+        makes handlers/else/finally execute sequentially on the normal path.
+        Keep the compound statement intact so later reconstruction preserves
+        Python semantics instead of emitting a miscompiled flat sequence.
         """
-        # Try body
-        try:
-            self(node.body)
-        except NoNormalFlow:
-            pass
-
-        # Exception handlers (each is independent)
-        for handler in node.handlers:
-            if handler is not None:
-                try:
-                    self(handler)
-                except NoNormalFlow:
-                    pass
-
-        # Else clause (runs when no exception was raised)
-        if node.else_ is not None:
-            try:
-                self(node.else_)
-            except NoNormalFlow:
-                pass
-
-        # Finally clause (always runs)
-        if node.finally_ is not None:
-            try:
-                self(node.finally_)
-            except NoNormalFlow:
-                # Finally raised NoNormalFlow — propagate it so the caller
-                # knows there is no normal exit from this try block.
-                raise
+        self.emit(node)
 
     @dispatch(ast.ExceptionHandler)
     def visitExceptionHandler(self, node):

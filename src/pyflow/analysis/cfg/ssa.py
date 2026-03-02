@@ -12,6 +12,10 @@ from .dfs import CFGDFS
 from . import dom
 
 
+class UnsupportedSSAError(Exception):
+    """Raised when CFG SSA is requested for unsupported structured control flow."""
+
+
 class CollectModifies(TypeDispatcher):
     """Collects variable modifications for SSA construction.
 
@@ -66,6 +70,10 @@ class CollectModifies(TypeDispatcher):
     def visitDiscard(self, node):
         pass
 
+    @dispatch(ast.leafTypes, ast.Local, ast.Existing, ast.GetCellDeref, ast.Code, ast.DoNotCare)
+    def visitASTLeaf(self, node):
+        pass
+
     @dispatch(ast.InputBlock)
     def visitInputBlock(self, node):
         for input in node.inputs:
@@ -80,6 +88,33 @@ class CollectModifies(TypeDispatcher):
     def visitUnpackSequence(self, node):
         for target in node.targets:
             self.modified(target)
+
+    @dispatch(ast.Suite)
+    def visitASTSuite(self, node):
+        for block in node.blocks:
+            self(block)
+
+    @dispatch(ast.ExceptionHandler)
+    def visitExceptionHandler(self, node):
+        if node.value is not None:
+            self.modified(node.value)
+
+        self(node.preamble)
+        if node.type is not None:
+            self(node.type)
+        self(node.body)
+
+    @dispatch(ast.TryExceptFinally)
+    def visitTryExceptFinally(self, node):
+        self(node.body)
+        for handler in node.handlers:
+            self(handler)
+        if node.defaultHandler is not None:
+            self(node.defaultHandler)
+        if node.else_ is not None:
+            self(node.else_)
+        if node.finally_ is not None:
+            self(node.finally_)
 
     @dispatch(cfg.Suite)
     def visitSuite(self, node):
@@ -151,6 +186,44 @@ class SSARename(TypeDispatcher):
             return result
         else:
             return None
+
+    def renameWithFrame(self, node, frame):
+        previous = self.currentFrame
+        self.currentFrame = dict(frame)
+        result = self(node)
+        out = self.currentFrame
+        self.currentFrame = previous
+        return result, out
+
+    def mergeStructuredFrames(self, incoming, branches):
+        merged = {}
+
+        keys = set()
+        for _, frame in branches:
+            keys.update(frame.keys())
+
+        for name in keys:
+            values = [frame.get(name) for _, frame in branches]
+            first = values[0]
+
+            if all(value is first for value in values):
+                if first is not None:
+                    merged[name] = first
+                continue
+
+            fallback = incoming.get(name)
+            if any(value is None and fallback is None for value in values):
+                continue
+
+            target = name.clone()
+            merged[name] = target
+
+            for suite, frame in branches:
+                value = frame.get(name, fallback)
+                if value is not None and value is not target:
+                    suite.append(ast.Assign(value, [target]))
+
+        return merged
 
     @dispatch(cfg.Entry)
     def visitCFGEntry(self, node):
@@ -288,6 +361,75 @@ class SSARename(TypeDispatcher):
             [ast.Output(self(output.expr), output.dst) for output in node.outputs]
         )
 
+    @dispatch(ast.Suite)
+    def visitASTSuite(self, node):
+        blocks = []
+        for block in node.blocks:
+            result = self(block)
+            if result is not None:
+                blocks.append(result)
+        return ast.Suite(blocks)
+
+    @dispatch(ast.ExceptionHandler)
+    def visitExceptionHandler(self, node):
+        preamble = self(node.preamble)
+        type_ = self(node.type) if node.type is not None else None
+
+        if node.value is not None:
+            value = self.clone(node.value, self.currentFrame)
+        else:
+            value = None
+
+        body = self(node.body)
+        return ast.ExceptionHandler(preamble, type_, value, body)
+
+    @dispatch(ast.TryExceptFinally)
+    def visitTryExceptFinally(self, node):
+        incoming = dict(self.currentFrame)
+
+        body, body_frame = self.renameWithFrame(node.body, incoming)
+
+        handlers = []
+        handler_branches = []
+        for handler in node.handlers:
+            renamed, frame = self.renameWithFrame(handler, incoming)
+            handlers.append(renamed)
+            handler_branches.append((renamed.body, frame))
+
+        if node.defaultHandler is not None:
+            defaultHandler, default_frame = self.renameWithFrame(
+                node.defaultHandler, incoming
+            )
+            default_branch = (defaultHandler, default_frame)
+        else:
+            defaultHandler = None
+            default_branch = None
+
+        if node.else_ is not None:
+            else_, else_frame = self.renameWithFrame(node.else_, body_frame)
+            normal_branches = [(else_, else_frame)]
+        else:
+            else_ = None
+            normal_branches = [(body, body_frame)]
+
+        normal_branches.extend(handler_branches)
+        if default_branch is not None:
+            normal_branches.append(default_branch)
+
+        if normal_branches:
+            pre_finally = self.mergeStructuredFrames(incoming, normal_branches)
+        else:
+            pre_finally = dict(incoming)
+
+        if node.finally_ is not None:
+            finally_, final_frame = self.renameWithFrame(node.finally_, pre_finally)
+        else:
+            finally_ = None
+            final_frame = pre_finally
+
+        self.currentFrame = final_frame
+        return ast.TryExceptFinally(body, handlers, defaultHandler, else_, finally_)
+
     @dispatch(
         ast.BinaryOp,
         ast.Call,
@@ -399,19 +541,11 @@ class SSARename(TypeDispatcher):
                     for prev in merge.reverse():
                         arguments.append(self.frames[prev].get(name))
 
-                    # Bug J fix: self.frames[prev].get(name) returns None when
-                    # the variable was never defined on that predecessor path
-                    # (e.g. the predecessor was not yet processed, or the
-                    # variable is undefined on that branch).  Passing None into
-                    # self.read and into ast.Phi causes downstream passes to
-                    # crash with AttributeError.  Filter out None arguments
-                    # before updating the read set and creating the phi node.
-                    arguments = [a for a in arguments if a is not None]
-                    if not arguments:
+                    if not any(arg is not None for arg in arguments):
                         defer.append((merge, name))
                         continue
 
-                    self.read.update(arguments)
+                    self.read.update(arg for arg in arguments if arg is not None)
 
                     phi = ast.Phi(arguments, target)
                     merge.phi.append(phi)
@@ -447,6 +581,10 @@ def evaluate(compiler, g):
         5. Rename variables during reverse post-order traversal
         6. Insert phi nodes at merge points for variables that are read
     """
+    if _contains_try_except_finally(g.entryTerminal):
+        raise UnsupportedSSAError(
+            "CFG SSA does not support TryExceptFinally; refusing to return a non-SSA graph."
+        )
 
     # Analysis: Compute dominance information
     def forward(node):
@@ -497,3 +635,59 @@ def evaluate(compiler, g):
     for node in order:
         ssar(node)
     ssar.doFixup()
+
+
+def _contains_try_except_finally(entry):
+    pending = [entry]
+    seen_cfg = set()
+    seen_ast = set()
+
+    while pending:
+        node = pending.pop()
+        if node in seen_cfg:
+            continue
+        seen_cfg.add(node)
+
+        if isinstance(node, cfg.Suite):
+            for op in node.ops:
+                if _ast_contains_try_except_finally(op, seen_ast):
+                    return True
+        elif isinstance(node, cfg.Switch):
+            if _ast_contains_try_except_finally(node.condition, seen_ast):
+                return True
+        elif isinstance(node, cfg.TypeSwitch):
+            if _ast_contains_try_except_finally(node.original, seen_ast):
+                return True
+
+        pending.extend(node.forward())
+
+    return False
+
+
+def _ast_contains_try_except_finally(node, seen):
+    if node is None:
+        return False
+
+    if isinstance(node, ast.TryExceptFinally):
+        return True
+
+    node_id = id(node)
+    if node_id in seen:
+        return False
+    seen.add(node_id)
+
+    fields = getattr(type(node), "__fields__", ())
+    if isinstance(fields, str):
+        fields = (fields,)
+
+    for field in fields:
+        name = field.split(":", 1)[0].rstrip("?*")
+        child = getattr(node, name, None)
+        if isinstance(child, (list, tuple)):
+            for item in child:
+                if _ast_contains_try_except_finally(item, seen):
+                    return True
+        elif _ast_contains_try_except_finally(child, seen):
+            return True
+
+    return False
