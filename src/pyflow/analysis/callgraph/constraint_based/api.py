@@ -30,6 +30,8 @@ def extract_call_graph_constraint(
     fixpoint_max_iterations: Optional[int] = None,
     warn_on_fixpoint_truncation: bool = True,
     allocation_site_sensitive_instances: bool = True,
+    use_type_hints: bool = True,
+    refine_type_guards: bool = True,
     allow_fixture_graph_loading: bool = True,
 ) -> CallGraph:
     """
@@ -62,6 +64,8 @@ def extract_call_graph_constraint(
         fixpoint_max_iterations=fixpoint_max_iterations,
         warn_on_fixpoint_truncation=warn_on_fixpoint_truncation,
         allocation_site_sensitive_instances=allocation_site_sensitive_instances,
+        use_type_hints=use_type_hints,
+        refine_type_guards=refine_type_guards,
         allow_fixture_graph_loading=allow_fixture_graph_loading,
     )
     builder = ConstraintCallGraphBuilder(
@@ -81,6 +85,8 @@ def analyze_file_constraint(
     fixpoint_max_iterations: Optional[int] = None,
     warn_on_fixpoint_truncation: bool = True,
     allocation_site_sensitive_instances: bool = False,
+    use_type_hints: bool = True,
+    refine_type_guards: bool = True,
     allow_fixture_graph_loading: bool = True,
 ) -> str:
     """Analyze a Python file and return a text rendering of the call graph."""
@@ -96,6 +102,8 @@ def analyze_file_constraint(
             fixpoint_max_iterations=fixpoint_max_iterations,
             warn_on_fixpoint_truncation=warn_on_fixpoint_truncation,
             allocation_site_sensitive_instances=allocation_site_sensitive_instances,
+            use_type_hints=use_type_hints,
+            refine_type_guards=refine_type_guards,
             allow_fixture_graph_loading=allow_fixture_graph_loading,
         )
         return generate_text_output(graph, None)
@@ -112,6 +120,8 @@ def extract_value_flow_graph_constraint(
     fixpoint_max_iterations: Optional[int] = None,
     warn_on_fixpoint_truncation: bool = True,
     allocation_site_sensitive_instances: bool = False,
+    use_type_hints: bool = True,
+    refine_type_guards: bool = True,
     allow_fixture_graph_loading: bool = True,
 ) -> Dict[str, List[str]]:
     """
@@ -127,6 +137,8 @@ def extract_value_flow_graph_constraint(
         fixpoint_max_iterations=fixpoint_max_iterations,
         warn_on_fixpoint_truncation=warn_on_fixpoint_truncation,
         allocation_site_sensitive_instances=allocation_site_sensitive_instances,
+        use_type_hints=use_type_hints,
+        refine_type_guards=refine_type_guards,
         allow_fixture_graph_loading=allow_fixture_graph_loading,
     )
     builder = ConstraintCallGraphBuilder(

@@ -16,9 +16,11 @@ CLASS_KIND = "class"
 INSTANCE_KIND = "instance"
 MODULE_KIND = "module"
 CONTAINER_KIND = "container"
+PARTIAL_KIND = "partial"
 BOUND_METHOD_KIND = "bound_method"
 BOUND_CLASS_METHOD_KIND = "bound_class_method"
 STRING_KIND = "string"
+NONE_KIND = "none"
 UNKNOWN_KIND = "unknown"
 
 ContextKey: TypeAlias = Tuple[str, ...]
@@ -34,6 +36,7 @@ class AbstractValue:
 
 
 UNKNOWN_VALUE = AbstractValue(UNKNOWN_KIND, "<unknown>")
+NONE_VALUE = AbstractValue(NONE_KIND, "None")
 
 
 @dataclass(frozen=True)
@@ -45,6 +48,8 @@ class AnalysisOptions:
     fixpoint_max_iterations: Optional[int] = None
     warn_on_fixpoint_truncation: bool = True
     allocation_site_sensitive_instances: bool = False
+    use_type_hints: bool = True
+    refine_type_guards: bool = True
     allow_fixture_graph_loading: bool = True
 
 
@@ -92,6 +97,8 @@ class FunctionInfo:
     nonlocal_names: set[str]
     parent_scope: Optional[str]
     closure_vars: set[str]
+    param_annotations: Dict[str, ast.expr]
+    return_annotation: Optional[ast.expr]
 
 
 @dataclass
@@ -113,6 +120,7 @@ class ScopeInfo:
     nonlocal_names: set[str]
     parent_scope: Optional[str]
     closure_vars: set[str]
+    param_annotations: Dict[str, ast.expr]
 
 
 @dataclass
@@ -126,6 +134,7 @@ class ScopeResult:
     changed_instance_fields: Set[Tuple[str, str]]
     changed_class_fields: Set[Tuple[str, str]]
     nonlocal_binding_changed: bool
+    singledispatch_changed: bool
 
 
 def make_value(kind: str, name: str) -> AbstractValue:
@@ -174,8 +183,20 @@ def make_container(name: str) -> AbstractValue:
     return make_value(CONTAINER_KIND, name)
 
 
+def make_partial(kind: str, name: str) -> AbstractValue:
+    return make_value(PARTIAL_KIND, f"{kind}|{name}")
+
+
+def parse_partial(value: AbstractValue) -> Tuple[str, str]:
+    return value.name.split("|", 1)
+
+
 def make_string(name: str) -> AbstractValue:
     return make_value(STRING_KIND, name)
+
+
+def make_none() -> AbstractValue:
+    return NONE_VALUE
 
 
 def make_bound_method(method_qualname: str, receiver_class: str) -> AbstractValue:

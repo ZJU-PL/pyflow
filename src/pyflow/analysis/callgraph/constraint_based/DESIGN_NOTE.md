@@ -66,9 +66,25 @@ abstract values per symbol:
   - list/tuple/set/dict literal containers,
   - list/set/dict/generator comprehensions,
   - subscript read/write propagation for tracked containers.
+- Reflection-aware attribute recovery:
+  - dynamic string propagation for reflective names,
+  - `setattr`/`delattr` heap updates,
+  - `importlib.import_module`/`__import__` module abstraction recovery.
 - Closure-captured values:
   - nested function symbol collection,
   - capture propagation from defining scopes to nested scopes.
+- Type-directed pruning:
+  - parameter and annotated assignment filtering from resolvable hints,
+  - runtime guard refinement for `isinstance`, `issubclass`, `TypeGuard`, and `None` checks,
+  - expression-level narrowing via `typing.cast`,
+  - protocol-aware structural matching for annotated parameters.
+- Python protocol/library hooks:
+  - explicit and zero-argument `super(...)` receiver recovery,
+  - dict dispatch helpers via `get`, `setdefault`, and `pop`,
+  - higher-order builtin callback modeling for `map`, `filter`, `sorted`, and `reduce`,
+  - exception-handler name refinement for declared exception types,
+  - lightweight registry/callback installation via `register("key")(fn)` and decorator-style registrations,
+  - `functools.singledispatch` plus `.register(...)` implementation dispatch.
 - Explainability for dynamic uncertainty:
   - explicit summary nodes `<dynamic>.<scope>@line:col` when unresolved call
     targets remain.

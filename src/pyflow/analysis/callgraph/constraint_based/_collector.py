@@ -383,6 +383,25 @@ class _CollectorMixin:
             params = [*posonly_params, *pos_or_kw_params, *kwonly_params]
             vararg = node.args.vararg.arg if node.args.vararg else None
             kwarg = node.args.kwarg.arg if node.args.kwarg else None
+            param_annotations: Dict[str, ast.expr] = {}
+            for arg in node.args.posonlyargs:
+                if arg.annotation is not None:
+                    param_annotations[arg.arg] = arg.annotation
+            for arg in node.args.args:
+                if arg.annotation is not None:
+                    param_annotations[arg.arg] = arg.annotation
+            for arg in node.args.kwonlyargs:
+                if arg.annotation is not None:
+                    param_annotations[arg.arg] = arg.annotation
+            if node.args.vararg and node.args.vararg.annotation is not None:
+                param_annotations[node.args.vararg.arg] = node.args.vararg.annotation
+            if node.args.kwarg and node.args.kwarg.annotation is not None:
+                param_annotations[node.args.kwarg.arg] = node.args.kwarg.annotation
+            return_annotation = (
+                node.returns
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                else None
+            )
         else:
             raise TypeError(f"Unsupported function node type: {type(node)!r}")
         return FunctionInfo(
@@ -403,6 +422,8 @@ class _CollectorMixin:
             nonlocal_names=set(nonlocal_names),
             parent_scope=parent_scope,
             closure_vars=set(closure_vars),
+            param_annotations=param_annotations,
+            return_annotation=return_annotation,
         )
 
     def _resolve_import_bindings(self) -> None:
@@ -455,6 +476,7 @@ class _CollectorMixin:
                 nonlocal_names=set(),
                 parent_scope=None,
                 closure_vars=set(),
+                param_annotations={},
             )
 
         for function_info in self.functions.values():
@@ -497,4 +519,5 @@ class _CollectorMixin:
                 nonlocal_names=set(function_info.nonlocal_names),
                 parent_scope=function_info.parent_scope,
                 closure_vars=set(function_info.closure_vars),
+                param_annotations=dict(function_info.param_annotations),
             )

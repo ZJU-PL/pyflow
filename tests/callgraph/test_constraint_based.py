@@ -83,6 +83,87 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
         self.assertIn("main.Child.f", improved.get("main.run", set()))
         self.assertNotIn("main.Other.f", improved.get("main.run", set()))
 
+    def test_parameter_annotation_filters_incompatible_runtime_receiver_types(self):
+        source = textwrap.dedent(
+            """
+            class A:
+                def f(self):
+                    return 1
+
+            class B:
+                def f(self):
+                    return 2
+
+            def call_a(x: A):
+                return x.f()
+
+            call_a(A())
+            call_a(B())
+            """
+        )
+
+        improved = extract_call_graph_constraint(source).get()
+        call_edges = improved.get("main.call_a", set())
+        self.assertIn("main.A.f", call_edges)
+        self.assertNotIn("main.B.f", call_edges)
+
+    def test_protocol_annotation_prunes_by_structural_membership(self):
+        source = textwrap.dedent(
+            """
+            from typing import Protocol
+
+            class SupportsF(Protocol):
+                def f(self):
+                    ...
+
+            class A:
+                def f(self):
+                    return 1
+
+            class B:
+                def g(self):
+                    return 2
+
+            def run(x: SupportsF):
+                return x.f()
+
+            run(A())
+            run(B())
+            """
+        )
+
+        improved = extract_call_graph_constraint(source).get()
+        run_edges = improved.get("main.run", set())
+        self.assertIn("main.A.f", run_edges)
+        self.assertNotIn("main.B.g", run_edges)
+
+    def test_typing_cast_refines_receiver_type(self):
+        source = textwrap.dedent(
+            """
+            from typing import cast
+
+            class A:
+                def f(self):
+                    return 1
+
+            class B:
+                def f(self):
+                    return 2
+
+            def run(x):
+                y = cast(A, x)
+                return y.f()
+
+            run(A())
+            run(B())
+            """
+        )
+
+        improved = extract_call_graph_constraint(source).get()
+        run_edges = improved.get("main.run", set())
+        self.assertIn("main.A.f", run_edges)
+        self.assertNotIn("main.B.f", run_edges)
+
     def test_import_alias_attribute_call_resolution(self):
         source = textwrap.dedent(
             """
@@ -117,6 +198,49 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
 
         improved = extract_call_graph_constraint(source).get()
         self.assertIn("main.Handler.handle", improved.get("main.invoke", set()))
+
+    def test_reflective_setattr_and_dynamic_string_getattr_resolution(self):
+        source = textwrap.dedent(
+            """
+            def target():
+                return 1
+
+            class Box:
+                pass
+
+            def install(box, suffix):
+                setattr(box, "ha" + suffix, target)
+
+            def run(box):
+                return getattr(box, f"ha{'ndle'}")()
+
+            instance = Box()
+            install(instance, "ndle")
+            run(instance)
+            """
+        )
+
+        improved = extract_call_graph_constraint(source).get()
+        self.assertIn("main.target", improved.get("main.run", set()))
+
+    def test_getattr_default_value_is_used_when_attribute_is_missing(self):
+        source = textwrap.dedent(
+            """
+            def fallback():
+                return 1
+
+            class Box:
+                pass
+
+            def run(box):
+                return getattr(box, "missing", fallback)()
+
+            run(Box())
+            """
+        )
+
+        improved = extract_call_graph_constraint(source).get()
+        self.assertIn("main.fallback", improved.get("main.run", set()))
 
     def test_context_sensitive_mode_reduces_cross_callsite_pollution(self):
         source = textwrap.dedent(
@@ -153,6 +277,382 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
         self.assertIn("main.leak_from_other_site", insensitive_edges)
         self.assertIn("main.only_here", sensitive_edges)
         self.assertNotIn("main.leak_from_other_site", sensitive_edges)
+
+    def test_isinstance_guard_refines_union_annotated_parameter(self):
+        source = textwrap.dedent(
+            """
+            class A:
+                def f(self):
+                    return 1
+
+            class B:
+                def f(self):
+                    return 2
+
+            def select(x: A | B):
+                if isinstance(x, A):
+                    return x.f()
+                return 0
+
+            select(A())
+            select(B())
+            """
+        )
+
+        improved = extract_call_graph_constraint(source).get()
+        select_edges = improved.get("main.select", set())
+        self.assertIn("main.A.f", select_edges)
+        self.assertNotIn("main.B.f", select_edges)
+
+    def test_typeguard_function_refines_positive_branch(self):
+        source = textwrap.dedent(
+            """
+            from typing import TypeGuard
+
+            class A:
+                def f(self):
+                    return 1
+
+            class B:
+                def f(self):
+                    return 2
+
+            def is_a(x) -> TypeGuard[A]:
+                return True
+
+            def run(x: A | B):
+                if is_a(x):
+                    return x.f()
+                return 0
+
+            run(A())
+            run(B())
+            """
+        )
+
+        improved = extract_call_graph_constraint(source).get()
+        run_edges = improved.get("main.run", set())
+        self.assertIn("main.A.f", run_edges)
+        self.assertNotIn("main.B.f", run_edges)
+
+    def test_hasattr_guard_refines_receiver_set(self):
+        source = textwrap.dedent(
+            """
+            class A:
+                def f(self):
+                    return 1
+
+            class B:
+                pass
+
+            def run(x):
+                if hasattr(x, "f"):
+                    return x.f()
+                return 0
+
+            run(A())
+            run(B())
+            """
+        )
+
+        improved = extract_call_graph_constraint(source).get()
+        run_edges = improved.get("main.run", set())
+        self.assertIn("main.A.f", run_edges)
+        self.assertNotIn("main.B.f", run_edges)
+
+    def test_callable_guard_refines_callable_values(self):
+        source = textwrap.dedent(
+            """
+            class A:
+                def __call__(self):
+                    return 1
+
+            class B:
+                pass
+
+            def run(x):
+                if callable(x):
+                    return x()
+                return 0
+
+            run(A())
+            run(B())
+            """
+        )
+
+        improved = extract_call_graph_constraint(source).get()
+        run_edges = improved.get("main.run", set())
+        self.assertIn("main.A.__call__", run_edges)
+        self.assertNotIn("main.B.__call__", run_edges)
+
+    def test_partial_wrapper_preserves_underlying_call_target(self):
+        source = textwrap.dedent(
+            """
+            from functools import partial
+
+            def target():
+                return 1
+
+            def run():
+                fn = partial(target)
+                return fn()
+
+            run()
+            """
+        )
+
+        improved = extract_call_graph_constraint(source).get()
+        self.assertIn("main.target", improved.get("main.run", set()))
+
+    def test_filter_and_sorted_key_callbacks_are_invoked(self):
+        source = textwrap.dedent(
+            """
+            def pred():
+                return True
+
+            def key():
+                return 1
+
+            def run(xs):
+                list(filter(pred, xs))
+                sorted(xs, key=key)
+
+            run([1, 2])
+            """
+        )
+
+        improved = extract_call_graph_constraint(source).get()
+        run_edges = improved.get("main.run", set())
+        self.assertIn("main.pred", run_edges)
+        self.assertIn("main.key", run_edges)
+
+    def test_reduce_callback_is_invoked(self):
+        source = textwrap.dedent(
+            """
+            from functools import reduce
+
+            def combine():
+                return 1
+
+            def run(xs):
+                return reduce(combine, xs)
+
+            run([1, 2])
+            """
+        )
+
+        improved = extract_call_graph_constraint(source).get()
+        self.assertIn("main.combine", improved.get("main.run", set()))
+
+    def test_singledispatch_decorator_and_register_dispatch_by_runtime_type(self):
+        source = textwrap.dedent(
+            """
+            from functools import singledispatch
+
+            def base_impl():
+                return 1
+
+            def a_impl():
+                return 2
+
+            class A:
+                pass
+
+            class B:
+                pass
+
+            @singledispatch
+            def render(x):
+                return base_impl()
+
+            @render.register(A)
+            def render_a(x):
+                return a_impl()
+
+            def run():
+                render(A())
+                render(B())
+
+            run()
+            """
+        )
+
+        improved = extract_call_graph_constraint(source).get()
+        run_edges = improved.get("main.run", set())
+        self.assertIn("main.render", run_edges)
+        self.assertIn("main.render_a", run_edges)
+        self.assertIn("main.a_impl", improved.get("main.render_a", set()))
+        self.assertIn("main.base_impl", improved.get("main.render", set()))
+
+    def test_singledispatch_register_call_expression_records_implementation(self):
+        source = textwrap.dedent(
+            """
+            from functools import singledispatch
+
+            def base_impl():
+                return 1
+
+            def a_impl():
+                return 2
+
+            class A:
+                pass
+
+            @singledispatch
+            def render(x):
+                return base_impl()
+
+            def render_a(x: A):
+                return a_impl()
+
+            render.register(A)(render_a)
+
+            def run():
+                return render(A())
+
+            run()
+            """
+        )
+
+        improved = extract_call_graph_constraint(source).get()
+        run_edges = improved.get("main.run", set())
+        self.assertIn("main.render_a", run_edges)
+        self.assertNotIn("main.render", run_edges)
+
+    def test_registry_style_nested_register_call_records_callback(self):
+        source = textwrap.dedent(
+            """
+            class App:
+                pass
+
+            app = App()
+
+            def handler():
+                return 1
+
+            app.register("home")(handler)
+
+            def run():
+                return app["home"]()
+
+            run()
+            """
+        )
+
+        improved = extract_call_graph_constraint(source).get()
+        self.assertIn("main.handler", improved.get("main.run", set()))
+
+    def test_dict_get_dispatch_recovers_keyed_target(self):
+        source = textwrap.dedent(
+            """
+            def a():
+                return 1
+
+            def b():
+                return 2
+
+            def run(k):
+                table = {"a": a, "b": b}
+                return table.get(k, b)()
+
+            run("a")
+            """
+        )
+
+        improved = extract_call_graph_constraint(source).get()
+        run_edges = improved.get("main.run", set())
+        self.assertIn("main.a", run_edges)
+
+    def test_registry_style_decorator_records_callback(self):
+        source = textwrap.dedent(
+            """
+            class App:
+                pass
+
+            app = App()
+
+            @app.register("home")
+            def handler():
+                return 1
+
+            def run():
+                return app["home"]()
+
+            run()
+            """
+        )
+
+        improved = extract_call_graph_constraint(source).get()
+        self.assertIn("main.handler", improved.get("main.run", set()))
+
+    def test_dict_setdefault_preserves_inserted_dispatch_target(self):
+        source = textwrap.dedent(
+            """
+            def target():
+                return 1
+
+            def run():
+                table = {}
+                fn = table.setdefault("k", target)
+                return fn()
+
+            run()
+            """
+        )
+
+        improved = extract_call_graph_constraint(source).get()
+        self.assertIn("main.target", improved.get("main.run", set()))
+
+    def test_dict_pop_returns_removed_dispatch_target(self):
+        source = textwrap.dedent(
+            """
+            def target():
+                return 1
+
+            def other():
+                return 2
+
+            def run():
+                table = {"k": target, "x": other}
+                fn = table.pop("k")
+                return fn()
+
+            run()
+            """
+        )
+
+        improved = extract_call_graph_constraint(source).get()
+        run_edges = improved.get("main.run", set())
+        self.assertIn("main.target", run_edges)
+        self.assertNotIn("main.other", run_edges)
+
+    def test_match_class_pattern_refines_subject_and_capture(self):
+        source = textwrap.dedent(
+            """
+            class A:
+                def f(self):
+                    return 1
+
+            class B:
+                def f(self):
+                    return 2
+
+            def run(x):
+                match x:
+                    case A() as value:
+                        return value.f()
+                    case _:
+                        return 0
+
+            run(A())
+            run(B())
+            """
+        )
+
+        improved = extract_call_graph_constraint(source).get()
+        run_edges = improved.get("main.run", set())
+        self.assertIn("main.A.f", run_edges)
+        self.assertNotIn("main.B.f", run_edges)
 
     def test_c3_mro_prefers_c3_linearized_method(self):
         source = textwrap.dedent(
@@ -303,6 +803,75 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
 
         improved = extract_call_graph_constraint(source).get()
         self.assertIn("main.Base.f", improved.get("main.run", set()))
+
+    def test_explicit_super_type_and_obj_uses_runtime_mro(self):
+        source = textwrap.dedent(
+            """
+            def base_fn():
+                return 1
+
+            def mixin_fn():
+                return 2
+
+            class Base:
+                def f(self):
+                    return base_fn()
+
+            class Mixin:
+                def f(self):
+                    return mixin_fn()
+
+            class Child(Base, Mixin):
+                def f(self):
+                    return super(Base, self).f()
+
+            def run():
+                return Child().f()
+
+            run()
+            """
+        )
+
+        improved = extract_call_graph_constraint(source).get()
+        child_edges = improved.get("main.Child.f", set())
+        self.assertIn("main.Mixin.f", child_edges)
+        self.assertNotIn("main.Base.f", child_edges)
+
+    def test_zero_arg_super_in_classmethod_uses_runtime_cls_mro(self):
+        source = textwrap.dedent(
+            """
+            def base_fn():
+                return 1
+
+            def child_fn():
+                return 2
+
+            class Base:
+                @classmethod
+                def factory(cls):
+                    return base_fn()
+
+            class Child(Base):
+                @classmethod
+                def factory(cls):
+                    return child_fn()
+
+            class GrandChild(Child):
+                @classmethod
+                def factory(cls):
+                    return super().factory()
+
+            def run():
+                return GrandChild.factory()
+
+            run()
+            """
+        )
+
+        improved = extract_call_graph_constraint(source).get()
+        factory_edges = improved.get("main.GrandChild.factory", set())
+        self.assertIn("main.Child.factory", factory_edges)
+        self.assertNotIn("main.Base.factory", factory_edges)
 
     def test_star_args_are_propagated_to_callee_parameters(self):
         source = textwrap.dedent(
@@ -626,6 +1195,63 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
         run_edges = improved.get("main.run", set())
         self.assertIn("main.handler", run_edges)
         self.assertNotIn("main.orelse", run_edges)
+
+    def test_exception_handler_name_is_refined_to_exception_instance(self):
+        source = textwrap.dedent(
+            """
+            def helper():
+                return 1
+
+            class MyErr(Exception):
+                def handle(self):
+                    return helper()
+
+            def run():
+                try:
+                    raise MyErr()
+                except MyErr as err:
+                    return err.handle()
+
+            run()
+            """
+        )
+        improved = extract_call_graph_constraint(source).get()
+        run_edges = improved.get("main.run", set())
+        self.assertIn("main.MyErr.handle", run_edges)
+        self.assertIn("main.helper", improved.get("main.MyErr.handle", set()))
+
+    def test_exception_handler_tuple_refines_name_to_each_exception_type(self):
+        source = textwrap.dedent(
+            """
+            def a_helper():
+                return 1
+
+            def b_helper():
+                return 2
+
+            class AErr(Exception):
+                def handle(self):
+                    return a_helper()
+
+            class BErr(Exception):
+                def handle(self):
+                    return b_helper()
+
+            def run(flag):
+                try:
+                    if flag:
+                        raise AErr()
+                    raise BErr()
+                except (AErr, BErr) as err:
+                    return err.handle()
+
+            run(True)
+            """
+        )
+        improved = extract_call_graph_constraint(source).get()
+        run_edges = improved.get("main.run", set())
+        self.assertIn("main.AErr.handle", run_edges)
+        self.assertIn("main.BErr.handle", run_edges)
 
     def test_for_loop_target_uses_iterable_member_values(self):
         source = textwrap.dedent(

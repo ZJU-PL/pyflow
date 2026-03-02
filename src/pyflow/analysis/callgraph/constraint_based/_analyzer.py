@@ -9,8 +9,11 @@ from typing import Dict, Mapping, Sequence, Set, Tuple, List
 
 from .model import (
     AbstractValue,
+    CLASS_KIND,
     ContextKey,
+    FUNC_KIND,
     GLOBAL_CONTEXT,
+    NONE_VALUE,
     ScopeInfo,
     ScopeResult,
     UNKNOWN_VALUE,
@@ -18,6 +21,7 @@ from .model import (
     join_envs,
     make_class,
     make_func,
+    make_instance,
 )
 
 
@@ -68,6 +72,319 @@ class _AnalyzerMixin:
             changed = changed or len(current) != before
         return changed
 
+    def _refine_name_binding(
+        self,
+        env: Mapping[str, Set[AbstractValue]],
+        name: str,
+        refined_values: Set[AbstractValue],
+    ) -> Dict[str, Set[AbstractValue]]:
+        updated = copy_env(env)
+        updated[name] = set(refined_values)
+        return updated
+
+    def _refine_env_for_pattern(
+        self,
+        scope: ScopeInfo,
+        scope_context: ContextKey,
+        subject_values: Set[AbstractValue],
+        pattern: ast.pattern,
+        env: Mapping[str, Set[AbstractValue]],
+    ) -> Dict[str, Set[AbstractValue]]:
+        case_env = copy_env(env)
+
+        if isinstance(pattern, ast.MatchAs):
+            if pattern.pattern is not None:
+                case_env = self._refine_env_for_pattern(
+                    scope, scope_context, subject_values, pattern.pattern, case_env
+                )
+            if pattern.name:
+                case_env[pattern.name] = set(
+                    case_env.get("__match_subject__", subject_values or {UNKNOWN_VALUE})
+                )
+            return case_env
+
+        if isinstance(pattern, ast.MatchOr):
+            merged = copy_env(env)
+            for inner in pattern.patterns:
+                inner_env = self._refine_env_for_pattern(
+                    scope, scope_context, subject_values, inner, env
+                )
+                merged = join_envs(merged, inner_env)
+            return merged
+
+        if isinstance(pattern, ast.MatchValue):
+            expected = self._eval_expr(
+                scope,
+                scope_context,
+                pattern.value,
+                case_env,
+                set(),
+                set(),
+            )
+            return self._refine_name_binding(
+                case_env,
+                "__match_subject__",
+                self._refine_values_with_type_filter(subject_values, expected, True),
+            )
+
+        if isinstance(pattern, ast.MatchSingleton):
+            expected = {NONE_VALUE} if pattern.value is None else set()
+            if expected:
+                return self._refine_name_binding(
+                    case_env,
+                    "__match_subject__",
+                    self._refine_values_with_type_filter(subject_values, expected, True),
+                )
+            return case_env
+
+        if isinstance(pattern, ast.MatchClass):
+            type_values = self._resolve_type_expression_values(
+                pattern.cls, scope.module, env=case_env
+            )
+            refined_subject = self._refine_values_with_type_filter(
+                subject_values, type_values, True
+            )
+            case_env["__match_subject__"] = set(refined_subject)
+            for index, inner in enumerate(pattern.patterns):
+                attr_name = f"#{index}"
+                attr_values = {
+                    value
+                    for subject in refined_subject
+                    if subject.kind == "container"
+                    for value in self.container_key_values.get(subject.name, {}).get(
+                        attr_name, set()
+                    )
+                }
+                case_env = self._refine_env_for_pattern(
+                    scope, scope_context, attr_values or {UNKNOWN_VALUE}, inner, case_env
+                )
+            for attr_name, inner in zip(pattern.kwd_attrs, pattern.kwd_patterns):
+                attr_values: Set[AbstractValue] = set()
+                for subject in refined_subject:
+                    attr_values.update(self._resolve_attribute({subject}, attr_name))
+                case_env = self._refine_env_for_pattern(
+                    scope, scope_context, attr_values or {UNKNOWN_VALUE}, inner, case_env
+                )
+            return case_env
+
+        if isinstance(pattern, ast.MatchSequence):
+            for index, inner in enumerate(pattern.patterns):
+                element_values: Set[AbstractValue] = set()
+                for subject in subject_values:
+                    if subject.kind == "container":
+                        element_values.update(
+                            self.container_key_values.get(subject.name, {}).get(
+                                f"#{index}", set()
+                            )
+                        )
+                case_env = self._refine_env_for_pattern(
+                    scope,
+                    scope_context,
+                    element_values or {UNKNOWN_VALUE},
+                    inner,
+                    case_env,
+                )
+            return case_env
+
+        if isinstance(pattern, ast.MatchMapping):
+            for key_node, inner in zip(pattern.keys, pattern.patterns):
+                key_names = self._resolve_string_expression_values(
+                    key_node, scope.module, env=case_env
+                )
+                value_set: Set[AbstractValue] = set()
+                for subject in subject_values:
+                    if subject.kind != "container":
+                        continue
+                    key_map = self.container_key_values.get(subject.name, {})
+                    for key_name in key_names:
+                        value_set.update(key_map.get(key_name, set()))
+                case_env = self._refine_env_for_pattern(
+                    scope, scope_context, value_set or {UNKNOWN_VALUE}, inner, case_env
+                )
+            if pattern.rest:
+                case_env[pattern.rest] = set(subject_values or {UNKNOWN_VALUE})
+            return case_env
+
+        if isinstance(pattern, ast.MatchStar):
+            if pattern.name:
+                case_env[pattern.name] = set(subject_values or {UNKNOWN_VALUE})
+            return case_env
+
+        return case_env
+
+    def _exception_handler_values(
+        self,
+        scope: ScopeInfo,
+        scope_context: ContextKey,
+        handler: ast.ExceptHandler,
+        env: Mapping[str, Set[AbstractValue]],
+        callees: Set[str],
+        input_changed_scope_contexts: Set[Tuple[str, ContextKey]],
+    ) -> Set[AbstractValue]:
+        if handler.type is None:
+            return {UNKNOWN_VALUE}
+        type_values = self._resolve_type_expression_values(
+            handler.type,
+            scope.module,
+            env=env,
+        )
+        out: Set[AbstractValue] = set()
+        for value in type_values:
+            if value.kind == CLASS_KIND:
+                out.add(make_instance(value.name))
+        return out or {UNKNOWN_VALUE}
+
+    def _refine_env_for_test(
+        self,
+        scope: ScopeInfo,
+        scope_context: ContextKey,
+        test: ast.AST,
+        env: Mapping[str, Set[AbstractValue]],
+        positive: bool,
+    ) -> Dict[str, Set[AbstractValue]]:
+        if not self.options.refine_type_guards:
+            return copy_env(env)
+
+        if isinstance(test, ast.UnaryOp) and isinstance(test.op, ast.Not):
+            return self._refine_env_for_test(
+                scope, scope_context, test.operand, env, not positive
+            )
+
+        if isinstance(test, ast.BoolOp):
+            if positive and isinstance(test.op, ast.And):
+                refined = copy_env(env)
+                for value in test.values:
+                    refined = self._refine_env_for_test(
+                        scope, scope_context, value, refined, True
+                    )
+                return refined
+            if not positive and isinstance(test.op, ast.Or):
+                refined = copy_env(env)
+                for value in test.values:
+                    refined = self._refine_env_for_test(
+                        scope, scope_context, value, refined, False
+                    )
+                return refined
+            return copy_env(env)
+
+        if (
+            isinstance(test, ast.Call)
+            and isinstance(test.func, ast.Name)
+            and test.func.id in {"isinstance", "issubclass"}
+            and len(test.args) >= 2
+            and isinstance(test.args[0], ast.Name)
+        ):
+            target_name = test.args[0].id
+            current = set(env.get(target_name, set()))
+            if not current:
+                return copy_env(env)
+            type_values = self._resolve_type_expression_values(
+                test.args[1], scope.module, env=env
+            )
+            refined = self._refine_values_with_type_filter(
+                current, type_values, positive
+            )
+            return self._refine_name_binding(env, target_name, refined)
+
+        if (
+            isinstance(test, ast.Call)
+            and len(test.args) >= 1
+            and isinstance(test.args[0], ast.Name)
+        ):
+            target_name = test.args[0].id
+            guard_targets = self._eval_expr(
+                scope,
+                scope_context,
+                test.func,
+                copy_env(env),
+                set(),
+                set(),
+            )
+            current = set(env.get(target_name, set()))
+            refinements: Set[AbstractValue] = set()
+            for guard_target in guard_targets:
+                if guard_target.kind != FUNC_KIND:
+                    continue
+                function_info = self.functions.get(guard_target.name)
+                if function_info is None:
+                    continue
+                refinements.update(
+                    self._type_guard_refinement(
+                        function_info.return_annotation,
+                        function_info.module,
+                        env=env,
+                    )
+                )
+            if positive and refinements:
+                refined = self._refine_values_with_type_filter(
+                    current, refinements, True
+                )
+                return self._refine_name_binding(env, target_name, refined)
+
+        if (
+            isinstance(test, ast.Call)
+            and isinstance(test.func, ast.Name)
+            and test.func.id == "callable"
+            and len(test.args) >= 1
+            and isinstance(test.args[0], ast.Name)
+        ):
+            target_name = test.args[0].id
+            current = set(env.get(target_name, set()))
+            refined = {
+                value
+                for value in current
+                if self._is_callable_value(value) == positive
+                or value.kind == UNKNOWN_VALUE.kind
+            }
+            return self._refine_name_binding(env, target_name, refined)
+
+        if (
+            isinstance(test, ast.Call)
+            and isinstance(test.func, ast.Name)
+            and test.func.id == "hasattr"
+            and len(test.args) >= 2
+            and isinstance(test.args[0], ast.Name)
+        ):
+            target_name = test.args[0].id
+            attr_names = self._resolve_string_expression_values(
+                test.args[1], scope.module, env=env
+            )
+            current = set(env.get(target_name, set()))
+            refined: Set[AbstractValue] = set()
+            for value in current:
+                has_attr = any(self._resolve_attribute({value}, attr_name) for attr_name in attr_names)
+                if (positive and has_attr) or (not positive and not has_attr):
+                    refined.add(value)
+                elif value.kind == UNKNOWN_VALUE.kind:
+                    refined.add(value)
+            return self._refine_name_binding(env, target_name, refined)
+
+        if (
+            isinstance(test, ast.Compare)
+            and len(test.ops) == 1
+            and len(test.comparators) == 1
+            and isinstance(test.left, ast.Name)
+            and isinstance(test.comparators[0], ast.Constant)
+            and test.comparators[0].value is None
+        ):
+            op = test.ops[0]
+            if isinstance(op, ast.Is):
+                target_name = test.left.id
+                current = set(env.get(target_name, set()))
+                refined = self._refine_values_with_type_filter(
+                    current, {NONE_VALUE}, positive
+                )
+                return self._refine_name_binding(env, target_name, refined)
+            if isinstance(op, ast.IsNot):
+                target_name = test.left.id
+                current = set(env.get(target_name, set()))
+                refined = self._refine_values_with_type_filter(
+                    current, {NONE_VALUE}, not positive
+                )
+                return self._refine_name_binding(env, target_name, refined)
+
+        return copy_env(env)
+
     def _apply_decorators(
         self,
         scope: ScopeInfo,
@@ -101,6 +418,54 @@ class _AnalyzerMixin:
             for decorator in decorators
         ]
         for decorator, targets in reversed(list(zip(decorators, evaluated))):
+            is_singledispatch = any(
+                target.kind == FUNC_KIND and target.name == "functools.singledispatch"
+                for target in targets
+            ) or self._expr_qualname(decorator) in {
+                "singledispatch",
+                "functools.singledispatch",
+            }
+            if is_singledispatch:
+                for value in env.get(name, initial_values):
+                    if value.kind == FUNC_KIND:
+                        self.singledispatch_functions.add(value.name)
+
+            generic_names, dispatch_types = self._singledispatch_registration_payload(
+                decorator,
+                scope,
+                scope_context,
+                env,
+                callees,
+                input_changed_scope_contexts,
+            )
+            if generic_names:
+                for generic_name in generic_names:
+                    for callback in env.get(name, initial_values):
+                        if callback.kind != FUNC_KIND:
+                            continue
+                        resolved_types = dispatch_types or self._singledispatch_registration_types(
+                            callback.name
+                        )
+                        self._register_singledispatch_implementation(
+                            generic_name,
+                            callback.name,
+                            resolved_types,
+                        )
+
+            registry_owner_values, registry_keys = self._registry_binding_payload(
+                decorator,
+                scope,
+                scope_context,
+                env,
+                callees,
+                input_changed_scope_contexts,
+            )
+            if registry_owner_values and registry_keys:
+                self._assign_reflective_attribute(
+                    registry_owner_values,
+                    registry_keys,
+                    set(env.get(name, initial_values)),
+                )
             synthetic_call = ast.copy_location(
                 ast.Call(
                     func=decorator,
@@ -118,7 +483,14 @@ class _AnalyzerMixin:
                 callees=callees,
                 input_changed_scope_contexts=input_changed_scope_contexts,
             )
-            env[name] = set(decorated_values or {UNKNOWN_VALUE})
+            if is_singledispatch or generic_names:
+                env[name] = set(initial_values)
+            elif registry_owner_values and registry_keys:
+                env[name] = set(decorated_values or set()) | set(initial_values)
+                if not env[name]:
+                    env[name] = {UNKNOWN_VALUE}
+            else:
+                env[name] = set(decorated_values or {UNKNOWN_VALUE})
         return set(env.get(name, initial_values))
 
     def _run_fixpoint(self) -> None:
@@ -187,6 +559,7 @@ class _AnalyzerMixin:
                 or bool(result.changed_instance_fields)
                 or bool(result.changed_class_fields)
                 or result.nonlocal_binding_changed
+                or result.singledispatch_changed
             )
             if changed:
                 impacted: Set[Tuple[str, ContextKey]] = set()
@@ -204,6 +577,8 @@ class _AnalyzerMixin:
                     )
                 for field_key in result.changed_class_fields:
                     impacted.update(self.class_field_dependents.get(field_key, set()))
+                if result.singledispatch_changed:
+                    impacted.update(self._known_scope_contexts())
                 for candidate in impacted:
                     if candidate not in in_queue:
                         queue.append(candidate)
@@ -233,7 +608,13 @@ class _AnalyzerMixin:
         env = copy_env(self.module_bindings.get(scope.module, {}))
         scope_ctx_key = (scope.name, scope_context)
         previous_active_scope_context = self._active_scope_context
+        previous_active_changed_instance_fields = self._active_changed_instance_fields
+        previous_active_changed_class_fields = self._active_changed_class_fields
+        previous_active_singledispatch_changed = self._active_singledispatch_changed
         self._active_scope_context = scope_ctx_key
+        self._active_changed_instance_fields = set()
+        self._active_changed_class_fields = set()
+        self._active_singledispatch_changed = False
         self._register_module_dependency(scope.module, scope_ctx_key)
         param_inputs = self.scope_inputs.setdefault(
             scope_ctx_key,
@@ -273,6 +654,8 @@ class _AnalyzerMixin:
             returns.update(block_returns)
             callees.update(block_callees)
             input_changed_scope_contexts.update(block_inputs)
+            changed_instance_fields.update(self._active_changed_instance_fields)
+            changed_class_fields.update(self._active_changed_class_fields)
 
             module_binding_changed = False
             if scope.name == scope.module:
@@ -308,9 +691,13 @@ class _AnalyzerMixin:
                 changed_instance_fields=changed_instance_fields,
                 changed_class_fields=changed_class_fields,
                 nonlocal_binding_changed=global_changed or nonlocal_changed,
+                singledispatch_changed=self._active_singledispatch_changed,
             )
         finally:
             self._active_scope_context = previous_active_scope_context
+            self._active_changed_instance_fields = previous_active_changed_instance_fields
+            self._active_changed_class_fields = previous_active_changed_class_fields
+            self._active_singledispatch_changed = previous_active_singledispatch_changed
 
     def _process_block(
         self,
@@ -383,6 +770,9 @@ class _AnalyzerMixin:
                         callees,
                         input_changed_scope_contexts,
                     )
+                    value = self._filter_values_by_annotation(
+                        scope.module, stmt.annotation, value
+                    )
                     self._assign_target(
                         scope,
                         stmt.target,
@@ -450,6 +840,12 @@ class _AnalyzerMixin:
                     callees,
                     input_changed_scope_contexts,
                 )
+                then_entry_env = self._refine_env_for_test(
+                    scope, scope_context, stmt.test, env, True
+                )
+                else_entry_env = self._refine_env_for_test(
+                    scope, scope_context, stmt.test, env, False
+                )
                 (
                     then_env,
                     then_ret,
@@ -460,7 +856,9 @@ class _AnalyzerMixin:
                     then_globals,
                     then_nonlocals,
                     then_fallthrough,
-                ) = self._process_block(scope, scope_context, stmt.body, copy_env(env))
+                ) = self._process_block(
+                    scope, scope_context, stmt.body, then_entry_env
+                )
                 (
                     else_env,
                     else_ret,
@@ -471,9 +869,7 @@ class _AnalyzerMixin:
                     else_globals,
                     else_nonlocals,
                     else_fallthrough,
-                ) = self._process_block(
-                    scope, scope_context, stmt.orelse, copy_env(env)
-                )
+                ) = self._process_block(scope, scope_context, stmt.orelse, else_entry_env)
                 if then_fallthrough and else_fallthrough:
                     env = join_envs(then_env, else_env)
                 elif then_fallthrough:
@@ -604,6 +1000,12 @@ class _AnalyzerMixin:
                     callees,
                     input_changed_scope_contexts,
                 )
+                body_entry_env = self._refine_env_for_test(
+                    scope, scope_context, stmt.test, env, True
+                )
+                else_entry_env = self._refine_env_for_test(
+                    scope, scope_context, stmt.test, env, False
+                )
                 (
                     body_env,
                     body_ret,
@@ -614,7 +1016,9 @@ class _AnalyzerMixin:
                     body_globals,
                     body_nonlocals,
                     body_fallthrough,
-                ) = self._process_block(scope, scope_context, stmt.body, copy_env(env))
+                ) = self._process_block(
+                    scope, scope_context, stmt.body, body_entry_env
+                )
                 (
                     orelse_env,
                     else_ret,
@@ -626,7 +1030,7 @@ class _AnalyzerMixin:
                     else_nonlocals,
                     else_fallthrough,
                 ) = self._process_block(
-                    scope, scope_context, stmt.orelse, copy_env(env)
+                    scope, scope_context, stmt.orelse, else_entry_env
                 )
                 merged_env = copy_env(env)
                 if body_fallthrough:
@@ -673,6 +1077,16 @@ class _AnalyzerMixin:
                 handler_exit_envs: List[Dict[str, Set[AbstractValue]]] = []
                 handler_fallthrough = False
                 for handler in stmt.handlers:
+                    handler_entry_env = copy_env(env)
+                    if handler.name:
+                        handler_entry_env[handler.name] = self._exception_handler_values(
+                            scope,
+                            scope_context,
+                            handler,
+                            env,
+                            callees,
+                            input_changed_scope_contexts,
+                        )
                     (
                         handler_env,
                         handler_ret,
@@ -684,7 +1098,7 @@ class _AnalyzerMixin:
                         handler_nonlocals,
                         handler_fall,
                     ) = self._process_block(
-                        scope, scope_context, handler.body, copy_env(env)
+                        scope, scope_context, handler.body, handler_entry_env
                     )
                     handler_envs.append(handler_env)
                     if handler_fall:
@@ -849,7 +1263,7 @@ class _AnalyzerMixin:
                 falls_through = with_fallthrough
 
             elif isinstance(stmt, ast.Match):
-                self._eval_expr(
+                subject_values = self._eval_expr(
                     scope,
                     scope_context,
                     stmt.subject,
@@ -859,9 +1273,22 @@ class _AnalyzerMixin:
                 )
                 merged_env = copy_env(env)
                 for case in stmt.cases:
-                    case_env = copy_env(env)
+                    case_env = self._refine_env_for_pattern(
+                        scope,
+                        scope_context,
+                        subject_values or {UNKNOWN_VALUE},
+                        case.pattern,
+                        env,
+                    )
+                    if isinstance(stmt.subject, ast.Name):
+                        case_env[stmt.subject.id] = set(
+                            case_env.get(
+                                "__match_subject__", subject_values or {UNKNOWN_VALUE}
+                            )
+                        )
                     for bound_name in self._pattern_bound_names(case.pattern):
-                        case_env.setdefault(bound_name, set()).add(UNKNOWN_VALUE)
+                        if not case_env.get(bound_name):
+                            case_env.setdefault(bound_name, set()).add(UNKNOWN_VALUE)
                     if case.guard is not None:
                         self._eval_expr(
                             scope,
@@ -936,6 +1363,9 @@ class _AnalyzerMixin:
                     env,
                     callees,
                     input_changed_scope_contexts,
+                )
+                env = self._refine_env_for_test(
+                    scope, scope_context, stmt.test, env, True
                 )
 
             elif isinstance(stmt, ast.Delete):

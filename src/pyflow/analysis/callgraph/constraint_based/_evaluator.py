@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+from itertools import product
 from typing import Dict, Set, Sequence, Tuple, List
 
 from .model import (
@@ -11,6 +12,7 @@ from .model import (
     ContextKey,
     GLOBAL_CONTEXT,
     INSTANCE_KIND,
+    NONE_VALUE,
     ScopeInfo,
     STRING_KIND,
     UNKNOWN_VALUE,
@@ -40,6 +42,14 @@ class _EvaluatorMixin:
         return {
             value.name for value in values if value.kind == STRING_KIND and value.name
         }
+
+    def _combine_string_values(
+        self, left: Set[AbstractValue], right: Set[AbstractValue]
+    ) -> Set[AbstractValue]:
+        """Build concrete string abstractions when both operands are string-like."""
+        left_strings = self._string_constants(left)
+        right_strings = self._string_constants(right)
+        return {make_string(f"{lhs}{rhs}") for lhs in left_strings for rhs in right_strings}
 
     def _subscript_keys(self, subscript: ast.Subscript) -> Set[str]:
         """Return normalized key tokens used in container key-value maps."""
@@ -116,6 +126,8 @@ class _EvaluatorMixin:
                 return {make_string(expr.value)}
             if isinstance(expr.value, int):
                 return {make_string(f"#{expr.value}")}
+            if expr.value is None:
+                return {NONE_VALUE}
             return set()
 
         if isinstance(expr, ast.Starred):
@@ -173,6 +185,39 @@ class _EvaluatorMixin:
                     input_changed_scope_contexts=input_changed_scope_contexts,
                 )
                 owner_class = self._owner_class_for_scope(scope.name)
+                if len(expr.args) >= 2:
+                    type_values = self._eval_expr(
+                        scope,
+                        scope_context,
+                        expr.args[0],
+                        env,
+                        callees,
+                        input_changed_scope_contexts,
+                    )
+                    obj_values = self._eval_expr(
+                        scope,
+                        scope_context,
+                        expr.args[1],
+                        env,
+                        callees,
+                        input_changed_scope_contexts,
+                    )
+                    candidate_classes = [value.name for value in type_values if value.kind == "class"]
+                    if obj_values:
+                        for candidate in candidate_classes:
+                            receiver = self._super_receiver_value(candidate, obj_values)
+                            if receiver:
+                                return receiver
+                    return {UNKNOWN_VALUE}
+                receiver_values: Set[AbstractValue] = set()
+                if scope.method_self_param:
+                    receiver_values.update(env.get(scope.method_self_param, set()))
+                if scope.method_cls_param:
+                    receiver_values.update(env.get(scope.method_cls_param, set()))
+                if owner_class and receiver_values:
+                    receiver = self._super_receiver_value(owner_class, receiver_values)
+                    if receiver:
+                        return receiver
                 if owner_class:
                     class_order = self._class_lookup_order(owner_class)
                     if len(class_order) >= 2:
@@ -183,6 +228,7 @@ class _EvaluatorMixin:
             # recover concrete method targets.
             if isinstance(expr.func, ast.Name) and expr.func.id == "getattr":
                 target_values: Set[AbstractValue] = set()
+                default_values: Set[AbstractValue] = set()
                 if expr.args:
                     obj_values = self._eval_expr(
                         scope,
@@ -209,6 +255,15 @@ class _EvaluatorMixin:
                         target_values.update(
                             self._resolve_attribute(obj_values, attr_name)
                         )
+                    if len(expr.args) >= 3:
+                        default_values = self._eval_expr(
+                            scope,
+                            scope_context,
+                            expr.args[2],
+                            env,
+                            callees,
+                            input_changed_scope_contexts,
+                        )
                 self._invoke_targets(
                     caller_scope=scope,
                     caller_context=scope_context,
@@ -218,7 +273,86 @@ class _EvaluatorMixin:
                     callees=callees,
                     input_changed_scope_contexts=input_changed_scope_contexts,
                 )
-                return target_values or {UNKNOWN_VALUE}
+                if target_values:
+                    return target_values
+                if default_values:
+                    return default_values
+                return {UNKNOWN_VALUE}
+
+            func_qualname = self._expr_qualname(expr.func)
+            if func_qualname in {"cast", "typing.cast"} and len(expr.args) >= 2:
+                cast_values = self._eval_expr(
+                    scope,
+                    scope_context,
+                    expr.args[1],
+                    env,
+                    callees,
+                    input_changed_scope_contexts,
+                )
+                target_types = self._resolve_type_expression_values(
+                    expr.args[0], scope.module, env=env
+                )
+                if target_types:
+                    return self._refine_values_with_type_filter(
+                        cast_values, target_types, True
+                    )
+                return cast_values or {UNKNOWN_VALUE}
+
+            if isinstance(expr.func, ast.Call) and expr.args:
+                generic_names, dispatch_types = self._singledispatch_registration_payload(
+                    expr.func,
+                    scope,
+                    scope_context,
+                    env,
+                    callees,
+                    input_changed_scope_contexts,
+                )
+                if generic_names:
+                    callback_values = self._eval_expr(
+                        scope,
+                        scope_context,
+                        expr.args[0],
+                        env,
+                        callees,
+                        input_changed_scope_contexts,
+                    )
+                    for generic_name in generic_names:
+                        for callback in callback_values:
+                            if callback.kind != "func":
+                                continue
+                            resolved_types = dispatch_types or self._singledispatch_registration_types(
+                                callback.name
+                            )
+                            self._register_singledispatch_implementation(
+                                generic_name,
+                                callback.name,
+                                resolved_types,
+                            )
+                    if callback_values:
+                        return callback_values
+
+                registry_owner_values, registry_keys = self._registry_binding_payload(
+                    expr.func,
+                    scope,
+                    scope_context,
+                    env,
+                    callees,
+                    input_changed_scope_contexts,
+                )
+                if registry_owner_values and registry_keys:
+                    callback_values = self._eval_expr(
+                        scope,
+                        scope_context,
+                        expr.args[0],
+                        env,
+                        callees,
+                        input_changed_scope_contexts,
+                    )
+                    self._assign_reflective_attribute(
+                        registry_owner_values, registry_keys, callback_values
+                    )
+                    if callback_values:
+                        return callback_values
 
             target_values = self._eval_expr(
                 scope,
@@ -494,7 +628,7 @@ class _EvaluatorMixin:
             )
 
         if isinstance(expr, ast.BinOp):
-            out5 = self._eval_expr(
+            left_values = self._eval_expr(
                 scope,
                 scope_context,
                 expr.left,
@@ -502,16 +636,18 @@ class _EvaluatorMixin:
                 callees,
                 input_changed_scope_contexts,
             )
-            out5.update(
-                self._eval_expr(
-                    scope,
-                    scope_context,
-                    expr.right,
-                    env,
-                    callees,
-                    input_changed_scope_contexts,
-                )
+            right_values = self._eval_expr(
+                scope,
+                scope_context,
+                expr.right,
+                env,
+                callees,
+                input_changed_scope_contexts,
             )
+            out5 = set(left_values)
+            out5.update(right_values)
+            if isinstance(expr.op, ast.Add):
+                out5.update(self._combine_string_values(left_values, right_values))
             return out5
 
         if isinstance(expr, ast.Compare):
@@ -558,6 +694,9 @@ class _EvaluatorMixin:
             out7: Set[AbstractValue] = set()
             for base_value in base_values:
                 if base_value.kind != CONTAINER_KIND:
+                    if keys:
+                        for key_name in keys:
+                            out7.update(self._resolve_attribute({base_value}, key_name))
                     continue
                 key_map = self.container_key_values.get(base_value.name, {})
                 if isinstance(expr.slice, ast.Slice):
@@ -619,7 +758,26 @@ class _EvaluatorMixin:
             )
 
         if isinstance(expr, ast.JoinedStr):
-            return {make_string("<joined>")}
+            pieces: List[List[str]] = []
+            for value in expr.values:
+                if isinstance(value, ast.Constant) and isinstance(value.value, str):
+                    pieces.append([value.value])
+                    continue
+                evaluated = self._eval_expr(
+                    scope,
+                    scope_context,
+                    value,
+                    env,
+                    callees,
+                    input_changed_scope_contexts,
+                )
+                strings = sorted(self._string_constants(evaluated))
+                if not strings:
+                    return {make_string("<joined>")}
+                pieces.append(strings)
+            if not pieces:
+                return {make_string("")}
+            return {make_string("".join(parts)) for parts in product(*pieces)}
 
         if isinstance(expr, ast.NamedExpr):
             values = self._eval_expr(

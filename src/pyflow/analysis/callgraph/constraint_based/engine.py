@@ -128,6 +128,13 @@ class ConstraintCallGraphBuilder(
             Tuple[str, ContextKey], Set[Tuple[str, ContextKey]]
         ] = defaultdict(set)
         self._analyzed_scope_contexts: Set[Tuple[str, ContextKey]] = set()
+        self._active_changed_instance_fields: Optional[Set[Tuple[str, str]]] = None
+        self._active_changed_class_fields: Optional[Set[Tuple[str, str]]] = None
+        self._active_singledispatch_changed = False
+        self.singledispatch_functions: Set[str] = set()
+        self.singledispatch_registrations: DefaultDict[
+            str, List[Tuple[str, Set[AbstractValue]]]
+        ] = defaultdict(list)
 
         # Solver telemetry for diagnostics and tests.
         self.fixpoint_iterations = 0

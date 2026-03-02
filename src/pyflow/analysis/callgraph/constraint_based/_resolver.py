@@ -16,6 +16,9 @@ from .model import (
     FUNC_KIND,
     INSTANCE_KIND,
     MODULE_KIND,
+    NONE_KIND,
+    NONE_VALUE,
+    PARTIAL_KIND,
     STRING_KIND,
     ScopeInfo,
     UNKNOWN_KIND,
@@ -28,14 +31,559 @@ from .model import (
     make_func,
     make_instance,
     make_module,
+    make_partial,
     parse_bound_class_method,
     parse_bound_method,
     parse_instance_name,
+    parse_partial,
+    make_string,
 )
 
 
 class _ResolverMixin:
     """Resolves call targets, binds arguments, and walks MRO for attribute lookup."""
+
+    _registry_like_names = {"register", "route", "callback", "on"}
+
+    def _resolve_string_expression_values(
+        self,
+        expr: ast.AST,
+        module_name: str,
+        env: Optional[Mapping[str, Set[AbstractValue]]] = None,
+    ) -> Set[str]:
+        if isinstance(expr, ast.Constant):
+            if isinstance(expr.value, str):
+                return {expr.value}
+            if isinstance(expr.value, int):
+                return {f"#{expr.value}"}
+            return set()
+        if isinstance(expr, ast.Name) and expr.id == "None":
+            return {"None"}
+        if isinstance(expr, ast.BinOp) and isinstance(expr.op, ast.Add):
+            left = self._resolve_string_expression_values(expr.left, module_name, env)
+            right = self._resolve_string_expression_values(expr.right, module_name, env)
+            return {f"{lhs}{rhs}" for lhs in left for rhs in right}
+        if isinstance(expr, ast.JoinedStr):
+            parts: List[List[str]] = []
+            for value in expr.values:
+                if isinstance(value, ast.Constant) and isinstance(value.value, str):
+                    parts.append([value.value])
+                    continue
+                inner = self._resolve_string_expression_values(value, module_name, env)
+                if not inner:
+                    return set()
+                parts.append(sorted(inner))
+            if not parts:
+                return {""}
+            out = {""}
+            for chunk in parts:
+                out = {f"{prefix}{piece}" for prefix in out for piece in chunk}
+            return out
+        if isinstance(expr, ast.FormattedValue):
+            return self._resolve_string_expression_values(expr.value, module_name, env)
+        lookup_env = env or self.module_bindings.get(module_name, {})
+        resolved = self._eval_expr_static(expr, lookup_env)
+        strings = {value.name for value in resolved if value.kind == STRING_KIND}
+        if strings or lookup_env is self.module_bindings.get(module_name, {}):
+            return strings
+        fallback = self._eval_expr_static(expr, self.module_bindings.get(module_name, {}))
+        return {value.name for value in fallback if value.kind == STRING_KIND}
+
+    def _expr_qualname(self, expr: ast.AST) -> Optional[str]:
+        if isinstance(expr, ast.Name):
+            return expr.id
+        if isinstance(expr, ast.Attribute):
+            base = self._expr_qualname(expr.value)
+            if base:
+                return f"{base}.{expr.attr}"
+        return None
+
+    def _annotation_union_items(self, expr: ast.AST) -> List[ast.AST]:
+        if isinstance(expr, ast.Tuple):
+            return list(expr.elts)
+        return [expr]
+
+    def _resolve_type_expression_values(
+        self,
+        expr: Optional[ast.AST],
+        module_name: str,
+        env: Optional[Mapping[str, Set[AbstractValue]]] = None,
+    ) -> Set[AbstractValue]:
+        if expr is None:
+            return set()
+        if isinstance(expr, ast.Constant):
+            if expr.value is None:
+                return {NONE_VALUE}
+            if isinstance(expr.value, str):
+                try:
+                    parsed = ast.parse(expr.value, mode="eval")
+                except SyntaxError:
+                    return set()
+                return self._resolve_type_expression_values(
+                    parsed.body, module_name, env=env
+                )
+
+        if isinstance(expr, ast.Name) and expr.id == "None":
+            return {NONE_VALUE}
+
+        if isinstance(expr, ast.BinOp) and isinstance(expr.op, ast.BitOr):
+            out: Set[AbstractValue] = set()
+            out.update(self._resolve_type_expression_values(expr.left, module_name, env))
+            out.update(
+                self._resolve_type_expression_values(expr.right, module_name, env)
+            )
+            return out
+
+        if isinstance(expr, ast.Tuple):
+            out: Set[AbstractValue] = set()
+            for item in expr.elts:
+                out.update(self._resolve_type_expression_values(item, module_name, env))
+            return out
+
+        if isinstance(expr, ast.Subscript):
+            base_name = self._expr_qualname(expr.value)
+            if base_name in {"Optional", "typing.Optional"}:
+                out = {NONE_VALUE}
+                for item in self._annotation_union_items(expr.slice):
+                    out.update(
+                        self._resolve_type_expression_values(item, module_name, env)
+                    )
+                return out
+            if base_name in {
+                "Union",
+                "typing.Union",
+                "Annotated",
+                "typing.Annotated",
+                "Type",
+                "typing.Type",
+                "type",
+            }:
+                out: Set[AbstractValue] = set()
+                for item in self._annotation_union_items(expr.slice):
+                    out.update(
+                        self._resolve_type_expression_values(item, module_name, env)
+                    )
+                return out
+            if base_name in {"Literal", "typing.Literal"}:
+                out: Set[AbstractValue] = set()
+                for item in self._annotation_union_items(expr.slice):
+                    if isinstance(item, ast.Constant):
+                        if item.value is None:
+                            out.add(NONE_VALUE)
+                        elif isinstance(item.value, str):
+                            out.add(make_string(item.value))
+                        elif isinstance(item.value, int):
+                            out.add(make_string(f"#{item.value}"))
+                return out
+
+        lookup_env = env or self.module_bindings.get(module_name, {})
+        resolved = self._eval_expr_static(expr, lookup_env)
+        if resolved:
+            return resolved
+        if lookup_env is not self.module_bindings.get(module_name, {}):
+            return self._eval_expr_static(expr, self.module_bindings.get(module_name, {}))
+        return set()
+
+    def _type_guard_refinement(
+        self,
+        expr: Optional[ast.AST],
+        module_name: str,
+        env: Optional[Mapping[str, Set[AbstractValue]]] = None,
+    ) -> Set[AbstractValue]:
+        if expr is None:
+            return set()
+        if isinstance(expr, ast.Constant) and isinstance(expr.value, str):
+            try:
+                parsed = ast.parse(expr.value, mode="eval")
+            except SyntaxError:
+                return set()
+            return self._type_guard_refinement(parsed.body, module_name, env)
+        if isinstance(expr, ast.Subscript):
+            base_name = self._expr_qualname(expr.value)
+            if base_name in {
+                "TypeGuard",
+                "typing.TypeGuard",
+                "TypeIs",
+                "typing.TypeIs",
+            }:
+                out: Set[AbstractValue] = set()
+                for item in self._annotation_union_items(expr.slice):
+                    out.update(
+                        self._resolve_type_expression_values(item, module_name, env)
+                    )
+                return out
+        return set()
+
+    def _registry_binding_payload(
+        self,
+        decorator_expr: ast.AST,
+        scope: ScopeInfo,
+        scope_context: ContextKey,
+        env: Dict[str, Set[AbstractValue]],
+        callees: Set[str],
+        input_changed_scope_contexts: Set[Tuple[str, ContextKey]],
+    ) -> Tuple[Set[AbstractValue], Set[str]]:
+        if not isinstance(decorator_expr, ast.Call):
+            return set(), set()
+        func_expr = decorator_expr.func
+        if not isinstance(func_expr, ast.Attribute):
+            return set(), set()
+        if func_expr.attr not in self._registry_like_names:
+            return set(), set()
+        key_names: Set[str] = set()
+        if decorator_expr.args:
+            key_names.update(
+                self._resolve_string_expression_values(
+                    decorator_expr.args[0], scope.module, env=env
+                )
+            )
+        if not key_names:
+            return set(), set()
+        owner_values = self._eval_expr(
+            scope,
+            scope_context,
+            func_expr.value,
+            env,
+            callees,
+            input_changed_scope_contexts,
+        )
+        return owner_values, key_names
+
+    def _singledispatch_registration_payload(
+        self,
+        decorator_expr: ast.AST,
+        scope: ScopeInfo,
+        scope_context: ContextKey,
+        env: Dict[str, Set[AbstractValue]],
+        callees: Set[str],
+        input_changed_scope_contexts: Set[Tuple[str, ContextKey]],
+    ) -> Tuple[Set[str], Set[AbstractValue]]:
+        if not isinstance(decorator_expr, ast.Call):
+            return set(), set()
+        func_expr = decorator_expr.func
+        if not isinstance(func_expr, ast.Attribute) or func_expr.attr != "register":
+            return set(), set()
+        owner_values = self._eval_expr(
+            scope,
+            scope_context,
+            func_expr.value,
+            env,
+            callees,
+            input_changed_scope_contexts,
+        )
+        generic_names = {
+            value.name
+            for value in owner_values
+            if value.kind == FUNC_KIND and value.name in self.singledispatch_functions
+        }
+        if not generic_names:
+            return set(), set()
+        declared_types: Set[AbstractValue] = set()
+        if decorator_expr.args:
+            declared_types.update(
+                self._resolve_type_expression_values(
+                    decorator_expr.args[0], scope.module, env=env
+                )
+            )
+        return generic_names, declared_types
+
+    def _register_singledispatch_implementation(
+        self,
+        generic_name: str,
+        function_name: str,
+        dispatch_types: Set[AbstractValue],
+    ) -> None:
+        registrations = self.singledispatch_registrations[generic_name]
+        for index, (existing_name, _existing_types) in enumerate(registrations):
+            if existing_name == function_name:
+                replacement = (function_name, set(dispatch_types))
+                if registrations[index] != replacement:
+                    registrations[index] = replacement
+                    self._active_singledispatch_changed = True
+                return
+        registrations.append((function_name, set(dispatch_types)))
+        self._active_singledispatch_changed = True
+
+    def _singledispatch_registration_types(self, function_name: str) -> Set[AbstractValue]:
+        function_info = self.functions.get(function_name)
+        if function_info is None or not function_info.params:
+            return set()
+        first_param = function_info.params[0]
+        return self._resolve_type_expression_values(
+            function_info.param_annotations.get(first_param),
+            function_info.module,
+        )
+
+    def _matches_type_values(
+        self, value: AbstractValue, type_values: Set[AbstractValue]
+    ) -> bool:
+        allowed_classes = {item.name for item in type_values if item.kind == CLASS_KIND}
+        allowed_strings = {item.name for item in type_values if item.kind == STRING_KIND}
+        allow_none = any(item.kind == NONE_KIND for item in type_values)
+
+        protocol_classes = [
+            class_name for class_name in allowed_classes if self._is_protocol_class(class_name)
+        ]
+
+        if value.kind == UNKNOWN_KIND:
+            return True
+        if value.kind == NONE_KIND:
+            return allow_none
+        if value.kind == STRING_KIND:
+            return value.name in allowed_strings
+        if protocol_classes and value.kind in {INSTANCE_KIND, CLASS_KIND}:
+            if any(
+                self._matches_protocol_structurally(value, protocol_name)
+                for protocol_name in protocol_classes
+            ):
+                return True
+        if value.kind == INSTANCE_KIND and allowed_classes:
+            value_class = instance_class_name(value)
+            order = self._class_lookup_order(value_class)
+            return any(class_name in order for class_name in allowed_classes)
+        if value.kind == CLASS_KIND and allowed_classes:
+            order = self._class_lookup_order(value.name)
+            return any(class_name in order for class_name in allowed_classes)
+        return False
+
+    def _is_callable_value(self, value: AbstractValue) -> bool:
+        if value.kind in {
+            FUNC_KIND,
+            BOUND_METHOD_KIND,
+            BOUND_CLASS_METHOD_KIND,
+            CLASS_KIND,
+            PARTIAL_KIND,
+        }:
+            return True
+        if value.kind == INSTANCE_KIND:
+            target_class_name = instance_class_name(value)
+            lookup_order = self._class_lookup_order(target_class_name)
+            for klass in lookup_order:
+                class_info = self.classes.get(klass)
+                if class_info and "__call__" in class_info.methods:
+                    return True
+        if value.kind == UNKNOWN_KIND:
+            return True
+        return False
+
+    def _is_protocol_class(self, class_name: str) -> bool:
+        class_info = self.classes.get(class_name)
+        if class_info is None:
+            return False
+        protocol_markers = {
+            "Protocol",
+            "typing.Protocol",
+            "typing_extensions.Protocol",
+        }
+        return any(base in protocol_markers or self._is_protocol_class(base) for base in class_info.bases)
+
+    def _protocol_required_attrs(self, class_name: str) -> Set[str]:
+        out: Set[str] = set()
+        for proto in self._class_lookup_order(class_name):
+            proto_info = self.classes.get(proto)
+            if proto_info is None:
+                continue
+            if not self._is_protocol_class(proto) and proto != class_name:
+                continue
+            for method_name in proto_info.methods:
+                if method_name.startswith("_") and method_name not in {"__call__"}:
+                    continue
+                out.add(method_name)
+            out.update(self.class_fields.get(proto, {}).keys())
+        return out
+
+    def _matches_protocol_structurally(
+        self, value: AbstractValue, protocol_name: str
+    ) -> bool:
+        required_attrs = self._protocol_required_attrs(protocol_name)
+        if not required_attrs:
+            return False
+        return all(self._resolve_attribute({value}, attr_name) for attr_name in required_attrs)
+
+    def _super_receiver_value(
+        self,
+        start_class: str,
+        obj_values: Set[AbstractValue],
+    ) -> Set[AbstractValue]:
+        out: Set[AbstractValue] = set()
+        for obj_value in obj_values:
+            if obj_value.kind == INSTANCE_KIND:
+                obj_class = instance_class_name(obj_value)
+                order = self._class_lookup_order(obj_class)
+                if start_class not in order:
+                    continue
+                idx = order.index(start_class)
+                if idx + 1 >= len(order):
+                    continue
+                next_base = order[idx + 1]
+                out.add(make_instance(next_base, parse_instance_name(obj_value.name)[1]))
+            elif obj_value.kind == CLASS_KIND:
+                order = self._class_lookup_order(obj_value.name)
+                if start_class not in order:
+                    continue
+                idx = order.index(start_class)
+                if idx + 1 >= len(order):
+                    continue
+                out.add(make_class(order[idx + 1]))
+        if out:
+            return out
+
+        order = self._class_lookup_order(start_class)
+        if len(order) >= 2:
+            return {make_class(order[1])}
+        return set()
+
+    def _invoke_callback_values(
+        self,
+        caller_scope: ScopeInfo,
+        caller_context: ContextKey,
+        callback_values: Set[AbstractValue],
+        call_node: ast.Call,
+        env: Dict[str, Set[AbstractValue]],
+        callees: Set[str],
+        input_changed_scope_contexts: Set[Tuple[str, ContextKey]],
+    ) -> Set[AbstractValue]:
+        if not callback_values:
+            return set()
+        synthetic_call = ast.copy_location(
+            ast.Call(func=call_node.func, args=[], keywords=[]),
+            call_node,
+        )
+        return self._invoke_targets(
+            caller_scope=caller_scope,
+            caller_context=caller_context,
+            target_values=callback_values,
+            call_node=synthetic_call,
+            env=env,
+            callees=callees,
+            input_changed_scope_contexts=input_changed_scope_contexts,
+        )
+
+    def _invoke_named_function(
+        self,
+        callee_name: str,
+        caller_scope: ScopeInfo,
+        caller_context: ContextKey,
+        call_node: ast.Call,
+        env: Dict[str, Set[AbstractValue]],
+        callees: Set[str],
+        input_changed_scope_contexts: Set[Tuple[str, ContextKey]],
+        arg_values: List[Set[AbstractValue]],
+        kwarg_values: Mapping[str, Set[AbstractValue]],
+        star_arg_values: Optional[List[Set[AbstractValue]]] = None,
+        dynamic_kwarg_values: Optional[Set[AbstractValue]] = None,
+    ) -> Set[AbstractValue]:
+        out: Set[AbstractValue] = set()
+        caller_scope_key = (
+            caller_scope.name,
+            self._normalize_context_for_scope(caller_scope.name, caller_context),
+        )
+        callees.add(callee_name)
+        raw_context = self._derive_callee_context(
+            caller_scope.name, caller_context, call_node
+        )
+        callee_context = self._normalize_context_for_scope(callee_name, raw_context)
+        callee_function_info = self.functions.get(callee_name)
+        if callee_function_info and callee_function_info.closure_vars:
+            active_inputs = self.scope_inputs.get((callee_name, callee_context), {})
+            has_bound_closure = any(
+                active_inputs.get(name) for name in callee_function_info.closure_vars
+            )
+            if not has_bound_closure:
+                candidate_contexts = []
+                for (scope_key, context_key), context_inputs in self.scope_inputs.items():
+                    if scope_key != callee_name:
+                        continue
+                    if any(
+                        context_inputs.get(name)
+                        for name in callee_function_info.closure_vars
+                    ):
+                        candidate_contexts.append(context_key)
+                if candidate_contexts:
+                    callee_context = sorted(candidate_contexts)[0]
+        changed = self._bind_call_arguments(
+            callee_name,
+            callee_context,
+            arg_values,
+            kwarg_values,
+            star_arg_values=star_arg_values,
+            dynamic_kwarg_values=dynamic_kwarg_values,
+        )
+        if changed:
+            input_changed_scope_contexts.add((callee_name, callee_context))
+        if (callee_name, callee_context) not in self._analyzed_scope_contexts:
+            input_changed_scope_contexts.add((callee_name, callee_context))
+        self.call_dependents[(callee_name, callee_context)].add(caller_scope_key)
+        out.update(self.scope_returns[(callee_name, callee_context)])
+        self._apply_callee_side_effects(callee_name, callee_context, env)
+        return out
+
+    def _filter_values_by_annotation(
+        self,
+        module_name: str,
+        annotation: Optional[ast.AST],
+        values: Set[AbstractValue],
+    ) -> Set[AbstractValue]:
+        if not self.options.use_type_hints or annotation is None or not values:
+            return set(values)
+        type_values = self._resolve_type_expression_values(annotation, module_name)
+        if not type_values:
+            return set(values)
+        return {
+            value for value in values if self._matches_type_values(value, type_values)
+        }
+
+    def _refine_values_with_type_filter(
+        self,
+        values: Set[AbstractValue],
+        type_values: Set[AbstractValue],
+        positive: bool,
+    ) -> Set[AbstractValue]:
+        if not type_values:
+            return set(values)
+        refined: Set[AbstractValue] = set()
+        for value in values:
+            matches = self._matches_type_values(value, type_values)
+            if positive and matches:
+                refined.add(value)
+            if not positive and not matches:
+                refined.add(value)
+        return refined
+
+    def _assign_reflective_attribute(
+        self,
+        target_values: Set[AbstractValue],
+        attr_names: Set[str],
+        assigned_values: Set[AbstractValue],
+    ) -> None:
+        if not attr_names or not assigned_values:
+            return
+
+        for target_value in target_values:
+            if target_value.kind == INSTANCE_KIND:
+                for attr_name in attr_names:
+                    current = self.instance_fields[target_value.name][attr_name]
+                    before = len(current)
+                    current.update(assigned_values)
+                    if (
+                        len(current) != before
+                        and self._active_changed_instance_fields is not None
+                    ):
+                        self._active_changed_instance_fields.add(
+                            (target_value.name, attr_name)
+                        )
+            elif target_value.kind == CLASS_KIND:
+                for attr_name in attr_names:
+                    current = self.class_fields[target_value.name][attr_name]
+                    before = len(current)
+                    current.update(assigned_values)
+                    if (
+                        len(current) != before
+                        and self._active_changed_class_fields is not None
+                    ):
+                        self._active_changed_class_fields.add(
+                            (target_value.name, attr_name)
+                        )
 
     def _class_lookup_order(self, class_name: str) -> List[str]:
         """
@@ -231,82 +779,179 @@ class _ResolverMixin:
                 resolved_callable = True
                 callee_name = target.name
                 callees.add(callee_name)
-                if callee_name in self.scopes:
-                    raw_context = self._derive_callee_context(
-                        caller_scope.name, caller_context, call_node
-                    )
-                    callee_context = self._normalize_context_for_scope(
-                        callee_name, raw_context
-                    )
-                    callee_function_info = self.functions.get(callee_name)
-                    if callee_function_info and callee_function_info.closure_vars:
-                        active_inputs = self.scope_inputs.get(
-                            (callee_name, callee_context), {}
-                        )
-                        has_bound_closure = any(
-                            active_inputs.get(name)
-                            for name in callee_function_info.closure_vars
-                        )
-                        if not has_bound_closure:
-                            candidate_contexts = []
-                            for (
-                                scope_key,
-                                context_key,
-                            ), context_inputs in self.scope_inputs.items():
-                                if scope_key != callee_name:
-                                    continue
-                                if any(
-                                    context_inputs.get(name)
-                                    for name in callee_function_info.closure_vars
-                                ):
-                                    candidate_contexts.append(context_key)
-                            if candidate_contexts:
-                                callee_context = sorted(candidate_contexts)[0]
-                    changed = self._bind_call_arguments(
-                        callee_name,
-                        callee_context,
-                        arg_values,
-                        kwarg_values,
-                        star_arg_values=star_arg_values,
-                        dynamic_kwarg_values=dynamic_kwarg_values,
-                    )
-                    if changed:
-                        input_changed_scope_contexts.add((callee_name, callee_context))
-                    if (
-                        callee_name,
-                        callee_context,
-                    ) not in self._analyzed_scope_contexts:
-                        input_changed_scope_contexts.add((callee_name, callee_context))
-                    self.call_dependents[(callee_name, callee_context)].add(
-                        caller_scope_key
-                    )
-                    out.update(self.scope_returns[(callee_name, callee_context)])
-                    self._apply_callee_side_effects(callee_name, callee_context, env)
-                elif callee_name == "<builtin>.map":
-                    callback_values: Set[AbstractValue] = set()
-                    for values in arg_values:
-                        for callback in values:
+                if callee_name in {"<builtin>.setattr", "<builtin>.delattr"}:
+                    if len(arg_values) >= 2:
+                        attr_names = self._string_constants(arg_values[1])
+                        if callee_name == "<builtin>.setattr" and len(arg_values) >= 3:
+                            self._assign_reflective_attribute(
+                                arg_values[0], attr_names, set(arg_values[2])
+                            )
+                        elif callee_name == "<builtin>.delattr":
+                            for target_value in arg_values[0]:
+                                if target_value.kind == INSTANCE_KIND:
+                                    for attr_name in attr_names:
+                                        if attr_name in self.instance_fields.get(
+                                            target_value.name, {}
+                                        ):
+                                            del self.instance_fields[target_value.name][
+                                                attr_name
+                                            ]
+                                            if (
+                                                self._active_changed_instance_fields
+                                                is not None
+                                            ):
+                                                self._active_changed_instance_fields.add(
+                                                    (target_value.name, attr_name)
+                                                )
+                                elif target_value.kind == CLASS_KIND:
+                                    for attr_name in attr_names:
+                                        if attr_name in self.class_fields.get(
+                                            target_value.name, {}
+                                        ):
+                                            del self.class_fields[target_value.name][
+                                                attr_name
+                                            ]
+                                            if (
+                                                self._active_changed_class_fields
+                                                is not None
+                                            ):
+                                                self._active_changed_class_fields.add(
+                                                    (target_value.name, attr_name)
+                                                )
+                    out.add(NONE_VALUE)
+                elif callee_name in {
+                    "<builtin>.hasattr",
+                    "<builtin>.getattr",
+                }:
+                    out.add(UNKNOWN_VALUE)
+                elif callee_name == "functools.partial":
+                    if arg_values:
+                        for callback in arg_values[0]:
                             if callback.kind in {
                                 FUNC_KIND,
                                 BOUND_METHOD_KIND,
                                 BOUND_CLASS_METHOD_KIND,
+                                CLASS_KIND,
+                                INSTANCE_KIND,
+                            }:
+                                out.add(make_partial(callback.kind, callback.name))
+                    if not out:
+                        out.add(UNKNOWN_VALUE)
+                elif callee_name in {
+                    "importlib.import_module",
+                    "<builtin>.__import__",
+                }:
+                    imported_modules: Set[AbstractValue] = set()
+                    if arg_values:
+                        for module_name in self._string_constants(arg_values[0]):
+                            imported_modules.add(make_module(module_name))
+                            self._register_imported_module_chain(module_name)
+                    out.update(imported_modules or {UNKNOWN_VALUE})
+                elif callee_name in self.singledispatch_functions:
+                    callees.discard(callee_name)
+                    matched_targets: Set[AbstractValue] = set()
+                    first_arg_values = arg_values[0] if arg_values else set()
+                    registrations = self.singledispatch_registrations.get(
+                        callee_name, []
+                    )
+                    has_unmatched_runtime = not first_arg_values
+                    for value in first_arg_values:
+                        matched_for_value = False
+                        for registered_name, dispatch_types in registrations:
+                            if dispatch_types and not self._matches_type_values(
+                                value, dispatch_types
+                            ):
+                                continue
+                            matched_targets.add(make_func(registered_name))
+                            matched_for_value = True
+                        if not matched_for_value and value.kind != UNKNOWN_KIND:
+                            has_unmatched_runtime = True
+                    for matched_target in sorted(
+                        matched_targets, key=lambda item: item.name
+                    ):
+                        out.update(
+                            self._invoke_named_function(
+                                matched_target.name,
+                                caller_scope,
+                                caller_context,
+                                call_node,
+                                env,
+                                callees,
+                                input_changed_scope_contexts,
+                                arg_values,
+                                kwarg_values,
+                                star_arg_values=star_arg_values,
+                                dynamic_kwarg_values=dynamic_kwarg_values,
+                            )
+                        )
+                    if has_unmatched_runtime or not matched_targets:
+                        out.update(
+                            self._invoke_named_function(
+                                callee_name,
+                                caller_scope,
+                                caller_context,
+                                call_node,
+                                env,
+                                callees,
+                                input_changed_scope_contexts,
+                                arg_values,
+                                kwarg_values,
+                                star_arg_values=star_arg_values,
+                                dynamic_kwarg_values=dynamic_kwarg_values,
+                            )
+                        )
+                elif callee_name in self.scopes:
+                    out.update(
+                        self._invoke_named_function(
+                            callee_name,
+                            caller_scope,
+                            caller_context,
+                            call_node,
+                            env,
+                            callees,
+                            input_changed_scope_contexts,
+                            arg_values,
+                            kwarg_values,
+                            star_arg_values=star_arg_values,
+                            dynamic_kwarg_values=dynamic_kwarg_values,
+                        )
+                    )
+                elif callee_name in {
+                    "<builtin>.map",
+                    "<builtin>.filter",
+                    "<builtin>.sorted",
+                    "functools.reduce",
+                }:
+                    callback_values: Set[AbstractValue] = set()
+                    callback_index = 0
+                    if callee_name == "<builtin>.sorted":
+                        if "key" in kwarg_values:
+                            callback_values.update(kwarg_values["key"])
+                        callback_index = -1
+                    elif callee_name == "functools.reduce":
+                        callback_index = 0
+                    if callback_index >= 0 and len(arg_values) > callback_index:
+                        for callback in arg_values[callback_index]:
+                            if callback.kind in {
+                                FUNC_KIND,
+                                BOUND_METHOD_KIND,
+                                BOUND_CLASS_METHOD_KIND,
+                                CLASS_KIND,
+                                INSTANCE_KIND,
+                                PARTIAL_KIND,
                             }:
                                 callback_values.add(callback)
-                    if not callback_values and arg_values:
+                    if callee_name in {"<builtin>.filter", "<builtin>.map"} and not callback_values and arg_values:
                         callback_values = set(arg_values[0])
                     if callback_values:
-                        synthetic_call = ast.copy_location(
-                            ast.Call(func=call_node.func, args=[], keywords=[]),
-                            call_node,
-                        )
-                        callback_results = self._invoke_targets(
+                        callback_results = self._invoke_callback_values(
                             caller_scope=caller_scope,
                             caller_context=caller_context,
-                            target_values=callback_values,
-                            call_node=synthetic_call,
+                            call_node=call_node,
                             env=env,
                             callees=callees,
                             input_changed_scope_contexts=input_changed_scope_contexts,
+                            callback_values=callback_values,
                         )
                         if callback_results:
                             out.update(callback_results)
@@ -353,6 +998,87 @@ class _ResolverMixin:
                     "<**PyStr**>.split",
                 }:
                     out.add(UNKNOWN_VALUE)
+                elif callee_name == "<**PyDict**>.get":
+                    receiver_values: Set[AbstractValue] = set()
+                    if isinstance(call_node.func, ast.Attribute):
+                        receiver_values = self._eval_expr(
+                            caller_scope,
+                            caller_context,
+                            call_node.func.value,
+                            env,
+                            callees,
+                            input_changed_scope_contexts,
+                        )
+                    key_names: Set[str] = set()
+                    if arg_values:
+                        key_names = self._string_constants(arg_values[0])
+                    matched_values: Set[AbstractValue] = set()
+                    for receiver in receiver_values:
+                        if receiver.kind != CONTAINER_KIND:
+                            continue
+                        key_map = self.container_key_values.get(receiver.name, {})
+                        if key_names:
+                            for key_name in key_names:
+                                matched_values.update(key_map.get(key_name, set()))
+                        else:
+                            matched_values.update(
+                                self.container_elements.get(receiver.name, set())
+                            )
+                    if matched_values:
+                        out.update(matched_values)
+                    elif len(arg_values) >= 2:
+                        out.update(arg_values[1])
+                    else:
+                        out.add(UNKNOWN_VALUE)
+                elif callee_name == "<**PyDict**>.setdefault":
+                    receiver_values: Set[AbstractValue] = set()
+                    if isinstance(call_node.func, ast.Attribute):
+                        receiver_values = self._eval_expr(
+                            caller_scope,
+                            caller_context,
+                            call_node.func.value,
+                            env,
+                            callees,
+                            input_changed_scope_contexts,
+                        )
+                    key_names = self._string_constants(arg_values[0]) if arg_values else set()
+                    default_values = arg_values[1] if len(arg_values) >= 2 else {UNKNOWN_VALUE}
+                    matched_values: Set[AbstractValue] = set()
+                    for receiver in receiver_values:
+                        if receiver.kind != CONTAINER_KIND:
+                            continue
+                        key_map = self.container_key_values.get(receiver.name, {})
+                        for key_name in key_names:
+                            existing = key_map.get(key_name, set())
+                            if existing:
+                                matched_values.update(existing)
+                            else:
+                                self.container_key_values[receiver.name][key_name].update(default_values)
+                                self.container_elements[receiver.name].update(default_values)
+                    out.update(matched_values or default_values)
+                elif callee_name == "<**PyDict**>.pop":
+                    receiver_values: Set[AbstractValue] = set()
+                    if isinstance(call_node.func, ast.Attribute):
+                        receiver_values = self._eval_expr(
+                            caller_scope,
+                            caller_context,
+                            call_node.func.value,
+                            env,
+                            callees,
+                            input_changed_scope_contexts,
+                        )
+                    key_names = self._string_constants(arg_values[0]) if arg_values else set()
+                    default_values = arg_values[1] if len(arg_values) >= 2 else set()
+                    popped_values: Set[AbstractValue] = set()
+                    for receiver in receiver_values:
+                        if receiver.kind != CONTAINER_KIND:
+                            continue
+                        key_map = self.container_key_values.get(receiver.name, {})
+                        for key_name in key_names:
+                            existing = key_map.pop(key_name, set())
+                            if existing:
+                                popped_values.update(existing)
+                    out.update(popped_values or default_values or {UNKNOWN_VALUE})
                 else:
                     last_segment = callee_name.rsplit(".", 1)[-1]
                     if last_segment and last_segment[0].isupper():
@@ -525,7 +1251,22 @@ class _ResolverMixin:
                     unresolved_reasons.add("instance_without_call")
                     out.add(UNKNOWN_VALUE)
 
-            elif target.kind in {CONTAINER_KIND, STRING_KIND, UNKNOWN_KIND}:
+            elif target.kind == PARTIAL_KIND:
+                resolved_callable = True
+                inner_kind, inner_name = parse_partial(target)
+                forwarded_target = AbstractValue(inner_kind, inner_name)
+                partial_result = self._invoke_targets(
+                    caller_scope=caller_scope,
+                    caller_context=caller_context,
+                    target_values={forwarded_target},
+                    call_node=call_node,
+                    env=env,
+                    callees=callees,
+                    input_changed_scope_contexts=input_changed_scope_contexts,
+                )
+                out.update(partial_result or {UNKNOWN_VALUE})
+
+            elif target.kind in {CONTAINER_KIND, STRING_KIND, UNKNOWN_KIND, NONE_KIND}:
                 unresolved_dynamic = True
                 unresolved_reasons.add("unknown_callable")
                 out.add(UNKNOWN_VALUE)
@@ -569,14 +1310,20 @@ class _ResolverMixin:
         for index, values in enumerate(arg_values):
             if index < len(positional_params):
                 param_name = positional_params[index]
+                filtered_values = self._filter_values_by_annotation(
+                    scope.module, scope.param_annotations.get(param_name), values
+                )
                 current = param_inputs.setdefault(param_name, set())
                 before = len(current)
-                current.update(values)
+                current.update(filtered_values)
                 changed = changed or len(current) != before
             elif scope.vararg:
+                filtered_values = self._filter_values_by_annotation(
+                    scope.module, scope.param_annotations.get(scope.vararg), values
+                )
                 current = param_inputs.setdefault(scope.vararg, set())
                 before = len(current)
-                current.update(values)
+                current.update(filtered_values)
                 changed = changed or len(current) != before
 
         if star_arg_values:
@@ -586,35 +1333,54 @@ class _ResolverMixin:
             if pooled_star_values:
                 for index in range(len(arg_values), len(positional_params)):
                     param_name = positional_params[index]
+                    filtered_values = self._filter_values_by_annotation(
+                        scope.module,
+                        scope.param_annotations.get(param_name),
+                        pooled_star_values,
+                    )
                     current = param_inputs.setdefault(param_name, set())
                     before = len(current)
-                    current.update(pooled_star_values)
+                    current.update(filtered_values)
                     changed = changed or len(current) != before
                 if scope.vararg:
+                    filtered_values = self._filter_values_by_annotation(
+                        scope.module,
+                        scope.param_annotations.get(scope.vararg),
+                        pooled_star_values,
+                    )
                     current = param_inputs.setdefault(scope.vararg, set())
                     before = len(current)
-                    current.update(pooled_star_values)
+                    current.update(filtered_values)
                     changed = changed or len(current) != before
 
         for kw_name, kw_values in kwarg_values.items():
             if kw_name in pos_or_kw_set or kw_name in kwonly_set:
+                filtered_values = self._filter_values_by_annotation(
+                    scope.module, scope.param_annotations.get(kw_name), kw_values
+                )
                 current = param_inputs.setdefault(kw_name, set())
                 before = len(current)
-                current.update(kw_values)
+                current.update(filtered_values)
                 changed = changed or len(current) != before
             elif kw_name in posonly_set:
                 # Positional-only parameters cannot be bound by keyword.
                 continue
             elif scope.kwarg:
+                filtered_values = self._filter_values_by_annotation(
+                    scope.module, scope.param_annotations.get(scope.kwarg), kw_values
+                )
                 current = param_inputs.setdefault(scope.kwarg, set())
                 before = len(current)
-                current.update(kw_values)
+                current.update(filtered_values)
                 changed = changed or len(current) != before
 
         if dynamic_kwarg_values and scope.kwarg:
+            filtered_values = self._filter_values_by_annotation(
+                scope.module, scope.param_annotations.get(scope.kwarg), dynamic_kwarg_values
+            )
             current = param_inputs.setdefault(scope.kwarg, set())
             before = len(current)
-            current.update(dynamic_kwarg_values)
+            current.update(filtered_values)
             changed = changed or len(current) != before
 
         return changed
@@ -1103,6 +1869,24 @@ class _ResolverMixin:
                     and attr_name == "update"
                 ):
                     out.add(make_func("<**PyDict**>.update"))
+                if (
+                    not out
+                    and base_class_name.startswith("dict:")
+                    and attr_name == "setdefault"
+                ):
+                    out.add(make_func("<**PyDict**>.setdefault"))
+                if (
+                    not out
+                    and base_class_name.startswith("dict:")
+                    and attr_name == "pop"
+                ):
+                    out.add(make_func("<**PyDict**>.pop"))
+                if (
+                    not out
+                    and base_class_name.startswith("dict:")
+                    and attr_name == "get"
+                ):
+                    out.add(make_func("<**PyDict**>.get"))
 
             elif base_value.kind == CONTAINER_KIND:
                 if base_value.name.startswith("dict:"):
@@ -1110,6 +1894,12 @@ class _ResolverMixin:
                         out.add(make_func("<**PyDict**>.items"))
                     elif attr_name == "update":
                         out.add(make_func("<**PyDict**>.update"))
+                    elif attr_name == "setdefault":
+                        out.add(make_func("<**PyDict**>.setdefault"))
+                    elif attr_name == "pop":
+                        out.add(make_func("<**PyDict**>.pop"))
+                    elif attr_name == "get":
+                        out.add(make_func("<**PyDict**>.get"))
 
         return out
 
