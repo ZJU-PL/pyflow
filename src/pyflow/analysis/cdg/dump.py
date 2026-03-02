@@ -97,7 +97,11 @@ class CDGDumper:
             f: File handle to write to
             function_name: Optional function name
         """
-        title = f"Control Dependence Graph{' for function: {function_name}' if function_name else ''}"
+        title = (
+            f"Control Dependence Graph for function: {function_name}"
+            if function_name
+            else "Control Dependence Graph"
+        )
         f.write(f"{title}\n{'=' * 60}\n\n")
 
     def _write_statistics(self, f):

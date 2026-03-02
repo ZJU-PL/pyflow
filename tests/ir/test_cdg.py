@@ -10,11 +10,23 @@ This module tests the CDG construction from CFG, including:
 """
 
 import unittest
+import importlib.util
+import os
+import sys
+import tempfile
+import textwrap
+from pathlib import Path
 
 from pyflow.application import context
 from pyflow.frontend.programextractor import Extractor
 from pyflow.analysis.cfg import transform
-from pyflow.analysis.cdg import construct_cdg, analyze_control_dependencies
+from pyflow.analysis.cfg import graph as cfg_graph
+from pyflow.analysis.cdg import (
+    CDGConstructor,
+    construct_cdg,
+    analyze_control_dependencies,
+    dump_cdg,
+)
 from pyflow.analysis.cdg.graph import ControlDependenceGraph, CDGNode, CDGEdge
 
 
@@ -92,6 +104,27 @@ class TestCDG(unittest.TestCase):
         """Build CDG from a function."""
         cfg = self.build_cfg(func)
         return construct_cdg(cfg)
+
+    def build_constructor(self, func):
+        """Build a constructor for direct post-dominator inspection."""
+        cfg = self.build_cfg(func)
+        constructor = CDGConstructor(cfg)
+        constructor.construct()
+        return constructor
+
+    def load_function_from_source(self, module_name, source, func_name):
+        """Load a function from temporary source so inspect-based extraction works."""
+        with tempfile.NamedTemporaryFile("w", suffix=".py", delete=False) as tmp:
+            tmp.write(textwrap.dedent(source))
+            tmp_path = tmp.name
+
+        spec = importlib.util.spec_from_file_location(module_name, tmp_path)
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[module_name] = module
+        self.addCleanup(sys.modules.pop, module_name, None)
+        self.addCleanup(os.unlink, tmp_path)
+        spec.loader.exec_module(module)
+        return getattr(module, func_name)
 
     def test_simple_if_cdg_construction(self):
         """Test CDG construction for a simple if statement."""
@@ -210,6 +243,14 @@ class TestCDG(unittest.TestCase):
         self.assertIn('dominance_frontiers', analysis)
         self.assertIn('post_dominators', analysis)
 
+    def test_analyze_control_dependencies_uses_unique_node_keys(self):
+        """Serialized analysis maps should keep one entry per CFG node."""
+        cfg = self.build_cfg(simple_if)
+        analysis = analyze_control_dependencies(cfg)
+
+        self.assertEqual(len(analysis["dominance_frontiers"]), analysis["total_nodes"])
+        self.assertEqual(len(analysis["post_dominators"]), analysis["total_nodes"])
+
     def test_cdg_node_relationships(self):
         """Test CDG node relationship methods."""
         cdg = self.build_cdg(simple_if)
@@ -275,6 +316,120 @@ class TestCDG(unittest.TestCase):
         repr_str = repr(cdg)
         self.assertIsInstance(repr_str, str)
         self.assertIn('ControlDependenceGraph', repr_str)
+
+    def test_simple_if_has_switch_to_branch_edges(self):
+        """Simple if should create exactly the true/false branch dependences."""
+        cdg = self.build_cdg(simple_if)
+
+        edges = sorted(
+            (
+                type(edge.source.cfg_node).__name__,
+                type(edge.target.cfg_node).__name__,
+                edge.label,
+            )
+            for edge in cdg.get_all_edges()
+        )
+
+        self.assertEqual(
+            edges,
+            [
+                ("Switch", "Suite", "false"),
+                ("Switch", "Suite", "true"),
+            ],
+        )
+
+    def test_control_dependence_sources_are_branching_nodes(self):
+        """Controllers in the CDG should be CFG nodes with multiple normal successors."""
+        cdg = self.build_cdg(if_with_loop)
+
+        for edge in cdg.get_all_edges():
+            self.assertGreater(len(edge.source.cfg_node.normalForward()), 1)
+
+    def test_loop_self_edges_are_limited_to_loop_switches(self):
+        """Any loop self-dependence should stay on the loop condition itself."""
+        cdg = self.build_cdg(if_with_loop)
+
+        self.assertTrue(cdg.get_all_edges())
+        for edge in cdg.get_all_edges():
+            if edge.source.cfg_node is edge.target.cfg_node:
+                self.assertIsInstance(edge.source.cfg_node, cfg_graph.Switch)
+                self.assertEqual(edge.label, "true")
+
+    def test_nested_if_preserves_indirect_branch_labels(self):
+        """Indirectly controlled nodes should retain the originating branch label."""
+        cdg = self.build_cdg(nested_if)
+
+        labeled_merge_edges = {
+            (
+                type(edge.source.cfg_node).__name__,
+                type(edge.target.cfg_node).__name__,
+                edge.label,
+            )
+            for edge in cdg.get_all_edges()
+        }
+
+        self.assertIn(("Switch", "Merge", "true"), labeled_merge_edges)
+
+    def test_post_dominators_for_simple_if_are_sane(self):
+        """Post-dominator relationships should match the if/else join structure."""
+        constructor = self.build_constructor(simple_if)
+        cfg_nodes = constructor._get_all_cfg_nodes()
+
+        switch = next(node for node in cfg_nodes if isinstance(node, cfg_graph.Switch))
+        join = next(
+            node
+            for node in cfg_nodes
+            if isinstance(node, cfg_graph.Merge)
+            and len(node.reverse()) == 2
+            and all(isinstance(pred, cfg_graph.Suite) for pred in node.reverse())
+        )
+
+        self.assertIn(join, constructor.get_post_dominators(switch))
+        self.assertNotIn(constructor.cfg.entryTerminal, constructor.get_post_dominators(join))
+        self.assertNotIn(switch, constructor.get_post_dominators(join))
+
+    def test_dump_text_header_includes_function_name(self):
+        """Text dump headers should interpolate the function name."""
+        cdg = self.build_cdg(simple_if)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output = Path(tmpdir) / "simple_if_cdg.txt"
+            dump_cdg(cdg, str(output), "text", "simple_if")
+            content = output.read_text()
+
+        self.assertIn("Control Dependence Graph for function: simple_if", content)
+
+    def test_exceptional_only_nested_if_keeps_transitive_control_dependence(self):
+        """Exceptional-only branches should still keep a full postdom chain."""
+        func = self.load_function_from_source(
+            "tmp_cdg_exceptional_only",
+            """
+            def only_raise_nested(x, y):
+                if x > 0:
+                    if y > 0:
+                        raise ValueError("a")
+                    else:
+                        raise ValueError("b")
+                else:
+                    raise ValueError("c")
+            """,
+            "only_raise_nested",
+        )
+        cdg = self.build_cdg(func)
+
+        switch_to_switch_edges = [
+            edge for edge in cdg.get_all_edges() if isinstance(edge.source.cfg_node, cfg_graph.Switch)
+            and isinstance(edge.target.cfg_node, cfg_graph.Switch)
+        ]
+        true_merge_edges = [
+            edge for edge in cdg.get_all_edges()
+            if isinstance(edge.source.cfg_node, cfg_graph.Switch)
+            and isinstance(edge.target.cfg_node, cfg_graph.Merge)
+            and edge.label == "true"
+        ]
+
+        self.assertTrue(switch_to_switch_edges)
+        self.assertTrue(true_merge_edges)
 
 
 if __name__ == "__main__":
