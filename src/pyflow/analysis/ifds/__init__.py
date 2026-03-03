@@ -9,6 +9,8 @@ from .cfg_adapter import (
     composite_cfg_resolver,
     direct_call_cfg_resolver,
     extract_call_expression,
+    iter_call_expressions,
+    iter_call_expressions_in_eval_order,
     named_call_cfg_resolver,
 )
 from .problem import (
@@ -26,14 +28,18 @@ from .solver import IDEResult, IDESolver, IFDSResult, IFDSSolver, PathEdge
 from .solver import PropagationTrace, SolverStatistics
 from .supergraph import Supergraph, SupergraphError
 from .taint import (
+    ExpressionTaintFact,
     InterproceduralTaintAnalysis,
+    SlotTaintFact,
     TaintAnalysisResult,
     TaintConfiguration,
     TaintFinding,
     analyze_taint,
 )
 from .transfers import (
+    actual_argument_expressions,
     actual_parameters,
+    bind_call_arguments,
     collect_locals,
     formal_parameters,
     identity_unless_killed,
@@ -46,6 +52,7 @@ __all__ = [
     "CFGNode",
     "CFGSupergraphAdapter",
     "EdgeFunction",
+    "ExpressionTaintFact",
     "FactTransition",
     "IDEProblem",
     "IDEResult",
@@ -64,11 +71,14 @@ __all__ = [
     "TaintConfiguration",
     "TaintFinding",
     "InterproceduralTaintAnalysis",
+    "SlotTaintFact",
+    "actual_argument_expressions",
     "ValueTransition",
     "actual_parameters",
     "annotation_invokes_cfg_resolver",
     "analyze_taint",
     "assigned_locals",
+    "bind_call_arguments",
     "build_supergraph_from_cfgs",
     "collect_locals",
     "composite_cfg_resolver",
@@ -76,6 +86,8 @@ __all__ = [
     "extract_call_expression",
     "formal_parameters",
     "identity_unless_killed",
+    "iter_call_expressions",
+    "iter_call_expressions_in_eval_order",
     "named_call_cfg_resolver",
     "resolve_call_name",
 ]

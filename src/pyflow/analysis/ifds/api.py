@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import nullcontext, redirect_stdout
 from dataclasses import dataclass
 import io
 from pathlib import Path
@@ -9,10 +10,12 @@ from types import SimpleNamespace
 from typing import Iterable, Sequence
 
 from pyflow.application.context import CompilerContext
+from pyflow.application.pipeline import Pipeline
 from pyflow.application.program import Program
 from pyflow.frontend.programextractor import Extractor, create_interface_from_paths, extractProgram
 from pyflow.util.application.console import Console
 
+from .annotation_fallback import ensure_ifds_annotations_complete
 from .cfg_adapter import CFGSupergraphAdapter, build_supergraph_from_cfgs
 from .taint import TaintAnalysisResult, TaintConfiguration, analyze_taint
 
@@ -31,6 +34,7 @@ def _path_args(verbose: bool, dependency_strategy: str, search_paths):
         verbose=verbose,
         dependency_strategy=dependency_strategy,
         search_paths=search_paths,
+        include_main_entry_points=True,
     )
 
 
@@ -40,6 +44,7 @@ def load_analysis_session(
     verbose: bool = False,
     dependency_strategy: str = "auto",
     search_paths: Sequence[str] | None = None,
+    include_exceptional_edges: bool = True,
 ) -> AnalysisSession:
     """Load source files into a PyFlow program and build CFGs for all live code."""
     files = [Path(path) for path in python_files]
@@ -47,13 +52,21 @@ def load_analysis_session(
     program = Program()
 
     args = _path_args(verbose, dependency_strategy, search_paths)
-    program.interface, all_source_code = create_interface_from_paths(files, args)
-    compiler.extractor = Extractor(compiler, verbose=verbose, source_code=all_source_code)
-    extractProgram(compiler, program)
+    stdout = nullcontext() if verbose else redirect_stdout(io.StringIO())
+    with stdout:
+        program.interface, all_source_code = create_interface_from_paths(files, args)
+        compiler.extractor = Extractor(compiler, verbose=verbose, source_code=all_source_code)
+        extractProgram(compiler, program)
+        Pipeline(use_pass_manager=True).run_custom_pipeline(
+            compiler, program, ["ipa", "cpa"]
+        )
+    ensure_ifds_annotations_complete(tuple(program.liveCode))
 
     queries = program.get_queries(compiler)
     cfgs = [queries.get_cfg(code) for code in program.liveCode]
-    adapter = build_supergraph_from_cfgs(cfgs)
+    adapter = build_supergraph_from_cfgs(
+        cfgs, include_exceptional_edges=include_exceptional_edges
+    )
     return AnalysisSession(compiler, program, adapter)
 
 
@@ -67,6 +80,7 @@ def run_taint_analysis(
     verbose: bool = False,
     dependency_strategy: str = "auto",
     search_paths: Sequence[str] | None = None,
+    include_exceptional_edges: bool = True,
 ) -> tuple[AnalysisSession, TaintAnalysisResult]:
     """Load files, resolve a function, and run the shipped taint analysis."""
     session = load_analysis_session(
@@ -74,6 +88,7 @@ def run_taint_analysis(
         verbose=verbose,
         dependency_strategy=dependency_strategy,
         search_paths=search_paths,
+        include_exceptional_edges=include_exceptional_edges,
     )
     queries = session.program.get_queries(session.compiler)
     cfg = queries.graph_engine.get_cfg(function)

@@ -745,8 +745,11 @@ def create_interface_from_paths(python_files, args):
             functions = resolver.extract_functions(source, str(file_path))
 
             for func_name, func_obj in functions.items():
-                # Skip driver/main function from being treated as analysis entry point
-                if func_name == "main":
+                # Most frontend entrypoints skip driver-style ``main`` functions,
+                # but API clients can opt back in for targeted analysis.
+                if func_name == "main" and not getattr(
+                    args, "include_main_entry_points", False
+                ):
                     if args.verbose:
                         print(f"DEBUG: Skipping '{func_name}' as an entry point")
                     continue

@@ -12,7 +12,6 @@ from typing import Any, Dict, List, Optional, Set, Union
 
 from pyflow.application.errors import TemporaryLimitation
 from pyflow.analysis.ifds import TaintConfiguration, analyze_taint
-
 from .context import QueryContext
 
 LOG = logging.getLogger(__name__)
@@ -257,16 +256,20 @@ class DataFlowQueries:
                 sanitizer_names=frozenset(sanitizer_names),
             ),
             entry_nodes=[adapter.supergraph.entry_of(cfg)],
+            record_traces=True,
         )
 
         findings = []
         for finding in result.findings:
+            tainted_arguments = [local.name for local in finding.tainted_arguments]
+            if not tainted_arguments:
+                tainted_arguments = list(finding.tainted_argument_labels)
             findings.append(
                 {
                     "sink_name": finding.sink_name,
                     "procedure": self.context.code_name(finding.sink.procedure.code),
                     "block_kind": finding.sink.kind,
-                    "tainted_arguments": [local.name for local in finding.tainted_arguments],
+                    "tainted_arguments": tainted_arguments,
                     "explanations": [
                         {
                             "source": getattr(edge.source_node.procedure.code, "name", None),
@@ -279,8 +282,11 @@ class DataFlowQueries:
                                 for step in traces
                             ],
                         }
-                        for edge, traces in result._ifds_result.explain_fact(
-                            finding.sink, finding.tainted_arguments[0]
+                        for edge, traces in result.explain_fact(
+                            finding.sink,
+                            result.fact_for_local(
+                                finding.sink, finding.tainted_arguments[0]
+                            ),
                         ).items()
                     ]
                     if finding.tainted_arguments
@@ -291,7 +297,7 @@ class DataFlowQueries:
         return TaintFlowReport(
             function=self.context.code_name(code) or "<unknown>",
             findings=findings,
-            statistics=result._ifds_result.statistics.__dict__,
+            statistics=result.statistics.__dict__,
         )
 
     def _get_store_graph_safe(self):

@@ -36,6 +36,7 @@ class OpFlow(TypeDispatcher):
 
     @dispatch(
         ast.leafTypes,
+        ast.Cell,
         ast.GetCellDeref,
         ast.Code,
         ast.DoNotCare,
@@ -92,6 +93,7 @@ class OpFlow(TypeDispatcher):
         ast.GetGlobal,
         ast.SetGlobal,
         ast.DeleteGlobal,
+        ast.SetCellDeref,
         ast.GetAttr,
         ast.SetAttr,
         ast.DeleteAttr,

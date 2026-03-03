@@ -3,6 +3,7 @@ from types import SimpleNamespace
 import pytest
 
 from pyflow.api.entrypoints import ExistingWrapper, InterfaceDeclaration, nullWrapper
+from pyflow.application.errors import TemporaryLimitation
 from pyflow.api.queries.call_graph import CallGraphQueries
 from pyflow.api.queries.context import QueryContext
 from pyflow.api.queries.engine import GraphQueryEngine
@@ -25,6 +26,14 @@ class DummyBlock:
     def __init__(self, bid):
         self.bid = bid
         self.next = None
+
+    def forward(self):
+        nxt = self.next
+        if nxt is None:
+            return []
+        if isinstance(nxt, dict):
+            return list(nxt.values())
+        return [nxt]
 
 
 class DummyIpaContext:
@@ -161,3 +170,52 @@ def test_resolve_function_errors_on_ambiguous_short_name():
 
     resolved = context.resolve_function(context.code_identifier(code_a))
     assert resolved is code_a
+
+
+def test_get_all_cfgs_raises_when_any_cfg_construction_fails(monkeypatch):
+    code_a = DummyCode("ok", "/tmp/a.py", 1)
+    code_b = DummyCode("broken", "/tmp/b.py", 2)
+    context = QueryContext(
+        compiler=object(),
+        program=SimpleNamespace(liveCode=[code_a, code_b], interface=None),
+    )
+    engine = GraphQueryEngine(context)
+
+    from pyflow.api.queries import engine as engine_module
+
+    def fake_evaluate(_compiler, code):
+        if code is code_b:
+            raise RuntimeError("CFG boom")
+        return SimpleNamespace(entryTerminal=DummyBlock(1))
+
+    monkeypatch.setattr(engine_module.cfg_transform, "evaluate", fake_evaluate)
+
+    with pytest.raises(TemporaryLimitation, match="broken@/tmp/b.py:2"):
+        engine.get_all_cfgs()
+
+
+def test_get_ifds_supergraph_ignores_unrelated_cfg_failures(monkeypatch):
+    code_a = DummyCode("ok", "/tmp/a.py", 1)
+    code_b = DummyCode("broken", "/tmp/b.py", 2)
+    context = QueryContext(
+        compiler=object(),
+        program=SimpleNamespace(liveCode=[code_a, code_b], interface=None),
+    )
+    engine = GraphQueryEngine(context)
+
+    from pyflow.api.queries import engine as engine_module
+
+    class DummyCfg:
+        def __init__(self, code):
+            self.code = code
+            self.entryTerminal = DummyBlock(1)
+
+    def fake_evaluate(_compiler, code):
+        if code is code_b:
+            raise RuntimeError("CFG boom")
+        return DummyCfg(code)
+
+    monkeypatch.setattr(engine_module.cfg_transform, "evaluate", fake_evaluate)
+
+    with pytest.raises(TemporaryLimitation, match="annotation-complete programs"):
+        engine.get_ifds_supergraph()

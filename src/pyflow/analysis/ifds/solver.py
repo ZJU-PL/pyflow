@@ -105,9 +105,11 @@ class IFDSResult(Generic[NodeT, FactT]):
 
     def explain_fact(self, node: NodeT, fact: FactT):
         return {
-            edge: self._traces.get(edge, ())
+            edge: traces
             for edge in self._path_edges
+            for traces in (self._traces.get(edge, ()),)
             if edge.node == node and edge.fact == fact
+            if traces
         }
 
     def incoming_records(self, start_node: NodeT, start_fact: FactT):
@@ -156,9 +158,11 @@ class IDEResult(Generic[NodeT, FactT, ValueT]):
 
     def explain_fact(self, node: NodeT, fact: FactT):
         return {
-            edge: self._traces.get(edge, ())
+            edge: traces
             for edge in self._jump_functions
+            for traces in (self._traces.get(edge, ()),)
             if edge.node == node and edge.fact == fact
+            if traces
         }
 
     def incoming_records(self, start_node: NodeT, start_fact: FactT):
@@ -170,6 +174,9 @@ class IDEResult(Generic[NodeT, FactT, ValueT]):
 
 class IFDSSolver(Generic[ProcT, NodeT, FactT]):
     """Classic tabulation-style IFDS solver."""
+
+    def __init__(self, *, record_traces: bool = False) -> None:
+        self.record_traces = record_traces
 
     def solve(self, problem: IFDSProblem[ProcT, NodeT, FactT]) -> IFDSResult[NodeT, FactT]:
         supergraph = problem.supergraph
@@ -203,10 +210,11 @@ class IFDSSolver(Generic[ProcT, NodeT, FactT]):
             predecessor: PathEdge[NodeT, FactT] | None = None,
             note: str | None = None,
         ) -> None:
-            trace = PropagationTrace(path_edge, kind, predecessor, note)
-            traces[path_edge].append(trace)
             if path_edge in seen:
                 return
+            if self.record_traces:
+                trace = PropagationTrace(path_edge, kind, predecessor, note)
+                traces[path_edge].append(trace)
             seen.add(path_edge)
             reached[path_edge.node].add(path_edge.fact)
             stats["propagated_path_edges"] += 1
@@ -335,6 +343,9 @@ class IFDSSolver(Generic[ProcT, NodeT, FactT]):
 class IDESolver(Generic[ProcT, NodeT, FactT, ValueT]):
     """Jump-function IDE solver keyed by source-relative path edges."""
 
+    def __init__(self, *, record_traces: bool = False) -> None:
+        self.record_traces = record_traces
+
     def solve(self, problem: IDEProblem[ProcT, NodeT, FactT, ValueT]) -> IDEResult[NodeT, FactT, ValueT]:
         supergraph = problem.supergraph
         queue: deque[PathEdge[NodeT, FactT]] = deque()
@@ -375,9 +386,12 @@ class IDESolver(Generic[ProcT, NodeT, FactT, ValueT]):
             predecessor: PathEdge[NodeT, FactT] | None = None,
             note: str | None = None,
         ) -> None:
-            traces[path_edge].append(PropagationTrace(path_edge, kind, predecessor, note))
             current = jump_functions.get(path_edge)
             if current is None:
+                if self.record_traces:
+                    traces[path_edge].append(
+                        PropagationTrace(path_edge, kind, predecessor, note)
+                    )
                 jump_functions[path_edge] = jump
                 reached[path_edge.node].add(path_edge.fact)
                 stats["propagated_path_edges"] += 1
@@ -385,6 +399,10 @@ class IDESolver(Generic[ProcT, NodeT, FactT, ValueT]):
                 return
             joined = join_edge_functions(current, jump)
             if joined != current:
+                if self.record_traces:
+                    traces[path_edge].append(
+                        PropagationTrace(path_edge, kind, predecessor, note)
+                    )
                 jump_functions[path_edge] = joined
                 reached[path_edge.node].add(path_edge.fact)
                 stats["propagated_path_edges"] += 1
@@ -534,9 +552,48 @@ class IDESolver(Generic[ProcT, NodeT, FactT, ValueT]):
                     )
 
         values: Dict[tuple[NodeT, FactT], ValueT] = {}
+        source_values: Dict[tuple[NodeT, FactT], ValueT] = {}
+
+        def resolve_source_value(
+            source_key: tuple[NodeT, FactT],
+            active: set[tuple[NodeT, FactT]],
+        ) -> ValueT | None:
+            if source_key in source_values:
+                return source_values[source_key]
+
+            seed_value = seed_values.get(source_key)
+            resolved = seed_value
+
+            if source_key in active:
+                if resolved is not None:
+                    return resolved
+                return None
+
+            active.add(source_key)
+            try:
+                for incoming_record in incoming.get(source_key, ()):
+                    caller_key = (
+                        incoming_record.caller_source_node,
+                        incoming_record.caller_source_fact,
+                    )
+                    caller_value = resolve_source_value(caller_key, active)
+                    if caller_value is None:
+                        continue
+                    incoming_value = incoming_record.call_jump(caller_value)
+                    if resolved is None:
+                        resolved = incoming_value
+                    else:
+                        resolved = problem.join_values(resolved, incoming_value)
+            finally:
+                active.remove(source_key)
+
+            if resolved is not None:
+                source_values[source_key] = resolved
+            return resolved
+
         for path_edge, jump in jump_functions.items():
-            seed_key = (path_edge.source_node, path_edge.source_fact)
-            seed_value = seed_values.get(seed_key)
+            source_key = (path_edge.source_node, path_edge.source_fact)
+            seed_value = resolve_source_value(source_key, set())
             if seed_value is None:
                 continue
             value = jump(seed_value)

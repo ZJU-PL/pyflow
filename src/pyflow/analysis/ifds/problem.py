@@ -28,7 +28,16 @@ class EdgeFunction(Generic[ValueT], ABC):
             return previous
         if isinstance(previous, IdentityEdgeFunction):
             return self
-        return ComposedEdgeFunction(self, previous)
+        if isinstance(previous, JoinedEdgeFunction):
+            return self.compose(previous.left).join(
+                self.compose(previous.right),
+                previous.join_values,
+            )
+        return ComposedEdgeFunction.from_functions(self, previous)
+
+    def is_idempotent(self) -> bool:
+        """Return whether repeated self-composition is semantically stable."""
+        return False
 
     def join(
         self,
@@ -41,7 +50,7 @@ class EdgeFunction(Generic[ValueT], ABC):
             other, IdentityEdgeFunction
         ):
             return self
-        return JoinedEdgeFunction(self, other, join_values)
+        return JoinedEdgeFunction.from_functions(self, other, join_values)
 
 
 @dataclass(frozen=True)
@@ -50,6 +59,9 @@ class IdentityEdgeFunction(EdgeFunction[ValueT]):
 
     def compute(self, value: ValueT) -> ValueT:
         return value
+
+    def is_idempotent(self) -> bool:
+        return True
 
 
 @dataclass(frozen=True)
@@ -64,6 +76,9 @@ class ConstantEdgeFunction(EdgeFunction[ValueT]):
     def compose(self, previous: EdgeFunction[ValueT]) -> EdgeFunction[ValueT]:
         return self
 
+    def is_idempotent(self) -> bool:
+        return True
+
 
 @dataclass(frozen=True)
 class ComposedEdgeFunction(EdgeFunction[ValueT]):
@@ -71,6 +86,44 @@ class ComposedEdgeFunction(EdgeFunction[ValueT]):
 
     outer: EdgeFunction[ValueT]
     inner: EdgeFunction[ValueT]
+
+    @classmethod
+    def from_functions(
+        cls,
+        outer: EdgeFunction[ValueT],
+        inner: EdgeFunction[ValueT],
+    ) -> EdgeFunction[ValueT]:
+        terms = cls._normalize_terms((*cls._iter_terms(outer), *cls._iter_terms(inner)))
+        if len(terms) == 1:
+            return terms[0]
+
+        composed: EdgeFunction[ValueT] = terms[-1]
+        for term in reversed(terms[:-1]):
+            composed = cls(term, composed)
+        return composed
+
+    @classmethod
+    def _iter_terms(
+        cls, function: EdgeFunction[ValueT]
+    ) -> tuple[EdgeFunction[ValueT], ...]:
+        if isinstance(function, ComposedEdgeFunction):
+            return (*cls._iter_terms(function.outer), *cls._iter_terms(function.inner))
+        return (function,)
+
+    @classmethod
+    def _normalize_terms(
+        cls, terms: tuple[EdgeFunction[ValueT], ...]
+    ) -> tuple[EdgeFunction[ValueT], ...]:
+        normalized: list[EdgeFunction[ValueT]] = []
+        for term in terms:
+            if (
+                normalized
+                and normalized[-1] == term
+                and term.is_idempotent()
+            ):
+                continue
+            normalized.append(term)
+        return tuple(normalized)
 
     def compute(self, value: ValueT) -> ValueT:
         return self.outer(self.inner(value))
@@ -84,8 +137,56 @@ class JoinedEdgeFunction(EdgeFunction[ValueT]):
     right: EdgeFunction[ValueT]
     join_values: Callable[[ValueT, ValueT], ValueT]
 
+    @classmethod
+    def from_functions(
+        cls,
+        left: EdgeFunction[ValueT],
+        right: EdgeFunction[ValueT],
+        join_values: Callable[[ValueT, ValueT], ValueT],
+    ) -> EdgeFunction[ValueT]:
+        terms = cls._merge_terms(left, right, join_values)
+        if len(terms) == 1:
+            return terms[0]
+
+        joined: EdgeFunction[ValueT] = terms[0]
+        for term in terms[1:]:
+            joined = cls(joined, term, join_values)
+        return joined
+
+    @classmethod
+    def _merge_terms(
+        cls,
+        left: EdgeFunction[ValueT],
+        right: EdgeFunction[ValueT],
+        join_values: Callable[[ValueT, ValueT], ValueT],
+    ) -> tuple[EdgeFunction[ValueT], ...]:
+        merged: list[EdgeFunction[ValueT]] = []
+        for term in cls._iter_terms(left, join_values):
+            if term not in merged:
+                merged.append(term)
+        for term in cls._iter_terms(right, join_values):
+            if term not in merged:
+                merged.append(term)
+        return tuple(merged)
+
+    @classmethod
+    def _iter_terms(
+        cls,
+        function: EdgeFunction[ValueT],
+        join_values: Callable[[ValueT, ValueT], ValueT],
+    ) -> tuple[EdgeFunction[ValueT], ...]:
+        if isinstance(function, JoinedEdgeFunction) and function.join_values == join_values:
+            return cls._merge_terms(function.left, function.right, join_values)
+        return (function,)
+
     def compute(self, value: ValueT) -> ValueT:
         return self.join_values(self.left(value), self.right(value))
+
+    def compose(self, previous: EdgeFunction[ValueT]) -> EdgeFunction[ValueT]:
+        return self.left.compose(previous).join(
+            self.right.compose(previous),
+            self.join_values,
+        )
 
 
 @dataclass(frozen=True)

@@ -142,6 +142,9 @@ class AddLabels(EdgeFunction[frozenset[str]]):
     def compute(self, value: frozenset[str]) -> frozenset[str]:
         return value | self.labels
 
+    def is_idempotent(self) -> bool:
+        return True
+
 
 class SplitCallIDEProblem(IDEProblem[str, str, str, frozenset[str]]):
     def __init__(self, supergraph: Supergraph[str, str]) -> None:
@@ -210,6 +213,78 @@ class SplitCallIDEProblem(IDEProblem[str, str, str, frozenset[str]]):
         return ()
 
 
+class RecursiveIDEProblem(IDEProblem[str, str, str, frozenset[str]]):
+    def __init__(self, supergraph: Supergraph[str, str]) -> None:
+        self._supergraph = supergraph
+
+    @property
+    def supergraph(self) -> Supergraph[str, str]:
+        return self._supergraph
+
+    @property
+    def zero_fact(self) -> str:
+        return ZERO
+
+    @property
+    def bottom_value(self) -> frozenset[str]:
+        return frozenset()
+
+    def join_values(
+        self, left: frozenset[str], right: frozenset[str]
+    ) -> frozenset[str]:
+        return left | right
+
+    def initial_seed_values(self):
+        return {("rec.entry", ZERO): frozenset()}
+
+    def normal_flow(self, node: str, successor: str, fact: str):
+        if node == "rec.entry" and successor == "rec.call" and fact == ZERO:
+            return (
+                ValueTransition(ZERO, IdentityEdgeFunction()),
+                ValueTransition("d", IdentityEdgeFunction()),
+            )
+        if node == "rec.entry" and successor == "rec.call" and fact == "d":
+            return (ValueTransition("d", IdentityEdgeFunction()),)
+        if node == "rec.after" and successor == "rec.exit" and fact in {ZERO, "d"}:
+            return (ValueTransition(fact, IdentityEdgeFunction()),)
+        return ()
+
+    def call_flow(self, call_node: str, callee: str, fact: str):
+        if call_node != "rec.call" or callee != "rec":
+            return ()
+        if fact == ZERO:
+            return (ValueTransition(ZERO, IdentityEdgeFunction()),)
+        if fact == "d":
+            return (ValueTransition("d", AddLabels(frozenset({"recur"}))),)
+        return ()
+
+    def return_flow(
+        self,
+        call_node: str,
+        callee: str,
+        exit_node: str,
+        return_site: str,
+        call_fact: str,
+        exit_fact: str,
+    ):
+        if (
+            call_node == "rec.call"
+            and callee == "rec"
+            and exit_node == "rec.exit"
+            and return_site == "rec.after"
+        ):
+            if call_fact == ZERO and exit_fact == ZERO:
+                return (ValueTransition(ZERO, IdentityEdgeFunction()),)
+            if call_fact == "d" and exit_fact == "d":
+                return (ValueTransition("d", IdentityEdgeFunction()),)
+        return ()
+
+    def call_to_return_flow(self, call_node: str, return_site: str, fact: str):
+        if call_node == "rec.call" and return_site == "rec.after":
+            return (ValueTransition(fact, IdentityEdgeFunction()),)
+        return ()
+
+
 def build_linear_supergraph() -> Supergraph[str, str]:
     graph = Supergraph[str, str]()
     graph.add_procedure("main", "main.entry", ["main.exit"])
@@ -270,7 +345,9 @@ def test_ifds_handles_linear_intra_procedural_flow():
 
 
 def test_ifds_propagates_facts_through_call_and_return():
-    result = IFDSSolver().solve(CallReturnIFDSProblem(build_call_supergraph()))
+    result = IFDSSolver(record_traces=True).solve(
+        CallReturnIFDSProblem(build_call_supergraph())
+    )
 
     assert result.is_reached("main.after", ZERO)
     assert result.is_reached("main.after", "taint")
@@ -292,10 +369,78 @@ def test_ifds_terminates_on_recursive_call_graph():
 
 
 def test_ide_preserves_per_callsite_values_via_jump_functions():
-    result = IDESolver().solve(SplitCallIDEProblem(build_split_call_supergraph()))
+    result = IDESolver(record_traces=True).solve(
+        SplitCallIDEProblem(build_split_call_supergraph())
+    )
 
+    assert result.value_at("callee.entry", "p") == frozenset({"one", "two"})
+    assert result.value_at("callee.exit", "p") == frozenset({"one", "two", "summary"})
     assert result.value_at("main.ret1", "d") == frozenset({"one", "summary"})
     assert result.value_at("main.ret2", "d") == frozenset({"two", "summary"})
     assert result.value_at("main.exit", "d") == frozenset({"one", "two", "summary"})
     edge = PathEdge("callee.entry", "p", "callee.exit", "p")
     assert result.traces_for(edge)
+
+
+def test_solvers_do_not_record_traces_unless_requested():
+    ifds_result = IFDSSolver().solve(CallReturnIFDSProblem(build_call_supergraph()))
+    ide_result = IDESolver().solve(SplitCallIDEProblem(build_split_call_supergraph()))
+
+    assert not ifds_result.explain_fact("main.after", "taint")
+    edge = PathEdge("callee.entry", "p", "callee.exit", "p")
+    assert not ide_result.traces_for(edge)
+
+
+class DuplicatePropagationIFDSProblem(LinearIFDSProblem):
+    def normal_flow(self, node: str, successor: str, fact: str):
+        if node == "main.entry" and successor == "main.body" and fact == ZERO:
+            return (ZERO, ZERO)
+        return super().normal_flow(node, successor, fact)
+
+
+class DuplicatePropagationIDEProblem(SplitCallIDEProblem):
+    def normal_flow(self, node: str, successor: str, fact: str):
+        transitions = list(super().normal_flow(node, successor, fact))
+        if node == "main.entry" and successor == "main.call1" and fact == ZERO:
+            transitions.append(ValueTransition("d", IdentityEdgeFunction()))
+        return tuple(transitions)
+
+    def call_to_return_flow(self, call_node: str, return_site: str, fact: str):
+        transitions = list(super().call_to_return_flow(call_node, return_site, fact))
+        if fact == ZERO:
+            transitions.append(ValueTransition(ZERO, IdentityEdgeFunction()))
+        return tuple(transitions)
+
+
+def test_solvers_only_record_traces_for_new_information():
+    ifds_result = IFDSSolver(record_traces=True).solve(
+        DuplicatePropagationIFDSProblem(build_linear_supergraph())
+    )
+    ide_result = IDESolver(record_traces=True).solve(
+        DuplicatePropagationIDEProblem(build_split_call_supergraph())
+    )
+
+    ifds_edge = PathEdge("main.entry", ZERO, "main.body", ZERO)
+    assert len(ifds_result.traces_for(ifds_edge)) == 1
+
+    ide_edge = PathEdge("main.entry", ZERO, "main.call1", "d")
+    assert len(ide_result.traces_for(ide_edge)) == 1
+
+
+def test_edge_function_join_is_idempotent_for_duplicate_terms():
+    first = AddLabels(frozenset({"one"}))
+    second = AddLabels(frozenset({"two"}))
+    join_values = lambda left, right: left | right
+
+    joined = first.join(second, join_values)
+    rejoined = joined.join(first, join_values)
+
+    assert rejoined == joined
+    assert rejoined(frozenset()) == frozenset({"one", "two"})
+
+
+def test_ide_terminates_on_recursive_idempotent_edge_functions():
+    result = IDESolver().solve(RecursiveIDEProblem(build_recursive_supergraph()))
+
+    assert result.value_at("rec.after", "d") == frozenset({"recur"})
+    assert result.value_at("rec.exit", "d") == frozenset({"recur"})
