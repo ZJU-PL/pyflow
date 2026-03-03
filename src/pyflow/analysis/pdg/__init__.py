@@ -10,10 +10,13 @@ A PDG is a directed graph that combines:
 - **Data dependences** (def-use): which definitions provide values that are used
   by other statements.
 
-This implementation is designed to work directly from PyFlow's CFG. For data
-dependences, it can either:
-- derive def-use dependencies directly from the CFG's Python AST, and
-- optionally run SSA + phi expansion to improve precision.
+This implementation is designed to work directly from PyFlow's CFG while
+reusing PyFlow's other graph analyses:
+- control dependences come from the CDG built over the CFG
+- data dependences come from the DDG built over dataflow IR and projected back
+  onto PDG statement/condition nodes
+- a narrow AST def-use fallback remains for statement forms that the current
+  DDG does not model directly
 
 Typical use cases:
 - Program slicing (backward/forward slices)

@@ -134,6 +134,21 @@ class SemanticQueryService:
     def get_store_graph(self):
         return self.data_flow_queries.get_store_graph()
 
+    def get_interprocedural_taint(
+        self,
+        function: Union[str, object],
+        *,
+        source_names: set[str],
+        sink_names: set[str],
+        sanitizer_names: Optional[set[str]] = None,
+    ):
+        return self.data_flow_queries.get_interprocedural_taint(
+            function,
+            source_names=source_names,
+            sink_names=sink_names,
+            sanitizer_names=sanitizer_names,
+        )
+
     def get_ipa_analysis(self):
         return self.data_flow_queries.get_ipa_analysis()
 

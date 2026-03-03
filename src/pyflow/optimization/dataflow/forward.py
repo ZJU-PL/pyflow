@@ -107,7 +107,6 @@ class ForwardFlowTraverse(TypeDispatcher):
         ast.DeleteSubscript,
         ast.SetCellDeref,
         ast.Assert,
-        ast.DirectCall,
         ast.BuildList,
         ast.BuildTuple,
         ast.BuildMap,
@@ -123,6 +122,60 @@ class ForwardFlowTraverse(TypeDispatcher):
     @dispatch(list, tuple)
     def visitContainer(self, node):
         return [self(child) for child in node]
+
+    def visitKwds(self, kwds):
+        output = []
+        for item in kwds:
+            if isinstance(item, tuple) and len(item) == 2:
+                name, value = item
+                output.append((name, self(value)))
+            else:
+                output.append(self(item))
+        return output
+
+    def processShortCircuit(self, node, short_circuit_on_true):
+        newterms = []
+        exits = []
+        current = self.flow.pop()
+
+        if not node.terms:
+            self.flow.restore(current)
+            return node
+
+        for index, term in enumerate(node.terms):
+            if current is None:
+                break
+
+            self.flow.restore(current)
+            newterm = self(term)
+            current = self.flow.pop()
+            newterms.append(newterm)
+
+            if current is None:
+                break
+
+            is_last = index == len(node.terms) - 1
+            constant = existingConstant(newterm)
+            if is_last:
+                exits.append(current)
+                current = None
+                break
+
+            if constant:
+                value = bool(newterm.object.pyobj)
+                if value == short_circuit_on_true:
+                    exits.append(current)
+                    current = None
+                    break
+            else:
+                exits.append(current)
+                current = current.split()
+
+        merged, changed = meet(self.meetF, *exits)
+        self.flow.restore(merged)
+        result = type(node)(newterms)
+        result.annotation = node.annotation
+        return result
 
     @dispatch(ast.Suite)
     def visitSuite(self, node):
@@ -392,6 +445,14 @@ class ForwardFlowTraverse(TypeDispatcher):
         result = ast.For(iterator, index, loopPreamble, bodyPreamble, body, else_)
         return result
 
+    @dispatch(ast.ShortCircutOr)
+    def visitShortCircutOr(self, node):
+        return self.processShortCircuit(node, True)
+
+    @dispatch(ast.ShortCircutAnd)
+    def visitShortCircutAnd(self, node):
+        return self.processShortCircuit(node, False)
+
     @dispatch(ast.TryExceptFinally)
     def visitTryExceptFinally(self, node):
         oldRaise = self.flow.bags.get("raise", [])
@@ -477,14 +538,6 @@ class ForwardFlowTraverse(TypeDispatcher):
 
         return result
 
-    @dispatch(ast.ShortCircutOr)
-    def visitShortCircutOr(self, node):
-        assert False, node
-
-    @dispatch(ast.ShortCircutAnd)
-    def visitShortCircutAnd(self, node):
-        assert False, node
-
     @dispatch(ast.Break)
     def visitBreak(self, node):
         result = self.processExpr(node)
@@ -499,19 +552,25 @@ class ForwardFlowTraverse(TypeDispatcher):
 
     @dispatch(ast.Call)
     def visitCall(self, node):
-        # Handle function calls in dataflow
         expr = self(node.expr)
         args = self(node.args)
-        # For now, just return the call with processed children
-        return ast.Call(expr, args, node.kwds, node.vargs, node.kargs)
-
-    def visitDirectCall(self, node):
-        # Process direct calls similarly: rewrite selfarg and args
-        selfarg = self(node.selfarg)
-        args = self(node.args)
+        kwds = self.visitKwds(node.kwds)
         vargs = self(node.vargs)
         kargs = self(node.kargs)
-        return ast.DirectCall(node.code, selfarg, args, node.kwds, vargs, kargs)
+        result = ast.Call(expr, args, kwds, vargs, kargs)
+        result.annotation = node.annotation
+        return self.processExpr(result)
+
+    @dispatch(ast.DirectCall)
+    def visitDirectCall(self, node):
+        selfarg = self(node.selfarg)
+        args = self(node.args)
+        kwds = self.visitKwds(node.kwds)
+        vargs = self(node.vargs)
+        kargs = self(node.kargs)
+        result = ast.DirectCall(node.code, selfarg, args, kwds, vargs, kargs)
+        result.annotation = node.annotation
+        return self.processExpr(result)
 
     @dispatch(ast.Existing)
     def visitExisting(self, node):
@@ -533,13 +592,21 @@ class ForwardFlowTraverse(TypeDispatcher):
 
     @dispatch(ast.Return)
     def visitReturn(self, node):
-        result = self.processExpr(node)
+        exprs = self(node.exprs)
+        result = ast.Return(exprs)
+        result.annotation = node.annotation
+        result = self.processExpr(result)
         self.flow.save("return")
         return result
 
     @dispatch(ast.Raise)
     def visitRaise(self, node):
-        result = self.processExpr(node)
+        exception = self(node.exception)
+        parameter = self(node.parameter)
+        traceback = self(node.traceback)
+        result = ast.Raise(exception, parameter, traceback)
+        result.annotation = node.annotation
+        result = self.processExpr(result)
         self.flow.save("raise")
         return result
 

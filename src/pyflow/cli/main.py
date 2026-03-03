@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from .optimize import run_analysis, list_optimization_passes, add_optimize_parser
 from .ir import run_ir_dump, add_ir_parser
 from .security import run_security_analysis, add_security_parser
+from .dataflow import run_dataflow_analysis, add_dataflow_parser
 from . import callgraph
 
 
@@ -49,6 +50,9 @@ def main():
     # Security analysis command - use the modular parser
     add_security_parser(subparsers)
 
+    # IFDS/IDE-backed dataflow command
+    add_dataflow_parser(subparsers)
+
     args = parser.parse_args()
 
     # Handle special commands that don't require input
@@ -76,6 +80,8 @@ def main():
     elif args.command == "security":
         # Security command handles its own targets
         input_path = None
+    elif args.command == "dataflow":
+        input_path = Path(args.input_path)
     else:
         input_path = None
 
@@ -93,6 +99,8 @@ def main():
         run_ir_dump(input_path, args)
     elif args.command == "security":
         return run_security_analysis(args.targets, args)
+    elif args.command == "dataflow":
+        return run_dataflow_analysis(input_path, args)
     else:
         parser.print_help()
         sys.exit(1)

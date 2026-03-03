@@ -1,0 +1,301 @@
+"""Tests for the IFDS/IDE interprocedural dataflow engine."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+from pyflow.analysis.ifds import (
+    EdgeFunction,
+    IDEProblem,
+    IDESolver,
+    IFDSProblem,
+    IFDSSolver,
+    IdentityEdgeFunction,
+    PathEdge,
+    Supergraph,
+    ValueTransition,
+)
+
+
+ZERO = "ZERO"
+
+
+class LinearIFDSProblem(IFDSProblem[str, str, str]):
+    def __init__(self, supergraph: Supergraph[str, str]) -> None:
+        self._supergraph = supergraph
+
+    @property
+    def supergraph(self) -> Supergraph[str, str]:
+        return self._supergraph
+
+    @property
+    def zero_fact(self) -> str:
+        return ZERO
+
+    def initial_seeds(self):
+        return {"main.entry": frozenset({ZERO})}
+
+    def normal_flow(self, node: str, successor: str, fact: str):
+        if node == "main.entry" and successor == "main.body" and fact == ZERO:
+            return (ZERO, "x")
+        if fact in {ZERO, "x"}:
+            return (fact,)
+        return ()
+
+
+class CallReturnIFDSProblem(IFDSProblem[str, str, str]):
+    def __init__(self, supergraph: Supergraph[str, str]) -> None:
+        self._supergraph = supergraph
+
+    @property
+    def supergraph(self) -> Supergraph[str, str]:
+        return self._supergraph
+
+    @property
+    def zero_fact(self) -> str:
+        return ZERO
+
+    def initial_seeds(self):
+        return {"main.entry": frozenset({ZERO})}
+
+    def normal_flow(self, node: str, successor: str, fact: str):
+        if node == "main.entry" and successor == "main.call" and fact == ZERO:
+            return (ZERO, "taint")
+        if fact in {ZERO, "taint", "param"}:
+            return (fact,)
+        return ()
+
+    def call_flow(self, call_node: str, callee: str, fact: str):
+        if call_node == "main.call" and callee == "helper":
+            if fact == ZERO:
+                return (ZERO,)
+            if fact == "taint":
+                return ("param",)
+        return ()
+
+    def return_flow(
+        self,
+        call_node: str,
+        callee: str,
+        exit_node: str,
+        return_site: str,
+        call_fact: str,
+        exit_fact: str,
+    ):
+        if (
+            call_node == "main.call"
+            and callee == "helper"
+            and exit_node == "helper.exit"
+            and return_site == "main.after"
+        ):
+            if call_fact == ZERO and exit_fact == ZERO:
+                return (ZERO,)
+            if call_fact == "taint" and exit_fact == "param":
+                return ("taint",)
+        return ()
+
+    def call_to_return_flow(self, call_node: str, return_site: str, fact: str):
+        if call_node == "main.call" and return_site == "main.after" and fact == ZERO:
+            return (ZERO,)
+        return ()
+
+
+class RecursiveIFDSProblem(IFDSProblem[str, str, str]):
+    def __init__(self, supergraph: Supergraph[str, str]) -> None:
+        self._supergraph = supergraph
+
+    @property
+    def supergraph(self) -> Supergraph[str, str]:
+        return self._supergraph
+
+    @property
+    def zero_fact(self) -> str:
+        return ZERO
+
+    def initial_seeds(self):
+        return {"rec.entry": frozenset({ZERO})}
+
+    def normal_flow(self, node: str, successor: str, fact: str):
+        if node == "rec.entry" and successor == "rec.call" and fact == ZERO:
+            return (ZERO, "loop")
+        if fact in {ZERO, "loop"}:
+            return (fact,)
+        return ()
+
+    def call_flow(self, call_node: str, callee: str, fact: str):
+        if call_node == "rec.call" and callee == "rec" and fact == "loop":
+            return ("loop",)
+        if call_node == "rec.call" and callee == "rec" and fact == ZERO:
+            return (ZERO,)
+        return ()
+
+    def call_to_return_flow(self, call_node: str, return_site: str, fact: str):
+        if call_node == "rec.call" and return_site == "rec.after":
+            return (fact,)
+        return ()
+
+
+@dataclass(frozen=True)
+class AddLabels(EdgeFunction[frozenset[str]]):
+    labels: frozenset[str]
+
+    def compute(self, value: frozenset[str]) -> frozenset[str]:
+        return value | self.labels
+
+
+class SplitCallIDEProblem(IDEProblem[str, str, str, frozenset[str]]):
+    def __init__(self, supergraph: Supergraph[str, str]) -> None:
+        self._supergraph = supergraph
+
+    @property
+    def supergraph(self) -> Supergraph[str, str]:
+        return self._supergraph
+
+    @property
+    def zero_fact(self) -> str:
+        return ZERO
+
+    @property
+    def bottom_value(self) -> frozenset[str]:
+        return frozenset()
+
+    def join_values(
+        self, left: frozenset[str], right: frozenset[str]
+    ) -> frozenset[str]:
+        return left | right
+
+    def initial_seed_values(self):
+        return {("main.entry", ZERO): frozenset()}
+
+    def normal_flow(self, node: str, successor: str, fact: str):
+        if node == "main.entry" and successor in {"main.call1", "main.call2"} and fact == ZERO:
+            return (ValueTransition("d", IdentityEdgeFunction()),)
+        if node in {"main.ret1", "main.ret2"} and successor == "main.exit" and fact == "d":
+            return (ValueTransition("d", IdentityEdgeFunction()),)
+        if node == "callee.entry" and successor == "callee.exit" and fact == "p":
+            return (ValueTransition("p", AddLabels(frozenset({"summary"}))),)
+        return ()
+
+    def call_flow(self, call_node: str, callee: str, fact: str):
+        if callee != "callee" or fact != "d":
+            return ()
+        if call_node == "main.call1":
+            return (ValueTransition("p", AddLabels(frozenset({"one"}))),)
+        if call_node == "main.call2":
+            return (ValueTransition("p", AddLabels(frozenset({"two"}))),)
+        return ()
+
+    def return_flow(
+        self,
+        call_node: str,
+        callee: str,
+        exit_node: str,
+        return_site: str,
+        call_fact: str,
+        exit_fact: str,
+    ):
+        if (
+            callee == "callee"
+            and exit_node == "callee.exit"
+            and call_fact == "d"
+            and exit_fact == "p"
+            and return_site in {"main.ret1", "main.ret2"}
+        ):
+            return (ValueTransition("d", IdentityEdgeFunction()),)
+        return ()
+
+    def call_to_return_flow(self, call_node: str, return_site: str, fact: str):
+        if fact == ZERO:
+            return (ValueTransition(ZERO, IdentityEdgeFunction()),)
+        return ()
+
+
+def build_linear_supergraph() -> Supergraph[str, str]:
+    graph = Supergraph[str, str]()
+    graph.add_procedure("main", "main.entry", ["main.exit"])
+    graph.add_node("main", "main.body")
+    graph.add_normal_edge("main.entry", "main.body")
+    graph.add_normal_edge("main.body", "main.exit")
+    return graph
+
+
+def build_call_supergraph() -> Supergraph[str, str]:
+    graph = Supergraph[str, str]()
+    graph.add_procedure("main", "main.entry", ["main.exit"])
+    graph.add_node("main", "main.call")
+    graph.add_node("main", "main.after")
+    graph.add_normal_edge("main.entry", "main.call")
+    graph.add_normal_edge("main.after", "main.exit")
+
+    graph.add_procedure("helper", "helper.entry", ["helper.exit"])
+    graph.add_normal_edge("helper.entry", "helper.exit")
+
+    graph.add_call_edge("main.call", "helper", "main.after")
+    return graph
+
+
+def build_recursive_supergraph() -> Supergraph[str, str]:
+    graph = Supergraph[str, str]()
+    graph.add_procedure("rec", "rec.entry", ["rec.exit"])
+    graph.add_node("rec", "rec.call")
+    graph.add_node("rec", "rec.after")
+    graph.add_normal_edge("rec.entry", "rec.call")
+    graph.add_normal_edge("rec.after", "rec.exit")
+    graph.add_call_edge("rec.call", "rec", "rec.after")
+    return graph
+
+
+def build_split_call_supergraph() -> Supergraph[str, str]:
+    graph = Supergraph[str, str]()
+    graph.add_procedure("main", "main.entry", ["main.exit"])
+    for node in ("main.call1", "main.call2", "main.ret1", "main.ret2"):
+        graph.add_node("main", node)
+    graph.add_normal_edge("main.entry", "main.call1")
+    graph.add_normal_edge("main.entry", "main.call2")
+    graph.add_normal_edge("main.ret1", "main.exit")
+    graph.add_normal_edge("main.ret2", "main.exit")
+
+    graph.add_procedure("callee", "callee.entry", ["callee.exit"])
+    graph.add_call_edge("main.call1", "callee", "main.ret1")
+    graph.add_call_edge("main.call2", "callee", "main.ret2")
+    graph.add_normal_edge("callee.entry", "callee.exit")
+    return graph
+
+
+def test_ifds_handles_linear_intra_procedural_flow():
+    result = IFDSSolver().solve(LinearIFDSProblem(build_linear_supergraph()))
+
+    assert result.is_reached("main.exit", ZERO)
+    assert result.is_reached("main.exit", "x")
+
+
+def test_ifds_propagates_facts_through_call_and_return():
+    result = IFDSSolver().solve(CallReturnIFDSProblem(build_call_supergraph()))
+
+    assert result.is_reached("main.after", ZERO)
+    assert result.is_reached("main.after", "taint")
+    assert result.is_reached("main.exit", "taint")
+    assert result.statistics.summary_updates >= 1
+    explanation = result.explain_fact("main.after", "taint")
+    assert explanation
+    assert any(
+        any(step.kind.startswith("return_flow") for step in traces)
+        for traces in explanation.values()
+    )
+
+
+def test_ifds_terminates_on_recursive_call_graph():
+    result = IFDSSolver().solve(RecursiveIFDSProblem(build_recursive_supergraph()))
+
+    assert result.is_reached("rec.after", "loop")
+    assert result.is_reached("rec.exit", "loop")
+
+
+def test_ide_preserves_per_callsite_values_via_jump_functions():
+    result = IDESolver().solve(SplitCallIDEProblem(build_split_call_supergraph()))
+
+    assert result.value_at("main.ret1", "d") == frozenset({"one", "summary"})
+    assert result.value_at("main.ret2", "d") == frozenset({"two", "summary"})
+    assert result.value_at("main.exit", "d") == frozenset({"one", "two", "summary"})
+    edge = PathEdge("callee.entry", "p", "callee.exit", "p")
+    assert result.traces_for(edge)

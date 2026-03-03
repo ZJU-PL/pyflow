@@ -11,6 +11,7 @@ from collections import deque
 from typing import Any, Dict, List, Optional, Set, Union
 
 from pyflow.application.errors import TemporaryLimitation
+from pyflow.analysis.ifds import TaintConfiguration, analyze_taint
 
 from .context import QueryContext
 
@@ -52,6 +53,15 @@ class ReachingDef:
     def_location: Any = None
     def_value: Optional[str] = None
     is_call: bool = False
+
+
+@dataclass
+class TaintFlowReport:
+    """Interprocedural taint report returned by the IFDS engine."""
+
+    function: str
+    findings: List[Dict[str, Any]] = field(default_factory=list)
+    statistics: Dict[str, int] = field(default_factory=dict)
 
 
 class DataFlowQueries:
@@ -222,6 +232,67 @@ class DataFlowQueries:
             return self._get_aliases_from_defuse(code)
 
         return self._get_aliases_from_storegraph(code, store_graph)
+
+    def get_interprocedural_taint(
+        self,
+        function: Union[str, object],
+        *,
+        source_names: Set[str],
+        sink_names: Set[str],
+        sanitizer_names: Optional[Set[str]] = None,
+    ) -> TaintFlowReport:
+        """Run the shipped IFDS taint analysis for one function entry."""
+        sanitizer_names = sanitizer_names or set()
+        code = self.context.resolve_function(function)
+        if self.graph_engine is None:
+            raise TemporaryLimitation("Graph engine is required for IFDS taint analysis.")
+
+        cfg = self.graph_engine.get_cfg(code)
+        adapter = self.graph_engine.get_ifds_supergraph()
+        result = analyze_taint(
+            adapter,
+            TaintConfiguration(
+                source_names=frozenset(source_names),
+                sink_names=frozenset(sink_names),
+                sanitizer_names=frozenset(sanitizer_names),
+            ),
+            entry_nodes=[adapter.supergraph.entry_of(cfg)],
+        )
+
+        findings = []
+        for finding in result.findings:
+            findings.append(
+                {
+                    "sink_name": finding.sink_name,
+                    "procedure": self.context.code_name(finding.sink.procedure.code),
+                    "block_kind": finding.sink.kind,
+                    "tainted_arguments": [local.name for local in finding.tainted_arguments],
+                    "explanations": [
+                        {
+                            "source": getattr(edge.source_node.procedure.code, "name", None),
+                            "target_kind": edge.node.kind,
+                            "trace": [
+                                {
+                                    "kind": step.kind,
+                                    "note": step.note,
+                                }
+                                for step in traces
+                            ],
+                        }
+                        for edge, traces in result._ifds_result.explain_fact(
+                            finding.sink, finding.tainted_arguments[0]
+                        ).items()
+                    ]
+                    if finding.tainted_arguments
+                    else [],
+                }
+            )
+
+        return TaintFlowReport(
+            function=self.context.code_name(code) or "<unknown>",
+            findings=findings,
+            statistics=result._ifds_result.statistics.__dict__,
+        )
 
     def _get_store_graph_safe(self):
         store_graph = getattr(self.context.program, "storeGraph", None)

@@ -24,6 +24,7 @@ from .data_flow import (
     IpaFunctionSummary,
     PointsToInfo,
     ReachingDef,
+    TaintFlowReport,
 )
 from .engine import GraphQueryEngine
 from .localization import LocalizationCandidate, LocalizationQueries, ProgramSlice
@@ -53,6 +54,7 @@ __all__ = [
     "AliasInfo",
     "PointsToInfo",
     "ReachingDef",
+    "TaintFlowReport",
     # Task queries
     "LocalizationQueries",
     "LocalizationCandidate",

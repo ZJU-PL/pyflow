@@ -3,8 +3,10 @@ Program Dependence Graph (PDG) construction.
 
 Construction sources:
 - Control dependences are derived from the CDG constructed from a CFG.
-- Data dependences are derived from local def-use sets extracted from the CFG's
-  Python AST, with optional SSA + phi expansion to improve precision.
+- Data dependences are derived from the DDG constructed from dataflow IR and
+  projected back onto PDG statement/condition nodes. AST-local def/use is used
+  only as a fallback for PDG nodes that the current DDG does not represent
+  directly (for example, returns and local-copy assignments).
 
 This module focuses on intraprocedural PDGs (single function).
 """
@@ -12,11 +14,14 @@ This module focuses on intraprocedural PDGs (single function).
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
 from pyflow.analysis.cfg import expandphi, ssa
 from pyflow.analysis.cfg import graph as cfg_graph
-from pyflow.analysis.cfg import dom as cfg_dom
+from pyflow.analysis.cdg import construct_cdg
+from pyflow.analysis.ddg import construct_ddg
+from pyflow.analysis.dataflowIR import convert
+from pyflow.analysis.dataflowIR import graph as df_graph
 from pyflow.language.python import ast as py_ast
 from pyflow.language.python import defuse as py_defuse
 
@@ -90,6 +95,39 @@ def _collect_local_defs_uses(
     return set(duv.lcldef.keys()), set(duv.lcluse.keys())
 
 
+def _iter_ast_children(node: Any) -> List[Any]:
+    children: List[Any] = []
+    for child in node.children():
+        if isinstance(child, (list, tuple)):
+            children.extend(item for item in child if item is not None)
+        elif child is not None:
+            children.append(child)
+    return children
+
+
+def _build_ast_parent_map(root: Any) -> Dict[int, Any]:
+    parents: Dict[int, Any] = {}
+    visited_code: Set[py_ast.Code] = set()
+
+    def walk(node: Any) -> None:
+        if node is None:
+            return
+        if isinstance(node, py_ast.Code):
+            if node in visited_code:
+                return
+            visited_code.add(node)
+
+        if isinstance(node, py_ast.leafTypes):
+            return
+
+        for child in _iter_ast_children(node):
+            parents[id(child)] = node
+            walk(child)
+
+    walk(root)
+    return parents
+
+
 class PDGConstructor:
     """
     Construct a PDG from a CFG.
@@ -117,13 +155,14 @@ class PDGConstructor:
         # Node materialization
         reachable = self._reachable_cfg_nodes(cfg.entryTerminal)
         self._add_pdg_nodes(pdg, reachable)
+        parent_map = _build_ast_parent_map(getattr(cfg, "code", None))
 
         # Edges
         if self.options.include_control:
-            self._add_control_edges_from_cfg(pdg, reachable)
+            self._add_control_edges_from_cdg(pdg)
 
         if self.options.include_data:
-            self._add_data_edges(pdg)
+            self._add_data_edges(pdg, parent_map)
 
         return pdg
 
@@ -147,8 +186,6 @@ class PDGConstructor:
     def _add_pdg_nodes(
         self, pdg: ProgramDependenceGraph, cfg_nodes: Sequence[cfg_graph.CFGBlock]
     ) -> None:
-        root_code = getattr(pdg.cfg, "code", None)
-
         for cnode in cfg_nodes:
             # Always create a block/anchor node so control dependence wiring is stable
             if isinstance(cnode, cfg_graph.Entry):
@@ -197,66 +234,132 @@ class PDGConstructor:
                     )
                     pdg.add_cfg_content(cnode, n)
 
-    def _add_control_edges_from_cfg(
-        self, pdg: ProgramDependenceGraph, reachable: Sequence[cfg_graph.CFGBlock]
-    ) -> None:
-        """
-        Add control dependence edges using post-dominator information.
-
-        This uses the standard Ferrante/Ottenstein/Warren algorithm:
-        - compute post-dominators via dominance in the reverse CFG
-        - for each node A with multiple successors, for each successor S:
-          walk runner=S up the postdom tree until ipdom(A), adding control deps
-        """
-
-        # Compute immediate postdominators by running dominance on the reverse CFG.
-        postdom: Dict[cfg_graph.CFGBlock, Any] = {}
-
-        def forward_callback(node: cfg_graph.CFGBlock):
-            # Reverse CFG edges: predecessors are successors in the reversed graph.
-            return [p for p in node.reverse() if p is not None]
-
-        def bind_callback(node: cfg_graph.CFGBlock, dj_node: Any):
-            postdom[node] = dj_node
-
-        roots = [pdg.cfg.normalTerminal, pdg.cfg.failTerminal, pdg.cfg.errorTerminal]
-        cfg_dom.evaluate(
-            [r for r in roots if r is not None], forward_callback, bind_callback
-        )
-
-        def ipdom(node: cfg_graph.CFGBlock) -> Optional[cfg_graph.CFGBlock]:
-            dj = postdom.get(node)
-            if dj is None or dj.idom is None:
-                return None
-            return dj.idom.node
-
-        reachable_set = set(reachable)
-
-        for controller in reachable:
-            succs = [s for s in controller.normalForward() if s is not None]
-            if len(succs) <= 1:
-                continue
-
-            controller_anchor = pdg.get_cfg_anchor(controller)
+    def _add_control_edges_from_cdg(self, pdg: ProgramDependenceGraph) -> None:
+        cdg = construct_cdg(pdg.cfg)
+        for edge in cdg.get_all_edges():
+            controller_anchor = pdg.get_cfg_anchor(edge.source.cfg_node)
             if controller_anchor is None:
                 continue
 
-            stop = ipdom(controller)
-            for succ in succs:
-                label = controller.findExit(succ) or ""
-                runner = succ
-                seen: Set[cfg_graph.CFGBlock] = set()
-                while runner is not None and runner != stop and runner not in seen:
-                    seen.add(runner)
-                    if runner in reachable_set:
-                        for dep in set(pdg.get_cfg_contents(runner)):
-                            if dep is controller_anchor:
-                                continue
-                            controller_anchor.add_edge_to(dep, "control", label)
-                    runner = ipdom(runner)
+            for dependent in set(pdg.get_cfg_contents(edge.target.cfg_node)):
+                if dependent is controller_anchor:
+                    continue
+                controller_anchor.add_edge_to(dependent, "control", edge.label)
 
-    def _add_data_edges(self, pdg: ProgramDependenceGraph) -> None:
+    def _resolve_pdg_node_for_ast(
+        self,
+        pdg: ProgramDependenceGraph,
+        ast_node: Any,
+        parent_map: Dict[int, Any],
+    ) -> Optional[PDGNode]:
+        node = ast_node
+        while node is not None:
+            pdg_node = pdg.get_node_for_ast(node)
+            if pdg_node is not None:
+                return pdg_node
+            node = parent_map.get(id(node))
+        return None
+
+    def _resolve_pdg_node_for_ddg_op(
+        self,
+        pdg: ProgramDependenceGraph,
+        ddg_node: Any,
+        parent_map: Dict[int, Any],
+    ) -> Optional[PDGNode]:
+        ir = ddg_node.ir_node
+        if isinstance(ir, df_graph.Entry):
+            return pdg.entry
+        if isinstance(ir, df_graph.GenericOp):
+            return self._resolve_pdg_node_for_ast(pdg, ir.op, parent_map)
+        return None
+
+    def _normalize_slot_label(self, slot: Any) -> str:
+        names = getattr(slot, "names", None)
+        if names:
+            for local in names:
+                if isinstance(local, py_ast.Local) and local.name is not None:
+                    return local.name
+
+        name = getattr(slot, "name", None)
+        if isinstance(name, py_ast.Local):
+            return name.name or "local"
+        if isinstance(name, str):
+            return name
+        nested_name = getattr(name, "name", None)
+        if isinstance(nested_name, str):
+            return nested_name
+
+        return repr(slot)
+
+    def _ddg_edge_label(self, edge: Any) -> str:
+        if edge.kind == "memory":
+            return edge.label
+
+        slot_node = None
+        if getattr(edge.source, "category", None) == "slot":
+            slot_node = edge.source
+        elif getattr(edge.target, "category", None) == "slot":
+            slot_node = edge.target
+
+        if slot_node is not None:
+            return self._normalize_slot_label(slot_node.ir_node)
+        return edge.label
+
+    def _add_data_edges_from_ddg(
+        self,
+        pdg: ProgramDependenceGraph,
+        parent_map: Dict[int, Any],
+    ) -> Set[PDGNode]:
         root_code = getattr(pdg.cfg, "code", None)
+        if root_code is None:
+            return set()
+
+        ddg = construct_ddg(convert.evaluateCode(None, root_code))
+        op_to_pdg: Dict[Any, PDGNode] = {}
+        backed_nodes: Set[PDGNode] = set()
+
+        for ddg_node in ddg.nodes:
+            if getattr(ddg_node, "category", None) != "op":
+                continue
+            pdg_node = self._resolve_pdg_node_for_ddg_op(pdg, ddg_node, parent_map)
+            if pdg_node is not None:
+                op_to_pdg[ddg_node] = pdg_node
+                backed_nodes.add(pdg_node)
+
+        for start_ddg, start_pdg in op_to_pdg.items():
+            worklist: List[Tuple[Any, str]] = []
+            seen: Set[Tuple[Any, str]] = set()
+
+            for edge in start_ddg.edges_out:
+                state = (edge.target, self._ddg_edge_label(edge))
+                worklist.append(state)
+                seen.add(state)
+
+            while worklist:
+                current, label = worklist.pop()
+                current_pdg = op_to_pdg.get(current)
+
+                if current_pdg is not None:
+                    if current_pdg is not start_pdg:
+                        start_pdg.add_edge_to(current_pdg, "data", label)
+                    continue
+
+                for edge in current.edges_out:
+                    next_label = label or self._ddg_edge_label(edge)
+                    state = (edge.target, next_label)
+                    if state in seen:
+                        continue
+                    seen.add(state)
+                    worklist.append(state)
+
+        return backed_nodes
+
+    def _add_ast_fallback_data_edges(
+        self, pdg: ProgramDependenceGraph, backed_nodes: Set[PDGNode]
+    ) -> None:
+        root_code = getattr(pdg.cfg, "code", None)
+        if root_code is None:
+            return
 
         def key_for_local(lcl: py_ast.Local) -> str:
             # PyFlow's frontend does not guarantee `ast.Local` object identity is shared
@@ -292,8 +395,19 @@ class PDGConstructor:
                 for def_node in def_nodes:
                     if def_node is use_node:
                         continue
+                    if def_node in backed_nodes and use_node in backed_nodes:
+                        continue
                     label = lcl.name or "local"
                     def_node.add_edge_to(use_node, "data", label)
+
+    def _add_data_edges(
+        self, pdg: ProgramDependenceGraph, parent_map: Dict[int, Any]
+    ) -> None:
+        try:
+            backed_nodes = self._add_data_edges_from_ddg(pdg, parent_map)
+        except Exception:
+            backed_nodes = set()
+        self._add_ast_fallback_data_edges(pdg, backed_nodes)
 
 
 def construct_pdg(cfg: cfg_graph.Code, **kwargs) -> ProgramDependenceGraph:

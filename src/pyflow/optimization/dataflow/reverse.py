@@ -76,17 +76,48 @@ class ReverseFlowTraverse(TypeDispatcher):
         self.flow.restore(base.DynamicDict())
         self.flow.save("raise")
 
+    def mergedBagFrame(self, name):
+        frames = self.flow.bags.get(name, ())
+        if not frames:
+            return None
+        merged, changed = meet(self.meet, *frames)
+        return merged
+
+    def mergeExceptionalFlow(self, node):
+        if self.flow.tryLevel <= 0 or not self.mayRaise(node):
+            return
+
+        raiseF = self.mergedBagFrame("raise")
+        if raiseF is None:
+            return
+
+        normalF = self.flow.pop()
+        normalF, changed = meet(self.meet, normalF, raiseF)
+        self.flow.restore(normalF)
+
+    def visitShortCircuit(self, node):
+        terms = [None] * len(node.terms)
+        current = self.flow.pop()
+        next_entry = current
+
+        for index in range(len(node.terms) - 1, -1, -1):
+            merged = current
+            if index < len(node.terms) - 1:
+                merged, changed = meet(self.meet, current, next_entry)
+
+            self.flow.restore(merged)
+            terms[index] = self(node.terms[index])
+            next_entry = self.flow.pop()
+
+        self.flow.restore(next_entry if node.terms else current)
+        result = type(node)(terms)
+        result.annotation = node.annotation
+        return result
+
     @defaultdispatch
     def default(self, node):
+        self.mergeExceptionalFlow(node)
         result = self.strategy(node)
-
-        if self.flow.tryLevel > 0 and self.mayRaise(result):
-            # Inject flow from exception handling
-            assert len(self.flow.bags["raise"]) == 1
-            raiseF = self.flow.bags["raise"][0]
-            normalF = self.flow.pop()
-            normalF, changed = meet(self.meet, normalF, raiseF)
-            self.flow.restore(normalF)
 
         return result
 
@@ -281,8 +312,8 @@ class ReverseFlowTraverse(TypeDispatcher):
             self.flow.saveBags()
             for name, bag in bags.items():
                 if bag:
-                    (frame,) = bag
-                    self.flow.bags[name] = [frame]
+                    merged, changed = meet(self.meet, *bag)
+                    self.flow.bags[name] = [merged]
 
             if normal is not None:
                 normal = normal.split()
@@ -295,7 +326,7 @@ class ReverseFlowTraverse(TypeDispatcher):
         allF = [exitF]
         for name, bag in bags.items():
             if bag:
-                (frame,) = bag
+                frame, changed = meet(self.meet, *bag)
                 allF.append(frame)
         superF, changed = meet(self.meet, *allF)
 
@@ -307,7 +338,7 @@ class ReverseFlowTraverse(TypeDispatcher):
         newbags = {}
         for name, bag in bags.items():
             if bag:
-                (frame,) = bag
+                frame, changed = meet(self.meet, *bag)
                 newframe, junk = evalFinallyOn(frame)
                 newbags[name] = [newframe]
 
@@ -366,11 +397,11 @@ class ReverseFlowTraverse(TypeDispatcher):
 
     @dispatch(ast.ShortCircutOr)
     def visitShortCircutOr(self, node):
-        assert False, node
+        return self.visitShortCircuit(node)
 
     @dispatch(ast.ShortCircutAnd)
     def visitShortCircutAnd(self, node):
-        assert False, node
+        return self.visitShortCircuit(node)
 
     @dispatch(ast.Break)
     def visitBreak(self, node):

@@ -9,6 +9,7 @@ from pyflow.analysis.callgraph import CallGraph
 from pyflow.analysis.cfg import ssa as cfg_ssa
 from pyflow.analysis.cfg import transform as cfg_transform
 from pyflow.analysis.cdg import construct_cdg
+from pyflow.analysis.ifds import build_supergraph_from_cfgs
 
 from .context import QueryContext
 
@@ -23,6 +24,7 @@ class GraphQueryEngine:
         self._cfg_cache: Dict[object, object] = {}
         self._ssa_cache: Dict[object, object] = {}
         self._cdg_cache: Dict[object, object] = {}
+        self._ifds_supergraph_cache = None
         self._callgraph_cache: Optional[CallGraph] = None
         self._callgraph_aliases: Dict[str, Set[str]] = {}
 
@@ -31,6 +33,7 @@ class GraphQueryEngine:
         self._cfg_cache.clear()
         self._ssa_cache.clear()
         self._cdg_cache.clear()
+        self._ifds_supergraph_cache = None
         self._callgraph_cache = None
         self._callgraph_aliases = {}
 
@@ -88,6 +91,24 @@ class GraphQueryEngine:
         """Return alias -> node-name mapping for the cached call graph."""
         self.get_callgraph()
         return {alias: set(nodes) for alias, nodes in self._callgraph_aliases.items()}
+
+    def get_all_cfgs(self) -> Dict[object, object]:
+        """Return CFGs for all known live code objects."""
+        cfgs: Dict[object, object] = {}
+        for code in getattr(self.context.program, "liveCode", []):
+            try:
+                cfgs[code] = self.get_cfg(code)
+            except Exception:
+                continue
+        return cfgs
+
+    def get_ifds_supergraph(self):
+        """Return a cached CFG-backed IFDS supergraph adapter."""
+        if self._ifds_supergraph_cache is None:
+            self._ifds_supergraph_cache = build_supergraph_from_cfgs(
+                tuple(self.get_all_cfgs().values())
+            )
+        return self._ifds_supergraph_cache
 
     def get_cfg_structure(self, function: Union[str, object]) -> Dict[str, Any]:
         """

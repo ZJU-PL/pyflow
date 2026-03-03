@@ -50,6 +50,32 @@ class DDGDumper(object):
         """
         self.ddg = ddg
 
+    @staticmethod
+    def _sorted_nodes(nodes):
+        return sorted(nodes, key=lambda node: node.node_id)
+
+    @staticmethod
+    def _sorted_edges(edges):
+        return sorted(
+            edges,
+            key=lambda edge: (
+                edge.source.node_id,
+                edge.target.node_id,
+                edge.kind,
+                edge.label,
+            ),
+        )
+
+    @staticmethod
+    def _node_text(node: DDGNode) -> str:
+        return "%d [%s] %r" % (node.node_id, node.category, node.ir_node)
+
+    @staticmethod
+    def _edge_text(edge: DDGEdge) -> str:
+        if edge.label:
+            return "%s:%s" % (edge.kind, edge.label)
+        return edge.kind
+
     def dump_text(self, path: str, title: str = "Data Dependence Graph") -> None:
         """
         Dump DDG in human-readable text format.
@@ -70,10 +96,14 @@ class DDGDumper(object):
                 "Nodes: %(nodes)d, Edges: %(edges)d, Ops: %(ops)d, Slots: %(slots)d\n\n"
                 % stats
             )
-            f.write("Edges (source -> target) [kind]:\n")
-            for e in self.ddg.all_edges():
+            f.write("Nodes:\n")
+            for n in self._sorted_nodes(self.ddg.nodes):
+                f.write("  %s\n" % self._node_text(n))
+            f.write("\nEdges (source -> target) [kind[:label]]:\n")
+            for e in self._sorted_edges(self.ddg.all_edges()):
                 f.write(
-                    "  %d -> %d [%s]\n" % (e.source.node_id, e.target.node_id, e.kind)
+                    "  %d -> %d [%s]\n"
+                    % (e.source.node_id, e.target.node_id, self._edge_text(e))
                 )
 
     def dump_dot(self, path: str, title: str = "DDG") -> None:
@@ -91,17 +121,18 @@ class DDGDumper(object):
         g.set_label(title)
 
         # Add nodes with category-specific shapes
-        for n in self.ddg.nodes:
-            node_id = "n_%d" % n.node_id
-            label = "%d\\n%s" % (n.node_id, n.category)
+        for n in self._sorted_nodes(self.ddg.nodes):
+            label = "%d\\n%s\\n%r" % (n.node_id, n.category, n.ir_node)
             shape = "ellipse" if n.category == "op" else "box"
-            g.add_node(pydot.Node(node_id, label=label, shape=shape))
+            g.add_node(pydot.Node(n.node_id, label=label, shape=shape))
 
         # Add edges with kind labels
-        for e in self.ddg.all_edges():
+        for e in self._sorted_edges(self.ddg.all_edges()):
             g.add_edge(
                 pydot.Edge(
-                    "n_%d" % e.source.node_id, "n_%d" % e.target.node_id, label=e.kind
+                    e.source.node_id,
+                    e.target.node_id,
+                    label=self._edge_text(e),
                 )
             )
 
@@ -126,11 +157,17 @@ class DDGDumper(object):
             "title": title,
             "stats": self.ddg.stats(),
             "nodes": [
-                {"id": n.node_id, "category": n.category} for n in self.ddg.nodes
+                {"id": n.node_id, "category": n.category, "ir": repr(n.ir_node)}
+                for n in self._sorted_nodes(self.ddg.nodes)
             ],
             "edges": [
-                {"src": e.source.node_id, "dst": e.target.node_id, "kind": e.kind}
-                for e in self.ddg.all_edges()
+                {
+                    "src": e.source.node_id,
+                    "dst": e.target.node_id,
+                    "kind": e.kind,
+                    "label": e.label,
+                }
+                for e in self._sorted_edges(self.ddg.all_edges())
             ],
         }
         with open(path, "w") as f:
