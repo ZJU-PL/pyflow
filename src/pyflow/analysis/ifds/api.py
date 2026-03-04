@@ -17,7 +17,13 @@ from pyflow.util.application.console import Console
 
 from .annotation_fallback import ensure_ifds_annotations_complete
 from .cfg_adapter import CFGSupergraphAdapter, build_supergraph_from_cfgs
-from .taint import TaintAnalysisResult, TaintConfiguration, analyze_taint
+from .clients.nullness import NullnessAnalysisResult, analyze_nullness
+from .clients.taint import TaintAnalysisResult, TaintConfiguration, analyze_taint
+from .clients.typestate import (
+    TypestateAnalysisResult,
+    TypestateConfiguration,
+    analyze_typestate,
+)
 
 
 @dataclass(frozen=True)
@@ -98,6 +104,66 @@ def run_taint_analysis(
             source_names=frozenset(source_names),
             sink_names=frozenset(sink_names),
             sanitizer_names=frozenset(sanitizer_names),
+        ),
+        entry_nodes=[session.adapter.supergraph.entry_of(cfg)],
+    )
+    return session, result
+
+
+def run_nullness_analysis(
+    python_files: Sequence[str | Path],
+    *,
+    function: str,
+    verbose: bool = False,
+    dependency_strategy: str = "auto",
+    search_paths: Sequence[str] | None = None,
+    include_exceptional_edges: bool = True,
+) -> tuple[AnalysisSession, NullnessAnalysisResult]:
+    """Load files, resolve a function, and run the shipped nullness analysis."""
+    session = load_analysis_session(
+        python_files,
+        verbose=verbose,
+        dependency_strategy=dependency_strategy,
+        search_paths=search_paths,
+        include_exceptional_edges=include_exceptional_edges,
+    )
+    queries = session.program.get_queries(session.compiler)
+    cfg = queries.graph_engine.get_cfg(function)
+    result = analyze_nullness(
+        session.adapter,
+        entry_nodes=[session.adapter.supergraph.entry_of(cfg)],
+    )
+    return session, result
+
+
+def run_typestate_analysis(
+    python_files: Sequence[str | Path],
+    *,
+    function: str,
+    open_names: Iterable[str] = ("open",),
+    close_names: Iterable[str] = ("close",),
+    use_names: Iterable[str] = ("read", "write", "send", "recv"),
+    verbose: bool = False,
+    dependency_strategy: str = "auto",
+    search_paths: Sequence[str] | None = None,
+    include_exceptional_edges: bool = True,
+) -> tuple[AnalysisSession, TypestateAnalysisResult]:
+    """Load files, resolve a function, and run the shipped typestate analysis."""
+    session = load_analysis_session(
+        python_files,
+        verbose=verbose,
+        dependency_strategy=dependency_strategy,
+        search_paths=search_paths,
+        include_exceptional_edges=include_exceptional_edges,
+    )
+    queries = session.program.get_queries(session.compiler)
+    cfg = queries.graph_engine.get_cfg(function)
+    result = analyze_typestate(
+        session.adapter,
+        TypestateConfiguration(
+            open_names=frozenset(open_names),
+            close_names=frozenset(close_names),
+            use_names=frozenset(use_names),
         ),
         entry_nodes=[session.adapter.supergraph.entry_of(cfg)],
     )

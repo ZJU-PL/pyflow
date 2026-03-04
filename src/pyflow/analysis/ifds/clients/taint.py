@@ -9,10 +9,10 @@ from pyflow.application.errors import TemporaryLimitation
 from pyflow.analysis.cfg import graph as cfg_graph
 from pyflow.language.python import ast as py_ast
 
-from .cfg_adapter import CFGNode, CFGSupergraphAdapter, assigned_locals
-from .problem import IFDSProblem
-from .solver import IFDSSolver
-from .transfers import (
+from ..cfg_adapter import CFGNode, CFGSupergraphAdapter, assigned_locals
+from ..problem import IFDSProblem
+from ..solver import IFDSSolver
+from ..transfers import (
     actual_argument_expressions,
     bind_call_arguments,
     collect_locals,

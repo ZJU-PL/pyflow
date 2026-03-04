@@ -6,7 +6,11 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
-from pyflow.analysis.ifds.api import run_taint_analysis
+from pyflow.analysis.ifds.api import (
+    run_nullness_analysis,
+    run_taint_analysis,
+    run_typestate_analysis,
+)
 from pyflow.cli.dataflow import run_dataflow_analysis
 
 
@@ -55,6 +59,49 @@ def test_run_taint_analysis_api_on_source_file(tmp_path):
     assert len(result.findings) == 1
     assert result.findings[0].sink_name == "sink"
     assert [local.name for local in result.findings[0].tainted_arguments] == ["b"]
+
+
+def test_run_nullness_analysis_api_on_source_file(tmp_path):
+    target = tmp_path / "nullness_sample.py"
+    target.write_text(
+        """
+def main():
+    value = None
+    return value
+"""
+    )
+
+    session, result = run_nullness_analysis(
+        [target],
+        function="main",
+    )
+
+    assert {code.codeName() for code in session.program.liveCode} >= {"main"}
+    assert hasattr(result, "findings")
+    assert isinstance(result.findings, tuple)
+
+
+def test_run_typestate_analysis_api_on_source_file(tmp_path):
+    target = tmp_path / "typestate_sample.py"
+    target.write_text(
+        """
+def main():
+    resource = open()
+    close(resource)
+    read(resource)
+"""
+    )
+
+    session, result = run_typestate_analysis(
+        [target],
+        function="main",
+        open_names=["open"],
+        close_names=["close"],
+        use_names=["read"],
+    )
+
+    assert {code.codeName() for code in session.program.liveCode} >= {"main"}
+    assert any(f.kind == "use_after_close" for f in result.findings)
 
 
 def test_run_taint_analysis_api_on_repo_backed_multi_file_snippet():

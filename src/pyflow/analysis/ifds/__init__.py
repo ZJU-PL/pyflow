@@ -27,7 +27,15 @@ from .problem import (
 from .solver import IDEResult, IDESolver, IFDSResult, IFDSSolver, PathEdge
 from .solver import PropagationTrace, SolverStatistics
 from .supergraph import Supergraph, SupergraphError
-from .taint import (
+from .clients.nullness import (
+    ExpressionNullFact,
+    InterproceduralNullnessAnalysis,
+    NullnessAnalysisResult,
+    NullnessFinding,
+    SlotNullFact,
+    analyze_nullness,
+)
+from .clients.taint import (
     ExpressionTaintFact,
     InterproceduralTaintAnalysis,
     SlotTaintFact,
@@ -35,6 +43,15 @@ from .taint import (
     TaintConfiguration,
     TaintFinding,
     analyze_taint,
+)
+from .clients.typestate import (
+    ExpressionResourceFact,
+    InterproceduralTypestateAnalysis,
+    ResourceStateFact,
+    TypestateAnalysisResult,
+    TypestateConfiguration,
+    TypestateFinding,
+    analyze_typestate,
 )
 from .transfers import (
     actual_argument_expressions,
@@ -52,6 +69,8 @@ __all__ = [
     "CFGNode",
     "CFGSupergraphAdapter",
     "EdgeFunction",
+    "ExpressionNullFact",
+    "ExpressionResourceFact",
     "ExpressionTaintFact",
     "FactTransition",
     "IDEProblem",
@@ -61,22 +80,33 @@ __all__ = [
     "IFDSProblem",
     "IFDSResult",
     "IFDSSolver",
+    "InterproceduralNullnessAnalysis",
     "JoinedEdgeFunction",
+    "InterproceduralTypestateAnalysis",
     "PathEdge",
     "PropagationTrace",
+    "NullnessAnalysisResult",
+    "NullnessFinding",
     "SolverStatistics",
+    "SlotNullFact",
     "Supergraph",
     "SupergraphError",
     "TaintAnalysisResult",
     "TaintConfiguration",
     "TaintFinding",
     "InterproceduralTaintAnalysis",
+    "TypestateAnalysisResult",
+    "TypestateConfiguration",
+    "TypestateFinding",
+    "ResourceStateFact",
     "SlotTaintFact",
     "actual_argument_expressions",
     "ValueTransition",
     "actual_parameters",
     "annotation_invokes_cfg_resolver",
+    "analyze_nullness",
     "analyze_taint",
+    "analyze_typestate",
     "assigned_locals",
     "bind_call_arguments",
     "build_supergraph_from_cfgs",

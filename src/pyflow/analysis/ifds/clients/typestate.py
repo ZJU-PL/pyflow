@@ -1,0 +1,690 @@
+"""Practical resource typestate analysis over CFG-backed IFDS supergraphs."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import FrozenSet, Mapping, Sequence
+
+from pyflow.analysis.cfg import graph as cfg_graph
+from pyflow.language.python import ast as py_ast
+
+from ._client_common import AnnotatedFactProblemBase
+from ..cfg_adapter import CFGNode, CFGSupergraphAdapter, assigned_locals
+from ..problem import IFDSProblem
+from ..solver import IFDSSolver
+from ..transfers import actual_argument_expressions, bind_call_arguments
+
+
+ZERO_TYPESTATE = "ZERO_TYPESTATE"
+STATE_OPEN = "open"
+STATE_CLOSED = "closed"
+
+
+@dataclass(frozen=True)
+class TypestateConfiguration:
+    """Name-based protocol configuration for resource lifecycles."""
+
+    open_names: FrozenSet[str] = frozenset({"open"})
+    close_names: FrozenSet[str] = frozenset({"close"})
+    use_names: FrozenSet[str] = frozenset({"read", "write", "send", "recv"})
+
+
+@dataclass(frozen=True)
+class ResourceStateFact:
+    """A resource-bearing slot in a given protocol state."""
+
+    slot: object
+    state: str
+
+
+@dataclass(frozen=True)
+class ExpressionResourceFact:
+    """A resource-bearing intermediate expression result."""
+
+    procedure: cfg_graph.Code
+    expression: py_ast.PythonASTNode
+    state: str
+    result_index: int = 0
+
+
+@dataclass(frozen=True)
+class TypestateFinding:
+    """Potential resource-protocol issue."""
+
+    node: CFGNode
+    kind: str
+    operation_name: str
+    resource_label: str
+
+
+class TypestateAnalysisResult:
+    """Query wrapper for typestate results."""
+
+    def __init__(self, ifds_result, findings: Sequence[TypestateFinding], problem) -> None:
+        self._ifds_result = ifds_result
+        self.findings = tuple(findings)
+        self._problem = problem
+
+    def has_state(self, node: CFGNode, local: py_ast.Local, state: str) -> bool:
+        return any(
+            self._ifds_result.is_reached(node, ResourceStateFact(slot, state))
+            for slot in self._problem.local_slots(node.procedure, local)
+        )
+
+    @property
+    def statistics(self):
+        return self._ifds_result.statistics
+
+    def explain_fact(self, node: CFGNode, fact: object):
+        return self._ifds_result.explain_fact(node, fact)
+
+
+class InterproceduralTypestateProblem(
+    AnnotatedFactProblemBase[object],
+    IFDSProblem[cfg_graph.Code, CFGNode, object],
+):
+    """Resource lifecycle analysis over CFG nodes."""
+
+    analysis_name = "IFDS typestate"
+
+    def __init__(
+        self,
+        adapter: CFGSupergraphAdapter,
+        configuration: TypestateConfiguration,
+        entry_nodes: Sequence[CFGNode] | None = None,
+    ) -> None:
+        self.configuration = configuration
+        super().__init__(adapter)
+        if entry_nodes is None:
+            entry_nodes = [
+                adapter.supergraph.entry_of(cfg)
+                for cfg in adapter.cfgs
+                if cfg in adapter.supergraph.procedures()
+            ]
+        self.entry_nodes = tuple(entry_nodes)
+
+    @property
+    def supergraph(self):
+        return self.adapter.supergraph
+
+    @property
+    def zero_fact(self):
+        return ZERO_TYPESTATE
+
+    def initial_seeds(self) -> Mapping[CFGNode, frozenset[object]]:
+        return {node: frozenset({ZERO_TYPESTATE}) for node in self.entry_nodes}
+
+    def normal_flow(self, node: CFGNode, successor: CFGNode, fact: object):
+        local_call_outputs = self._local_call_outputs(node, fact)
+        if local_call_outputs is not None:
+            return local_call_outputs
+
+        del successor
+        operation = self.adapter.operation_of(node)
+        if operation is None:
+            return self._identity_outputs(fact, ())
+
+        killed = self._killed_slots_for_operation(node.procedure, operation)
+
+        if isinstance(operation, py_ast.Assign):
+            outputs = set(self._identity_outputs(fact, killed))
+            direct_fact = self._direct_expression_fact(operation.expr, fact)
+            if direct_fact is not None:
+                _procedure, _expr, state, result_index = direct_fact
+                outputs.update(
+                    self._facts_for_assigned_locals(
+                        node.procedure,
+                        assigned_locals(operation),
+                        state,
+                        result_index,
+                    )
+                )
+                return tuple(outputs)
+            if self._expr_has_state(node.procedure, operation.expr, fact):
+                state = self._fact_state(fact)
+                if state is not None:
+                    outputs.update(
+                        self._facts_for_locals(
+                            node.procedure,
+                            assigned_locals(operation),
+                            state,
+                        )
+                    )
+            return tuple(outputs)
+
+        if isinstance(operation, py_ast.Return):
+            outputs = set(self._identity_outputs(fact, ()))
+            if len(operation.exprs) == 1:
+                direct_fact = self._direct_expression_fact(operation.exprs[0], fact)
+                if direct_fact is not None:
+                    _procedure, _expr, state, result_index = direct_fact
+                    outputs.update(
+                        self._facts_for_return_slot(node.procedure, state, result_index)
+                    )
+                    return tuple(outputs)
+            state = self._fact_state(fact)
+            if state is None:
+                return tuple(outputs)
+            for index, expr in enumerate(operation.exprs):
+                if self._expr_has_state(node.procedure, expr, fact):
+                    outputs.update(self._facts_for_return_slot(node.procedure, state, index))
+            return tuple(outputs)
+
+        if isinstance(
+            operation,
+            (
+                py_ast.SetAttr,
+                py_ast.SetSubscript,
+                py_ast.SetGlobal,
+                py_ast.SetCellDeref,
+                py_ast.Store,
+            ),
+        ):
+            outputs = set(self._identity_outputs(fact, killed))
+            value = getattr(operation, "value", None)
+            state = self._fact_state(fact)
+            if value is None or state is None:
+                return tuple(outputs)
+            if self._expr_has_state(node.procedure, value, fact):
+                outputs.update(self._facts_for_modified_operation(operation, state))
+            return tuple(outputs)
+
+        return self._identity_outputs(fact, killed)
+
+    def call_flow(self, call_node: CFGNode, callee: cfg_graph.Code, fact: object):
+        outputs = set()
+        if fact == ZERO_TYPESTATE:
+            outputs.add(ZERO_TYPESTATE)
+
+        call = self.adapter.call_expression_of(call_node)
+        if call is None:
+            return tuple(outputs)
+
+        state = self._fact_state(fact)
+        if state is None:
+            return tuple(outputs)
+
+        params = callee.code.codeparameters
+        for actual, formal in bind_call_arguments(call, params):
+            if self._expr_has_state(call_node.procedure, actual, fact):
+                outputs.update(self._facts_for_locals(callee, (formal,), state))
+
+        return tuple(outputs)
+
+    def return_flow(
+        self,
+        call_node: CFGNode,
+        callee: cfg_graph.Code,
+        exit_node: CFGNode,
+        return_site: CFGNode,
+        call_fact: object,
+        exit_fact: object,
+    ):
+        del exit_node, return_site, call_fact
+        outputs = set()
+        if exit_fact == ZERO_TYPESTATE:
+            outputs.add(ZERO_TYPESTATE)
+
+        return_index = self._return_fact_index(callee, exit_fact)
+        state = self._fact_state(exit_fact)
+        if return_index is not None and state is not None:
+            outputs.update(
+                self._facts_for_nested_call_result(
+                    call_node.procedure,
+                    self.adapter.operation_of(call_node),
+                    self.adapter.call_expression_of(call_node),
+                    return_index,
+                    state,
+                    nested=False,
+                )
+            )
+
+        formal = self._formal_for_fact(callee, exit_fact)
+        call = self.adapter.call_expression_of(call_node)
+        if formal is not None and state is not None and call is not None:
+            for actual, bound_formal in bind_call_arguments(call, callee.code.codeparameters):
+                if bound_formal is formal:
+                    outputs.update(
+                        self._facts_for_actual_slots(call_node.procedure, actual, state)
+                    )
+
+        return tuple(outputs)
+
+    def call_to_return_flow(self, call_node: CFGNode, return_site: CFGNode, fact: object):
+        del return_site
+        operation = self.adapter.operation_of(call_node)
+        call_expression = self.adapter.call_expression_of(call_node)
+        killed = self._killed_slots_for_call_expression(
+            call_node.procedure,
+            operation,
+            call_expression,
+        )
+        outputs = set(self._identity_outputs(fact, killed))
+        call_name = self._call_name(call_node)
+
+        if fact == ZERO_TYPESTATE and call_name in self.configuration.open_names:
+            outputs.update(
+                self._facts_for_nested_call_result(
+                    call_node.procedure,
+                    operation,
+                    call_expression,
+                    0,
+                    STATE_OPEN,
+                    nested=False,
+                )
+            )
+            return tuple(outputs)
+
+        state = self._fact_state(fact)
+        if state is None or call_expression is None:
+            return tuple(outputs)
+
+        resource_slots = self._resource_slots_for_call(call_node.procedure, call_expression)
+        if not resource_slots:
+            return tuple(outputs)
+
+        if call_name in self.configuration.close_names and state == STATE_OPEN:
+            if isinstance(fact, ResourceStateFact) and fact.slot in resource_slots:
+                outputs.discard(fact)
+                outputs.add(ResourceStateFact(fact.slot, STATE_CLOSED))
+
+        return tuple(outputs)
+
+    def findings(self, result) -> tuple[TypestateFinding, ...]:
+        findings: list[TypestateFinding] = []
+        seen: set[tuple[CFGNode, str, str, str]] = set()
+
+        def record(node: CFGNode, kind: str, operation_name: str, resource_label: str) -> None:
+            key = (node, kind, operation_name, resource_label)
+            if key in seen:
+                return
+            seen.add(key)
+            findings.append(
+                TypestateFinding(
+                    node=node,
+                    kind=kind,
+                    operation_name=operation_name,
+                    resource_label=resource_label,
+                )
+            )
+
+        for node in self.adapter.supergraph.nodes():
+            call = self.adapter.call_expression_of(node)
+            if call is None:
+                continue
+            call_name = self._call_name(node) or "<call>"
+            slots = self._resource_slots_for_call(node.procedure, call)
+            if call_name in self.configuration.use_names:
+                for slot in slots:
+                    if result.is_reached(node, ResourceStateFact(slot, STATE_CLOSED)):
+                        record(node, "use_after_close", call_name, self.describe_slot(slot))
+            if call_name in self.configuration.close_names:
+                for slot in slots:
+                    if result.is_reached(node, ResourceStateFact(slot, STATE_CLOSED)):
+                        record(node, "double_close", call_name, self.describe_slot(slot))
+
+        for procedure in self.adapter.supergraph.procedures():
+            for exit_node in self.adapter.supergraph.exits_of(procedure):
+                for fact in result.facts_at(exit_node):
+                    if isinstance(fact, ResourceStateFact) and fact.state == STATE_OPEN:
+                        record(
+                            exit_node,
+                            "resource_leak",
+                            getattr(procedure.code, "name", "<proc>"),
+                            self.describe_slot(fact.slot),
+                        )
+
+        return tuple(findings)
+
+    def _local_call_outputs(self, node: CFGNode, fact: object):
+        call_expression = self.adapter.call_expression_of(node)
+        if call_expression is None or self.adapter.callees_of(node):
+            return None
+
+        operation = self.adapter.operation_of(node)
+        killed = self._killed_slots_for_call_expression(
+            node.procedure,
+            operation,
+            call_expression,
+        )
+        outputs = set(self._identity_outputs(fact, killed))
+        call_name = self._call_name(node)
+
+        if fact == ZERO_TYPESTATE and call_name in self.configuration.open_names:
+            outputs.update(
+                self._facts_for_nested_call_result(
+                    node.procedure,
+                    operation,
+                    call_expression,
+                    0,
+                    STATE_OPEN,
+                    nested=False,
+                )
+            )
+            return tuple(outputs)
+
+        state = self._fact_state(fact)
+        if state is None:
+            return tuple(outputs)
+
+        resource_slots = self._resource_slots_for_call(node.procedure, call_expression)
+        if call_name in self.configuration.close_names and isinstance(fact, ResourceStateFact):
+            if state == STATE_OPEN and fact.slot in resource_slots:
+                outputs.discard(fact)
+                outputs.add(ResourceStateFact(fact.slot, STATE_CLOSED))
+
+        return tuple(outputs)
+
+    def _make_slot_fact(self, slot: object) -> object:
+        return ResourceStateFact(slot, STATE_OPEN)
+
+    def _make_expression_fact(
+        self,
+        procedure: cfg_graph.Code,
+        expression: py_ast.PythonASTNode,
+        result_index: int = 0,
+    ) -> object:
+        return ExpressionResourceFact(procedure, expression, STATE_OPEN, result_index)
+
+    def _slot_from_fact(self, fact: object) -> object | None:
+        if isinstance(fact, ResourceStateFact):
+            return fact.slot
+        return None
+
+    def _expression_fact_result(self, fact: object):
+        if isinstance(fact, ExpressionResourceFact):
+            return (fact.procedure, fact.expression, fact.state, fact.result_index)
+        return None
+
+    def _fact_state(self, fact: object) -> str | None:
+        if isinstance(fact, ResourceStateFact):
+            return fact.state
+        if isinstance(fact, ExpressionResourceFact):
+            return fact.state
+        return None
+
+    def _identity_outputs(self, fact: object, killed: Sequence[object]):
+        if fact == ZERO_TYPESTATE:
+            return (ZERO_TYPESTATE,)
+        if isinstance(fact, ResourceStateFact) and any(fact.slot == target for target in killed):
+            return ()
+        return (fact,)
+
+    def _killed_slots_for_operation(
+        self, procedure: cfg_graph.Code, operation: object
+    ) -> tuple[object, ...]:
+        if operation is None:
+            return ()
+        if isinstance(operation, py_ast.Assign):
+            return tuple(
+                slot
+                for local in assigned_locals(operation)
+                for slot in self._slots_for_local(procedure, local)
+            )
+        if isinstance(operation, (py_ast.SetGlobal, py_ast.SetCellDeref)):
+            return tuple(
+                slot
+                for fact in self._facts_for_modified_operation(operation, STATE_OPEN)
+                for slot in (self._slot_from_fact(fact),)
+                if slot is not None
+            )
+        return ()
+
+    def _killed_slots_for_call_expression(
+        self,
+        procedure: cfg_graph.Code,
+        operation: object,
+        call_expression: py_ast.PythonASTNode | None,
+    ) -> tuple[object, ...]:
+        if operation is None or call_expression is None:
+            return ()
+        if isinstance(operation, py_ast.Assign) and operation.expr is call_expression:
+            return tuple(
+                slot
+                for local in assigned_locals(operation)
+                for slot in self._slots_for_local(procedure, local)
+            )
+        if isinstance(operation, (py_ast.SetGlobal, py_ast.SetCellDeref)) and operation.value is call_expression:
+            return tuple(
+                slot
+                for fact in self._facts_for_modified_operation(operation, STATE_OPEN)
+                for slot in (self._slot_from_fact(fact),)
+                if slot is not None
+            )
+        for child in self._nested_operations(operation):
+            child_kills = self._killed_slots_for_call_expression(
+                procedure, child, call_expression
+            )
+            if child_kills:
+                return child_kills
+        return self._killed_slots_for_operation(procedure, operation)
+
+    def _facts_for_locals(
+        self,
+        procedure: cfg_graph.Code,
+        locals_: Sequence[object] | tuple[object, ...],
+        state: str,
+    ) -> set[object]:
+        facts: set[object] = set()
+        for local in locals_:
+            if not isinstance(local, py_ast.Local) or local.name is None:
+                continue
+            slots = self._slots_for_local(procedure, local)
+            facts.update(ResourceStateFact(slot, state) for slot in slots)
+        return facts
+
+    def _facts_for_assigned_locals(
+        self,
+        procedure: cfg_graph.Code,
+        locals_: Sequence[object],
+        state: str,
+        result_index: int,
+    ) -> set[object]:
+        if result_index >= len(locals_):
+            return set()
+        return self._facts_for_locals(procedure, (locals_[result_index],), state)
+
+    def _facts_for_return_slot(
+        self, procedure: cfg_graph.Code, state: str, index: int
+    ) -> set[object]:
+        returnparams = tuple(procedure.code.codeparameters.returnparams)
+        if index >= len(returnparams):
+            return set()
+        return self._facts_for_locals(procedure, (returnparams[index],), state)
+
+    def _facts_for_modified_operation(self, operation: object, state: str) -> set[object]:
+        slots = self._annotation_slots(getattr(getattr(operation, "annotation", None), "opModifies", None))
+        return {ResourceStateFact(slot, state) for slot in slots}
+
+    def _facts_for_expression_node(
+        self, procedure: cfg_graph.Code, current: object, state: str | None = None
+    ) -> tuple[object, ...]:
+        if state is None:
+            state = STATE_OPEN
+        if current is None or isinstance(current, py_ast.leafTypes):
+            return ()
+        if isinstance(current, (py_ast.DirectCall, py_ast.Call, py_ast.MethodCall)):
+            return (ExpressionResourceFact(procedure, current, state),)
+        return tuple(
+            ResourceStateFact(slot, state)
+            for slot in self._slots_read_by_node(procedure, current)
+        )
+
+    def _facts_for_nested_call_result(
+        self,
+        procedure: cfg_graph.Code,
+        operation: object,
+        call_expression: py_ast.PythonASTNode | None,
+        return_index: int,
+        state: str,
+        *,
+        nested: bool,
+    ) -> set[object]:
+        if operation is None or call_expression is None:
+            return set()
+
+        if isinstance(operation, py_ast.Assign) and operation.expr is call_expression:
+            if not nested:
+                return {ExpressionResourceFact(procedure, call_expression, state, return_index)}
+            return self._facts_for_assigned_locals(
+                procedure,
+                assigned_locals(operation),
+                state,
+                return_index,
+            )
+
+        if isinstance(operation, py_ast.Return):
+            if not nested:
+                return {ExpressionResourceFact(procedure, call_expression, state, return_index)}
+            target_index = self._call_result_target_index(operation, call_expression, return_index)
+            if target_index is not None:
+                return self._facts_for_return_slot(procedure, state, target_index)
+
+        if isinstance(
+            operation,
+            (
+                py_ast.SetAttr,
+                py_ast.SetSubscript,
+                py_ast.SetGlobal,
+                py_ast.SetCellDeref,
+                py_ast.Store,
+            ),
+        ) and getattr(operation, "value", None) is call_expression:
+            if not nested:
+                return {ExpressionResourceFact(procedure, call_expression, state, return_index)}
+            return self._facts_for_modified_operation(operation, state)
+
+        for child in self._nested_operations(operation):
+            child_result = self._facts_for_nested_call_result(
+                procedure,
+                child,
+                call_expression,
+                return_index,
+                state,
+                nested=True,
+            )
+            if child_result:
+                return child_result
+
+        return {ExpressionResourceFact(procedure, call_expression, state, return_index)}
+
+    def _return_fact_index(self, procedure: cfg_graph.Code, fact: object) -> int | None:
+        slot = self._slot_from_fact(fact)
+        if slot is None:
+            return None
+        for index, local in enumerate(procedure.code.codeparameters.returnparams):
+            if any(candidate == slot for candidate in self._slots_for_local(procedure, local)):
+                return index
+        return None
+
+    def _expr_has_state(self, procedure: cfg_graph.Code, expr: object, fact: object) -> bool:
+        state = self._fact_state(fact)
+        if state is None:
+            return False
+        return self._expression_matches(
+            expr,
+            lambda current: any(
+                candidate == fact
+                for candidate in self._facts_for_expression_node(procedure, current, state)
+            ),
+        )
+
+    def _expression_matches(self, expr: object, predicate) -> bool:
+        found = False
+
+        def visit(current) -> None:
+            nonlocal found
+            if found or current is None or isinstance(current, py_ast.leafTypes):
+                return
+            if predicate(current):
+                found = True
+                return
+            if isinstance(current, (list, tuple)):
+                for child in current:
+                    visit(child)
+                return
+            if isinstance(current, py_ast.Code):
+                return
+            current.visitChildren(visit)
+
+        visit(expr)
+        return found
+
+    def _formal_for_fact(
+        self, procedure: cfg_graph.Code, fact: object
+    ) -> py_ast.Local | None:
+        slot = self._slot_from_fact(fact)
+        if slot is None:
+            return None
+        params = procedure.code.codeparameters
+        candidates = []
+        if isinstance(params.selfparam, py_ast.Local):
+            candidates.append(params.selfparam)
+        candidates.extend(param for param in params.posonlyparams if isinstance(param, py_ast.Local))
+        candidates.extend(param for param in params.params if isinstance(param, py_ast.Local))
+        candidates.extend(
+            param for param in (params.vparam, params.kparam) if isinstance(param, py_ast.Local)
+        )
+        for local in candidates:
+            if any(candidate == slot for candidate in self._slots_for_local(procedure, local)):
+                return local
+        return None
+
+    def _facts_for_actual_slots(
+        self, procedure: cfg_graph.Code, expr: object, state: str
+    ) -> set[object]:
+        return {
+            ResourceStateFact(slot, state)
+            for slot in self._slots_read_by_node(procedure, expr)
+        }
+
+    def _resource_slots_for_call(
+        self,
+        procedure: cfg_graph.Code,
+        call: py_ast.PythonASTNode,
+    ) -> tuple[object, ...]:
+        if isinstance(call, py_ast.MethodCall):
+            return self._slots_read_by_node(procedure, call.expr)
+        actuals = actual_argument_expressions(call)
+        if not actuals:
+            return ()
+        return self._slots_read_by_node(procedure, actuals[0])
+
+
+class InterproceduralTypestateAnalysis:
+    """Concrete typestate analysis backed by the IFDS engine."""
+
+    def __init__(
+        self,
+        adapter: CFGSupergraphAdapter,
+        configuration: TypestateConfiguration,
+        *,
+        entry_nodes: Sequence[CFGNode] | None = None,
+        record_traces: bool = False,
+    ) -> None:
+        self.problem = InterproceduralTypestateProblem(
+            adapter,
+            configuration,
+            entry_nodes=entry_nodes,
+        )
+        self.record_traces = record_traces
+
+    def solve(self) -> TypestateAnalysisResult:
+        result = IFDSSolver(record_traces=self.record_traces).solve(self.problem)
+        return TypestateAnalysisResult(result, self.problem.findings(result), self.problem)
+
+
+def analyze_typestate(
+    adapter: CFGSupergraphAdapter,
+    configuration: TypestateConfiguration,
+    *,
+    entry_nodes: Sequence[CFGNode] | None = None,
+    record_traces: bool = False,
+) -> TypestateAnalysisResult:
+    """Convenience entry point for interprocedural typestate analysis."""
+    return InterproceduralTypestateAnalysis(
+        adapter,
+        configuration,
+        entry_nodes=entry_nodes,
+        record_traces=record_traces,
+    ).solve()
