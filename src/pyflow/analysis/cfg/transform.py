@@ -113,12 +113,16 @@ class CFGTransformer(TypeDispatcher):
         Args:
             node: Yield AST node.
         """
+        # Preserve the yielded expression as an operation so downstream analyses
+        # (e.g. IFDS clients) can observe reads/calls inside `yield <expr>`.
+        self.emit(node)
         y = cfg.Yield(self.region)
         self.attachCurrent(y)
         y.setExit("normal", self.makeNewSuite())
 
     @dispatch(
         ast.Assign,
+        ast.AnnAssign,
         ast.Discard,
         ast.SetAttr,
         ast.SetSubscript,
@@ -151,7 +155,7 @@ class CFGTransformer(TypeDispatcher):
         # Scope declarations are compile-time markers with no runtime operation.
         del node
 
-    @dispatch(ast.AnnAssign, ast.TypeAlias)
+    @dispatch(ast.TypeAlias)
     def visitUnsupportedStatement(self, node):
         raise TemporaryLimitation(
             "CFG transform does not yet support "

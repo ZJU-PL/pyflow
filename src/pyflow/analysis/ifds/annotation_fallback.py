@@ -88,11 +88,25 @@ def ensure_ifds_annotations_complete(codes) -> None:
                 subscript_slots.setdefault((base.label, key), _SyntheticSlot(f"{base.label}{key}"))
                 for base in base_slots
             )
+        if isinstance(expr, ast.GetSlice):
+            base_slots = slots_for_expr(code, expr.expr)
+            key = "[slice]"
+            return tuple(
+                subscript_slots.setdefault((base.label, key), _SyntheticSlot(f"{base.label}{key}"))
+                for base in base_slots
+            )
         return ()
 
     def reads_for_node(code, node):
         if node is None or isinstance(node, ast.leafTypes):
             return ()
+        if not isinstance(node, (list, tuple)) and not hasattr(node, "visitChildren"):
+            return ()
+        if isinstance(node, (list, tuple)):
+            slots = []
+            for child in node:
+                slots.extend(reads_for_node(code, child))
+            return tuple(slots)
         if isinstance(
             node,
             (
@@ -102,9 +116,29 @@ def ensure_ifds_annotations_complete(codes) -> None:
                 ast.GetAttr,
                 ast.Load,
                 ast.GetSubscript,
+                ast.GetSlice,
             ),
         ):
             return slots_for_expr(code, node)
+        if isinstance(node, ast.NamedExpr):
+            # Walrus writes to target; only the value expression is read.
+            return reads_for_node(code, node.value)
+        if isinstance(node, ast.AnnAssign):
+            slots = []
+            slots.extend(reads_for_node(code, node.value))
+            return tuple(slots)
+        if isinstance(node, ast.UnpackSequence):
+            return reads_for_node(code, node.expr)
+        if isinstance(node, ast.For):
+            slots = []
+            slots.extend(reads_for_node(code, node.iterator))
+            slots.extend(reads_for_node(code, node.loopPreamble))
+            slots.extend(reads_for_node(code, node.bodyPreamble))
+            slots.extend(reads_for_node(code, node.body))
+            slots.extend(reads_for_node(code, node.else_))
+            return tuple(slots)
+        if isinstance(node, (ast.Yield, ast.YieldFrom, ast.Await, ast.AsyncYield)):
+            return reads_for_node(code, node.expr)
         if isinstance(node, ast.Assign):
             return reads_for_node(code, node.expr)
         if isinstance(node, ast.Return):
@@ -112,8 +146,22 @@ def ensure_ifds_annotations_complete(codes) -> None:
             for expr in node.exprs:
                 slots.extend(reads_for_node(code, expr))
             return tuple(slots)
-        if isinstance(node, (ast.SetAttr, ast.SetSubscript, ast.SetGlobal, ast.SetCellDeref, ast.Store)):
+        if isinstance(
+            node,
+            (
+                ast.SetAttr,
+                ast.SetSubscript,
+                ast.SetSlice,
+                ast.SetGlobal,
+                ast.SetCellDeref,
+                ast.Store,
+            ),
+        ):
             return reads_for_node(code, node.value)
+        if isinstance(node, (ast.Delete, ast.DeleteGlobal)):
+            return ()
+        if isinstance(node, (ast.DeleteAttr, ast.DeleteSubscript, ast.DeleteSlice)):
+            return reads_for_node(code, node.expr)
         if isinstance(node, ast.Discard):
             return reads_for_node(code, node.expr)
         if isinstance(node, (ast.Call, ast.DirectCall, ast.MethodCall)):
@@ -159,15 +207,70 @@ def ensure_ifds_annotations_complete(codes) -> None:
                 slots.extend(reads_for_node(code, node.value))
             slots.extend(reads_for_node(code, node.body))
             return tuple(slots)
-        return ()
+        if isinstance(node, ast.OutputBlock):
+            slots = []
+            for output in getattr(node, "outputs", ()):
+                slots.extend(reads_for_node(code, getattr(output, "expr", None)))
+            return tuple(slots)
+        if isinstance(node, ast.Output):
+            return reads_for_node(code, node.expr)
+        if isinstance(node, ast.InputBlock):
+            return ()
+        if isinstance(node, ast.Input):
+            return ()
+
+        # Generic fallback: traverse children and treat their reads as ours.
+        slots = []
+        if hasattr(node, "visitChildren"):
+            node.visitChildren(lambda child: slots.extend(reads_for_node(code, child)))
+        return tuple(slots)
 
     def modifies_for_node(code, node):
+        if node is None or isinstance(node, ast.leafTypes):
+            return ()
+        if not isinstance(node, (list, tuple)) and not hasattr(node, "visitChildren"):
+            return ()
+        if isinstance(node, (list, tuple)):
+            slots = []
+            for child in node:
+                slots.extend(modifies_for_node(code, child))
+            return tuple(slots)
         if isinstance(node, ast.Assign):
-            return tuple(
+            direct = tuple(
                 slot_for_local(code, local)
                 for local in node.lcls
                 if isinstance(local, ast.Local) and local.name is not None
             )
+            return (*direct, *modifies_for_node(code, node.expr))
+        if isinstance(node, ast.UnpackSequence):
+            direct = tuple(
+                slot_for_local(code, local)
+                for local in node.targets
+                if isinstance(local, ast.Local) and local.name is not None
+            )
+            return (*direct, *modifies_for_node(code, node.expr))
+        if isinstance(node, ast.AnnAssign):
+            if node.value is None:
+                return ()
+            target = node.target
+            if isinstance(target, ast.Local) and target.name is not None:
+                return (slot_for_local(code, target), *modifies_for_node(code, node.value))
+            return ()
+        if isinstance(node, ast.NamedExpr):
+            target = node.target
+            if isinstance(target, ast.Local) and target.name is not None:
+                return (slot_for_local(code, target), *modifies_for_node(code, node.value))
+            return ()
+        if isinstance(node, ast.For):
+            idx = node.index
+            if isinstance(idx, ast.Local) and idx.name is not None:
+                return (slot_for_local(code, idx),)
+            return ()
+        if isinstance(node, ast.Delete):
+            lcl = node.lcl
+            if isinstance(lcl, ast.Local) and lcl.name is not None:
+                return (slot_for_local(code, lcl),)
+            return ()
         if isinstance(node, (ast.SetAttr, ast.Store)):
             base_slots = slots_for_expr(code, node.expr)
             name = attr_name(node.name)
@@ -182,20 +285,63 @@ def ensure_ifds_annotations_complete(codes) -> None:
                 subscript_slots.setdefault((base.label, key), _SyntheticSlot(f"{base.label}{key}"))
                 for base in base_slots
             )
+        if isinstance(node, ast.SetSlice):
+            base_slots = slots_for_expr(code, node.expr)
+            key = "[slice]"
+            return tuple(
+                subscript_slots.setdefault((base.label, key), _SyntheticSlot(f"{base.label}{key}"))
+                for base in base_slots
+            )
         if isinstance(node, ast.SetGlobal):
+            return (slot_for_global(node.name),)
+        if isinstance(node, ast.DeleteGlobal):
             return (slot_for_global(node.name),)
         if isinstance(node, ast.SetCellDeref):
             return (slot_for_cell(node.cell),)
-        return ()
+        if isinstance(node, ast.DeleteAttr):
+            base_slots = slots_for_expr(code, node.expr)
+            name = attr_name(node.name)
+            return tuple(
+                attr_slots.setdefault((base.label, name), _SyntheticSlot(f"{base.label}.{name}"))
+                for base in base_slots
+            )
+        if isinstance(node, ast.DeleteSubscript):
+            base_slots = slots_for_expr(code, node.expr)
+            key = subscript_name(node.subscript)
+            return tuple(
+                subscript_slots.setdefault((base.label, key), _SyntheticSlot(f"{base.label}{key}"))
+                for base in base_slots
+            )
+        if isinstance(node, ast.DeleteSlice):
+            base_slots = slots_for_expr(code, node.expr)
+            key = "[slice]"
+            return tuple(
+                subscript_slots.setdefault((base.label, key), _SyntheticSlot(f"{base.label}{key}"))
+                for base in base_slots
+            )
+        if isinstance(node, ast.InputBlock):
+            slots = []
+            for input_ in getattr(node, "inputs", ()):
+                lcl = getattr(input_, "lcl", None)
+                if isinstance(lcl, ast.Local) and lcl.name is not None:
+                    slots.append(slot_for_local(code, lcl))
+            return tuple(slots)
+        # Generic fallback: propagate nested writes (e.g. walrus expressions).
+        slots = []
+        if hasattr(node, "visitChildren"):
+            node.visitChildren(lambda child: slots.extend(modifies_for_node(code, child)))
+        return tuple(slots)
 
     def visit(code, node) -> None:
         if node is None or isinstance(node, ast.leafTypes):
+            return
+        if not isinstance(node, (list, tuple)) and not hasattr(node, "visitChildren"):
             return
 
         annotation = getattr(node, "annotation", None)
         if annotation is not None and hasattr(annotation, "rewrite"):
             rewrite = {}
-            count = context_count(code if isinstance(node, ast.Code) else node)
+            count = context_count(code)
             reads = reads_for_node(code, node)
             modifies = modifies_for_node(code, node)
             refs = ()
@@ -249,7 +395,8 @@ def ensure_ifds_annotations_complete(codes) -> None:
             visit(node, node.ast)
             return
 
-        node.visitChildren(lambda child: visit(code, child))
+        if hasattr(node, "visitChildren"):
+            node.visitChildren(lambda child: visit(code, child))
 
     for code in codes:
         visit(code, code)

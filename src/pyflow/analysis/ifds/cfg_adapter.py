@@ -62,7 +62,8 @@ def iter_call_expressions(
             for child in current:
                 visit(child)
             return
-        current.visitChildren(visit)
+        if hasattr(current, "visitChildren"):
+            current.visitChildren(visit)
 
     visit(node)
     return tuple(found)
@@ -83,7 +84,8 @@ def iter_call_expressions_in_eval_order(
             for child in current:
                 visit(child)
             return
-        current.visitChildren(visit)
+        if hasattr(current, "visitChildren"):
+            current.visitChildren(visit)
         if isinstance(current, (py_ast.DirectCall, py_ast.Call, py_ast.MethodCall)):
             found.append(current)
 
@@ -92,10 +94,65 @@ def iter_call_expressions_in_eval_order(
 
 
 def assigned_locals(operation: py_ast.PythonASTNode | None) -> tuple[py_ast.Local, ...]:
-    """Return locals overwritten by an operation."""
+    """Return locals overwritten by an operation.
+
+    This is used by IFDS clients to implement strong updates (kills) and
+    to route multi-result calls to specific assignment targets. Keep it a
+    best-effort overapproximation of Python "stores to locals".
+    """
+    direct: list[py_ast.Local] = []
+
     if isinstance(operation, py_ast.Assign):
-        return tuple(lcl for lcl in operation.lcls if isinstance(lcl, py_ast.Local))
-    return ()
+        direct.extend(lcl for lcl in operation.lcls if isinstance(lcl, py_ast.Local))
+    elif isinstance(operation, py_ast.UnpackSequence):
+        direct.extend(lcl for lcl in operation.targets if isinstance(lcl, py_ast.Local))
+    elif isinstance(operation, py_ast.AnnAssign):
+        # Only an annotated assignment with a value overwrites the target.
+        if operation.value is None:
+            direct = []
+        elif isinstance(operation.target, py_ast.Local):
+            direct.append(operation.target)
+    elif isinstance(operation, py_ast.InputBlock):
+        for input_ in getattr(operation, "inputs", ()):
+            lcl = getattr(input_, "lcl", None)
+            if isinstance(lcl, py_ast.Local):
+                direct.append(lcl)
+    else:
+        direct = []
+
+    # Nested assignment expressions (walrus) also overwrite their targets.
+    # This is an intentional overapproximation: it ignores short-circuiting
+    # conditions and other path sensitivity.
+    walrus_targets: list[py_ast.Local] = []
+
+    def visit(current) -> None:
+        if current is None or isinstance(current, py_ast.leafTypes):
+            return
+        if isinstance(current, py_ast.Code):
+            return
+        if isinstance(current, py_ast.NamedExpr):
+            if isinstance(current.target, py_ast.Local):
+                walrus_targets.append(current.target)
+            visit(current.value)
+            return
+        if isinstance(current, (list, tuple)):
+            for child in current:
+                visit(child)
+            return
+        if hasattr(current, "visitChildren"):
+            current.visitChildren(visit)
+
+    visit(operation)
+
+    if not walrus_targets:
+        return tuple(direct)
+    merged: list[py_ast.Local] = []
+    seen: set[py_ast.Local] = set()
+    for lcl in (*direct, *walrus_targets):
+        if lcl not in seen:
+            seen.add(lcl)
+            merged.append(lcl)
+    return tuple(merged)
 
 
 def direct_call_cfg_resolver(
@@ -123,15 +180,42 @@ def annotation_invokes_cfg_resolver(
     invokes = getattr(annotation, "invokes", None)
     if not invokes:
         return ()
-    entries = invokes[0] if isinstance(invokes, tuple) and invokes else invokes
+
+    # Prefer merged contextual data when available; otherwise treat invokes as
+    # a flat iterable of entries. Do not special-case plain tuples as
+    # (merged, context) without an attribute check: invoke entries can
+    # themselves be tuples.
+    entries = getattr(invokes, "merged", None)
+    if entries is None:
+        entries = invokes
     if not entries:
         return ()
+
     resolved: list[cfg_graph.Code] = []
     seen: set[cfg_graph.Code] = set()
-    for entry in entries:
-        if not isinstance(entry, tuple) or not entry:
-            continue
-        code = entry[0]
+
+    def iter_codes(obj) -> Iterable[object]:
+        """Yield potential callee code objects from nested invoke structures."""
+        if obj is None:
+            return
+        # Common case: invoke entry is a tuple whose first element is a code object.
+        if isinstance(obj, tuple) and obj:
+            head = obj[0]
+            if head in adapter.cfg_by_ast_code:
+                yield head
+                return
+            # Otherwise, treat it as a nested container and recurse.
+            for item in obj:
+                yield from iter_codes(item)
+            return
+        if isinstance(obj, list):
+            for item in obj:
+                yield from iter_codes(item)
+            return
+        if obj in adapter.cfg_by_ast_code:
+            yield obj
+
+    for code in iter_codes(entries):
         callee = adapter.cfg_by_ast_code.get(code)
         if callee is not None and callee not in seen:
             seen.add(callee)

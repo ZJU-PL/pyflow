@@ -148,6 +148,15 @@ class OpFlow(TypeDispatcher):
     def visitOK(self, node):
         node.visitChildren(self)
 
+    @dispatch(ast.AnnAssign)
+    def visitAnnAssign(self, node):
+        # AnnAssign is an assignment-like statement. Avoid node.visitChildren()
+        # because the AST node's field named "annotation" conflicts with the
+        # per-node OpAnnotation metadata in this codebase.
+        self(node.target)
+        if getattr(node, "value", None) is not None:
+            self(node.value)
+
     @dispatch(ast.For, ast.While)
     def visitLoop(self, node):
         node.visitChildren(self)

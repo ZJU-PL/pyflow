@@ -135,23 +135,28 @@ class InterproceduralTaintProblem(
 
         killed = self._killed_slots_for_operation(node.procedure, operation)
 
-        if isinstance(operation, py_ast.Assign):
+        if isinstance(operation, (py_ast.Assign, py_ast.UnpackSequence, py_ast.AnnAssign)):
             outputs = set(self._identity_outputs(fact, killed))
-            direct_fact = self._direct_expression_fact(operation.expr, fact)
+            expr = getattr(operation, "expr", None)
+            if isinstance(operation, py_ast.AnnAssign):
+                expr = operation.value
+            targets = assigned_locals(operation)
+
+            direct_fact = self._direct_expression_fact(expr, fact)
             if direct_fact is not None:
                 outputs.update(
                     self._facts_for_assigned_locals(
                         node.procedure,
-                        assigned_locals(operation),
+                        targets,
                         direct_fact.result_index,
                     )
                 )
                 return tuple(outputs)
-            if self._expr_is_tainted(node.procedure, operation.expr, fact):
+            if expr is not None and self._expr_is_tainted(node.procedure, expr, fact):
                 outputs.update(
                     self._facts_for_locals(
                         node.procedure,
-                        assigned_locals(operation),
+                        targets,
                     )
                 )
             return tuple(outputs)
@@ -282,7 +287,7 @@ class InterproceduralTaintProblem(
     ) -> tuple[object, ...]:
         if operation is None:
             return ()
-        if isinstance(operation, py_ast.Assign):
+        if isinstance(operation, (py_ast.Assign, py_ast.UnpackSequence, py_ast.AnnAssign)):
             return tuple(
                 fact.slot
                 for fact in self._facts_for_locals(procedure, assigned_locals(operation))
@@ -291,6 +296,13 @@ class InterproceduralTaintProblem(
             return tuple(
                 fact.slot for fact in self._facts_for_locals(procedure, (operation.lcl,))
             )
+        if isinstance(operation, py_ast.InputBlock):
+            locals_ = []
+            for input_ in getattr(operation, "inputs", ()):
+                lcl = getattr(input_, "lcl", None)
+                if isinstance(lcl, py_ast.Local):
+                    locals_.append(lcl)
+            return tuple(fact.slot for fact in self._facts_for_locals(procedure, locals_))
         if isinstance(operation, (py_ast.SetGlobal, py_ast.DeleteGlobal)):
             return tuple(
                 fact.slot for fact in self._facts_for_modified_operation(procedure, operation)
@@ -454,7 +466,15 @@ class InterproceduralTaintProblem(
         if operation is None or call_expression is None:
             return set()
 
-        if isinstance(operation, py_ast.Assign) and operation.expr is call_expression:
+        if isinstance(operation, (py_ast.Assign, py_ast.UnpackSequence)) and operation.expr is call_expression:
+            if not nested:
+                return {ExpressionTaintFact(procedure, call_expression, return_index)}
+            return self._facts_for_assigned_locals(
+                procedure,
+                assigned_locals(operation),
+                return_index,
+            )
+        if isinstance(operation, py_ast.AnnAssign) and operation.value is call_expression:
             if not nested:
                 return {ExpressionTaintFact(procedure, call_expression, return_index)}
             return self._facts_for_assigned_locals(
@@ -509,7 +529,12 @@ class InterproceduralTaintProblem(
         if operation is None or call_expression is None:
             return ()
 
-        if isinstance(operation, py_ast.Assign) and operation.expr is call_expression:
+        if isinstance(operation, (py_ast.Assign, py_ast.UnpackSequence)) and operation.expr is call_expression:
+            return tuple(
+                fact.slot
+                for fact in self._facts_for_locals(procedure, assigned_locals(operation))
+            )
+        if isinstance(operation, py_ast.AnnAssign) and operation.value is call_expression:
             return tuple(
                 fact.slot
                 for fact in self._facts_for_locals(procedure, assigned_locals(operation))
@@ -764,7 +789,14 @@ class InterproceduralTaintProblem(
     def _annotation_slots(self, annotation) -> tuple[object, ...]:
         if annotation is None:
             return ()
-        merged = getattr(annotation, "merged", annotation[0] if annotation else ())
+        merged = getattr(annotation, "merged", None)
+        if merged is None:
+            if isinstance(annotation, (str, bytes)):
+                return ()
+            if isinstance(annotation, (list, tuple, set, frozenset)):
+                merged = tuple(annotation)
+            else:
+                return ()
         return tuple(self._canonical_slot(slot) for slot in merged)
 
     def _canonical_slot(self, slot):

@@ -1447,29 +1447,27 @@ class ASTConverter:
         """Convert annotated assignment to pyflow AST.
         
         Handles both `x: int = 5` and `x: int` (annotation-only).
-        For IFDS/CFG pipelines we lower to runtime-equivalent operations and
-        intentionally drop the type annotation payload.
         """
-        _annotation = self._convert_expression_safe(node.annotation)
+        annotation = self._convert_expression_safe(node.annotation)
+        value = self._convert_expression_safe(node.value) if node.value is not None else None
 
-        if node.value is None:
-            if isinstance(node.target, python_ast.Name):
-                # ``x: T`` has no runtime effect.
-                return pyflow_ast.Suite([])
-            return self._unsupported_stmt(node, "annotation-only assignment target unsupported")
-        
-        value = self._convert_expression_safe(node.value)
-        
+        # PyFlow's AnnAssign node models local annotated assignments directly.
         if isinstance(node.target, python_ast.Name):
-            return pyflow_ast.Assign(value, [pyflow_ast.Local(node.target.id)])
-        elif isinstance(node.target, python_ast.Attribute):
+            return pyflow_ast.AnnAssign(
+                pyflow_ast.Local(node.target.id),
+                annotation,
+                value,
+            )
+
+        # For non-local targets, keep the previous runtime-equivalent lowering.
+        if value is None:
+            return self._unsupported_stmt(node, "annotation-only assignment target unsupported")
+
+        if isinstance(node.target, python_ast.Attribute):
             obj = self._convert_expression_safe(node.target.value)
             name = pyflow_ast.Existing(Object(node.target.attr))
-            suite = pyflow_ast.Suite([
-                pyflow_ast.SetAttr(value, obj, name)
-            ])
-            return suite
-        elif isinstance(node.target, python_ast.Subscript):
+            return pyflow_ast.Suite([pyflow_ast.SetAttr(value, obj, name)])
+        if isinstance(node.target, python_ast.Subscript):
             obj = self._convert_expression_safe(node.target.value)
             sub = self._convert_subscript_index(node.target.slice)
             return pyflow_ast.Discard(
@@ -1481,7 +1479,7 @@ class ASTConverter:
                     None,
                 )
             )
-        
+
         return self._unsupported_stmt(node, "annotated assignment target unsupported")
 
     def _convert_named_expr(self, node) -> PythonASTNode:

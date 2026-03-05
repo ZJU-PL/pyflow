@@ -116,24 +116,29 @@ class InterproceduralNullnessProblem(
 
         killed = self._killed_slots_for_operation(node.procedure, operation)
 
-        if isinstance(operation, py_ast.Assign):
+        if isinstance(operation, (py_ast.Assign, py_ast.UnpackSequence, py_ast.AnnAssign)):
             outputs = set(self._identity_outputs(fact, killed))
-            direct_fact = self._direct_expression_fact(operation.expr, fact)
+            expr = getattr(operation, "expr", None)
+            if isinstance(operation, py_ast.AnnAssign):
+                expr = operation.value
+            targets = assigned_locals(operation)
+
+            direct_fact = self._direct_expression_fact(expr, fact)
             if direct_fact is not None:
                 _procedure, _expr, result_index = direct_fact
                 outputs.update(
                     self._facts_for_assigned_locals(
                         node.procedure,
-                        assigned_locals(operation),
+                        targets,
                         result_index,
                     )
                 )
                 return tuple(outputs)
-            if self._expr_is_nullable(node.procedure, operation.expr, fact):
+            if expr is not None and self._expr_is_nullable(node.procedure, expr, fact):
                 outputs.update(
                     self._facts_for_locals(
                         node.procedure,
-                        assigned_locals(operation),
+                        targets,
                     )
                 )
             return tuple(outputs)

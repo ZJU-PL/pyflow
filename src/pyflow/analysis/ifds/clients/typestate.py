@@ -128,27 +128,32 @@ class InterproceduralTypestateProblem(
 
         killed = self._killed_slots_for_operation(node.procedure, operation)
 
-        if isinstance(operation, py_ast.Assign):
+        if isinstance(operation, (py_ast.Assign, py_ast.UnpackSequence, py_ast.AnnAssign)):
             outputs = set(self._identity_outputs(fact, killed))
-            direct_fact = self._direct_expression_fact(operation.expr, fact)
+            expr = getattr(operation, "expr", None)
+            if isinstance(operation, py_ast.AnnAssign):
+                expr = operation.value
+            targets = assigned_locals(operation)
+
+            direct_fact = self._direct_expression_fact(expr, fact)
             if direct_fact is not None:
                 _procedure, _expr, state, result_index = direct_fact
                 outputs.update(
                     self._facts_for_assigned_locals(
                         node.procedure,
-                        assigned_locals(operation),
+                        targets,
                         state,
                         result_index,
                     )
                 )
                 return tuple(outputs)
-            if self._expr_has_state(node.procedure, operation.expr, fact):
+            if expr is not None and self._expr_has_state(node.procedure, expr, fact):
                 state = self._fact_state(fact)
                 if state is not None:
                     outputs.update(
                         self._facts_for_locals(
                             node.procedure,
-                            assigned_locals(operation),
+                            targets,
                             state,
                         )
                     )
@@ -418,7 +423,7 @@ class InterproceduralTypestateProblem(
     ) -> tuple[object, ...]:
         if operation is None:
             return ()
-        if isinstance(operation, py_ast.Assign):
+        if isinstance(operation, (py_ast.Assign, py_ast.UnpackSequence, py_ast.AnnAssign)):
             return tuple(
                 slot
                 for local in assigned_locals(operation)
@@ -426,6 +431,15 @@ class InterproceduralTypestateProblem(
             )
         if isinstance(operation, py_ast.Delete):
             return tuple(slot for slot in self._slots_for_local(procedure, operation.lcl))
+        if isinstance(operation, py_ast.InputBlock):
+            locals_ = []
+            for input_ in getattr(operation, "inputs", ()):
+                lcl = getattr(input_, "lcl", None)
+                if isinstance(lcl, py_ast.Local):
+                    locals_.append(lcl)
+            return tuple(
+                slot for local in locals_ for slot in self._slots_for_local(procedure, local)
+            )
         if isinstance(
             operation,
             (py_ast.SetGlobal, py_ast.DeleteGlobal, py_ast.SetCellDeref),
@@ -446,7 +460,13 @@ class InterproceduralTypestateProblem(
     ) -> tuple[object, ...]:
         if operation is None or call_expression is None:
             return ()
-        if isinstance(operation, py_ast.Assign) and operation.expr is call_expression:
+        if isinstance(operation, (py_ast.Assign, py_ast.UnpackSequence)) and operation.expr is call_expression:
+            return tuple(
+                slot
+                for local in assigned_locals(operation)
+                for slot in self._slots_for_local(procedure, local)
+            )
+        if isinstance(operation, py_ast.AnnAssign) and operation.value is call_expression:
             return tuple(
                 slot
                 for local in assigned_locals(operation)
@@ -533,7 +553,16 @@ class InterproceduralTypestateProblem(
         if operation is None or call_expression is None:
             return set()
 
-        if isinstance(operation, py_ast.Assign) and operation.expr is call_expression:
+        if isinstance(operation, (py_ast.Assign, py_ast.UnpackSequence)) and operation.expr is call_expression:
+            if not nested:
+                return {ExpressionResourceFact(procedure, call_expression, state, return_index)}
+            return self._facts_for_assigned_locals(
+                procedure,
+                assigned_locals(operation),
+                state,
+                return_index,
+            )
+        if isinstance(operation, py_ast.AnnAssign) and operation.value is call_expression:
             if not nested:
                 return {ExpressionResourceFact(procedure, call_expression, state, return_index)}
             return self._facts_for_assigned_locals(

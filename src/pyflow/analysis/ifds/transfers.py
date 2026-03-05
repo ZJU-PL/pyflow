@@ -40,7 +40,8 @@ def collect_locals(node) -> FrozenSet[py_ast.Local]:
             for child in current:
                 visit(child)
             return
-        current.visitChildren(visit)
+        if hasattr(current, "visitChildren"):
+            current.visitChildren(visit)
 
     visit(node)
     return frozenset(found)
@@ -215,9 +216,13 @@ def resolve_call_name(call, fallback_callee_names=()) -> str | None:
         if isinstance(expr, py_ast.Local):
             return expr.name
         if isinstance(expr, py_ast.Existing):
-            return getattr(expr.object, "pythonName", lambda: None)() or getattr(
-                expr.object, "pyobj", None
-            )
+            name = getattr(expr.object, "pythonName", lambda: None)()
+            if isinstance(name, str):
+                return name
+            pyobj = getattr(expr.object, "pyobj", None)
+            if isinstance(pyobj, str):
+                return pyobj
+            return None
     if isinstance(call, py_ast.MethodCall):
         name = call.name
         if isinstance(name, py_ast.Local):

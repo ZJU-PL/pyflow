@@ -113,7 +113,15 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
         if operation is None or call_expression is None:
             return set()
 
-        if isinstance(operation, py_ast.Assign) and operation.expr is call_expression:
+        if isinstance(operation, (py_ast.Assign, py_ast.UnpackSequence)) and operation.expr is call_expression:
+            if not nested:
+                return {self._make_expression_fact(procedure, call_expression, return_index)}
+            return self._facts_for_assigned_locals(
+                procedure,
+                assigned_locals(operation),
+                return_index,
+            )
+        if isinstance(operation, py_ast.AnnAssign) and operation.value is call_expression:
             if not nested:
                 return {self._make_expression_fact(procedure, call_expression, return_index)}
             return self._facts_for_assigned_locals(
@@ -188,7 +196,7 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
     ) -> tuple[object, ...]:
         if operation is None:
             return ()
-        if isinstance(operation, py_ast.Assign):
+        if isinstance(operation, (py_ast.Assign, py_ast.UnpackSequence, py_ast.AnnAssign)):
             return tuple(
                 slot
                 for fact in self._facts_for_locals(procedure, assigned_locals(operation))
@@ -199,6 +207,18 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
             return tuple(
                 slot
                 for fact in self._facts_for_locals(procedure, (operation.lcl,))
+                for slot in (self._slot_from_fact(fact),)
+                if slot is not None
+            )
+        if isinstance(operation, py_ast.InputBlock):
+            locals_ = []
+            for input_ in getattr(operation, "inputs", ()):
+                lcl = getattr(input_, "lcl", None)
+                if isinstance(lcl, py_ast.Local):
+                    locals_.append(lcl)
+            return tuple(
+                slot
+                for fact in self._facts_for_locals(procedure, locals_)
                 for slot in (self._slot_from_fact(fact),)
                 if slot is not None
             )
@@ -223,7 +243,14 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
         if operation is None or call_expression is None:
             return ()
 
-        if isinstance(operation, py_ast.Assign) and operation.expr is call_expression:
+        if isinstance(operation, (py_ast.Assign, py_ast.UnpackSequence)) and operation.expr is call_expression:
+            return tuple(
+                slot
+                for fact in self._facts_for_locals(procedure, assigned_locals(operation))
+                for slot in (self._slot_from_fact(fact),)
+                if slot is not None
+            )
+        if isinstance(operation, py_ast.AnnAssign) and operation.value is call_expression:
             return tuple(
                 slot
                 for fact in self._facts_for_locals(procedure, assigned_locals(operation))
@@ -299,7 +326,17 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
     def _annotation_slots(self, annotation) -> tuple[object, ...]:
         if annotation is None:
             return ()
-        merged = getattr(annotation, "merged", annotation[0] if annotation else ())
+        merged = getattr(annotation, "merged", None)
+        if merged is None:
+            # Some pipelines may store a plain annotationSet/tuple here rather
+            # than a ContextualAnnotation. In that case, treat the entire
+            # iterable as the slot list (not just annotation[0]).
+            if isinstance(annotation, (str, bytes)):
+                return ()
+            if isinstance(annotation, (list, tuple, set, frozenset)):
+                merged = tuple(annotation)
+            else:
+                return ()
         return tuple(self._canonical_slot(slot) for slot in merged)
 
     def _canonical_slot(self, slot: object) -> object:
