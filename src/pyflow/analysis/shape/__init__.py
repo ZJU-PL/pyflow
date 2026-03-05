@@ -173,7 +173,14 @@ class RegionBasedShapeAnalysis(object):
         aborted: Set of objects where analysis was aborted (hit limit)
     """
 
-    def __init__(self, extractor, cpacanonical, info):
+    def __init__(
+        self,
+        extractor,
+        cpacanonical,
+        info,
+        shape_max_varg_transfer=None,
+        shape_max_vparam_transfer=None,
+    ):
         """Initialize region-based shape analysis.
 
         Args:
@@ -187,7 +194,10 @@ class RegionBasedShapeAnalysis(object):
         self.environment = dataflow.DataflowEnvironment()
 
         self.constraintbuilder = constraintbuilder.ShapeConstraintBuilder(
-            self, self.processCode
+            self,
+            self.processCode,
+            max_varg_transfer=shape_max_varg_transfer,
+            max_vparam_transfer=shape_max_vparam_transfer,
         )
 
         self.cpacanonical = cpacanonical

@@ -23,3 +23,8 @@ dumpStats = False
 useXTypes = True
 useControlSensitivity = True
 useCPA = True
+
+# Shape argument transfer caps used by shape constraint construction.
+# These defaults preserve historical behavior while allowing callers to override.
+shape_max_varg_transfer = 3
+shape_max_vparam_transfer = 3

@@ -342,7 +342,11 @@ class StmtIterator:
         self.src = src
         self.ast = ast.parse(src)
         assert hasattr(self.ast, "body")
-        self.working_stack = [self.ast.body]
+        # Each frame is [parent_node, statement_list, next_index]
+        self.working_stack = [[self.ast, self.ast.body, 0]]
+        self.current = None
+        self.current_frame = None
+        self.current_index = None
 
     def __iter__(self):
         """Return iterator (self).
@@ -353,28 +357,57 @@ class StmtIterator:
         return self
 
     def __next__(self):
-        """Get next statement (not implemented).
+        """Get next statement."""
+        while self.working_stack:
+            frame = self.working_stack[-1]
+            parent, stmt_list, next_index = frame
+            if next_index >= len(stmt_list):
+                self.working_stack.pop()
+                continue
 
-        Raises:
-            Exception: StopIteration (not implemented)
-        """
-        # needs to return statement with the block information to allow
-        # insertion and removal
-        current_loc = 0
-        raise Exception("StopIteration")
+            node = stmt_list[next_index]
+            frame[2] += 1
+            if hasattr(node, "body") and isinstance(node.body, list):
+                self.working_stack.append([node, node.body, 0])
+
+            self.current = Unit(node, parent)
+            self.current_frame = frame
+            self.current_index = next_index
+            return self.current
+
+        raise StopIteration
 
     def insert_before(self, new_stmt):
-        """Insert statement before current (not implemented)."""
-        pass
+        """Insert statement before current."""
+        if self.current is None or self.current_frame is None:
+            raise RuntimeError("No current statement selected")
+        stmt_list = self.current_frame[1]
+        stmt_list.insert(self.current_index, new_stmt)
+        # Keep the iterator cursor aligned to skip over the inserted statement.
+        self.current_frame[2] += 1
 
     def insert_after(self, new_stmt):
-        """Insert statement after current (not implemented)."""
-        pass
+        """Insert statement after current."""
+        if self.current is None or self.current_frame is None:
+            raise RuntimeError("No current statement selected")
+        stmt_list = self.current_frame[1]
+        stmt_list.insert(self.current_index + 1, new_stmt)
 
     def remove(self):
-        """Remove current statement (not implemented)."""
-        pass
+        """Remove current statement."""
+        if self.current is None or self.current_frame is None:
+            raise RuntimeError("No current statement selected")
+        stmt_list = self.current_frame[1]
+        stmt_list.pop(self.current_index)
+        self.current_frame[2] -= 1
+        self.current = None
+        self.current_frame = None
+        self.current_index = None
 
     def replace(self, new_stmt):
-        """Replace current statement (not implemented)."""
-        pass
+        """Replace current statement."""
+        if self.current is None or self.current_frame is None:
+            raise RuntimeError("No current statement selected")
+        stmt_list = self.current_frame[1]
+        stmt_list[self.current_index] = new_stmt
+        self.current = Unit(new_stmt, self.current.parent)

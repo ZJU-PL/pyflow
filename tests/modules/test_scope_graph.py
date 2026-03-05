@@ -236,6 +236,7 @@ result = f(5)
         
         self.assertIn("test_scope", sg.parent_relations)
         self.assertEqual(sg.parent_relations["test_scope"], "Mod")
+        self.assertIn("test_scope", sg.contained_scopes["Mod"])
 
     def test_get_parent(self):
         """Test the get_parent method."""
@@ -329,6 +330,48 @@ output = my_function(1, 2)
         # Check class method
         self.assertIn("method", sg.declarations["MyClass"])
         self.assertIn("__init__", sg.declarations["MyClass"])
+
+    def test_resolve_prefers_local_scope(self):
+        code = """
+x = 1
+def outer():
+    x = 2
+    def inner():
+        return x
+    return inner
+"""
+        tree = ast.parse(code)
+        sg = ScopeGraph()
+        sg.build(tree)
+
+        resolved = sg.resolve("x", "inner")
+        self.assertIsNotNone(resolved)
+        self.assertEqual(resolved["scope"], "outer")
+        self.assertEqual(resolved["kind"], "declaration")
+
+    def test_resolve_falls_back_to_parent_scope(self):
+        code = """
+x = 1
+def outer():
+    def inner():
+        return x
+    return inner
+"""
+        tree = ast.parse(code)
+        sg = ScopeGraph()
+        sg.build(tree)
+
+        resolved = sg.resolve("x", "inner")
+        self.assertIsNotNone(resolved)
+        self.assertEqual(resolved["scope"], "Mod")
+        self.assertEqual(resolved["kind"], "declaration")
+
+    def test_resolve_returns_none_for_missing_name(self):
+        code = "x = 1"
+        tree = ast.parse(code)
+        sg = ScopeGraph()
+        sg.build(tree)
+        self.assertIsNone(sg.resolve("y", "Mod"))
 
 
 if __name__ == "__main__":

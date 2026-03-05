@@ -264,6 +264,35 @@ class TestCallingUtility(unittest.TestCase):
         )
         self.assertHardFail(info)
 
+    def test_unknown_keyword_absorbed_by_kparam(self):
+        callee = pyflow.util.python.calling.CalleeParams(
+            None, [0], ["a"], [], None, "kwargs", []
+        )
+        info = pyflow.util.python.calling.callStackToParamsInfo(
+            callee, False, 1, False, ("extra",), False
+        )
+        self.assertHardSucceed(info)
+
+    def test_uncertain_kwargs_with_kparam_degrades_to_maybe(self):
+        callee = pyflow.util.python.calling.CalleeParams(
+            None, [0], ["a"], [], None, "kwargs", []
+        )
+        info = pyflow.util.python.calling.callStackToParamsInfo(
+            callee, False, 1, False, (), True
+        )
+        self.assertEqual(info.willSucceed, TVLMaybe)
+        self.assertTrue(TypeError in info.exceptions)
+
+    def test_uncertain_kwargs_without_kparam_degrades_to_maybe(self):
+        callee = pyflow.util.python.calling.CalleeParams(
+            None, [0], ["a"], [], None, None, []
+        )
+        info = pyflow.util.python.calling.callStackToParamsInfo(
+            callee, False, 1, False, (), True
+        )
+        self.assertEqual(info.willSucceed, TVLMaybe)
+        self.assertTrue(TypeError in info.exceptions)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -18,8 +18,12 @@ from .model import expressions
 from . import constraints
 
 import pyflow.util.python.calling
+import pyflow.config as pyflow_config
 import json
+import logging
 import time
+
+LOG = logging.getLogger(__name__)
 
 
 class GetLocals(TypeDispatcher):
@@ -100,7 +104,13 @@ class ShapeConstraintBuilder(TypeDispatcher):
         continues: Stack of continue points (for loops)
     """
 
-    def __init__(self, sys, invokeCallback=(lambda code: code)):
+    def __init__(
+        self,
+        sys,
+        invokeCallback=(lambda code: code),
+        max_varg_transfer=None,
+        max_vparam_transfer=None,
+    ):
         """Initialize constraint builder.
 
         Args:
@@ -136,6 +146,10 @@ class ShapeConstraintBuilder(TypeDispatcher):
 
         self.breaks = []
         self.continues = []
+        self._max_varg_transfer_override = max_varg_transfer
+        self._max_vparam_transfer_override = max_vparam_transfer
+        self._warned_varg_truncation = False
+        self._warned_vparam_truncation = False
 
     def setFunction(self, func):
         self.function = func
@@ -427,14 +441,54 @@ class ShapeConstraintBuilder(TypeDispatcher):
         return self.sys.canonical.fieldExpr(expr, field)
 
     def maxVArgLength(self):
-        # HACK arbitrarily transfer args
-        # TODO figure out how many we should transfer.
-        return 3
+        return self._resolve_transfer_limit(
+            override=self._max_varg_transfer_override,
+            config_name="shape_max_varg_transfer",
+            default=3,
+        )
 
     def maxVParamLength(self):
-        # HACK arbitrarily transfer args
-        # TODO figure out how many we should transfer.
-        return 3
+        return self._resolve_transfer_limit(
+            override=self._max_vparam_transfer_override,
+            config_name="shape_max_vparam_transfer",
+            default=3,
+        )
+
+    def _resolve_transfer_limit(self, override, config_name, default):
+        if override is not None:
+            return self._sanitize_transfer_limit(override, config_name, default)
+
+        compiler = getattr(getattr(self.sys, "extractor", None), "compiler", None)
+        compiler_value = getattr(compiler, config_name, None)
+        if compiler_value is not None:
+            return self._sanitize_transfer_limit(compiler_value, config_name, default)
+
+        config_value = getattr(pyflow_config, config_name, None)
+        if config_value is not None:
+            return self._sanitize_transfer_limit(config_value, config_name, default)
+
+        return default
+
+    def _sanitize_transfer_limit(self, value, config_name, default):
+        try:
+            value = int(value)
+        except (TypeError, ValueError):
+            LOG.warning(
+                "invalid %s=%r; using default %d",
+                config_name,
+                value,
+                default,
+            )
+            return default
+        if value < 0:
+            LOG.warning(
+                "invalid %s=%r (must be >= 0); using default %d",
+                config_name,
+                value,
+                default,
+            )
+            return default
+        return value
 
     def mapArguments(self, callerargs, calleeparams):
         # HACK things not supported for this iteration
@@ -458,7 +512,14 @@ class ShapeConstraintBuilder(TypeDispatcher):
         base = len(callerargs.args)
 
         if callerargs.vargs:
-            for i in range(self.maxVArgLength()):
+            max_varg = self.maxVArgLength()
+            if not self._warned_varg_truncation:
+                LOG.warning(
+                    "shape vararg transfer capped at %d elements (additional elements may be ignored)",
+                    max_varg,
+                )
+                self._warned_varg_truncation = True
+            for i in range(max_varg):
                 src = self.indexExpr(callerargs.vargs, i)
                 expr = self._makeParam(i + base, paramSlots)
                 self.assign(src, expr)
@@ -489,7 +550,8 @@ class ShapeConstraintBuilder(TypeDispatcher):
         # 3) Map varargs parameters to the corresponding caller vargs element slots
         if callerargs.vargs is not None and calleeparams.vparam is not None:
             base = len(callerargs.args)
-            for i in range(self.maxVArgLength()):
+            max_varg = self.maxVArgLength()
+            for i in range(max_varg):
                 paramSlot = self.sys.canonical.localSlot(base + i)
                 idxName = self.sys.info.indexSlotName(callerargs.vargs.slot.lcl, i)
                 fieldSlot = self.sys.canonical.fieldSlot(None, idxName)
@@ -825,7 +887,14 @@ class ShapeConstraintBuilder(TypeDispatcher):
             vparam = self.localExpr(p.vparam)
             base = len(p.params)
 
-            for i in range(self.maxVParamLength()):
+            max_vparam = self.maxVParamLength()
+            if not self._warned_vparam_truncation:
+                LOG.warning(
+                    "shape vparam transfer capped at %d elements (additional elements may be ignored)",
+                    max_vparam,
+                )
+                self._warned_vparam_truncation = True
+            for i in range(max_vparam):
                 expr = self._makeParam(i + base, forget)
                 self.assign(expr, self.indexExpr(vparam, i))
 

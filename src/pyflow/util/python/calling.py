@@ -425,7 +425,7 @@ def callStackToParamsInfo(
         CallInfo: Object containing information about argument binding and call success
 
     Raises:
-        AssertionError: If callee is not a CalleeParams or if isUncertainKwds is True
+        AssertionError: If callee is not a CalleeParams
 
     Example:
         >>> # Function: def foo(a, b, c=10): ...
@@ -438,8 +438,6 @@ def callStackToParamsInfo(
     """
     assert isinstance(callee, CalleeParams), callee
     assert isinstance(numArgs, int) and numArgs >= 0, numArgs
-
-    assert not isUncertainKwds, isUncertainKwds
 
     info = CallInfo()
 
@@ -525,7 +523,22 @@ def callStackToParamsInfo(
                 info.exceptions.add(TypeError)
                 return info._mustFail()
             else:
-                assert False, "Temporary limitation: cannot handle kparams"
+                # Unknown keyword is accepted by **kwargs.
+                continue
+
+    # Uncertain **kwargs are conservatively modeled.
+    if isUncertainKwds:
+        # Unknown keyword names could collide with already-bound parameters.
+        cleanTransfer &= TVLMaybe
+
+        # Unknown keyword names may satisfy currently-unbound named parameters.
+        if numParams:
+            info.uncertainParam = True
+            info.uncertainParamStart = 0
+
+        # Without **kwargs support, unknown keywords may fail at runtime.
+        if callee.kparam is None:
+            info.exceptions.add(TypeError)
 
     bindDefaults(callee, info)
 

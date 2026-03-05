@@ -51,8 +51,9 @@ class ScopeGraph(ast.NodeVisitor):
         self.parent_relations = {}  # parent relations among scopes
         self.references = {}  # dictionary for refereced names
         self.declarations = {}  # dictionary for declared names
+        self.contained_scopes = {}  # parent scope -> list of child scopes
+        self.declared_names = {}  # scope -> deduplicated declarations
         self.current_scope_name = None
-        pass
 
     def build(self, ast_tree):
         """Build scope graph from AST tree.
@@ -64,7 +65,7 @@ class ScopeGraph(ast.NodeVisitor):
             ast_tree: AST tree to process
         """
         self.visit(ast_tree)
-        pass
+        return self
 
     def visit_FunctionDef(self, node):
         """Visit function definition node.
@@ -78,9 +79,12 @@ class ScopeGraph(ast.NodeVisitor):
             ast.FunctionDef: Node (unchanged)
         """
         self.declarations[self.current_scope_name].append(node.name)
+        self._add_declared()
 
         save_scope_name = self.current_scope_name
         self.current_scope_name = node.name
+        self._add_scope_name(self.current_scope_name, save_scope_name)
+        self._add_contained()
 
         if self.current_scope_name not in self.references:
             self.references[self.current_scope_name] = []
@@ -114,9 +118,12 @@ class ScopeGraph(ast.NodeVisitor):
                     self.MRO_graph[node.name] = [bc.id]
 
         self.declarations[self.current_scope_name].append(node.name)
+        self._add_declared()
 
         save_scope_name = self.current_scope_name
         self.current_scope_name = node.name
+        self._add_scope_name(self.current_scope_name, save_scope_name)
+        self._add_contained()
 
         if self.current_scope_name not in self.references:
             self.references[self.current_scope_name] = []
@@ -141,6 +148,7 @@ class ScopeGraph(ast.NodeVisitor):
         """
         save_scope_name = self.current_scope_name
         self.current_scope_name = "Mod"
+        self.sg.add_node(self.current_scope_name)
 
         if self.current_scope_name not in self.references:
             self.references[self.current_scope_name] = []
@@ -165,6 +173,7 @@ class ScopeGraph(ast.NodeVisitor):
             self.references[self.current_scope_name].append(node.id)
         elif isinstance(node.ctx, ast.Store):
             self.declarations[self.current_scope_name].append(node.id)
+            self._add_declared()
 
     def visit_Global(self, node):
         pass
@@ -205,7 +214,6 @@ class ScopeGraph(ast.NodeVisitor):
             if self.current_scope_name not in self.imports:
                 self.imports[self.current_scope_name] = []
             self.imports[self.current_scope_name].append(alias.name)
-        pass
 
     def resolve(self, name, working_scope):
         """Resolve a name in a given working scope.
@@ -219,9 +227,34 @@ class ScopeGraph(ast.NodeVisitor):
             working_scope: Scope to start resolution from
 
         Returns:
-            object: Resolved name information (not implemented)
+            dict | None: Resolution metadata or None if unresolved
         """
-        pass
+        scope = working_scope
+        visited = set()
+        distance = 0
+        while scope is not None and scope not in visited:
+            visited.add(scope)
+
+            if name in self.declarations.get(scope, ()):
+                return {
+                    "name": name,
+                    "scope": scope,
+                    "kind": "declaration",
+                    "distance": distance,
+                }
+
+            if name in self.imports.get(scope, ()):
+                return {
+                    "name": name,
+                    "scope": scope,
+                    "kind": "import",
+                    "distance": distance,
+                }
+
+            scope = self.parent_relations.get(scope)
+            distance += 1
+
+        return None
 
     def add_scope(self, scope_name, parent_name):
         """Add a scope with parent relationship.
@@ -231,6 +264,10 @@ class ScopeGraph(ast.NodeVisitor):
             parent_name: Name of parent scope
         """
         self._add_scope_name(scope_name, parent_name)
+        if parent_name is not None:
+            contained = self.contained_scopes.setdefault(parent_name, [])
+            if scope_name not in contained:
+                contained.append(scope_name)
 
     def add_reference(self, scope_name, name, ctx):
         """Add a name reference in a scope.
@@ -258,21 +295,45 @@ class ScopeGraph(ast.NodeVisitor):
             self.references[scope_name].append(name)  # Bug M fix: was = name
 
         elif ctx == "store":
-            self._add_declared()
             if scope_name not in self.declarations:
                 self.declarations[scope_name] = []
             self.declarations[scope_name].append(name)  # Bug M fix: was = name
+            # Keep deduplicated declaration cache in sync for explicit updates.
+            raw = self.declarations.get(scope_name, ())
+            deduped = []
+            seen = set()
+            for declared in raw:
+                if declared not in seen:
+                    seen.add(declared)
+                    deduped.append(declared)
+            self.declared_names[scope_name] = deduped
 
         else:
             raise Exception("Unknown context for given name reference")
 
     def _add_contained(self):
-        """Add contained scope (not implemented)."""
-        pass
+        """Track the current scope as contained by its parent."""
+        scope_name = self.current_scope_name
+        parent_name = self.parent_relations.get(scope_name)
+        if parent_name is None:
+            return
+        contained = self.contained_scopes.setdefault(parent_name, [])
+        if scope_name not in contained:
+            contained.append(scope_name)
 
     def _add_declared(self):
-        """Add declared name (not implemented)."""
-        pass
+        """Refresh deduplicated declarations for the current scope."""
+        scope_name = self.current_scope_name
+        if scope_name is None:
+            return
+        raw = self.declarations.get(scope_name, ())
+        deduped = []
+        seen = set()
+        for name in raw:
+            if name not in seen:
+                seen.add(name)
+                deduped.append(name)
+        self.declared_names[scope_name] = deduped
 
     def _add_scope_name(self, scope_name, parent_name):
         """Add scope name with parent relationship.
@@ -282,6 +343,10 @@ class ScopeGraph(ast.NodeVisitor):
             parent_name: Name of parent scope
         """
         self.parent_relations[scope_name] = parent_name
+        self.sg.add_node(scope_name)
+        if parent_name is not None:
+            self.sg.add_node(parent_name)
+            self.sg.add_edge(parent_name, scope_name)
 
     def get_parent(self, scope_name):
         """Get parent scope for a scope.
