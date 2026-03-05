@@ -136,6 +136,7 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
             (
                 py_ast.SetAttr,
                 py_ast.SetSubscript,
+                py_ast.SetSlice,
                 py_ast.SetGlobal,
                 py_ast.SetCellDeref,
                 py_ast.Store,
@@ -194,7 +195,17 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
                 for slot in (self._slot_from_fact(fact),)
                 if slot is not None
             )
-        if isinstance(operation, (py_ast.SetGlobal, py_ast.SetCellDeref)):
+        if isinstance(operation, py_ast.Delete):
+            return tuple(
+                slot
+                for fact in self._facts_for_locals(procedure, (operation.lcl,))
+                for slot in (self._slot_from_fact(fact),)
+                if slot is not None
+            )
+        if isinstance(
+            operation,
+            (py_ast.SetGlobal, py_ast.DeleteGlobal, py_ast.SetCellDeref),
+        ):
             return tuple(
                 slot
                 for fact in self._facts_for_modified_operation(operation)
@@ -235,7 +246,10 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
             if child_kills:
                 return child_kills
 
-        return self._killed_slots_for_operation(procedure, operation)
+        # The current call node only models one call expression within an
+        # operation. If this expression is not the assignment/modification RHS,
+        # defer strong updates until the terminal operation node executes.
+        return ()
 
     def _nested_operations(self, operation: object) -> tuple[object, ...]:
         if isinstance(operation, py_ast.Suite):

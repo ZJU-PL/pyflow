@@ -27,6 +27,8 @@ class TypestateConfiguration:
     open_names: FrozenSet[str] = frozenset({"open"})
     close_names: FrozenSet[str] = frozenset({"close"})
     use_names: FrozenSet[str] = frozenset({"read", "write", "send", "recv"})
+    resource_arg_positions: FrozenSet[int] = frozenset({0})
+    track_method_receiver: bool = True
 
 
 @dataclass(frozen=True)
@@ -175,6 +177,7 @@ class InterproceduralTypestateProblem(
             (
                 py_ast.SetAttr,
                 py_ast.SetSubscript,
+                py_ast.SetSlice,
                 py_ast.SetGlobal,
                 py_ast.SetCellDeref,
                 py_ast.Store,
@@ -421,7 +424,12 @@ class InterproceduralTypestateProblem(
                 for local in assigned_locals(operation)
                 for slot in self._slots_for_local(procedure, local)
             )
-        if isinstance(operation, (py_ast.SetGlobal, py_ast.SetCellDeref)):
+        if isinstance(operation, py_ast.Delete):
+            return tuple(slot for slot in self._slots_for_local(procedure, operation.lcl))
+        if isinstance(
+            operation,
+            (py_ast.SetGlobal, py_ast.DeleteGlobal, py_ast.SetCellDeref),
+        ):
             return tuple(
                 slot
                 for fact in self._facts_for_modified_operation(operation, STATE_OPEN)
@@ -457,7 +465,9 @@ class InterproceduralTypestateProblem(
             )
             if child_kills:
                 return child_kills
-        return self._killed_slots_for_operation(procedure, operation)
+        # Keep unrelated facts alive until the terminal operation node; this
+        # call node only corresponds to one nested call expression.
+        return ()
 
     def _facts_for_locals(
         self,
@@ -545,6 +555,7 @@ class InterproceduralTypestateProblem(
             (
                 py_ast.SetAttr,
                 py_ast.SetSubscript,
+                py_ast.SetSlice,
                 py_ast.SetGlobal,
                 py_ast.SetCellDeref,
                 py_ast.Store,
@@ -643,12 +654,22 @@ class InterproceduralTypestateProblem(
         procedure: cfg_graph.Code,
         call: py_ast.PythonASTNode,
     ) -> tuple[object, ...]:
-        if isinstance(call, py_ast.MethodCall):
-            return self._slots_read_by_node(procedure, call.expr)
-        actuals = actual_argument_expressions(call)
-        if not actuals:
-            return ()
-        return self._slots_read_by_node(procedure, actuals[0])
+        resources: list[object] = []
+        seen: set[object] = set()
+
+        def extend_slots(expr: object) -> None:
+            for slot in self._slots_read_by_node(procedure, expr):
+                if slot in seen:
+                    continue
+                seen.add(slot)
+                resources.append(slot)
+
+        if isinstance(call, py_ast.MethodCall) and self.configuration.track_method_receiver:
+            extend_slots(call.expr)
+        for index, actual in enumerate(actual_argument_expressions(call)):
+            if index in self.configuration.resource_arg_positions:
+                extend_slots(actual)
+        return tuple(resources)
 
 
 class InterproceduralTypestateAnalysis:

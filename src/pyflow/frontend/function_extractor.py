@@ -12,10 +12,14 @@ from typing import Any, Optional
 
 from pyflow.language.python import ast as pyflow_ast
 from pyflow.language.python.annotations import CodeAnnotation
+from pyflow.language.python.default_markers import MISSING_DEFAULT
 from pyflow.language.python.pythonbase import PythonASTNode
 from pyflow.application.program import Program
 
 from .ast_converter import ASTConverter
+
+
+_KWONLY_PARAM_PREFIX = "kwonly:"
 
 
 class FunctionExtractor:
@@ -217,8 +221,8 @@ class FunctionExtractor:
         from pyflow.language.python.program import Object
 
         # Prefer inspect.signature for real callables; it captures pos-only and kw-only.
-        param_names = []
-        per_param_defaults = []
+        # Parameter records are (kind, name, default) in declaration order.
+        param_records: list[tuple[str, str, pyflow_ast.Existing | None]] = []
         vararg = None
         kwarg = None
 
@@ -231,18 +235,21 @@ class FunctionExtractor:
 
         if sig is not None:
             for p in sig.parameters.values():
-                if p.kind in (
-                    inspect.Parameter.POSITIONAL_ONLY,
-                    inspect.Parameter.POSITIONAL_OR_KEYWORD,
-                    inspect.Parameter.KEYWORD_ONLY,
-                ):
-                    param_names.append(p.name)
-                    if p.default is inspect._empty:
-                        per_param_defaults.append(None)
-                    else:
-                        per_param_defaults.append(
-                            pyflow_ast.Existing(Object(p.default))
-                        )
+                if p.kind == inspect.Parameter.POSITIONAL_ONLY:
+                    kind = "posonly"
+                elif p.kind == inspect.Parameter.POSITIONAL_OR_KEYWORD:
+                    kind = "regular"
+                elif p.kind == inspect.Parameter.KEYWORD_ONLY:
+                    kind = "kwonly"
+                else:
+                    kind = None
+                if kind is not None:
+                    default = (
+                        None
+                        if p.default is inspect._empty
+                        else pyflow_ast.Existing(Object(p.default))
+                    )
+                    param_records.append((kind, p.name, default))
                 elif p.kind == inspect.Parameter.VAR_POSITIONAL:
                     vararg = pyflow_ast.Local(p.name)
                 elif p.kind == inspect.Parameter.VAR_KEYWORD:
@@ -252,8 +259,11 @@ class FunctionExtractor:
             posonly = [a.arg for a in getattr(args_node, "posonlyargs", [])]
             regular = [a.arg for a in getattr(args_node, "args", [])]
             kwonly = [a.arg for a in getattr(args_node, "kwonlyargs", [])]
-            param_names = [*posonly, *regular, *kwonly]
-            per_param_defaults = [None] * len(param_names)
+            param_records = (
+                [("posonly", name, None) for name in posonly]
+                + [("regular", name, None) for name in regular]
+                + [("kwonly", name, None) for name in kwonly]
+            )
 
             positional_names = [*posonly, *regular]
             pos_defaults = list(getattr(args_node, "defaults", []) or [])
@@ -263,11 +273,13 @@ class FunctionExtractor:
                     idx = start + i
                     try:
                         default_value = python_ast.literal_eval(default_node)
-                        per_param_defaults[idx] = pyflow_ast.Existing(
+                        default = pyflow_ast.Existing(
                             Object(default_value)
                         )
                     except Exception:
-                        per_param_defaults[idx] = pyflow_ast.Existing(Object(None))
+                        default = pyflow_ast.Existing(Object(None))
+                    kind, name, _ = param_records[idx]
+                    param_records[idx] = (kind, name, default)
 
             kw_defaults = list(getattr(args_node, "kw_defaults", []) or [])
             if kwonly and kw_defaults:
@@ -277,18 +289,55 @@ class FunctionExtractor:
                         continue
                     try:
                         default_value = python_ast.literal_eval(default_node)
-                        per_param_defaults[base + i] = pyflow_ast.Existing(
+                        default = pyflow_ast.Existing(
                             Object(default_value)
                         )
                     except Exception:
-                        per_param_defaults[base + i] = pyflow_ast.Existing(Object(None))
+                        default = pyflow_ast.Existing(Object(None))
+                    kind, name, _ = param_records[base + i]
+                    param_records[base + i] = (kind, name, default)
 
             if args_node.vararg:
                 vararg = pyflow_ast.Local(args_node.vararg.arg)
             if args_node.kwarg:
                 kwarg = pyflow_ast.Local(args_node.kwarg.arg)
 
-        params = [pyflow_ast.Local(name) for name in param_names]
+        posonly_params = [
+            pyflow_ast.Local(name)
+            for kind, name, _default in param_records
+            if kind == "posonly"
+        ]
+        posonly_names = [
+            name
+            for kind, name, _default in param_records
+            if kind == "posonly"
+        ]
+        regular_params = [
+            pyflow_ast.Local(name)
+            for kind, name, _default in param_records
+            if kind == "regular"
+        ]
+        regular_names = [
+            name
+            for kind, name, _default in param_records
+            if kind == "regular"
+        ]
+        kwonly_params = [
+            pyflow_ast.Local(name)
+            for kind, name, _default in param_records
+            if kind == "kwonly"
+        ]
+        kwonly_names = [
+            name
+            for kind, name, _default in param_records
+            if kind == "kwonly"
+        ]
+        params = [*regular_params, *kwonly_params]
+        param_names = [
+            *regular_names,
+            *(f"{_KWONLY_PARAM_PREFIX}{name}" for name in kwonly_names),
+        ]
+        per_param_defaults = [default for _kind, _name, default in param_records]
 
         first_default = next(
             (i for i, d in enumerate(per_param_defaults) if d is not None), None
@@ -297,13 +346,13 @@ class FunctionExtractor:
         if first_default is not None:
             for d in per_param_defaults[first_default:]:
                 defaults.append(
-                    d if d is not None else pyflow_ast.Existing(Object(None))
+                    d if d is not None else pyflow_ast.Existing(Object(MISSING_DEFAULT))
                 )
 
         return pyflow_ast.CodeParameters(
             selfparam=None,
-            posonlyparams=[],
-            posonlynames=[],
+            posonlyparams=posonly_params,
+            posonlynames=posonly_names,
             params=params,
             paramnames=param_names,
             defaults=tuple(defaults),

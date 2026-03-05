@@ -19,6 +19,10 @@ FactT = TypeVar("FactT", bound=Hashable)
 ValueT = TypeVar("ValueT")
 
 
+class SolverLimitExceeded(RuntimeError):
+    """Raised when solver propagation exceeds a configured safety cap."""
+
+
 @dataclass(frozen=True)
 class PathEdge(Generic[NodeT, FactT]):
     """A source-relative exploded-graph edge."""
@@ -175,8 +179,14 @@ class IDEResult(Generic[NodeT, FactT, ValueT]):
 class IFDSSolver(Generic[ProcT, NodeT, FactT]):
     """Classic tabulation-style IFDS solver."""
 
-    def __init__(self, *, record_traces: bool = False) -> None:
+    def __init__(
+        self,
+        *,
+        record_traces: bool = False,
+        max_propagated_path_edges: int | None = None,
+    ) -> None:
         self.record_traces = record_traces
+        self.max_propagated_path_edges = max_propagated_path_edges
 
     def solve(self, problem: IFDSProblem[ProcT, NodeT, FactT]) -> IFDSResult[NodeT, FactT]:
         supergraph = problem.supergraph
@@ -218,6 +228,14 @@ class IFDSSolver(Generic[ProcT, NodeT, FactT]):
             seen.add(path_edge)
             reached[path_edge.node].add(path_edge.fact)
             stats["propagated_path_edges"] += 1
+            if (
+                self.max_propagated_path_edges is not None
+                and stats["propagated_path_edges"] > self.max_propagated_path_edges
+            ):
+                raise SolverLimitExceeded(
+                    "IFDS propagation exceeded max_propagated_path_edges="
+                    f"{self.max_propagated_path_edges}"
+                )
             queue.append(path_edge)
 
         for node, facts in problem.initial_seeds().items():
@@ -343,8 +361,14 @@ class IFDSSolver(Generic[ProcT, NodeT, FactT]):
 class IDESolver(Generic[ProcT, NodeT, FactT, ValueT]):
     """Jump-function IDE solver keyed by source-relative path edges."""
 
-    def __init__(self, *, record_traces: bool = False) -> None:
+    def __init__(
+        self,
+        *,
+        record_traces: bool = False,
+        max_propagated_path_edges: int | None = None,
+    ) -> None:
         self.record_traces = record_traces
+        self.max_propagated_path_edges = max_propagated_path_edges
 
     def solve(self, problem: IDEProblem[ProcT, NodeT, FactT, ValueT]) -> IDEResult[NodeT, FactT, ValueT]:
         supergraph = problem.supergraph
@@ -395,6 +419,14 @@ class IDESolver(Generic[ProcT, NodeT, FactT, ValueT]):
                 jump_functions[path_edge] = jump
                 reached[path_edge.node].add(path_edge.fact)
                 stats["propagated_path_edges"] += 1
+                if (
+                    self.max_propagated_path_edges is not None
+                    and stats["propagated_path_edges"] > self.max_propagated_path_edges
+                ):
+                    raise SolverLimitExceeded(
+                        "IDE propagation exceeded max_propagated_path_edges="
+                        f"{self.max_propagated_path_edges}"
+                    )
                 queue.append(path_edge)
                 return
             joined = join_edge_functions(current, jump)
@@ -406,6 +438,14 @@ class IDESolver(Generic[ProcT, NodeT, FactT, ValueT]):
                 jump_functions[path_edge] = joined
                 reached[path_edge.node].add(path_edge.fact)
                 stats["propagated_path_edges"] += 1
+                if (
+                    self.max_propagated_path_edges is not None
+                    and stats["propagated_path_edges"] > self.max_propagated_path_edges
+                ):
+                    raise SolverLimitExceeded(
+                        "IDE propagation exceeded max_propagated_path_edges="
+                        f"{self.max_propagated_path_edges}"
+                    )
                 queue.append(path_edge)
 
         for seed, value in seed_values.items():
@@ -554,29 +594,26 @@ class IDESolver(Generic[ProcT, NodeT, FactT, ValueT]):
         values: Dict[tuple[NodeT, FactT], ValueT] = {}
         source_values: Dict[tuple[NodeT, FactT], ValueT] = {}
 
-        def resolve_source_value(
-            source_key: tuple[NodeT, FactT],
-            active: set[tuple[NodeT, FactT]],
-        ) -> ValueT | None:
-            if source_key in source_values:
-                return source_values[source_key]
+        source_keys: set[tuple[NodeT, FactT]] = set(seed_values)
+        source_keys.update((edge.source_node, edge.source_fact) for edge in jump_functions)
+        source_keys.update(incoming)
+        for incoming_records in incoming.values():
+            source_keys.update(
+                (record.caller_source_node, record.caller_source_fact)
+                for record in incoming_records
+            )
 
-            seed_value = seed_values.get(source_key)
-            resolved = seed_value
-
-            if source_key in active:
-                if resolved is not None:
-                    return resolved
-                return None
-
-            active.add(source_key)
-            try:
+        changed = True
+        while changed:
+            changed = False
+            for source_key in source_keys:
+                resolved = seed_values.get(source_key)
                 for incoming_record in incoming.get(source_key, ()):
                     caller_key = (
                         incoming_record.caller_source_node,
                         incoming_record.caller_source_fact,
                     )
-                    caller_value = resolve_source_value(caller_key, active)
+                    caller_value = source_values.get(caller_key)
                     if caller_value is None:
                         continue
                     incoming_value = incoming_record.call_jump(caller_value)
@@ -584,16 +621,17 @@ class IDESolver(Generic[ProcT, NodeT, FactT, ValueT]):
                         resolved = incoming_value
                     else:
                         resolved = problem.join_values(resolved, incoming_value)
-            finally:
-                active.remove(source_key)
 
-            if resolved is not None:
-                source_values[source_key] = resolved
-            return resolved
+                current = source_values.get(source_key)
+                if resolved is None:
+                    continue
+                if current is None or resolved != current:
+                    source_values[source_key] = resolved
+                    changed = True
 
         for path_edge, jump in jump_functions.items():
             source_key = (path_edge.source_node, path_edge.source_fact)
-            seed_value = resolve_source_value(source_key, set())
+            seed_value = source_values.get(source_key)
             if seed_value is None:
                 continue
             value = jump(seed_value)

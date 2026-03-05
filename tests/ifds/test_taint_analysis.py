@@ -335,6 +335,44 @@ def test_interprocedural_taint_ignores_except_handlers_in_normal_flow_only_mode(
     assert result.findings == ()
 
 
+def test_interprocedural_taint_delete_kills_local_fact():
+    compiler = context.CompilerContext(None)
+
+    source_code, _ = make_code("source", [], [], return_name="source_ret")
+    sink_value = ast.Local("sink_value")
+    sink_code, _ = make_code("sink", [sink_value], [], return_name="sink_ret")
+
+    tainted = ast.Local("tainted")
+    main_code, _ = make_code(
+        "main",
+        [],
+        [
+            call_stmt(source_code, [], [tainted]),
+            ast.Delete(tainted),
+            call_stmt(sink_code, [tainted]),
+            ast.Return([]),
+        ],
+        return_name="main_ret",
+    )
+
+    cfgs = [
+        build_cfg(compiler, main_code),
+        build_cfg(compiler, source_code),
+        build_cfg(compiler, sink_code),
+    ]
+    adapter = build_supergraph_from_cfgs(cfgs)
+    result = analyze_taint(
+        adapter,
+        TaintConfiguration(
+            source_names=frozenset({"source"}),
+            sink_names=frozenset({"sink"}),
+        ),
+        entry_nodes=[adapter.supergraph.entry_of(cfgs[0])],
+    )
+
+    assert result.findings == ()
+
+
 def test_interprocedural_taint_preserves_return_slot_mapping():
     compiler = context.CompilerContext(None)
 
@@ -579,3 +617,67 @@ def test_interprocedural_taint_uses_weak_updates_for_heap_slots():
 
     assert len(result.findings) == 1
     assert result.findings[0].tainted_argument_labels == ("obj.payload",)
+
+
+def test_interprocedural_taint_keeps_outer_call_argument_facts_for_nested_calls():
+    compiler = context.CompilerContext(None)
+
+    source_code, _ = make_code("source", [], [], return_name="source_ret")
+    benign_code, _ = make_code(
+        "benign",
+        [],
+        [ast.Return([ast.Existing(ast.program.Object(0))])],
+        return_name="benign_ret",
+    )
+    first = ast.Local("first")
+    second = ast.Local("second")
+    pick_code, _ = make_code(
+        "pick_first",
+        [first, second],
+        [ast.Return([first])],
+        return_name="pick_ret",
+    )
+    sink_value = ast.Local("sink_value")
+    sink_code, _ = make_code("sink", [sink_value], [], return_name="sink_ret")
+
+    value = ast.Local("value")
+    main_code, _ = make_code(
+        "main",
+        [],
+        [
+            ast.Assign(ast.Call(ast.Local("source"), [], [], None, None), [value]),
+            ast.Assign(
+                ast.Call(
+                    ast.Local("pick_first"),
+                    [value, ast.Call(ast.Local("benign"), [], [], None, None)],
+                    [],
+                    None,
+                    None,
+                ),
+                [value],
+            ),
+            ast.Discard(ast.Call(ast.Local("sink"), [value], [], None, None)),
+            ast.Return([value]),
+        ],
+        return_name="main_ret",
+    )
+
+    cfgs = [
+        build_cfg(compiler, main_code),
+        build_cfg(compiler, source_code),
+        build_cfg(compiler, benign_code),
+        build_cfg(compiler, pick_code),
+        build_cfg(compiler, sink_code),
+    ]
+    adapter = build_supergraph_from_cfgs(cfgs)
+    result = analyze_taint(
+        adapter,
+        TaintConfiguration(
+            source_names=frozenset({"source"}),
+            sink_names=frozenset({"sink"}),
+        ),
+        entry_nodes=[adapter.supergraph.entry_of(cfgs[0])],
+    )
+
+    assert len(result.findings) == 1
+    assert [local.name for local in result.findings[0].tainted_arguments] == ["value"]

@@ -6,6 +6,7 @@ from unittest.mock import Mock, patch
 
 from pyflow.frontend.ast_converter import ASTConverter
 from pyflow.language.python import ast as pyflow_ast
+from pyflow.language.python.default_markers import MISSING_DEFAULT
 from pyflow.language.python.program import Object
 
 
@@ -453,6 +454,25 @@ finally:
         result = self.converter._convert_node(node)
         self.assertIsInstance(result, pyflow_ast.Suite)
 
+    def test_convert_annassign_with_value_lowers_to_assign(self):
+        """Annotated assignments with values should lower to Assign."""
+        source = "x: int = 1"
+        tree = python_ast.parse(source)
+        node = tree.body[0]
+
+        result = self.converter._convert_node(node)
+        self.assertIsInstance(result, pyflow_ast.Assign)
+
+    def test_convert_annassign_without_value_is_noop(self):
+        """Annotation-only assignment should become a no-op suite."""
+        source = "x: int"
+        tree = python_ast.parse(source)
+        node = tree.body[0]
+
+        result = self.converter._convert_node(node)
+        self.assertIsInstance(result, pyflow_ast.Suite)
+        self.assertEqual(len(result.blocks), 0)
+
     def test_convert_with_statement(self):
         """Test converting with statement with proper context manager protocol."""
         source = """
@@ -547,6 +567,40 @@ class TestClass:
         
         codeparams = self.converter._convert_function_args(func_node.args)
         self.assertIsNotNone(codeparams.kparam)
+
+    def test_convert_function_args_preserves_keyword_only_parameters(self):
+        """Keyword-only params should be encoded as non-positional formals."""
+        source = "def func(a, *, flag=False): pass"
+        tree = python_ast.parse(source)
+        func_node = tree.body[0]
+
+        codeparams = self.converter._convert_function_args(func_node.args)
+        self.assertEqual([param.name for param in codeparams.params], ["a", "flag"])
+        self.assertEqual(list(codeparams.paramnames), ["a", "kwonly:flag"])
+
+    def test_convert_lambda_preserves_keyword_only_parameters(self):
+        """Lambda conversion should keep keyword-only parameters."""
+        source = "lambda a, *, flag: a"
+        tree = python_ast.parse(source, mode="eval")
+        result = self.converter._convert_expression(tree.body)
+        self.assertIsInstance(result, pyflow_ast.MakeFunction)
+        params = result.code.codeparameters
+        self.assertEqual([param.name for param in params.params], ["a", "flag"])
+        self.assertEqual(list(params.paramnames), ["a", "kwonly:flag"])
+
+    def test_convert_function_args_marks_missing_kwonly_defaults(self):
+        """Missing kw-only defaults after earlier defaults should stay unbound."""
+        source = "def func(a=1, *, b, c=2): pass"
+        tree = python_ast.parse(source)
+        func_node = tree.body[0]
+
+        codeparams = self.converter._convert_function_args(func_node.args)
+        self.assertEqual(len(codeparams.defaults), 3)
+        self.assertIsInstance(codeparams.defaults[1], pyflow_ast.Existing)
+        self.assertIs(
+            codeparams.defaults[1].object.pyobj,
+            MISSING_DEFAULT,
+        )
 
     def test_convert_assign_attribute_models_setattr(self):
         """Attribute assignments should be modeled via SetAttr."""

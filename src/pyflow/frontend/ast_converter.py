@@ -17,6 +17,7 @@ import sys
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from pyflow.language.python import ast as pyflow_ast
+from pyflow.language.python.default_markers import MISSING_DEFAULT
 from pyflow.language.python.program import Object
 from pyflow.language.python.pythonbase import PythonASTNode
 from pyflow.language.python.annotations import CodeAnnotation
@@ -25,6 +26,7 @@ from pyflow.language.python.annotations import CodeAnnotation
 HAS_MATCH = sys.version_info >= (3, 10)
 HAS_NAMED_EXPR = sys.version_info >= (3, 8)
 HAS_EXCEPTION_GROUP = sys.version_info >= (3, 11)
+_KWONLY_PARAM_PREFIX = "kwonly:"
 
 
 class ASTConverter:
@@ -667,10 +669,13 @@ class ASTConverter:
         kwonly_params = [pyflow_ast.Local(name) for name in kwonly]
         
         all_positional_names = [*posonly, *regular]
-        all_params = [*posonly_params, *regular_params, *kwonly_params]
-        param_names = [*all_positional_names, *kwonly]
+        params = [*regular_params, *kwonly_params]
+        param_names = [
+            *regular,
+            *(f"{_KWONLY_PARAM_PREFIX}{name}" for name in kwonly),
+        ]
         
-        per_param_defaults: List[Optional[pyflow_ast.Existing]] = [None] * len(param_names)
+        per_param_defaults: List[Optional[PythonASTNode]] = [None] * len(param_names)
         
         pos_defaults = list(getattr(args_node, "defaults", []) or [])
         if pos_defaults:
@@ -698,11 +703,13 @@ class ASTConverter:
         first_default = next(
             (i for i, d in enumerate(per_param_defaults) if d is not None), None
         )
-        defaults: List[pyflow_ast.Existing] = []
+        defaults: List[PythonASTNode] = []
         if first_default is not None:
             for d in per_param_defaults[first_default:]:
                 defaults.append(
-                    d if d is not None else pyflow_ast.Existing(Object(None))
+                    d
+                    if d is not None
+                    else pyflow_ast.Existing(Object(MISSING_DEFAULT))
                 )
 
         vararg = None
@@ -721,8 +728,8 @@ class ASTConverter:
             selfparam=None,
             posonlyparams=posonly_params,
             posonlynames=posonly,
-            params=regular_params,
-            paramnames=regular,
+            params=params,
+            paramnames=param_names,
             defaults=defaults,
             vparam=vararg,
             kparam=kwarg,
@@ -1440,27 +1447,21 @@ class ASTConverter:
         """Convert annotated assignment to pyflow AST.
         
         Handles both `x: int = 5` and `x: int` (annotation-only).
-        Annotations are preserved in the AST for type inference.
+        For IFDS/CFG pipelines we lower to runtime-equivalent operations and
+        intentionally drop the type annotation payload.
         """
-        annotation = self._convert_expression_safe(node.annotation)
-        
+        _annotation = self._convert_expression_safe(node.annotation)
+
         if node.value is None:
             if isinstance(node.target, python_ast.Name):
-                return pyflow_ast.AnnAssign(
-                    pyflow_ast.Local(node.target.id),
-                    annotation,
-                    None
-                )
+                # ``x: T`` has no runtime effect.
+                return pyflow_ast.Suite([])
             return self._unsupported_stmt(node, "annotation-only assignment target unsupported")
         
         value = self._convert_expression_safe(node.value)
         
         if isinstance(node.target, python_ast.Name):
-            return pyflow_ast.AnnAssign(
-                pyflow_ast.Local(node.target.id),
-                annotation,
-                value
-            )
+            return pyflow_ast.Assign(value, [pyflow_ast.Local(node.target.id)])
         elif isinstance(node.target, python_ast.Attribute):
             obj = self._convert_expression_safe(node.target.value)
             name = pyflow_ast.Existing(Object(node.target.attr))

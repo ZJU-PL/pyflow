@@ -28,6 +28,7 @@ class TestTypeDisbatch(unittest.TestCase):
 
 import pyflow.util.python.calling
 from pyflow.util.tvl import *
+from pyflow.language.python.default_markers import MISSING_DEFAULT
 
 
 class TestCallingUtility(unittest.TestCase):
@@ -247,6 +248,21 @@ class TestCallingUtility(unittest.TestCase):
         self.assertEqual(info.uncertainVParam, False)
 
         self.assertTrue(not info.defaults, info.defaults)
+
+    def test_missing_default_marker_does_not_satisfy_required_parameter(self):
+        callee = pyflow.util.python.calling.CalleeParams(
+            None,
+            [0, 1, 2],
+            ["a", "b", "c"],
+            [3, MISSING_DEFAULT, 4],
+            None,
+            None,
+            [],
+        )
+        info = pyflow.util.python.calling.callStackToParamsInfo(
+            callee, False, 0, False, (), False
+        )
+        self.assertHardFail(info)
 
 
 if __name__ == "__main__":

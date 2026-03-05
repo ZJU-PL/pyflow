@@ -240,6 +240,26 @@ class TestClass:
         codeparams = self.extractor._convert_function_args(func_node.args, None)
         self.assertIsNotNone(codeparams.kparam)
 
+    def test_convert_function_args_preserves_keyword_only_parameters(self):
+        """Keyword-only params should be encoded as non-positional formals."""
+        source = "def test_func(a, *, flag=False): pass"
+        tree = python_ast.parse(source)
+        func_node = tree.body[0]
+
+        codeparams = self.extractor._convert_function_args(func_node.args, None)
+        self.assertEqual([param.name for param in codeparams.params], ["a", "flag"])
+        self.assertEqual(list(codeparams.paramnames), ["a", "kwonly:flag"])
+
+    def test_convert_function_args_preserves_positional_only_parameters(self):
+        """Positional-only params should remain in posonlyparams."""
+        source = "def test_func(a, /, b): pass"
+        tree = python_ast.parse(source)
+        func_node = tree.body[0]
+
+        codeparams = self.extractor._convert_function_args(func_node.args, None)
+        self.assertEqual([param.name for param in codeparams.posonlyparams], ["a"])
+        self.assertEqual([param.name for param in codeparams.params], ["b"])
+
     def test_convert_function_args_ensures_returnparams(self):
         """Test that function args always have returnparams."""
         source = "def test_func(): pass"

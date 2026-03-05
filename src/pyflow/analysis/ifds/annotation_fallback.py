@@ -20,7 +20,7 @@ def ensure_ifds_annotations_complete(codes) -> None:
     """Populate minimal IFDS annotations when the full pipeline leaves gaps."""
     local_slots: dict[tuple[object, str], _SyntheticSlot] = {}
     global_slots: dict[str, _SyntheticSlot] = {}
-    cell_slots: dict[str, _SyntheticSlot] = {}
+    cell_slots: dict[int, _SyntheticSlot] = {}
     attr_slots: dict[tuple[str, str], _SyntheticSlot] = {}
     subscript_slots: dict[tuple[str, str], _SyntheticSlot] = {}
 
@@ -59,7 +59,11 @@ def ensure_ifds_annotations_complete(codes) -> None:
         return global_slots.setdefault(name, _SyntheticSlot(name))
 
     def slot_for_cell(cell):
-        return cell_slots.setdefault(cell.name, _SyntheticSlot(cell.name))
+        key = id(cell)
+        label = getattr(cell, "name", None)
+        if not isinstance(label, str) or not label:
+            label = "<cell>"
+        return cell_slots.setdefault(key, _SyntheticSlot(f"{label}@{key:x}"))
 
     def slots_for_expr(code, expr):
         if expr is None or isinstance(expr, ast.leafTypes):
@@ -114,12 +118,23 @@ def ensure_ifds_annotations_complete(codes) -> None:
             return reads_for_node(code, node.expr)
         if isinstance(node, (ast.Call, ast.DirectCall, ast.MethodCall)):
             slots = []
+            if isinstance(node, ast.Call):
+                slots.extend(reads_for_node(code, node.expr))
+            if isinstance(node, ast.MethodCall):
+                slots.extend(reads_for_node(code, node.expr))
+            selfarg = getattr(node, "selfarg", None)
+            if selfarg is not None:
+                slots.extend(reads_for_node(code, selfarg))
             for arg in node.args:
                 slots.extend(reads_for_node(code, arg))
             for _, value in node.kwds:
                 slots.extend(reads_for_node(code, value))
-            if isinstance(node, ast.MethodCall):
-                slots.extend(reads_for_node(code, node.expr))
+            vargs = getattr(node, "vargs", None)
+            if vargs is not None:
+                slots.extend(reads_for_node(code, vargs))
+            kargs = getattr(node, "kargs", None)
+            if kargs is not None:
+                slots.extend(reads_for_node(code, kargs))
             return tuple(slots)
         if isinstance(node, ast.Suite):
             slots = []

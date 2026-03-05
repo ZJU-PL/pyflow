@@ -20,6 +20,7 @@ which function calls are feasible and how arguments flow into parameters.
 __all__ = ["CallerArgs", "CalleeParams", "CallInfo", "Maybe", "callStackToParamsInfo"]
 
 from pyflow.util.tvl import *
+from pyflow.language.python.default_markers import MISSING_DEFAULT
 
 
 class CallerArgs(object):
@@ -359,6 +360,10 @@ def bindDefaults(callee, info):
     numParams = len(callee.params)
     defaultOffset = numParams - numDefaults
     for i in range(defaultOffset, numParams):
+        defaultValue = callee.defaults[i - defaultOffset]
+        pyobj = getattr(getattr(defaultValue, "object", None), "pyobj", None)
+        if defaultValue is MISSING_DEFAULT or pyobj is MISSING_DEFAULT:
+            continue
         bound = info.isBound(i)
         # If it isn't bound for sure, it may default.
         if bound.maybeFalse():

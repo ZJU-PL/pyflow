@@ -12,6 +12,7 @@ from ._client_common import AnnotatedFactProblemBase
 from ..cfg_adapter import CFGNode, CFGSupergraphAdapter, assigned_locals
 from ..problem import IFDSProblem
 from ..solver import IFDSSolver
+from ..transfers import actual_argument_expressions
 
 
 ZERO_NULLNESS = "ZERO_NULLNESS"
@@ -157,6 +158,7 @@ class InterproceduralNullnessProblem(
             (
                 py_ast.SetAttr,
                 py_ast.SetSubscript,
+                py_ast.SetSlice,
                 py_ast.SetGlobal,
                 py_ast.SetCellDeref,
                 py_ast.Store,
@@ -336,13 +338,14 @@ class InterproceduralNullnessProblem(
         self, node: CFGNode, successor: CFGNode, fact: object
     ) -> tuple[object, ...] | None:
         operation = self.adapter.operation_of(node)
-        if not isinstance(operation, py_ast.Condition):
+        if operation is None:
             return None
+        conditional = operation.conditional if isinstance(operation, py_ast.Condition) else operation
         exit_name = node.block.findExit(successor.block)
         if exit_name not in ("true", "false"):
             return None
 
-        target_expr, true_means_null = self._nullable_condition_target(operation.conditional)
+        target_expr, true_means_null = self._nullable_condition_target(conditional)
         if target_expr is None:
             return None
 
@@ -373,16 +376,39 @@ class InterproceduralNullnessProblem(
         return (fact,)
 
     def _nullable_condition_target(self, expr: object):
+        if isinstance(expr, py_ast.ConvertToBool):
+            return self._nullable_condition_target(expr.expr)
         if isinstance(expr, py_ast.Is):
             if self._is_explicit_null_expression(expr.right):
                 return expr.left, True
             if self._is_explicit_null_expression(expr.left):
                 return expr.right, True
-        if isinstance(expr, py_ast.Not) and isinstance(expr.expr, py_ast.Is):
-            target, _true_means_null = self._nullable_condition_target(expr.expr)
+        call_target = self._nullable_condition_call_target(expr)
+        if call_target is not None:
+            return call_target
+        if isinstance(expr, py_ast.Not):
+            target, true_means_null = self._nullable_condition_target(expr.expr)
             if target is not None:
-                return target, False
+                return target, not true_means_null
         return None, False
+
+    def _nullable_condition_call_target(
+        self, expr: object
+    ) -> tuple[object, bool] | None:
+        if not isinstance(expr, (py_ast.Call, py_ast.DirectCall, py_ast.MethodCall)):
+            return None
+        call_name = self._call_name_from_expression(expr)
+        if call_name not in {"interpreter__is__", "interpreter__is_not__"}:
+            return None
+        actuals = actual_argument_expressions(expr)
+        if len(actuals) != 2:
+            return None
+        left, right = actuals
+        if self._is_explicit_null_expression(right):
+            return left, call_name == "interpreter__is__"
+        if self._is_explicit_null_expression(left):
+            return right, call_name == "interpreter__is__"
+        return None
 
     def _collect_null_risks(
         self,
@@ -408,7 +434,10 @@ class InterproceduralNullnessProblem(
             elif isinstance(current, py_ast.GetSubscript):
                 if self._expr_may_be_null_at(node, current.expr, result):
                     record(node, "subscript_access", current.expr)
-            elif isinstance(current, (py_ast.SetAttr, py_ast.Store, py_ast.SetSubscript)):
+            elif isinstance(
+                current,
+                (py_ast.SetAttr, py_ast.Store, py_ast.SetSubscript, py_ast.SetSlice),
+            ):
                 if self._expr_may_be_null_at(node, current.expr, result):
                     record(node, "mutation_target", current.expr)
 

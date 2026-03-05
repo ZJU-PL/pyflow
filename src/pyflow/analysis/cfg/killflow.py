@@ -58,6 +58,12 @@ class OpFlow(TypeDispatcher):
         """
         pass
 
+    @dispatch(list, tuple)
+    def visitContainer(self, node):
+        """Visit generic child containers."""
+        for child in node:
+            self(child)
+
     @dispatch(ast.Local)
     def visitLocal(self, node):
         """Visit local variable references.
@@ -84,6 +90,7 @@ class OpFlow(TypeDispatcher):
 
     @dispatch(
         ast.Call,
+        ast.MethodCall,
         ast.BinaryOp,
         ast.UnaryPrefixOp,
         ast.ConvertToBool,
@@ -100,8 +107,16 @@ class OpFlow(TypeDispatcher):
         ast.GetSubscript,
         ast.SetSubscript,
         ast.DeleteSubscript,
+        ast.SetSlice,
+        ast.DeleteSlice,
         ast.Load,
         ast.Store,
+        ast.Delete,
+        ast.Print,
+        ast.Yield,
+        ast.YieldFrom,
+        ast.Await,
+        ast.AsyncYield,
     )
     def visitOp(self, node):
         node.visitChildren(self)
@@ -111,6 +126,18 @@ class OpFlow(TypeDispatcher):
     def visitBuildTuple(self, node):
         node.visitChildren(self)
         # No problems
+
+    @dispatch(
+        ast.BuildList,
+        ast.BuildSet,
+        ast.BuildSlice,
+        ast.ShortCircutAnd,
+        ast.ShortCircutOr,
+        ast.NamedExpr,
+        ast.MakeFunction,
+    )
+    def visitStructuredExpr(self, node):
+        node.visitChildren(self)
 
     @dispatch(ast.Return)
     def visitReturn(self, node):

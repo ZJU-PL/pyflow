@@ -118,7 +118,7 @@ def annotation_invokes_cfg_resolver(
     call_expression: py_ast.PythonASTNode | None,
 ) -> tuple[cfg_graph.Code, ...]:
     """Resolve callees from call-expression annotations populated by other analyses."""
-    del adapter, node
+    del node
     annotation = getattr(call_expression, "annotation", None)
     invokes = getattr(annotation, "invokes", None)
     if not invokes:
@@ -551,7 +551,7 @@ class CFGSupergraphAdapter:
                 successor_items = tuple(
                     (name, successor)
                     for name, successor in next_map.items()
-                    if name not in ("error", "fail", "yield")
+                    if name not in ("error", "fail")
                 )
             for exit_name, successor in successor_items:
                 for source in exit_sources(exit_name):

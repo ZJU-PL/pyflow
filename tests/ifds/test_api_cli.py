@@ -7,6 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from pyflow.analysis.ifds.api import (
+    load_analysis_session,
     run_nullness_analysis,
     run_taint_analysis,
     run_typestate_analysis,
@@ -316,6 +317,43 @@ def main():
     )
 
     assert result.findings == ()
+
+
+def test_load_analysis_session_handles_common_expression_shapes(tmp_path):
+    target = tmp_path / "expressions.py"
+    target.write_text(
+        """
+def f(a, b, xs):
+    items = [a]
+    subset = xs[1:2]
+    both = a and b
+    either = a or b
+    maker = lambda z: z
+    if (w := a):
+        items = [w]
+    return maker(both or either or subset or items)
+"""
+    )
+
+    session = load_analysis_session([target], verbose=False)
+
+    assert {code.codeName() for code in session.program.liveCode} >= {"f"}
+
+
+def test_load_analysis_session_handles_annotated_assignments(tmp_path):
+    target = tmp_path / "annassign.py"
+    target.write_text(
+        """
+def f():
+    x: int = 1
+    y: int
+    return x
+"""
+    )
+
+    session = load_analysis_session([target], verbose=False)
+
+    assert {code.codeName() for code in session.program.liveCode} >= {"f"}
 
 
 def test_dataflow_cli_emits_json_report(tmp_path, capsys):

@@ -19,6 +19,7 @@ and connects them with appropriate control flow edges (normal, fail, error).
 from pyflow.util.typedispatch import *
 from pyflow.analysis.cfg import simplify
 from pyflow.analysis.cfg import dump
+from pyflow.application.errors import TemporaryLimitation
 
 from pyflow.language.python import ast
 from pyflow.analysis.cfg import graph as cfg
@@ -121,7 +122,13 @@ class CFGTransformer(TypeDispatcher):
         ast.Discard,
         ast.SetAttr,
         ast.SetSubscript,
+        ast.SetSlice,
         ast.SetGlobal,
+        ast.Delete,
+        ast.DeleteGlobal,
+        ast.DeleteAttr,
+        ast.DeleteSubscript,
+        ast.DeleteSlice,
         ast.SetCellDeref,
         ast.Store,
         ast.UnpackSequence,
@@ -130,6 +137,7 @@ class CFGTransformer(TypeDispatcher):
         ast.BuildTuple,
         ast.BuildList,
         ast.BuildMap,
+        ast.Print,
         ast.Assert,
         ast.Raise,
         ast.FunctionDef,
@@ -138,13 +146,23 @@ class CFGTransformer(TypeDispatcher):
     def visitStatement(self, node):
         self.emit(node)
 
+    @dispatch(ast.GlobalDecl, ast.NonlocalDecl)
+    def visitScopeDecl(self, node):
+        # Scope declarations are compile-time markers with no runtime operation.
+        del node
+
+    @dispatch(ast.AnnAssign, ast.TypeAlias)
+    def visitUnsupportedStatement(self, node):
+        raise TemporaryLimitation(
+            "CFG transform does not yet support "
+            f"{type(node).__qualname__}; rewrite or lower this construct first."
+        )
+
     @dispatch(object)  # Catch-all for unrecognised node types
     def visitUnknown(self, node):
-        import warnings
-        warnings.warn(
-            f"CFGTransformer: unrecognised AST node type {type(node).__qualname__!r}; "
-            "skipping (downstream analyses may be unsound).",
-            stacklevel=2,
+        raise TemporaryLimitation(
+            "CFG transform encountered unsupported AST node type "
+            f"{type(node).__qualname__!r}."
         )
 
     def createSwitchAfter(self, condition, prev):

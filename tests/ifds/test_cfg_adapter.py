@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 from pyflow.application import context
 from pyflow.analysis.ifds import bind_call_arguments, build_supergraph_from_cfgs
+from pyflow.analysis.ifds.cfg_adapter import annotation_invokes_cfg_resolver
 from pyflow.language.python import ast
+from pyflow.language.python.default_markers import MISSING_DEFAULT
 
 from tests.ifds._support import build_cfg, make_code
 
@@ -288,3 +292,167 @@ def test_cfg_adapter_creates_call_nodes_for_nested_calls_in_evaluation_order():
     ]
 
     assert call_names == ["source", "wrapper", "sink"]
+
+
+def test_annotation_invokes_cfg_resolver_uses_adapter_lookup():
+    adapter = SimpleNamespace(cfg_by_ast_code={"target": "cfg_target"})
+    call = SimpleNamespace(
+        annotation=SimpleNamespace(invokes=((("target", object()),),))
+    )
+
+    resolved = annotation_invokes_cfg_resolver(adapter, None, call)
+
+    assert resolved == ("cfg_target",)
+
+
+def test_bind_call_arguments_does_not_bind_keyword_only_marker_positionally():
+    regular = ast.Local("regular")
+    kwonly = ast.Local("flag")
+    params = ast.CodeParameters(
+        selfparam=None,
+        posonlyparams=[],
+        posonlynames=[],
+        params=[regular, kwonly],
+        paramnames=["regular", "kwonly:flag"],
+        defaults=[],
+        vparam=None,
+        kparam=None,
+        returnparams=[],
+        type_params=None,
+    )
+    first = ast.Local("first")
+    second = ast.Local("second")
+    call = ast.Call(ast.Local("f"), [first, second], [], None, None)
+
+    assert bind_call_arguments(call, params) == ((first, regular),)
+
+
+def test_bind_call_arguments_binds_keyword_only_marker_by_name():
+    regular = ast.Local("regular")
+    kwonly = ast.Local("flag")
+    params = ast.CodeParameters(
+        selfparam=None,
+        posonlyparams=[],
+        posonlynames=[],
+        params=[regular, kwonly],
+        paramnames=["regular", "kwonly:flag"],
+        defaults=[],
+        vparam=None,
+        kparam=None,
+        returnparams=[],
+        type_params=None,
+    )
+    first = ast.Local("first")
+    enabled = ast.Local("enabled")
+    call = ast.Call(ast.Local("f"), [first], [("flag", enabled)], None, None)
+
+    assert bind_call_arguments(call, params) == ((first, regular), (enabled, kwonly))
+
+
+def test_bind_call_arguments_skips_missing_kwonly_default_placeholders():
+    a = ast.Local("a")
+    b = ast.Local("b")
+    c = ast.Local("c")
+    params = ast.CodeParameters(
+        selfparam=None,
+        posonlyparams=[],
+        posonlynames=[],
+        params=[a, b, c],
+        paramnames=["a", "kwonly:b", "kwonly:c"],
+        defaults=[
+            ast.Existing(ast.program.Object(1)),
+            ast.Existing(ast.program.Object(MISSING_DEFAULT)),
+            ast.Existing(ast.program.Object(2)),
+        ],
+        vparam=None,
+        kparam=None,
+        returnparams=[],
+        type_params=None,
+    )
+    call = ast.Call(ast.Local("f"), [], [], None, None)
+
+    bindings = bind_call_arguments(call, params)
+
+    assert tuple(formal for _actual, formal in bindings) == (a, c)
+    assert tuple(
+        getattr(getattr(actual, "object", None), "pyobj", None)
+        for actual, _formal in bindings
+    ) == (1, 2)
+
+
+def test_cfg_adapter_handles_yield_expression_in_operation():
+    compiler = context.CompilerContext(None)
+    value = ast.Local("value")
+    main_code, _ = make_code(
+        "main",
+        [value],
+        [ast.Discard(ast.Yield(value)), ast.Return([value])],
+        return_name="main_ret",
+    )
+
+    cfg = build_cfg(compiler, main_code)
+    adapter = build_supergraph_from_cfgs([cfg])
+    op_nodes = [
+        node
+        for node in adapter.supergraph.nodes_of(cfg)
+        if isinstance(adapter.operation_of(node), ast.Discard)
+    ]
+    assert op_nodes
+
+
+def test_cfg_adapter_handles_await_expression_in_operation():
+    compiler = context.CompilerContext(None)
+    value = ast.Local("value")
+    main_code, _ = make_code(
+        "main",
+        [value],
+        [ast.Discard(ast.Await(ast.Call(ast.Local("coro"), [], [], None, None))), ast.Return([value])],
+        return_name="main_ret",
+    )
+
+    cfg = build_cfg(compiler, main_code)
+    adapter = build_supergraph_from_cfgs([cfg])
+    op_nodes = [
+        node
+        for node in adapter.supergraph.nodes_of(cfg)
+        if isinstance(adapter.operation_of(node), ast.Discard)
+    ]
+    assert op_nodes
+
+
+def test_cfg_adapter_preserves_yield_edges_when_exceptional_edges_disabled():
+    compiler = context.CompilerContext(None)
+    value = ast.Local("value")
+    main_code, _ = make_code(
+        "main",
+        [value],
+        [ast.Discard(ast.Yield(value)), ast.Return([value])],
+        return_name="main_ret",
+    )
+
+    cfg = build_cfg(compiler, main_code)
+    adapter = build_supergraph_from_cfgs([cfg], include_exceptional_edges=False)
+
+    yield_nodes = [
+        node
+        for node in adapter.supergraph.nodes_of(cfg)
+        if isinstance(getattr(adapter.operation_of(node), "expr", None), ast.Yield)
+    ]
+    return_nodes = [
+        node
+        for node in adapter.supergraph.nodes_of(cfg)
+        if isinstance(adapter.operation_of(node), ast.Return)
+    ]
+    assert len(yield_nodes) == 1
+    assert len(return_nodes) == 1
+
+    seen = set()
+    work = [yield_nodes[0]]
+    while work:
+        current = work.pop()
+        if current in seen:
+            continue
+        seen.add(current)
+        work.extend(adapter.supergraph.normal_successors(current))
+
+    assert return_nodes[0] in seen

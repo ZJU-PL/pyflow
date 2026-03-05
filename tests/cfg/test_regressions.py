@@ -1,6 +1,7 @@
 import unittest
 
 from pyflow.application import context
+from pyflow.application.errors import TemporaryLimitation
 from pyflow.frontend.programextractor import Extractor
 from pyflow.analysis.cfg import (
     graph as cfg_graph,
@@ -166,6 +167,46 @@ def callee(x):
 
         self.assertEqual(len(cloned.code.codeparameters.params), 1)
         self.assertEqual(len(cloned.code.codeparameters.returnparams), 1)
+
+    def test_transform_handles_global_and_nonlocal_declarations(self):
+        source = """
+def outer():
+    x = 0
+    def inner():
+        nonlocal x
+        return x
+    global y
+    return inner()
+"""
+        ns = {}
+        exec(source, ns)
+        self.compiler.extractor.source_code = source
+        code = self.compiler.extractor.convertFunction(ns["outer"], ssa=False)
+
+        g = transform.evaluate(self.compiler, code)
+        self.assertIsNotNone(g)
+
+    def test_transform_rejects_unsupported_type_alias_nodes(self):
+        code = pyflow_ast.Code(
+            "f",
+            pyflow_ast.CodeParameters(
+                selfparam=None,
+                posonlyparams=[],
+                posonlynames=[],
+                params=[],
+                paramnames=[],
+                defaults=[],
+                vparam=None,
+                kparam=None,
+                returnparams=[],
+                type_params=None,
+            ),
+            pyflow_ast.Suite(
+                [pyflow_ast.TypeAlias("Alias", [], pyflow_ast.Existing(pyflow_ast.program.Object(int)))]
+            ),
+        )
+        with self.assertRaises(TemporaryLimitation):
+            transform.evaluate(self.compiler, code)
 
 
 if __name__ == "__main__":

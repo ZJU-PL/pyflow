@@ -12,6 +12,7 @@ from pyflow.analysis.ifds import (
     IFDSSolver,
     IdentityEdgeFunction,
     PathEdge,
+    SolverLimitExceeded,
     Supergraph,
     ValueTransition,
 )
@@ -285,6 +286,80 @@ class RecursiveIDEProblem(IDEProblem[str, str, str, frozenset[str]]):
         return ()
 
 
+class RecursiveSourceValueIDEProblem(IDEProblem[str, str, str, frozenset[str]]):
+    """Exercise source-value fixed-point resolution with a self-cycle."""
+
+    def __init__(self, supergraph: Supergraph[str, str]) -> None:
+        self._supergraph = supergraph
+
+    @property
+    def supergraph(self) -> Supergraph[str, str]:
+        return self._supergraph
+
+    @property
+    def zero_fact(self) -> str:
+        return ZERO
+
+    @property
+    def bottom_value(self) -> frozenset[str]:
+        return frozenset()
+
+    def join_values(
+        self, left: frozenset[str], right: frozenset[str]
+    ) -> frozenset[str]:
+        return left | right
+
+    def initial_seed_values(self):
+        return {("main.entry", ZERO): frozenset()}
+
+    def normal_flow(self, node: str, successor: str, fact: str):
+        if node == "main.entry" and successor == "main.call" and fact == ZERO:
+            return (
+                ValueTransition(ZERO, IdentityEdgeFunction()),
+                ValueTransition("d", IdentityEdgeFunction()),
+            )
+        if node == "rec.entry" and successor == "rec.call" and fact == "d":
+            return (ValueTransition("d", IdentityEdgeFunction()),)
+        if node == "rec.ret" and successor == "rec.exit" and fact in {ZERO, "d"}:
+            return (ValueTransition(fact, IdentityEdgeFunction()),)
+        if node == "main.ret" and successor == "main.exit" and fact in {ZERO, "d"}:
+            return (ValueTransition(fact, IdentityEdgeFunction()),)
+        return ()
+
+    def call_flow(self, call_node: str, callee: str, fact: str):
+        if callee != "rec" or fact != "d":
+            return ()
+        if call_node == "main.call":
+            return (ValueTransition("d", AddLabels(frozenset({"A"}))),)
+        if call_node == "rec.call":
+            return (ValueTransition("d", AddLabels(frozenset({"B"}))),)
+        return ()
+
+    def return_flow(
+        self,
+        call_node: str,
+        callee: str,
+        exit_node: str,
+        return_site: str,
+        call_fact: str,
+        exit_fact: str,
+    ):
+        if callee == "rec" and exit_node == "rec.exit" and return_site in {"main.ret", "rec.ret"}:
+            if call_fact == ZERO and exit_fact == ZERO:
+                return (ValueTransition(ZERO, IdentityEdgeFunction()),)
+            if call_fact == "d" and exit_fact == "d":
+                return (ValueTransition("d", IdentityEdgeFunction()),)
+        return ()
+
+    def call_to_return_flow(self, call_node: str, return_site: str, fact: str):
+        if fact == ZERO and (call_node, return_site) in {
+            ("main.call", "main.ret"),
+            ("rec.call", "rec.ret"),
+        }:
+            return (ValueTransition(ZERO, IdentityEdgeFunction()),)
+        return ()
+
+
 def build_linear_supergraph() -> Supergraph[str, str]:
     graph = Supergraph[str, str]()
     graph.add_procedure("main", "main.entry", ["main.exit"])
@@ -317,6 +392,26 @@ def build_recursive_supergraph() -> Supergraph[str, str]:
     graph.add_normal_edge("rec.entry", "rec.call")
     graph.add_normal_edge("rec.after", "rec.exit")
     graph.add_call_edge("rec.call", "rec", "rec.after")
+    return graph
+
+
+def build_recursive_source_value_supergraph() -> Supergraph[str, str]:
+    graph = Supergraph[str, str]()
+
+    graph.add_procedure("main", "main.entry", ["main.exit"])
+    graph.add_node("main", "main.call")
+    graph.add_node("main", "main.ret")
+    graph.add_normal_edge("main.entry", "main.call")
+    graph.add_normal_edge("main.ret", "main.exit")
+
+    graph.add_procedure("rec", "rec.entry", ["rec.exit"])
+    graph.add_node("rec", "rec.call")
+    graph.add_node("rec", "rec.ret")
+    graph.add_normal_edge("rec.entry", "rec.call")
+    graph.add_normal_edge("rec.ret", "rec.exit")
+
+    graph.add_call_edge("main.call", "rec", "main.ret")
+    graph.add_call_edge("rec.call", "rec", "rec.ret")
     return graph
 
 
@@ -444,3 +539,33 @@ def test_ide_terminates_on_recursive_idempotent_edge_functions():
 
     assert result.value_at("rec.after", "d") == frozenset({"recur"})
     assert result.value_at("rec.exit", "d") == frozenset({"recur"})
+
+
+def test_ide_resolves_recursive_source_values_to_fixed_point():
+    result = IDESolver().solve(
+        RecursiveSourceValueIDEProblem(build_recursive_source_value_supergraph())
+    )
+
+    assert result.value_at("rec.entry", "d") == frozenset({"A", "B"})
+
+
+def test_ifds_honors_max_propagation_limit():
+    solver = IFDSSolver(max_propagated_path_edges=1)
+
+    try:
+        solver.solve(LinearIFDSProblem(build_linear_supergraph()))
+    except SolverLimitExceeded as exc:
+        assert "max_propagated_path_edges=1" in str(exc)
+    else:
+        raise AssertionError("Expected SolverLimitExceeded")
+
+
+def test_ide_honors_max_propagation_limit():
+    solver = IDESolver(max_propagated_path_edges=1)
+
+    try:
+        solver.solve(SplitCallIDEProblem(build_split_call_supergraph()))
+    except SolverLimitExceeded as exc:
+        assert "max_propagated_path_edges=1" in str(exc)
+    else:
+        raise AssertionError("Expected SolverLimitExceeded")

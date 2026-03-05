@@ -177,6 +177,7 @@ class InterproceduralTaintProblem(
             (
                 py_ast.SetAttr,
                 py_ast.SetSubscript,
+                py_ast.SetSlice,
                 py_ast.SetGlobal,
                 py_ast.SetCellDeref,
                 py_ast.Store,
@@ -286,7 +287,11 @@ class InterproceduralTaintProblem(
                 fact.slot
                 for fact in self._facts_for_locals(procedure, assigned_locals(operation))
             )
-        if isinstance(operation, py_ast.SetGlobal):
+        if isinstance(operation, py_ast.Delete):
+            return tuple(
+                fact.slot for fact in self._facts_for_locals(procedure, (operation.lcl,))
+            )
+        if isinstance(operation, (py_ast.SetGlobal, py_ast.DeleteGlobal)):
             return tuple(
                 fact.slot for fact in self._facts_for_modified_operation(procedure, operation)
             )
@@ -472,6 +477,7 @@ class InterproceduralTaintProblem(
             (
                 py_ast.SetAttr,
                 py_ast.SetSubscript,
+                py_ast.SetSlice,
                 py_ast.SetGlobal,
                 py_ast.SetCellDeref,
                 py_ast.Store,
@@ -526,7 +532,9 @@ class InterproceduralTaintProblem(
             if child_kills:
                 return child_kills
 
-        return tuple(self._killed_slots_for_operation(procedure, operation))
+        # Keep unrelated facts alive until the terminal operation node; this
+        # call node only corresponds to one nested call expression.
+        return ()
 
     def _nested_operations(self, operation) -> tuple[object, ...]:
         if isinstance(operation, py_ast.Suite):

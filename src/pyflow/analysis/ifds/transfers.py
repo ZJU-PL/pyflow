@@ -5,6 +5,23 @@ from __future__ import annotations
 from typing import FrozenSet, Iterable
 
 from pyflow.language.python import ast as py_ast
+from pyflow.language.python.default_markers import MISSING_DEFAULT
+
+
+KWONLY_NAME_PREFIX = "kwonly:"
+
+
+def _is_missing_default(default_expr: object) -> bool:
+    if not isinstance(default_expr, py_ast.Existing):
+        return False
+    return getattr(getattr(default_expr, "object", None), "pyobj", None) is MISSING_DEFAULT
+
+
+def _decode_param_name(name: str | None) -> tuple[str | None, bool]:
+    """Decode encoded parameter names used to represent keyword-only formals."""
+    if isinstance(name, str) and name.startswith(KWONLY_NAME_PREFIX):
+        return name[len(KWONLY_NAME_PREFIX) :], True
+    return name, False
 
 
 def collect_locals(node) -> FrozenSet[py_ast.Local]:
@@ -87,9 +104,11 @@ def bind_call_arguments(call, params) -> tuple[tuple[object, py_ast.Local], ...]
     for name, param in zip(params.paramnames, params.params):
         if not isinstance(param, py_ast.Local):
             continue
-        positional_formals.append((name, param))
-        if name is not None:
-            keyword_formals[name] = param
+        keyword_name, keyword_only = _decode_param_name(name)
+        if not keyword_only:
+            positional_formals.append((keyword_name, param))
+        if keyword_name is not None:
+            keyword_formals[keyword_name] = param
 
     next_formal_index = 0
     bound_formals: set[py_ast.Local] = set()
@@ -129,15 +148,43 @@ def bind_call_arguments(call, params) -> tuple[tuple[object, py_ast.Local], ...]
         if isinstance(params.kparam, py_ast.Local):
             bindings.append((actual, params.kparam))
 
-    if isinstance(params.vparam, py_ast.Local):
-        vargs = getattr(call, "vargs", None)
-        if vargs is not None:
+    vargs = getattr(call, "vargs", None)
+    if vargs is not None:
+        # Unknown tuple/list expansion may satisfy any remaining positional formal.
+        for _name, formal in positional_formals:
+            if formal in bound_formals:
+                continue
+            bindings.append((vargs, formal))
+            bound_formals.add(formal)
+        if isinstance(params.vparam, py_ast.Local):
             bindings.append((vargs, params.vparam))
 
-    if isinstance(params.kparam, py_ast.Local):
-        kargs = getattr(call, "kargs", None)
-        if kargs is not None:
+    kargs = getattr(call, "kargs", None)
+    if kargs is not None:
+        # Unknown kwargs mapping may satisfy any remaining keyword-bindable formal.
+        for formal in keyword_formals.values():
+            if formal in bound_formals:
+                continue
+            bindings.append((kargs, formal))
+            bound_formals.add(formal)
+        if isinstance(params.kparam, py_ast.Local):
             bindings.append((kargs, params.kparam))
+
+    # Bind omitted positional/keyword parameters to their declared defaults.
+    defaultable_formals = [
+        param
+        for param in (*params.posonlyparams, *params.params)
+        if isinstance(param, py_ast.Local)
+    ]
+    defaults = tuple(getattr(params, "defaults", ()))
+    if defaults and defaultable_formals:
+        for formal, default_expr in zip(defaultable_formals[-len(defaults) :], defaults):
+            if _is_missing_default(default_expr):
+                continue
+            if formal in bound_formals:
+                continue
+            bindings.append((default_expr, formal))
+            bound_formals.add(formal)
 
     return tuple(bindings)
 

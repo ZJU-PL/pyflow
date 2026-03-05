@@ -130,9 +130,24 @@ def annotate_code_for_ifds(code):
             return tuple(slots)
         if isinstance(
             node,
-            (ast.SetAttr, ast.SetSubscript, ast.SetGlobal, ast.SetCellDeref, ast.Store),
+            (
+                ast.SetAttr,
+                ast.SetSubscript,
+                ast.SetSlice,
+                ast.SetGlobal,
+                ast.SetCellDeref,
+                ast.Store,
+            ),
         ):
             return reads_for_node(node.value)
+        if isinstance(node, ast.Delete):
+            return reads_for_node(node.lcl)
+        if isinstance(node, ast.DeleteGlobal):
+            return (slot_for_global(node.name),)
+        if isinstance(node, ast.DeleteAttr):
+            return reads_for_node(node.expr)
+        if isinstance(node, (ast.DeleteSubscript, ast.DeleteSlice)):
+            return reads_for_node(node.expr)
         if isinstance(node, ast.Discard):
             return reads_for_node(node.expr)
         if isinstance(node, (ast.Call, ast.DirectCall, ast.MethodCall)):
@@ -181,17 +196,47 @@ def annotate_code_for_ifds(code):
                 attr_slots.setdefault((base.label, name), FakeSlot(f"{base.label}.{name}"))
                 for base in base_slots
             )
-        if isinstance(node, ast.SetSubscript):
+        if isinstance(node, (ast.SetSubscript, ast.SetSlice)):
             base_slots = slots_for_expr(node.expr)
-            key = subscript_name(node.subscript)
+            key = (
+                subscript_name(node.subscript)
+                if isinstance(node, ast.SetSubscript)
+                else "[slice]"
+            )
             return tuple(
                 subscript_slots.setdefault((base.label, key), FakeSlot(f"{base.label}{key}"))
                 for base in base_slots
             )
         if isinstance(node, ast.SetGlobal):
             return (slot_for_global(node.name),)
+        if isinstance(node, ast.DeleteGlobal):
+            return (slot_for_global(node.name),)
         if isinstance(node, ast.SetCellDeref):
             return (slot_for_cell(node.cell),)
+        if isinstance(node, ast.Delete):
+            if isinstance(node.lcl, ast.Local) and node.lcl.name is not None:
+                return (slot_for_local(node.lcl),)
+            return ()
+        if isinstance(node, ast.DeleteAttr):
+            base_slots = slots_for_expr(node.expr)
+            name = attr_name(node.name)
+            return tuple(
+                attr_slots.setdefault((base.label, name), FakeSlot(f"{base.label}.{name}"))
+                for base in base_slots
+            )
+        if isinstance(node, ast.DeleteSubscript):
+            base_slots = slots_for_expr(node.expr)
+            key = subscript_name(node.subscript)
+            return tuple(
+                subscript_slots.setdefault((base.label, key), FakeSlot(f"{base.label}{key}"))
+                for base in base_slots
+            )
+        if isinstance(node, ast.DeleteSlice):
+            base_slots = slots_for_expr(node.expr)
+            return tuple(
+                subscript_slots.setdefault((base.label, "[slice]"), FakeSlot(f"{base.label}[slice]"))
+                for base in base_slots
+            )
         return ()
 
     def visit(node):

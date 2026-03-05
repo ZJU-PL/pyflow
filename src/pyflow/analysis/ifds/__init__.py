@@ -24,7 +24,14 @@ from .problem import (
     JoinedEdgeFunction,
     ValueTransition,
 )
-from .solver import IDEResult, IDESolver, IFDSResult, IFDSSolver, PathEdge
+from .solver import (
+    IDEResult,
+    IDESolver,
+    IFDSResult,
+    IFDSSolver,
+    PathEdge,
+    SolverLimitExceeded,
+)
 from .solver import PropagationTrace, SolverStatistics
 from .supergraph import Supergraph, SupergraphError
 from .clients.nullness import (
@@ -88,6 +95,7 @@ __all__ = [
     "NullnessAnalysisResult",
     "NullnessFinding",
     "SolverStatistics",
+    "SolverLimitExceeded",
     "SlotNullFact",
     "Supergraph",
     "SupergraphError",

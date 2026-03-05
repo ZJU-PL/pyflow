@@ -20,6 +20,7 @@ from pyflow.language.python.pythonoutput import PythonOutput
 
 from pyflow.language.python import defuse
 from pyflow.language.python import collapser
+from pyflow.language.python.default_markers import MISSING_DEFAULT
 from pyflow.util.python import opnames
 
 from pyflow.language.python import ast, program
@@ -920,10 +921,13 @@ class SimpleCodeGen(TypeDispatcher):
         args = [self.seg.process(param) for param in p.params]
 
         if p.defaults:
-            defaults = [self.seg.process(d) for d in p.defaults]
-            args[-len(defaults) :] = [
-                "%s=%s" % pair for pair in zip(args[-len(defaults) :], defaults)
-            ]
+            default_start = len(args) - len(p.defaults)
+            for offset, default in enumerate(p.defaults):
+                pyobj = getattr(getattr(default, "object", None), "pyobj", None)
+                if pyobj is MISSING_DEFAULT:
+                    continue
+                index = default_start + offset
+                args[index] = "%s=%s" % (args[index], self.seg.process(default))
 
         if p.vparam:
             args.append("*%s" % self.seg.process(p.vparam))
