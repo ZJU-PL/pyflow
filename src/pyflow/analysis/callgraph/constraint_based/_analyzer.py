@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import heapq
 import warnings
 from collections import deque
 from typing import Dict, Mapping, Sequence, Set, Tuple, List
@@ -67,10 +68,30 @@ class _AnalyzerMixin:
         changed = False
         for name, values in source.items():
             current = target.setdefault(name, set())
-            before = len(current)
-            current.update(values)
-            changed = changed or len(current) != before
+            changed = self._merge_value_set(current, set(values)) or changed
         return changed
+
+    def _scope_state_fingerprint(
+        self, scope: ScopeInfo, scope_context: ContextKey
+    ) -> int:
+        scope_key = (scope.name, scope_context)
+        input_bindings = self.scope_inputs.get(scope_key, {})
+        normalized_bindings = tuple(
+            (
+                name,
+                tuple(sorted((value.kind, value.name) for value in values)),
+            )
+            for name, values in sorted(input_bindings.items())
+        )
+        # Coarse, monotonic side-effect stamps used to avoid redundant re-analysis.
+        return hash(
+            (
+                normalized_bindings,
+                self._global_module_stamp,
+                self._global_heap_stamp,
+                self._global_return_stamp,
+            )
+        )
 
     def _refine_name_binding(
         self,
@@ -510,12 +531,10 @@ class _AnalyzerMixin:
                 return True
             return function_info.parent_scope is None
 
-        queue: deque[Tuple[str, ContextKey]] = deque(
-            (scope_name, self._root_context())
-            for scope_name in self.scopes
-            if _is_seed_scope(scope_name)
-        )
-        in_queue = set(queue)
+        queue_fifo: deque[Tuple[str, ContextKey]] = deque()
+        queue_priority: List[Tuple[Tuple[int, int, int, str, str], Tuple[str, ContextKey]]] = []
+        queued_reason: Dict[Tuple[str, ContextKey], str] = {}
+        in_queue: Set[Tuple[str, ContextKey]] = set()
         iterations = 0
         configured_max = self.options.fixpoint_max_iterations
         max_iterations = (
@@ -523,34 +542,91 @@ class _AnalyzerMixin:
             if configured_max is not None
             else max(256, len(self.scopes) * 256)
         )
+        self.solver_stats = type(self.solver_stats)()
+        self._state_input_fingerprints.clear()
+        self._global_module_stamp = 0
+        self._global_heap_stamp = 0
+        self._global_return_stamp = 0
 
-        while queue and iterations < max_iterations:
+        def _enqueue(
+            scope_name: str,
+            scope_context: ContextKey,
+            reason_weight: int,
+            reason_tag: str,
+        ) -> None:
+            normalized = self._normalize_context_for_scope(scope_name, scope_context)
+            key = (scope_name, normalized)
+            if key in in_queue:
+                return
+            in_queue.add(key)
+            queued_reason[key] = reason_tag
+            self.solver_stats.states_requeued += 1
+            if self.options.requeue_policy == "fifo":
+                queue_fifo.append(key)
+            else:
+                priority = self._prioritize_scope_context(key, reason_weight=reason_weight)
+                heapq.heappush(queue_priority, (priority, key))
+            self.solver_stats.max_queue_size = max(
+                self.solver_stats.max_queue_size, len(in_queue)
+            )
+
+        for scope_name in self.scopes:
+            if _is_seed_scope(scope_name):
+                _enqueue(
+                    scope_name,
+                    self._root_context(),
+                    reason_weight=4,
+                    reason_tag="seed",
+                )
+
+        def _has_pending() -> bool:
+            return bool(queue_fifo) if self.options.requeue_policy == "fifo" else bool(queue_priority)
+
+        while _has_pending() and iterations < max_iterations:
             iterations += 1
-            scope_name, scope_context = queue.popleft()
-            scope_context = self._normalize_context_for_scope(scope_name, scope_context)
+            if self.options.requeue_policy == "fifo":
+                scope_name, scope_context = queue_fifo.popleft()
+            else:
+                _priority, (scope_name, scope_context) = heapq.heappop(queue_priority)
+            reason_tag = queued_reason.pop((scope_name, scope_context), "unknown")
             in_queue.discard((scope_name, scope_context))
             self._analyzed_scope_contexts.add((scope_name, scope_context))
             scope = self.scopes[scope_name]
+
+            fingerprint = self._scope_state_fingerprint(scope, scope_context)
+            if (
+                reason_tag == "inputs_changed"
+                and self._state_input_fingerprints.get((scope_name, scope_context))
+                == fingerprint
+            ):
+                continue
+            self._state_input_fingerprints[(scope_name, scope_context)] = fingerprint
+            self.solver_stats.states_analyzed += 1
+
             result = self._analyze_scope(scope, scope_context)
             scope_ctx_key = (scope_name, scope_context)
 
             previous_returns = self.scope_returns.get(scope_ctx_key, set())
             previous_callees = self.scope_callees.get(scope_ctx_key, set())
-            returns_changed = previous_returns != result.returns
+            capped_returns = self._cap_values(
+                set(result.returns),
+                preserve_callables=True,
+            )
+            returns_changed = previous_returns != capped_returns
             callees_changed = previous_callees != result.callees
             if returns_changed:
-                self.scope_returns[scope_ctx_key] = set(result.returns)
+                self.scope_returns[scope_ctx_key] = set(capped_returns)
+                self._global_return_stamp += 1
             if callees_changed:
                 self.scope_callees[scope_ctx_key] = set(result.callees)
 
             for callee_scope, callee_context in result.input_changed_scope_contexts:
-                normalized = self._normalize_context_for_scope(
-                    callee_scope, callee_context
+                _enqueue(
+                    callee_scope,
+                    callee_context,
+                    reason_weight=5,
+                    reason_tag="inputs_changed",
                 )
-                key = (callee_scope, normalized)
-                if key not in in_queue:
-                    queue.append(key)
-                    in_queue.add(key)
 
             changed = (
                 returns_changed
@@ -569,7 +645,10 @@ class _AnalyzerMixin:
                     or result.nonlocal_binding_changed
                 ):
                     impacted.update(self.call_dependents.get(scope_ctx_key, set()))
+                    if result.nonlocal_binding_changed:
+                        self._global_module_stamp += 1
                 if result.module_binding_changed:
+                    self._global_module_stamp += 1
                     impacted.update(self.module_dependents.get(scope.module, set()))
                 for field_key in result.changed_instance_fields:
                     impacted.update(
@@ -577,15 +656,38 @@ class _AnalyzerMixin:
                     )
                 for field_key in result.changed_class_fields:
                     impacted.update(self.class_field_dependents.get(field_key, set()))
+                if result.changed_instance_fields or result.changed_class_fields:
+                    self._global_heap_stamp += 1
                 if result.singledispatch_changed:
                     impacted.update(self._known_scope_contexts())
                 for candidate in impacted:
-                    if candidate not in in_queue:
-                        queue.append(candidate)
-                        in_queue.add(candidate)
+                    reason_weight = 1
+                    if (
+                        returns_changed
+                        or callees_changed
+                        or result.nonlocal_binding_changed
+                    ):
+                        reason_weight = max(reason_weight, 4)
+                    if (
+                        result.module_binding_changed
+                        or result.changed_instance_fields
+                        or result.changed_class_fields
+                    ):
+                        reason_weight = max(reason_weight, 3)
+                    _enqueue(
+                        candidate[0],
+                        candidate[1],
+                        reason_weight=reason_weight,
+                        reason_tag=(
+                            "global_invalidation"
+                            if result.singledispatch_changed
+                            else "state_changed"
+                        ),
+                    )
 
         self.fixpoint_iterations = iterations
-        self.fixpoint_truncated = bool(queue)
+        self.fixpoint_truncated = _has_pending()
+        self.solver_stats.iterations = iterations
         if self.fixpoint_truncated and self.options.warn_on_fixpoint_truncation:
             warnings.warn(
                 (
@@ -659,11 +761,8 @@ class _AnalyzerMixin:
 
             module_binding_changed = False
             if scope.name == scope.module:
-                previous_module_bindings = self.module_bindings.get(scope.module, {})
-                module_binding_changed = previous_module_bindings != env
-                self.module_bindings[scope.module] = {
-                    name: set(values) for name, values in env.items()
-                }
+                module_bindings = self.module_bindings.setdefault(scope.module, {})
+                module_binding_changed = self._merge_bindings(module_bindings, env)
             if block_global_writes:
                 module_binding_changed = (
                     self._merge_bindings(

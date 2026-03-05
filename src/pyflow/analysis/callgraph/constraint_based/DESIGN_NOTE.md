@@ -94,6 +94,24 @@ abstract values per symbol:
 - Solver safety controls:
   - configurable fixpoint iteration cap (`fixpoint_max_iterations`),
   - optional truncation warning (`warn_on_fixpoint_truncation`).
+  - deterministic scheduling (`requeue_policy=fifo|priority`),
+  - bounded widening (`max_values_per_binding`, `max_contexts_per_scope`),
+  - precision-safe bypass (`strict_precision_mode=True`),
+  - solver telemetry (`emit_solver_stats=True`).
+
+## Solver Telemetry
+The builder exposes `solver_stats` with:
+- `iterations`
+- `states_analyzed`
+- `states_requeued`
+- `max_queue_size`
+- `bindings_capped`
+- `contexts_capped`
+- `dynamic_summary_edges`
+- `closure_context_fallbacks`
+
+When `extract_value_flow_graph_constraint(..., emit_solver_stats=True)` is used,
+stats are also emitted in a `__solver_stats__` debug entry.
 
 ## Current Limitations
 - Container precision is intentionally coarse (element sets are merged).

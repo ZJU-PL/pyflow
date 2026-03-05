@@ -437,12 +437,18 @@ class _EvaluatorMixin:
                 else "Set" if isinstance(expr, ast.Set) else "List"
             )
             container = self._new_container(kind, scope, scope_context, expr)
-            self.container_elements[container.name].update(out)
+            self._merge_value_set(
+                self.container_elements[container.name],
+                set(out),
+                preserve_callables=True,
+            )
             if isinstance(expr, (ast.List, ast.Tuple)):
                 for index, values in enumerate(indexed_values):
                     if values:
-                        self.container_key_values[container.name][f"#{index}"].update(
-                            values
+                        self._merge_value_set(
+                            self.container_key_values[container.name][f"#{index}"],
+                            set(values),
+                            preserve_callables=True,
                         )
             return {container}
 
@@ -474,17 +480,27 @@ class _EvaluatorMixin:
                     input_changed_scope_contexts,
                 )
                 out2.update(evaluated_value)
-                self.container_elements[container.name].update(evaluated_value)
+                self._merge_value_set(
+                    self.container_elements[container.name],
+                    set(evaluated_value),
+                    preserve_callables=True,
+                )
                 for key_name in self._string_constants(key_values[index]):
-                    self.container_key_values[container.name][key_name].update(
-                        evaluated_value
+                    self._merge_value_set(
+                        self.container_key_values[container.name][key_name],
+                        set(evaluated_value),
+                        preserve_callables=True,
                     )
                 if isinstance(expr.keys[index], ast.Constant) and isinstance(
                     expr.keys[index].value, int
                 ):
-                    self.container_key_values[container.name][
-                        f"#{expr.keys[index].value}"
-                    ].update(evaluated_value)
+                    self._merge_value_set(
+                        self.container_key_values[container.name][
+                            f"#{expr.keys[index].value}"
+                        ],
+                        set(evaluated_value),
+                        preserve_callables=True,
+                    )
             return {container}
 
         if isinstance(expr, ast.ListComp):
@@ -505,7 +521,11 @@ class _EvaluatorMixin:
                 input_changed_scope_contexts,
             )
             container = self._new_container("listcomp", scope, scope_context, expr)
-            self.container_elements[container.name].update(elements)
+            self._merge_value_set(
+                self.container_elements[container.name],
+                set(elements),
+                preserve_callables=True,
+            )
             return {container}
 
         if isinstance(expr, ast.SetComp):
@@ -526,7 +546,11 @@ class _EvaluatorMixin:
                 input_changed_scope_contexts,
             )
             container = self._new_container("setcomp", scope, scope_context, expr)
-            self.container_elements[container.name].update(elements)
+            self._merge_value_set(
+                self.container_elements[container.name],
+                set(elements),
+                preserve_callables=True,
+            )
             return {container}
 
         if isinstance(expr, ast.DictComp):
@@ -555,9 +579,17 @@ class _EvaluatorMixin:
                 input_changed_scope_contexts,
             )
             container = self._new_container("dictcomp", scope, scope_context, expr)
-            self.container_elements[container.name].update(value_out)
+            self._merge_value_set(
+                self.container_elements[container.name],
+                set(value_out),
+                preserve_callables=True,
+            )
             for key_name in self._string_constants(key_out):
-                self.container_key_values[container.name][key_name].update(value_out)
+                self._merge_value_set(
+                    self.container_key_values[container.name][key_name],
+                    set(value_out),
+                    preserve_callables=True,
+                )
             return {container}
 
         if isinstance(expr, ast.GeneratorExp):
@@ -578,7 +610,11 @@ class _EvaluatorMixin:
                 input_changed_scope_contexts,
             )
             container = self._new_container("generator", scope, scope_context, expr)
-            self.container_elements[container.name].update(elements)
+            self._merge_value_set(
+                self.container_elements[container.name],
+                set(elements),
+                preserve_callables=True,
+            )
             return {container}
 
         if isinstance(expr, ast.IfExp):
@@ -727,13 +763,21 @@ class _EvaluatorMixin:
                         "slice", scope, scope_context, expr
                     )
                     for index, values in enumerate(sliced_values):
-                        self.container_elements[slice_container.name].update(values)
-                        self.container_key_values[slice_container.name][
-                            f"#{index}"
-                        ].update(values)
+                        self._merge_value_set(
+                            self.container_elements[slice_container.name],
+                            set(values),
+                            preserve_callables=True,
+                        )
+                        self._merge_value_set(
+                            self.container_key_values[slice_container.name][f"#{index}"],
+                            set(values),
+                            preserve_callables=True,
+                        )
                     if not sliced_values:
-                        self.container_elements[slice_container.name].update(
-                            self.container_elements.get(base_value.name, set())
+                        self._merge_value_set(
+                            self.container_elements[slice_container.name],
+                            set(self.container_elements.get(base_value.name, set())),
+                            preserve_callables=True,
                         )
                     out7.add(slice_container)
                     continue

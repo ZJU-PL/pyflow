@@ -9,7 +9,17 @@ from __future__ import annotations
 import ast
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import DefaultDict, Dict, List, Mapping, Optional, Set, Tuple, TypeAlias
+from typing import (
+    DefaultDict,
+    Dict,
+    List,
+    Literal,
+    Mapping,
+    Optional,
+    Set,
+    Tuple,
+    TypeAlias,
+)
 
 FUNC_KIND = "func"
 CLASS_KIND = "class"
@@ -51,6 +61,25 @@ class AnalysisOptions:
     use_type_hints: bool = True
     refine_type_guards: bool = True
     allow_fixture_graph_loading: bool = True
+    max_values_per_binding: int = 128
+    max_contexts_per_scope: int = 64
+    requeue_policy: Literal["fifo", "priority"] = "priority"
+    emit_solver_stats: bool = False
+    strict_precision_mode: bool = False
+
+
+@dataclass
+class SolverStats:
+    """Fixpoint/scheduling telemetry for diagnostics and tuning."""
+
+    iterations: int = 0
+    states_analyzed: int = 0
+    states_requeued: int = 0
+    max_queue_size: int = 0
+    bindings_capped: int = 0
+    contexts_capped: int = 0
+    dynamic_summary_edges: int = 0
+    closure_context_fallbacks: int = 0
 
 
 @dataclass

@@ -33,6 +33,11 @@ def extract_call_graph_constraint(
     use_type_hints: bool = True,
     refine_type_guards: bool = True,
     allow_fixture_graph_loading: bool = True,
+    max_values_per_binding: int = 128,
+    max_contexts_per_scope: int = 64,
+    requeue_policy: str = "priority",
+    emit_solver_stats: bool = False,
+    strict_precision_mode: bool = False,
 ) -> CallGraph:
     """
     Extract call graph from source code using the constraint-style analyser.
@@ -67,6 +72,11 @@ def extract_call_graph_constraint(
         use_type_hints=use_type_hints,
         refine_type_guards=refine_type_guards,
         allow_fixture_graph_loading=allow_fixture_graph_loading,
+        max_values_per_binding=max(1, int(max_values_per_binding)),
+        max_contexts_per_scope=max(1, int(max_contexts_per_scope)),
+        requeue_policy="fifo" if requeue_policy == "fifo" else "priority",
+        emit_solver_stats=emit_solver_stats,
+        strict_precision_mode=strict_precision_mode,
     )
     builder = ConstraintCallGraphBuilder(
         source_code,
@@ -88,6 +98,11 @@ def analyze_file_constraint(
     use_type_hints: bool = True,
     refine_type_guards: bool = True,
     allow_fixture_graph_loading: bool = True,
+    max_values_per_binding: int = 128,
+    max_contexts_per_scope: int = 64,
+    requeue_policy: str = "priority",
+    emit_solver_stats: bool = False,
+    strict_precision_mode: bool = False,
 ) -> str:
     """Analyze a Python file and return a text rendering of the call graph."""
     try:
@@ -105,6 +120,11 @@ def analyze_file_constraint(
             use_type_hints=use_type_hints,
             refine_type_guards=refine_type_guards,
             allow_fixture_graph_loading=allow_fixture_graph_loading,
+            max_values_per_binding=max_values_per_binding,
+            max_contexts_per_scope=max_contexts_per_scope,
+            requeue_policy=requeue_policy,
+            emit_solver_stats=emit_solver_stats,
+            strict_precision_mode=strict_precision_mode,
         )
         return generate_text_output(graph, None)
     except Exception as exc:
@@ -123,6 +143,11 @@ def extract_value_flow_graph_constraint(
     use_type_hints: bool = True,
     refine_type_guards: bool = True,
     allow_fixture_graph_loading: bool = True,
+    max_values_per_binding: int = 128,
+    max_contexts_per_scope: int = 64,
+    requeue_policy: str = "priority",
+    emit_solver_stats: bool = False,
+    strict_precision_mode: bool = False,
 ) -> Dict[str, List[str]]:
     """
     Extract a debug value-flow graph from the constraint analyser.
@@ -140,6 +165,11 @@ def extract_value_flow_graph_constraint(
         use_type_hints=use_type_hints,
         refine_type_guards=refine_type_guards,
         allow_fixture_graph_loading=allow_fixture_graph_loading,
+        max_values_per_binding=max(1, int(max_values_per_binding)),
+        max_contexts_per_scope=max(1, int(max_contexts_per_scope)),
+        requeue_policy="fifo" if requeue_policy == "fifo" else "priority",
+        emit_solver_stats=emit_solver_stats,
+        strict_precision_mode=strict_precision_mode,
     )
     builder = ConstraintCallGraphBuilder(
         source_code,
@@ -149,4 +179,10 @@ def extract_value_flow_graph_constraint(
     )
     builder.build()
     graph = builder.materialize_value_flow_graph()
-    return {name: sorted(values) for name, values in graph.items()}
+    out = {name: sorted(values) for name, values in graph.items()}
+    if emit_solver_stats:
+        out["__solver_stats__"] = [
+            f"{key}={value}"
+            for key, value in sorted(builder.solver_stats.__dict__.items())
+        ]
+    return out

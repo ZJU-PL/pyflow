@@ -26,6 +26,7 @@ from .model import (
     GLOBAL_CONTEXT,
     ModuleInfo,
     ScopeInfo,
+    SolverStats,
     UNKNOWN_VALUE,
     copy_env,
     make_container,
@@ -139,6 +140,12 @@ class ConstraintCallGraphBuilder(
         # Solver telemetry for diagnostics and tests.
         self.fixpoint_iterations = 0
         self.fixpoint_truncated = False
+        self.solver_stats = SolverStats()
+        self._seen_contexts_by_scope: DefaultDict[str, Set[ContextKey]] = defaultdict(set)
+        self._state_input_fingerprints: Dict[Tuple[str, ContextKey], int] = {}
+        self._global_module_stamp = 0
+        self._global_heap_stamp = 0
+        self._global_return_stamp = 0
 
         self._builtin_callable_names = {
             name
@@ -171,6 +178,16 @@ class ConstraintCallGraphBuilder(
             return GLOBAL_CONTEXT
         if not self.options.context_sensitive:
             return GLOBAL_CONTEXT
+        if self.options.strict_precision_mode:
+            return context
+        max_contexts = max(1, int(self.options.max_contexts_per_scope))
+        seen = self._seen_contexts_by_scope[scope_name]
+        if context in seen:
+            return context
+        if len(seen) >= max_contexts:
+            self.solver_stats.contexts_capped += 1
+            return GLOBAL_CONTEXT
+        seen.add(context)
         return context
 
     def _derive_callee_context(
@@ -199,6 +216,74 @@ class ConstraintCallGraphBuilder(
             (scope_name, self._normalize_context_for_scope(scope_name, context))
             for scope_name, context in known
         }
+
+    def _prioritize_scope_context(
+        self,
+        scope_ctx: Tuple[str, ContextKey],
+        reason_weight: int = 1,
+    ) -> Tuple[int, int, int, str, str]:
+        scope_name, context = scope_ctx
+        is_module_scope = 0 if scope_name in self.modules else 1
+        fanout = len(self.call_dependents.get(scope_ctx, set()))
+        return (
+            is_module_scope,
+            -reason_weight,
+            -fanout,
+            scope_name,
+            self._context_label(context),
+        )
+
+    def _cap_values(
+        self,
+        values: Set[AbstractValue],
+        preserve_callables: bool = False,
+    ) -> Set[AbstractValue]:
+        if self.options.strict_precision_mode:
+            return set(values)
+        cap = max(1, int(self.options.max_values_per_binding))
+        if len(values) <= cap:
+            return set(values)
+
+        callable_kinds = {"func", "class"}
+        prioritized: List[AbstractValue] = []
+        if preserve_callables:
+            prioritized.extend(
+                sorted(
+                    (
+                        value
+                        for value in values
+                        if value.kind in callable_kinds and value not in prioritized
+                    ),
+                    key=lambda item: (item.kind, item.name),
+                )
+            )
+
+        prioritized.extend(
+            sorted(
+                (value for value in values if value not in prioritized),
+                key=lambda item: (item.kind, item.name),
+            )
+        )
+        kept: Set[AbstractValue] = set(prioritized[: max(0, cap - 1)])
+        kept.add(UNKNOWN_VALUE)
+        self.solver_stats.bindings_capped += 1
+        return kept
+
+    def _merge_value_set(
+        self,
+        current: Set[AbstractValue],
+        incoming: Set[AbstractValue],
+        preserve_callables: bool = False,
+    ) -> bool:
+        before = set(current)
+        merged = set(current)
+        merged.update(incoming)
+        merged = self._cap_values(merged, preserve_callables=preserve_callables)
+        if merged == before:
+            return False
+        current.clear()
+        current.update(merged)
+        return True
 
     def _new_container(
         self,

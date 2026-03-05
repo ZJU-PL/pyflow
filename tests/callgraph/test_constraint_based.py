@@ -1590,6 +1590,146 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
         self.assertIn("main.a", sensitive_edges)
         self.assertNotIn("main.b", sensitive_edges)
 
+    def test_priority_scheduler_is_deterministic_for_graph_and_stats(self):
+        source = textwrap.dedent(
+            """
+            def a():
+                return 1
+
+            def b():
+                return 2
+
+            def choose(fn):
+                return fn()
+
+            def run():
+                choose(a)
+                choose(b)
+            """
+        )
+        options = AnalysisOptions(
+            context_sensitive=True,
+            context_depth=2,
+            requeue_policy="priority",
+            emit_solver_stats=True,
+        )
+        builder_a = ConstraintCallGraphBuilder(source, options=options)
+        graph_a = builder_a.build().get()
+        stats_a = dict(builder_a.solver_stats.__dict__)
+
+        builder_b = ConstraintCallGraphBuilder(source, options=options)
+        graph_b = builder_b.build().get()
+        stats_b = dict(builder_b.solver_stats.__dict__)
+
+        self.assertEqual(graph_a, graph_b)
+        self.assertEqual(stats_a, stats_b)
+
+    def test_binding_cap_keeps_callable_and_introduces_unknown(self):
+        source = textwrap.dedent(
+            """
+            def a():
+                return 1
+
+            def b():
+                return 2
+
+            def c():
+                return 3
+
+            def invoke(cb):
+                return cb()
+
+            def run(flag):
+                if flag == 0:
+                    fn = a
+                elif flag == 1:
+                    fn = b
+                else:
+                    fn = c
+                return invoke(fn)
+
+            run(0)
+            run(1)
+            run(2)
+            """
+        )
+        builder = ConstraintCallGraphBuilder(
+            source,
+            options=AnalysisOptions(
+                max_values_per_binding=2,
+                strict_precision_mode=False,
+                context_sensitive=False,
+            ),
+        )
+        builder.build()
+        invoke_inputs = builder.scope_inputs.get(("main.invoke", ("<global>",)), {})
+        cb_values = invoke_inputs.get("cb", set())
+        self.assertTrue(any(value.kind == "func" for value in cb_values), cb_values)
+        self.assertTrue(any(value.kind == "unknown" for value in cb_values), cb_values)
+        self.assertGreater(builder.solver_stats.bindings_capped, 0)
+
+    def test_solver_stats_show_requeue_pressure(self):
+        source = textwrap.dedent(
+            """
+            def a():
+                return b()
+
+            def b():
+                return a()
+
+            a()
+            """
+        )
+        builder = ConstraintCallGraphBuilder(
+            source,
+            options=AnalysisOptions(
+                fixpoint_max_iterations=32,
+                requeue_policy="priority",
+                emit_solver_stats=True,
+            ),
+        )
+        builder.build()
+        self.assertGreater(builder.solver_stats.states_requeued, 0)
+        self.assertGreater(builder.solver_stats.states_analyzed, 0)
+        self.assertLessEqual(
+            builder.solver_stats.states_analyzed,
+            builder.solver_stats.states_requeued,
+        )
+
+    def test_context_budget_cap_degrades_to_global_without_truncation(self):
+        source = textwrap.dedent(
+            """
+            def id_fn(fn):
+                return fn
+
+            def a():
+                return 1
+
+            def b():
+                return 2
+
+            def c():
+                return 3
+
+            def run():
+                id_fn(a)
+                id_fn(b)
+                id_fn(c)
+            """
+        )
+        builder = ConstraintCallGraphBuilder(
+            source,
+            options=AnalysisOptions(
+                context_sensitive=True,
+                context_depth=2,
+                max_contexts_per_scope=1,
+                requeue_policy="priority",
+            ),
+        )
+        builder.build()
+        self.assertFalse(builder.fixpoint_truncated)
+        self.assertGreater(builder.solver_stats.contexts_capped, 0)
+
 
 if __name__ == "__main__":
     unittest.main()
