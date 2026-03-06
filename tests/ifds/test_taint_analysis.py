@@ -107,6 +107,37 @@ def test_interprocedural_taint_rejects_non_annotated_cfgs():
         )
 
 
+def test_interprocedural_taint_requires_explicit_entry_nodes():
+    compiler = context.CompilerContext(None)
+
+    source_code, _ = make_code("source", [], [], return_name="source_ret")
+    sink_value = ast.Local("sink_value")
+    sink_code, _ = make_code("sink", [sink_value], [], return_name="sink_ret")
+    value = ast.Local("value")
+    main_code, _ = make_code(
+        "main",
+        [],
+        [
+            ast.Assign(ast.DirectCall(source_code, None, [], [], None, None), [value]),
+            ast.Discard(ast.DirectCall(sink_code, None, [value], [], None, None)),
+            ast.Return([value]),
+        ],
+        return_name="main_ret",
+    )
+
+    cfgs = [build_cfg(compiler, code) for code in (main_code, source_code, sink_code)]
+    adapter = build_supergraph_from_cfgs(cfgs)
+
+    with pytest.raises(ValueError, match="explicit entry_nodes"):
+        analyze_taint(
+            adapter,
+            TaintConfiguration(
+                source_names=frozenset({"source"}),
+                sink_names=frozenset({"sink"}),
+            ),
+        )
+
+
 def test_interprocedural_taint_handles_return_calls():
     compiler = context.CompilerContext(None)
 
@@ -279,7 +310,7 @@ def test_interprocedural_taint_flows_through_while_loop_body():
     assert [local.name for local in result.findings[0].tainted_arguments] == ["loop_value"]
 
 
-def test_interprocedural_taint_ignores_except_handlers_in_normal_flow_only_mode():
+def test_interprocedural_taint_tracks_flows_through_except_handlers():
     compiler = context.CompilerContext(None)
 
     source_code, _ = make_code("source", [], [], return_name="source_ret")
@@ -332,7 +363,9 @@ def test_interprocedural_taint_ignores_except_handlers_in_normal_flow_only_mode(
         entry_nodes=[adapter.supergraph.entry_of(cfgs[0])],
     )
 
-    assert result.findings == ()
+    assert len(result.findings) == 1
+    assert result.findings[0].sink_name == "sink"
+    assert [local.name for local in result.findings[0].tainted_arguments] == ["handler_value"]
 
 
 def test_interprocedural_taint_delete_kills_local_fact():

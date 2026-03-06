@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from pyflow.application import context
 from pyflow.analysis.ifds import (
     TypestateConfiguration,
@@ -190,3 +192,24 @@ def test_typestate_delete_kills_resource_fact():
     )
 
     assert result.findings == ()
+
+
+def test_typestate_requires_explicit_entry_nodes():
+    compiler = context.CompilerContext(None)
+
+    resource = ast.Local("resource")
+    main_code, _ = make_code(
+        "main",
+        [],
+        [
+            ast.Assign(ast.Call(ast.Local("open"), [], [], None, None), [resource]),
+            ast.Return([resource]),
+        ],
+        return_name="main_ret",
+    )
+
+    cfg = build_cfg(compiler, main_code)
+    adapter = build_supergraph_from_cfgs([cfg])
+
+    with pytest.raises(ValueError, match="explicit entry_nodes"):
+        analyze_typestate(adapter, TypestateConfiguration())

@@ -201,6 +201,34 @@ def main():
     assert result.findings == ()
 
 
+def test_run_taint_analysis_seeds_program_entry_points_only(tmp_path):
+    target = tmp_path / "roots.py"
+    target.write_text(
+        """
+def source():
+    return 1
+
+def sink(x):
+    return x
+
+def dead_helper():
+    sink(source())
+
+def main():
+    return 0
+"""
+    )
+
+    _session, result = run_taint_analysis(
+        [target],
+        function="main",
+        source_names=["source"],
+        sink_names=["sink"],
+    )
+
+    assert result.findings == ()
+
+
 def test_run_taint_analysis_tracks_nested_call_results(tmp_path):
     target = tmp_path / "nested_results.py"
     target.write_text(
@@ -234,7 +262,7 @@ def main():
     assert result.findings[0].tainted_argument_labels == ("wrapper()",)
 
 
-def test_run_taint_analysis_ignores_try_except_sink_flow_in_normal_flow_only_mode(tmp_path):
+def test_run_taint_analysis_tracks_try_except_sink_flow(tmp_path):
     target = tmp_path / "try_except.py"
     target.write_text(
         """
@@ -260,7 +288,9 @@ def main():
         sink_names=["sink"],
     )
 
-    assert result.findings == ()
+    assert len(result.findings) == 1
+    assert result.findings[0].sink_name == "sink"
+    assert [local.name for local in result.findings[0].tainted_arguments] == ["x"]
 
 
 def test_run_taint_analysis_does_not_report_unreachable_except_calls(tmp_path):

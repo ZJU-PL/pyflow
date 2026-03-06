@@ -98,11 +98,10 @@ class InterproceduralTypestateProblem(
         self.configuration = configuration
         super().__init__(adapter)
         if entry_nodes is None:
-            entry_nodes = [
-                adapter.supergraph.entry_of(cfg)
-                for cfg in adapter.cfgs
-                if cfg in adapter.supergraph.procedures()
-            ]
+            raise ValueError(
+                "IFDS typestate requires explicit entry_nodes; "
+                "use program-backed IFDS APIs to derive roots automatically."
+            )
         self.entry_nodes = tuple(entry_nodes)
 
     @property

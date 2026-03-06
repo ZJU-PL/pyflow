@@ -8,7 +8,7 @@ from pyflow.language.asttools.annotation import annotationSet, makeContextualAnn
 from pyflow.language.python import ast
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False)
 class _SyntheticSlot:
     label: str
 
@@ -21,8 +21,8 @@ def ensure_ifds_annotations_complete(codes) -> None:
     local_slots: dict[tuple[object, str], _SyntheticSlot] = {}
     global_slots: dict[str, _SyntheticSlot] = {}
     cell_slots: dict[int, _SyntheticSlot] = {}
-    attr_slots: dict[tuple[str, str], _SyntheticSlot] = {}
-    subscript_slots: dict[tuple[str, str], _SyntheticSlot] = {}
+    attr_slots: dict[tuple[_SyntheticSlot, str], _SyntheticSlot] = {}
+    subscript_slots: dict[tuple[_SyntheticSlot, str], _SyntheticSlot] = {}
 
     def context_count(node) -> int:
         annotation = getattr(node, "annotation", None)
@@ -78,21 +78,21 @@ def ensure_ifds_annotations_complete(codes) -> None:
             base_slots = slots_for_expr(code, expr.expr)
             name = attr_name(expr.name)
             return tuple(
-                attr_slots.setdefault((base.label, name), _SyntheticSlot(f"{base.label}.{name}"))
+                attr_slots.setdefault((base, name), _SyntheticSlot(f"{base.label}.{name}"))
                 for base in base_slots
             )
         if isinstance(expr, ast.GetSubscript):
             base_slots = slots_for_expr(code, expr.expr)
             key = subscript_name(expr.subscript)
             return tuple(
-                subscript_slots.setdefault((base.label, key), _SyntheticSlot(f"{base.label}{key}"))
+                subscript_slots.setdefault((base, key), _SyntheticSlot(f"{base.label}{key}"))
                 for base in base_slots
             )
         if isinstance(expr, ast.GetSlice):
             base_slots = slots_for_expr(code, expr.expr)
             key = "[slice]"
             return tuple(
-                subscript_slots.setdefault((base.label, key), _SyntheticSlot(f"{base.label}{key}"))
+                subscript_slots.setdefault((base, key), _SyntheticSlot(f"{base.label}{key}"))
                 for base in base_slots
             )
         return ()
@@ -275,21 +275,21 @@ def ensure_ifds_annotations_complete(codes) -> None:
             base_slots = slots_for_expr(code, node.expr)
             name = attr_name(node.name)
             return tuple(
-                attr_slots.setdefault((base.label, name), _SyntheticSlot(f"{base.label}.{name}"))
+                attr_slots.setdefault((base, name), _SyntheticSlot(f"{base.label}.{name}"))
                 for base in base_slots
             )
         if isinstance(node, ast.SetSubscript):
             base_slots = slots_for_expr(code, node.expr)
             key = subscript_name(node.subscript)
             return tuple(
-                subscript_slots.setdefault((base.label, key), _SyntheticSlot(f"{base.label}{key}"))
+                subscript_slots.setdefault((base, key), _SyntheticSlot(f"{base.label}{key}"))
                 for base in base_slots
             )
         if isinstance(node, ast.SetSlice):
             base_slots = slots_for_expr(code, node.expr)
             key = "[slice]"
             return tuple(
-                subscript_slots.setdefault((base.label, key), _SyntheticSlot(f"{base.label}{key}"))
+                subscript_slots.setdefault((base, key), _SyntheticSlot(f"{base.label}{key}"))
                 for base in base_slots
             )
         if isinstance(node, ast.SetGlobal):
@@ -302,21 +302,21 @@ def ensure_ifds_annotations_complete(codes) -> None:
             base_slots = slots_for_expr(code, node.expr)
             name = attr_name(node.name)
             return tuple(
-                attr_slots.setdefault((base.label, name), _SyntheticSlot(f"{base.label}.{name}"))
+                attr_slots.setdefault((base, name), _SyntheticSlot(f"{base.label}.{name}"))
                 for base in base_slots
             )
         if isinstance(node, ast.DeleteSubscript):
             base_slots = slots_for_expr(code, node.expr)
             key = subscript_name(node.subscript)
             return tuple(
-                subscript_slots.setdefault((base.label, key), _SyntheticSlot(f"{base.label}{key}"))
+                subscript_slots.setdefault((base, key), _SyntheticSlot(f"{base.label}{key}"))
                 for base in base_slots
             )
         if isinstance(node, ast.DeleteSlice):
             base_slots = slots_for_expr(code, node.expr)
             key = "[slice]"
             return tuple(
-                subscript_slots.setdefault((base.label, key), _SyntheticSlot(f"{base.label}{key}"))
+                subscript_slots.setdefault((base, key), _SyntheticSlot(f"{base.label}{key}"))
                 for base in base_slots
             )
         if isinstance(node, ast.InputBlock):

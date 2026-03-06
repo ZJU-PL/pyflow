@@ -35,6 +35,7 @@ class _OperationFragment:
     nodes: list[CFGNode] = field(default_factory=list)
     entry: CFGNode | None = None
     normal_exits: set[CFGNode] = field(default_factory=set)
+    exceptional_exits: set[CFGNode] = field(default_factory=set)
 
 
 def extract_call_expression(operation: py_ast.PythonASTNode | None):
@@ -317,7 +318,9 @@ class CFGSupergraphAdapter:
         self._call_expr_by_node: Dict[CFGNode, py_ast.PythonASTNode] = {}
         self._callee_cfgs_by_node: Dict[CFGNode, tuple[cfg_graph.Code, ...]] = {}
         self._local_successors: Dict[CFGNode, set[CFGNode]] = {}
-        self._suite_exit_nodes: Dict[cfg_graph.CFGBlock, tuple[set[CFGNode], set[CFGNode]]] = {}
+        self._suite_exit_nodes: Dict[
+            cfg_graph.CFGBlock, tuple[set[CFGNode], set[CFGNode]]
+        ] = {}
 
         for cfg in self.cfgs:
             self._register_procedure(cfg)
@@ -388,6 +391,7 @@ class CFGSupergraphAdapter:
                 nodes = fragment.nodes
                 self._suite_exit_nodes[block] = (
                     set(fragment.normal_exits),
+                    set(fragment.exceptional_exits),
                 )
             else:
                 nodes = [CFGNode(cfg, block, "suite")]
@@ -466,6 +470,7 @@ class CFGSupergraphAdapter:
                 nodes=[marker],
                 entry=marker,
                 normal_exits={marker},
+                exceptional_exits=set(),
             )
 
         fragments = [
@@ -488,6 +493,10 @@ class CFGSupergraphAdapter:
                 nodes=[*composed.nodes, *fragment.nodes],
                 entry=composed.entry,
                 normal_exits=set(fragment.normal_exits),
+                exceptional_exits={
+                    *composed.exceptional_exits,
+                    *fragment.exceptional_exits,
+                },
             )
         return composed
 
@@ -535,13 +544,17 @@ class CFGSupergraphAdapter:
         nodes.append(terminal)
 
         normal_exits = set()
-        if not isinstance(operation, py_ast.Raise):
+        exceptional_exits = set()
+        if isinstance(operation, py_ast.Raise):
+            exceptional_exits.add(terminal)
+        else:
             normal_exits.add(terminal)
 
         return _OperationFragment(
             nodes=nodes,
             entry=nodes[0],
             normal_exits=normal_exits,
+            exceptional_exits=exceptional_exits,
         )
 
     def _lower_try_fragment(
@@ -562,6 +575,65 @@ class CFGSupergraphAdapter:
             index=index,
         )
 
+        handler_fragments: list[_OperationFragment] = []
+        for handler_index, handler in enumerate(operation.handlers):
+            handler_parts: list[_OperationFragment] = []
+            preamble = self._lower_suite_fragment(
+                cfg,
+                block,
+                tuple(handler.preamble.blocks),
+                kind=kind,
+                parent_scope=scope + ("try", "handler", str(handler_index), "preamble"),
+                index=index,
+            )
+            handler_parts.append(preamble)
+            if handler.value is not None:
+                handler_parts.append(
+                    self._lower_operation_fragment(
+                        cfg,
+                        block,
+                        kind,
+                        handler.value,
+                        index,
+                        scope + ("try", "handler", str(handler_index), "value"),
+                    )
+                )
+            handler_body = self._lower_suite_fragment(
+                cfg,
+                block,
+                tuple(handler.body.blocks),
+                kind=kind,
+                parent_scope=scope + ("try", "handler", str(handler_index), "body"),
+                index=index,
+            )
+            handler_parts.append(handler_body)
+
+            fragment = handler_parts[0]
+            for next_part in handler_parts[1:]:
+                for exit_node in fragment.normal_exits:
+                    self._record_local_edge(exit_node, next_part.entry)
+                fragment = _OperationFragment(
+                    nodes=[*fragment.nodes, *next_part.nodes],
+                    entry=fragment.entry,
+                    normal_exits=set(next_part.normal_exits),
+                    exceptional_exits={
+                        *fragment.exceptional_exits,
+                        *next_part.exceptional_exits,
+                    },
+                )
+            handler_fragments.append(fragment)
+
+        default_fragment = None
+        if operation.defaultHandler is not None:
+            default_fragment = self._lower_suite_fragment(
+                cfg,
+                block,
+                tuple(operation.defaultHandler.blocks),
+                kind=kind,
+                parent_scope=scope + ("try", "default"),
+                index=index,
+            )
+
         else_fragment = None
         if operation.else_ is not None:
             else_fragment = self._lower_suite_fragment(
@@ -574,6 +646,7 @@ class CFGSupergraphAdapter:
             )
 
         finally_normal = None
+        finally_exceptional = None
         if operation.finally_ is not None:
             finally_normal = self._lower_suite_fragment(
                 cfg,
@@ -581,6 +654,14 @@ class CFGSupergraphAdapter:
                 tuple(operation.finally_.blocks),
                 kind=kind,
                 parent_scope=scope + ("try", "finally", "normal"),
+                index=index,
+            )
+            finally_exceptional = self._lower_suite_fragment(
+                cfg,
+                block,
+                tuple(operation.finally_.blocks),
+                kind=kind,
+                parent_scope=scope + ("try", "finally", "exceptional"),
                 index=index,
             )
 
@@ -594,29 +675,73 @@ class CFGSupergraphAdapter:
         )
 
         nodes = [*body.nodes]
+        for fragment in handler_fragments:
+            nodes.extend(fragment.nodes)
+        if default_fragment is not None:
+            nodes.extend(default_fragment.nodes)
         if else_fragment is not None:
             nodes.extend(else_fragment.nodes)
         if finally_normal is not None:
             nodes.extend(finally_normal.nodes)
+        if finally_exceptional is not None:
+            nodes.extend(finally_exceptional.nodes)
         nodes.append(normal_out)
 
         normal_target = finally_normal.entry if finally_normal is not None else normal_out
 
         for exit_node in body.normal_exits:
-            self._record_local_edge(exit_node, else_fragment.entry if else_fragment is not None else normal_target)
+            self._record_local_edge(
+                exit_node,
+                else_fragment.entry if else_fragment is not None else normal_target,
+            )
+
+        exceptional_targets = [fragment.entry for fragment in handler_fragments]
+        if default_fragment is not None:
+            exceptional_targets.append(default_fragment.entry)
+        if not exceptional_targets and finally_exceptional is not None:
+            exceptional_targets.append(finally_exceptional.entry)
+        for exit_node in body.exceptional_exits:
+            for target in exceptional_targets:
+                self._record_local_edge(exit_node, target)
 
         if else_fragment is not None:
             for exit_node in else_fragment.normal_exits:
                 self._record_local_edge(exit_node, normal_target)
 
+        for fragment in handler_fragments:
+            for exit_node in fragment.normal_exits:
+                self._record_local_edge(exit_node, normal_target)
+            if finally_exceptional is not None:
+                for exit_node in fragment.exceptional_exits:
+                    self._record_local_edge(exit_node, finally_exceptional.entry)
+
+        if default_fragment is not None:
+            for exit_node in default_fragment.normal_exits:
+                self._record_local_edge(exit_node, normal_target)
+            if finally_exceptional is not None:
+                for exit_node in default_fragment.exceptional_exits:
+                    self._record_local_edge(exit_node, finally_exceptional.entry)
+
         if finally_normal is not None:
             for exit_node in finally_normal.normal_exits:
                 self._record_local_edge(exit_node, normal_out)
+        exceptional_exits: set[CFGNode] = set()
+        if finally_exceptional is not None:
+            exceptional_exits.update(finally_exceptional.normal_exits)
+            exceptional_exits.update(finally_exceptional.exceptional_exits)
+        else:
+            for fragment in handler_fragments:
+                exceptional_exits.update(fragment.exceptional_exits)
+            if default_fragment is not None:
+                exceptional_exits.update(default_fragment.exceptional_exits)
+            if not handler_fragments and default_fragment is None:
+                exceptional_exits.update(body.exceptional_exits)
 
         return _OperationFragment(
             nodes=nodes,
             entry=body.entry,
             normal_exits={normal_out},
+            exceptional_exits=exceptional_exits,
         )
 
     def _connect_procedure(self, cfg: cfg_graph.Code) -> None:
@@ -647,12 +772,14 @@ class CFGSupergraphAdapter:
         nodes: list[CFGNode],
     ):
         if isinstance(block, cfg_graph.Suite) and block in self._suite_exit_nodes:
-            (normal_exits,) = self._suite_exit_nodes[block]
+            normal_exits, exceptional_exits = self._suite_exit_nodes[block]
 
             def resolve(exit_name: object) -> set[CFGNode]:
                 if exit_name == "normal":
                     return set(normal_exits)
-                return set()
+                if exit_name in ("error", "fail"):
+                    return set(exceptional_exits)
+                return set(normal_exits)
 
             return resolve
 

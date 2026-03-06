@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from pyflow.application import context
 from pyflow.analysis.ifds import analyze_nullness, build_supergraph_from_cfgs
 from pyflow.language.python import ast
@@ -229,3 +231,24 @@ def test_nullness_delete_kills_local_fact():
     result = analyze_nullness(adapter, entry_nodes=[adapter.supergraph.entry_of(cfg)])
 
     assert result.findings == ()
+
+
+def test_nullness_requires_explicit_entry_nodes():
+    compiler = context.CompilerContext(None)
+
+    value = ast.Local("value")
+    main_code, _ = make_code(
+        "main",
+        [],
+        [
+            ast.Assign(ast.Existing(ast.program.Object(None)), [value]),
+            ast.Return([value]),
+        ],
+        return_name="main_ret",
+    )
+
+    cfg = build_cfg(compiler, main_code)
+    adapter = build_supergraph_from_cfgs([cfg])
+
+    with pytest.raises(ValueError, match="explicit entry_nodes"):
+        analyze_nullness(adapter)

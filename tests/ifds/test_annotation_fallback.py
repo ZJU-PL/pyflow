@@ -40,3 +40,27 @@ def test_annotation_fallback_distinguishes_cells_with_same_name():
     labels = {slot.label for slot in reads}
     assert len(reads) == 2
     assert len(labels) == 2
+
+
+def test_annotation_fallback_distinguishes_heap_paths_with_same_base_label():
+    left = ast.Local("value")
+    attr = ast.Existing(ast.program.Object("payload"))
+    right = ast.Local("value")
+    left_code, _ = make_code(
+        "left",
+        [left],
+        [ast.Return([ast.GetAttr(left, attr)])],
+    )
+    right_code, _ = make_code(
+        "right",
+        [right],
+        [ast.Return([ast.GetAttr(right, attr)])],
+    )
+
+    ensure_ifds_annotations_complete((left_code, right_code))
+
+    left_slot = left_code.ast.blocks[0].annotation.opReads.merged[0]
+    right_slot = right_code.ast.blocks[0].annotation.opReads.merged[0]
+    assert left_slot.label == "value.payload"
+    assert right_slot.label == "value.payload"
+    assert left_slot is not right_slot

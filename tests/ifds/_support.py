@@ -33,7 +33,7 @@ def build_cfg(compiler, code):
     return transform.evaluate(compiler, code)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False)
 class FakeSlot:
     label: str
 
@@ -49,8 +49,8 @@ def annotate_code_for_ifds(code):
     local_slots: dict[str, FakeSlot] = {}
     global_slots: dict[str, FakeSlot] = {}
     cell_slots: dict[str, FakeSlot] = {}
-    attr_slots: dict[tuple[str, str], FakeSlot] = {}
-    subscript_slots: dict[tuple[str, str], FakeSlot] = {}
+    attr_slots: dict[tuple[FakeSlot, str], FakeSlot] = {}
+    subscript_slots: dict[tuple[FakeSlot, str], FakeSlot] = {}
 
     def global_name(existing) -> str:
         pyobj = getattr(existing.object, "pyobj", None)
@@ -94,14 +94,14 @@ def annotate_code_for_ifds(code):
             base_slots = slots_for_expr(expr.expr)
             name = attr_name(expr.name)
             return tuple(
-                attr_slots.setdefault((base.label, name), FakeSlot(f"{base.label}.{name}"))
+                attr_slots.setdefault((base, name), FakeSlot(f"{base.label}.{name}"))
                 for base in base_slots
             )
         if isinstance(expr, ast.GetSubscript):
             base_slots = slots_for_expr(expr.expr)
             key = subscript_name(expr.subscript)
             return tuple(
-                subscript_slots.setdefault((base.label, key), FakeSlot(f"{base.label}{key}"))
+                subscript_slots.setdefault((base, key), FakeSlot(f"{base.label}{key}"))
                 for base in base_slots
             )
         return ()
@@ -193,7 +193,7 @@ def annotate_code_for_ifds(code):
             base_slots = slots_for_expr(node.expr)
             name = attr_name(node.name)
             return tuple(
-                attr_slots.setdefault((base.label, name), FakeSlot(f"{base.label}.{name}"))
+                attr_slots.setdefault((base, name), FakeSlot(f"{base.label}.{name}"))
                 for base in base_slots
             )
         if isinstance(node, (ast.SetSubscript, ast.SetSlice)):
@@ -204,7 +204,7 @@ def annotate_code_for_ifds(code):
                 else "[slice]"
             )
             return tuple(
-                subscript_slots.setdefault((base.label, key), FakeSlot(f"{base.label}{key}"))
+                subscript_slots.setdefault((base, key), FakeSlot(f"{base.label}{key}"))
                 for base in base_slots
             )
         if isinstance(node, ast.SetGlobal):
@@ -221,20 +221,20 @@ def annotate_code_for_ifds(code):
             base_slots = slots_for_expr(node.expr)
             name = attr_name(node.name)
             return tuple(
-                attr_slots.setdefault((base.label, name), FakeSlot(f"{base.label}.{name}"))
+                attr_slots.setdefault((base, name), FakeSlot(f"{base.label}.{name}"))
                 for base in base_slots
             )
         if isinstance(node, ast.DeleteSubscript):
             base_slots = slots_for_expr(node.expr)
             key = subscript_name(node.subscript)
             return tuple(
-                subscript_slots.setdefault((base.label, key), FakeSlot(f"{base.label}{key}"))
+                subscript_slots.setdefault((base, key), FakeSlot(f"{base.label}{key}"))
                 for base in base_slots
             )
         if isinstance(node, ast.DeleteSlice):
             base_slots = slots_for_expr(node.expr)
             return tuple(
-                subscript_slots.setdefault((base.label, "[slice]"), FakeSlot(f"{base.label}[slice]"))
+                subscript_slots.setdefault((base, "[slice]"), FakeSlot(f"{base.label}[slice]"))
                 for base in base_slots
             )
         return ()

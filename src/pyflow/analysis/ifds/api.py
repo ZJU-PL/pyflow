@@ -44,6 +44,37 @@ def _path_args(verbose: bool, dependency_strategy: str, search_paths):
     )
 
 
+def _entry_nodes_from_program(
+    session: AnalysisSession,
+    *,
+    fallback_function: str | None = None,
+):
+    queries = session.program.get_queries(session.compiler)
+    entry_nodes = []
+    seen = set()
+    for entry_point in getattr(session.program, "entryPoints", ()):
+        code = getattr(entry_point, "code", None)
+        if code is None:
+            continue
+        try:
+            cfg = queries.graph_engine.get_cfg(code)
+        except Exception:
+            continue
+        node = session.adapter.supergraph.entry_of(cfg)
+        if node not in seen:
+            seen.add(node)
+            entry_nodes.append(node)
+
+    if entry_nodes:
+        return tuple(entry_nodes)
+
+    if fallback_function is not None:
+        cfg = queries.graph_engine.get_cfg(fallback_function)
+        return (session.adapter.supergraph.entry_of(cfg),)
+
+    raise ValueError("Unable to derive IFDS entry nodes from program entry points.")
+
+
 def load_analysis_session(
     python_files: Sequence[str | Path],
     *,
@@ -97,7 +128,6 @@ def run_taint_analysis(
         include_exceptional_edges=include_exceptional_edges,
     )
     queries = session.program.get_queries(session.compiler)
-    cfg = queries.graph_engine.get_cfg(function)
     result = analyze_taint(
         session.adapter,
         TaintConfiguration(
@@ -105,7 +135,7 @@ def run_taint_analysis(
             sink_names=frozenset(sink_names),
             sanitizer_names=frozenset(sanitizer_names),
         ),
-        entry_nodes=[session.adapter.supergraph.entry_of(cfg)],
+        entry_nodes=_entry_nodes_from_program(session, fallback_function=function),
     )
     return session, result
 
@@ -127,11 +157,9 @@ def run_nullness_analysis(
         search_paths=search_paths,
         include_exceptional_edges=include_exceptional_edges,
     )
-    queries = session.program.get_queries(session.compiler)
-    cfg = queries.graph_engine.get_cfg(function)
     result = analyze_nullness(
         session.adapter,
-        entry_nodes=[session.adapter.supergraph.entry_of(cfg)],
+        entry_nodes=_entry_nodes_from_program(session, fallback_function=function),
     )
     return session, result
 
@@ -156,8 +184,6 @@ def run_typestate_analysis(
         search_paths=search_paths,
         include_exceptional_edges=include_exceptional_edges,
     )
-    queries = session.program.get_queries(session.compiler)
-    cfg = queries.graph_engine.get_cfg(function)
     result = analyze_typestate(
         session.adapter,
         TypestateConfiguration(
@@ -165,6 +191,6 @@ def run_typestate_analysis(
             close_names=frozenset(close_names),
             use_names=frozenset(use_names),
         ),
-        entry_nodes=[session.adapter.supergraph.entry_of(cfg)],
+        entry_nodes=_entry_nodes_from_program(session, fallback_function=function),
     )
     return session, result

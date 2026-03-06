@@ -152,6 +152,152 @@ def test_cfg_adapter_normal_flow_raise_has_no_successor_to_following_statement()
     assert adapter.supergraph.normal_successors(raise_nodes[0]) == frozenset()
 
 
+def test_cfg_adapter_routes_try_body_raise_into_except_handler():
+    compiler = context.CompilerContext(None)
+
+    handler_value = ast.Local("handler_value")
+    handler = ast.ExceptionHandler(
+        ast.Suite([]),
+        ast.Existing(ast.program.Object(ValueError)),
+        None,
+        ast.Suite([ast.Assign(ast.Existing(ast.program.Object(1)), [handler_value])]),
+    )
+    main_code, _ = make_code(
+        "main",
+        [],
+        [
+            ast.TryExceptFinally(
+                ast.Suite([ast.Raise(ast.Existing(ast.program.Object(ValueError)), None, None)]),
+                [handler],
+                None,
+                None,
+                None,
+            ),
+            ast.Return([handler_value]),
+        ],
+        return_name="main_ret",
+    )
+
+    cfg = build_cfg(compiler, main_code)
+    adapter = build_supergraph_from_cfgs([cfg])
+
+    raise_node = next(
+        node
+        for node in adapter.supergraph.nodes_of(cfg)
+        if node.scope == ("0", "try", "body", "0")
+    )
+    successor_scopes = {successor.scope for successor in adapter.supergraph.normal_successors(raise_node)}
+    assert ("0", "try", "handler", "0", "preamble", "empty") in successor_scopes
+
+
+def test_cfg_adapter_routes_try_finally_normal_and_exceptional_paths_through_finally():
+    compiler = context.CompilerContext(None)
+
+    cleanup = ast.Local("cleanup")
+    normal_code, _ = make_code(
+        "main",
+        [],
+        [
+            ast.TryExceptFinally(
+                ast.Suite([ast.Assign(ast.Existing(ast.program.Object(1)), [cleanup])]),
+                [],
+                None,
+                None,
+                ast.Suite([ast.Assign(ast.Existing(ast.program.Object(2)), [cleanup])]),
+            ),
+            ast.Return([cleanup]),
+        ],
+        return_name="normal_ret",
+    )
+    exceptional_code, _ = make_code(
+        "main_exc",
+        [],
+        [
+            ast.TryExceptFinally(
+                ast.Suite([ast.Raise(ast.Existing(ast.program.Object(ValueError)), None, None)]),
+                [],
+                None,
+                None,
+                ast.Suite([ast.Assign(ast.Existing(ast.program.Object(3)), [cleanup])]),
+            ),
+            ast.Return([cleanup]),
+        ],
+        return_name="exc_ret",
+    )
+
+    normal_cfg = build_cfg(compiler, normal_code)
+    exceptional_cfg = build_cfg(compiler, exceptional_code)
+    normal_adapter = build_supergraph_from_cfgs([normal_cfg])
+    exceptional_adapter = build_supergraph_from_cfgs([exceptional_cfg])
+
+    normal_body = next(
+        node
+        for node in normal_adapter.supergraph.nodes_of(normal_cfg)
+        if node.scope == ("0", "try", "body", "0")
+    )
+    normal_successors = {successor.scope for successor in normal_adapter.supergraph.normal_successors(normal_body)}
+    assert ("0", "try", "finally", "normal", "0") in normal_successors
+
+    exceptional_body = next(
+        node
+        for node in exceptional_adapter.supergraph.nodes_of(exceptional_cfg)
+        if node.scope == ("0", "try", "body", "0")
+    )
+    exceptional_successors = {
+        successor.scope
+        for successor in exceptional_adapter.supergraph.normal_successors(exceptional_body)
+    }
+    assert ("0", "try", "finally", "exceptional", "0") in exceptional_successors
+
+    exceptional_finally = next(
+        node
+        for node in exceptional_adapter.supergraph.nodes_of(exceptional_cfg)
+        if node.scope == ("0", "try", "finally", "exceptional", "0")
+    )
+    assert exceptional_adapter.supergraph.normal_successors(exceptional_finally) == frozenset()
+
+
+def test_cfg_adapter_preserves_exceptional_successor_for_call_inside_try_finally():
+    compiler = context.CompilerContext(None)
+
+    helper_param = ast.Local("helper_param")
+    helper_code, _ = make_code(
+        "helper",
+        [helper_param],
+        [ast.Return([helper_param])],
+        return_name="helper_ret",
+    )
+    value = ast.Local("value")
+    cleanup = ast.Local("cleanup")
+    main_code, _ = make_code(
+        "main",
+        [],
+        [
+            ast.TryExceptFinally(
+                ast.Suite([ast.Discard(ast.DirectCall(helper_code, None, [value], [], None, None))]),
+                [],
+                None,
+                None,
+                ast.Suite([ast.Assign(ast.Existing(ast.program.Object(1)), [cleanup])]),
+            ),
+            ast.Return([cleanup]),
+        ],
+        return_name="main_ret",
+    )
+
+    helper_cfg = build_cfg(compiler, helper_code)
+    main_cfg = build_cfg(compiler, main_code)
+    adapter = build_supergraph_from_cfgs([main_cfg, helper_cfg])
+
+    call_node = next(
+        node
+        for node in adapter.supergraph.nodes_of(main_cfg)
+        if node.kind == "call"
+    )
+    return_sites = adapter.supergraph.return_sites_of_call_at(call_node)
+    assert {site.scope for site in return_sites} == {("0", "try", "body", "0")}
+
+
 def test_bind_call_arguments_maps_keywords_to_matching_formals():
     x = ast.Local("x")
     y = ast.Local("y")
