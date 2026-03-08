@@ -57,10 +57,7 @@ class QueryContext:
         if name is None:
             return None
 
-        annotation = getattr(code, "annotation", None)
-        origin = getattr(annotation, "origin", None)
-        filename = getattr(origin, "filename", None)
-        lineno = getattr(origin, "lineno", None)
+        filename, lineno = self._origin_location(code)
         if filename:
             location = f"{os.path.abspath(filename)}:{lineno if lineno is not None else '?'}"
             return f"{name}@{location}"
@@ -129,14 +126,27 @@ class QueryContext:
 
     def _dedupe_key(self, code):
         name = self.code_name(code)
-        annotation = getattr(code, "annotation", None)
-        origin = getattr(annotation, "origin", ()) or ()
-        for item in origin:
-            if not isinstance(item, str):
-                continue
-            if item.startswith("source(") and item.endswith(")"):
-                payload = item[len("source(") : -1]
-                filename, _sep, lineno = payload.rpartition(":")
-                if filename:
-                    return ("source", name, os.path.realpath(filename), lineno or "?")
+        filename, lineno = self._origin_location(code)
+        if filename:
+            return ("source", name, os.path.realpath(filename), lineno or "?")
         return ("id", id(code))
+
+    def _origin_location(self, code) -> tuple[Optional[str], Optional[object]]:
+        annotation = getattr(code, "annotation", None)
+        origin = getattr(annotation, "origin", None)
+        filename = getattr(origin, "filename", None)
+        lineno = getattr(origin, "lineno", None)
+        if filename:
+            return filename, lineno
+
+        if isinstance(origin, (tuple, list)):
+            for item in origin:
+                if not isinstance(item, str):
+                    continue
+                if item.startswith("source(") and item.endswith(")"):
+                    payload = item[len("source(") : -1]
+                    parsed_filename, _sep, parsed_lineno = payload.rpartition(":")
+                    if parsed_filename:
+                        return parsed_filename, parsed_lineno or "?"
+
+        return None, None

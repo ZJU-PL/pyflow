@@ -52,6 +52,7 @@ class Program(object):
     """
 
     __slots__ = (
+        "__weakref__",
         "interface",
         "storeGraph",
         "entryPoints",

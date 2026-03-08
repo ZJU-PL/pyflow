@@ -90,7 +90,7 @@ class LLMClient:
         """Simple call with single prompt."""
         messages = [{"role": "user", "content": prompt}]
         response = self.call(messages, **kwargs)
-        return response.content if response.success else f"Error: {response.content}"
+        return response.content
 
 
 def retry_llm_call(max_retries: int = 3, delay: float = 1.0):

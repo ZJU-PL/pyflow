@@ -126,6 +126,50 @@ def _iter_import_nodes_in_scope(nodes: Iterable[ast.AST]):
                 yield from _iter_import_nodes_in_scope(getattr(case, "body", ()) or ())
 
 
+def _default_entry_args(callable_obj, existing_wrapper, *, skip_first: bool = False):
+    try:
+        sig = inspect.signature(callable_obj)
+    except (TypeError, ValueError):
+        return (), ()
+
+    params = list(sig.parameters.values())
+    if skip_first and params:
+        params = params[1:]
+
+    args = []
+    kwds = []
+    for param in params:
+        if param.kind in (
+            inspect.Parameter.POSITIONAL_ONLY,
+            inspect.Parameter.POSITIONAL_OR_KEYWORD,
+        ):
+            args.append(existing_wrapper(None))
+        elif param.kind == inspect.Parameter.KEYWORD_ONLY:
+            kwds.append((param.name, existing_wrapper(None)))
+    return tuple(args), tuple(kwds)
+
+
+def _should_include_interface_function(func_name: str, args) -> bool:
+    if func_name != "main":
+        return True
+    return getattr(args, "include_main_entry_points", False)
+
+
+def _get_interface_search_paths(args) -> list[str]:
+    search_paths = getattr(args, "search_paths", None)
+    if search_paths is not None:
+        return list(search_paths)
+
+    import sys
+
+    return list(sys.path)
+
+
+def _read_interface_source(file_path) -> str:
+    with open(file_path, "r", encoding="utf-8") as f:
+        return f.read()
+
+
 class Extractor:
     """Extracts program information from Python code for static analysis.
 
@@ -876,27 +920,86 @@ def create_interface_from_paths(python_files, args):
     from pyflow.frontend.dependency_resolver import DependencyResolver
     from pyflow.frontend.class_hierarchy import ClassHierarchy
 
-    def _default_entry_args(callable_obj, *, skip_first: bool = False):
-        try:
-            sig = inspect.signature(callable_obj)
-        except (TypeError, ValueError):
-            return (), ()
+    def add_function_entries(interface_decl, functions, file_path):
+        for func_name, func_obj in functions.items():
+            if not _should_include_interface_function(func_name, args):
+                if args.verbose:
+                    print(f"DEBUG: Skipping '{func_name}' as an entry point")
+                continue
 
-        params = list(sig.parameters.values())
-        if skip_first and params:
-            params = params[1:]
+            func_args, func_kwds = _default_entry_args(func_obj, ExistingWrapper)
+            interface_decl.func.append((func_obj, func_args, func_kwds))
+            if args.verbose:
+                print(f"Added function '{func_name}' from {file_path}")
 
-        args = []
-        kwds = []
-        for param in params:
-            if param.kind in (
-                inspect.Parameter.POSITIONAL_ONLY,
-                inspect.Parameter.POSITIONAL_OR_KEYWORD,
-            ):
-                args.append(ExistingWrapper(None))
-            elif param.kind == inspect.Parameter.KEYWORD_ONLY:
-                kwds.append((param.name, ExistingWrapper(None)))
-        return tuple(args), tuple(kwds)
+    def add_class_entries(interface_decl, classes, resolver, file_path):
+        for cls_name, cls_obj in classes.items():
+            class_decl = ClassDeclaration(cls_obj)
+            init_args, init_kwds = _default_entry_args(
+                cls_obj.__init__, ExistingWrapper, skip_first=True
+            )
+            class_decl.init(*init_args, kwds=init_kwds)
+            interface_decl.cls.append(class_decl)
+
+            for method_name, method_info in resolver.get_public_method_specs(cls_obj).items():
+                if method_name.startswith("_"):
+                    continue
+                if method_info.get("is_property", False):
+                    class_decl.attr(method_name)
+                    continue
+                skip_first = not method_info.get("is_staticmethod", False)
+                method_obj = getattr(cls_obj, method_name)
+                if method_info.get("is_classmethod", False):
+                    method_obj = getattr(method_obj, "__func__", method_obj)
+                method_args, method_kwds = _default_entry_args(
+                    method_obj, ExistingWrapper, skip_first=skip_first
+                )
+                class_decl.method(
+                    method_name,
+                    *method_args,
+                    kind=(
+                        "staticmethod"
+                        if method_info.get("is_staticmethod", False)
+                        else "classmethod"
+                        if method_info.get("is_classmethod", False)
+                        else "instance"
+                    ),
+                    kwds=method_kwds,
+                )
+
+            if args.verbose:
+                print(f"Added class '{cls_name}' from {file_path}")
+
+    def process_file(file_path, resolver, all_source_code, interface_decl):
+        source = _read_interface_source(file_path)
+        all_source_code[str(file_path)] = source
+        resolver.source_files[str(file_path)] = source
+
+        functions = resolver.extract_functions(source, str(file_path))
+        classes = resolver.get_module_classes(str(file_path))
+        add_function_entries(interface_decl, functions, file_path)
+        add_class_entries(interface_decl, classes, resolver, file_path)
+
+        if args.verbose:
+            print(
+                f"Found {len(functions)} functions and {len(classes)} classes in {file_path}"
+            )
+
+    def report_resolver_state(resolver):
+        if not args.verbose:
+            return
+
+        missing = resolver.get_missing_dependencies()
+        if missing:
+            print("\nMissing dependencies report:")
+            for module, importing_files in missing.items():
+                print(f"  {module}: imported by {len(importing_files)} file(s)")
+
+        telemetry = resolver.get_telemetry()
+        if telemetry:
+            print("\nDependency resolver telemetry:")
+            for key in sorted(telemetry):
+                print(f"  {key}: {telemetry[key]}")
 
     interface_decl = InterfaceDeclaration()
     all_source_code = {}
@@ -904,18 +1007,12 @@ def create_interface_from_paths(python_files, args):
 
     # Create shared class hierarchy for cross-module analysis
     class_hierarchy = ClassHierarchy(verbose=getattr(args, "verbose", False))
-    
-    # Get search paths from args if available
-    search_paths = getattr(args, "search_paths", None)
-    if search_paths is None:
-        import sys
-        search_paths = list(sys.path)
 
     resolver = DependencyResolver(
         strategy=getattr(args, "dependency_strategy", "auto"),
         verbose=getattr(args, "verbose", False),
         safe_modules=["math", "os", "sys", "re", "json", "datetime", "collections"],
-        search_paths=search_paths,
+        search_paths=_get_interface_search_paths(args),
         class_hierarchy=class_hierarchy,
         source_files=all_source_code,
         analysis_root=analysis_root,
@@ -923,86 +1020,11 @@ def create_interface_from_paths(python_files, args):
 
     for file_path in python_files:
         try:
-            with open(file_path, "r", encoding="utf-8") as f:
-                source = f.read()
-            all_source_code[str(file_path)] = source
-            resolver.source_files[str(file_path)] = source
-
-            functions = resolver.extract_functions(source, str(file_path))
-            classes = resolver.get_module_classes(str(file_path))
-
-            for func_name, func_obj in functions.items():
-                # Most frontend entrypoints skip driver-style ``main`` functions,
-                # but API clients can opt back in for targeted analysis.
-                if func_name == "main" and not getattr(
-                    args, "include_main_entry_points", False
-                ):
-                    if args.verbose:
-                        print(f"DEBUG: Skipping '{func_name}' as an entry point")
-                    continue
-
-                func_args, func_kwds = _default_entry_args(func_obj)
-                interface_decl.func.append((func_obj, func_args, func_kwds))
-                if args.verbose:
-                    print(f"Added function '{func_name}' from {file_path}")
-
-            for cls_name, cls_obj in classes.items():
-                class_decl = ClassDeclaration(cls_obj)
-                init_args, init_kwds = _default_entry_args(
-                    cls_obj.__init__, skip_first=True
-                )
-                class_decl.init(*init_args, kwds=init_kwds)
-                interface_decl.cls.append(class_decl)
-
-                for method_name, method_info in resolver.get_public_method_specs(cls_obj).items():
-                    if method_name.startswith("_"):
-                        continue
-                    if method_info.get("is_property", False):
-                        class_decl.attr(method_name)
-                        continue
-                    skip_first = not method_info.get("is_staticmethod", False)
-                    method_obj = getattr(cls_obj, method_name)
-                    if method_info.get("is_classmethod", False):
-                        method_obj = getattr(method_obj, "__func__", method_obj)
-                    method_args, method_kwds = _default_entry_args(
-                        method_obj, skip_first=skip_first
-                    )
-                    class_decl.method(
-                        method_name,
-                        *method_args,
-                        kind=(
-                            "staticmethod"
-                            if method_info.get("is_staticmethod", False)
-                            else "classmethod"
-                            if method_info.get("is_classmethod", False)
-                            else "instance"
-                        ),
-                        kwds=method_kwds,
-                    )
-
-                if args.verbose:
-                    print(f"Added class '{cls_name}' from {file_path}")
-
-            if args.verbose:
-                print(
-                    f"Found {len(functions)} functions and {len(classes)} classes in {file_path}"
-                )
-
+            process_file(file_path, resolver, all_source_code, interface_decl)
         except Exception as e:
             if args.verbose:
                 print(f"Warning: Could not parse file {file_path}: {e}")
 
-    # Report missing dependencies if verbose
-    if args.verbose:
-        missing = resolver.get_missing_dependencies()
-        if missing:
-            print("\nMissing dependencies report:")
-            for module, importing_files in missing.items():
-                print(f"  {module}: imported by {len(importing_files)} file(s)")
-        telemetry = resolver.get_telemetry()
-        if telemetry:
-            print("\nDependency resolver telemetry:")
-            for key in sorted(telemetry):
-                print(f"  {key}: {telemetry[key]}")
+    report_resolver_state(resolver)
 
     return interface_decl, all_source_code

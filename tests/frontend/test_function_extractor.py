@@ -168,6 +168,21 @@ def test_func(n):
         self.assertFalse(annotation.staticFold)
         self.assertFalse(annotation.dynamicFold)
 
+    def test_convert_function_records_fallback_reason_on_error(self):
+        """Fallback minimal code should preserve the reason in its origin."""
+        def test_func():
+            return 1
+
+        code = self.extractor.convert_function(test_func, source_code="def broken(")
+
+        self.assertTrue(
+            any(
+                isinstance(item, str) and item.startswith("fallback_reason(")
+                for item in code.annotation.origin
+            )
+        )
+        self.assertTrue(self.extractor.get_diagnostics())
+
     def test_extract_function(self):
         """Test extracting a function from AST."""
         source = "def test_func(): return 1"

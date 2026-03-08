@@ -186,8 +186,14 @@ class MethodPatternFinder(TypeDispatcher):
 
             reach = set()
             for target in targets:
-                reach.update(self.invokeLUT[target])
+                reach.update(self.resolveInvokeTargets(target))
             self.invokeLUT[(code, context)] = annotations.annotationSet(reach)
+
+    def resolveInvokeTargets(self, target):
+        resolved = self.invokeLUT.get(target)
+        if resolved is None:
+            return annotations.annotationSet((target,))
+        return resolved
 
     def preprocess(self, compiler, prgm):
         if not self.findOriginals(compiler.extractor):
@@ -389,7 +395,7 @@ class MethodRewrite(TypeDispatcher):
             for cinvokes in invokes[1]:
                 cinvokesM = set()
                 for f, c in cinvokes:
-                    newinv = self.pattern.invokeLUT[(f, c)]
+                    newinv = self.pattern.resolveInvokeTargets((f, c))
                     cinvokesM.update(newinv)
                 cinvokesNew.append(annotations.annotationSet(cinvokesM))
 
@@ -434,10 +440,12 @@ def methodMeet(values):
     Returns:
         Single value if all values are the same, top otherwise
     """
+    if not values:
+        return dataflow.base.top
     prototype = values[0]
     for value in values:
         if value != prototype:
-            return dataflow.forward.top
+            return dataflow.base.top
     return prototype
 
 

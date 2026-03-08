@@ -386,17 +386,29 @@ class DependencyResolver:
         self._missing_dependencies: Dict[str, List[str]] = {}  # module -> [importing_files]
         # Import graph: module -> imported modules
         self._import_graph: Dict[str, set[str]] = {}
+        self._diagnostics: List[str] = []
         # Telemetry for precision/performance troubleshooting
         self._telemetry: Dict[str, int] = {
             "files_processed": 0,
             "runtime_exec_attempts": 0,
             "runtime_exec_failures": 0,
             "ast_extract_failures": 0,
+            "diagnostics": 0,
             "private_defs_filtered": 0,
             "missing_dependencies": 0,
             "import_edges": 0,
             "source_map_hits": 0,
         }
+
+    def _record_diagnostic(
+        self, stage: str, file_path: str, detail: str
+    ) -> None:
+        self._diagnostics.append(f"{stage}:{file_path}: {detail}")
+        self._telemetry["diagnostics"] = len(self._diagnostics)
+
+    def get_diagnostics(self) -> List[str]:
+        """Get recorded extraction diagnostics."""
+        return list(self._diagnostics)
 
     def _refresh_analysis_root(self) -> None:
         if self._analysis_root_explicit:
@@ -420,35 +432,142 @@ class DependencyResolver:
         self._telemetry["files_processed"] += 1
         self.source_files[file_path] = source
         self._refresh_analysis_root()
-        if self.strategy == DependencyStrategy.STRICT:
-            return self._extract_with_runtime(source, file_path)
-        elif self.strategy == DependencyStrategy.STUBS:
-            return self._extract_with_stubs(source, file_path)
-        elif self.strategy == DependencyStrategy.NOOP:
-            return self._extract_noop(source, file_path)
-        elif self.strategy == DependencyStrategy.AST_ONLY:
-            return self._extract_ast_only(source, file_path)
-        else:  # AUTO strategy
-            return self._extract_auto(source, file_path)
+        strategy_handlers = {
+            DependencyStrategy.STRICT: self._extract_with_runtime,
+            DependencyStrategy.STUBS: self._extract_with_stubs,
+            DependencyStrategy.NOOP: self._extract_noop,
+            DependencyStrategy.AST_ONLY: self._extract_ast_only,
+            DependencyStrategy.AUTO: self._extract_auto,
+        }
+        return strategy_handlers[self.strategy](source, file_path)
+
+    def _runtime_disabled_fallback(
+        self, source: str, file_path: str, mode: str
+    ) -> Dict[str, Any]:
+        if self.verbose:
+            print(
+                f"DEBUG: {mode} runtime extraction disabled for {file_path}; using AST-only fallback"
+            )
+        return self._extract_ast_functions(source, file_path)
+
+    def _prepare_exec_globals(
+        self, source: str, file_path: str, *, preload_stubs: bool = False
+    ) -> Dict[str, Any]:
+        exec_globals = self._create_safe_exec_globals()
+        exec_globals["__file__"] = file_path
+        if preload_stubs:
+            exec_globals = self._handle_import_errors(source, exec_globals, file_path)
+        return exec_globals
+
+    def _execute_runtime_extraction(
+        self,
+        source: str,
+        file_path: str,
+        exec_globals: Dict[str, Any],
+        *,
+        diagnostic_stage: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        compiled = compile(source, file_path, "exec")
+        self._exec_with_stub_modules(compiled, exec_globals)
+        functions = self._filter_functions(exec_globals, file_path)
+        if functions:
+            return functions
+        if diagnostic_stage:
+            self._record_diagnostic(
+                diagnostic_stage, file_path, "runtime execution produced no functions"
+            )
+        return {}
+
+    def _extract_signature(self, args: python_ast.arguments) -> Optional[inspect.Signature]:
+        try:
+            return _signature_from_ast(args)
+        except Exception:
+            return None
+
+    def _extract_function_proxy(
+        self,
+        node: python_ast.AST,
+        module_name: str,
+        file_path: str,
+    ) -> _ASTFunctionProxy:
+        lineno = int(getattr(node, "lineno", 1) or 1)
+        return _ASTFunctionProxy(
+            name=node.name,
+            qualname=node.name,
+            module=module_name,
+            filename=file_path,
+            firstlineno=lineno,
+            signature=self._extract_signature(node.args),
+            docstring=_extract_docstring(node),
+            decorators=_extract_decorator_names(node),
+            is_async=isinstance(node, python_ast.AsyncFunctionDef),
+        )
+
+    def _should_include_toplevel_name(self, name: str) -> bool:
+        if self.include_private:
+            return True
+        if not name.startswith("_"):
+            return True
+        self._telemetry["private_defs_filtered"] += 1
+        return False
+
+    def _extract_top_level_classes(
+        self, tree: python_ast.AST, module_name: str, file_path: str
+    ) -> Dict[str, Dict[str, Any]]:
+        classes = {}
+        for node in _iter_toplevel_class_nodes(tree):
+            if not self._should_include_toplevel_name(node.name):
+                continue
+            classes[node.name] = self._extract_class_info(node, module_name, file_path)
+        return classes
+
+    def _extract_top_level_functions(
+        self, tree: python_ast.AST, module_name: str, file_path: str
+    ) -> Dict[str, Any]:
+        functions = {}
+        for node in _iter_toplevel_function_nodes(tree):
+            if not self._should_include_toplevel_name(node.name):
+                continue
+            functions[node.name] = self._extract_function_proxy(
+                node, module_name, file_path
+            )
+        return functions
+
+    def _cache_module_extraction(
+        self,
+        file_path: str,
+        module_name: str,
+        functions: Dict[str, Any],
+        classes: Dict[str, Dict[str, Any]],
+        imports: Dict[str, str],
+    ) -> None:
+        class_proxies = self._build_class_proxies(
+            file_path, module_name, classes, imports
+        )
+        self._module_cache[file_path] = {
+            "functions": functions,
+            "classes": classes,
+            "class_proxies": class_proxies,
+            "imports": imports,
+            "module_name": module_name,
+        }
 
     def _extract_with_runtime(self, source: str, file_path: str) -> Dict[str, Any]:
         """Extract functions using runtime execution only."""
         if not self.allow_runtime_execution:
-            if self.verbose:
-                print(
-                    f"DEBUG: Runtime extraction disabled for {file_path}; using AST-only fallback"
-                )
-            return self._extract_ast_functions(source, file_path)
+            return self._runtime_disabled_fallback(source, file_path, "Runtime")
         self._telemetry["runtime_exec_attempts"] += 1
-        exec_globals = self._create_safe_exec_globals()
-        exec_globals["__file__"] = file_path
+        exec_globals = self._prepare_exec_globals(source, file_path)
 
         try:
-            compiled = compile(source, file_path, "exec")
-            self._exec_with_stub_modules(compiled, exec_globals)
-            return self._filter_functions(exec_globals, file_path)
+            return self._execute_runtime_extraction(
+                source, file_path, exec_globals, diagnostic_stage="runtime_exec"
+            )
         except Exception as e:
             self._telemetry["runtime_exec_failures"] += 1
+            self._record_diagnostic(
+                "runtime_exec", file_path, f"{type(e).__name__}: {e}"
+            )
             if self.verbose:
                 print(f"ERROR: Runtime extraction failed for {file_path}: {e}")
             return {}
@@ -456,20 +575,13 @@ class DependencyResolver:
     def _extract_with_stubs(self, source: str, file_path: str) -> Dict[str, Any]:
         """Extract functions using runtime execution with enhanced stub modules."""
         if not self.allow_runtime_execution:
-            if self.verbose:
-                print(
-                    f"DEBUG: Stub-assisted runtime extraction disabled for {file_path}; using AST-only fallback"
-                )
-            return self._extract_ast_functions(source, file_path)
+            return self._runtime_disabled_fallback(source, file_path, "Stub-assisted")
         self._telemetry["runtime_exec_attempts"] += 1
-        exec_globals = self._create_safe_exec_globals()
-        exec_globals["__file__"] = file_path
+        exec_globals = self._prepare_exec_globals(source, file_path)
 
         # Try normal execution first
         try:
-            compiled = compile(source, file_path, "exec")
-            self._exec_with_stub_modules(compiled, exec_globals)
-            functions = self._filter_functions(exec_globals, file_path)
+            functions = self._execute_runtime_extraction(source, file_path, exec_globals)
             if functions:
                 return functions
         except ImportError as e:
@@ -477,15 +589,23 @@ class DependencyResolver:
                 print(f"DEBUG: Import error in {file_path}: {e}")
 
             # Create enhanced stubs for missing imports (may find source files)
-            exec_globals_with_stubs = self._handle_import_errors(source, exec_globals, file_path)
+            exec_globals_with_stubs = self._prepare_exec_globals(
+                source, file_path, preload_stubs=True
+            )
             try:
-                compiled = compile(source, file_path, "exec")
-                self._exec_with_stub_modules(compiled, exec_globals_with_stubs)
-                functions = self._filter_functions(exec_globals_with_stubs, file_path)
+                functions = self._execute_runtime_extraction(
+                    source,
+                    file_path,
+                    exec_globals_with_stubs,
+                    diagnostic_stage="stub_runtime_exec",
+                )
                 if functions:
                     return functions
             except Exception as stub_e:
                 self._telemetry["runtime_exec_failures"] += 1
+                self._record_diagnostic(
+                    "stub_runtime_exec", file_path, f"{type(stub_e).__name__}: {stub_e}"
+                )
                 if self.verbose:
                     print(f"DEBUG: Even with stubs, execution failed: {stub_e}")
 
@@ -507,24 +627,21 @@ class DependencyResolver:
     def _extract_noop(self, source: str, file_path: str) -> Dict[str, Any]:
         """Extract functions but treat all external dependencies as no-ops."""
         if not self.allow_runtime_execution:
-            if self.verbose:
-                print(
-                    f"DEBUG: No-op runtime extraction disabled for {file_path}; using AST-only fallback"
-                )
-            return self._extract_ast_functions(source, file_path)
+            return self._runtime_disabled_fallback(source, file_path, "No-op")
         self._telemetry["runtime_exec_attempts"] += 1
-        exec_globals = self._create_safe_exec_globals()
-        exec_globals["__file__"] = file_path
-
-        # Pre-populate with no-op stubs for any potential missing imports
-        exec_globals = self._handle_import_errors(source, exec_globals, file_path)
+        exec_globals = self._prepare_exec_globals(
+            source, file_path, preload_stubs=True
+        )
 
         try:
-            compiled = compile(source, file_path, "exec")
-            self._exec_with_stub_modules(compiled, exec_globals)
-            return self._filter_functions(exec_globals, file_path)
+            return self._execute_runtime_extraction(
+                source, file_path, exec_globals, diagnostic_stage="noop_runtime_exec"
+            )
         except Exception as e:
             self._telemetry["runtime_exec_failures"] += 1
+            self._record_diagnostic(
+                "noop_runtime_exec", file_path, f"{type(e).__name__}: {e}"
+            )
             if self.verbose:
                 print(f"DEBUG: No-op extraction failed for {file_path}: {e}")
             return {}
@@ -537,67 +654,20 @@ class DependencyResolver:
         """Extract functions and classes using AST parsing with enhanced information."""
         try:
             tree = python_ast.parse(source)
-            functions = {}
-            classes = {}
-
             module_name = self._get_module_name_from_path(file_path)
             self._record_import_edges(tree, module_name, file_path)
             imports = self._extract_import_map(tree, module_name)
-
-            # Extract classes first (they may contain methods).
-            # By default single-underscore private classes are skipped at the top
-            # level (consistent with the original behaviour for functions).
-            for node in _iter_toplevel_class_nodes(tree):
-                if (not self.include_private) and node.name.startswith("_"):
-                    self._telemetry["private_defs_filtered"] += 1
-                    continue
-
-                classes[node.name] = self._extract_class_info(node, module_name, file_path)
-
-            # Extract top-level functions; single-underscore private functions
-            # are intentionally excluded (they are implementation details).
-            for node in _iter_toplevel_function_nodes(tree):
-                if (not self.include_private) and node.name.startswith("_"):
-                    self._telemetry["private_defs_filtered"] += 1
-                    continue
-
-                lineno = int(getattr(node, "lineno", 1) or 1)
-                sig = None
-                try:
-                    sig = _signature_from_ast(node.args)
-                except Exception:
-                    sig = None
-
-                docstring = _extract_docstring(node)
-                decorators = _extract_decorator_names(node)
-                is_async = isinstance(node, python_ast.AsyncFunctionDef)
-
-                functions[node.name] = _ASTFunctionProxy(
-                    name=node.name,
-                    qualname=node.name,
-                    module=module_name,
-                    filename=file_path,
-                    firstlineno=lineno,
-                    signature=sig,
-                    docstring=docstring,
-                    decorators=decorators,
-                    is_async=is_async,
-                )
-
-            class_proxies = self._build_class_proxies(
-                file_path, module_name, classes, imports
+            classes = self._extract_top_level_classes(tree, module_name, file_path)
+            functions = self._extract_top_level_functions(tree, module_name, file_path)
+            self._cache_module_extraction(
+                file_path, module_name, functions, classes, imports
             )
-            self._module_cache[file_path] = {
-                "functions": functions,
-                "classes": classes,
-                "class_proxies": class_proxies,
-                "imports": imports,
-                "module_name": module_name,
-            }
-
             return functions
         except Exception as e:
             self._telemetry["ast_extract_failures"] += 1
+            self._record_diagnostic(
+                "ast_extract", file_path, f"{type(e).__name__}: {e}"
+            )
             if self.verbose:
                 print(f"DEBUG: AST extraction failed for {file_path}: {e}")
             return {}
@@ -616,12 +686,6 @@ class DependencyResolver:
         for item in node.body:
             if isinstance(item, (python_ast.FunctionDef, python_ast.AsyncFunctionDef)):
                 lineno = int(getattr(item, "lineno", 1) or 1)
-                sig = None
-                try:
-                    sig = _signature_from_ast(item.args)
-                except Exception:
-                    sig = None
-
                 docstring = _extract_docstring(item)
                 decorators = _extract_decorator_names(item)
                 is_async = isinstance(item, python_ast.AsyncFunctionDef)
@@ -632,7 +696,7 @@ class DependencyResolver:
                 methods[item.name] = {
                     "name": item.name,
                     "qualname": f"{node.name}.{item.name}",
-                    "signature": sig,
+                    "signature": self._extract_signature(item.args),
                     "docstring": docstring,
                     "decorators": decorators,
                     "is_async": is_async,
@@ -1078,6 +1142,9 @@ class DependencyResolver:
                         )
                 return module
             except Exception as exc:
+                self._record_diagnostic(
+                    "stub_source_extract", source_file, f"{type(exc).__name__}: {exc}"
+                )
                 if self.verbose:
                     print(f"DEBUG: Failed to extract from {source_file}: {exc}")
 
@@ -1092,6 +1159,9 @@ class DependencyResolver:
         try:
             tree = python_ast.parse(source)
         except Exception:
+            self._record_diagnostic(
+                "import_scan", file_path, "failed to parse source for stub modules"
+            )
             return {}
 
         current_module = self._get_module_name_from_path(file_path)

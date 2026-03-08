@@ -9,8 +9,18 @@ import sys
 import argparse
 from pathlib import Path
 
-# Add the src directory to the path so we can import pyflow modules
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+
+def _bootstrap_src_path() -> None:
+    """Allow running this file directly without mutating sys.path on import."""
+    if __package__:
+        return
+
+    src_root = str(Path(__file__).resolve().parents[2])
+    if src_root not in sys.path:
+        sys.path.insert(0, src_root)
+
+
+_bootstrap_src_path()
 
 from .optimize import run_analysis, list_optimization_passes, add_optimize_parser
 from .ir import run_ir_dump, add_ir_parser
@@ -88,23 +98,25 @@ def main():
     # Validate input path
     if input_path and not input_path.exists():
         print(f"Error: Path '{input_path}' not found", file=sys.stderr)
-        sys.exit(1)
+        return 1
 
     # Dispatch to appropriate command
     if args.command == "optimize":
         run_analysis(input_path, args)
+        return 0
     elif args.command == "callgraph":
         return callgraph.run_callgraph(input_path, args)
     elif args.command == "ir":
         run_ir_dump(input_path, args)
+        return 0
     elif args.command == "security":
         return run_security_analysis(args.targets, args)
     elif args.command == "dataflow":
         return run_dataflow_analysis(input_path, args)
     else:
         parser.print_help()
-        sys.exit(1)
+        return 1
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

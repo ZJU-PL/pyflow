@@ -52,7 +52,7 @@ class IPAAnalysisPass(AnalysisPass):
             program.ipa_analysis = result
             return PassResult(success=True, changed=result is not None, data=result)
         except Exception as e:
-            return PassResult(success=False, error=str(e))
+            return PassResult.from_exception(e)
 
 
 class CPAAnalysisPass(AnalysisPass):
@@ -70,7 +70,7 @@ class CPAAnalysisPass(AnalysisPass):
             program.cpa_analysis = cpa_result
             return PassResult(success=True, changed=True, data=cpa_result)
         except Exception as e:
-            return PassResult(success=False, error=str(e))
+            return PassResult.from_exception(e)
 
 
 class LifetimeAnalysisPass(AnalysisPass):
@@ -85,7 +85,7 @@ class LifetimeAnalysisPass(AnalysisPass):
             program.lifetime_analysis = result
             return PassResult(success=True, changed=True, data=result)
         except Exception as e:
-            return PassResult(success=False, error=str(e))
+            return PassResult.from_exception(e)
 
 
 class MethodCallOptimizationPass(OptimizationPass):
@@ -99,7 +99,7 @@ class MethodCallOptimizationPass(OptimizationPass):
             methodcall.evaluate(compiler, program)
             return PassResult(success=True, changed=True)
         except Exception as e:
-            return PassResult(success=False, error=str(e))
+            return PassResult.from_exception(e)
 
 
 class SimplifyOptimizationPass(OptimizationPass):
@@ -115,7 +115,7 @@ class SimplifyOptimizationPass(OptimizationPass):
             simplify.evaluate(compiler, program)
             return PassResult(success=True, changed=True)
         except Exception as e:
-            return PassResult(success=False, error=str(e))
+            return PassResult.from_exception(e)
 
 
 class CloneOptimizationPass(OptimizationPass):
@@ -129,7 +129,7 @@ class CloneOptimizationPass(OptimizationPass):
             clone.evaluate(compiler, program)
             return PassResult(success=True, changed=True)
         except Exception as e:
-            return PassResult(success=False, error=str(e))
+            return PassResult.from_exception(e)
 
 
 class ArgumentNormalizationPass(OptimizationPass):
@@ -146,7 +146,7 @@ class ArgumentNormalizationPass(OptimizationPass):
             argumentnormalization.evaluate(compiler, program)
             return PassResult(success=True, changed=True)
         except Exception as e:
-            return PassResult(success=False, error=str(e))
+            return PassResult.from_exception(e)
 
 
 class ProgramCullingPass(OptimizationPass):
@@ -160,7 +160,7 @@ class ProgramCullingPass(OptimizationPass):
             cullprogram.evaluate(compiler, program)
             return PassResult(success=True, changed=True)
         except Exception as e:
-            return PassResult(success=False, error=str(e))
+            return PassResult.from_exception(e)
 
 
 class StoreEliminationPass(OptimizationPass):
@@ -174,7 +174,7 @@ class StoreEliminationPass(OptimizationPass):
             storeelimination.evaluate(compiler, program)
             return PassResult(success=True, changed=True)
         except Exception as e:
-            return PassResult(success=False, error=str(e))
+            return PassResult.from_exception(e)
 
 
 # Registry of standard passes

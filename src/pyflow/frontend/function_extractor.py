@@ -29,6 +29,17 @@ class FunctionExtractor:
     def __init__(self, verbose: bool = True):
         self.verbose = verbose
         self.ast_converter = ASTConverter(verbose)
+        self.diagnostics: list[str] = []
+
+    def _callable_name(self, func: Any) -> str:
+        return getattr(func, "__name__", "<unknown>")
+
+    def _record_diagnostic(self, stage: str, func: Any, detail: str) -> None:
+        message = f"{stage}:{self._callable_name(func)}: {detail}"
+        self.diagnostics.append(message)
+
+    def get_diagnostics(self) -> list[str]:
+        return list(self.diagnostics)
 
     def convert_function(
         self,
@@ -62,7 +73,12 @@ class FunctionExtractor:
             if not source:
                 if self.verbose:
                     print(f"DEBUG: Could not get source code for {func.__name__}")
-                return self._create_minimal_code(func)
+                self._record_diagnostic(
+                    "source_lookup", func, "source code unavailable; using minimal code"
+                )
+                return self._create_minimal_code(
+                    func, reason="source code unavailable"
+                )
 
             if self.verbose:
                 print(
@@ -95,7 +111,12 @@ class FunctionExtractor:
                     print(
                         f"DEBUG: Could not find function definition for {func.__name__}"
                     )
-                return self._create_minimal_code(func)
+                self._record_diagnostic(
+                    "ast_match", func, "function definition not found; using minimal code"
+                )
+                return self._create_minimal_code(
+                    func, reason="function definition not found"
+                )
 
             # Convert Python AST to pyflow AST
             result = self._convert_python_function_to_pyflow(func_node, func)
@@ -108,7 +129,10 @@ class FunctionExtractor:
 
                 traceback.print_exc()
             # Fallback: create a minimal code stub
-            return self._create_minimal_code(func)
+            self._record_diagnostic("convert_function", func, f"{type(e).__name__}: {e}")
+            return self._create_minimal_code(
+                func, reason=f"{type(e).__name__}: {e}"
+            )
 
     def _normalize_qualname(self, qualname: Optional[str]) -> Optional[str]:
         if qualname is None:
@@ -191,13 +215,17 @@ class FunctionExtractor:
 
         return candidates[0][0]
 
-    def _create_minimal_code(self, func: Any) -> pyflow_ast.Code:
+    def _create_minimal_code(
+        self, func: Any, reason: Optional[str] = None
+    ) -> pyflow_ast.Code:
         """Create a minimal pyflow AST Code node with an empty Suite."""
         codeparams = self._empty_code_parameters()
-        code = pyflow_ast.Code(func.__name__, codeparams, pyflow_ast.Suite([]))
-        code.annotation = self._make_code_annotation(
-            [f"minimal_code({func.__name__})"]
-        )
+        func_name = self._callable_name(func)
+        code = pyflow_ast.Code(func_name, codeparams, pyflow_ast.Suite([]))
+        origin = [f"minimal_code({func_name})"]
+        if reason:
+            origin.append(f"fallback_reason({reason})")
+        code.annotation = self._make_code_annotation(origin)
         return code
 
     def _empty_code_parameters(self) -> pyflow_ast.CodeParameters:

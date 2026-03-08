@@ -48,121 +48,25 @@ See [CLI.md](CLI.md) for detailed documentation of all CLI options.
 # Run all tests
 pytest
 
-# Run specific test categories
-pytest tests/unit/
+# Run focused areas
+pytest tests/frontend
 pytest tests/integration/
+pytest tests/api
+pytest tests/checker
 ```
 
 ## Development
 
 ### Project Structure
 
-```
-pyflow/
-├── .github/                           # GitHub configuration
-│   └── workflows/                     # CI/CD workflows
-├── src/pyflow/                        # Main source code
-│   ├── analysis/                      # Core analysis modules
-│   │   ├── astcollector.py            # AST collection utilities
-│   │   ├── callgraph/                 # Call graph analysis
-│   │   ├── cdg/                       # Control Dependence Graph
-│   │   ├── cfg/                       # Control Flow Graph analysis
-│   │   ├── cpa/                       # Constraint Propagation Analysis
-│   │   ├── cpasignature.py            # CPA signature analysis
-│   │   ├── dataflowIR/                # Dataflow IR analysis
-│   │   ├── ddg/                       # Data Dependence Graph
-│   │   ├── dump/                      # Analysis result dumping
-│   │   ├── fsdf/                      # Flow-Sensitive Data Flow
-│   │   ├── ipa/                       # Interprocedural Analysis
-│   │   ├── lifetimeanalysis/          # Variable lifetime analysis
-│   │   ├── numbering/                 # Node numbering utilities
-│   │   ├── programculler.py           # Program culling utilities
-│   │   ├── shape/                     # Shape analysis
-│   │   ├── storegraph/                # Store graph analysis
-│   │   └── tools.py                   # Analysis tools
-│   ├── application/                   # Application layer
-│   │   ├── context.py                 # Analysis context management
-│   │   ├── errors.py                  # Error handling
-│   │   ├── interface/                 # User interface components
-│   │   ├── makefile.py                # Build system integration
-│   │   ├── passes.py                  # Analysis passes
-│   │   ├── passmanager.py             # Pass management system
-│   │   ├── pipeline.py                # Analysis pipeline
-│   │   └── program.py                 # Program representation
-│   ├── checker/                       # Code checking and validation
-│   │   ├── pattern/                   # Pattern-based AST checker (Bandit-style)
-│   │   │   ├── checkers/              # Individual pattern checkers
-│   │   │   └── core/                  # Pattern checker infrastructure
-│   │   ├── semantic/                  # Semantic analysis-backed checker
-│   │   │   └── detectors/             # Semantic detectors (taint, misuse, etc.)
-│   │   ├── formatters/                # Output formatters
-│   │   └── llm/                       # LLM integration
-│   ├── cli/                           # Command-line interface
-│   │   ├── callgraph.py               # Call graph CLI commands
-│   │   ├── ir.py                      # IR visualization commands
-│   │   ├── main.py                    # Main CLI entry point
-│   │   ├── optimize.py                # Optimization commands
-│   │   └── security.py                # Security analysis commands
-│   ├── config.py                      # Configuration management
-│   ├── frontend/                      # Frontend processing
-│   │   ├── ast_converter.py           # AST conversion utilities
-│   │   ├── dependency_resolver.py     # Dependency resolution
-│   │   ├── function_extractor.py      # Function extraction
-│   │   ├── object_manager.py          # Object management
-│   │   ├── programextractor.py        # Program extraction
-│   │   └── stub_manager.py            # Stub management
-│   ├── language/                      # Language-specific modules
-│   │   ├── asttools/                  # AST manipulation tools
-│   │   ├── modules/                   # Module handling
-│   │   └── python/                    # Python-specific analysis
-│   ├── optimization/                  # Optimization passes
-│   │   ├── dataflow/                  # Dataflow optimizations
-│   │   └── *.py                       # Various optimization passes
-│   ├── stats/                         # Statistics collection
-│   ├── stubs/                         # Type stub files
-│   │   ├── std/                       # Standard library stubs
-│   │   └── stubcollector.py           # Stub collection utilities
-│   └── util/                          # Utility modules
-│       ├── antlr3/                    # ANTLR3 runtime
-│       ├── application/               # Application utilities
-│       ├── debug/                     # Debugging utilities
-│       ├── graphalgorithim/           # Graph algorithms
-│       ├── io/                        # I/O utilities
-│       ├── monkeypatch/               # Monkey patching utilities
-│       ├── PADS/                      # Basic data structures and algorithms
-│       └── python/                    # Python-specific utilities
-├── tests/                             # Test suite
-│   ├── callgraph/                     # Call graph tests
-│   ├── checker/                       # Checker tests
-│   ├── cpa/                           # CPA-specific tests
-│   ├── frontend/                      # Frontend tests
-│   ├── full/                          # Full program tests
-│   ├── ipa/                           # IPA-specific tests
-│   ├── ir/                            # IR-specific tests
-│   ├── modules/                       # Module tests
-│   ├── shape/                         # Shape analysis tests
-│   └── test_*.py                      # Individual test files
-├── docs/                              # Documentation
-│   ├── analysis/                      # Analysis documentation
-│   ├── utils/                         # Utility documentation
-│   ├── conf.py                        # Sphinx configuration
-│   ├── index.rst                      # Main documentation index
-│   └── overview.rst                   # Overview documentation
-├── evaluation/                        # Evaluation and benchmarks
-│   ├── Benchmarks.md                  # Benchmark documentation
-│   └── Tools.md                       # Tool comparison documentation
-├── examples/                          # Research examples and benchmarks
-│   ├── test_project/                  # Example test project
-│   └── *.py                           # Example files
-├── scripts/tools/                     # Command-line tools
-├── CLI.md                             # CLI documentation
-├── OVERVIEW.md                        # Project overview
-├── LICENSE.txt                        # License file
-├── README.md                          # This file
-├── conftest.py                        # Pytest configuration
-├── pyproject.toml                     # Python project configuration (dependencies & config)
-├── requirements-dev.txt               # Legacy dev dependencies (optional)
-└── setup-dev.sh                       # Development setup script
-```
-
+- `src/pyflow/analysis`: core analysis engines such as call graph, CFG, IFDS, IPA, CPA, shape, and lifetime analysis.
+- `src/pyflow/application`: orchestration code including compiler context, pipeline execution, and the pass manager.
+- `src/pyflow/api`: query-facing interfaces and entrypoint construction.
+- `src/pyflow/checker`: pattern-based and semantic bug-finding layers plus output formatters.
+- `src/pyflow/cli`: command-line entrypoints for optimization, call graph, IR, security, and dataflow commands.
+- `src/pyflow/frontend`: source-driven extraction, dependency resolution, object loading, and stub handling.
+- `src/pyflow/language`: Python IR/AST support and module-handling utilities.
+- `src/pyflow/optimization`: optimization and simplification passes.
+- `src/pyflow/stubs`: builtin/runtime modeling used during analysis.
+- `tests`: focused coverage for analysis, frontend, checker, integration, and API regressions.
 

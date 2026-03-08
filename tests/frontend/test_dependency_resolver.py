@@ -255,6 +255,18 @@ def test_func():
         # Should return empty set on error
         self.assertEqual(imports, set())
 
+    def test_ast_only_extraction_records_diagnostics_for_invalid_source(self):
+        """AST extraction failures should be visible via diagnostics and telemetry."""
+        resolver = DependencyResolver(strategy="ast_only", verbose=False)
+
+        functions = resolver.extract_functions("def broken(", "broken.py")
+
+        self.assertEqual(functions, {})
+        self.assertGreaterEqual(resolver.get_telemetry()["diagnostics"], 1)
+        self.assertTrue(
+            any("ast_extract:broken.py:" in item for item in resolver.get_diagnostics())
+        )
+
     def test_find_imports_detailed_ignores_function_local_imports(self):
         """Detailed import discovery should not leak nested imports."""
         source = """

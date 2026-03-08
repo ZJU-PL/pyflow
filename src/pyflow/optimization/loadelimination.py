@@ -140,6 +140,7 @@ class RedundantLoadEliminator(object):
             if isinstance(node, ast.Assign) and isinstance(node.expr, ast.Load):
                 loads.add(node)
 
+        for (node, dst), number in self.writeNumbers.items():
             if isinstance(node, ast.Store):
                 stores.add(node)
 

@@ -47,7 +47,7 @@ while maintaining correctness and efficiency.
 """
 
 import time
-import hashlib
+import weakref
 from typing import Dict, List, Set, Optional, Any, Callable, Type
 from abc import ABC, abstractmethod
 from enum import Enum
@@ -72,15 +72,32 @@ class PassResult:
         changed: bool = False,
         data: Any = None,
         error: Optional[str] = None,
+        execution_time: Optional[float] = None,
+        exception_type: Optional[str] = None,
     ):
         self.success = success
         self.changed = changed
         self.data = data
         self.error = error
+        self.time = execution_time
+        self.exception_type = exception_type
         self.timestamp = time.time()
 
     def __bool__(self):
         return self.success
+
+    @classmethod
+    def from_exception(
+        cls, exc: Exception, *, execution_time: Optional[float] = None
+    ) -> "PassResult":
+        """Create a failed result that preserves exception type information."""
+        exc_type = type(exc).__name__
+        return cls(
+            success=False,
+            error=f"{exc_type}: {exc}",
+            execution_time=execution_time,
+            exception_type=exc_type,
+        )
 
 
 @dataclass
@@ -191,45 +208,61 @@ class PassCache:
     """Simple cache for pass results based on program state."""
 
     def __init__(self):
-        # Map from (object_id, object_type) -> {pass_name -> PassResult}.
-        # Including the type makes it much less likely that a new object
-        # allocated at the same address as a previously-collected one will
-        # incorrectly receive stale cached results.
-        self._cache: Dict[str, Dict[str, PassResult]] = {}
+        self._cache: "weakref.WeakKeyDictionary[Any, Dict[str, PassResult]]" = (
+            weakref.WeakKeyDictionary()
+        )
+        # Fallback for objects that do not support weak references.
+        self._fallback_cache: Dict[str, Dict[str, PassResult]] = {}
 
-    def _get_program_key(self, program) -> str:
-        """Generate a cache key based on program state.
+    def _supports_weakrefs(self, program) -> bool:
+        try:
+            weakref.ref(program)
+        except TypeError:
+            return False
+        return True
 
-        We combine the object's id() with its type name so that a new
-        object allocated at the same address as a garbage-collected one
-        does not accidentally inherit stale cached results.
-        """
+    def _get_fallback_key(self, program) -> str:
         return f"{type(program).__qualname__}@{id(program)}"
 
     def get(self, program, pass_name: str) -> Optional[PassResult]:
         """Get cached result for a pass on a program."""
-        program_key = self._get_program_key(program)
-        return self._cache.get(program_key, {}).get(pass_name)
+        if self._supports_weakrefs(program):
+            return self._cache.get(program, {}).get(pass_name)
+        program_key = self._get_fallback_key(program)
+        return self._fallback_cache.get(program_key, {}).get(pass_name)
 
     def put(self, program, pass_name: str, result: PassResult) -> None:
         """Cache a pass result for a program."""
-        program_key = self._get_program_key(program)
-        if program_key not in self._cache:
-            self._cache[program_key] = {}
-        self._cache[program_key][pass_name] = result
+        if self._supports_weakrefs(program):
+            if program not in self._cache:
+                self._cache[program] = {}
+            self._cache[program][pass_name] = result
+            return
+        program_key = self._get_fallback_key(program)
+        if program_key not in self._fallback_cache:
+            self._fallback_cache[program_key] = {}
+        self._fallback_cache[program_key][pass_name] = result
 
     def invalidate(self, program, pass_name: Optional[str] = None) -> None:
         """Invalidate cached results for a program or specific pass."""
-        program_key = self._get_program_key(program)
-        if program_key in self._cache:
+        if self._supports_weakrefs(program):
+            if program in self._cache:
+                if pass_name is None:
+                    del self._cache[program]
+                else:
+                    self._cache[program].pop(pass_name, None)
+            return
+        program_key = self._get_fallback_key(program)
+        if program_key in self._fallback_cache:
             if pass_name is None:
-                del self._cache[program_key]
+                del self._fallback_cache[program_key]
             else:
-                self._cache[program_key].pop(pass_name, None)
+                self._fallback_cache[program_key].pop(pass_name, None)
 
     def clear(self) -> None:
         """Clear all cached results."""
         self._cache.clear()
+        self._fallback_cache.clear()
 
 
 class PassManager:
@@ -369,6 +402,7 @@ class PassManager:
             result = pass_obj.run(compiler, program)
 
             execution_time = time.time() - start_time
+            result.time = execution_time
             self.execution_log.append(
                 {
                     "pass": pass_obj.name,
@@ -376,6 +410,7 @@ class PassManager:
                     "changed": result.changed,
                     "time": execution_time,
                     "error": result.error,
+                    "exception_type": result.exception_type,
                     "timestamp": result.timestamp,
                 }
             )
@@ -384,7 +419,7 @@ class PassManager:
 
         except Exception as e:
             execution_time = time.time() - start_time
-            error_result = PassResult(success=False, error=str(e))
+            error_result = PassResult.from_exception(e, execution_time=execution_time)
 
             self.execution_log.append(
                 {
@@ -392,8 +427,9 @@ class PassManager:
                     "success": False,
                     "changed": False,
                     "time": execution_time,
-                    "error": str(e),
-                    "timestamp": time.time(),
+                    "error": error_result.error,
+                    "exception_type": error_result.exception_type,
+                    "timestamp": error_result.timestamp,
                 }
             )
 
@@ -482,7 +518,7 @@ def create_analysis_pass(
                 else:
                     return PassResult(success=True, changed=result, data=result)
             except Exception as e:
-                return PassResult(success=False, error=str(e))
+                return PassResult.from_exception(e)
 
     return FunctionAnalysisPass()
 
@@ -506,6 +542,6 @@ def create_optimization_pass(
                 else:
                     return PassResult(success=True, changed=result, data=result)
             except Exception as e:
-                return PassResult(success=False, error=str(e))
+                return PassResult.from_exception(e)
 
     return FunctionOptimizationPass()
