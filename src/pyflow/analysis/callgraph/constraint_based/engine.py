@@ -72,7 +72,9 @@ class ConstraintCallGraphBuilder(
         self.verbose = verbose
         self.options = options or AnalysisOptions()
         self.project_root = (
-            os.path.dirname(self.entry_path) if self.entry_path else os.getcwd()
+            self._infer_project_root(self.entry_path)
+            if self.entry_path
+            else os.getcwd()
         )
 
         self.modules: Dict[str, ModuleInfo] = {}
@@ -128,9 +130,16 @@ class ConstraintCallGraphBuilder(
         self.call_dependents: DefaultDict[
             Tuple[str, ContextKey], Set[Tuple[str, ContextKey]]
         ] = defaultdict(set)
+        self.closure_dependents: DefaultDict[
+            Tuple[str, ContextKey, str], Set[Tuple[str, ContextKey]]
+        ] = defaultdict(set)
+        self.closure_origins: Dict[
+            Tuple[str, ContextKey], Tuple[str, ContextKey]
+        ] = {}
         self._analyzed_scope_contexts: Set[Tuple[str, ContextKey]] = set()
         self._active_changed_instance_fields: Optional[Set[Tuple[str, str]]] = None
         self._active_changed_class_fields: Optional[Set[Tuple[str, str]]] = None
+        self._active_changed_closure_scopes: Optional[Set[Tuple[str, ContextKey]]] = None
         self._active_singledispatch_changed = False
         self.singledispatch_functions: Set[str] = set()
         self.singledispatch_registrations: DefaultDict[
@@ -152,6 +161,17 @@ class ConstraintCallGraphBuilder(
             for name in dir(builtins)
             if callable(getattr(builtins, name, None)) and not name.startswith("_")
         }
+
+    def _infer_project_root(self, entry_path: str) -> str:
+        """Pick an import root above any package directories containing the entry."""
+        current = os.path.dirname(entry_path)
+        root = current
+        while os.path.isfile(os.path.join(current, "__init__.py")):
+            root = os.path.dirname(current)
+            if root == current:
+                break
+            current = root
+        return root
 
     def build(self) -> CallGraph:
         """Execute the full analysis pipeline and return the call graph."""
@@ -244,20 +264,35 @@ class ConstraintCallGraphBuilder(
         if len(values) <= cap:
             return set(values)
 
-        callable_kinds = {"func", "class"}
-        prioritized: List[AbstractValue] = []
         if preserve_callables:
-            prioritized.extend(
-                sorted(
+            callable_values = sorted(
+                (
+                    value
+                    for value in values
+                    if value.kind != "unknown" and self._is_callable_value(value)
+                ),
+                key=lambda item: (item.kind, item.name),
+            )
+            if callable_values:
+                kept = set(callable_values)
+                non_callables = sorted(
                     (
                         value
                         for value in values
-                        if value.kind in callable_kinds and value not in prioritized
+                        if value not in kept and value != UNKNOWN_VALUE
                     ),
                     key=lambda item: (item.kind, item.name),
                 )
-            )
+                remaining = max(0, cap - len(kept))
+                kept.update(non_callables[:remaining])
+                dropped = len(non_callables) > remaining or UNKNOWN_VALUE in values
+                if dropped:
+                    kept.add(UNKNOWN_VALUE)
+                if kept != values:
+                    self.solver_stats.bindings_capped += 1
+                return kept
 
+        prioritized: List[AbstractValue] = []
         prioritized.extend(
             sorted(
                 (value for value in values if value not in prioritized),

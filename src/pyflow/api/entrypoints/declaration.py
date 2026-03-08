@@ -8,6 +8,8 @@ program entry points and class interfaces in the PyFlow analysis framework.
 from .entry_point import EntryPoint
 from .wrappers import ExistingWrapper, InstanceWrapper, nullWrapper
 
+_KWONLY_PARAM_PREFIX = "kwonly:"
+
 
 class ClassDeclaration:
     """
@@ -26,19 +28,27 @@ class ClassDeclaration:
     def __init__(self, cls):
         self.typeobj = cls
         self._init = []
+        self._init_kwds = []
         self._attr = []
         self._method = {}
+        self._method_kind = {}
+        self._method_kwds = {}
 
-    def init(self, *args):
+    def init(self, *args, kwds=None):
         self._init.append(args)
+        self._init_kwds.append(tuple(kwds or ()))
 
     def attr(self, *args):
         self._attr.extend(args)
 
-    def method(self, name, *args):
+    def method(self, name, *args, kind=None, kwds=None):
         if name not in self._method:
             self._method[name] = []
+            self._method_kwds[name] = []
         self._method[name].append(args)
+        self._method_kwds[name].append(tuple(kwds or ()))
+        if kind is not None:
+            self._method_kind[name] = kind
 
 
 class InterfaceDeclaration:
@@ -119,17 +129,31 @@ class InterfaceDeclaration:
         if not kwds:
             return tuple(args), []
 
-        params = None
+        raw_paramnames = None
+        posonly_names = []
         try:
-            if hasattr(code, "codeParameters"):
-                params = list(code.codeParameters().paramnames)
-            elif hasattr(code, "codeparameters"):
-                params = list(code.codeparameters.paramnames)
+            if hasattr(code, "codeparameters"):
+                posonly_names = list(getattr(code.codeparameters, "posonlynames", ()))
+                raw_paramnames = list(getattr(code.codeparameters, "paramnames", ()))
+            elif hasattr(code, "codeParameters"):
+                raw_paramnames = list(code.codeParameters().paramnames)
         except Exception:
-            params = None
+            raw_paramnames = None
 
-        if not params:
+        if raw_paramnames is None:
             return tuple(args), kwds
+
+        regular_map = {}
+        kwonly_map = {}
+
+        for index, name in enumerate(raw_paramnames):
+            if not isinstance(name, str):
+                continue
+            absolute_index = len(posonly_names) + index
+            if name.startswith(_KWONLY_PARAM_PREFIX):
+                kwonly_map[name[len(_KWONLY_PARAM_PREFIX) :]] = absolute_index
+            else:
+                regular_map[name] = absolute_index
 
         mapped_args = list(args)
         consumed = set()
@@ -140,10 +164,21 @@ class InterfaceDeclaration:
             if name in consumed:
                 raise ValueError(f"Duplicate keyword argument '{name}'.")
             consumed.add(name)
-            if name not in params:
+
+            if name in posonly_names:
+                raise ValueError(
+                    f"Positional-only argument '{name}' cannot be passed by keyword."
+                )
+
+            index = None
+            if name in regular_map:
+                index = regular_map[name]
+            elif name in kwonly_map:
+                index = kwonly_map[name]
+            else:
                 unresolved.append((name, value))
                 continue
-            index = params.index(name)
+
             if index < original_len:
                 raise ValueError(
                     f"Argument '{name}' passed by both position and keyword."
@@ -161,26 +196,49 @@ class InterfaceDeclaration:
         return ep
 
     def _extractFunc(self, extractor):
-        for expr, args in self.func:
+        for item in self.func:
+            if len(item) == 3:
+                expr, args, kwds = item
+            else:
+                expr, args = item
+                kwds = []
             fobj, code = extractor.getObjectCall(expr)
             selfarg = nullWrapper
             if not args:
                 try:
-                    num_params = len(code.codeparameters.params)
+                    num_params = len(code.codeparameters.posonlyparams) + len(
+                        code.codeparameters.params
+                    )
                 except Exception:
                     num_params = 0
                 args = [ExistingWrapper(None) for _ in range(num_params)]
 
             self.createEntryPoint(
-                code, selfarg, tuple(args), [], nullWrapper, nullWrapper, None
+                code, selfarg, tuple(args), kwds, nullWrapper, nullWrapper, None
             )
+
+    def _detect_method_kind(self, cls_type, name):
+        for base in getattr(cls_type, "__mro__", ()):
+            namespace = getattr(base, "__dict__", {})
+            if name not in namespace:
+                continue
+            descriptor = namespace[name]
+            if isinstance(descriptor, staticmethod):
+                return "staticmethod"
+            if isinstance(descriptor, classmethod):
+                return "classmethod"
+            return "instance"
+        return "instance"
 
     def getMethCode(self, cls, name, extractor):
         meth = getattr(cls.typeobj, name)
         func = getattr(meth, "__func__", getattr(meth, "im_func", meth))
         fobj, code = extractor.getObjectCall(func)
         selfarg = ExistingWrapper(func)
-        return selfarg, code
+        kind = cls._method_kind.get(name) if hasattr(cls, "_method_kind") else None
+        if kind is None:
+            kind = self._detect_method_kind(cls.typeobj, name)
+        return kind, selfarg, code
 
     def _extractCls(self, extractor):
         for cls in self.cls:
@@ -191,9 +249,10 @@ class InterfaceDeclaration:
             getter = extractor.stubs.exports["interpreter_getattribute"]
 
             group = None
-            for args in cls._init:
+            for idx, args in enumerate(cls._init):
+                init_kwds = cls._init_kwds[idx] if idx < len(cls._init_kwds) else []
                 ep = self.createEntryPoint(
-                    call, tobj, args, [], nullWrapper, nullWrapper, group
+                    call, tobj, args, init_kwds, nullWrapper, nullWrapper, group
                 )
                 if group is None:
                     group = ep
@@ -211,15 +270,23 @@ class InterfaceDeclaration:
                 )
 
             for name, arglist in cls._method.items():
-                selfarg, code = self.getMethCode(cls, name, extractor)
+                kind, selfarg, code = self.getMethCode(cls, name, extractor)
 
                 group = None
-                for args in arglist:
+                method_kwds = cls._method_kwds.get(name, [])
+                for idx, args in enumerate(arglist):
+                    kwds = method_kwds[idx] if idx < len(method_kwds) else []
+                    if kind == "staticmethod":
+                        call_args = args
+                    elif kind == "classmethod":
+                        call_args = (ExistingWrapper(cls.typeobj),) + args
+                    else:
+                        call_args = (inst,) + args
                     ep = self.createEntryPoint(
                         code,
                         selfarg,
-                        (inst,) + args,
-                        [],
+                        call_args,
+                        kwds,
                         nullWrapper,
                         nullWrapper,
                         group,

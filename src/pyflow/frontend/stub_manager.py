@@ -71,6 +71,9 @@ class StubManager:
                 "interpreter__neg__",
                 "interpreter__pos__",
                 "interpreter__invert__",
+                "interpreter_make_generator",
+                "interpreter_match_rest",
+                "interpreter_exception_type",
             ):
                 return make_params([pyflow_ast.Local("a")])
 
@@ -93,6 +96,12 @@ class StubManager:
                     pyflow_ast.Local("cond"),
                     pyflow_ast.Local("t"),
                     pyflow_ast.Local("f"),
+                ])
+
+            if op_name == "interpreter_build_map":
+                return make_params([
+                    pyflow_ast.Local("pairs"),
+                    pyflow_ast.Local("mappings"),
                 ])
 
             return make_params([pyflow_ast.Local("a"), pyflow_ast.Local("b")])
@@ -141,6 +150,24 @@ class StubManager:
                 pass
             return False
 
+        def _safe_build_map(pairs, mappings):
+            out = {}
+            try:
+                for pair in pairs:
+                    if isinstance(pair, (list, tuple)) and len(pair) == 2:
+                        key, value = pair
+                        out[key] = value
+            except Exception:
+                pass
+
+            try:
+                for mapping in mappings:
+                    out.update(dict(mapping))
+            except Exception:
+                pass
+
+            return out
+
         # Map stub names to simple Python callables used for dynamic folding.
         dynfold = {
             "interpreter_getattribute": getattr,
@@ -188,6 +215,7 @@ class StubManager:
             # String formatting
             "interpreter_format": format,
             "interpreter_join_str": lambda parts: "".join(str(p) for p in parts),
+            "interpreter_build_map": _safe_build_map,
             # Container helpers
             "interpreter_list_append": lambda lst, item: lst.append(item),
             "interpreter_build_set": lambda *args: set(args),
@@ -200,6 +228,9 @@ class StubManager:
             ),
             "interpreter_match_class": isinstance,
             "interpreter_match_rest": lambda subject: subject,
+            "interpreter_exception_group_extract": lambda exc_group, exc_type: exc_group,
+            "interpreter_exception_type": type,
+            "interpreter_make_generator": lambda value: iter((value,)),
             "interpreter_getattr": getattr,
             "interpreter_merge_varargs": _safe_merge_varargs,
             "interpreter_merge_kwargs": _safe_merge_kwargs,
@@ -302,6 +333,9 @@ class StubManager:
                     # String formatting stubs
                     "interpreter_format": create_stub_code("interpreter_format"),
                     "interpreter_join_str": create_stub_code("interpreter_join_str"),
+                    "interpreter_build_map": create_stub_code(
+                        "interpreter_build_map"
+                    ),
                     # Container helper stubs
                     "interpreter_list_append": create_stub_code(
                         "interpreter_list_append"
@@ -335,6 +369,15 @@ class StubManager:
                     ),
                     "interpreter_match_rest": create_stub_code(
                         "interpreter_match_rest"
+                    ),
+                    "interpreter_exception_group_extract": create_stub_code(
+                        "interpreter_exception_group_extract"
+                    ),
+                    "interpreter_exception_type": create_stub_code(
+                        "interpreter_exception_type"
+                    ),
+                    "interpreter_make_generator": create_stub_code(
+                        "interpreter_make_generator"
                     ),
                     # Generic attribute access helper
                     "interpreter_getattr": create_stub_code("interpreter_getattr"),

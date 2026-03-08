@@ -334,7 +334,13 @@ class SimpleExprGen(TypeDispatcher):
         return ("[%s]" % ", ".join(args)), 2
 
     def visitBuildMap(self, node):
-        return ("{}"), 2
+        pairs = list(zip(node.args[0::2], node.args[1::2]))
+        items = []
+        for key, value in pairs:
+            key_src = self.process(key, 24)
+            value_src = self.process(value, 24)
+            items.append(f"{key_src}: {value_src}")
+        return ("{%s}" % ", ".join(items)), 2
 
     def processNone(self, node, prec, replace):
         if not node:

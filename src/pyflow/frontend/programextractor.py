@@ -12,6 +12,8 @@ NOTE: This extractor is intentionally source/AST-based (no bytecode decompilatio
 """
 
 import ast
+import inspect
+import os
 import re
 from typing import Any, Dict, List, Optional, Set
 
@@ -25,6 +27,52 @@ from .object_manager import ObjectManager
 from .stub_manager import StubManager
 from .source_locator import best_source_for_callable
 from .class_hierarchy import ClassHierarchy, ClassInfo, CrossModuleResolver
+
+
+def _infer_analysis_root(paths: List[str]) -> Optional[str]:
+    resolved_roots: List[str] = []
+
+    for path in paths:
+        if not path or path.startswith("<"):
+            continue
+
+        abs_path = os.path.realpath(path)
+        current = abs_path if os.path.isdir(abs_path) else os.path.dirname(abs_path)
+        if not current:
+            continue
+
+        while os.path.isfile(os.path.join(current, "__init__.py")):
+            parent = os.path.dirname(current)
+            if not parent or parent == current:
+                break
+            current = parent
+
+        resolved_roots.append(current)
+
+    if not resolved_roots:
+        return None
+
+    try:
+        return os.path.commonpath(resolved_roots)
+    except ValueError:
+        return None
+
+
+def _base_name_from_expr(node: ast.AST) -> Optional[str]:
+    if isinstance(node, ast.Subscript):
+        return _base_name_from_expr(node.value)
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        parts = []
+        current = node
+        while isinstance(current, ast.Attribute):
+            parts.append(current.attr)
+            current = current.value
+        if isinstance(current, ast.Name):
+            parts.append(current.id)
+            return ".".join(reversed(parts))
+    return None
 
 
 class Extractor:
@@ -54,7 +102,11 @@ class Extractor:
     """
 
     def __init__(
-        self, compiler: CompilerContext, verbose: bool = True, source_code: str = None
+        self,
+        compiler: CompilerContext,
+        verbose: bool = True,
+        source_code: str = None,
+        analysis_root: Optional[str] = None,
     ):
         """Initialize the program extractor.
 
@@ -69,6 +121,11 @@ class Extractor:
         self.source_code = (
             source_code  # Can be a single string or dict of {filename: source}
         )
+        self.analysis_root = (
+            os.path.realpath(analysis_root) if analysis_root else None
+        )
+        if self.analysis_root is None and isinstance(source_code, dict):
+            self.analysis_root = _infer_analysis_root(list(source_code.keys()))
         self.functions = []
         self.builtin = 0
         self.errors = 0
@@ -176,6 +233,8 @@ class Extractor:
         combined_program.frontend_telemetry = (
             self.function_extractor.ast_converter.get_telemetry()
         )
+        combined_program.class_hierarchy = self.class_hierarchy
+        combined_program.cross_module_resolver = self.cross_module_resolver
         return combined_program
 
     def _extract_from_ast(self, tree: ast.AST, filename: str) -> Program:
@@ -242,18 +301,24 @@ class Extractor:
         Uses the path relative to the current working directory so that two
         files with the same basename in different packages produce distinct
         module names (e.g. ``pkg.utils`` vs ``other.utils`` instead of both
-        being ``utils``).
+        being ``utils``). Package ``__init__.py`` files are canonicalized to
+        their package name so imports like ``from pkg import Base`` resolve to
+        the same namespace that class registration uses.
         """
-        import os
         if filename in ("<string>", "") or filename.startswith("<"):
             return "__main__"
-        try:
-            abs_path = os.path.realpath(filename)
-            cwd = os.path.realpath(os.getcwd())
-            rel = os.path.relpath(abs_path, cwd)
-        except ValueError:
-            # On Windows, relpath can fail across drives.
-            rel = os.path.basename(filename)
+        if not os.path.isabs(filename):
+            rel = filename
+        else:
+            try:
+                abs_path = os.path.realpath(filename)
+                root = self.analysis_root or _infer_analysis_root([filename])
+                if root is None:
+                    root = os.path.dirname(abs_path)
+                rel = os.path.relpath(abs_path, root)
+            except ValueError:
+                # On Windows, relpath can fail across drives.
+                rel = os.path.basename(filename)
         # Strip .py extension
         if rel.endswith(".py"):
             rel = rel[:-3]
@@ -261,6 +326,8 @@ class Extractor:
         # can't be represented as a valid dotted name.
         parts = rel.replace(os.sep, ".").split(".")
         parts = [p for p in parts if p and p != ".."]
+        if parts and parts[-1] == "__init__":
+            parts = parts[:-1]
         if not parts:
             # Absolute path fallback: just use the stem of the filename.
             stem = os.path.splitext(os.path.basename(filename))[0]
@@ -428,17 +495,9 @@ class Extractor:
         
         base_names = []
         for base in node.bases:
-            if isinstance(base, ast.Name):
-                base_names.append(base.id)
-            elif isinstance(base, ast.Attribute):
-                parts = []
-                current = base
-                while isinstance(current, ast.Attribute):
-                    parts.append(current.attr)
-                    current = current.value
-                if isinstance(current, ast.Name):
-                    parts.append(current.id)
-                base_names.append(".".join(reversed(parts)))
+            base_name = _base_name_from_expr(base)
+            if base_name:
+                base_names.append(base_name)
         
         methods: Set[str] = set()
         attributes: Set[str] = set()
@@ -679,6 +738,9 @@ def extractProgram(compiler: CompilerContext, program: Program) -> None:
         extracted_program = compiler.extractor.extract_from_multiple_files(
             compiler.extractor.source_code
         )
+        program.class_hierarchy = extracted_program.class_hierarchy
+        program.cross_module_resolver = extracted_program.cross_module_resolver
+        program.frontend_telemetry = extracted_program.frontend_telemetry
 
         # Add extracted functions to program's liveCode
         if hasattr(extracted_program, "liveCode") and extracted_program.liveCode:
@@ -710,12 +772,39 @@ def extractProgram(compiler: CompilerContext, program: Program) -> None:
 
 def create_interface_from_paths(python_files, args):
     """Create a basic interface from multiple Python files using enhanced dependency resolver."""
-    from pyflow.api.entrypoints import InterfaceDeclaration
+    from pyflow.api.entrypoints import (
+        ClassDeclaration,
+        ExistingWrapper,
+        InterfaceDeclaration,
+    )
     from pyflow.frontend.dependency_resolver import DependencyResolver
     from pyflow.frontend.class_hierarchy import ClassHierarchy
 
+    def _default_entry_args(callable_obj, *, skip_first: bool = False):
+        try:
+            sig = inspect.signature(callable_obj)
+        except (TypeError, ValueError):
+            return (), ()
+
+        params = list(sig.parameters.values())
+        if skip_first and params:
+            params = params[1:]
+
+        args = []
+        kwds = []
+        for param in params:
+            if param.kind in (
+                inspect.Parameter.POSITIONAL_ONLY,
+                inspect.Parameter.POSITIONAL_OR_KEYWORD,
+            ):
+                args.append(ExistingWrapper(None))
+            elif param.kind == inspect.Parameter.KEYWORD_ONLY:
+                kwds.append((param.name, ExistingWrapper(None)))
+        return tuple(args), tuple(kwds)
+
     interface_decl = InterfaceDeclaration()
     all_source_code = {}
+    analysis_root = _infer_analysis_root([str(path) for path in python_files])
 
     # Create shared class hierarchy for cross-module analysis
     class_hierarchy = ClassHierarchy(verbose=getattr(args, "verbose", False))
@@ -733,6 +822,7 @@ def create_interface_from_paths(python_files, args):
         search_paths=search_paths,
         class_hierarchy=class_hierarchy,
         source_files=all_source_code,
+        analysis_root=analysis_root,
     )
 
     for file_path in python_files:
@@ -743,6 +833,7 @@ def create_interface_from_paths(python_files, args):
             resolver.source_files[str(file_path)] = source
 
             functions = resolver.extract_functions(source, str(file_path))
+            classes = resolver.get_module_classes(str(file_path))
 
             for func_name, func_obj in functions.items():
                 # Most frontend entrypoints skip driver-style ``main`` functions,
@@ -754,13 +845,51 @@ def create_interface_from_paths(python_files, args):
                         print(f"DEBUG: Skipping '{func_name}' as an entry point")
                     continue
 
-                interface_decl.func.append((func_obj, []))
+                func_args, func_kwds = _default_entry_args(func_obj)
+                interface_decl.func.append((func_obj, func_args, func_kwds))
                 if args.verbose:
                     print(f"Added function '{func_name}' from {file_path}")
 
+            for cls_name, cls_obj in classes.items():
+                class_decl = ClassDeclaration(cls_obj)
+                init_args, init_kwds = _default_entry_args(
+                    cls_obj.__init__, skip_first=True
+                )
+                class_decl.init(*init_args, kwds=init_kwds)
+                interface_decl.cls.append(class_decl)
+
+                for method_name, method_info in resolver.get_public_method_specs(cls_obj).items():
+                    if method_name.startswith("_"):
+                        continue
+                    if method_info.get("is_property", False):
+                        class_decl.attr(method_name)
+                        continue
+                    skip_first = not method_info.get("is_staticmethod", False)
+                    method_obj = getattr(cls_obj, method_name)
+                    if method_info.get("is_classmethod", False):
+                        method_obj = getattr(method_obj, "__func__", method_obj)
+                    method_args, method_kwds = _default_entry_args(
+                        method_obj, skip_first=skip_first
+                    )
+                    class_decl.method(
+                        method_name,
+                        *method_args,
+                        kind=(
+                            "staticmethod"
+                            if method_info.get("is_staticmethod", False)
+                            else "classmethod"
+                            if method_info.get("is_classmethod", False)
+                            else "instance"
+                        ),
+                        kwds=method_kwds,
+                    )
+
+                if args.verbose:
+                    print(f"Added class '{cls_name}' from {file_path}")
+
             if args.verbose:
                 print(
-                    f"Found {len(functions)} callable objects in {file_path}: {list(functions.keys())}"
+                    f"Found {len(functions)} functions and {len(classes)} classes in {file_path}"
                 )
 
         except Exception as e:

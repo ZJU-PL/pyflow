@@ -32,6 +32,8 @@ import ast as python_ast
 import builtins
 import inspect
 import os
+import sys
+import types
 from dataclasses import dataclass
 from typing import Dict, List, Any, Optional, Callable, Iterable, Tuple
 from enum import Enum
@@ -85,6 +87,35 @@ class _ASTFunctionProxy:
 
     def __call__(self, *args, **kwargs):
         # Never execute user code; this proxy is only for metadata.
+        return None
+
+
+def _infer_analysis_root(paths: Iterable[str]) -> Optional[str]:
+    resolved_roots: List[str] = []
+
+    for path in paths:
+        if not path or path.startswith("<"):
+            continue
+
+        abs_path = os.path.realpath(path)
+        current = abs_path if os.path.isdir(abs_path) else os.path.dirname(abs_path)
+        if not current:
+            continue
+
+        while os.path.isfile(os.path.join(current, "__init__.py")):
+            parent = os.path.dirname(current)
+            if not parent or parent == current:
+                break
+            current = parent
+
+        resolved_roots.append(current)
+
+    if not resolved_roots:
+        return None
+
+    try:
+        return os.path.commonpath(resolved_roots)
+    except ValueError:
         return None
 
 
@@ -149,6 +180,28 @@ def _extract_decorator_names(node: python_ast.AST) -> List[str]:
                         parts.append(current.id)
                     decorators.append(".".join(reversed(parts)))
     return decorators
+
+
+def _is_property_decorator(name: str) -> bool:
+    tail = name.rsplit(".", 1)[-1].lower()
+    return tail in {"property", "cached_property", "abstractproperty"}
+
+
+def _base_name_from_expr(node: python_ast.AST) -> Optional[str]:
+    if isinstance(node, python_ast.Subscript):
+        return _base_name_from_expr(node.value)
+    if isinstance(node, python_ast.Name):
+        return node.id
+    if isinstance(node, python_ast.Attribute):
+        parts = []
+        current = node
+        while isinstance(current, python_ast.Attribute):
+            parts.append(current.attr)
+            current = current.value
+        if isinstance(current, python_ast.Name):
+            parts.append(current.id)
+            return ".".join(reversed(parts))
+    return None
 
 
 def _signature_from_ast(args: python_ast.arguments) -> inspect.Signature:
@@ -238,6 +291,7 @@ class DependencyResolver:
         class_hierarchy: Optional[Any] = None,
         include_private: bool = False,
         source_files: Optional[Dict[str, str]] = None,
+        analysis_root: Optional[str] = None,
     ):
         """
         Initialize the dependency resolver.
@@ -266,9 +320,16 @@ class DependencyResolver:
         self.class_hierarchy = class_hierarchy
         self.include_private = include_private
         self.source_files = dict(source_files or {})
+        self.analysis_root = (
+            os.path.realpath(analysis_root) if analysis_root else None
+        )
+        self._analysis_root_explicit = analysis_root is not None
+        if self.analysis_root is None:
+            self.analysis_root = _infer_analysis_root(self.source_files.keys())
 
         # Cache for resolved modules to avoid repeated work
         self._module_cache: Dict[str, Dict[str, Any]] = {}
+        self._class_proxy_registry: Dict[str, type] = {}
         # Track missing dependencies for better error reporting
         self._missing_dependencies: Dict[str, List[str]] = {}  # module -> [importing_files]
         # Import graph: module -> imported modules
@@ -285,6 +346,13 @@ class DependencyResolver:
             "source_map_hits": 0,
         }
 
+    def _refresh_analysis_root(self) -> None:
+        if self._analysis_root_explicit:
+            return
+        inferred = _infer_analysis_root(self.source_files.keys())
+        if inferred is not None:
+            self.analysis_root = inferred
+
     def extract_functions(self, source: str, file_path: str) -> Dict[str, Any]:
         """
         Extract functions from source code using the configured strategy.
@@ -299,6 +367,7 @@ class DependencyResolver:
         file_path = str(file_path)
         self._telemetry["files_processed"] += 1
         self.source_files[file_path] = source
+        self._refresh_analysis_root()
         if self.strategy == DependencyStrategy.STRICT:
             return self._extract_with_runtime(source, file_path)
         elif self.strategy == DependencyStrategy.STUBS:
@@ -318,7 +387,7 @@ class DependencyResolver:
 
         try:
             compiled = compile(source, file_path, "exec")
-            exec(compiled, exec_globals)
+            self._exec_with_stub_modules(compiled, exec_globals)
             return self._filter_functions(exec_globals, file_path)
         except Exception as e:
             self._telemetry["runtime_exec_failures"] += 1
@@ -335,7 +404,7 @@ class DependencyResolver:
         # Try normal execution first
         try:
             compiled = compile(source, file_path, "exec")
-            exec(compiled, exec_globals)
+            self._exec_with_stub_modules(compiled, exec_globals)
             functions = self._filter_functions(exec_globals, file_path)
             if functions:
                 return functions
@@ -347,7 +416,7 @@ class DependencyResolver:
             exec_globals_with_stubs = self._handle_import_errors(source, exec_globals, file_path)
             try:
                 compiled = compile(source, file_path, "exec")
-                exec(compiled, exec_globals_with_stubs)
+                self._exec_with_stub_modules(compiled, exec_globals_with_stubs)
                 functions = self._filter_functions(exec_globals_with_stubs, file_path)
                 if functions:
                     return functions
@@ -378,27 +447,11 @@ class DependencyResolver:
         exec_globals["__file__"] = file_path
 
         # Pre-populate with no-op stubs for any potential missing imports
-        missing_imports = self._find_imports(source)
-        for module_name in missing_imports:
-            # Try to find source first, fall back to no-op stub
-            source_file = self._find_module_source(module_name)
-            if source_file:
-                try:
-                    module_source = self._load_source(source_file)
-                    module_functions = self._extract_ast_functions(module_source, source_file)
-                    module_classes = self._module_cache.get(source_file, {}).get("classes", {})
-                    exec_globals[module_name] = self._create_enhanced_stub_module(
-                        module_name, module_functions, module_classes
-                    )
-                    continue
-                except Exception:
-                    pass
-            
-            exec_globals[module_name] = self._create_noop_module(module_name)
+        exec_globals = self._handle_import_errors(source, exec_globals, file_path)
 
         try:
             compiled = compile(source, file_path, "exec")
-            exec(compiled, exec_globals)
+            self._exec_with_stub_modules(compiled, exec_globals)
             return self._filter_functions(exec_globals, file_path)
         except Exception as e:
             self._telemetry["runtime_exec_failures"] += 1
@@ -419,6 +472,7 @@ class DependencyResolver:
 
             module_name = self._get_module_name_from_path(file_path)
             self._record_import_edges(tree, module_name, file_path)
+            imports = self._extract_import_map(tree, module_name)
 
             # Extract classes first (they may contain methods).
             # By default single-underscore private classes are skipped at the top
@@ -460,12 +514,16 @@ class DependencyResolver:
                     is_async=is_async,
                 )
 
-            # Store classes for potential use by class hierarchy
-            if classes:
-                self._module_cache[file_path] = {
-                    "functions": functions,
-                    "classes": classes,
-                }
+            class_proxies = self._build_class_proxies(
+                file_path, module_name, classes, imports
+            )
+            self._module_cache[file_path] = {
+                "functions": functions,
+                "classes": classes,
+                "class_proxies": class_proxies,
+                "imports": imports,
+                "module_name": module_name,
+            }
 
             return functions
         except Exception as e:
@@ -480,17 +538,9 @@ class DependencyResolver:
         """Extract information from a class definition."""
         base_names = []
         for base in node.bases:
-            if isinstance(base, python_ast.Name):
-                base_names.append(base.id)
-            elif isinstance(base, python_ast.Attribute):
-                parts = []
-                current = base
-                while isinstance(current, python_ast.Attribute):
-                    parts.append(current.attr)
-                    current = current.value
-                if isinstance(current, python_ast.Name):
-                    parts.append(current.id)
-                base_names.append(".".join(reversed(parts)))
+            base_name = _base_name_from_expr(base)
+            if base_name:
+                base_names.append(base_name)
 
         methods = {}
         for item in node.body:
@@ -507,6 +557,7 @@ class DependencyResolver:
                 is_async = isinstance(item, python_ast.AsyncFunctionDef)
                 is_classmethod = any("classmethod" in d.lower() for d in decorators)
                 is_staticmethod = any("staticmethod" in d.lower() for d in decorators)
+                is_property = any(_is_property_decorator(d) for d in decorators)
 
                 methods[item.name] = {
                     "name": item.name,
@@ -517,6 +568,7 @@ class DependencyResolver:
                     "is_async": is_async,
                     "is_classmethod": is_classmethod,
                     "is_staticmethod": is_staticmethod,
+                    "is_property": is_property,
                     "lineno": lineno,
                 }
 
@@ -530,6 +582,204 @@ class DependencyResolver:
             "lineno": int(getattr(node, "lineno", 1) or 1),
         }
 
+    def _extract_import_map(
+        self, tree: python_ast.AST, module_name: str
+    ) -> Dict[str, str]:
+        imports: Dict[str, str] = {}
+
+        for node in python_ast.walk(tree):
+            if isinstance(node, python_ast.Import):
+                for alias in node.names:
+                    imports[alias.asname or alias.name.split(".")[-1]] = alias.name
+            elif isinstance(node, python_ast.ImportFrom):
+                effective_module = self._resolve_imported_module(
+                    module_name,
+                    node.module or "",
+                    int(getattr(node, "level", 0) or 0),
+                )
+                for alias in node.names:
+                    if alias.name == "*":
+                        continue
+                    local_name = alias.asname or alias.name
+                    imports[local_name] = (
+                        f"{effective_module}.{alias.name}"
+                        if effective_module
+                        else alias.name
+                    )
+
+        return imports
+
+    def _resolve_proxy_base_name(
+        self,
+        base_name: str,
+        module_name: str,
+        imports: Dict[str, str],
+    ) -> Optional[str]:
+        if base_name in imports:
+            return imports[base_name]
+        if "." in base_name:
+            head, tail = base_name.split(".", 1)
+            if head in imports:
+                return f"{imports[head]}.{tail}"
+            return base_name
+        return f"{module_name}.{base_name}"
+
+    def _create_class_proxy(
+        self,
+        cls_info: Dict[str, Any],
+        module_name: str,
+        file_path: str,
+        bases: Optional[Tuple[type, ...]] = None,
+    ) -> type:
+        attrs: Dict[str, Any] = {
+            "__module__": module_name,
+            "__doc__": cls_info.get("docstring"),
+            "__pyflow_class_info__": cls_info,
+        }
+        public_methods: Dict[str, Any] = {}
+
+        for method_name, method_info in cls_info.get("methods", {}).items():
+            proxy = _ASTFunctionProxy(
+                name=method_info["name"],
+                qualname=method_info["qualname"],
+                module=module_name,
+                filename=file_path,
+                firstlineno=method_info.get("lineno", 1),
+                signature=method_info.get("signature"),
+                docstring=method_info.get("docstring"),
+                decorators=method_info.get("decorators", []),
+                is_async=method_info.get("is_async", False),
+                is_class_method=method_info.get("is_classmethod", False),
+            )
+            public_methods[method_name] = proxy
+
+            if method_info.get("is_classmethod"):
+                attrs[method_name] = classmethod(proxy)
+            elif method_info.get("is_staticmethod"):
+                attrs[method_name] = staticmethod(proxy)
+            else:
+                attrs[method_name] = proxy
+
+        attrs["__pyflow_public_methods__"] = public_methods
+        proxy_cls = type(cls_info["name"], bases or (object,), attrs)
+        proxy_cls.__qualname__ = cls_info.get("qualname", cls_info["name"])
+        return proxy_cls
+
+    def _build_class_proxies(
+        self,
+        file_path: str,
+        module_name: str,
+        classes: Dict[str, Dict[str, Any]],
+        imports: Dict[str, str],
+    ) -> Dict[str, type]:
+        built: Dict[str, type] = {}
+        building: set[str] = set()
+
+        def build(class_name: str) -> type:
+            if class_name in built:
+                return built[class_name]
+
+            cls_info = classes[class_name]
+            qualified = cls_info["qualname"]
+            existing = self._class_proxy_registry.get(qualified)
+            if existing is not None:
+                built[class_name] = existing
+                return existing
+
+            if qualified in building:
+                return object
+            building.add(qualified)
+
+            bases: List[type] = []
+            for base_name in cls_info.get("bases", []):
+                resolved = self._resolve_proxy_base_name(base_name, module_name, imports)
+                base_proxy = self._get_or_load_class_proxy(
+                    resolved,
+                    local_classes=classes,
+                    local_builder=build,
+                )
+                if base_proxy is not None and base_proxy is not object and base_proxy not in bases:
+                    bases.append(base_proxy)
+
+            proxy = self._create_class_proxy(
+                cls_info,
+                module_name,
+                file_path,
+                tuple(bases) if bases else (object,),
+            )
+            self._class_proxy_registry[qualified] = proxy
+            built[class_name] = proxy
+            building.remove(qualified)
+            return proxy
+
+        for class_name in classes:
+            build(class_name)
+
+        return built
+
+    def _get_or_load_class_proxy(
+        self,
+        qualified_name: Optional[str],
+        *,
+        local_classes: Optional[Dict[str, Dict[str, Any]]] = None,
+        local_builder=None,
+    ) -> Optional[type]:
+        if not qualified_name:
+            return None
+
+        existing = self._class_proxy_registry.get(qualified_name)
+        if existing is not None:
+            return existing
+
+        if local_classes and local_builder:
+            local_name = qualified_name.rsplit(".", 1)[-1]
+            if local_name in local_classes and local_classes[local_name]["qualname"] == qualified_name:
+                return local_builder(local_name)
+
+        if "." not in qualified_name:
+            return None
+
+        module_name, class_name = qualified_name.rsplit(".", 1)
+        source_file = self._find_module_source(module_name)
+        if source_file is None:
+            return None
+
+        cache = self._module_cache.get(source_file)
+        if cache is None:
+            module_source = self._load_source(source_file)
+            self._extract_ast_functions(module_source, source_file)
+            cache = self._module_cache.get(source_file)
+
+        if not cache:
+            return None
+
+        return cache.get("class_proxies", {}).get(class_name)
+
+    def get_module_classes(self, file_path: str) -> Dict[str, type]:
+        cache = self._module_cache.get(file_path)
+        if cache is None and file_path in self.source_files:
+            self._extract_ast_functions(self.source_files[file_path], file_path)
+            cache = self._module_cache.get(file_path)
+        if not cache:
+            return {}
+        return dict(cache.get("class_proxies", {}))
+
+    def get_public_class_methods(self, cls: type) -> Dict[str, Any]:
+        methods: Dict[str, Any] = {}
+        for base in reversed(getattr(cls, "__mro__", ())):
+            methods.update(getattr(base, "__pyflow_public_methods__", {}))
+        return methods
+
+    def get_public_method_specs(self, cls: type) -> Dict[str, Dict[str, Any]]:
+        specs: Dict[str, Dict[str, Any]] = {}
+        for base in reversed(getattr(cls, "__mro__", ())):
+            class_info = getattr(base, "__pyflow_class_info__", None)
+            if not class_info:
+                continue
+            for name, info in class_info.get("methods", {}).items():
+                specs[name] = dict(info)
+        return specs
+
     def _get_module_name_from_path(self, file_path: str) -> str:
         """Extract a dotted module name from file path.
 
@@ -539,12 +789,17 @@ class DependencyResolver:
         import os
         if file_path == "<string>" or file_path.startswith("<"):
             return "__pyflow_module__"
-        try:
-            abs_path = os.path.realpath(file_path)
-            cwd = os.path.realpath(os.getcwd())
-            rel = os.path.relpath(abs_path, cwd)
-        except ValueError:
-            rel = os.path.basename(file_path)
+        if not os.path.isabs(file_path):
+            rel = file_path
+        else:
+            try:
+                abs_path = os.path.realpath(file_path)
+                root = self.analysis_root or _infer_analysis_root([file_path])
+                if root is None:
+                    root = os.path.dirname(abs_path)
+                rel = os.path.relpath(abs_path, root)
+            except ValueError:
+                rel = os.path.basename(file_path)
 
         if rel.endswith(".py"):
             rel = rel[:-3]
@@ -614,6 +869,7 @@ class DependencyResolver:
     def _create_safe_exec_globals(self) -> Dict[str, Any]:
         """Create a safe globals dict for exec()."""
         safe_globals = dict(vars(builtins))
+        runtime_modules: Dict[str, types.ModuleType] = {}
 
         # Ensure module metadata exists and avoid triggering `if __name__ == "__main__":`
         # blocks during execution-based extraction.
@@ -626,13 +882,16 @@ class DependencyResolver:
         # Add safe modules
         for module_name in self.safe_modules:
             try:
-                safe_globals[module_name] = __import__(module_name)
+                imported = __import__(module_name)
+                cloned = self._clone_module_for_exec(imported)
+                runtime_modules[module_name] = cloned
+                safe_globals[module_name] = cloned
             except ImportError:
                 pass  # Skip unavailable modules
 
         # Reduce side effects during exec()-based extraction by stubbing the most
         # common "dangerous" primitives used in security benchmarks.
-        os_mod = safe_globals.get("os")
+        os_mod = runtime_modules.get("os")
         if os_mod is not None:
             try:
                 os_mod.system = lambda *args, **kwargs: 0
@@ -640,131 +899,209 @@ class DependencyResolver:
             except Exception:
                 pass
 
+        if runtime_modules:
+            safe_globals["__pyflow_runtime_modules__"] = runtime_modules
+
         return safe_globals
+
+    def _clone_module_for_exec(self, module: types.ModuleType) -> types.ModuleType:
+        cloned = types.ModuleType(module.__name__)
+        cloned.__dict__.update(vars(module))
+        return cloned
 
     def _handle_import_errors(
         self, source: str, exec_globals: Dict[str, Any], file_path: str = "<unknown>"
     ) -> Dict[str, Any]:
-        """Handle import errors by creating enhanced stub modules or finding source files."""
-        import_info = self._find_imports_detailed(source)
-        missing_modules = set(import_info.keys())
-
-        for module_name in missing_modules:
-            if module_name not in exec_globals:
-                # Try to find source file first
-                source_file = self._find_module_source(module_name)
-                
-                if source_file:
-                    if self.verbose:
-                        print(f"DEBUG: Found source file for '{module_name}': {source_file}")
-                    try:
-                        # Try to extract from source file
-                        module_source = self._load_source(source_file)
-                        module_functions = self._extract_ast_functions(module_source, source_file)
-                        module_classes = self._module_cache.get(source_file, {}).get("classes", {})
-                        
-                        # Create enhanced stub module with actual extracted info
-                        exec_globals[module_name] = self._create_enhanced_stub_module(
-                            module_name, module_functions, module_classes
-                        )
-                        
-                        # Register classes in hierarchy if available
-                        if self.class_hierarchy and module_classes:
-                            for cls_name, cls_info in module_classes.items():
-                                self.class_hierarchy.register_class(
-                                    name=cls_info["name"],
-                                    bases=cls_info["bases"],
-                                    module=module_name,
-                                    methods=set(cls_info["methods"].keys()),
-                                    ast_node=None,
-                                )
-                        continue
-                    except Exception as e:
-                        if self.verbose:
-                            print(f"DEBUG: Failed to extract from {source_file}: {e}")
-                
-                # Fall back to basic stub
-                if self.verbose:
-                    print(f"DEBUG: Creating stub for missing module '{module_name}'")
-                
-                # Track missing dependency
-                if module_name not in self._missing_dependencies:
-                    self._missing_dependencies[module_name] = []
-                self._missing_dependencies[module_name].append(file_path)
-                self._telemetry["missing_dependencies"] = sum(
-                    len(v) for v in self._missing_dependencies.values()
-                )
-                
-                exec_globals[module_name] = self._create_stub_module(module_name)
-
+        """Handle import errors by creating importable module stubs."""
+        stub_modules = self._build_stub_modules(source, file_path)
+        if stub_modules:
+            exec_globals["__pyflow_stub_modules__"] = stub_modules
+            for module_name, module in stub_modules.items():
+                if "." not in module_name:
+                    exec_globals[module_name] = module
         return exec_globals
 
     def _create_enhanced_stub_module(
         self, module_name: str, functions: Dict[str, Any], classes: Dict[str, Any]
     ) -> Any:
-        """Create an enhanced stub module with extracted function and class information."""
-        
-        class EnhancedStubModule:
-            def __init__(self, name, funcs, classes):
-                self.__name__ = name
-                self.__file__ = f"<stub:{name}>"
-                self._functions = funcs
-                self._classes = classes
-                
-                # Make functions directly accessible
-                for func_name, func_obj in funcs.items():
-                    setattr(self, func_name, func_obj)
-                
-                # Create class stubs
-                for cls_name, cls_info in classes.items():
-                    setattr(self, cls_name, self._create_class_stub(cls_name, cls_info))
-            
-            def _create_class_stub(self, cls_name, cls_info):
-                """Create a stub class with methods."""
-                methods = cls_info.get("methods", {})
-                
-                class StubClass:
-                    def __init__(self):
-                        self.__name__ = cls_name
-                        self.__qualname__ = cls_info.get("qualname", cls_name)
-                        self.__module__ = self.__name__
-                        
-                        # Add methods as attributes
-                        for method_name, method_info in methods.items():
-                            proxy = _ASTFunctionProxy(
-                                name=method_info["name"],
-                                qualname=method_info["qualname"],
-                                module=self.__name__,
-                                filename="<stub>",
-                                firstlineno=method_info.get("lineno", 1),
-                                signature=method_info.get("signature"),
-                                docstring=method_info.get("docstring"),
-                                decorators=method_info.get("decorators", []),
-                                is_async=method_info.get("is_async", False),
-                                is_class_method=method_info.get("is_classmethod", False),
-                            )
-                            setattr(self, method_name, proxy)
-                
-                StubClass.__name__ = cls_name
-                return StubClass
-            
-            def __getattr__(self, name):
-                # Fallback for attributes not explicitly set
-                if name in self._functions:
-                    return self._functions[name]
-                return self._create_noop_function(f"{self.__name__}.{name}")
-            
-            def _create_noop_function(self, name):
-                class NoOpFunction:
-                    def __init__(self, name):
-                        self.__name__ = name
+        """Create an enhanced importable stub module."""
+        module = types.ModuleType(module_name)
+        module.__file__ = f"<stub:{module_name}>"
 
-                    def __call__(self, *args, **kwargs):
-                        return None
+        for func_name, func_obj in functions.items():
+            setattr(module, func_name, func_obj)
 
-                return NoOpFunction(name)
-        
-        return EnhancedStubModule(module_name, functions, classes)
+        for cls_name, cls_info in classes.items():
+            setattr(module, cls_name, self._create_class_proxy(cls_info, module_name, "<stub>"))
+
+        def _fallback(name: str, _module_name: str = module_name):
+            return self._create_noop_function(f"{_module_name}.{name}")
+
+        module.__getattr__ = _fallback
+        return module
+
+    def _create_noop_function(self, name: str) -> Any:
+        class NoOpFunction:
+            def __init__(self, qualname: str):
+                self.__name__ = qualname.split(".")[-1]
+                self.__qualname__ = qualname
+                self.__module__ = qualname.rsplit(".", 1)[0] if "." in qualname else "__pyflow_stub__"
+
+            def __call__(self, *args, **kwargs):
+                return None
+
+        return NoOpFunction(name)
+
+    def _register_module_chain(
+        self, modules: Dict[str, types.ModuleType], module_name: str, module: types.ModuleType
+    ) -> None:
+        parts = [part for part in module_name.split(".") if part]
+        if not parts:
+            return
+
+        for i in range(1, len(parts) + 1):
+            name = ".".join(parts[:i])
+            if i == len(parts):
+                current = module
+            else:
+                current = modules.get(name) or self._create_stub_module(name)
+            modules[name] = current
+
+            if i > 1:
+                parent = modules[".".join(parts[: i - 1])]
+                setattr(parent, parts[i - 1], current)
+
+    def _note_missing_dependency(self, module_name: str, file_path: str) -> None:
+        importing_files = self._missing_dependencies.setdefault(module_name, [])
+        if file_path not in importing_files:
+            importing_files.append(file_path)
+        self._telemetry["missing_dependencies"] = sum(
+            len(v) for v in self._missing_dependencies.values()
+        )
+
+    def _load_stub_module(
+        self,
+        module_name: str,
+        file_path: str,
+        modules: Dict[str, types.ModuleType],
+    ) -> types.ModuleType:
+        source_file = self._find_module_source(module_name)
+        if source_file:
+            if self.verbose:
+                print(f"DEBUG: Found source file for '{module_name}': {source_file}")
+            try:
+                module_source = self._load_source(source_file)
+                module_functions = self._extract_ast_functions(module_source, source_file)
+                cache = self._module_cache.get(source_file, {})
+                module_classes = cache.get("classes", {})
+                module = self._create_enhanced_stub_module(
+                    module_name, module_functions, module_classes
+                )
+                if self.class_hierarchy and module_classes:
+                    for cls_name, cls_info in module_classes.items():
+                        self.class_hierarchy.register_class(
+                            name=cls_info["name"],
+                            bases=cls_info["bases"],
+                            module=module_name,
+                            methods=set(cls_info["methods"].keys()),
+                            ast_node=None,
+                        )
+                return module
+            except Exception as exc:
+                if self.verbose:
+                    print(f"DEBUG: Failed to extract from {source_file}: {exc}")
+
+        if self.verbose:
+            print(f"DEBUG: Creating stub for missing module '{module_name}'")
+        self._note_missing_dependency(module_name, file_path)
+        return self._create_stub_module(module_name)
+
+    def _build_stub_modules(
+        self, source: str, file_path: str
+    ) -> Dict[str, types.ModuleType]:
+        try:
+            tree = python_ast.parse(source)
+        except Exception:
+            return {}
+
+        current_module = self._get_module_name_from_path(file_path)
+        modules: Dict[str, types.ModuleType] = {}
+
+        for node in python_ast.walk(tree):
+            if isinstance(node, python_ast.Import):
+                for alias in node.names:
+                    module_name = alias.name
+                    module = self._load_stub_module(module_name, file_path, modules)
+                    self._register_module_chain(modules, module_name, module)
+
+            elif isinstance(node, python_ast.ImportFrom):
+                module_name = self._resolve_imported_module(
+                    current_module,
+                    node.module or "",
+                    int(getattr(node, "level", 0) or 0),
+                )
+                if not module_name:
+                    continue
+
+                module = modules.get(module_name)
+                if module is None:
+                    module = self._load_stub_module(module_name, file_path, modules)
+                    self._register_module_chain(modules, module_name, module)
+
+                for alias in node.names:
+                    if alias.name == "*":
+                        continue
+
+                    child_module_name = f"{module_name}.{alias.name}"
+                    child_source = self._find_module_source(child_module_name)
+                    if child_source:
+                        child_module = self._load_stub_module(
+                            child_module_name, file_path, modules
+                        )
+                        self._register_module_chain(
+                            modules, child_module_name, child_module
+                        )
+                        setattr(module, alias.name, child_module)
+                    elif not hasattr(module, alias.name):
+                        setattr(
+                            module,
+                            alias.name,
+                            self._create_noop_function(
+                                f"{module_name}.{alias.name}"
+                            ),
+                        )
+
+        return modules
+
+    def _exec_with_stub_modules(self, compiled: Any, exec_globals: Dict[str, Any]) -> None:
+        stub_modules = exec_globals.pop("__pyflow_stub_modules__", None)
+        runtime_modules = exec_globals.pop("__pyflow_runtime_modules__", None)
+        if not stub_modules and not runtime_modules:
+            exec(compiled, exec_globals)
+            return
+
+        sentinel = object()
+        originals: Dict[str, Any] = {}
+        temp_modules: Dict[str, types.ModuleType] = {}
+        if runtime_modules:
+            temp_modules.update(runtime_modules)
+        if stub_modules:
+            temp_modules.update(stub_modules)
+        try:
+            for module_name, module in temp_modules.items():
+                originals[module_name] = sys.modules.get(module_name, sentinel)
+                sys.modules[module_name] = module
+            exec(compiled, exec_globals)
+        finally:
+            for module_name, original in originals.items():
+                if original is sentinel:
+                    sys.modules.pop(module_name, None)
+                else:
+                    sys.modules[module_name] = original
+            if stub_modules is not None:
+                exec_globals["__pyflow_stub_modules__"] = stub_modules
+            if runtime_modules is not None:
+                exec_globals["__pyflow_runtime_modules__"] = runtime_modules
 
     def _find_imports(self, source: str) -> set:
         """Find all import statements in source code.
@@ -898,29 +1235,14 @@ class DependencyResolver:
 
     def _create_stub_module(self, module_name: str) -> Any:
         """Create a stub module that provides no-op functions."""
+        module = types.ModuleType(module_name)
+        module.__file__ = f"<stub:{module_name}>"
 
-        class StubModule:
-            def __init__(self, name):
-                self.__name__ = name
-                self.__file__ = f"<stub:{name}>"
+        def _fallback(name: str, _module_name: str = module_name):
+            return self._create_noop_function(f"{_module_name}.{name}")
 
-            def __getattr__(self, name):
-                return self._create_noop_function(f"{self.__name__}.{name}")
-
-            def _create_noop_function(self, name):
-                class NoOpFunction:
-                    def __init__(self, name):
-                        self.__name__ = name
-
-                    def __call__(self, *args, **kwargs):
-                        if self.__name__ in ("print", "warn", "error"):
-                            # Special case for common I/O functions
-                            return None
-                        return None  # Conservative no-op
-
-                return NoOpFunction(name)
-
-        return StubModule(module_name)
+        module.__getattr__ = _fallback
+        return module
 
     def _create_noop_module(self, module_name: str) -> Any:
         """Create a module that provides only no-op functions."""

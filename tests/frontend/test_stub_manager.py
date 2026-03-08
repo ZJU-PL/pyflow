@@ -176,6 +176,9 @@ class TestStubManager(unittest.TestCase):
             "interpreter_match_sequence_len",
             "interpreter_match_mapping_len",
             "interpreter_match_rest",
+            "interpreter_exception_group_extract",
+            "interpreter_exception_type",
+            "interpreter_make_generator",
         ):
             code = exports[name]
             self.assertIsNotNone(code.annotation.dynamicFold)

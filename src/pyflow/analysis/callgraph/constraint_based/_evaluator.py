@@ -408,10 +408,12 @@ class _EvaluatorMixin:
                 captured = {
                     name: set(env.get(name, set()))
                     for name in function_info.closure_vars
-                    if env.get(name)
                 }
-                if captured and self._bind_closure_values(
-                    lambda_qualname, callee_context, captured
+                if function_info.closure_vars and self._bind_closure_values(
+                    lambda_qualname,
+                    callee_context,
+                    captured,
+                    closure_origin=(scope.name, scope_context),
                 ):
                     input_changed_scope_contexts.add((lambda_qualname, callee_context))
 

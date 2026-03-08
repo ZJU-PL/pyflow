@@ -31,11 +31,16 @@ class ObjectManager:
         self.function_extractor = function_extractor
         self.stub_manager = stub_manager
 
+    def _hashable_cache_key(self, obj: Any) -> Any:
+        """Use type-aware cache keys so equal-but-distinct values do not collide."""
+        return (type(obj), obj)
+
     def get_object(self, obj: Any) -> Object:
         """Get or create an object representation for static analysis."""
         try:
-            if obj in self._object_cache:
-                return self._object_cache[obj]
+            key = self._hashable_cache_key(obj)
+            if key in self._object_cache:
+                return self._object_cache[key]
         except TypeError:
             # Unhashable objects (e.g., list/dict): cache by identity.
             oid = id(obj)
@@ -54,7 +59,7 @@ class ObjectManager:
                 pyflow_obj.allocateDatastructures(pyflow_obj.type)
 
             try:
-                self._object_cache[obj] = pyflow_obj
+                self._object_cache[self._hashable_cache_key(obj)] = pyflow_obj
             except TypeError:
                 self._object_cache_by_id[id(obj)] = pyflow_obj
             return pyflow_obj

@@ -190,6 +190,7 @@ def _private_func():
         # Check for common builtin functions instead
         self.assertIn('len', globals_dict)
         self.assertIn('print', globals_dict)
+        self.assertIsNot(globals_dict['os'], __import__('os'))
 
     def test_find_imports(self):
         """Test finding imports in source code."""
@@ -311,6 +312,32 @@ def func2(x, y):
         # Should have stub for missing module
         self.assertIn('nonexistent_module', result)
 
+    def test_handle_import_errors_makes_import_statement_executable(self):
+        """Stubbed modules should be importable during runtime extraction."""
+        source = (
+            "import nonexistent_module\n"
+            "value = nonexistent_module.some_attr()\n"
+        )
+        exec_globals = self.resolver._create_safe_exec_globals()
+        exec_globals = self.resolver._handle_import_errors(source, exec_globals, "example.py")
+        compiled = compile(source, "example.py", "exec")
+        self.resolver._exec_with_stub_modules(compiled, exec_globals)
+        self.assertIn("value", exec_globals)
+        self.assertIsNone(exec_globals["value"])
+
+    def test_exec_with_stub_modules_isolates_safe_runtime_modules(self):
+        """Safe runtime module stubs should not mutate process-global modules."""
+        import os
+
+        real_system = os.system
+        exec_globals = self.resolver._create_safe_exec_globals()
+        compiled = compile("import os\nvalue = os\nresult = os.system('ignored')\n", "example.py", "exec")
+        self.resolver._exec_with_stub_modules(compiled, exec_globals)
+
+        self.assertIsNot(exec_globals["value"], os)
+        self.assertEqual(exec_globals["result"], 0)
+        self.assertIs(os.system, real_system)
+
     def test_auto_strategy_is_side_effect_free(self):
         """AUTO should not execute module top-level code."""
         resolver = DependencyResolver(strategy="auto", verbose=False)
@@ -345,11 +372,47 @@ def func2(x, y):
         self.assertIn("outer", functions)
         self.assertNotIn("inner", functions)
 
+    def test_class_proxies_preserve_inherited_public_methods(self):
+        """Subclass proxies should expose inherited methods via MRO."""
+        resolver = DependencyResolver(strategy="ast_only", verbose=False)
+        source = (
+            "class Base:\n"
+            "    def m(self):\n"
+            "        return 1\n\n"
+            "class Child(Base):\n"
+            "    pass\n"
+        )
+        resolver.extract_functions(source, "example.py")
+        child = resolver.get_module_classes("example.py")["Child"]
+        methods = resolver.get_public_method_specs(child)
+        self.assertIn("m", methods)
+
+    def test_class_proxies_preserve_inherited_methods_for_generic_bases(self):
+        """Subscripted bases should resolve to the underlying class in proxy MRO."""
+        resolver = DependencyResolver(strategy="ast_only", verbose=False)
+        source = (
+            "class Base:\n"
+            "    def m(self):\n"
+            "        return 1\n\n"
+            "class Child(Base[int]):\n"
+            "    pass\n"
+        )
+        resolver.extract_functions(source, "example.py")
+        child = resolver.get_module_classes("example.py")["Child"]
+        methods = resolver.get_public_method_specs(child)
+        self.assertIn("m", methods)
+
     def test_get_module_name_from_path_uses_dotted_name(self):
         """Module naming should preserve package path segments."""
         resolver = DependencyResolver(strategy="ast_only", verbose=False)
         module = resolver._get_module_name_from_path("tests/frontend/sample_module.py")
         self.assertTrue(module.endswith("tests.frontend.sample_module"))
+
+    def test_get_module_name_from_absolute_path_does_not_depend_on_cwd(self):
+        """Absolute paths outside the repo should not inherit cwd path segments."""
+        resolver = DependencyResolver(strategy="ast_only", verbose=False)
+        module = resolver._get_module_name_from_path("/tmp/demo/pkg/mod.py")
+        self.assertEqual(module, "mod")
 
     def test_import_graph_records_edges(self):
         """Resolver should track deterministic module import graph edges."""

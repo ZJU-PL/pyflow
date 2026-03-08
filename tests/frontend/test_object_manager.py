@@ -88,6 +88,17 @@ class TestObjectManager(unittest.TestCase):
         obj2 = self.object_manager.get_object(value)
         self.assertIs(obj1, obj2)
 
+    def test_get_object_distinguishes_equal_values_with_different_types(self):
+        """Equal-but-distinct Python values should not share one abstract object."""
+        int_obj = self.object_manager.get_object(1)
+        bool_obj = self.object_manager.get_object(True)
+
+        self.assertIsNot(int_obj, bool_obj)
+        self.assertEqual(int_obj.pyobj, 1)
+        self.assertIs(int_obj.pyobj.__class__, int)
+        self.assertEqual(bool_obj.pyobj, True)
+        self.assertIs(bool_obj.pyobj.__class__, bool)
+
     def test_get_object_call_with_function(self):
         """Test getting object call for a function."""
         def test_func():

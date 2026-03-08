@@ -371,37 +371,12 @@ def find_python_files(directory, args):
 
 
 def create_interface_from_paths(python_files, args):
-    """Create a basic interface from multiple Python files using dependency resolver."""
-    from pyflow.api.entrypoints import InterfaceDeclaration
-    from pyflow.frontend.dependency_resolver import DependencyResolver
-
-    interface_decl = InterfaceDeclaration()
-    all_source_code = {}
-
-    resolver = DependencyResolver(
-        strategy=getattr(args, "dependency_strategy", "auto"),
-        verbose=args.verbose,
-        safe_modules=["math", "os", "sys", "re", "json", "datetime", "collections"],
+    """Delegate interface construction to the shared frontend helper."""
+    from pyflow.frontend.programextractor import (
+        create_interface_from_paths as frontend_create_interface_from_paths,
     )
 
-    for file_path in python_files:
-        try:
-            with open(file_path, "r", encoding="utf-8") as f:
-                source = f.read()
-            all_source_code[str(file_path)] = source
-
-            functions = resolver.extract_functions(source, str(file_path))
-
-            for func_name, func_obj in functions.items():
-                interface_decl.func.append((func_obj, []))
-                if args.verbose:
-                    print(f"Added function '{func_name}' from {file_path}")
-
-        except Exception as e:
-            if args.verbose:
-                print(f"Warning: Could not parse file {file_path}: {e}")
-
-    return interface_decl, all_source_code
+    return frontend_create_interface_from_paths(python_files, args)
 
 
 def run_ir_dump(input_path: Path, args):

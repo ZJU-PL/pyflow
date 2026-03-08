@@ -27,6 +27,12 @@ class FunctionSpan:
     end_lineno: int
 
 
+def _normalize_qualname(qualname: Optional[str]) -> Optional[str]:
+    if qualname is None:
+        return None
+    return qualname.replace(".<locals>", "")
+
+
 def _iter_function_spans(tree: ast.AST) -> Iterable[FunctionSpan]:
     stack: List[str] = []
 
@@ -43,7 +49,6 @@ def _iter_function_spans(tree: ast.AST) -> Iterable[FunctionSpan]:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             stack.append(node.name)
             qualname = ".".join(stack)
-            stack.pop()
 
             lineno = getattr(node, "lineno", None)
             end_lineno = getattr(node, "end_lineno", None)
@@ -57,6 +62,7 @@ def _iter_function_spans(tree: ast.AST) -> Iterable[FunctionSpan]:
             # Keep walking nested defs.
             for child in getattr(node, "body", []):
                 yield from walk(child)
+            stack.pop()
             return
 
         # Generic: walk children.
@@ -95,14 +101,25 @@ def find_function_source_segment(
         if name:
             candidates = [s for s in candidates if s.name == name]
         if qualname:
-            candidates = [s for s in candidates if s.qualname == qualname]
+            qual_matches = [
+                s
+                for s in candidates
+                if _normalize_qualname(s.qualname) == _normalize_qualname(qualname)
+            ]
+            if qual_matches:
+                candidates = qual_matches
         if candidates:
             best = min(candidates, key=lambda s: (s.end_lineno - s.lineno, s.qualname))
             return _slice_lines(source, best.lineno, best.end_lineno)
 
     # Next: exact qualname match (class/method aware).
     if qualname:
-        candidates = [s for s in spans if s.qualname == qualname]
+        normalized_qualname = _normalize_qualname(qualname)
+        candidates = [
+            s
+            for s in spans
+            if _normalize_qualname(s.qualname) == normalized_qualname
+        ]
         if name:
             candidates = [s for s in candidates if s.name == name]
         if candidates:

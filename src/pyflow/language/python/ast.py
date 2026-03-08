@@ -377,6 +377,7 @@ class BuildList(Expression):
 
 
 class BuildMap(Expression):
+    __fields__ = "args:Expression*"
 
     def isPure(self):
         return True

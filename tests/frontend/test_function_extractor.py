@@ -294,6 +294,26 @@ class TestClass:
         self.assertIsInstance(code, pyflow_ast.Code)
         self.assertEqual(code.name, "test_func")
 
+    def test_convert_function_uses_line_and_qualname_for_nested_defs(self):
+        """Nested defs with duplicate names should match by callable metadata."""
+        source = """
+def outer1():
+    def inner():
+        return 1
+    return inner
+
+def outer2():
+    def inner():
+        return 2
+    return inner
+"""
+        namespace = {}
+        exec(compile(source, "m.py", "exec"), namespace)
+        inner = namespace["outer2"]()
+
+        code = self.extractor.convert_function(inner, source_code=source)
+        self.assertEqual(code.ast.blocks[0].exprs[0].object.pyobj, 2)
+
 
 if __name__ == "__main__":
     unittest.main()

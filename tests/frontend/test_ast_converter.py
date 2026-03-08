@@ -347,6 +347,23 @@ while x > 0:
         result = self.converter._convert_expression(node)
         self.assertIsInstance(result, (pyflow_ast.Existing, pyflow_ast.BuildMap))
 
+    def test_convert_dynamic_dict_expression_preserves_entries(self):
+        """Dynamic dict literals should keep key/value expressions for analysis."""
+        tree = python_ast.parse("{f(): g()}", mode="eval")
+        result = self.converter._convert_expression(tree.body)
+        self.assertIsInstance(result, pyflow_ast.BuildMap)
+        self.assertEqual(len(result.args), 2)
+        self.assertIsInstance(result.args[0], pyflow_ast.Call)
+        self.assertIsInstance(result.args[1], pyflow_ast.Call)
+
+    def test_convert_function_def_with_posonly_defaults(self):
+        """Positional-only defaults should not crash argument lowering."""
+        tree = python_ast.parse("def f(a=1, /, b=2, *, c=3):\n    return a + b + c\n")
+        result = self.converter._convert_node(tree.body[0])
+        self.assertIsInstance(result, pyflow_ast.FunctionDef)
+        defaults = result.code.codeparameters.defaults
+        self.assertEqual(len(defaults), 3)
+
     def test_convert_lambda_expression(self):
         """Test converting lambda expression."""
         source = "lambda x: x + 1"
@@ -488,9 +505,13 @@ with open('file.txt') as f:
         node = tree.body[0]
         
         result = self.converter._convert_node(node)
-        self.assertIsInstance(result, pyflow_ast.TryExceptFinally)
-        self.assertIsInstance(result.body, pyflow_ast.Suite)
-        self.assertIsInstance(result.finally_, pyflow_ast.Suite)
+        self.assertIsInstance(result, pyflow_ast.Suite)
+        self.assertEqual(len(result.blocks), 1)
+        wrapped = result.blocks[0]
+        self.assertIsInstance(wrapped, pyflow_ast.TryExceptFinally)
+        self.assertIsInstance(wrapped.body, pyflow_ast.Suite)
+        self.assertEqual(len(wrapped.handlers), 1)
+        self.assertIsInstance(wrapped.else_, pyflow_ast.Suite)
 
     def test_convert_import_statement(self):
         """Test converting import statement."""

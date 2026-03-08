@@ -473,7 +473,10 @@ class Collapser(TypeDispatcher):
 
     @dispatch(ast.BuildMap)
     def visitBuildMap(self, node):
-        pass
+        for arg in reversed(node.args):
+            self.process(arg)
+
+        self.markPossible(*node.args)
 
     @dispatch(ast.UnpackSequence)
     def visitUnpackSequence(self, node):

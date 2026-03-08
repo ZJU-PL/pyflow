@@ -255,6 +255,35 @@ class _AnalyzerMixin:
                 out.add(make_instance(value.name))
         return out or {UNKNOWN_VALUE}
 
+    def _static_truthiness(
+        self,
+        expr: ast.AST,
+        env: Mapping[str, Set[AbstractValue]],
+    ) -> bool | None:
+        """Best-effort static truthiness for simple boolean guards."""
+        if isinstance(expr, ast.Constant):
+            if isinstance(expr.value, bool):
+                return expr.value
+            return None
+        if isinstance(expr, ast.UnaryOp) and isinstance(expr.op, ast.Not):
+            inner = self._static_truthiness(expr.operand, env)
+            return None if inner is None else not inner
+        if isinstance(expr, ast.BoolOp):
+            values = [self._static_truthiness(value, env) for value in expr.values]
+            if isinstance(expr.op, ast.And):
+                if any(value is False for value in values):
+                    return False
+                if values and all(value is True for value in values):
+                    return True
+                return None
+            if isinstance(expr.op, ast.Or):
+                if any(value is True for value in values):
+                    return True
+                if values and all(value is False for value in values):
+                    return False
+                return None
+        return None
+
     def _refine_env_for_test(
         self,
         scope: ScopeInfo,
@@ -712,10 +741,12 @@ class _AnalyzerMixin:
         previous_active_scope_context = self._active_scope_context
         previous_active_changed_instance_fields = self._active_changed_instance_fields
         previous_active_changed_class_fields = self._active_changed_class_fields
+        previous_active_changed_closure_scopes = self._active_changed_closure_scopes
         previous_active_singledispatch_changed = self._active_singledispatch_changed
         self._active_scope_context = scope_ctx_key
         self._active_changed_instance_fields = set()
         self._active_changed_class_fields = set()
+        self._active_changed_closure_scopes = set()
         self._active_singledispatch_changed = False
         self._register_module_dependency(scope.module, scope_ctx_key)
         param_inputs = self.scope_inputs.setdefault(
@@ -758,6 +789,7 @@ class _AnalyzerMixin:
             input_changed_scope_contexts.update(block_inputs)
             changed_instance_fields.update(self._active_changed_instance_fields)
             changed_class_fields.update(self._active_changed_class_fields)
+            input_changed_scope_contexts.update(self._active_changed_closure_scopes)
 
             module_binding_changed = False
             if scope.name == scope.module:
@@ -796,6 +828,7 @@ class _AnalyzerMixin:
             self._active_scope_context = previous_active_scope_context
             self._active_changed_instance_fields = previous_active_changed_instance_fields
             self._active_changed_class_fields = previous_active_changed_class_fields
+            self._active_changed_closure_scopes = previous_active_changed_closure_scopes
             self._active_singledispatch_changed = previous_active_singledispatch_changed
 
     def _process_block(
@@ -1070,7 +1103,7 @@ class _AnalyzerMixin:
                     scope, scope_context, stmt.orelse, copy_env(env)
                 )
                 merged_env = copy_env(env)
-                if body_fallthrough:
+                if body_fallthrough or body_env != env:
                     merged_env = join_envs(merged_env, body_env)
                 if else_fallthrough:
                     merged_env = join_envs(merged_env, orelse_env)
@@ -1132,7 +1165,7 @@ class _AnalyzerMixin:
                     scope, scope_context, stmt.orelse, else_entry_env
                 )
                 merged_env = copy_env(env)
-                if body_fallthrough:
+                if body_fallthrough or body_env != body_entry_env:
                     merged_env = join_envs(merged_env, body_env)
                 if else_fallthrough:
                     merged_env = join_envs(merged_env, orelse_env)
@@ -1176,13 +1209,13 @@ class _AnalyzerMixin:
                 handler_exit_envs: List[Dict[str, Set[AbstractValue]]] = []
                 handler_fallthrough = False
                 for handler in stmt.handlers:
-                    handler_entry_env = copy_env(env)
+                    handler_entry_env = copy_env(body_env)
                     if handler.name:
                         handler_entry_env[handler.name] = self._exception_handler_values(
                             scope,
                             scope_context,
                             handler,
-                            env,
+                            body_env,
                             callees,
                             input_changed_scope_contexts,
                         )
@@ -1371,23 +1404,29 @@ class _AnalyzerMixin:
                     input_changed_scope_contexts,
                 )
                 merged_env = copy_env(env)
+                remaining_subject_values = set(subject_values or {UNKNOWN_VALUE})
                 for case in stmt.cases:
+                    if not remaining_subject_values:
+                        break
                     case_env = self._refine_env_for_pattern(
                         scope,
                         scope_context,
-                        subject_values or {UNKNOWN_VALUE},
+                        remaining_subject_values,
                         case.pattern,
                         env,
                     )
+                    matched_subject_values = set(
+                        case_env.get("__match_subject__", remaining_subject_values)
+                    )
+                    if not matched_subject_values:
+                        continue
+                    case_env["__match_subject__"] = set(matched_subject_values)
                     if isinstance(stmt.subject, ast.Name):
-                        case_env[stmt.subject.id] = set(
-                            case_env.get(
-                                "__match_subject__", subject_values or {UNKNOWN_VALUE}
-                            )
-                        )
+                        case_env[stmt.subject.id] = set(matched_subject_values)
                     for bound_name in self._pattern_bound_names(case.pattern):
                         if not case_env.get(bound_name):
                             case_env.setdefault(bound_name, set()).add(UNKNOWN_VALUE)
+                    guard_truth: bool | None = True if case.guard is None else None
                     if case.guard is not None:
                         self._eval_expr(
                             scope,
@@ -1396,6 +1435,12 @@ class _AnalyzerMixin:
                             case_env,
                             callees,
                             input_changed_scope_contexts,
+                        )
+                        guard_truth = self._static_truthiness(case.guard, case_env)
+                        if guard_truth is False:
+                            continue
+                        case_env = self._refine_env_for_test(
+                            scope, scope_context, case.guard, case_env, True
                         )
                     (
                         branch_env,
@@ -1417,6 +1462,10 @@ class _AnalyzerMixin:
                     changed_class_fields.update(branch_class_changed)
                     self._merge_value_maps(global_writes, branch_globals)
                     self._merge_value_maps(nonlocal_writes, branch_nonlocals)
+                    if case.guard is None or guard_truth is True:
+                        remaining_subject_values.difference_update(matched_subject_values)
+                        if not remaining_subject_values:
+                            break
                 env = merged_env
 
             elif isinstance(stmt, ast.Import):
@@ -1497,10 +1546,12 @@ class _AnalyzerMixin:
                         captured = {
                             name: set(env.get(name, set()))
                             for name in self.functions[qualname].closure_vars
-                            if env.get(name)
                         }
-                        if captured and self._bind_closure_values(
-                            qualname, callee_context, captured
+                        if self.functions[qualname].closure_vars and self._bind_closure_values(
+                            qualname,
+                            callee_context,
+                            captured,
+                            closure_origin=(scope.name, scope_context),
                         ):
                             input_changed_scope_contexts.add((qualname, callee_context))
                     env[stmt.name] = self._apply_decorators(

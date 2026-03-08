@@ -441,7 +441,35 @@ class ASTConverter:
                 value = python_ast.literal_eval(node)
                 return pyflow_ast.Existing(Object(value))
             except Exception:
-                return pyflow_ast.BuildMap()
+                if any(key is None for key in node.keys):
+                    explicit_entries = []
+                    unpacked_mappings = []
+                    for key, value in zip(node.keys, node.values):
+                        value_expr = self._convert_expression_safe(value)
+                        if key is None:
+                            unpacked_mappings.append(value_expr)
+                            continue
+                        explicit_entries.append(
+                            pyflow_ast.BuildTuple(
+                                [
+                                    self._convert_expression_safe(key),
+                                    value_expr,
+                                ]
+                            )
+                        )
+                    return self._call_named(
+                        "interpreter_build_map",
+                        [
+                            pyflow_ast.BuildList(explicit_entries),
+                            pyflow_ast.BuildList(unpacked_mappings),
+                        ],
+                    )
+
+                args: List[PythonASTNode] = []
+                for key, value in zip(node.keys, node.values):
+                    args.append(self._convert_expression_safe(key))
+                    args.append(self._convert_expression_safe(value))
+                return pyflow_ast.BuildMap(args)
 
         elif isinstance(node, python_ast.Set):
             # Handle set creation: {a, b, c}
@@ -675,7 +703,9 @@ class ASTConverter:
             *(f"{_KWONLY_PARAM_PREFIX}{name}" for name in kwonly),
         ]
         
-        per_param_defaults: List[Optional[PythonASTNode]] = [None] * len(param_names)
+        per_param_defaults: List[Optional[PythonASTNode]] = [None] * (
+            len(all_positional_names) + len(kwonly)
+        )
         
         pos_defaults = list(getattr(args_node, "defaults", []) or [])
         if pos_defaults:
@@ -947,39 +977,8 @@ class ASTConverter:
         4. Execute body
         5. Call __exit__ on the context manager (guaranteed via try-finally)
         """
-        suite = pyflow_ast.Suite([])
-        
-        for item in node.items:
-            ctx_expr = self._convert_expression_safe(item.context_expr)
-            ctx_local = self._tmp_local("ctx_mgr", item)
-            
-            suite.append(pyflow_ast.Assign(ctx_expr, [ctx_local]))
-            
-            enter_result = self._call_named("interpreter_enter", [ctx_local])
-            
-            if item.optional_vars is not None:
-                suite.append(self._convert_store(item.optional_vars, enter_result))
-            else:
-                suite.append(pyflow_ast.Discard(enter_result))
-        
         body = self.convert_python_ast_to_pyflow(node.body)
-        
-        finally_suite = pyflow_ast.Suite([])
-        for item in reversed(node.items):
-            ctx_local = self._tmp_local("ctx_mgr", item)
-            exc_type = pyflow_ast.Existing(Object(None))
-            exc_val = pyflow_ast.Existing(Object(None))
-            exc_tb = pyflow_ast.Existing(Object(None))
-            exit_call = self._call_named("interpreter_exit", [ctx_local, exc_type, exc_val, exc_tb])
-            finally_suite.append(pyflow_ast.Discard(exit_call))
-        
-        return pyflow_ast.TryExceptFinally(
-            body=body,
-            handlers=[],
-            defaultHandler=None,
-            else_=pyflow_ast.Suite([]),
-            finally_=finally_suite,
-        )
+        return self._wrap_context_manager_items(node.items, body, is_async=False)
 
     def _binary_op_name(self, op: python_ast.AST) -> Optional[str]:
         op_map = {
@@ -1187,39 +1186,146 @@ class ASTConverter:
         4. Execute body
         5. Call __aexit__ on the context manager (guaranteed via try-finally)
         """
-        suite = pyflow_ast.Suite([])
-        
-        for item in node.items:
-            ctx_expr = self._convert_expression_safe(item.context_expr)
-            ctx_local = self._tmp_local("async_ctx_mgr", item)
-            
-            suite.append(pyflow_ast.Assign(ctx_expr, [ctx_local]))
-            
-            enter_result = self._call_named("interpreter_aenter", [ctx_local])
-            
-            if item.optional_vars is not None:
-                suite.append(self._convert_store(item.optional_vars, enter_result))
-            else:
-                suite.append(pyflow_ast.Discard(enter_result))
-        
         body = self.convert_python_ast_to_pyflow(node.body)
-        
-        finally_suite = pyflow_ast.Suite([])
-        for item in reversed(node.items):
-            ctx_local = self._tmp_local("async_ctx_mgr", item)
-            exc_type = pyflow_ast.Existing(Object(None))
-            exc_val = pyflow_ast.Existing(Object(None))
-            exc_tb = pyflow_ast.Existing(Object(None))
-            exit_call = self._call_named("interpreter_aexit", [ctx_local, exc_type, exc_val, exc_tb])
-            finally_suite.append(pyflow_ast.Discard(pyflow_ast.Await(exit_call)))
-        
-        return pyflow_ast.TryExceptFinally(
-            body=body,
-            handlers=[],
-            defaultHandler=None,
-            else_=pyflow_ast.Suite([]),
-            finally_=finally_suite,
+        return self._wrap_context_manager_items(node.items, body, is_async=True)
+
+    def _ensure_suite(self, node_or_suite: PythonASTNode) -> pyflow_ast.Suite:
+        """Ensure we have a Suite, wrapping a single statement when needed."""
+        if isinstance(node_or_suite, pyflow_ast.Suite):
+            return node_or_suite
+        return pyflow_ast.Suite([node_or_suite])
+
+    def _wrap_context_manager_items(
+        self,
+        items,
+        body: PythonASTNode,
+        *,
+        is_async: bool,
+    ) -> pyflow_ast.Suite:
+        current = self._ensure_suite(body)
+        for item in reversed(items):
+            current = self._wrap_single_context_manager_item(
+                item,
+                current,
+                is_async=is_async,
+            )
+        return current
+
+    def _wrap_single_context_manager_item(
+        self,
+        item,
+        body: pyflow_ast.Suite,
+        *,
+        is_async: bool,
+    ) -> pyflow_ast.Suite:
+        prefix = "async_" if is_async else ""
+        ctx_expr = self._convert_expression_safe(item.context_expr)
+        ctx_local = self._tmp_local(f"{prefix}ctx_mgr", item)
+        active_local = self._tmp_local(f"{prefix}ctx_mgr_active", item)
+        enter_local = self._tmp_local(f"{prefix}ctx_enter", item)
+        exc_local = self._tmp_local(f"{prefix}ctx_exc", item)
+        suppressed_local = self._tmp_local(f"{prefix}ctx_suppressed", item)
+
+        preamble = pyflow_ast.Suite(
+            [
+                pyflow_ast.Assign(pyflow_ast.Existing(Object(False)), [active_local]),
+                pyflow_ast.Assign(ctx_expr, [ctx_local]),
+            ]
         )
+
+        enter_call = self._call_named(
+            "interpreter_aenter" if is_async else "interpreter_enter",
+            [ctx_local],
+        )
+        if is_async:
+            enter_value: PythonASTNode = pyflow_ast.Await(enter_call)
+        else:
+            enter_value = enter_call
+        preamble.append(pyflow_ast.Assign(enter_value, [enter_local]))
+        preamble.append(pyflow_ast.Assign(pyflow_ast.Existing(Object(True)), [active_local]))
+        if item.optional_vars is not None:
+            preamble.append(self._convert_store(item.optional_vars, enter_local))
+
+        normal_exit_call = self._call_named(
+            "interpreter_aexit" if is_async else "interpreter_exit",
+            [
+                ctx_local,
+                pyflow_ast.Existing(Object(None)),
+                pyflow_ast.Existing(Object(None)),
+                pyflow_ast.Existing(Object(None)),
+            ],
+        )
+        normal_exit_stmt: PythonASTNode
+        if is_async:
+            normal_exit_stmt = pyflow_ast.Discard(pyflow_ast.Await(normal_exit_call))
+        else:
+            normal_exit_stmt = pyflow_ast.Discard(normal_exit_call)
+
+        exc_type = self._call_named("interpreter_exception_type", [exc_local])
+        exc_tb = self._call_named(
+            "interpreter_getattr",
+            [exc_local, pyflow_ast.Existing(Object("__traceback__"))],
+        )
+        exceptional_exit_call = self._call_named(
+            "interpreter_aexit" if is_async else "interpreter_exit",
+            [ctx_local, exc_type, exc_local, exc_tb],
+        )
+        exceptional_exit_value: PythonASTNode
+        if is_async:
+            exceptional_exit_value = pyflow_ast.Await(exceptional_exit_call)
+        else:
+            exceptional_exit_value = exceptional_exit_call
+
+        handler_body = pyflow_ast.Switch(
+            condition=pyflow_ast.Condition(pyflow_ast.Suite([]), active_local),
+            t=pyflow_ast.Suite(
+                [
+                    pyflow_ast.Assign(exceptional_exit_value, [suppressed_local]),
+                    pyflow_ast.Switch(
+                        condition=pyflow_ast.Condition(
+                            pyflow_ast.Suite([]),
+                            self._call_named("invertedConvertToBool", [suppressed_local]),
+                        ),
+                        t=pyflow_ast.Suite(
+                            [
+                                pyflow_ast.Raise(
+                                    exception=exc_local,
+                                    parameter=None,
+                                    traceback=exc_tb,
+                                )
+                            ]
+                        ),
+                        f=pyflow_ast.Suite([]),
+                    ),
+                ]
+            ),
+            f=pyflow_ast.Suite(
+                [
+                    pyflow_ast.Raise(
+                        exception=exc_local,
+                        parameter=None,
+                        traceback=pyflow_ast.Existing(Object(None)),
+                    )
+                ]
+            ),
+        )
+
+        handler = pyflow_ast.ExceptionHandler(
+            preamble=pyflow_ast.Suite([]),
+            type=pyflow_ast.Existing(Object(BaseException)),
+            value=exc_local,
+            body=pyflow_ast.Suite([handler_body]),
+        )
+
+        try_body = pyflow_ast.Suite([*preamble.blocks, *body.blocks])
+        wrapped = pyflow_ast.TryExceptFinally(
+            body=try_body,
+            handlers=[handler],
+            defaultHandler=None,
+            else_=pyflow_ast.Suite([normal_exit_stmt]),
+            finally_=None,
+        )
+        return pyflow_ast.Suite([wrapped])
 
     def _convert_match(self, node) -> Optional[PythonASTNode]:
         """Convert Python AST Match (pattern matching, Python 3.10+) to pyflow AST.
@@ -1257,21 +1363,9 @@ class ASTConverter:
         # not exist on ``pyflow_ast.Suite``.  ``pyflow_ast.Suite`` stores its
         # statements in a list passed to its constructor; we should just use
         # the Suite object directly rather than trying to unwrap it.
-        def _as_suite(node_or_suite: PythonASTNode) -> pyflow_ast.Suite:
-            """Ensure we have a Suite, wrapping if necessary."""
-            if isinstance(node_or_suite, pyflow_ast.Suite):
-                return node_or_suite
-            return pyflow_ast.Suite([node_or_suite])
-
-        last_condition, last_bindings, last_body = cases[-1]
-        result: PythonASTNode
-        if last_bindings:
-            result = pyflow_ast.Suite(list(last_bindings) + [_as_suite(last_body)])
-        else:
-            result = _as_suite(last_body)
-
-        for condition, bindings, body in reversed(cases[:-1]):
-            body_suite = _as_suite(body)
+        result: PythonASTNode = pyflow_ast.Suite([])
+        for condition, bindings, body in reversed(cases):
+            body_suite = self._ensure_suite(body)
             if bindings:
                 full_body = pyflow_ast.Suite(list(bindings) + [body_suite])
             else:
@@ -1282,7 +1376,7 @@ class ASTConverter:
                 result = pyflow_ast.Switch(
                     condition=pyflow_ast.Condition(pyflow_ast.Suite([]), condition),
                     t=full_body,
-                    f=result,
+                    f=self._ensure_suite(result),
                 )
 
         suite.append(result)
@@ -1367,10 +1461,31 @@ class ASTConverter:
         elif hasattr(python_ast, "MatchOr") and isinstance(pattern, python_ast.MatchOr):
             if not pattern.patterns:
                 return pyflow_ast.Existing(Object(False))
-            or_bindings_list: List[List[PythonASTNode]] = [[] for _ in pattern.patterns]
-            result = self._convert_pattern_with_bindings(pattern.patterns[0], subject, or_bindings_list[0])
-            for i, sub_pattern in enumerate(pattern.patterns[1:], 1):
-                sub_condition = self._convert_pattern_with_bindings(sub_pattern, subject, or_bindings_list[i])
+            branch_conditions: List[PythonASTNode] = []
+            branch_bindings: List[List[PythonASTNode]] = []
+            for sub_pattern in pattern.patterns:
+                sub_bindings: List[PythonASTNode] = []
+                sub_condition = self._convert_pattern_with_bindings(
+                    sub_pattern, subject, sub_bindings
+                )
+                branch_conditions.append(sub_condition)
+                branch_bindings.append(sub_bindings)
+
+            if any(branch_bindings):
+                binding_switch: PythonASTNode = pyflow_ast.Suite([])
+                for sub_condition, sub_bindings in reversed(
+                    list(zip(branch_conditions, branch_bindings))
+                ):
+                    branch_body = self._ensure_suite(pyflow_ast.Suite(sub_bindings))
+                    binding_switch = pyflow_ast.Switch(
+                        condition=pyflow_ast.Condition(pyflow_ast.Suite([]), sub_condition),
+                        t=branch_body,
+                        f=self._ensure_suite(binding_switch),
+                    )
+                bindings.append(binding_switch)
+
+            result = branch_conditions[0]
+            for sub_condition in branch_conditions[1:]:
                 result = pyflow_ast.ShortCircutOr([result, sub_condition])
             return result
         
@@ -1509,9 +1624,10 @@ class ASTConverter:
         preserving iteration semantics and handling if-conditions.
         """
         generators = node.generators
+        kind = result_type.lower()
 
-        if result_type == "Dict":
-            result_init = pyflow_ast.BuildMap()
+        if kind == "dict":
+            result_init = pyflow_ast.BuildMap([])
 
             def make_add_stmt(result_local: pyflow_ast.Local) -> PythonASTNode:
                 key_expr = self._convert_expression_safe(node.key)
@@ -1520,7 +1636,7 @@ class ASTConverter:
                     self._call_named("interpreter_setitem", [result_local, key_expr, value_expr])
                 )
 
-        elif result_type == "Set":
+        elif kind == "set":
             element = self._convert_expression_safe(node.elt)
             result_init = pyflow_ast.BuildSet([])
 
@@ -1539,11 +1655,16 @@ class ASTConverter:
                 )
 
         if not generators:
-            if result_type == "List":
+            if kind == "list":
                 return pyflow_ast.BuildList([element])
-            if result_type == "Dict":
-                return pyflow_ast.BuildMap()
-            if result_type == "Set":
+            if kind == "dict":
+                return pyflow_ast.BuildMap(
+                    [
+                        self._convert_expression_safe(node.key),
+                        self._convert_expression_safe(node.value),
+                    ]
+                )
+            if kind == "set":
                 return pyflow_ast.BuildSet([element])
             return result_init
 
@@ -1601,14 +1722,14 @@ class ASTConverter:
             returnparams=[pyflow_ast.Local("ret0")],
             type_params=None,
         )
-        comp_code = pyflow_ast.Code(f"<{result_type}comp>", comp_params, comp_body)
+        comp_code = pyflow_ast.Code(f"<{kind}comp>", comp_params, comp_body)
         comp_code.annotation = CodeAnnotation(
             contexts=None,
             descriptive=False,
             primitive=False,
             staticFold=False,
             dynamicFold=False,
-            origin=[f"converted_{result_type}comp"],
+            origin=[f"converted_{kind}comp"],
             live=None,
             killed=None,
             codeReads=None,

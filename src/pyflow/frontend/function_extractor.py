@@ -17,6 +17,7 @@ from pyflow.language.python.pythonbase import PythonASTNode
 from pyflow.application.program import Program
 
 from .ast_converter import ASTConverter
+from .source_locator import find_function_source_segment
 
 
 _KWONLY_PARAM_PREFIX = "kwonly:"
@@ -75,20 +76,19 @@ class FunctionExtractor:
                 if self.verbose:
                     print(f"DEBUG: Error dedenting source for {func.__name__}: {e}")
 
+            if func is not None:
+                source = self._refine_source_for_callable(func, source)
+                try:
+                    source = textwrap.dedent(source)
+                except Exception as e:
+                    if self.verbose:
+                        print(f"DEBUG: Error dedenting refined source for {func.__name__}: {e}")
+
             # Parse it into a Python AST
             tree = python_ast.parse(source)
 
             # Find the function definition
-            func_node = None
-            for node in python_ast.walk(tree):
-                if (
-                    isinstance(
-                        node, (python_ast.FunctionDef, python_ast.AsyncFunctionDef)
-                    )
-                    and node.name == func.__name__
-                ):
-                    func_node = node
-                    break
+            func_node = self._find_matching_function_node(tree, func)
 
             if func_node is None:
                 if self.verbose:
@@ -109,6 +109,87 @@ class FunctionExtractor:
                 traceback.print_exc()
             # Fallback: create a minimal code stub
             return self._create_minimal_code(func)
+
+    def _normalize_qualname(self, qualname: Optional[str]) -> Optional[str]:
+        if qualname is None:
+            return None
+        return qualname.replace(".<locals>", "")
+
+    def _refine_source_for_callable(self, func: Any, source: str) -> str:
+        """Narrow a source blob to the best matching callable body when possible."""
+        try:
+            refined = find_function_source_segment(
+                source,
+                name=getattr(func, "__name__", None),
+                qualname=getattr(func, "__qualname__", None),
+                lineno=getattr(getattr(func, "__code__", None), "co_firstlineno", None),
+            )
+        except Exception:
+            refined = None
+        return refined or source
+
+    def _iter_function_nodes_with_qualname(
+        self,
+        node: python_ast.AST,
+        stack: Optional[list[str]] = None,
+    ):
+        if stack is None:
+            stack = []
+
+        body = getattr(node, "body", None)
+        if not body:
+            return
+
+        for child in body:
+            if isinstance(child, python_ast.ClassDef):
+                yield from self._iter_function_nodes_with_qualname(
+                    child, stack + [child.name]
+                )
+            elif isinstance(child, (python_ast.FunctionDef, python_ast.AsyncFunctionDef)):
+                qualname = ".".join([*stack, child.name])
+                yield child, qualname
+                yield from self._iter_function_nodes_with_qualname(
+                    child, [*stack, child.name]
+                )
+
+    def _find_matching_function_node(
+        self,
+        tree: python_ast.AST,
+        func: Any,
+    ) -> Optional[python_ast.AST]:
+        if func is None:
+            for node, _qualname in self._iter_function_nodes_with_qualname(tree):
+                return node
+            return None
+
+        target_name = getattr(func, "__name__", None)
+        target_qualname = self._normalize_qualname(getattr(func, "__qualname__", None))
+        target_lineno = getattr(getattr(func, "__code__", None), "co_firstlineno", None)
+
+        candidates = []
+        for node, qualname in self._iter_function_nodes_with_qualname(tree):
+            if node.name != target_name:
+                continue
+            lineno = getattr(node, "lineno", None)
+            normalized_qualname = self._normalize_qualname(qualname)
+            candidates.append((node, normalized_qualname, lineno))
+
+        if not candidates:
+            return None
+
+        if isinstance(target_lineno, int):
+            line_matches = [node for node, _q, lineno in candidates if lineno == target_lineno]
+            if line_matches:
+                return line_matches[0]
+
+        if target_qualname:
+            qual_matches = [
+                node for node, qualname, _lineno in candidates if qualname == target_qualname
+            ]
+            if qual_matches:
+                return qual_matches[0]
+
+        return candidates[0][0]
 
     def _create_minimal_code(self, func: Any) -> pyflow_ast.Code:
         """Create a minimal pyflow AST Code node with an empty Suite."""

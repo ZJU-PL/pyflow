@@ -638,6 +638,35 @@ class _ResolverMixin:
             changed = self._merge_value_set(current, set(values)) or changed
         return changed
 
+    def _propagate_nonlocal_write(
+        self,
+        name: str,
+        values: Set[AbstractValue],
+    ) -> None:
+        """Push nonlocal writes into sibling closure bindings sharing the same cell."""
+        if not values or self._active_scope_context is None:
+            return
+
+        origin = self.closure_origins.get(self._active_scope_context)
+        if origin is None:
+            return
+
+        for dependent_scope_key in self.closure_dependents.get(
+            (origin[0], origin[1], name), set()
+        ):
+            dependent_scope = self.scopes[dependent_scope_key[0]]
+            param_inputs = self.scope_inputs.setdefault(
+                dependent_scope_key,
+                {
+                    **{param: set() for param in dependent_scope.params},
+                    **{closure_var: set() for closure_var in dependent_scope.closure_vars},
+                },
+            )
+            current = param_inputs.setdefault(name, set())
+            if self._merge_value_set(current, set(values), preserve_callables=True):
+                if self._active_changed_closure_scopes is not None:
+                    self._active_changed_closure_scopes.add(dependent_scope_key)
+
     def _invoke_targets(
         self,
         caller_scope: ScopeInfo,
@@ -800,37 +829,11 @@ class _ResolverMixin:
                                 arg_values[0], attr_names, set(arg_values[2])
                             )
                         elif callee_name == "<builtin>.delattr":
-                            for target_value in arg_values[0]:
-                                if target_value.kind == INSTANCE_KIND:
-                                    for attr_name in attr_names:
-                                        if attr_name in self.instance_fields.get(
-                                            target_value.name, {}
-                                        ):
-                                            del self.instance_fields[target_value.name][
-                                                attr_name
-                                            ]
-                                            if (
-                                                self._active_changed_instance_fields
-                                                is not None
-                                            ):
-                                                self._active_changed_instance_fields.add(
-                                                    (target_value.name, attr_name)
-                                                )
-                                elif target_value.kind == CLASS_KIND:
-                                    for attr_name in attr_names:
-                                        if attr_name in self.class_fields.get(
-                                            target_value.name, {}
-                                        ):
-                                            del self.class_fields[target_value.name][
-                                                attr_name
-                                            ]
-                                            if (
-                                                self._active_changed_class_fields
-                                                is not None
-                                            ):
-                                                self._active_changed_class_fields.add(
-                                                    (target_value.name, attr_name)
-                                                )
+                            # Keep reflective deletes monotone. Physically removing
+                            # abstract heap facts causes oscillation and false
+                            # negatives under may-analysis, so we conservatively
+                            # preserve existing attribute targets.
+                            pass
                     out.add(NONE_VALUE)
                 elif callee_name in {
                     "<builtin>.hasattr",
@@ -1098,7 +1101,7 @@ class _ResolverMixin:
                             continue
                         key_map = self.container_key_values.get(receiver.name, {})
                         for key_name in key_names:
-                            existing = key_map.pop(key_name, set())
+                            existing = key_map.get(key_name, set())
                             if existing:
                                 popped_values.update(existing)
                         if not key_names and key_map and len(key_map) <= 8:
@@ -1416,6 +1419,7 @@ class _ResolverMixin:
         callee_scope_name: str,
         callee_context: ContextKey,
         captured: Mapping[str, Set[AbstractValue]],
+        closure_origin: Optional[Tuple[str, ContextKey]] = None,
     ) -> bool:
         """Merge captured outer-scope values into closure-variable inputs."""
         scope = self.scopes[callee_scope_name]
@@ -1430,6 +1434,17 @@ class _ResolverMixin:
                 **{name: set() for name in scope.closure_vars},
             },
         )
+        if closure_origin is not None:
+            origin_scope, origin_context = closure_origin
+            normalized_origin = (
+                origin_scope,
+                self._normalize_context_for_scope(origin_scope, origin_context),
+            )
+            self.closure_origins[scope_key] = normalized_origin
+            for name in scope.closure_vars:
+                self.closure_dependents[
+                    (normalized_origin[0], normalized_origin[1], name)
+                ].add(scope_key)
         changed = False
         for name, values in captured.items():
             if name not in scope.closure_vars:
@@ -1496,6 +1511,7 @@ class _ResolverMixin:
                         set(values),
                         preserve_callables=True,
                     )
+                self._propagate_nonlocal_write(target.id, set(values))
                 return False
             if weak:
                 self._merge_value_set(

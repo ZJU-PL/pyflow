@@ -101,6 +101,14 @@ class TestClassHierarchy(unittest.TestCase):
         resolved = self.hierarchy.resolve_base_class("External", "mymodule", imports)
         self.assertEqual(resolved, "external.External")
 
+    def test_resolve_dotted_base_class_through_import_alias(self):
+        """Aliased module prefixes should be expanded before dotted-base lookup."""
+        self.hierarchy.register_class("Base", [], "pkg")
+
+        imports = {"p": "pkg"}
+        resolved = self.hierarchy.resolve_base_class("p.Base", "mymodule", imports)
+        self.assertEqual(resolved, "pkg.Base")
+
     def test_get_mro_simple_class(self):
         """Test MRO for a simple class."""
         self.hierarchy.register_class("Simple", [], "mod")

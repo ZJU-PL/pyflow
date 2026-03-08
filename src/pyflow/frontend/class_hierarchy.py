@@ -197,6 +197,13 @@ class ClassHierarchy:
             return imported_names[base_name]
         
         if "." in base_name:
+            if imported_names:
+                head, tail = base_name.split(".", 1)
+                imported_target = imported_names.get(head)
+                if imported_target:
+                    candidate = f"{imported_target}.{tail}"
+                    if candidate in self.classes:
+                        return candidate
             if base_name in self.classes:
                 return base_name
             return None
