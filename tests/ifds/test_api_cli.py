@@ -130,6 +130,82 @@ def test_run_taint_analysis_api_on_repo_backed_multi_file_snippet():
     assert [local.name for local in result.findings[0].tainted_arguments] == ["b"]
 
 
+def test_load_analysis_session_with_root_function_drops_unrelated_module_roots(tmp_path):
+    main = tmp_path / "main.py"
+    dead = tmp_path / "dead.py"
+    main.write_text(
+        """
+def main():
+    return 0
+"""
+    )
+    dead.write_text("x = source()\nsink(x)\n")
+
+    session = load_analysis_session([main, dead], verbose=False, root_function="main")
+
+    assert [ep.code.codeName() for ep, _ in session.program.entryPoints] == [
+        "main",
+        "main.<module>",
+    ]
+
+
+def test_run_taint_analysis_includes_module_top_level_of_requested_file(tmp_path):
+    target = tmp_path / "sample.py"
+    target.write_text(
+        """
+def source():
+    return 1
+
+def sink(x):
+    return x
+
+x = source()
+sink(x)
+
+def main():
+    return 0
+"""
+    )
+
+    _session, result = run_taint_analysis(
+        [target],
+        function="main",
+        source_names=["source"],
+        sink_names=["sink"],
+    )
+
+    assert len(result.findings) == 1
+
+
+def test_run_taint_analysis_includes_class_definition_time_code(tmp_path):
+    target = tmp_path / "sample.py"
+    target.write_text(
+        """
+def source():
+    return 1
+
+def sink(x):
+    return x
+
+class C:
+    x = source()
+    sink(x)
+
+def main():
+    return 0
+"""
+    )
+
+    _session, result = run_taint_analysis(
+        [target],
+        function="main",
+        source_names=["source"],
+        sink_names=["sink"],
+    )
+
+    assert len(result.findings) == 1
+
+
 def test_run_taint_analysis_handles_nested_and_computed_sink_expressions(tmp_path):
     target = tmp_path / "nested.py"
     target.write_text(

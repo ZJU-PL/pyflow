@@ -29,6 +29,8 @@ CONTAINER_KIND = "container"
 PARTIAL_KIND = "partial"
 BOUND_METHOD_KIND = "bound_method"
 BOUND_CLASS_METHOD_KIND = "bound_class_method"
+COROUTINE_KIND = "coroutine"
+GENERATOR_KIND = "generator"
 STRING_KIND = "string"
 NONE_KIND = "none"
 UNKNOWN_KIND = "unknown"
@@ -98,8 +100,14 @@ class ClassInfo:
     qualname: str
     module: str
     node: ast.ClassDef
+    parent_scope: Optional[str]
+    global_names: set[str]
+    nonlocal_names: set[str]
+    closure_vars: set[str]
     bases_raw: List[ast.expr]
+    metaclass_raw: Optional[ast.expr]
     bases: List[str]
+    metaclass: Optional[str]
     methods: Dict[str, str]
     static_methods: Set[str]
     class_methods: Set[str]
@@ -128,6 +136,8 @@ class FunctionInfo:
     closure_vars: set[str]
     param_annotations: Dict[str, ast.expr]
     return_annotation: Optional[ast.expr]
+    is_async: bool
+    is_generator: bool
 
 
 @dataclass
@@ -150,6 +160,9 @@ class ScopeInfo:
     parent_scope: Optional[str]
     closure_vars: set[str]
     param_annotations: Dict[str, ast.expr]
+    class_owner: Optional[str]
+    is_async: bool
+    is_generator: bool
 
 
 @dataclass
@@ -162,6 +175,7 @@ class ScopeResult:
     module_binding_changed: bool
     changed_instance_fields: Set[Tuple[str, str]]
     changed_class_fields: Set[Tuple[str, str]]
+    changed_container_state: bool
     nonlocal_binding_changed: bool
     singledispatch_changed: bool
 
@@ -222,6 +236,14 @@ def parse_partial(value: AbstractValue) -> Tuple[str, str]:
 
 def make_string(name: str) -> AbstractValue:
     return make_value(STRING_KIND, name)
+
+
+def make_coroutine(name: str) -> AbstractValue:
+    return make_value(COROUTINE_KIND, name)
+
+
+def make_generator(name: str) -> AbstractValue:
+    return make_value(GENERATOR_KIND, name)
 
 
 def make_none() -> AbstractValue:

@@ -100,12 +100,12 @@ class QueryContext:
         def maybe_add(code):
             if code is None:
                 return
-            code_id = id(code)
-            if code_id in seen:
+            key = self._dedupe_key(code)
+            if key in seen:
                 return
             aliases = self.code_aliases(code)
             if function_name in aliases:
-                seen.add(code_id)
+                seen.add(key)
                 matches.append(code)
 
         for code in getattr(self.program, "liveCode", []):
@@ -126,3 +126,17 @@ class QueryContext:
                 f"Function name '{function_name}' is ambiguous. Use one of: {choices}"
             )
         return matches[0]
+
+    def _dedupe_key(self, code):
+        name = self.code_name(code)
+        annotation = getattr(code, "annotation", None)
+        origin = getattr(annotation, "origin", ()) or ()
+        for item in origin:
+            if not isinstance(item, str):
+                continue
+            if item.startswith("source(") and item.endswith(")"):
+                payload = item[len("source(") : -1]
+                filename, _sep, lineno = payload.rpartition(":")
+                if filename:
+                    return ("source", name, os.path.realpath(filename), lineno or "?")
+        return ("id", id(code))

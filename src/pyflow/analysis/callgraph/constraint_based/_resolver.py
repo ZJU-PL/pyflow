@@ -12,8 +12,10 @@ from .model import (
     BOUND_METHOD_KIND,
     CLASS_KIND,
     CONTAINER_KIND,
+    COROUTINE_KIND,
     ContextKey,
     FUNC_KIND,
+    GENERATOR_KIND,
     INSTANCE_KIND,
     MODULE_KIND,
     NONE_KIND,
@@ -24,6 +26,7 @@ from .model import (
     UNKNOWN_KIND,
     UNKNOWN_VALUE,
     instance_class_name,
+    join_envs,
     make_bound_class_method,
     make_bound_method,
     make_class,
@@ -36,6 +39,9 @@ from .model import (
     parse_bound_method,
     parse_instance_name,
     parse_partial,
+    copy_env,
+    make_coroutine,
+    make_generator,
     make_string,
 )
 
@@ -469,6 +475,111 @@ class _ResolverMixin:
             return
         self.call_dependents[(callee_name, callee_context)].add(caller_scope_key)
 
+    def _suspended_value(
+        self,
+        kind: str,
+        callee_name: str,
+        callee_context: ContextKey,
+    ) -> AbstractValue:
+        key = (callee_name, callee_context, kind)
+        cached = self._suspended_value_cache.get(key)
+        if cached is not None:
+            return cached
+        context_label = self._context_label(callee_context)
+        token = f"{callee_name}[{context_label}]"
+        if kind == COROUTINE_KIND:
+            value = make_coroutine(token)
+            self.coroutine_sources[value.name] = (callee_name, callee_context)
+        else:
+            value = make_generator(token)
+            self.generator_sources[value.name] = (callee_name, callee_context)
+        self._suspended_value_cache[key] = value
+        return value
+
+    def _materialize_suspended_values(
+        self,
+        values: Iterable[AbstractValue],
+        *,
+        expected_kind: str,
+        caller_scope: ScopeInfo,
+        caller_context: ContextKey,
+        env: Dict[str, Set[AbstractValue]],
+        input_changed_scope_contexts: Set[Tuple[str, ContextKey]],
+    ) -> Set[AbstractValue]:
+        out: Set[AbstractValue] = set()
+        source_map = (
+            self.coroutine_sources if expected_kind == COROUTINE_KIND else self.generator_sources
+        )
+        caller_scope_key = (
+            caller_scope.name,
+            self._normalize_context_for_scope(caller_scope.name, caller_context),
+        )
+        for value in values:
+            if value.kind != expected_kind:
+                continue
+            source = source_map.get(value.name)
+            if source is None:
+                continue
+            callee_name, callee_context = source
+            if (callee_name, callee_context) not in self._analyzed_scope_contexts:
+                input_changed_scope_contexts.add((callee_name, callee_context))
+            self._add_call_dependency(callee_name, callee_context, caller_scope_key)
+            out.update(self.scope_returns[(callee_name, callee_context)])
+            self._apply_callee_side_effects(callee_name, callee_context, env)
+        return out
+
+    def _invoke_with_implicit_receiver(
+        self,
+        callee_name: str,
+        receiver_values: Set[AbstractValue],
+        caller_scope: ScopeInfo,
+        caller_context: ContextKey,
+        call_node: ast.Call,
+        env: Dict[str, Set[AbstractValue]],
+        callees: Set[str],
+        input_changed_scope_contexts: Set[Tuple[str, ContextKey]],
+        arg_values: List[Set[AbstractValue]],
+        kwarg_values: Mapping[str, Set[AbstractValue]],
+        star_arg_values: Optional[List[Set[AbstractValue]]] = None,
+        dynamic_kwarg_values: Optional[Set[AbstractValue]] = None,
+    ) -> Set[AbstractValue]:
+        out: Set[AbstractValue] = set()
+        caller_scope_key = (
+            caller_scope.name,
+            self._normalize_context_for_scope(caller_scope.name, caller_context),
+        )
+        callees.add(callee_name)
+        if callee_name not in self.scopes:
+            out.add(UNKNOWN_VALUE)
+            return out
+        callee_context = self._normalize_context_for_scope(
+            callee_name,
+            self._derive_callee_context(caller_scope.name, caller_context, call_node),
+        )
+        changed = self._bind_call_arguments(
+            callee_name,
+            callee_context,
+            [receiver_values] + arg_values,
+            kwarg_values,
+            star_arg_values=star_arg_values,
+            dynamic_kwarg_values=dynamic_kwarg_values,
+        )
+        if changed:
+            input_changed_scope_contexts.add((callee_name, callee_context))
+        if (callee_name, callee_context) not in self._analyzed_scope_contexts:
+            input_changed_scope_contexts.add((callee_name, callee_context))
+        function_info = self.functions.get(callee_name)
+        if function_info and function_info.is_async:
+            out.add(self._suspended_value(COROUTINE_KIND, callee_name, callee_context))
+            return out
+        if function_info and function_info.is_generator:
+            out.add(self._suspended_value(GENERATOR_KIND, callee_name, callee_context))
+            return out
+        self._add_call_dependency(callee_name, callee_context, caller_scope_key)
+        out.update(self.scope_returns[(callee_name, callee_context)])
+        self._apply_callee_side_effects(callee_name, callee_context, env)
+        return out
+
     def _invoke_named_function(
         self,
         callee_name: str,
@@ -526,6 +637,12 @@ class _ResolverMixin:
             input_changed_scope_contexts.add((callee_name, callee_context))
         if (callee_name, callee_context) not in self._analyzed_scope_contexts:
             input_changed_scope_contexts.add((callee_name, callee_context))
+        if callee_function_info and callee_function_info.is_async:
+            out.add(self._suspended_value(COROUTINE_KIND, callee_name, callee_context))
+            return out
+        if callee_function_info and callee_function_info.is_generator:
+            out.add(self._suspended_value(GENERATOR_KIND, callee_name, callee_context))
+            return out
         self._add_call_dependency(callee_name, callee_context, caller_scope_key)
         out.update(self.scope_returns[(callee_name, callee_context)])
         self._apply_callee_side_effects(callee_name, callee_context, env)
@@ -598,6 +715,128 @@ class _ResolverMixin:
                             (target_value.name, attr_name)
                         )
 
+    def _note_container_state_changed(self) -> None:
+        if self._active_changed_container_state is not None:
+            self._active_changed_container_state = True
+
+    def _mark_container_key_maybe_missing(
+        self,
+        target_values: Iterable[AbstractValue],
+        key_names: Set[str],
+    ) -> None:
+        normalized_keys = set(key_names) if key_names else {"*"}
+        changed = False
+        for target_value in target_values:
+            if target_value.kind != CONTAINER_KIND:
+                continue
+            missing_keys = self.container_maybe_missing_keys[target_value.name]
+            before = len(missing_keys)
+            missing_keys.update(normalized_keys)
+            changed = changed or len(missing_keys) != before
+        if changed:
+            self._note_container_state_changed()
+
+    def _clear_container_key_maybe_missing(
+        self,
+        target_values: Iterable[AbstractValue],
+        key_names: Set[str],
+    ) -> None:
+        if not key_names:
+            return
+        changed = False
+        for target_value in target_values:
+            if target_value.kind != CONTAINER_KIND:
+                continue
+            missing_keys = self.container_maybe_missing_keys.get(target_value.name)
+            if not missing_keys:
+                continue
+            for key_name in key_names:
+                if key_name in missing_keys:
+                    missing_keys.discard(key_name)
+                    changed = True
+            if "*" in missing_keys:
+                missing_keys.discard("*")
+                changed = True
+        if changed:
+            self._note_container_state_changed()
+
+    def _container_key_maybe_missing(
+        self,
+        container_name: str,
+        key_names: Set[str],
+    ) -> bool:
+        missing_keys = self.container_maybe_missing_keys.get(container_name, set())
+        if not key_names:
+            return bool(missing_keys)
+        return "*" in missing_keys or any(key_name in missing_keys for key_name in key_names)
+
+    def _mark_attribute_maybe_missing(
+        self,
+        target_values: Iterable[AbstractValue],
+        attr_names: Set[str],
+    ) -> None:
+        for target_value in target_values:
+            if target_value.kind == INSTANCE_KIND:
+                missing_fields = self.instance_maybe_missing_fields[target_value.name]
+                for attr_name in attr_names:
+                    if attr_name in missing_fields:
+                        continue
+                    missing_fields.add(attr_name)
+                    if self._active_changed_instance_fields is not None:
+                        self._active_changed_instance_fields.add(
+                            (target_value.name, attr_name)
+                        )
+            elif target_value.kind == CLASS_KIND:
+                missing_fields = self.class_maybe_missing_fields[target_value.name]
+                for attr_name in attr_names:
+                    if attr_name in missing_fields:
+                        continue
+                    missing_fields.add(attr_name)
+                    if self._active_changed_class_fields is not None:
+                        self._active_changed_class_fields.add(
+                            (target_value.name, attr_name)
+                        )
+
+    def _clear_attribute_maybe_missing(
+        self,
+        target_values: Iterable[AbstractValue],
+        attr_names: Set[str],
+    ) -> None:
+        for target_value in target_values:
+            if target_value.kind == INSTANCE_KIND:
+                missing_fields = self.instance_maybe_missing_fields.get(target_value.name)
+                if not missing_fields:
+                    continue
+                for attr_name in attr_names:
+                    missing_fields.discard(attr_name)
+            elif target_value.kind == CLASS_KIND:
+                missing_fields = self.class_maybe_missing_fields.get(target_value.name)
+                if not missing_fields:
+                    continue
+                for attr_name in attr_names:
+                    missing_fields.discard(attr_name)
+
+    def _attribute_maybe_missing(
+        self,
+        target_values: Iterable[AbstractValue],
+        attr_name: str,
+    ) -> bool:
+        for target_value in target_values:
+            if target_value.kind == INSTANCE_KIND:
+                instance_name = target_value.name
+                if attr_name in self.instance_maybe_missing_fields.get(instance_name, set()):
+                    return True
+                for klass in self._class_lookup_order(instance_class_name(target_value)):
+                    if attr_name in self.instance_maybe_missing_fields.get(klass, set()):
+                        return True
+                    if attr_name in self.class_maybe_missing_fields.get(klass, set()):
+                        return True
+            elif target_value.kind == CLASS_KIND:
+                for klass in self._class_lookup_order(target_value.name):
+                    if attr_name in self.class_maybe_missing_fields.get(klass, set()):
+                        return True
+        return False
+
     def _class_lookup_order(self, class_name: str) -> List[str]:
         """
         Return class lookup order.
@@ -631,9 +870,17 @@ class _ResolverMixin:
         changed = False
         scope_key = (callee_scope_name, callee_context)
         for name, values in self.scope_global_writes.get(scope_key, {}).items():
+            if not values:
+                changed = name in env or changed
+                env.pop(name, None)
+                continue
             current = env.setdefault(name, set())
             changed = self._merge_value_set(current, set(values)) or changed
         for name, values in self.scope_nonlocal_writes.get(scope_key, {}).items():
+            if not values:
+                changed = name in env or changed
+                env.pop(name, None)
+                continue
             current = env.setdefault(name, set())
             changed = self._merge_value_set(current, set(values)) or changed
         return changed
@@ -702,7 +949,14 @@ class _ResolverMixin:
                     callees,
                     input_changed_scope_contexts,
                 )
-                expanded = self._iterable_members(unpacked)
+                expanded = self._iterable_members(
+                    unpacked,
+                    scope=caller_scope,
+                    scope_context=caller_context,
+                    env=env,
+                    callees=callees,
+                    input_changed_scope_contexts=input_changed_scope_contexts,
+                )
                 star_arg_values.append(expanded or {UNKNOWN_VALUE})
                 continue
             arg_values.append(
@@ -829,17 +1083,76 @@ class _ResolverMixin:
                                 arg_values[0], attr_names, set(arg_values[2])
                             )
                         elif callee_name == "<builtin>.delattr":
-                            # Keep reflective deletes monotone. Physically removing
-                            # abstract heap facts causes oscillation and false
-                            # negatives under may-analysis, so we conservatively
-                            # preserve existing attribute targets.
-                            pass
+                            self._mark_attribute_maybe_missing(arg_values[0], attr_names)
                     out.add(NONE_VALUE)
                 elif callee_name in {
                     "<builtin>.hasattr",
                     "<builtin>.getattr",
                 }:
                     out.add(UNKNOWN_VALUE)
+                elif callee_name == "<builtin>.exec":
+                    if arg_values:
+                        merged_env = copy_env(env)
+                        for code_value in arg_values[0]:
+                            if code_value.kind != STRING_KIND:
+                                continue
+                            try:
+                                parsed = ast.parse(code_value.name)
+                            except SyntaxError:
+                                continue
+                            (
+                                branch_env,
+                                _branch_returns,
+                                branch_calls,
+                                branch_inputs,
+                                _branch_instance_changed,
+                                _branch_class_changed,
+                                branch_globals,
+                                branch_nonlocals,
+                                _branch_fallthrough,
+                            ) = self._process_block(
+                                caller_scope,
+                                caller_context,
+                                parsed.body,
+                                copy_env(env),
+                            )
+                            merged_env = join_envs(merged_env, branch_env)
+                            callees.update(branch_calls)
+                            input_changed_scope_contexts.update(branch_inputs)
+                            for name, values in branch_globals.items():
+                                if values:
+                                    merged_env[name] = set(values)
+                                else:
+                                    merged_env.pop(name, None)
+                            for name, values in branch_nonlocals.items():
+                                if values:
+                                    merged_env[name] = set(values)
+                                else:
+                                    merged_env.pop(name, None)
+                        env.clear()
+                        env.update(merged_env)
+                    out.add(NONE_VALUE)
+                elif callee_name == "<builtin>.eval":
+                    if arg_values:
+                        for code_value in arg_values[0]:
+                            if code_value.kind != STRING_KIND:
+                                continue
+                            try:
+                                parsed = ast.parse(code_value.name, mode="eval")
+                            except SyntaxError:
+                                continue
+                            out.update(
+                                self._eval_expr(
+                                    caller_scope,
+                                    caller_context,
+                                    parsed.body,
+                                    env,
+                                    callees,
+                                    input_changed_scope_contexts,
+                                )
+                            )
+                    if not out:
+                        out.add(UNKNOWN_VALUE)
                 elif callee_name == "functools.partial":
                     if arg_values:
                         for callback in arg_values[0]:
@@ -997,16 +1310,23 @@ class _ResolverMixin:
                                     source_dicts.add(value.name)
                         for receiver_dict in receiver_dicts:
                             for source_dict in source_dicts:
-                                self.container_elements[receiver_dict].update(
-                                    self.container_elements.get(source_dict, set())
+                                changed = self._merge_value_set(
+                                    self.container_elements[receiver_dict],
+                                    set(self.container_elements.get(source_dict, set())),
+                                    preserve_callables=True,
                                 )
+                                if changed:
+                                    self._note_container_state_changed()
                                 source_key_map = self.container_key_values.get(
                                     source_dict, {}
                                 )
                                 for key_name, key_values in source_key_map.items():
-                                    self.container_key_values[receiver_dict][
-                                        key_name
-                                    ] = set(key_values)
+                                    if self._merge_value_set(
+                                        self.container_key_values[receiver_dict][key_name],
+                                        set(key_values),
+                                        preserve_callables=True,
+                                    ):
+                                        self._note_container_state_changed()
                     out.add(UNKNOWN_VALUE)
                 elif callee_name in {
                     "<**PyDict**>.items",
@@ -1029,13 +1349,22 @@ class _ResolverMixin:
                     if arg_values:
                         key_names = self._string_constants(arg_values[0])
                     matched_values: Set[AbstractValue] = set()
+                    maybe_missing = False
                     for receiver in receiver_values:
                         if receiver.kind != CONTAINER_KIND:
                             continue
                         key_map = self.container_key_values.get(receiver.name, {})
                         if key_names:
                             for key_name in key_names:
-                                matched_values.update(key_map.get(key_name, set()))
+                                existing = key_map.get(key_name, set())
+                                if existing:
+                                    matched_values.update(existing)
+                                else:
+                                    maybe_missing = True
+                            maybe_missing = (
+                                maybe_missing
+                                or self._container_key_maybe_missing(receiver.name, key_names)
+                            )
                         else:
                             if key_map and len(key_map) <= 8:
                                 for key_values in key_map.values():
@@ -1044,11 +1373,12 @@ class _ResolverMixin:
                                 matched_values.update(
                                     self.container_elements.get(receiver.name, set())
                                 )
+                            maybe_missing = True
                     if matched_values:
                         out.update(matched_values)
-                    elif len(arg_values) >= 2:
+                    if len(arg_values) >= 2 and (maybe_missing or not matched_values):
                         out.update(arg_values[1])
-                    else:
+                    elif not matched_values:
                         out.add(UNKNOWN_VALUE)
                 elif callee_name == "<**PyDict**>.setdefault":
                     receiver_values: Set[AbstractValue] = set()
@@ -1064,24 +1394,41 @@ class _ResolverMixin:
                     key_names = self._string_constants(arg_values[0]) if arg_values else set()
                     default_values = arg_values[1] if len(arg_values) >= 2 else {UNKNOWN_VALUE}
                     matched_values: Set[AbstractValue] = set()
+                    maybe_missing = False
                     for receiver in receiver_values:
                         if receiver.kind != CONTAINER_KIND:
                             continue
                         key_map = self.container_key_values.get(receiver.name, {})
-                        for key_name in key_names:
-                            existing = key_map.get(key_name, set())
-                            if existing:
-                                matched_values.update(existing)
-                            else:
-                                self._merge_value_set(
-                                    self.container_key_values[receiver.name][key_name],
-                                    set(default_values),
-                                )
-                                self._merge_value_set(
-                                    self.container_elements[receiver.name],
-                                    set(default_values),
-                                )
-                    out.update(matched_values or default_values)
+                        if key_names:
+                            for key_name in key_names:
+                                existing = key_map.get(key_name, set())
+                                if existing:
+                                    matched_values.update(existing)
+                                else:
+                                    maybe_missing = True
+                                    if self._merge_value_set(
+                                        self.container_key_values[receiver.name][key_name],
+                                        set(default_values),
+                                        preserve_callables=True,
+                                    ):
+                                        self._note_container_state_changed()
+                                    if self._merge_value_set(
+                                        self.container_elements[receiver.name],
+                                        set(default_values),
+                                        preserve_callables=True,
+                                    ):
+                                        self._note_container_state_changed()
+                            maybe_missing = (
+                                maybe_missing
+                                or self._container_key_maybe_missing(receiver.name, key_names)
+                            )
+                        else:
+                            matched_values.update(self.container_elements.get(receiver.name, set()))
+                            maybe_missing = True
+                    if matched_values:
+                        out.update(matched_values)
+                    if maybe_missing or not matched_values:
+                        out.update(default_values)
                 elif callee_name == "<**PyDict**>.pop":
                     receiver_values: Set[AbstractValue] = set()
                     if isinstance(call_node.func, ast.Attribute):
@@ -1096,18 +1443,37 @@ class _ResolverMixin:
                     key_names = self._string_constants(arg_values[0]) if arg_values else set()
                     default_values = arg_values[1] if len(arg_values) >= 2 else set()
                     popped_values: Set[AbstractValue] = set()
+                    maybe_missing = False
                     for receiver in receiver_values:
                         if receiver.kind != CONTAINER_KIND:
                             continue
                         key_map = self.container_key_values.get(receiver.name, {})
-                        for key_name in key_names:
-                            existing = key_map.get(key_name, set())
-                            if existing:
-                                popped_values.update(existing)
-                        if not key_names and key_map and len(key_map) <= 8:
-                            for existing in key_map.values():
-                                popped_values.update(existing)
-                    out.update(popped_values or default_values or {UNKNOWN_VALUE})
+                        if key_names:
+                            for key_name in key_names:
+                                existing = key_map.get(key_name, set())
+                                if existing:
+                                    popped_values.update(existing)
+                                else:
+                                    maybe_missing = True
+                            maybe_missing = (
+                                maybe_missing
+                                or self._container_key_maybe_missing(receiver.name, key_names)
+                            )
+                        else:
+                            if key_map and len(key_map) <= 8:
+                                for existing in key_map.values():
+                                    popped_values.update(existing)
+                            else:
+                                popped_values.update(
+                                    self.container_elements.get(receiver.name, set())
+                                )
+                            maybe_missing = True
+                    if popped_values:
+                        out.update(popped_values)
+                    if default_values and (maybe_missing or not popped_values):
+                        out.update(default_values)
+                    elif not popped_values and not default_values:
+                        out.add(UNKNOWN_VALUE)
                 else:
                     last_segment = callee_name.rsplit(".", 1)[-1]
                     if last_segment and last_segment[0].isupper():
@@ -1118,6 +1484,7 @@ class _ResolverMixin:
             elif target.kind == CLASS_KIND:
                 resolved_callable = True
                 class_name = target.name
+                class_info = self.classes.get(class_name)
                 if self.options.allocation_site_sensitive_instances:
                     line = getattr(call_node, "lineno", -1)
                     col = getattr(call_node, "col_offset", -1)
@@ -1129,10 +1496,49 @@ class _ResolverMixin:
                     instance_value = make_instance(class_name, alloc_site)
                 else:
                     instance_value = make_instance(class_name)
-                out.add(instance_value)
+                raw_context = self._derive_callee_context(
+                    caller_scope.name, caller_context, call_node
+                )
                 init_name: Optional[str] = None
+                new_name: Optional[str] = None
+                constructed_values: Set[AbstractValue] = set()
+                init_receivers: Set[AbstractValue] = {instance_value}
+                metaclass_results: Set[AbstractValue] = set()
+                if (
+                    class_info is not None
+                    and class_info.metaclass
+                    and class_info.metaclass != "type"
+                ):
+                    metaclass_call = f"{class_info.metaclass}.__call__"
+                    if metaclass_call in self.scopes:
+                        metaclass_results.update(
+                            self._invoke_with_implicit_receiver(
+                                metaclass_call,
+                                {make_class(class_name)},
+                                caller_scope,
+                                caller_context,
+                                call_node,
+                                env,
+                                callees,
+                                input_changed_scope_contexts,
+                                arg_values,
+                                kwarg_values,
+                                star_arg_values=star_arg_values,
+                                dynamic_kwarg_values=dynamic_kwarg_values,
+                            )
+                        )
+                use_default_constructor = not metaclass_results or any(
+                    value.kind == UNKNOWN_KIND for value in metaclass_results
+                )
+                constructed_values.update(metaclass_results)
                 class_order = self._class_lookup_order(class_name)
                 for klass in class_order:
+                    new_candidate = f"{klass}.__new__"
+                    if new_name is None:
+                        if new_candidate in self.scopes:
+                            new_name = new_candidate
+                        elif klass not in self.classes and "." in klass:
+                            new_name = new_candidate
                     candidate = f"{klass}.__init__"
                     if candidate in self.scopes:
                         init_name = candidate
@@ -1140,12 +1546,53 @@ class _ResolverMixin:
                     if klass not in self.classes and "." in klass:
                         init_name = candidate
                         break
-                if init_name is not None:
-                    callees.add(init_name)
-                    implicit_values = [{instance_value}] + arg_values
-                    raw_context = self._derive_callee_context(
-                        caller_scope.name, caller_context, call_node
+
+                if use_default_constructor and new_name is not None:
+                    callees.add(new_name)
+                    callee_context = self._normalize_context_for_scope(
+                        new_name, raw_context
                     )
+                    if new_name in self.scopes:
+                        changed = self._bind_call_arguments(
+                            new_name,
+                            callee_context,
+                            [{make_class(class_name)}] + arg_values,
+                            kwarg_values,
+                            star_arg_values=star_arg_values,
+                            dynamic_kwarg_values=dynamic_kwarg_values,
+                        )
+                        if changed:
+                            input_changed_scope_contexts.add((new_name, callee_context))
+                        if (new_name, callee_context) not in self._analyzed_scope_contexts:
+                            input_changed_scope_contexts.add((new_name, callee_context))
+                        self._add_call_dependency(new_name, callee_context, caller_scope_key)
+                        new_returns = set(self.scope_returns[(new_name, callee_context)])
+                        if new_returns:
+                            constructed_values = set(new_returns)
+                            matching_receivers = {
+                                value
+                                for value in new_returns
+                                if value.kind == INSTANCE_KIND
+                                and self._matches_type_values(
+                                    value, {make_class(class_name)}
+                                )
+                            }
+                            if matching_receivers:
+                                init_receivers = matching_receivers
+                            elif any(
+                                value.kind == UNKNOWN_KIND for value in new_returns
+                            ):
+                                init_receivers = {instance_value}
+                            else:
+                                init_receivers = set()
+                        self._apply_callee_side_effects(new_name, callee_context, env)
+
+                if use_default_constructor:
+                    constructed_values.add(instance_value)
+                out.update(constructed_values)
+                if use_default_constructor and init_name is not None and init_receivers:
+                    callees.add(init_name)
+                    implicit_values = [init_receivers] + arg_values
                     callee_context = self._normalize_context_for_scope(
                         init_name, raw_context
                     )
@@ -1200,6 +1647,21 @@ class _ResolverMixin:
                     input_changed_scope_contexts.add((method_name, callee_context))
                 if (method_name, callee_context) not in self._analyzed_scope_contexts:
                     input_changed_scope_contexts.add((method_name, callee_context))
+                function_info = self.functions.get(method_name)
+                if function_info and function_info.is_async:
+                    out.add(
+                        self._suspended_value(
+                            COROUTINE_KIND, method_name, callee_context
+                        )
+                    )
+                    continue
+                if function_info and function_info.is_generator:
+                    out.add(
+                        self._suspended_value(
+                            GENERATOR_KIND, method_name, callee_context
+                        )
+                    )
+                    continue
                 self._add_call_dependency(method_name, callee_context, caller_scope_key)
                 out.update(self.scope_returns[(method_name, callee_context)])
                 self._apply_callee_side_effects(method_name, callee_context, env)
@@ -1227,6 +1689,21 @@ class _ResolverMixin:
                     input_changed_scope_contexts.add((method_name, callee_context))
                 if (method_name, callee_context) not in self._analyzed_scope_contexts:
                     input_changed_scope_contexts.add((method_name, callee_context))
+                function_info = self.functions.get(method_name)
+                if function_info and function_info.is_async:
+                    out.add(
+                        self._suspended_value(
+                            COROUTINE_KIND, method_name, callee_context
+                        )
+                    )
+                    continue
+                if function_info and function_info.is_generator:
+                    out.add(
+                        self._suspended_value(
+                            GENERATOR_KIND, method_name, callee_context
+                        )
+                    )
+                    continue
                 self._add_call_dependency(method_name, callee_context, caller_scope_key)
                 out.update(self.scope_returns[(method_name, callee_context)])
                 self._apply_callee_side_effects(method_name, callee_context, env)
@@ -1263,6 +1740,27 @@ class _ResolverMixin:
                         input_changed_scope_contexts.add((call_name, callee_context))
                     if (call_name, callee_context) not in self._analyzed_scope_contexts:
                         input_changed_scope_contexts.add((call_name, callee_context))
+                    function_info = self.functions.get(call_name)
+                    if function_info and function_info.is_async:
+                        out.add(
+                            self._suspended_value(
+                                COROUTINE_KIND, call_name, callee_context
+                            )
+                        )
+                        resolved_callable = True
+                        if target_class_name not in self._invalid_mro_classes:
+                            break
+                        continue
+                    if function_info and function_info.is_generator:
+                        out.add(
+                            self._suspended_value(
+                                GENERATOR_KIND, call_name, callee_context
+                            )
+                        )
+                        resolved_callable = True
+                        if target_class_name not in self._invalid_mro_classes:
+                            break
+                        continue
                     self._add_call_dependency(call_name, callee_context, caller_scope_key)
                     out.update(self.scope_returns[(call_name, callee_context)])
                     self._apply_callee_side_effects(call_name, callee_context, env)
@@ -1765,12 +2263,17 @@ class _ResolverMixin:
                 changed = self._merge_value_set(
                     current, set(values), preserve_callables=True
                 ) or changed
+                if changed:
+                    self._note_container_state_changed()
                 for key_name in key_names:
                     keyed_current = self.container_key_values[base_value.name][key_name]
                     if weak:
-                        changed = self._merge_value_set(
+                        key_changed = self._merge_value_set(
                             keyed_current, set(values), preserve_callables=True
-                        ) or changed
+                        )
+                        changed = key_changed or changed
+                        if key_changed:
+                            self._note_container_state_changed()
                     else:
                         replacement = self._cap_values(
                             set(values), preserve_callables=True
@@ -1778,6 +2281,7 @@ class _ResolverMixin:
                         if keyed_current != replacement:
                             self.container_key_values[base_value.name][key_name] = replacement
                             changed = True
+                            self._note_container_state_changed()
             return changed
 
         return False
@@ -2062,13 +2566,21 @@ class _ResolverMixin:
         if isinstance(expr, ast.Name):
             return set(env.get(expr.id, set()))
         if isinstance(expr, ast.Attribute):
-            if isinstance(expr.value, ast.Name):
-                base = env.get(expr.value.id, set())
-                if len(base) == 1:
-                    base_value = next(iter(base))
-                    if base_value.kind == MODULE_KIND:
-                        module_bindings = self.module_bindings.get(base_value.name, {})
-                        return set(module_bindings.get(expr.attr, set()))
+            base_values = self._eval_expr_static(expr.value, env)
+            out: Set[AbstractValue] = set()
+            for base_value in base_values:
+                if base_value.kind == MODULE_KIND:
+                    module_bindings = self.module_bindings.get(base_value.name, {})
+                    out.update(module_bindings.get(expr.attr, set()))
+                    nested_module = f"{base_value.name}.{expr.attr}"
+                    if nested_module in self.modules:
+                        out.add(make_module(nested_module))
+                elif base_value.kind == CLASS_KIND:
+                    out.update(self.class_fields.get(base_value.name, {}).get(expr.attr, set()))
+                    nested_class = f"{base_value.name}.{expr.attr}"
+                    if nested_class in self.classes:
+                        out.add(make_class(nested_class))
+            return out
         return set()
 
     def _register_imported_module_chain(self, module_name: str) -> None:

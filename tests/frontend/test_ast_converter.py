@@ -471,29 +471,27 @@ finally:
         result = self.converter._convert_node(node)
         self.assertIsInstance(result, pyflow_ast.Suite)
 
-    def test_convert_annassign_with_value_is_preserved(self):
-        """Annotated assignments should convert to AnnAssign."""
+    def test_convert_annassign_with_value_lowers_to_assign(self):
+        """Annotated assignments should preserve runtime assignment semantics."""
         source = "x: int = 1"
         tree = python_ast.parse(source)
         node = tree.body[0]
 
         result = self.converter._convert_node(node)
-        self.assertIsInstance(result, pyflow_ast.AnnAssign)
-        self.assertIsInstance(result.target, pyflow_ast.Local)
-        self.assertEqual(result.target.name, "x")
-        self.assertIsInstance(result.value, pyflow_ast.Existing)
+        self.assertIsInstance(result, pyflow_ast.Assign)
+        self.assertEqual(len(result.lcls), 1)
+        self.assertEqual(result.lcls[0].name, "x")
+        self.assertIsInstance(result.expr, pyflow_ast.Existing)
 
-    def test_convert_annassign_without_value_is_preserved(self):
-        """Annotation-only assignment should become AnnAssign(value=None)."""
+    def test_convert_annassign_without_value_lowers_to_noop(self):
+        """Annotation-only assignment should not introduce a broken AnnAssign node."""
         source = "x: int"
         tree = python_ast.parse(source)
         node = tree.body[0]
 
         result = self.converter._convert_node(node)
-        self.assertIsInstance(result, pyflow_ast.AnnAssign)
-        self.assertIsInstance(result.target, pyflow_ast.Local)
-        self.assertEqual(result.target.name, "x")
-        self.assertIsNone(result.value)
+        self.assertIsInstance(result, pyflow_ast.Suite)
+        self.assertFalse(result.blocks)
 
     def test_convert_with_statement(self):
         """Test converting with statement with proper context manager protocol."""

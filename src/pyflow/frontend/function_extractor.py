@@ -8,7 +8,7 @@ to PyFlow's internal representation for static analysis.
 import ast as python_ast
 import inspect
 import textwrap
-from typing import Any, Optional
+from typing import Any, Iterable, Optional
 
 from pyflow.language.python import ast as pyflow_ast
 from pyflow.language.python.annotations import CodeAnnotation
@@ -193,7 +193,15 @@ class FunctionExtractor:
 
     def _create_minimal_code(self, func: Any) -> pyflow_ast.Code:
         """Create a minimal pyflow AST Code node with an empty Suite."""
-        codeparams = pyflow_ast.CodeParameters(
+        codeparams = self._empty_code_parameters()
+        code = pyflow_ast.Code(func.__name__, codeparams, pyflow_ast.Suite([]))
+        code.annotation = self._make_code_annotation(
+            [f"minimal_code({func.__name__})"]
+        )
+        return code
+
+    def _empty_code_parameters(self) -> pyflow_ast.CodeParameters:
+        return pyflow_ast.CodeParameters(
             selfparam=None,
             posonlyparams=[],
             posonlynames=[],
@@ -205,17 +213,15 @@ class FunctionExtractor:
             returnparams=[pyflow_ast.Local("ret0")],
             type_params=None,
         )
-        suite = pyflow_ast.Suite([])
-        code = pyflow_ast.Code(func.__name__, codeparams, suite)
 
-        # Initialize the annotation properly
-        code.annotation = CodeAnnotation(
+    def _make_code_annotation(self, origin: list[str]) -> CodeAnnotation:
+        return CodeAnnotation(
             contexts=None,
             descriptive=False,
             primitive=False,
             staticFold=False,
             dynamicFold=False,
-            origin=[f"minimal_code({func.__name__})"],
+            origin=origin,
             live=None,
             killed=None,
             codeReads=None,
@@ -226,6 +232,21 @@ class FunctionExtractor:
             interpreter=False,
         )
 
+    def create_synthetic_code(
+        self,
+        name: str,
+        body_nodes: Iterable[python_ast.AST],
+        *,
+        filename: Optional[str] = None,
+        first_lineno: int = 1,
+        origin_tag: str,
+    ) -> pyflow_ast.Code:
+        body = self.ast_converter.convert_python_ast_to_pyflow(list(body_nodes))
+        code = pyflow_ast.Code(name, self._empty_code_parameters(), body)
+        origin = [f"{origin_tag}({name})"]
+        if filename:
+            origin.append(f"source({filename}:{first_lineno})")
+        code.annotation = self._make_code_annotation(origin)
         return code
 
     def _convert_python_function_to_pyflow(
@@ -276,24 +297,35 @@ class FunctionExtractor:
         except Exception:
             pass
 
-        code.annotation = CodeAnnotation(
-            contexts=None,
-            descriptive=False,
-            primitive=False,
-            staticFold=False,
-            dynamicFold=False,
-            origin=origin,
-            live=None,
-            killed=None,
-            codeReads=None,
-            codeModifies=None,
-            codeAllocates=None,
-            lowered=False,
-            runtime=False,
-            interpreter=False,
-        )
+        code.annotation = self._make_code_annotation(origin)
 
         return code
+
+    def _add_code_to_program(self, program: Program, code: pyflow_ast.Code) -> None:
+        if hasattr(program, "liveCode"):
+            program.liveCode.add(code)
+        else:
+            program.liveCode = {code}
+
+    def extract_module_body(
+        self,
+        body_nodes: Iterable[python_ast.AST],
+        program: Program,
+        *,
+        module_name: str,
+        filename: Optional[str] = None,
+    ) -> None:
+        body_nodes = list(body_nodes)
+        if not body_nodes:
+            return
+        code = self.create_synthetic_code(
+            f"{module_name}.<module>",
+            body_nodes,
+            filename=filename,
+            first_lineno=1,
+            origin_tag="synthetic_module",
+        )
+        self._add_code_to_program(program, code)
 
     def _convert_function_args(
         self, args_node: python_ast.arguments, func: Any
@@ -457,11 +489,7 @@ class FunctionExtractor:
             )
 
             # Add to program
-            if hasattr(program, "liveCode"):
-                program.liveCode.add(pyflow_code)
-            else:
-                # Create liveCode if it doesn't exist
-                program.liveCode = {pyflow_code}
+            self._add_code_to_program(program, pyflow_code)
 
             if self.verbose:
                 print(f"Added function {node.name} to program")
@@ -478,14 +506,16 @@ class FunctionExtractor:
         node: python_ast.ClassDef,
         program: Program,
         filename: Optional[str] = None,
+        *,
+        module_name: Optional[str] = None,
+        qualname: Optional[str] = None,
     ) -> None:
         """Extract information from a class definition."""
         try:
             if self.verbose:
                 print(f"Found class: {node.name}")
-            # For now, treat methods as additional code objects with qualified names.
-            # This provides method bodies to the analysis pipeline without requiring
-            # full class-object modeling in the interface.
+            qualname = qualname or node.name
+
             for child in node.body:
                 if isinstance(
                     child, (python_ast.FunctionDef, python_ast.AsyncFunctionDef)
@@ -493,13 +523,18 @@ class FunctionExtractor:
                     code = self._convert_python_function_to_pyflow(
                         child, None, filename=filename
                     )
-                    code.setCodeName(f"{node.name}.{child.name}")
-                    if hasattr(program, "liveCode"):
-                        program.liveCode.add(code)
-                    else:
-                        program.liveCode = {code}
+                    code.setCodeName(f"{qualname}.{child.name}")
+                    self._add_code_to_program(program, code)
                     if self.verbose:
-                        print(f"Added method {node.name}.{child.name} to program")
+                        print(f"Added method {qualname}.{child.name} to program")
+                elif isinstance(child, python_ast.ClassDef):
+                    self.extract_class(
+                        child,
+                        program,
+                        filename=filename,
+                        module_name=module_name,
+                        qualname=f"{qualname}.{child.name}",
+                    )
         except Exception as e:
             if self.verbose:
                 print(f"Error processing class {node.name}: {e}")

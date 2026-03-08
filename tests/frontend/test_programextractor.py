@@ -2,11 +2,13 @@
 
 import unittest
 import ast
+import tempfile
 from unittest.mock import Mock, patch
 
 from pyflow.application.context import CompilerContext
 from pyflow.application.program import Program
 from pyflow.api.entrypoints import InterfaceDeclaration, ExistingWrapper, nullWrapper
+from pyflow.analysis import ipa
 from pyflow.util.application.console import Console
 from pyflow.frontend.programextractor import (
     Extractor,
@@ -396,9 +398,10 @@ def outer2():
         method_eps = [
             ep
             for ep in program.interface.entryPoint
-            if ep.code.codeName() == "run"
+            if ep.code.codeName().endswith(".run")
         ]
         self.assertEqual(len(method_eps), 1)
+        self.assertTrue(method_eps[0].code.codeName().endswith("Service.run"))
         self.assertEqual(type(method_eps[0].selfarg).__name__, "ExistingWrapper")
         self.assertEqual(len(method_eps[0].args), 2)
 
@@ -438,15 +441,17 @@ def outer2():
         build_eps = [
             ep
             for ep in program.interface.entryPoint
-            if ep.code.codeName() == "build"
+            if ep.code.codeName().endswith(".build")
         ]
         util_eps = [
             ep
             for ep in program.interface.entryPoint
-            if ep.code.codeName() == "util"
+            if ep.code.codeName().endswith(".util")
         ]
         self.assertEqual(len(build_eps), 1)
         self.assertEqual(len(util_eps), 1)
+        self.assertTrue(build_eps[0].code.codeName().endswith("Service.build"))
+        self.assertTrue(util_eps[0].code.codeName().endswith("Service.util"))
         self.assertEqual(type(build_eps[0].selfarg).__name__, "ExistingWrapper")
         self.assertEqual(type(util_eps[0].selfarg).__name__, "ExistingWrapper")
         self.assertEqual(len(build_eps[0].args), 2)
@@ -631,6 +636,209 @@ class TestExtractProgram(unittest.TestCase):
         self.compiler.extractor = extractor
         extractProgram(self.compiler, self.program)
         # Should not raise an exception
+
+    def test_extract_program_adds_module_entrypoint_for_top_level_code(self):
+        """Files with only module-scope statements should still become entry roots."""
+        extractor = Extractor(
+            self.compiler,
+            verbose=False,
+            source_code={"pkg/mod.py": "x = source()\nsink(x)\n"},
+        )
+        self.compiler.extractor = extractor
+
+        extractProgram(self.compiler, self.program)
+
+        code_names = {code.codeName() for code in self.program.liveCode}
+        entry_names = {ep.code.codeName() for ep in self.program.entryPoints}
+        self.assertIn("pkg.mod.<module>", code_names)
+        self.assertIn("pkg.mod.<module>", entry_names)
+
+    def test_extract_program_does_not_duplicate_class_body_as_separate_code(self):
+        """Class bodies should be modeled via the module body, not a second synthetic root."""
+        extractor = Extractor(
+            self.compiler,
+            verbose=False,
+            source_code={
+                "pkg/mod.py": (
+                    "class C:\n"
+                    "    x = source()\n"
+                    "    sink(x)\n"
+                    "    def run(self):\n"
+                    "        return 1\n"
+                )
+            },
+        )
+        self.compiler.extractor = extractor
+
+        extractProgram(self.compiler, self.program)
+
+        code_names = {code.codeName() for code in self.program.liveCode}
+        self.assertNotIn("pkg.mod.C.<classbody>", code_names)
+
+    def test_extract_program_single_source_string_extracts_live_code(self):
+        """Single-source extraction should populate liveCode."""
+        extractor = Extractor(
+            self.compiler,
+            verbose=False,
+            source_code="def f():\n    return 1\n",
+        )
+        self.compiler.extractor = extractor
+
+        extractProgram(self.compiler, self.program)
+
+        self.assertIn("f", {code.codeName() for code in self.program.liveCode})
+
+    def test_extract_program_keeps_module_roots_available_with_interface(self):
+        """Synthetic module roots should stay available for callers that need top-level semantics."""
+        class Args:
+            dependency_strategy = "auto"
+            verbose = False
+            include_main_entry_points = True
+            search_paths = None
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            from pathlib import Path
+
+            main = Path(tmpdir) / "main.py"
+            dead = Path(tmpdir) / "dead.py"
+            main.write_text("def main():\n    return 0\n", encoding="utf-8")
+            dead.write_text("x = source()\nsink(x)\n", encoding="utf-8")
+
+            interface, sources = create_interface_from_paths([main, dead], Args())
+            self.program.interface = interface
+            self.compiler.extractor = Extractor(
+                self.compiler, verbose=False, source_code=sources
+            )
+
+            extractProgram(self.compiler, self.program)
+
+        self.assertEqual(
+            {ep.code.codeName() for ep in self.program.entryPoints},
+            {"dead.<module>", "main", "main.<module>"},
+        )
+
+    def test_method_entrypoints_use_qualified_names(self):
+        """Methods from different classes should remain distinguishable by code name."""
+        class Args:
+            dependency_strategy = "auto"
+            verbose = False
+            include_main_entry_points = True
+            search_paths = None
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            from pathlib import Path
+
+            sample = Path(tmpdir) / "sample.py"
+            sample.write_text(
+                "class A:\n"
+                "    def run(self):\n"
+                "        return 1\n\n"
+                "class B:\n"
+                "    def run(self):\n"
+                "        return 2\n",
+                encoding="utf-8",
+            )
+
+            interface, sources = create_interface_from_paths([sample], Args())
+            self.program.interface = interface
+            self.compiler.extractor = Extractor(
+                self.compiler, verbose=False, source_code=sources
+            )
+            extractProgram(self.compiler, self.program)
+
+        method_names = sorted(
+            ep.code.codeName()
+            for ep in self.program.entryPoints
+            if ep.code.codeName().endswith(".run")
+        )
+        self.assertEqual(method_names, ["sample.A.run", "sample.B.run"])
+
+    def test_queries_resolve_cfg_without_duplicate_function_ambiguity(self):
+        """Function lookups should deduplicate equivalent liveCode/interface code objects."""
+        class Args:
+            dependency_strategy = "auto"
+            verbose = False
+            include_main_entry_points = True
+            search_paths = None
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            from pathlib import Path
+
+            sample = Path(tmpdir) / "sample.py"
+            sample.write_text(
+                "def main():\n"
+                "    return 0\n",
+                encoding="utf-8",
+            )
+
+            interface, sources = create_interface_from_paths([sample], Args())
+            self.program.interface = interface
+            self.compiler.extractor = Extractor(
+                self.compiler, verbose=False, source_code=sources
+            )
+            extractProgram(self.compiler, self.program)
+
+        cfg = self.program.get_queries(self.compiler).get_cfg("main")
+        self.assertEqual(cfg.code.codeName(), "main")
+
+
+class TestFrontendPipelineCompatibility(unittest.TestCase):
+    def _build_program(self, source: str) -> tuple[CompilerContext, Program]:
+        class Args:
+            dependency_strategy = "auto"
+            verbose = False
+            include_main_entry_points = True
+            search_paths = None
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            from pathlib import Path
+
+            sample = Path(tmpdir) / "sample.py"
+            sample.write_text(source, encoding="utf-8")
+
+            interface, sources = create_interface_from_paths([sample], Args())
+            compiler = CompilerContext(Console())
+            compiler.extractor = Extractor(
+                compiler, verbose=False, source_code=sources
+            )
+            program = Program()
+            program.interface = interface
+            extractProgram(compiler, program)
+            return compiler, program
+
+    def test_ipa_accepts_namedexpr(self):
+        compiler, program = self._build_program(
+            "def f(xs):\n"
+            "    if (n := len(xs)) > 0:\n"
+            "        return n\n"
+            "    return 0\n"
+        )
+        ipa.evaluate(compiler, program)
+
+    def test_ipa_accepts_await(self):
+        compiler, program = self._build_program(
+            "async def f(x):\n"
+            "    return await g(x)\n"
+        )
+        ipa.evaluate(compiler, program)
+
+    def test_ipa_accepts_global_decl(self):
+        compiler, program = self._build_program(
+            "x = 0\n"
+            "def f():\n"
+            "    global x\n"
+            "    x = 1\n"
+            "    return x\n"
+        )
+        ipa.evaluate(compiler, program)
+
+    def test_ipa_accepts_annotated_assignment(self):
+        compiler, program = self._build_program(
+            "def f():\n"
+            "    x: int = 1\n"
+            "    return x\n"
+        )
+        ipa.evaluate(compiler, program)
 
 
 if __name__ == "__main__":

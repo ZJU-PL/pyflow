@@ -5,6 +5,7 @@ from __future__ import annotations
 from contextlib import nullcontext, redirect_stdout
 from dataclasses import dataclass
 import io
+import os
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Iterable, Sequence
@@ -50,6 +51,33 @@ def _entry_nodes_from_program(
     fallback_function: str | None = None,
 ):
     queries = session.program.get_queries(session.compiler)
+    if fallback_function is not None:
+        target_code = queries.context.resolve_function(fallback_function)
+        candidate_codes = [target_code]
+        target_source = _source_filename_from_code(target_code)
+        if target_source is not None:
+            for code in getattr(session.program, "liveCode", ()):
+                if code is target_code:
+                    continue
+                if not _is_synthetic_module_code(code):
+                    continue
+                if _source_filename_from_code(code) == target_source:
+                    candidate_codes.append(code)
+
+        entry_nodes = []
+        seen = set()
+        for code in candidate_codes:
+            try:
+                cfg = queries.graph_engine.get_cfg(code)
+            except Exception:
+                continue
+            node = session.adapter.supergraph.entry_of(cfg)
+            if node not in seen:
+                seen.add(node)
+                entry_nodes.append(node)
+        if entry_nodes:
+            return tuple(entry_nodes)
+
     entry_nodes = []
     seen = set()
     for entry_point in getattr(session.program, "entryPoints", ()):
@@ -68,11 +96,96 @@ def _entry_nodes_from_program(
     if entry_nodes:
         return tuple(entry_nodes)
 
-    if fallback_function is not None:
-        cfg = queries.graph_engine.get_cfg(fallback_function)
-        return (session.adapter.supergraph.entry_of(cfg),)
-
     raise ValueError("Unable to derive IFDS entry nodes from program entry points.")
+
+
+def _source_filename_from_code(code) -> str | None:
+    annotation = getattr(code, "annotation", None)
+    origin = getattr(annotation, "origin", ()) or ()
+    for item in origin:
+        if not isinstance(item, str):
+            continue
+        if not (item.startswith("source(") and item.endswith(")")):
+            continue
+        payload = item[len("source(") : -1]
+        filename, _sep, _lineno = payload.rpartition(":")
+        if filename:
+            return os.path.realpath(filename)
+    return None
+
+
+def _is_synthetic_module_code(code) -> bool:
+    annotation = getattr(code, "annotation", None)
+    origin = getattr(annotation, "origin", ()) or ()
+    return any(
+        isinstance(item, str) and item.startswith("synthetic_module(")
+        for item in origin
+    )
+
+
+def _restrict_program_entry_points(
+    compiler: CompilerContext,
+    program: Program,
+    function_name: str,
+) -> None:
+    queries = program.get_queries(compiler)
+    target_code = _resolve_requested_entry_code(program, queries, function_name)
+    target_source = _source_filename_from_code(target_code)
+    entry_points = []
+    target_module_present = False
+    for ep in getattr(program.interface, "entryPoint", ()):
+        code = getattr(ep, "code", None)
+        if code is None:
+            continue
+        if not _is_synthetic_module_code(code):
+            entry_points.append(ep)
+            continue
+        if target_source is not None and _source_filename_from_code(code) == target_source:
+            entry_points.append(ep)
+            target_module_present = True
+
+    from pyflow.api.entrypoints import nullWrapper
+
+    if target_source is not None and not target_module_present:
+        for code in getattr(program, "liveCode", ()):
+            if not _is_synthetic_module_code(code):
+                continue
+            if _source_filename_from_code(code) != target_source:
+                continue
+            ep = program.interface.createEntryPoint(
+                code,
+                nullWrapper,
+                (),
+                [],
+                nullWrapper,
+                nullWrapper,
+                None,
+            )
+            entry_points.append(ep)
+            break
+
+    program.interface.entryPoint = entry_points
+    program.entryPoints = entry_points
+
+
+def _resolve_requested_entry_code(program: Program, queries, function_name: str):
+    interface_matches = []
+    seen = set()
+    for ep in getattr(program.interface, "entryPoint", ()):
+        code = getattr(ep, "code", None)
+        if code is None or id(code) in seen:
+            continue
+        if function_name in queries.context.code_aliases(code):
+            interface_matches.append(code)
+            seen.add(id(code))
+
+    if len(interface_matches) == 1:
+        return interface_matches[0]
+    if len(interface_matches) > 1:
+        raise ValueError(
+            f"Function name '{function_name}' is ambiguous among interface entry points."
+        )
+    return queries.context.resolve_function(function_name)
 
 
 def load_analysis_session(
@@ -82,6 +195,7 @@ def load_analysis_session(
     dependency_strategy: str = "auto",
     search_paths: Sequence[str] | None = None,
     include_exceptional_edges: bool = True,
+    root_function: str | None = None,
 ) -> AnalysisSession:
     """Load source files into a PyFlow program and build CFGs for all live code."""
     files = [Path(path) for path in python_files]
@@ -90,13 +204,29 @@ def load_analysis_session(
 
     args = _path_args(verbose, dependency_strategy, search_paths)
     stdout = nullcontext() if verbose else redirect_stdout(io.StringIO())
+    preserved_codes = ()
     with stdout:
         program.interface, all_source_code = create_interface_from_paths(files, args)
         compiler.extractor = Extractor(compiler, verbose=verbose, source_code=all_source_code)
         extractProgram(compiler, program)
+        if root_function is not None:
+            queries = program.get_queries(compiler)
+            target_code = _resolve_requested_entry_code(program, queries, root_function)
+            target_source = _source_filename_from_code(target_code)
+            preserved_codes = tuple(
+                code
+                for code in program.liveCode
+                if _is_synthetic_module_code(code)
+                and target_source is not None
+                and _source_filename_from_code(code) == target_source
+            )
+        if root_function is not None:
+            _restrict_program_entry_points(compiler, program, root_function)
         Pipeline(use_pass_manager=True).run_custom_pipeline(
             compiler, program, ["ipa", "cpa"]
         )
+    if preserved_codes:
+        program.liveCode.update(preserved_codes)
     ensure_ifds_annotations_complete(tuple(program.liveCode))
 
     queries = program.get_queries(compiler)
@@ -126,6 +256,7 @@ def run_taint_analysis(
         dependency_strategy=dependency_strategy,
         search_paths=search_paths,
         include_exceptional_edges=include_exceptional_edges,
+        root_function=function,
     )
     queries = session.program.get_queries(session.compiler)
     result = analyze_taint(
@@ -156,6 +287,7 @@ def run_nullness_analysis(
         dependency_strategy=dependency_strategy,
         search_paths=search_paths,
         include_exceptional_edges=include_exceptional_edges,
+        root_function=function,
     )
     result = analyze_nullness(
         session.adapter,
@@ -183,6 +315,7 @@ def run_typestate_analysis(
         dependency_strategy=dependency_strategy,
         search_paths=search_paths,
         include_exceptional_edges=include_exceptional_edges,
+        root_function=function,
     )
     result = analyze_typestate(
         session.adapter,

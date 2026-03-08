@@ -116,10 +116,10 @@ class _CollectorMixin:
         local_names.update(stored_names)
         return {name for name in loaded_names if name not in local_names}
 
-    def _infer_global_nonlocal_names(
-        self, node: ast.FunctionDef | ast.AsyncFunctionDef
+    def _infer_scope_directives(
+        self, statements: Sequence[ast.stmt]
     ) -> tuple[set[str], set[str]]:
-        """Collect `global` and `nonlocal` declarations in direct function body."""
+        """Collect direct-scope `global` and `nonlocal` declarations."""
         global_names: Set[str] = set()
         nonlocal_names: Set[str] = set()
 
@@ -140,9 +140,83 @@ class _CollectorMixin:
                 return
 
         visitor = ScopeDirectiveVisitor()
-        for stmt in node.body:
+        for stmt in statements:
             visitor.visit(stmt)
         return set(global_names), set(nonlocal_names)
+
+    def _infer_global_nonlocal_names(
+        self, node: ast.FunctionDef | ast.AsyncFunctionDef
+    ) -> tuple[set[str], set[str]]:
+        """Collect `global` and `nonlocal` declarations in direct function body."""
+        return self._infer_scope_directives(node.body)
+
+    def _infer_class_closure_vars(self, node: ast.ClassDef) -> set[str]:
+        """Infer outer-scope names read while executing a class body."""
+        local_names: set[str] = set()
+        loaded_names: Set[str] = set()
+        global_names, nonlocal_names = self._infer_scope_directives(node.body)
+
+        class ClassBodyVisitor(ast.NodeVisitor):
+            def visit_Name(self, inner: ast.Name) -> None:
+                if isinstance(inner.ctx, ast.Load):
+                    loaded_names.add(inner.id)
+                elif isinstance(inner.ctx, (ast.Store, ast.Del)):
+                    local_names.add(inner.id)
+
+            def visit_FunctionDef(self, inner: ast.FunctionDef) -> None:
+                local_names.add(inner.name)
+                for decorator in inner.decorator_list:
+                    self.visit(decorator)
+                for default in inner.args.defaults:
+                    self.visit(default)
+                for default in inner.args.kw_defaults:
+                    if default is not None:
+                        self.visit(default)
+                if inner.returns is not None:
+                    self.visit(inner.returns)
+
+            def visit_AsyncFunctionDef(self, inner: ast.AsyncFunctionDef) -> None:
+                local_names.add(inner.name)
+                for decorator in inner.decorator_list:
+                    self.visit(decorator)
+                for default in inner.args.defaults:
+                    self.visit(default)
+                for default in inner.args.kw_defaults:
+                    if default is not None:
+                        self.visit(default)
+                if inner.returns is not None:
+                    self.visit(inner.returns)
+
+            def visit_ClassDef(self, inner: ast.ClassDef) -> None:
+                local_names.add(inner.name)
+                for base in inner.bases:
+                    self.visit(base)
+                for keyword in inner.keywords:
+                    self.visit(keyword.value)
+                for decorator in inner.decorator_list:
+                    self.visit(decorator)
+
+            def visit_Import(self, inner: ast.Import) -> None:
+                for alias in inner.names:
+                    local_names.add(alias.asname or alias.name.split(".")[0])
+
+            def visit_ImportFrom(self, inner: ast.ImportFrom) -> None:
+                for alias in inner.names:
+                    if alias.name == "*":
+                        continue
+                    local_names.add(alias.asname or alias.name)
+
+        visitor = ClassBodyVisitor()
+        for stmt in node.body:
+            visitor.visit(stmt)
+
+        closure = {
+            name
+            for name in loaded_names
+            if name not in local_names and name not in global_names
+        }
+        closure.update(nonlocal_names)
+        return closure
 
     def _collect_nested_functions(
         self,
@@ -169,6 +243,17 @@ class _CollectorMixin:
                     closure_vars=self._infer_closure_vars(stmt),
                 )
                 self._collect_nested_functions(module_name, nested_qualname, stmt.body)
+            elif isinstance(stmt, ast.ClassDef):
+                nested_qualname = f"{parent_qualname}.{stmt.name}"
+                self._collect_class_symbol(
+                    module_name,
+                    stmt,
+                    nested_qualname,
+                    parent_scope=parent_qualname,
+                    parent_class_qualname=(
+                        parent_qualname if parent_qualname in self.classes else None
+                    ),
+                )
 
             for body in self._iter_statement_bodies(stmt):
                 self._collect_nested_functions(module_name, parent_qualname, body)
@@ -178,6 +263,7 @@ class _CollectorMixin:
         module_name: str,
         node: ast.ClassDef,
         class_qualname: str,
+        parent_scope: Optional[str] = None,
         parent_class_qualname: Optional[str] = None,
     ) -> None:
         """
@@ -186,12 +272,22 @@ class _CollectorMixin:
         Nested classes are also published into parent class fields so attribute
         access like `A.B` can resolve.
         """
+        global_names, nonlocal_names = self._infer_scope_directives(node.body)
         class_info = ClassInfo(
             qualname=class_qualname,
             module=module_name,
             node=node,
+            parent_scope=parent_scope,
+            global_names=global_names,
+            nonlocal_names=nonlocal_names,
+            closure_vars=self._infer_class_closure_vars(node),
             bases_raw=list(node.bases),
+            metaclass_raw=next(
+                (keyword.value for keyword in node.keywords if keyword.arg == "metaclass"),
+                None,
+            ),
             bases=[],
+            metaclass=None,
             methods={},
             static_methods=set(),
             class_methods=set(),
@@ -209,6 +305,7 @@ class _CollectorMixin:
                     module_name,
                     child,
                     nested_qualname,
+                    parent_scope=class_qualname,
                     parent_class_qualname=class_qualname,
                 )
                 continue
@@ -223,6 +320,7 @@ class _CollectorMixin:
             is_classmethod = (
                 "classmethod" in decorator_names
                 or "builtins.classmethod" in decorator_names
+                or child.name == "__init_subclass__"
             )
             global_names, nonlocal_names = self._infer_global_nonlocal_names(child)
             self.functions[method_qualname] = self._build_function_info(
@@ -272,7 +370,12 @@ class _CollectorMixin:
                     self._collect_nested_functions(module_name, qualname, node.body)
                 elif isinstance(node, ast.ClassDef):
                     class_qualname = f"{module_name}.{node.name}"
-                    self._collect_class_symbol(module_name, node, class_qualname)
+                    self._collect_class_symbol(
+                        module_name,
+                        node,
+                        class_qualname,
+                        parent_scope=None,
+                    )
                     exports[node.name].add(make_class(class_qualname))
 
             self._collect_lambdas(module_name, module_info.tree)
@@ -376,6 +479,34 @@ class _CollectorMixin:
         closure_vars: Set[str],
     ) -> FunctionInfo:
         """Build a normalized `FunctionInfo` record from a function-like AST node."""
+        def _contains_yield(node: ast.AST) -> bool:
+            class YieldVisitor(ast.NodeVisitor):
+                def __init__(self) -> None:
+                    self.found = False
+
+                def visit_Yield(self, inner: ast.Yield) -> None:
+                    self.found = True
+
+                def visit_YieldFrom(self, inner: ast.YieldFrom) -> None:
+                    self.found = True
+
+                def visit_FunctionDef(self, inner: ast.FunctionDef) -> None:
+                    return
+
+                def visit_AsyncFunctionDef(self, inner: ast.AsyncFunctionDef) -> None:
+                    return
+
+                def visit_ClassDef(self, inner: ast.ClassDef) -> None:
+                    return
+
+            visitor = YieldVisitor()
+            if isinstance(node, ast.Lambda):
+                visitor.visit(node.body)
+            else:
+                for statement in node.body:  # type: ignore[attr-defined]
+                    visitor.visit(statement)
+            return visitor.found
+
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
             posonly_params = [arg.arg for arg in node.args.posonlyargs]
             pos_or_kw_params = [arg.arg for arg in node.args.args]
@@ -424,6 +555,8 @@ class _CollectorMixin:
             closure_vars=set(closure_vars),
             param_annotations=param_annotations,
             return_annotation=return_annotation,
+            is_async=isinstance(node, ast.AsyncFunctionDef),
+            is_generator=_contains_yield(node),
         )
 
     def _resolve_import_bindings(self) -> None:
@@ -456,6 +589,26 @@ class _CollectorMixin:
                     elif value.kind == "func" and "." in value.name:
                         resolved.append(value.name)
             class_info.bases = resolved
+            metaclass_values = (
+                self._eval_expr_static(class_info.metaclass_raw, bindings)
+                if class_info.metaclass_raw is not None
+                else set()
+            )
+            resolved_metaclass = next(
+                (
+                    value.name
+                    for value in metaclass_values
+                    if value.kind == CLASS_KIND
+                ),
+                None,
+            )
+            if resolved_metaclass is None:
+                for base_name in resolved:
+                    base_info = self.classes.get(base_name)
+                    if base_info and base_info.metaclass:
+                        resolved_metaclass = base_info.metaclass
+                        break
+            class_info.metaclass = resolved_metaclass or "type"
 
     def _initialize_scopes(self) -> None:
         """Convert collected symbols into executable `ScopeInfo` records."""
@@ -477,6 +630,32 @@ class _CollectorMixin:
                 parent_scope=None,
                 closure_vars=set(),
                 param_annotations={},
+                class_owner=None,
+                is_async=False,
+                is_generator=False,
+            )
+
+        for class_info in self.classes.values():
+            self.scopes[class_info.qualname] = ScopeInfo(
+                name=class_info.qualname,
+                module=class_info.module,
+                body=list(class_info.node.body),
+                posonly_params=[],
+                pos_or_kw_params=[],
+                kwonly_params=[],
+                params=[],
+                vararg=None,
+                kwarg=None,
+                method_self_param=None,
+                method_cls_param=None,
+                global_names=set(class_info.global_names),
+                nonlocal_names=set(class_info.nonlocal_names),
+                parent_scope=class_info.parent_scope,
+                closure_vars=set(class_info.closure_vars),
+                param_annotations={},
+                class_owner=class_info.qualname,
+                is_async=False,
+                is_generator=False,
             )
 
         for function_info in self.functions.values():
@@ -520,4 +699,7 @@ class _CollectorMixin:
                 parent_scope=function_info.parent_scope,
                 closure_vars=set(function_info.closure_vars),
                 param_annotations=dict(function_info.param_annotations),
+                class_owner=None,
+                is_async=function_info.is_async,
+                is_generator=function_info.is_generator,
             )

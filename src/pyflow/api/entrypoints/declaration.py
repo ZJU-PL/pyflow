@@ -234,6 +234,19 @@ class InterfaceDeclaration:
         meth = getattr(cls.typeobj, name)
         func = getattr(meth, "__func__", getattr(meth, "im_func", meth))
         fobj, code = extractor.getObjectCall(func)
+        class_info = getattr(cls.typeobj, "__pyflow_class_info__", None)
+        qualified_class = None
+        if isinstance(class_info, dict):
+            qualified_class = class_info.get("qualname")
+        if not qualified_class:
+            qualname = getattr(cls.typeobj, "__qualname__", cls.typeobj.__name__)
+            module = getattr(cls.typeobj, "__module__", "")
+            if module and not qualname.startswith(f"{module}."):
+                qualified_class = f"{module}.{qualname}"
+            else:
+                qualified_class = qualname
+        if code is not None and hasattr(code, "setCodeName"):
+            code.setCodeName(f"{qualified_class}.{name}")
         selfarg = ExistingWrapper(func)
         kind = cls._method_kind.get(name) if hasattr(cls, "_method_kind") else None
         if kind is None:
@@ -251,8 +264,15 @@ class InterfaceDeclaration:
             group = None
             for idx, args in enumerate(cls._init):
                 init_kwds = cls._init_kwds[idx] if idx < len(cls._init_kwds) else []
+                extra_args = tuple(value for _name, value in init_kwds)
                 ep = self.createEntryPoint(
-                    call, tobj, args, init_kwds, nullWrapper, nullWrapper, group
+                    call,
+                    nullWrapper,
+                    (tobj,) + args + extra_args,
+                    [],
+                    nullWrapper,
+                    nullWrapper,
+                    group,
                 )
                 if group is None:
                     group = ep

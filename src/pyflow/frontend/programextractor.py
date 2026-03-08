@@ -75,6 +75,15 @@ def _base_name_from_expr(node: ast.AST) -> Optional[str]:
     return None
 
 
+def _is_synthetic_entry_code(code: Any) -> bool:
+    annotation = getattr(code, "annotation", None)
+    origin = getattr(annotation, "origin", ()) or ()
+    for item in origin:
+        if isinstance(item, str) and item.startswith("synthetic_module("):
+            return True
+    return False
+
+
 class Extractor:
     """Extracts program information from Python code for static analysis.
 
@@ -248,6 +257,12 @@ class Extractor:
         self._current_file_path = filename  # Store for relative import resolution
         
         self._extract_imports(tree, module_name)
+        self.function_extractor.extract_module_body(
+            getattr(tree, "body", []) or [],
+            program,
+            module_name=module_name,
+            filename=filename,
+        )
 
         class_definitions = []
         for node in getattr(tree, "body", []) or []:
@@ -267,7 +282,13 @@ class Extractor:
             elif isinstance(node, ast.ClassDef):
                 if self.verbose:
                     print(f"DEBUG: Found class definition: {node.name}")
-                self.function_extractor.extract_class(node, program, filename)
+                self.function_extractor.extract_class(
+                    node,
+                    program,
+                    filename,
+                    module_name=module_name,
+                    qualname=node.name,
+                )
 
         # Register module with cross-module resolver
         if self.cross_module_resolver:
@@ -758,16 +779,49 @@ def extractProgram(compiler: CompilerContext, program: Program) -> None:
             if compiler.console:
                 compiler.console.output("No liveCode found in extracted_program")
     else:
-        # Single file extraction (existing behavior)
+        source = getattr(compiler.extractor, "source_code", None)
+        if isinstance(source, str):
+            extracted_program = compiler.extractor.extract_from_source(source)
+            program.class_hierarchy = extracted_program.class_hierarchy
+            program.cross_module_resolver = extracted_program.cross_module_resolver
+            program.frontend_telemetry = extracted_program.frontend_telemetry
+            if extracted_program.liveCode:
+                program.liveCode.update(extracted_program.liveCode)
         if compiler.console:
             compiler.console.output("Program extraction complete")
 
     # Process the interface declarations (functions and classes)
-    if hasattr(program, "interface") and program.interface:
+    if hasattr(program, "interface") and program.interface is not None:
         if not program.interface.translated:
             program.interface.translate(compiler.extractor)
-            # Set entry points from the interface
-            program.entryPoints = program.interface.entryPoint
+
+        from pyflow.api.entrypoints import nullWrapper
+
+        existing_codes = set(program.interface.entryCode())
+        synthetic_codes = sorted(
+            (
+                code
+                for code in getattr(program, "liveCode", ()) or ()
+                if _is_synthetic_entry_code(code)
+            ),
+            key=lambda code: code.codeName(),
+        )
+        for code in synthetic_codes:
+            if code in existing_codes:
+                continue
+            program.interface.createEntryPoint(
+                code,
+                nullWrapper,
+                (),
+                [],
+                nullWrapper,
+                nullWrapper,
+                None,
+            )
+            existing_codes.add(code)
+
+        # Set entry points from the interface
+        program.entryPoints = program.interface.entryPoint
 
 
 def create_interface_from_paths(python_files, args):

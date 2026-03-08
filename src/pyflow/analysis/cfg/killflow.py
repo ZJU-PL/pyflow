@@ -113,6 +113,7 @@ class OpFlow(TypeDispatcher):
         ast.Store,
         ast.Delete,
         ast.Print,
+        ast.Import,
         ast.Yield,
         ast.YieldFrom,
         ast.Await,

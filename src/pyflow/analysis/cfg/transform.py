@@ -145,10 +145,16 @@ class CFGTransformer(TypeDispatcher):
         ast.Assert,
         ast.Raise,
         ast.FunctionDef,
-        ast.ClassDef,
     )
     def visitStatement(self, node):
         self.emit(node)
+
+    @dispatch(ast.ClassDef)
+    def visitClassDef(self, node):
+        # Class bodies execute at definition time. Inline their statements into
+        # the surrounding CFG so downstream analyses can observe definition-time
+        # effects (e.g. attribute initializers, registry calls, sinks).
+        self(node.body)
 
     @dispatch(ast.GlobalDecl, ast.NonlocalDecl)
     def visitScopeDecl(self, node):

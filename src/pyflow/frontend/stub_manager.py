@@ -8,6 +8,7 @@ for built-in Python operations and interpreter functions.
 import operator
 
 from pyflow.language.python import ast as pyflow_ast
+from pyflow.language.python.annotations import CodeAnnotation
 
 
 # Expose makeStubs at module scope so tests can patch it directly.
@@ -61,7 +62,7 @@ class StubManager:
                 return make_params(
                     [pyflow_ast.Local("func")],
                     varg=pyflow_ast.Local("vargs"),
-                    kwarg=pyflow_ast.Local("kargs"),
+                    kwarg=pyflow_ast.DoNotCare(),
                 )
 
             if op_name in ("convertToBool", "invertedConvertToBool"):
@@ -246,19 +247,22 @@ class StubManager:
             body = pyflow_ast.Suite([])
             code = pyflow_ast.Code(name, params, body)
             dyn_fold = dynfold.get(name)
-            code.annotation = type(
-                "Annotation",
-                (),
-                {
-                    "origin": [f"stub_{name}"],
-                    "interpreter": True,
-                    "runtime": False,
-                    "staticFold": None,
-                    "dynamicFold": dyn_fold,
-                    "primitive": False,
-                    "descriptive": False,
-                },
-            )()
+            code.annotation = CodeAnnotation(
+                contexts=None,
+                descriptive=False,
+                primitive=False,
+                staticFold=None,
+                dynamicFold=dyn_fold,
+                origin=[f"stub_{name}"],
+                live=None,
+                killed=None,
+                codeReads=None,
+                codeModifies=None,
+                codeAllocates=None,
+                lowered=False,
+                runtime=False,
+                interpreter=True,
+            )
             return code
 
         return type(

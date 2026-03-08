@@ -1563,20 +1563,19 @@ class ASTConverter:
         
         Handles both `x: int = 5` and `x: int` (annotation-only).
         """
-        annotation = self._convert_expression_safe(node.annotation)
         value = self._convert_expression_safe(node.value) if node.value is not None else None
 
-        # PyFlow's AnnAssign node models local annotated assignments directly.
+        # Lower to ordinary runtime effects. PyFlow's AnnAssign node field name
+        # collides with the framework's per-node annotation metadata, so keeping
+        # the source-level syntax node here is not stable across analyses.
         if isinstance(node.target, python_ast.Name):
-            return pyflow_ast.AnnAssign(
-                pyflow_ast.Local(node.target.id),
-                annotation,
-                value,
-            )
+            if value is None:
+                return pyflow_ast.Suite([])
+            return pyflow_ast.Assign(value, [pyflow_ast.Local(node.target.id)])
 
-        # For non-local targets, keep the previous runtime-equivalent lowering.
+        # For non-local targets, keep the runtime-equivalent lowering.
         if value is None:
-            return self._unsupported_stmt(node, "annotation-only assignment target unsupported")
+            return pyflow_ast.Suite([])
 
         if isinstance(node.target, python_ast.Attribute):
             obj = self._convert_expression_safe(node.target.value)

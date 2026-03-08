@@ -471,25 +471,33 @@ class ExtractDataflow(TypeDispatcher):
 
     @dispatch(ast.FunctionDef)
     def visitFunctionDef(self, node, targets=None):
-        # Function definitions don't need complex analysis for data flow
+        for decorator in node.decorators:
+            self(decorator)
         if targets is not None:
             assert len(targets) == 1
-            # Just return None for function definitions
-            pass
         return None
 
     @dispatch(ast.ClassDef)
     def visitClassDef(self, node, targets=None):
-        # Class definitions don't need complex analysis for data flow
+        for base in node.bases:
+            self(base)
+        for keyword in node.keywords:
+            if isinstance(keyword, (tuple, list)) and len(keyword) == 2:
+                self(keyword[1])
+        self(node.body)
+        for decorator in node.decorators:
+            self(decorator)
         if targets is not None:
             assert len(targets) == 1
-            # Just return None for class definitions
-            pass
         return None
 
     @dispatch(ast.Import)
     def visitImport(self, node, targets=None):
         # Import statements are handled at module level, skip for dataflow
+        return None
+
+    @dispatch(ast.GlobalDecl, ast.NonlocalDecl)
+    def visitScopeDecl(self, node, targets=None):
         return None
 
     @dispatch(ast.Yield)
@@ -500,6 +508,36 @@ class ExtractDataflow(TypeDispatcher):
     def visitYieldFrom(self, node, targets=None):
         if node.expr:
             self(node.expr)
+        return None
+
+    @dispatch(ast.Await)
+    def visitAwait(self, node, targets=None):
+        value = self(node.expr)
+        if targets is not None and value is not None:
+            assert len(targets) == 1
+            self.assign(value, targets[0])
+            return targets
+        return value
+
+    @dispatch(ast.NamedExpr)
+    def visitNamedExpr(self, node, targets=None):
+        value = self(node.value)
+        local = self.localSlot(node.target)
+        if value is not None:
+            self.assign(value, local)
+        if targets is not None:
+            assert len(targets) == 1
+            self.assign(local, targets[0])
+            return targets
+        return local
+
+    @dispatch(ast.AnnAssign)
+    def visitAnnAssign(self, node):
+        if getattr(node, "value", None) is None:
+            return None
+        value = self(node.value)
+        if value is not None:
+            self.assign(value, self.localSlot(node.target))
         return None
 
     @dispatch(ast.ShortCircutAnd, ast.ShortCircutOr)

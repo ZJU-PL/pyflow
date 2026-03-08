@@ -21,8 +21,10 @@ from .model import (
     AbstractValue,
     AnalysisOptions,
     ClassInfo,
+    COROUTINE_KIND,
     ContextKey,
     FunctionInfo,
+    GENERATOR_KIND,
     GLOBAL_CONTEXT,
     ModuleInfo,
     ScopeInfo,
@@ -76,6 +78,11 @@ class ConstraintCallGraphBuilder(
             if self.entry_path
             else os.getcwd()
         )
+        self.entry_module_import_name = (
+            self._infer_entry_module_import_name(self.entry_path)
+            if self.entry_path
+            else "main"
+        )
 
         self.modules: Dict[str, ModuleInfo] = {}
         self.scopes: Dict[str, ScopeInfo] = {}
@@ -94,6 +101,9 @@ class ConstraintCallGraphBuilder(
         self.container_key_values: Dict[str, Dict[str, Set[AbstractValue]]] = (
             defaultdict(lambda: defaultdict(set))
         )
+        self.container_maybe_missing_keys: DefaultDict[str, Set[str]] = defaultdict(set)
+        self.instance_maybe_missing_fields: DefaultDict[str, Set[str]] = defaultdict(set)
+        self.class_maybe_missing_fields: DefaultDict[str, Set[str]] = defaultdict(set)
 
         self.scope_inputs: Dict[
             Tuple[str, ContextKey], Dict[str, Set[AbstractValue]]
@@ -108,6 +118,9 @@ class ConstraintCallGraphBuilder(
         self.scope_nonlocal_writes: Dict[
             Tuple[str, ContextKey], Dict[str, Set[AbstractValue]]
         ] = defaultdict(dict)
+        self._suspended_value_cache: Dict[Tuple[str, ContextKey, str], AbstractValue] = {}
+        self.coroutine_sources: Dict[str, Tuple[str, ContextKey]] = {}
+        self.generator_sources: Dict[str, Tuple[str, ContextKey]] = {}
 
         # Caches/indexes used by resolver and dependency-driven requeueing.
         self._mro_cache: Dict[str, List[str]] = {}
@@ -139,6 +152,7 @@ class ConstraintCallGraphBuilder(
         self._analyzed_scope_contexts: Set[Tuple[str, ContextKey]] = set()
         self._active_changed_instance_fields: Optional[Set[Tuple[str, str]]] = None
         self._active_changed_class_fields: Optional[Set[Tuple[str, str]]] = None
+        self._active_changed_container_state: Optional[bool] = None
         self._active_changed_closure_scopes: Optional[Set[Tuple[str, ContextKey]]] = None
         self._active_singledispatch_changed = False
         self.singledispatch_functions: Set[str] = set()
@@ -172,6 +186,22 @@ class ConstraintCallGraphBuilder(
                 break
             current = root
         return root
+
+    def _infer_entry_module_import_name(self, entry_path: str) -> str:
+        """Infer the import-qualified module name for the entry file."""
+        try:
+            relative_path = os.path.relpath(entry_path, self.project_root)
+        except ValueError:
+            return "main"
+        if relative_path.startswith(".."):
+            return "main"
+        module_name, ext = os.path.splitext(relative_path)
+        if ext != ".py":
+            return "main"
+        normalized = module_name.replace(os.sep, ".")
+        if normalized.endswith(".__init__"):
+            normalized = normalized[: -len(".__init__")]
+        return normalized or "main"
 
     def build(self) -> CallGraph:
         """Execute the full analysis pipeline and return the call graph."""
@@ -416,6 +446,10 @@ class ConstraintCallGraphBuilder(
             return f"bound_method:{value.name}"
         if value.kind == "bound_class_method":
             return f"bound_class_method:{value.name}"
+        if value.kind == COROUTINE_KIND:
+            return f"coroutine:{value.name}"
+        if value.kind == GENERATOR_KIND:
+            return f"generator:{value.name}"
         if value.kind == "container":
             return f"container:{value.name}"
         if value.kind == "string":
@@ -479,6 +513,8 @@ class ConstraintCallGraphBuilder(
         graph = CallGraph()
         for module_name in self.modules:
             graph.add_node(module_name, module_name)
+        for class_name, class_info in self.classes.items():
+            graph.add_node(class_name, class_info.module)
         for function_name, function_info in self.functions.items():
             graph.add_node(function_name, function_info.module)
         for (scope_name, _scope_context), callees in self.scope_callees.items():

@@ -9,6 +9,8 @@ from typing import Dict, Set, Sequence, Tuple, List
 from .model import (
     AbstractValue,
     CONTAINER_KIND,
+    COROUTINE_KIND,
+    GENERATOR_KIND,
     ContextKey,
     GLOBAL_CONTEXT,
     INSTANCE_KIND,
@@ -27,12 +29,37 @@ from .model import (
 class _EvaluatorMixin:
     """Evaluates AST expressions to sets of abstract values."""
 
-    def _iterable_members(self, values) -> Set[AbstractValue]:
+    def _iterable_members(
+        self,
+        values,
+        scope: ScopeInfo | None = None,
+        scope_context: ContextKey | None = None,
+        env: Dict[str, Set[AbstractValue]] | None = None,
+        callees: Set[str] | None = None,
+        input_changed_scope_contexts: Set[Tuple[str, ContextKey]] | None = None,
+    ) -> Set[AbstractValue]:
         """Approximate iteration by expanding container element sets."""
         out: Set[AbstractValue] = set()
         for value in values:
             if value.kind == CONTAINER_KIND:
                 out.update(self.container_elements.get(value.name, set()))
+            elif (
+                value.kind == GENERATOR_KIND
+                and scope is not None
+                and scope_context is not None
+                and env is not None
+                and input_changed_scope_contexts is not None
+            ):
+                out.update(
+                    self._materialize_suspended_values(
+                        {value},
+                        expected_kind=GENERATOR_KIND,
+                        caller_scope=scope,
+                        caller_context=scope_context,
+                        env=env,
+                        input_changed_scope_contexts=input_changed_scope_contexts,
+                    )
+                )
             else:
                 out.add(value)
         return out
@@ -87,7 +114,14 @@ class _EvaluatorMixin:
                 callees,
                 input_changed_scope_contexts,
             )
-            iter_members = self._iterable_members(iter_values) or {UNKNOWN_VALUE}
+            iter_members = self._iterable_members(
+                iter_values,
+                scope=scope,
+                scope_context=scope_context,
+                env=comp_env,
+                callees=callees,
+                input_changed_scope_contexts=input_changed_scope_contexts,
+            ) or {UNKNOWN_VALUE}
             self._assign_target(
                 scope, generator.target, iter_members, comp_env, weak=True
             )
@@ -139,7 +173,14 @@ class _EvaluatorMixin:
                 callees,
                 input_changed_scope_contexts,
             )
-            members = self._iterable_members(base_values)
+            members = self._iterable_members(
+                base_values,
+                scope=scope,
+                scope_context=scope_context,
+                env=env,
+                callees=callees,
+                input_changed_scope_contexts=input_changed_scope_contexts,
+            )
             return members or {UNKNOWN_VALUE}
 
         if isinstance(expr, ast.Attribute):
@@ -229,6 +270,7 @@ class _EvaluatorMixin:
             if isinstance(expr.func, ast.Name) and expr.func.id == "getattr":
                 target_values: Set[AbstractValue] = set()
                 default_values: Set[AbstractValue] = set()
+                maybe_missing = False
                 if expr.args:
                     obj_values = self._eval_expr(
                         scope,
@@ -255,6 +297,14 @@ class _EvaluatorMixin:
                         target_values.update(
                             self._resolve_attribute(obj_values, attr_name)
                         )
+                        maybe_missing = (
+                            maybe_missing
+                            or self._attribute_maybe_missing(obj_values, attr_name)
+                            or any(
+                                not self._resolve_attribute({obj_value}, attr_name)
+                                for obj_value in obj_values
+                            )
+                        )
                     if len(expr.args) >= 3:
                         default_values = self._eval_expr(
                             scope,
@@ -264,6 +314,8 @@ class _EvaluatorMixin:
                             callees,
                             input_changed_scope_contexts,
                         )
+                        if not attr_names:
+                            maybe_missing = True
                 self._invoke_targets(
                     caller_scope=scope,
                     caller_context=scope_context,
@@ -274,6 +326,8 @@ class _EvaluatorMixin:
                     input_changed_scope_contexts=input_changed_scope_contexts,
                 )
                 if target_values:
+                    if default_values and maybe_missing:
+                        return target_values | default_values
                     return target_values
                 if default_values:
                     return default_values
@@ -373,7 +427,7 @@ class _EvaluatorMixin:
             )
 
         if isinstance(expr, ast.Await):
-            return self._eval_expr(
+            awaited_values = self._eval_expr(
                 scope,
                 scope_context,
                 expr.value,
@@ -381,6 +435,17 @@ class _EvaluatorMixin:
                 callees,
                 input_changed_scope_contexts,
             )
+            materialized = self._materialize_suspended_values(
+                awaited_values,
+                expected_kind=COROUTINE_KIND,
+                caller_scope=scope,
+                caller_context=scope_context,
+                env=env,
+                input_changed_scope_contexts=input_changed_scope_contexts,
+            )
+            if materialized:
+                return materialized
+            return awaited_values or {UNKNOWN_VALUE}
 
         if isinstance(expr, ast.Lambda):
             line = getattr(expr, "lineno", -1)
@@ -858,7 +923,14 @@ class _EvaluatorMixin:
                 callees,
                 input_changed_scope_contexts,
             )
-            iterated = self._iterable_members(yielded_values)
+            iterated = self._iterable_members(
+                yielded_values,
+                scope=scope,
+                scope_context=scope_context,
+                env=env,
+                callees=callees,
+                input_changed_scope_contexts=input_changed_scope_contexts,
+            )
             return iterated or yielded_values or {UNKNOWN_VALUE}
 
         return set()

@@ -626,6 +626,61 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
         self.assertIn("main.target", run_edges)
         self.assertNotIn("main.other", run_edges)
 
+    def test_dict_update_keeps_existing_and_incoming_dispatch_targets(self):
+        source = textwrap.dedent(
+            """
+            def a():
+                return 1
+
+            def b():
+                return 2
+
+            def run(flag):
+                table = {"k": a}
+                if flag:
+                    table.update({"k": b})
+                return table["k"]()
+
+            run(True)
+            run(False)
+            """
+        )
+
+        improved = extract_call_graph_constraint(
+            source, allow_fixture_graph_loading=False
+        ).get()
+        run_edges = improved.get("main.run", set())
+        self.assertIn("main.a", run_edges)
+        self.assertIn("main.b", run_edges)
+
+    def test_dict_get_includes_default_when_key_may_be_missing(self):
+        source = textwrap.dedent(
+            """
+            def a():
+                return 1
+
+            def b():
+                return 2
+
+            def pick(flag):
+                return "x" if flag else "y"
+
+            def run(flag):
+                table = {"x": a}
+                return table.get(pick(flag), b)()
+
+            run(True)
+            run(False)
+            """
+        )
+
+        improved = extract_call_graph_constraint(
+            source, allow_fixture_graph_loading=False
+        ).get()
+        run_edges = improved.get("main.run", set())
+        self.assertIn("main.a", run_edges)
+        self.assertIn("main.b", run_edges)
+
     def test_match_class_pattern_refines_subject_and_capture(self):
         source = textwrap.dedent(
             """
@@ -1032,6 +1087,54 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
         improved = extract_call_graph_constraint(source).get()
         self.assertIn("main.leaf", improved.get("main.run", set()))
 
+    def test_async_call_without_await_does_not_execute_body_returns(self):
+        source = textwrap.dedent(
+            """
+            def target():
+                return 1
+
+            async def coro():
+                return target
+
+            def run():
+                fn = coro()
+                return fn()
+
+            run()
+            """
+        )
+
+        improved = extract_call_graph_constraint(
+            source, allow_fixture_graph_loading=False
+        ).get()
+        run_edges = improved.get("main.run", set())
+        self.assertIn("main.coro", run_edges)
+        self.assertNotIn("main.target", run_edges)
+
+    def test_generator_call_without_iteration_does_not_expose_yields(self):
+        source = textwrap.dedent(
+            """
+            def target():
+                return 1
+
+            def gen():
+                yield target
+
+            def run():
+                fn = gen()
+                return fn()
+
+            run()
+            """
+        )
+
+        improved = extract_call_graph_constraint(
+            source, allow_fixture_graph_loading=False
+        ).get()
+        run_edges = improved.get("main.run", set())
+        self.assertIn("main.gen", run_edges)
+        self.assertNotIn("main.target", run_edges)
+
     def test_match_case_bodies_are_analyzed(self):
         source = textwrap.dedent(
             """
@@ -1170,6 +1273,280 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
         improved = extract_call_graph_constraint(source).get()
         self.assertIn("main.deco", improved.get("main", set()))
         self.assertIn("main.target", improved.get("main.run", set()))
+
+    def test_class_body_is_analyzed_for_definition_time_calls(self):
+        source = textwrap.dedent(
+            """
+            def target():
+                return 1
+
+            class C:
+                target()
+            """
+        )
+
+        improved = extract_call_graph_constraint(
+            source, allow_fixture_graph_loading=False
+        ).get()
+        self.assertIn("main.target", improved.get("main.C", set()))
+
+    def test_class_body_bindings_publish_class_attributes(self):
+        source = textwrap.dedent(
+            """
+            def target():
+                return 1
+
+            class C:
+                f = target
+
+            def run():
+                return C.f()
+
+            run()
+            """
+        )
+
+        improved = extract_call_graph_constraint(
+            source, allow_fixture_graph_loading=False
+        ).get()
+        self.assertIn("main.target", improved.get("main.run", set()))
+
+    def test_relative_import_in_entry_module_uses_package_context(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            pkg_dir = os.path.join(temp_dir, "pkg")
+            os.makedirs(pkg_dir, exist_ok=True)
+            with open(os.path.join(pkg_dir, "__init__.py"), "w", encoding="utf-8"):
+                pass
+            with open(
+                os.path.join(pkg_dir, "helpers.py"), "w", encoding="utf-8"
+            ) as handle:
+                handle.write("def target():\n    return 1\n")
+
+            entry_path = os.path.join(pkg_dir, "main.py")
+            source = textwrap.dedent(
+                """
+                from .helpers import target
+
+                def run():
+                    return target()
+
+                run()
+                """
+            )
+            with open(entry_path, "w", encoding="utf-8") as handle:
+                handle.write(source)
+
+            improved = extract_call_graph_constraint(
+                source,
+                source_path=entry_path,
+                allow_fixture_graph_loading=False,
+            ).get()
+
+        self.assertIn("pkg.helpers.target", improved.get("main.run", set()))
+
+    def test_class_instantiation_records_new_calls(self):
+        source = textwrap.dedent(
+            """
+            class C:
+                def __new__(cls):
+                    return super().__new__(cls)
+
+            def run():
+                return C()
+
+            run()
+            """
+        )
+
+        improved = extract_call_graph_constraint(
+            source, allow_fixture_graph_loading=False
+        ).get()
+        self.assertIn("main.C.__new__", improved.get("main.run", set()))
+
+    def test_class_definition_invokes_init_subclass_hook(self):
+        source = textwrap.dedent(
+            """
+            def target():
+                return 1
+
+            class Base:
+                def __init_subclass__(cls):
+                    return target()
+
+            class Child(Base):
+                pass
+            """
+        )
+
+        improved = extract_call_graph_constraint(
+            source, allow_fixture_graph_loading=False
+        ).get()
+        main_edges = improved.get("main", set())
+        self.assertIn("main.Base.__init_subclass__", main_edges)
+        self.assertIn("main.target", improved.get("main.Base.__init_subclass__", set()))
+
+    def test_class_instantiation_routes_through_metaclass_call(self):
+        source = textwrap.dedent(
+            """
+            def target():
+                return 1
+
+            class Meta(type):
+                def __call__(cls, *args, **kwargs):
+                    return target
+
+            class C(metaclass=Meta):
+                pass
+
+            def run():
+                fn = C()
+                return fn()
+
+            run()
+            """
+        )
+
+        improved = extract_call_graph_constraint(
+            source, allow_fixture_graph_loading=False
+        ).get()
+        run_edges = improved.get("main.run", set())
+        self.assertIn("main.Meta.__call__", run_edges)
+        self.assertIn("main.target", run_edges)
+
+    def test_definition_time_defaults_and_annotations_are_analyzed(self):
+        source = textwrap.dedent(
+            """
+            def target():
+                return 1
+
+            def anno():
+                return int
+
+            def f(x: anno() = target()):
+                return x
+            """
+        )
+
+        improved = extract_call_graph_constraint(
+            source, allow_fixture_graph_loading=False
+        ).get()
+        main_edges = improved.get("main", set())
+        self.assertIn("main.target", main_edges)
+        self.assertIn("main.anno", main_edges)
+
+    def test_definition_time_class_base_expression_is_analyzed(self):
+        source = textwrap.dedent(
+            """
+            class Base:
+                def f(self):
+                    return 1
+
+            def choose():
+                return Base
+
+            class Child(choose()):
+                pass
+
+            def run(x):
+                return x.f()
+
+            run(Child())
+            """
+        )
+
+        improved = extract_call_graph_constraint(
+            source, allow_fixture_graph_loading=False
+        ).get()
+        self.assertIn("main.choose", improved.get("main", set()))
+        self.assertIn("main.Base.f", improved.get("main.run", set()))
+
+    def test_imported_dotted_base_resolves_via_module_chain(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            pkg_dir = os.path.join(temp_dir, "pkg")
+            os.makedirs(pkg_dir, exist_ok=True)
+            with open(os.path.join(pkg_dir, "__init__.py"), "w", encoding="utf-8"):
+                pass
+            with open(os.path.join(pkg_dir, "sub.py"), "w", encoding="utf-8") as handle:
+                handle.write(
+                    textwrap.dedent(
+                        """
+                        class Base:
+                            def f(self):
+                                return 1
+                        """
+                    )
+                )
+
+            main_path = os.path.join(temp_dir, "main.py")
+            source = textwrap.dedent(
+                """
+                import pkg.sub
+
+                class Child(pkg.sub.Base):
+                    pass
+
+                def run(x):
+                    return x.f()
+
+                run(Child())
+                """
+            )
+            with open(main_path, "w", encoding="utf-8") as handle:
+                handle.write(source)
+
+            improved = extract_call_graph_constraint(
+                source,
+                source_path=main_path,
+                allow_fixture_graph_loading=False,
+            ).get()
+
+        self.assertIn("pkg.sub.Base.f", improved.get("main.run", set()))
+
+    def test_imported_dotted_annotation_filters_receiver_types(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            pkg_dir = os.path.join(temp_dir, "pkg")
+            os.makedirs(pkg_dir, exist_ok=True)
+            with open(os.path.join(pkg_dir, "__init__.py"), "w", encoding="utf-8"):
+                pass
+            with open(os.path.join(pkg_dir, "sub.py"), "w", encoding="utf-8") as handle:
+                handle.write(
+                    textwrap.dedent(
+                        """
+                        class A:
+                            def f(self):
+                                return 1
+
+                        class B:
+                            def f(self):
+                                return 2
+                        """
+                    )
+                )
+
+            main_path = os.path.join(temp_dir, "main.py")
+            source = textwrap.dedent(
+                """
+                import pkg.sub
+
+                def run(x: pkg.sub.A):
+                    return x.f()
+
+                run(pkg.sub.A())
+                run(pkg.sub.B())
+                """
+            )
+            with open(main_path, "w", encoding="utf-8") as handle:
+                handle.write(source)
+
+            improved = extract_call_graph_constraint(
+                source,
+                source_path=main_path,
+                allow_fixture_graph_loading=False,
+            ).get()
+
+        run_edges = improved.get("main.run", set())
+        self.assertIn("pkg.sub.A.f", run_edges)
+        self.assertNotIn("pkg.sub.B.f", run_edges)
 
     def test_try_else_only_executes_on_non_exception_path(self):
         source = textwrap.dedent(
@@ -1433,6 +1810,63 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
         self.assertFalse(builder.fixpoint_truncated)
         self.assertIn("main.target", run_edges)
 
+    def test_delattr_with_getattr_default_includes_fallback(self):
+        source = textwrap.dedent(
+            """
+            def target():
+                return 1
+
+            def fallback():
+                return 2
+
+            class Box:
+                pass
+
+            def run(box, flag):
+                setattr(box, "f", target)
+                if flag:
+                    delattr(box, "f")
+                return getattr(box, "f", fallback)()
+
+            run(Box(), True)
+            run(Box(), False)
+            """
+        )
+
+        improved = extract_call_graph_constraint(
+            source, allow_fixture_graph_loading=False
+        ).get()
+        run_edges = improved.get("main.run", set())
+        self.assertIn("main.target", run_edges)
+        self.assertIn("main.fallback", run_edges)
+
+    def test_delete_global_binding_removes_following_direct_call(self):
+        source = textwrap.dedent(
+            """
+            def target():
+                return 1
+
+            x = target
+
+            def kill():
+                global x
+                del x
+
+            def run():
+                kill()
+                return x()
+
+            run()
+            """
+        )
+
+        improved = extract_call_graph_constraint(
+            source, allow_fixture_graph_loading=False
+        ).get()
+        run_edges = improved.get("main.run", set())
+        self.assertIn("main.kill", run_edges)
+        self.assertNotIn("main.target", run_edges)
+
     def test_post_pop_lookup_keeps_existing_target_for_soundness(self):
         source = textwrap.dedent(
             """
@@ -1462,6 +1896,95 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
 
         self.assertFalse(builder.fixpoint_truncated)
         self.assertIn("main.target", graph.get("main.run", set()))
+
+    def test_delete_then_dict_get_includes_default_fallback(self):
+        source = textwrap.dedent(
+            """
+            def target():
+                return 1
+
+            def fallback():
+                return 2
+
+            def run(flag):
+                table = {"k": target}
+                if flag:
+                    del table["k"]
+                return table.get("k", fallback)()
+
+            run(True)
+            run(False)
+            """
+        )
+
+        improved = extract_call_graph_constraint(
+            source, allow_fixture_graph_loading=False
+        ).get()
+        run_edges = improved.get("main.run", set())
+        self.assertIn("main.target", run_edges)
+        self.assertIn("main.fallback", run_edges)
+
+    def test_interprocedural_container_write_requeues_reader_scope(self):
+        source = textwrap.dedent(
+            """
+            def target():
+                return 1
+
+            def install(table):
+                table["k"] = target
+
+            def run(table):
+                install(table)
+                return table["k"]()
+
+            run({})
+            """
+        )
+
+        improved = extract_call_graph_constraint(
+            source,
+            context_sensitive=True,
+            context_depth=1,
+            allow_fixture_graph_loading=False,
+        ).get()
+        self.assertIn("main.target", improved.get("main.run", set()))
+
+    def test_exec_literal_string_is_analyzed(self):
+        source = textwrap.dedent(
+            """
+            def target():
+                return 1
+
+            def run():
+                exec("target()")
+
+            run()
+            """
+        )
+
+        improved = extract_call_graph_constraint(
+            source, allow_fixture_graph_loading=False
+        ).get()
+        self.assertIn("main.target", improved.get("main.run", set()))
+
+    def test_eval_literal_string_is_analyzed(self):
+        source = textwrap.dedent(
+            """
+            def target():
+                return 1
+
+            def run():
+                fn = eval("target")
+                return fn()
+
+            run()
+            """
+        )
+
+        improved = extract_call_graph_constraint(
+            source, allow_fixture_graph_loading=False
+        ).get()
+        self.assertIn("main.target", improved.get("main.run", set()))
 
     def test_callable_capping_preserves_all_bound_method_targets(self):
         class_defs = "\n".join(

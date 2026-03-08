@@ -83,7 +83,15 @@ class _LoaderMixin:
         if level <= 0:
             return imported_module
 
-        package_parts = current_module.split(".")
+        effective_module = current_module
+        if current_module == "main":
+            effective_module = getattr(
+                self,
+                "entry_module_import_name",
+                current_module,
+            )
+
+        package_parts = effective_module.split(".")
         if package_parts and package_parts[-1] == "__init__":
             package_parts = package_parts[:-1]
             is_package_module = True
@@ -96,8 +104,8 @@ class _LoaderMixin:
             )
             if (
                 not is_package_module
-                and "." not in current_module
-                and current_module != "main"
+                and "." not in effective_module
+                and effective_module != "main"
             ):
                 # Without a loaded module path we cannot always distinguish
                 # package modules from top-level .py modules.

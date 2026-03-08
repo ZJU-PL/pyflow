@@ -545,6 +545,28 @@ class ConstraintExtractor(TypeDispatcher):
             self(node.expr)
         return None
 
+    @dispatch(ast.Await)
+    def visitAwait(self, node, targets=None):
+        value = self(node.expr)
+        if targets is None:
+            return value
+        if value is not None:
+            for target in targets:
+                self.context.assign(value, target)
+        return None
+
+    @dispatch(ast.NamedExpr)
+    def visitNamedExpr(self, node, targets=None):
+        value = self(node.value)
+        local = self.context.local(node.target)
+        if value is not None:
+            self.context.assign(value, local)
+        if targets is None:
+            return local
+        for target in targets:
+            self.context.assign(local, target)
+        return None
+
     @dispatch(ast.ShortCircutAnd, ast.ShortCircutOr)
     def visitShortCircutBool(self, node, targets=None):
         for term in node.terms:
@@ -553,15 +575,27 @@ class ConstraintExtractor(TypeDispatcher):
 
     @dispatch(ast.FunctionDef)
     def visitFunctionDef(self, node, targets=None):
-        # Evaluate function definition for side effects (name, decorators, etc.)
-        # The actual function body is handled separately via the code object
-        return self._allocateBuiltinObject(node, types.FunctionType, targets)
+        for decorator in node.decorators:
+            self(decorator)
+        binding = self.context.local(ast.Local(node.name))
+        return self._allocateBuiltinObject(
+            node,
+            types.FunctionType,
+            targets or [binding],
+        )
 
     @dispatch(ast.ClassDef)
     def visitClassDef(self, node, targets=None):
-        # Evaluate class definition for side effects (name, bases, decorators, body)
-        # Class definitions themselves don't need complex analysis for IPA
-        return self._allocateBuiltinObject(node, type, targets)
+        for base in node.bases:
+            self(base)
+        for keyword in node.keywords:
+            if isinstance(keyword, (tuple, list)) and len(keyword) == 2:
+                self(keyword[1])
+        self(node.body)
+        for decorator in node.decorators:
+            self(decorator)
+        binding = self.context.local(ast.Local(node.name))
+        return self._allocateBuiltinObject(node, type, targets or [binding])
 
     @dispatch(ast.MakeFunction)
     def visitMakeFunction(self, node, targets=None):
@@ -573,6 +607,24 @@ class ConstraintExtractor(TypeDispatcher):
         # Import statements are handled at module level and don't produce values
         # They're processed separately during program extraction
         # Just return None as imports don't contribute to constraint analysis
+        return None
+
+    @dispatch(ast.GlobalDecl, ast.NonlocalDecl)
+    def visitScopeDecl(self, node, targets=None):
+        return None
+
+    @dispatch(ast.AnnAssign)
+    def visitAnnAssign(self, node, targets=None):
+        if getattr(node, "value", None) is None:
+            return None
+        target = self.context.local(node.target)
+        value = self(node.value)
+        if value is not None:
+            self.context.assign(value, target)
+        if targets is None:
+            return target
+        for dst in targets:
+            self.context.assign(target, dst)
         return None
 
     @dispatch(ast.GetAttr)
