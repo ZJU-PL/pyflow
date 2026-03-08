@@ -1,13 +1,15 @@
 """
 Tests for Program Dependence Graph (PDG) construction and querying.
 
-These tests intentionally avoid the dataflowIR/DDG pipeline and derive data
-dependences from the CFG's AST with SSA enabled, to keep tests self-contained.
+These tests cover both DDG-backed PDG construction and the explicit AST
+fallback path used when raw dataflowIR lowering is unavailable.
 """
 
 import unittest
+import warnings
 
 from pyflow.application import context
+from pyflow.analysis.dataflowIR.convert import UnsupportedDataflowConstructError
 from pyflow.frontend.programextractor import Extractor
 from pyflow.analysis.cfg import transform
 from pyflow.analysis.pdg import construct_pdg
@@ -26,6 +28,18 @@ def simple_if(x):
     else:
         y = 2
     return y
+
+
+def try_semantics(x):
+    try:
+        value = 1 / x
+    except ZeroDivisionError:
+        value = 0
+    else:
+        value = 2
+    finally:
+        marker = 3
+    return value
 
 
 class TestPDG(unittest.TestCase):
@@ -52,6 +66,7 @@ class TestPDG(unittest.TestCase):
         # Should have an entry node.
         self.assertIsNotNone(pdg.entry)
         self.assertEqual(pdg.entry.kind, "entry")
+        self.assertEqual(pdg.data_dependence_mode, "hybrid")
 
     def test_pdg_data_dependence_chain(self):
         cfg = self.build_cfg(simple_assignment)
@@ -111,6 +126,34 @@ class TestPDG(unittest.TestCase):
         self.assertIn(ret, slc)
         self.assertIn(pdg.entry, slc)
         self.assertTrue(any(n.kind == "stmt" and isinstance(n.ast_node, ast.Assign) for n in slc))
+
+    def test_pdg_warns_when_data_edges_fall_back_to_ast(self):
+        cfg = self.build_cfg(try_semantics)
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            pdg = construct_pdg(
+                cfg,
+                run_ssa=False,
+                include_control=True,
+                include_data=True,
+            )
+
+        self.assertEqual(pdg.data_dependence_mode, "ast-fallback")
+        self.assertIn("TryExceptFinally", pdg.data_dependence_reason)
+        self.assertTrue(any("falling back to AST-local def/use" in str(w.message) for w in caught))
+
+    def test_pdg_can_require_ddg_backed_data_dependence(self):
+        cfg = self.build_cfg(try_semantics)
+
+        with self.assertRaises(UnsupportedDataflowConstructError):
+            construct_pdg(
+                cfg,
+                run_ssa=False,
+                include_control=True,
+                include_data=True,
+                allow_ast_fallback_on_ddg_failure=False,
+            )
 
 
 if __name__ == "__main__":

@@ -116,6 +116,26 @@ match x:
         result = self.converter.convert_python_ast_to_pyflow(tree.body)
         self.assertIsInstance(result, pyflow_ast.Suite)
 
+    @unittest.skipIf(sys.version_info < (3, 10), "Requires Python 3.10+")
+    def test_class_pattern_uses_match_args_helper(self):
+        """Positional class patterns should use __match_args__, not sequence indexing."""
+        source = """
+match x:
+    case Point(a, b):
+        pass
+"""
+        tree = python_ast.parse(source)
+        result = self.converter._convert_node(tree.body[0])
+        match_switch = result.blocks[1]
+        helper_assigns = [
+            block
+            for block in match_switch.t.blocks
+            if isinstance(block, pyflow_ast.Assign)
+            and isinstance(block.expr, pyflow_ast.Call)
+            and block.expr.expr.object.pyobj == "interpreter_match_class_arg"
+        ]
+        self.assertEqual(len(helper_assigns), 2)
+
 
 class TestTypeAnnotations(unittest.TestCase):
     """Test type annotation support."""
@@ -130,7 +150,7 @@ class TestTypeAnnotations(unittest.TestCase):
         node = tree.body[0]
         
         result = self.converter._convert_node(node)
-        self.assertIsInstance(result, pyflow_ast.AnnAssign)
+        self.assertIsInstance(result, pyflow_ast.Assign)
 
     def test_convert_annassign_no_value(self):
         """Test converting annotation-only (no value)."""
@@ -139,7 +159,20 @@ class TestTypeAnnotations(unittest.TestCase):
         node = tree.body[0]
         
         result = self.converter._convert_node(node)
-        self.assertIsInstance(result, pyflow_ast.AnnAssign)
+        self.assertIsInstance(result, pyflow_ast.Suite)
+        self.assertFalse(result.blocks)
+
+    @unittest.skipIf(not hasattr(python_ast, "TypeAlias"), "Requires Python 3.12+")
+    def test_convert_type_alias_emits_marker_and_binding(self):
+        """Type aliases should not be silently dropped."""
+        source = "type Alias = int"
+        tree = python_ast.parse(source)
+        node = tree.body[0]
+
+        result = self.converter._convert_node(node)
+        self.assertIsInstance(result, pyflow_ast.Suite)
+        self.assertIsInstance(result.blocks[0], pyflow_ast.TypeAlias)
+        self.assertIsInstance(result.blocks[1], pyflow_ast.Assign)
 
 
 class TestGlobalNonlocal(unittest.TestCase):
@@ -165,6 +198,64 @@ class TestGlobalNonlocal(unittest.TestCase):
         
         result = self.converter._convert_node(node)
         self.assertIsInstance(result, pyflow_ast.Suite)
+
+    def test_global_assignment_and_read_lower_to_global_nodes(self):
+        """Explicit globals should bind through GetGlobal/SetGlobal."""
+        source = """
+x = 0
+def f():
+    global x
+    x = 1
+    return x
+"""
+        tree = python_ast.parse(source)
+        result = self.converter.convert_python_ast_to_pyflow(tree.body)
+
+        top_level_globals = [
+            block
+            for stmt in result.blocks
+            for block in (stmt.blocks if isinstance(stmt, pyflow_ast.Suite) else [stmt])
+            if isinstance(block, pyflow_ast.SetGlobal)
+        ]
+        self.assertTrue(top_level_globals)
+        func_defs = [stmt for stmt in result.blocks if isinstance(stmt, pyflow_ast.FunctionDef)]
+        self.assertTrue(func_defs)
+        func_def = func_defs[0]
+        self.assertTrue(
+            any(isinstance(block, pyflow_ast.SetGlobal) for block in func_def.code.ast.blocks)
+        )
+        self.assertIsInstance(func_def.code.ast.blocks[-1].exprs[0], pyflow_ast.GetGlobal)
+
+    def test_nonlocal_assignment_and_read_share_cell(self):
+        """Explicit nonlocals should use shared cell dereferences."""
+        source = """
+def outer():
+    x = 0
+    def inner():
+        nonlocal x
+        x = 1
+        return x
+"""
+        tree = python_ast.parse(source)
+        result = self.converter.convert_python_ast_to_pyflow(tree.body)
+        outer = result.blocks[0]
+        inner_defs = [
+            block
+            for block in outer.code.ast.blocks
+            if isinstance(block, pyflow_ast.FunctionDef)
+        ]
+        self.assertTrue(inner_defs)
+        inner = inner_defs[0]
+
+        outer_cell_writes = [
+            block for block in outer.code.ast.blocks if isinstance(block, pyflow_ast.SetCellDeref)
+        ]
+        inner_cell_writes = [
+            block for block in inner.code.ast.blocks if isinstance(block, pyflow_ast.SetCellDeref)
+        ]
+        self.assertTrue(outer_cell_writes)
+        self.assertTrue(inner_cell_writes)
+        self.assertIsInstance(inner.code.ast.blocks[-1].exprs[0], pyflow_ast.GetCellDeref)
 
 
 class TestComprehensions(unittest.TestCase):
@@ -313,6 +404,67 @@ match x:
             block for block in match_switch.t.blocks if isinstance(block, pyflow_ast.Switch)
         ]
         self.assertTrue(binding_switches)
+
+    @unittest.skipIf(sys.version_info < (3, 10), "Requires Python 3.10+")
+    def test_sequence_star_pattern_uses_min_length_and_slice_binding(self):
+        """Starred sequence patterns should use >= length and bind only the middle slice."""
+        source = """
+match x:
+    case [head, *rest, tail]:
+        y = rest
+"""
+        tree = python_ast.parse(source)
+        result = self.converter._convert_node(tree.body[0])
+
+        self.assertIsInstance(result, pyflow_ast.Suite)
+        match_switch = result.blocks[1]
+        self.assertIsInstance(match_switch, pyflow_ast.Switch)
+        self.assertIsInstance(match_switch.condition.conditional, pyflow_ast.ShortCircutAnd)
+
+        def _find_len_min_call(node):
+            if isinstance(node, pyflow_ast.Call):
+                if node.expr.object.pyobj == "interpreter_match_sequence_len_min":
+                    return node
+                return None
+            if isinstance(node, pyflow_ast.ShortCircutAnd):
+                for term in node.terms:
+                    found = _find_len_min_call(term)
+                    if found is not None:
+                        return found
+            return None
+
+        len_min = _find_len_min_call(match_switch.condition.conditional)
+        self.assertIsNotNone(len_min)
+
+        slice_binds = [
+            block
+            for block in match_switch.t.blocks
+            if isinstance(block, pyflow_ast.Assign)
+            and block.lcls[0].name == "rest"
+        ]
+        self.assertTrue(slice_binds)
+        rest_value = slice_binds[0].expr.args[0]
+        self.assertIsInstance(rest_value, pyflow_ast.Call)
+        self.assertEqual(rest_value.expr.object.pyobj, "interpreter_getitem")
+        self.assertIsInstance(rest_value.args[1], pyflow_ast.BuildSlice)
+
+    @unittest.skipIf(sys.version_info < (3, 11), "Requires Python 3.11+")
+    def test_try_star_handlers_keep_original_group_for_residual_raise(self):
+        """except* handlers should keep residual exceptional flow explicit."""
+        source = """
+try:
+    body()
+except* ValueError as err:
+    handle(err)
+"""
+        tree = python_ast.parse(source)
+        result = self.converter._convert_node(tree.body[0])
+
+        self.assertIsInstance(result, pyflow_ast.TryExceptFinally)
+        handler = result.handlers[0]
+        self.assertEqual(handler.value.name, "__exc_group__")
+        self.assertIsInstance(handler.body.blocks[-1], pyflow_ast.Raise)
+        self.assertEqual(handler.body.blocks[-1].exception.name, "__exc_group__")
 
 
 if __name__ == "__main__":

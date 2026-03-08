@@ -162,11 +162,11 @@ class CFGTransformer(TypeDispatcher):
         del node
 
     @dispatch(ast.TypeAlias)
-    def visitUnsupportedStatement(self, node):
-        raise TemporaryLimitation(
-            "CFG transform does not yet support "
-            f"{type(node).__qualname__}; rewrite or lower this construct first."
-        )
+    def visitTypeAlias(self, node):
+        # Type aliases are compile-time declarations. The frontend also emits an
+        # ordinary assignment for conservative value binding, so the marker node
+        # itself can be ignored during CFG construction.
+        del node
 
     @dispatch(object)  # Catch-all for unrecognised node types
     def visitUnknown(self, node):
@@ -323,70 +323,53 @@ class CFGTransformer(TypeDispatcher):
 
     @dispatch(ast.For)
     def visitFor(self, node):
-        """Handle for loops.
-
-        Bug fixes applied:
-        - Bug #1: The old code called self.makeNewSuite() and stored the result
-          in loop_body_suite but never connected it to anything.  makeNewSuite()
-          sets self.current as a side-effect, so the subsequent createMerge()
-          call saw a stale self.current.  Fixed by removing the spurious call.
-        - Bug #2: The else-clause wiring was wrong.  Fixed by connecting
-          self.current (after visiting the else body) to the break merge,
-          mirroring the while-loop pattern.
-        - Bug #8: The loop-exit merge node `e` was created but never connected
-          to the loop's normal-exit path.  Fixed by wiring merge -> e.
-        """
-        # Process loop preamble and body preamble
+        """Handle for loops conservatively using the same shape as while-loops."""
         if hasattr(node, "loopPreamble") and node.loopPreamble:
             self(node.loopPreamble)
+
+        header = self.createMerge()
+        self.attachCurrent(header)
+
+        break_merge = cfg.Merge(self.region)
+        exit_merge = cfg.Merge(self.region)
+
+        self.pushRegion(header)
+
+        header.setExit("normal", self.makeNewSuite())
+        switch = self.createSwitchAfter(node.iterator, self.current)
+        switch.setExit("true", self.makeNewSuite())
+
         if hasattr(node, "bodyPreamble") and node.bodyPreamble:
             self(node.bodyPreamble)
 
-        # Create merge point for loop entry (back-edge target for continue)
-        # Bug #1 fix: do NOT call makeNewSuite() here before createMerge().
-        merge = self.createMerge()
-        self.attachCurrent(merge)
-
-        # The loop body starts in a fresh suite connected to the merge.
-        merge.setExit("normal", self.makeNewSuite())
-
-        b = cfg.Merge(self.region)  # Break target
-
-        self.pushHandler("continue", merge)
-        self.pushHandler("break", b)
+        self.pushHandler("continue", header)
+        self.pushHandler("break", break_merge)
 
         try:
             self(node.body)
         except NoNormalFlow:
             pass
         else:
-            # Normal exit from body: loop back to the merge point.
-            self.attachCurrent(merge)
+            self.attachCurrent(header)
 
         self.popHandler("continue")
         self.popHandler("break")
+        self.popRegion()
 
-        # Else clause: runs when the loop exits normally (not via break).
-        # Bug #2 fix: wire self.current (after visiting else body) to b.
-        # Bug #8 fix: create merge node e and wire loop's normal-exit into it.
-        else_body = getattr(node, "else_", None)
-        if else_body:
-            e = cfg.Merge(self.region)
-            # Bug #8 fix: connect the loop's normal-exit (iterator exhausted) into e.
-            e.setExit("normal", self.makeNewSuite())
-            merge.setExit("normal", e)
-            try:
-                self(else_body)
-            except NoNormalFlow:
-                pass
-            else:
-                # Bug #2 fix: connect self.current (after else body) to break merge.
-                self.attachCurrent(b)
-            self.optimizeMerge(e)
+        switch.setExit("false", exit_merge)
 
-        b.setExit("normal", self.makeNewSuite())
-        self.optimizeMerge(merge)
-        self.optimizeMerge(b)
+        try:
+            exit_merge.setExit("normal", self.makeNewSuite())
+            self(node.else_)
+        except NoNormalFlow:
+            pass
+        else:
+            self.attachCurrent(break_merge)
+
+        break_merge.setExit("normal", self.makeNewSuite())
+        self.optimizeMerge(header)
+        self.optimizeMerge(break_merge)
+        self.optimizeMerge(exit_merge)
 
     def optimizeMerge(self, m):
         m.simplify()

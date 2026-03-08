@@ -28,6 +28,37 @@ from pyflow.analysis.storegraph import storegraph
 from pyflow.analysis.dataflowIR.transform import dce
 
 
+class UnsupportedDataflowConstructError(Exception):
+    """Raised when raw AST-to-dataflow lowering lacks a construct."""
+
+
+def _iter_slot_reads(node):
+    """Yield local/global/existing reads needed by generic expression lowering."""
+    if node is None:
+        return
+    if isinstance(node, ast.Code):
+        return
+    if isinstance(node, ast.Local):
+        yield node
+        return
+    if isinstance(node, ast.Existing):
+        yield node
+        return
+    if isinstance(node, ast.GetGlobal):
+        yield node.name
+        return
+    if isinstance(node, ast.leafTypes):
+        return
+    for child in node.children():
+        if child is None:
+            continue
+        if isinstance(child, (list, tuple)):
+            for item in child:
+                yield from _iter_slot_reads(item)
+        else:
+            yield from _iter_slot_reads(child)
+
+
 class AbstractState(object):
     """Abstract base class for state representation during CFG conversion.
 
@@ -395,18 +426,24 @@ class CodeToDataflow(TypeDispatcher):
             g.addLocalModify(lcl, target)
 
     def handleMemory(self, node, g):
+        annotation = getattr(node, "annotation", None)
+        if annotation is None:
+            return
+
         # Reads
-        for read in node.annotation.reads.merged:
+        reads = getattr(getattr(annotation, "reads", None), "merged", ())
+        for read in reads:
             slot = self.get(read)
             g.addRead(read, slot)
 
         # Psedo reads
-        for modify in node.annotation.modifies.merged:
+        modifies = getattr(getattr(annotation, "modifies", None), "merged", ())
+        for modify in modifies:
             slot = self.get(modify)
             g.addPsedoRead(modify, slot)
 
         # Modifies
-        for modify in node.annotation.modifies.merged:
+        for modify in modifies:
             slot = graph.FieldNode(self.hyperblock(), modify)
             self.set(modify, slot)
             g.addModify(modify, slot)
@@ -414,6 +451,21 @@ class CodeToDataflow(TypeDispatcher):
     def localRead(self, g, lcl):
         if isinstance(lcl, (ast.Local, ast.Existing)):
             g.addLocalRead(lcl, self.get(lcl))
+        elif isinstance(lcl, ast.GetGlobal):
+            g.addLocalRead(lcl.name, self.get(lcl.name))
+
+    def genericOp(self, node):
+        g = graph.GenericOp(self.hyperblock(), node)
+        g.setPredicate(self.pred())
+        seen = set()
+        for read in _iter_slot_reads(node):
+            key = id(read)
+            if key in seen:
+                continue
+            seen.add(key)
+            self.localRead(g, read)
+        self.handleMemory(node, g)
+        return g
 
     @dispatch(ast.Allocate)
     def processAllocate(self, node):
@@ -452,6 +504,10 @@ class CodeToDataflow(TypeDispatcher):
         self.handleMemory(node, g)
         return g
 
+    @dispatch(ast.Expression)
+    def processExpression(self, node):
+        return self.genericOp(node)
+
     @dispatch(ast.Local, ast.Existing)
     def visitLocalRead(self, node):
         return self.get(node)
@@ -466,6 +522,12 @@ class CodeToDataflow(TypeDispatcher):
 
         else:
             self.handleOp(node.expr, node.lcls)
+
+    @dispatch(ast.AnnAssign)
+    def processAnnAssign(self, node):
+        if getattr(node, "value", None) is None:
+            return
+        self.handleOp(node.value, [node.target])
 
     @dispatch(ast.Discard)
     def processDiscard(self, node):
@@ -517,6 +579,38 @@ class CodeToDataflow(TypeDispatcher):
 
         self.mergeStates(exits)
 
+    @dispatch(ast.Switch)
+    def processSwitch(self, node):
+        self(node.condition.preamble)
+
+        g = graph.GenericOp(self.hyperblock(), node)
+        g.setPredicate(self.pred())
+        for read in _iter_slot_reads(node.condition.conditional):
+            self.localRead(g, read)
+
+        predicates = []
+        for label in ("true", "false"):
+            p = graph.PredicateNode(self.hyperblock(), label)
+            predicates.append(p.addDefn(g))
+        true_state, false_state = self.branch(predicates)
+
+        self.setState(true_state)
+        self(node.t)
+        true_exit = self.popState()
+
+        self.setState(false_state)
+        self(node.f)
+        false_exit = self.popState()
+
+        self.mergeStates([true_exit, false_exit])
+
+    @dispatch(ast.While, ast.For, ast.TryExceptFinally)
+    def processUnsupportedStructuredControl(self, node):
+        raise UnsupportedDataflowConstructError(
+            "dataflowIR conversion does not yet lower "
+            f"{type(node).__qualname__} from source-loaded AST"
+        )
+
     @dispatch(str, type(None), ast.Code)
     def processLeaf(self, node):
         return None
@@ -543,7 +637,8 @@ class CodeToDataflow(TypeDispatcher):
             self.dataflow.exit.setPredicate(self.dataflow.entryPredicate)
             return
 
-        killed = self.code.annotation.killed.merged
+        annotation = getattr(self.code, "annotation", None)
+        killed = getattr(getattr(annotation, "killed", None), "merged", ())
 
         self.dataflow.exit = graph.Exit(state.hyperblock)
         self.dataflow.exit.setPredicate(state.predicate)

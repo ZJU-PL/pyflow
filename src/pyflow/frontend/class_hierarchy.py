@@ -215,11 +215,7 @@ class ClassHierarchy:
         builtin_qualified = f"builtins.{base_name}"
         if builtin_qualified in self.classes:
             return builtin_qualified
-        
-        for mod_name, name_map in self.name_to_qualified.items():
-            if base_name in name_map:
-                return name_map[base_name]
-        
+
         return None
     
     def resolve_bases(

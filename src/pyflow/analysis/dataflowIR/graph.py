@@ -1487,7 +1487,7 @@ class GenericOp(PredicatedOpNode):
         # self.sanityCheck()
 
     def addLocalRead(self, name, slot):
-        assert isinstance(slot, (LocalNode, ExistingNode)), slot
+        assert isinstance(slot, (LocalNode, ExistingNode, NullNode)), slot
         if name in self.localReads:
             assert self.localReads[name].canonical() is slot.canonical()
         else:
@@ -1566,8 +1566,13 @@ class GenericOp(PredicatedOpNode):
 
 
 def refFromExisting(node):
-    assert node.annotation.references, node
-    return node.annotation.references.merged[0]
+    annotation = getattr(node, "annotation", None)
+    references = getattr(annotation, "references", None)
+    if references and getattr(references, "merged", None):
+        return references.merged[0]
+    # Source-loaded code often lacks full CPA reference annotations.
+    # Keep Existing nodes usable for local DDG/PDG construction anyway.
+    return node.object
 
 
 class DataflowGraph(object):

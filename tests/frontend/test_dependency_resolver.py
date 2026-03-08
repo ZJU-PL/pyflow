@@ -1,5 +1,6 @@
 """Unit tests for dependency_resolver module."""
 
+import ast
 import unittest
 from unittest.mock import Mock, patch
 import inspect
@@ -85,6 +86,19 @@ def test_func():
         functions = resolver.extract_functions(source, "test.py")
         self.assertIsInstance(functions, dict)
 
+    def test_runtime_strategies_fallback_to_ast_without_exec(self):
+        """Runtime-labelled strategies should stay side-effect free by default."""
+        source = """
+raise RuntimeError("boom")
+
+def test_func():
+    return 42
+"""
+        for strategy in ("strict", "stubs", "noop"):
+            resolver = DependencyResolver(strategy=strategy, verbose=False)
+            functions = resolver.extract_functions(source, "test.py")
+            self.assertIn("test_func", functions)
+
     def test_extract_functions_ast_only(self):
         """Test extract_functions with AST_ONLY strategy."""
         resolver = DependencyResolver(strategy="ast_only", verbose=False)
@@ -107,6 +121,16 @@ def test_func(x):
 """
         functions = self.resolver.extract_functions(source, "test.py")
         self.assertIsInstance(functions, dict)
+
+    def test_extract_import_map_ignores_function_local_imports(self):
+        """Function-local imports must not appear as module-level bindings."""
+        tree = ast.parse(
+            "def build():\n"
+            "    import pkg as p\n"
+            "    return p.Base\n"
+        )
+        imports = self.resolver._extract_import_map(tree, "consumer")
+        self.assertEqual(imports, {})
 
     def test_extract_functions_with_missing_imports(self):
         """Test extract_functions with missing imports."""
@@ -205,6 +229,16 @@ from sys import argv
         self.assertIn('os', imports)
         self.assertIn('sys', imports)
 
+    def test_find_imports_ignores_function_local_imports(self):
+        """Import discovery should stay at module scope."""
+        source = """
+def build():
+    import math
+    from os import path
+"""
+        imports = self.resolver._find_imports(source)
+        self.assertEqual(imports, set())
+
     def test_find_imports_no_imports(self):
         """Test finding imports when there are none."""
         source = """
@@ -220,6 +254,36 @@ def test_func():
         imports = self.resolver._find_imports(source)
         # Should return empty set on error
         self.assertEqual(imports, set())
+
+    def test_find_imports_detailed_ignores_function_local_imports(self):
+        """Detailed import discovery should not leak nested imports."""
+        source = """
+def build():
+    import pkg.mod as pm
+    from os import path
+"""
+        imports = self.resolver._find_imports_detailed(source)
+        self.assertEqual(imports, {})
+
+    def test_record_import_edges_ignores_function_local_imports(self):
+        """Import graph edges should only include module-scope imports."""
+        tree = ast.parse(
+            "def build():\n"
+            "    import pkg.mod\n"
+            "    from os import path\n"
+        )
+        self.resolver._record_import_edges(tree, "consumer", "consumer.py")
+        self.assertEqual(self.resolver._import_graph["consumer"], set())
+
+    def test_build_stub_modules_ignores_function_local_imports(self):
+        """Stub modules should not be created for nested-scope imports."""
+        modules = self.resolver._build_stub_modules(
+            "def build():\n"
+            "    import pkg.mod\n"
+            "    from os import path\n",
+            "consumer.py",
+        )
+        self.assertEqual(modules, {})
 
     def test_create_stub_module(self):
         """Test creating a stub module."""
@@ -318,10 +382,11 @@ def func2(x, y):
             "import nonexistent_module\n"
             "value = nonexistent_module.some_attr()\n"
         )
-        exec_globals = self.resolver._create_safe_exec_globals()
-        exec_globals = self.resolver._handle_import_errors(source, exec_globals, "example.py")
+        resolver = DependencyResolver(strategy="stubs", verbose=False, allow_runtime_execution=True)
+        exec_globals = resolver._create_safe_exec_globals()
+        exec_globals = resolver._handle_import_errors(source, exec_globals, "example.py")
         compiled = compile(source, "example.py", "exec")
-        self.resolver._exec_with_stub_modules(compiled, exec_globals)
+        resolver._exec_with_stub_modules(compiled, exec_globals)
         self.assertIn("value", exec_globals)
         self.assertIsNone(exec_globals["value"])
 
@@ -330,9 +395,10 @@ def func2(x, y):
         import os
 
         real_system = os.system
-        exec_globals = self.resolver._create_safe_exec_globals()
+        resolver = DependencyResolver(strategy="strict", verbose=False, allow_runtime_execution=True)
+        exec_globals = resolver._create_safe_exec_globals()
         compiled = compile("import os\nvalue = os\nresult = os.system('ignored')\n", "example.py", "exec")
-        self.resolver._exec_with_stub_modules(compiled, exec_globals)
+        resolver._exec_with_stub_modules(compiled, exec_globals)
 
         self.assertIsNot(exec_globals["value"], os)
         self.assertEqual(exec_globals["result"], 0)

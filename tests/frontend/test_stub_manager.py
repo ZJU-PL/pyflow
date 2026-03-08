@@ -174,6 +174,7 @@ class TestStubManager(unittest.TestCase):
             "interpreter_aenter",
             "interpreter_aexit",
             "interpreter_match_sequence_len",
+            "interpreter_match_sequence_len_min",
             "interpreter_match_mapping_len",
             "interpreter_match_rest",
             "interpreter_exception_group_extract",

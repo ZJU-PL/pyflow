@@ -43,6 +43,7 @@ class ASTConverter:
             "merged_varargs": 0,
             "merged_kwargs": 0,
         }
+        self._scope_stack: List[Dict[str, Any]] = []
 
     def _tmp_local(self, hint: str, node: python_ast.AST) -> pyflow_ast.Local:
         return pyflow_ast.Local(f"__pyflow_tmp_{hint}_{id(node)}")
@@ -116,6 +117,199 @@ class ASTConverter:
             return pyflow_ast.BuildSlice(start, stop, step)
         return self._convert_expression_safe(sl)
 
+    def _push_scope(
+        self,
+        kind: str,
+        *,
+        global_names: Optional[Set[str]] = None,
+        nonlocal_names: Optional[Set[str]] = None,
+        cell_names: Optional[Set[str]] = None,
+        global_hints: Optional[Set[str]] = None,
+    ) -> None:
+        self._scope_stack.append(
+            {
+                "kind": kind,
+                "global_names": set(global_names or ()),
+                "nonlocal_names": set(nonlocal_names or ()),
+                "cell_names": set(cell_names or ()),
+                "global_hints": set(global_hints or ()),
+                "cells": {},
+            }
+        )
+
+    def _pop_scope(self) -> None:
+        self._scope_stack.pop()
+
+    def _current_scope(self) -> Optional[Dict[str, Any]]:
+        if not self._scope_stack:
+            return None
+        return self._scope_stack[-1]
+
+    def _collect_direct_scope_directives(
+        self, body_nodes: List[python_ast.AST]
+    ) -> Tuple[Set[str], Set[str]]:
+        global_names: Set[str] = set()
+        nonlocal_names: Set[str] = set()
+
+        class DirectiveVisitor(python_ast.NodeVisitor):
+            def visit_Global(self, node: python_ast.Global) -> None:
+                global_names.update(node.names)
+
+            def visit_Nonlocal(self, node: python_ast.Nonlocal) -> None:
+                nonlocal_names.update(node.names)
+
+            def visit_FunctionDef(self, node: python_ast.FunctionDef) -> None:
+                return
+
+            def visit_AsyncFunctionDef(self, node: python_ast.AsyncFunctionDef) -> None:
+                return
+
+            def visit_ClassDef(self, node: python_ast.ClassDef) -> None:
+                return
+
+        visitor = DirectiveVisitor()
+        for stmt in body_nodes:
+            visitor.visit(stmt)
+        return global_names, nonlocal_names
+
+    def _collect_descendant_scope_directives(
+        self, body_nodes: List[python_ast.AST]
+    ) -> Tuple[Set[str], Set[str]]:
+        global_names: Set[str] = set()
+        nonlocal_names: Set[str] = set()
+
+        def walk(nodes: List[python_ast.AST]) -> None:
+            for stmt in nodes:
+                if isinstance(stmt, (python_ast.FunctionDef, python_ast.AsyncFunctionDef)):
+                    direct_global, direct_nonlocal = self._collect_direct_scope_directives(
+                        list(stmt.body)
+                    )
+                    global_names.update(direct_global)
+                    nonlocal_names.update(direct_nonlocal)
+                    walk(list(stmt.body))
+                    continue
+
+                if isinstance(
+                    stmt,
+                    (
+                        python_ast.If,
+                        python_ast.For,
+                        python_ast.AsyncFor,
+                        python_ast.While,
+                        python_ast.With,
+                        python_ast.AsyncWith,
+                    ),
+                ):
+                    walk(list(getattr(stmt, "body", []) or []))
+                    walk(list(getattr(stmt, "orelse", []) or []))
+                    continue
+
+                if isinstance(stmt, python_ast.Try):
+                    walk(list(getattr(stmt, "body", []) or []))
+                    for handler in getattr(stmt, "handlers", []) or []:
+                        walk(list(getattr(handler, "body", []) or []))
+                    walk(list(getattr(stmt, "orelse", []) or []))
+                    walk(list(getattr(stmt, "finalbody", []) or []))
+                    continue
+
+                if hasattr(python_ast, "TryStar") and isinstance(stmt, python_ast.TryStar):
+                    walk(list(getattr(stmt, "body", []) or []))
+                    for handler in getattr(stmt, "handlers", []) or []:
+                        walk(list(getattr(handler, "body", []) or []))
+                    walk(list(getattr(stmt, "orelse", []) or []))
+                    walk(list(getattr(stmt, "finalbody", []) or []))
+                    continue
+
+                if hasattr(python_ast, "Match") and isinstance(stmt, python_ast.Match):
+                    for case in getattr(stmt, "cases", []) or []:
+                        walk(list(getattr(case, "body", []) or []))
+
+        walk(body_nodes)
+        return global_names, nonlocal_names
+
+    def _name_constant(self, name: str) -> pyflow_ast.Existing:
+        return pyflow_ast.Existing(Object(name))
+
+    def _get_local_cell(self, name: str) -> pyflow_ast.Cell:
+        scope = self._current_scope()
+        if scope is None:
+            return pyflow_ast.Cell(name)
+        cells = scope["cells"]
+        if name not in cells:
+            cells[name] = pyflow_ast.Cell(name)
+        return cells[name]
+
+    def _resolve_nonlocal_cell(self, name: str) -> pyflow_ast.Cell:
+        for scope in reversed(self._scope_stack[:-1]):
+            if scope.get("kind") == "module":
+                continue
+            if name in scope["cell_names"] or name in scope["cells"]:
+                cells = scope["cells"]
+                if name not in cells:
+                    cells[name] = pyflow_ast.Cell(name)
+                return cells[name]
+        return self._get_local_cell(name)
+
+    def _name_expr(self, name: str) -> PythonASTNode:
+        scope = self._current_scope()
+        if scope is None:
+            return pyflow_ast.Local(name)
+        if scope["kind"] == "module" and name in scope["global_hints"]:
+            return pyflow_ast.GetGlobal(self._name_constant(name))
+        if name in scope["global_names"]:
+            return pyflow_ast.GetGlobal(self._name_constant(name))
+        if name in scope["nonlocal_names"]:
+            return pyflow_ast.GetCellDeref(self._resolve_nonlocal_cell(name))
+        if name in scope["cell_names"]:
+            return pyflow_ast.GetCellDeref(self._get_local_cell(name))
+        return pyflow_ast.Local(name)
+
+    def _name_store(self, name: str, value: PythonASTNode) -> PythonASTNode:
+        scope = self._current_scope()
+        if scope is None:
+            return pyflow_ast.Assign(value, [pyflow_ast.Local(name)])
+        if scope["kind"] == "module" and name in scope["global_hints"]:
+            return pyflow_ast.SetGlobal(self._name_constant(name), value)
+        if name in scope["global_names"]:
+            return pyflow_ast.SetGlobal(self._name_constant(name), value)
+        if name in scope["nonlocal_names"]:
+            return pyflow_ast.SetCellDeref(value, self._resolve_nonlocal_cell(name))
+        if name in scope["cell_names"]:
+            return pyflow_ast.SetCellDeref(value, self._get_local_cell(name))
+        return pyflow_ast.Assign(value, [pyflow_ast.Local(name)])
+
+    def _name_delete(self, name: str) -> PythonASTNode:
+        scope = self._current_scope()
+        if scope is None:
+            return pyflow_ast.Delete(pyflow_ast.Local(name))
+        if scope["kind"] == "module" and name in scope["global_hints"]:
+            return pyflow_ast.DeleteGlobal(self._name_constant(name))
+        if name in scope["global_names"]:
+            return pyflow_ast.DeleteGlobal(self._name_constant(name))
+        if name in scope["nonlocal_names"] or name in scope["cell_names"]:
+            return pyflow_ast.Discard(
+                self._call_named(
+                    "interpreter_unsupported_stmt",
+                    [
+                        pyflow_ast.Existing(Object("Delete")),
+                        pyflow_ast.Existing(Object(f"delete shared name {name}")),
+                    ],
+                )
+            )
+        return pyflow_ast.Delete(pyflow_ast.Local(name))
+
+    def _name_uses_plain_local(self, name: str) -> bool:
+        scope = self._current_scope()
+        if scope is None:
+            return True
+        if scope["kind"] == "module" and name in scope["global_hints"]:
+            return False
+        return (
+            name not in scope["global_names"]
+            and name not in scope["nonlocal_names"]
+            and name not in scope["cell_names"]
+        )
+
     def convert_python_ast_to_pyflow(
         self, python_nodes: List[python_ast.AST]
     ) -> pyflow_ast.Suite:
@@ -123,13 +317,24 @@ class ASTConverter:
         if not python_nodes:
             return pyflow_ast.Suite([])
 
-        blocks = []
-        for i, node in enumerate(python_nodes):
-            converted = self._convert_node(node)
-            if converted is not None:
-                blocks.append(converted)
+        pushed_module_scope = False
+        if not self._scope_stack:
+            descendant_global, _descendant_nonlocal = self._collect_descendant_scope_directives(
+                python_nodes
+            )
+            self._push_scope("module", global_hints=descendant_global)
+            pushed_module_scope = True
 
-        return pyflow_ast.Suite(blocks)
+        try:
+            blocks = []
+            for node in python_nodes:
+                converted = self._convert_node(node)
+                if converted is not None:
+                    blocks.append(converted)
+            return pyflow_ast.Suite(blocks)
+        finally:
+            if pushed_module_scope:
+                self._pop_scope()
 
     def _convert_node(self, node: python_ast.AST) -> Optional[PythonASTNode]:
         """Convert a single Python AST node to pyflow AST."""
@@ -157,6 +362,10 @@ class ASTConverter:
         elif isinstance(node, python_ast.AnnAssign):
             # Handle annotated assignment: x: int = 5 or x: int
             return self._convert_annassign(node)
+
+        elif hasattr(python_ast, "TypeAlias") and isinstance(node, python_ast.TypeAlias):
+            # Handle Python 3.12+ type alias declarations.
+            return self._convert_type_alias(node)
         
         elif isinstance(node, python_ast.If):
             # Handle if statements
@@ -254,15 +463,12 @@ class ASTConverter:
             return pyflow_ast.Suite([])
 
         else:
-            # Keep unsupported statements explicit so callers can audit precision loss.
-            if hasattr(node, "value"):
-                return pyflow_ast.Discard(self._convert_expression(node.value))
             return self._unsupported_stmt(node, "unhandled statement node")
 
     def _convert_expression(self, node: python_ast.AST) -> PythonASTNode:
         """Convert Python AST expressions to pyflow AST expressions."""
         if isinstance(node, python_ast.Name):
-            return pyflow_ast.Local(node.id)
+            return self._name_expr(node.id)
 
         elif isinstance(node, python_ast.Constant):
             return pyflow_ast.Existing(Object(node.value))
@@ -566,7 +772,11 @@ class ASTConverter:
         elif isinstance(node, python_ast.Lambda):
             # Handle lambda expressions
             codeparams = self._convert_function_args(node.args, ensure_return=True)
-            body_expr = self._convert_expression_safe(node.body)
+            self._push_scope("function")
+            try:
+                body_expr = self._convert_expression_safe(node.body)
+            finally:
+                self._pop_scope()
             suite = pyflow_ast.Suite([pyflow_ast.Return([body_expr])])
             code = pyflow_ast.Code(f"<lambda_{id(node)}>", codeparams, suite)
             code.annotation = CodeAnnotation(
@@ -608,8 +818,22 @@ class ASTConverter:
         codeparams = self._convert_function_args(
             node.args, ensure_return=True, type_params_node=type_params_node
         )
-
-        body = self.convert_python_ast_to_pyflow(node.body)
+        direct_global, direct_nonlocal = self._collect_direct_scope_directives(
+            list(node.body)
+        )
+        _descendant_global, descendant_nonlocal = self._collect_descendant_scope_directives(
+            list(node.body)
+        )
+        self._push_scope(
+            "function",
+            global_names=direct_global,
+            nonlocal_names=direct_nonlocal,
+            cell_names=descendant_nonlocal,
+        )
+        try:
+            body = self.convert_python_ast_to_pyflow(node.body)
+        finally:
+            self._pop_scope()
 
         code = pyflow_ast.Code(node.name, codeparams, body)
 
@@ -999,7 +1223,7 @@ class ASTConverter:
 
     def _convert_delete_target(self, target: python_ast.AST) -> Optional[PythonASTNode]:
         if isinstance(target, python_ast.Name):
-            return pyflow_ast.Delete(pyflow_ast.Local(target.id))
+            return self._name_delete(target.id)
         if isinstance(target, python_ast.Attribute):
             obj = self._convert_expression_safe(target.value)
             name = pyflow_ast.Existing(Object(target.attr))
@@ -1016,7 +1240,7 @@ class ASTConverter:
         self, target: python_ast.AST, value: PythonASTNode
     ) -> PythonASTNode:
         if isinstance(target, python_ast.Name):
-            return pyflow_ast.Assign(value, [pyflow_ast.Local(target.id)])
+            return self._name_store(target.id, value)
         if isinstance(target, python_ast.Attribute):
             obj = self._convert_expression_safe(target.value)
             name = pyflow_ast.Existing(Object(target.attr))
@@ -1085,7 +1309,10 @@ class ASTConverter:
         rhs = self._convert_expression_safe(node.value)
 
         # Fast path for pure-local assignment(s).
-        if all(isinstance(t, python_ast.Name) for t in node.targets):
+        if all(
+            isinstance(t, python_ast.Name) and self._name_uses_plain_local(t.id)
+            for t in node.targets
+        ):
             locals_ = [pyflow_ast.Local(t.id) for t in node.targets]  # type: ignore[attr-defined]
             return pyflow_ast.Assign(rhs, locals_)
 
@@ -1112,9 +1339,9 @@ class ASTConverter:
 
         # Load current value from target.
         if isinstance(node.target, python_ast.Name):
-            cur = pyflow_ast.Local(node.target.id)
+            cur = self._name_expr(node.target.id)
             new_val = pyflow_ast.Call(op, [cur, rhs], [], None, None)
-            return pyflow_ast.Assign(new_val, [pyflow_ast.Local(node.target.id)])
+            return self._name_store(node.target.id, new_val)
 
         if isinstance(node.target, python_ast.Attribute):
             obj = self._convert_expression_safe(node.target.value)
@@ -1399,17 +1626,67 @@ class ASTConverter:
             ])
         
         elif hasattr(python_ast, "MatchSequence") and isinstance(pattern, python_ast.MatchSequence):
-            length_check = self._call_named("interpreter_match_sequence_len", [
-                subject, 
-                pyflow_ast.Existing(Object(len(pattern.patterns)))
-            ])
+            starred_idx = next(
+                (
+                    i
+                    for i, sub_pattern in enumerate(pattern.patterns)
+                    if hasattr(python_ast, "MatchStar")
+                    and isinstance(sub_pattern, python_ast.MatchStar)
+                ),
+                None,
+            )
+
+            if starred_idx is None:
+                length_check = self._call_named(
+                    "interpreter_match_sequence_len",
+                    [
+                        subject,
+                        pyflow_ast.Existing(Object(len(pattern.patterns))),
+                    ],
+                )
+            else:
+                length_check = self._call_named(
+                    "interpreter_match_sequence_len_min",
+                    [
+                        subject,
+                        pyflow_ast.Existing(Object(len(pattern.patterns) - 1)),
+                    ],
+                )
+
             if not pattern.patterns:
                 return length_check
+
             result = length_check
+            trailing_count = 0
+            if starred_idx is not None:
+                trailing_count = len(pattern.patterns) - starred_idx - 1
+
             for i, sub_pattern in enumerate(pattern.patterns):
-                idx = pyflow_ast.Existing(Object(i))
-                elem = self._call_named("interpreter_getitem", [subject, idx])
-                sub_condition = self._convert_pattern_with_bindings(sub_pattern, elem, bindings)
+                if starred_idx is not None and i == starred_idx:
+                    stop = (
+                        pyflow_ast.Existing(Object(-trailing_count))
+                        if trailing_count > 0
+                        else pyflow_ast.Existing(Object(None))
+                    )
+                    slice_node = pyflow_ast.BuildSlice(
+                        pyflow_ast.Existing(Object(starred_idx)),
+                        stop,
+                        None,
+                    )
+                    elem = self._call_named("interpreter_getitem", [subject, slice_node])
+                else:
+                    if starred_idx is not None and i > starred_idx:
+                        trailing_offset = i - starred_idx - 1
+                        idx = pyflow_ast.Existing(
+                            Object(-(trailing_count - trailing_offset))
+                        )
+                    else:
+                        idx = pyflow_ast.Existing(Object(i))
+                    elem = self._call_named("interpreter_getitem", [subject, idx])
+
+                sub_condition = self._convert_pattern_with_bindings(
+                    sub_pattern, elem, bindings
+                )
                 result = pyflow_ast.ShortCircutAnd([result, sub_condition])
             return result
         
@@ -1430,7 +1707,7 @@ class ASTConverter:
             result = self._call_named("interpreter_match_class", [subject, cls])
             for i, sub_pattern in enumerate(pattern.patterns):
                 idx = pyflow_ast.Existing(Object(i))
-                elem = self._call_named("interpreter_getitem", [subject, idx])
+                elem = self._call_named("interpreter_match_class_arg", [subject, cls, idx])
                 sub_condition = self._convert_pattern_with_bindings(sub_pattern, elem, bindings)
                 result = pyflow_ast.ShortCircutAnd([result, sub_condition])
             for attr_name, sub_pattern in zip(pattern.kwd_attrs, pattern.kwd_patterns):
@@ -1513,13 +1790,22 @@ class ASTConverter:
             else:
                 exc_name = None
 
+            original_group = pyflow_ast.Local("__exc_group__")
             handler_body = self.convert_python_ast_to_pyflow(handler.body)
+            handler_body = self._ensure_suite(handler_body)
+            handler_body.append(
+                pyflow_ast.Raise(
+                    exception=original_group,
+                    parameter=None,
+                    traceback=pyflow_ast.Existing(Object(None)),
+                )
+            )
 
             preamble = pyflow_ast.Suite([])
             if exc_name and exc_type:
                 preamble.append(pyflow_ast.Assign(
                     self._call_named("interpreter_exception_group_extract", [
-                        pyflow_ast.Local("__exc_group__"),
+                        original_group,
                         exc_type
                     ]),
                     [exc_name]
@@ -1528,7 +1814,7 @@ class ASTConverter:
             exc_handler = pyflow_ast.ExceptionHandler(
                 preamble=preamble,
                 type=exc_type,
-                value=exc_name,
+                value=original_group,
                 body=handler_body,
             )
             handlers.append(exc_handler)
@@ -1571,7 +1857,7 @@ class ASTConverter:
         if isinstance(node.target, python_ast.Name):
             if value is None:
                 return pyflow_ast.Suite([])
-            return pyflow_ast.Assign(value, [pyflow_ast.Local(node.target.id)])
+            return self._name_store(node.target.id, value)
 
         # For non-local targets, keep the runtime-equivalent lowering.
         if value is None:
@@ -1595,6 +1881,31 @@ class ASTConverter:
             )
 
         return self._unsupported_stmt(node, "annotated assignment target unsupported")
+
+    def _convert_type_alias(self, node) -> PythonASTNode:
+        """Convert Python 3.12+ ``type Alias = ...`` declarations.
+
+        Preserve the alias declaration explicitly while also binding the alias name
+        to the lowered value expression so downstream analyses can resolve later
+        references conservatively.
+        """
+        value = self._convert_expression_safe(node.value)
+        if isinstance(node.name, python_ast.Name):
+            alias_name = node.name.id
+        else:
+            alias_name = getattr(node.name, "name", str(node.name))
+
+        params_node = getattr(node, "type_params", None)
+        params = []
+        if params_node:
+            params = list(self._convert_type_params(params_node).params)
+
+        return pyflow_ast.Suite(
+            [
+                pyflow_ast.TypeAlias(alias_name, params, value),
+                self._name_store(alias_name, value),
+            ]
+        )
 
     def _convert_named_expr(self, node) -> PythonASTNode:
         """Convert walrus operator (:=) to pyflow AST.

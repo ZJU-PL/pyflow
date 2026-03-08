@@ -118,6 +118,8 @@ class ProgramDependenceGraph:
         "cfg",
         "entry",
         "exit_nodes",
+        "data_dependence_mode",
+        "data_dependence_reason",
         "_cfg_anchor",
         "_cfg_contents",
         "_ast_node_index",
@@ -130,6 +132,8 @@ class ProgramDependenceGraph:
 
         self.entry: Optional[PDGNode] = None
         self.exit_nodes: List[PDGNode] = []
+        self.data_dependence_mode = "disabled"
+        self.data_dependence_reason = ""
 
         self._cfg_anchor: Dict[Any, PDGNode] = {}
         self._cfg_contents: Dict[Any, List[PDGNode]] = {}

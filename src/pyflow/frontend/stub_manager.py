@@ -92,6 +92,13 @@ class StubManager:
                     pyflow_ast.Local("value"),
                 ])
 
+            if op_name == "interpreter_match_class_arg":
+                return make_params([
+                    pyflow_ast.Local("subject"),
+                    pyflow_ast.Local("cls"),
+                    pyflow_ast.Local("index"),
+                ])
+
             if op_name == "interpreter_ifexp":
                 return make_params([
                     pyflow_ast.Local("cond"),
@@ -224,10 +231,17 @@ class StubManager:
             "interpreter_match_sequence_len": lambda seq, n: bool(
                 hasattr(seq, "__len__") and len(seq) == n
             ),
+            "interpreter_match_sequence_len_min": lambda seq, n: bool(
+                hasattr(seq, "__len__") and len(seq) >= n
+            ),
             "interpreter_match_mapping_len": lambda mapping, n: bool(
                 hasattr(mapping, "__len__") and len(mapping) >= n
             ),
             "interpreter_match_class": isinstance,
+            "interpreter_match_class_arg": lambda subject, cls, index: getattr(
+                subject,
+                getattr(cls, "__match_args__", ())[index],
+            ),
             "interpreter_match_rest": lambda subject: subject,
             "interpreter_exception_group_extract": lambda exc_group, exc_type: exc_group,
             "interpreter_exception_type": type,
@@ -365,11 +379,17 @@ class StubManager:
                     "interpreter_match_sequence_len": create_stub_code(
                         "interpreter_match_sequence_len"
                     ),
+                    "interpreter_match_sequence_len_min": create_stub_code(
+                        "interpreter_match_sequence_len_min"
+                    ),
                     "interpreter_match_mapping_len": create_stub_code(
                         "interpreter_match_mapping_len"
                     ),
                     "interpreter_match_class": create_stub_code(
                         "interpreter_match_class"
+                    ),
+                    "interpreter_match_class_arg": create_stub_code(
+                        "interpreter_match_class_arg"
                     ),
                     "interpreter_match_rest": create_stub_code(
                         "interpreter_match_rest"

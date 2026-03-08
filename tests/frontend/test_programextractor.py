@@ -247,6 +247,19 @@ class MyClass:
         self.assertEqual(imports["exposed"], "pkg.lib.exposed")
         self.assertNotIn("_hidden", imports)
 
+    def test_extract_imports_ignores_function_local_imports(self):
+        """Function-local imports must not leak into the module import map."""
+        source = (
+            "def build():\n"
+            "    import pkg as p\n"
+            "    return p.Base\n"
+        )
+        tree = ast.parse(source)
+        self.extractor.source_code = {}
+        self.extractor._extract_imports(tree, "pkg.consumer")
+
+        self.assertEqual(self.extractor._module_imports["pkg.consumer"], {})
+
     def test_package_init_module_name_is_canonicalized(self):
         """Package __init__.py should register under the package name."""
         self.assertEqual(self.extractor._get_module_name("pkg/__init__.py"), "pkg")

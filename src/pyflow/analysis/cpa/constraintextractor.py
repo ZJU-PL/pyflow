@@ -500,6 +500,41 @@ class ExtractDataflow(TypeDispatcher):
     def visitScopeDecl(self, node, targets=None):
         return None
 
+    @dispatch(ast.TypeAlias)
+    def visitTypeAlias(self, node, targets=None):
+        del node, targets
+        return None
+
+    def _shared_placeholder(self, node, label: str):
+        return self.init(node, self.system.extractor.getObject(label))
+
+    @dispatch(ast.GetGlobal, ast.GetCellDeref)
+    def visitSharedRead(self, node, targets=None):
+        value = self._shared_placeholder(node, f"__pyflow_shared__:{type(node).__name__}")
+        if targets is not None:
+            assert len(targets) == 1
+            self.assign(value, targets[0])
+            return targets
+        return value
+
+    @dispatch(ast.SetGlobal, ast.SetCellDeref)
+    def visitSharedWrite(self, node, targets=None):
+        value = self(node.value)
+        if value is not None:
+            self.assign(
+                value,
+                self._shared_placeholder(
+                    node, f"__pyflow_shared__:{type(node).__name__}"
+                ),
+            )
+        del targets
+        return None
+
+    @dispatch(ast.DeleteGlobal)
+    def visitDeleteGlobal(self, node, targets=None):
+        del node, targets
+        return None
+
     @dispatch(ast.Yield)
     def visitYield(self, node, targets=None):
         return None

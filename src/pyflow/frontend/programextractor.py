@@ -15,7 +15,7 @@ import ast
 import inspect
 import os
 import re
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, Iterable, List, Optional, Set
 
 from pyflow.application.program import Program
 from pyflow.application.context import CompilerContext
@@ -82,6 +82,48 @@ def _is_synthetic_entry_code(code: Any) -> bool:
         if isinstance(item, str) and item.startswith("synthetic_module("):
             return True
     return False
+
+
+def _iter_import_nodes_in_scope(nodes: Iterable[ast.AST]):
+    """Yield import statements visible in the current scope.
+
+    Descend through module-scope control-flow statements, but do not cross into
+    nested function or class scopes where imports should not leak into the
+    module-level namespace.
+    """
+
+    for node in nodes:
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            yield node
+            continue
+
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            continue
+
+        if isinstance(node, (ast.If, ast.For, ast.AsyncFor, ast.While, ast.With, ast.AsyncWith)):
+            yield from _iter_import_nodes_in_scope(getattr(node, "body", ()) or ())
+            yield from _iter_import_nodes_in_scope(getattr(node, "orelse", ()) or ())
+            continue
+
+        if isinstance(node, ast.Try):
+            yield from _iter_import_nodes_in_scope(getattr(node, "body", ()) or ())
+            for handler in getattr(node, "handlers", ()) or ():
+                yield from _iter_import_nodes_in_scope(getattr(handler, "body", ()) or ())
+            yield from _iter_import_nodes_in_scope(getattr(node, "orelse", ()) or ())
+            yield from _iter_import_nodes_in_scope(getattr(node, "finalbody", ()) or ())
+            continue
+
+        if hasattr(ast, "TryStar") and isinstance(node, ast.TryStar):
+            yield from _iter_import_nodes_in_scope(getattr(node, "body", ()) or ())
+            for handler in getattr(node, "handlers", ()) or ():
+                yield from _iter_import_nodes_in_scope(getattr(handler, "body", ()) or ())
+            yield from _iter_import_nodes_in_scope(getattr(node, "orelse", ()) or ())
+            yield from _iter_import_nodes_in_scope(getattr(node, "finalbody", ()) or ())
+            continue
+
+        if hasattr(ast, "Match") and isinstance(node, ast.Match):
+            for case in getattr(node, "cases", ()) or ():
+                yield from _iter_import_nodes_in_scope(getattr(case, "body", ()) or ())
 
 
 class Extractor:
@@ -372,7 +414,7 @@ class Extractor:
         # Value is a list of the star-imported module names.
         STAR_KEY = "<star_imports>"
 
-        for node in ast.walk(tree):
+        for node in _iter_import_nodes_in_scope(getattr(tree, "body", ()) or ()):
             if isinstance(node, ast.Import):
                 for alias in node.names:
                     local_name = alias.asname or alias.name.split(".")[-1]

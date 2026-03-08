@@ -158,6 +158,10 @@ class OpFlow(TypeDispatcher):
         if getattr(node, "value", None) is not None:
             self(node.value)
 
+    @dispatch(ast.TypeAlias)
+    def visitTypeAlias(self, node):
+        del node
+
     @dispatch(ast.For, ast.While)
     def visitLoop(self, node):
         node.visitChildren(self)

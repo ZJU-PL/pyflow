@@ -46,6 +46,22 @@ from pyflow.analysis.dataflowIR import ordering
 from .graph import DataDependenceGraph, DDGNode
 
 
+def _memory_slot_key(slot: Any) -> Any:
+    canonical = slot.canonical() if hasattr(slot, "canonical") else slot
+
+    slot_name = getattr(canonical, "name", None)
+    if slot_name is not None and (
+        hasattr(slot_name, "object") or hasattr(slot_name, "name")
+    ):
+        return slot_name
+
+    slot_object = getattr(canonical, "object", None)
+    if slot_object is not None:
+        return (slot_object, slot_name)
+
+    return canonical
+
+
 class DDGConstructor(object):
     """
     Constructs Data Dependence Graphs from dataflowIR graphs.
@@ -260,17 +276,14 @@ class DDGConstructor(object):
             ):
                 reads.extend(ir.heapPsedoReads.values())
 
-            # Key function: use slot name if available, otherwise use slot object
-            key_func = lambda slot: getattr(slot, "name", None) or slot
-
             for slot in reads:
-                k = key_func(slot)
+                k = _memory_slot_key(slot)
                 if k in last_write:
                     self.ddg.add_mem_dep(last_write[k], op, label="RAW")
                 reads_since_write[k].add(op)
 
             for slot in writes:
-                k = key_func(slot)
+                k = _memory_slot_key(slot)
                 for reader in sorted(
                     reads_since_write.pop(k, ()), key=lambda node: node.node_id
                 ):

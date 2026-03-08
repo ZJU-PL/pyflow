@@ -12,11 +12,12 @@ from pyflow.analysis.ddg.graph import DataDependenceGraph
 
 
 class FakeSlot(df.SlotNode):
-    __slots__ = ("name", "defn", "_users")
+    __slots__ = ("name", "object", "defn", "_users")
 
-    def __init__(self, name):
+    def __init__(self, name, object=None):
         super().__init__(None)
         self.name = name
+        self.object = object
         self.defn = None
         self._users = []
 
@@ -152,6 +153,19 @@ class TestDDGConstructionRegression(unittest.TestCase):
         self.assertEqual(len(edges), 1)
         self.assertIs(edges[0].source.ir_node, writer)
         self.assertIs(edges[0].target.ir_node, consumer)
+
+    def test_memory_dependencies_distinguish_same_field_name_on_different_objects(self):
+        entry = FakeOp("entry")
+        write_a = FakeOp("write_a", heap_modifies={"x": FakeSlot("x", object="a")})
+        read_b = FakeOp("read_b", heap_reads={"x": FakeSlot("x", object="b")})
+
+        entry.connect(write_a)
+        write_a.connect(read_b)
+
+        ddg = construct_ddg(FakeDataflow(entry))
+        edges = [edge for edge in ddg.all_edges() if edge.kind == "memory"]
+
+        self.assertEqual(edges, [])
 
 
 class TestDDGDumpRegression(unittest.TestCase):

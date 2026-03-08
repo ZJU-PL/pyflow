@@ -493,6 +493,22 @@ finally:
         self.assertIsInstance(result, pyflow_ast.Suite)
         self.assertFalse(result.blocks)
 
+    @unittest.skipIf(not hasattr(python_ast, "TypeAlias"), "Requires Python 3.12+")
+    def test_convert_type_alias_preserves_alias_and_binding(self):
+        """Type aliases should be explicit and bind the alias name conservatively."""
+        source = "type Alias[T] = list[T]"
+        tree = python_ast.parse(source)
+        node = tree.body[0]
+
+        result = self.converter._convert_node(node)
+        self.assertIsInstance(result, pyflow_ast.Suite)
+        self.assertEqual(len(result.blocks), 2)
+        self.assertIsInstance(result.blocks[0], pyflow_ast.TypeAlias)
+        self.assertEqual(result.blocks[0].name, "Alias")
+        self.assertEqual(len(result.blocks[0].params), 1)
+        self.assertIsInstance(result.blocks[1], pyflow_ast.Assign)
+        self.assertEqual(result.blocks[1].lcls[0].name, "Alias")
+
     def test_convert_with_statement(self):
         """Test converting with statement with proper context manager protocol."""
         source = """

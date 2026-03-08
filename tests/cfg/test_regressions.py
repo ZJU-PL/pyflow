@@ -2,6 +2,7 @@ import unittest
 
 from pyflow.application import context
 from pyflow.application.errors import TemporaryLimitation
+from pyflow.analysis.cdg import construct_cdg
 from pyflow.frontend.programextractor import Extractor
 from pyflow.analysis.cfg import (
     graph as cfg_graph,
@@ -186,7 +187,7 @@ def outer():
         g = transform.evaluate(self.compiler, code)
         self.assertIsNotNone(g)
 
-    def test_transform_rejects_unsupported_type_alias_nodes(self):
+    def test_transform_ignores_type_alias_markers(self):
         code = pyflow_ast.Code(
             "f",
             pyflow_ast.CodeParameters(
@@ -205,8 +206,44 @@ def outer():
                 [pyflow_ast.TypeAlias("Alias", [], pyflow_ast.Existing(pyflow_ast.program.Object(int)))]
             ),
         )
-        with self.assertRaises(TemporaryLimitation):
-            transform.evaluate(self.compiler, code)
+        graph = transform.evaluate(self.compiler, code)
+        self.assertIsNotNone(graph)
+
+    def test_transform_handles_plain_for_loop_without_assertion(self):
+        source = """
+def iterate(items):
+    total = 0
+    for item in items:
+        total = item
+    return total
+"""
+        ns = {}
+        exec(source, ns)
+        self.compiler.extractor.source_code = source
+        code = self.compiler.extractor.convertFunction(ns["iterate"], ssa=False)
+
+        graph = transform.evaluate(self.compiler, code)
+        cdg = construct_cdg(graph)
+
+        self.assertIsNotNone(graph)
+        self.assertGreater(len(cdg.get_all_nodes()), 0)
+
+    def test_transform_handles_for_else_without_duplicate_exit(self):
+        source = """
+def iterate(items):
+    for item in items:
+        seen = item
+    else:
+        seen = None
+    return seen
+"""
+        ns = {}
+        exec(source, ns)
+        self.compiler.extractor.source_code = source
+        code = self.compiler.extractor.convertFunction(ns["iterate"], ssa=False)
+
+        graph = transform.evaluate(self.compiler, code)
+        self.assertIsNotNone(graph)
 
 
 if __name__ == "__main__":

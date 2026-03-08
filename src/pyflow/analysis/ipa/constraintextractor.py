@@ -613,6 +613,34 @@ class ConstraintExtractor(TypeDispatcher):
     def visitScopeDecl(self, node, targets=None):
         return None
 
+    @dispatch(ast.TypeAlias)
+    def visitTypeAlias(self, node, targets=None):
+        del node, targets
+        return None
+
+    @dispatch(ast.GetGlobal, ast.GetCellDeref)
+    def visitSharedRead(self, node, targets=None):
+        if targets is None:
+            return self._unknownValueNode("shared_read")
+        self._assignUnknownTargets(
+            targets,
+            "shared_read",
+            f"conservative shared-name read at {node!r}; using unknown",
+        )
+        return None
+
+    @dispatch(ast.SetGlobal, ast.SetCellDeref)
+    def visitSharedWrite(self, node, targets=None):
+        if getattr(node, "value", None) is not None:
+            self(node.value)
+        del targets
+        return None
+
+    @dispatch(ast.DeleteGlobal)
+    def visitDeleteGlobal(self, node, targets=None):
+        del node, targets
+        return None
+
     @dispatch(ast.AnnAssign)
     def visitAnnAssign(self, node, targets=None):
         if getattr(node, "value", None) is None:

@@ -101,6 +101,14 @@ class TestClassHierarchy(unittest.TestCase):
         resolved = self.hierarchy.resolve_base_class("External", "mymodule", imports)
         self.assertEqual(resolved, "external.External")
 
+    def test_resolve_base_class_does_not_guess_across_modules(self):
+        """Ambiguous simple names should remain unresolved without an import."""
+        self.hierarchy.register_class("Base", [], "pkg1")
+        self.hierarchy.register_class("Base", [], "pkg2")
+
+        resolved = self.hierarchy.resolve_base_class("Base", "consumer")
+        self.assertIsNone(resolved)
+
     def test_resolve_dotted_base_class_through_import_alias(self):
         """Aliased module prefixes should be expanded before dotted-base lookup."""
         self.hierarchy.register_class("Base", [], "pkg")

@@ -13,6 +13,7 @@ This module focuses on intraprocedural PDGs (single function).
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
@@ -69,6 +70,7 @@ class PDGConstructionOptions:
     include_data: bool = True
     run_ssa: bool = False
     expand_phi: bool = True
+    allow_ast_fallback_on_ddg_failure: bool = True
 
 
 def _safe_ast_label(node: Any) -> str:
@@ -405,8 +407,21 @@ class PDGConstructor:
     ) -> None:
         try:
             backed_nodes = self._add_data_edges_from_ddg(pdg, parent_map)
-        except Exception:
+        except Exception as exc:
+            pdg.data_dependence_reason = f"{type(exc).__name__}: {exc}"
+            if not self.options.allow_ast_fallback_on_ddg_failure:
+                raise
+            pdg.data_dependence_mode = "ast-fallback"
+            warnings.warn(
+                "PDG DDG-backed data dependence is unavailable; "
+                f"falling back to AST-local def/use ({pdg.data_dependence_reason})",
+                RuntimeWarning,
+                stacklevel=2,
+            )
             backed_nodes = set()
+        else:
+            pdg.data_dependence_mode = "hybrid"
+            pdg.data_dependence_reason = ""
         self._add_ast_fallback_data_edges(pdg, backed_nodes)
 
 

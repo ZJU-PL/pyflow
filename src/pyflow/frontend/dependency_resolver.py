@@ -204,6 +204,56 @@ def _base_name_from_expr(node: python_ast.AST) -> Optional[str]:
     return None
 
 
+def _iter_import_nodes_in_scope(nodes: Iterable[python_ast.AST]):
+    """Yield import statements that execute in the current scope."""
+
+    for node in nodes:
+        if isinstance(node, (python_ast.Import, python_ast.ImportFrom)):
+            yield node
+            continue
+
+        if isinstance(
+            node,
+            (python_ast.FunctionDef, python_ast.AsyncFunctionDef, python_ast.ClassDef),
+        ):
+            continue
+
+        if isinstance(
+            node,
+            (
+                python_ast.If,
+                python_ast.For,
+                python_ast.AsyncFor,
+                python_ast.While,
+                python_ast.With,
+                python_ast.AsyncWith,
+            ),
+        ):
+            yield from _iter_import_nodes_in_scope(getattr(node, "body", ()) or ())
+            yield from _iter_import_nodes_in_scope(getattr(node, "orelse", ()) or ())
+            continue
+
+        if isinstance(node, python_ast.Try):
+            yield from _iter_import_nodes_in_scope(getattr(node, "body", ()) or ())
+            for handler in getattr(node, "handlers", ()) or ():
+                yield from _iter_import_nodes_in_scope(getattr(handler, "body", ()) or ())
+            yield from _iter_import_nodes_in_scope(getattr(node, "orelse", ()) or ())
+            yield from _iter_import_nodes_in_scope(getattr(node, "finalbody", ()) or ())
+            continue
+
+        if hasattr(python_ast, "TryStar") and isinstance(node, python_ast.TryStar):
+            yield from _iter_import_nodes_in_scope(getattr(node, "body", ()) or ())
+            for handler in getattr(node, "handlers", ()) or ():
+                yield from _iter_import_nodes_in_scope(getattr(handler, "body", ()) or ())
+            yield from _iter_import_nodes_in_scope(getattr(node, "orelse", ()) or ())
+            yield from _iter_import_nodes_in_scope(getattr(node, "finalbody", ()) or ())
+            continue
+
+        if hasattr(python_ast, "Match") and isinstance(node, python_ast.Match):
+            for case in getattr(node, "cases", ()) or ():
+                yield from _iter_import_nodes_in_scope(getattr(case, "body", ()) or ())
+
+
 def _signature_from_ast(args: python_ast.arguments) -> inspect.Signature:
     params: List[inspect.Parameter] = []
 
@@ -292,6 +342,7 @@ class DependencyResolver:
         include_private: bool = False,
         source_files: Optional[Dict[str, str]] = None,
         analysis_root: Optional[str] = None,
+        allow_runtime_execution: bool = False,
     ):
         """
         Initialize the dependency resolver.
@@ -323,6 +374,7 @@ class DependencyResolver:
         self.analysis_root = (
             os.path.realpath(analysis_root) if analysis_root else None
         )
+        self.allow_runtime_execution = allow_runtime_execution
         self._analysis_root_explicit = analysis_root is not None
         if self.analysis_root is None:
             self.analysis_root = _infer_analysis_root(self.source_files.keys())
@@ -381,6 +433,12 @@ class DependencyResolver:
 
     def _extract_with_runtime(self, source: str, file_path: str) -> Dict[str, Any]:
         """Extract functions using runtime execution only."""
+        if not self.allow_runtime_execution:
+            if self.verbose:
+                print(
+                    f"DEBUG: Runtime extraction disabled for {file_path}; using AST-only fallback"
+                )
+            return self._extract_ast_functions(source, file_path)
         self._telemetry["runtime_exec_attempts"] += 1
         exec_globals = self._create_safe_exec_globals()
         exec_globals["__file__"] = file_path
@@ -397,6 +455,12 @@ class DependencyResolver:
 
     def _extract_with_stubs(self, source: str, file_path: str) -> Dict[str, Any]:
         """Extract functions using runtime execution with enhanced stub modules."""
+        if not self.allow_runtime_execution:
+            if self.verbose:
+                print(
+                    f"DEBUG: Stub-assisted runtime extraction disabled for {file_path}; using AST-only fallback"
+                )
+            return self._extract_ast_functions(source, file_path)
         self._telemetry["runtime_exec_attempts"] += 1
         exec_globals = self._create_safe_exec_globals()
         exec_globals["__file__"] = file_path
@@ -442,6 +506,12 @@ class DependencyResolver:
 
     def _extract_noop(self, source: str, file_path: str) -> Dict[str, Any]:
         """Extract functions but treat all external dependencies as no-ops."""
+        if not self.allow_runtime_execution:
+            if self.verbose:
+                print(
+                    f"DEBUG: No-op runtime extraction disabled for {file_path}; using AST-only fallback"
+                )
+            return self._extract_ast_functions(source, file_path)
         self._telemetry["runtime_exec_attempts"] += 1
         exec_globals = self._create_safe_exec_globals()
         exec_globals["__file__"] = file_path
@@ -587,7 +657,7 @@ class DependencyResolver:
     ) -> Dict[str, str]:
         imports: Dict[str, str] = {}
 
-        for node in python_ast.walk(tree):
+        for node in _iter_import_nodes_in_scope(getattr(tree, "body", ()) or ()):
             if isinstance(node, python_ast.Import):
                 for alias in node.names:
                     imports[alias.asname or alias.name.split(".")[-1]] = alias.name
@@ -838,7 +908,7 @@ class DependencyResolver:
         self, tree: python_ast.AST, current_module: str, file_path: str
     ) -> None:
         edges = self._import_graph.setdefault(current_module, set())
-        for node in python_ast.walk(tree):
+        for node in _iter_import_nodes_in_scope(getattr(tree, "body", ()) or ()):
             if isinstance(node, python_ast.Import):
                 for alias in node.names:
                     target = alias.name
@@ -1027,7 +1097,7 @@ class DependencyResolver:
         current_module = self._get_module_name_from_path(file_path)
         modules: Dict[str, types.ModuleType] = {}
 
-        for node in python_ast.walk(tree):
+        for node in _iter_import_nodes_in_scope(getattr(tree, "body", ()) or ()):
             if isinstance(node, python_ast.Import):
                 for alias in node.names:
                     module_name = alias.name
@@ -1074,6 +1144,10 @@ class DependencyResolver:
         return modules
 
     def _exec_with_stub_modules(self, compiled: Any, exec_globals: Dict[str, Any]) -> None:
+        if not self.allow_runtime_execution:
+            raise RuntimeError(
+                "Runtime module execution is disabled; enable allow_runtime_execution to opt in."
+            )
         stub_modules = exec_globals.pop("__pyflow_stub_modules__", None)
         runtime_modules = exec_globals.pop("__pyflow_runtime_modules__", None)
         if not stub_modules and not runtime_modules:
@@ -1113,7 +1187,7 @@ class DependencyResolver:
             tree = python_ast.parse(source)
             imports = set()
 
-            for node in python_ast.walk(tree):
+            for node in _iter_import_nodes_in_scope(getattr(tree, "body", ()) or ()):
                 if isinstance(node, python_ast.Import):
                     for alias in node.names:
                         imports.add(alias.name.split(".")[0])
@@ -1134,7 +1208,7 @@ class DependencyResolver:
             tree = python_ast.parse(source)
             imports: Dict[str, List[Tuple[str, Optional[str]]]] = {}
 
-            for node in python_ast.walk(tree):
+            for node in _iter_import_nodes_in_scope(getattr(tree, "body", ()) or ()):
                 if isinstance(node, python_ast.Import):
                     for alias in node.names:
                         module_name = alias.name.split(".")[0]
