@@ -4,6 +4,7 @@ import unittest
 
 from pyflow.optimization.fold import (
     FoldRewrite,
+    FoldTraverse,
     makeCallRewrite,
 )
 from pyflow.language.python import ast
@@ -123,6 +124,23 @@ class TestMakeCallRewrite(unittest.TestCase):
         extractor = MockExtractor()
         call_rewrite = makeCallRewrite(extractor)
         self.assertIsNotNone(call_rewrite)
+
+
+class IdentityStrategy:
+    def __call__(self, node):
+        return node
+
+
+class TestFoldTraverse(unittest.TestCase):
+    def test_visit_list_preserves_keyword_tuples(self):
+        traverse = FoldTraverse(IdentityStrategy(), MockCode())
+        value = ast.Local("value")
+
+        result = traverse.visitList([("name", value), "sentinel"])
+
+        self.assertEqual(result[0][0], "name")
+        self.assertIs(result[0][1], value)
+        self.assertEqual(result[1], "sentinel")
 
 
 if __name__ == "__main__":

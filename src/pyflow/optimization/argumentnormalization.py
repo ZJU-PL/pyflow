@@ -47,7 +47,7 @@ class ArgumentNormalizationAnalysis(TypeDispatcher):
             self(node.args)
             self(node.kwds)
 
-            if node.kargs is self.vparam:
+            if node.vargs is self.vparam:
                 self.applicable = False
 
     @dispatch(ast.DirectCall)
@@ -57,7 +57,7 @@ class ArgumentNormalizationAnalysis(TypeDispatcher):
             self(node.args)
             self(node.kwds)
 
-            if node.kargs is self.vparam:
+            if node.vargs is self.vparam:
                 self.applicable = False
 
     @dispatch(list, tuple)
@@ -150,7 +150,10 @@ class ArgumentNormalizationTransform(TypeDispatcher):
 
     @dispatch(list, tuple)
     def visitContainer(self, node):
-        return [self(child) for child in node]
+        items = [self(child) for child in node]
+        if isinstance(node, tuple):
+            return tuple(items)
+        return items
 
     @dispatch(ast.leafTypes)
     def visitLeaf(self, node):

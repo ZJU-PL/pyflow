@@ -355,7 +355,8 @@ class MethodAnalysis(TypeDispatcher):
 
     @dispatch(ast.Delete)
     def visitDelete(self, node):
-        self.target(node.expr)
+        self.target(node.lcl)
+        self.arg(node.lcl)
         return node
 
 

@@ -50,7 +50,10 @@ class Rewriter(TypeDispatcher):
     def visitContainer(self, node):
         # AST nodes may sometimes be replaced with containers,
         # so unlike most transformations, this will get called.
-        return [self(child) for child in node]
+        items = [self(child) for child in node]
+        if isinstance(node, tuple):
+            return tuple(items)
+        return items
 
     @defaultdispatch
     def visitNode(self, node):

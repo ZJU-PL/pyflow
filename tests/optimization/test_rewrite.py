@@ -102,7 +102,18 @@ class TestRewriter(unittest.TestCase):
         rewriter = Rewriter({})
         local_x = ast.Local("x")
         result = rewriter.visitContainer((local_x,))
-        self.assertIsInstance(result, list)
+        self.assertIsInstance(result, tuple)
+
+    def test_rewrite_term_preserves_keyword_tuple_shape(self):
+        old_node = ast.Local("x")
+        new_node = ast.Local("y")
+        call = ast.Call(ast.Local("func"), [], [("name", old_node)], None, None)
+
+        result = rewriteTerm(call, {old_node: new_node})
+
+        self.assertEqual(result.kwds[0][0], "name")
+        self.assertIsInstance(result.kwds[0], tuple)
+        self.assertIs(result.kwds[0][1], new_node)
 
     def test_processCode_returns_code(self):
         """Test that processCode returns the code object."""

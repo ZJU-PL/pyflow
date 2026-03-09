@@ -16,6 +16,7 @@ This is a whole-program optimization that requires call graph information.
 
 from pyflow.util.typedispatch import *
 from pyflow.language.python import ast
+from pyflow.language.python.default_markers import MISSING_DEFAULT
 
 import pyflow.optimization.simplify as simplify
 
@@ -241,14 +242,27 @@ class OpInliningTransform(TypeDispatcher):
         outp = []
 
         p = code.codeparameters
+        positional_params = list(p.posonlyparams) + list(p.params)
 
         # Do argument transfer
         if isinstance(p.selfparam, ast.Local):
             outp.append(ast.Assign(selfarg, [self(p.selfparam)]))
 
-        for arg, param in zip(args, p.params):
+        for arg, param in zip(args, positional_params):
             if isinstance(param, ast.Local):
                 outp.append(ast.Assign(arg, [self(param)]))
+
+        if len(args) < len(positional_params) and p.defaults:
+            default_offset = len(positional_params) - len(p.defaults)
+            start = max(len(args), default_offset)
+            for index in range(start, len(positional_params)):
+                param = positional_params[index]
+                default_expr = p.defaults[index - default_offset]
+                pyobj = getattr(getattr(default_expr, "object", None), "pyobj", None)
+                if pyobj is MISSING_DEFAULT:
+                    continue
+                if isinstance(param, ast.Local):
+                    outp.append(ast.Assign(default_expr, [self(param)]))
 
         assert not isinstance(p.vparam, ast.Local), p.vparam
         # assert len(args) == len(p.params), "TODO: default arguments."

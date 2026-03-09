@@ -598,8 +598,22 @@ class FoldTraverse(TypeDispatcher):
         Returns:
             List with processed items
         """
-        # Handle raw Python lists that might appear in the AST
-        return [self(item) for item in node if hasattr(item, "rewriteChildren")]
+        # Preserve non-AST values like keyword names while still rewriting
+        # tuple/list payloads that contain AST nodes.
+        result = []
+        for item in node:
+            if isinstance(item, tuple):
+                result.append(
+                    tuple(
+                        self(part) if hasattr(part, "rewriteChildren") else part
+                        for part in item
+                    )
+                )
+            elif hasattr(item, "rewriteChildren"):
+                result.append(self(item))
+            else:
+                result.append(item)
+        return result
 
     @defaultdispatch
     def default(self, node):

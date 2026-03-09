@@ -62,8 +62,8 @@ class MarkLocals(TypeDispatcher):
             self.flow.define(self.selfparam, top)
         node.visitChildren(self)
 
-    @dispatch(list)
-    def visitList(self, node):
+    @dispatch(list, tuple)
+    def visitContainer(self, node):
         """Visit Python lists in AST.
 
         Handles raw Python lists that might appear in the AST structure
@@ -76,8 +76,7 @@ class MarkLocals(TypeDispatcher):
             None (lists are just containers, no side effects)
         """
         for item in node:
-            if hasattr(item, "visitChildren"):
-                item.visitChildren(self)
+            self(item)
 
     @defaultdispatch
     def default(self, node):
@@ -179,6 +178,7 @@ class MarkLive(TypeDispatcher):
     @dispatch(ast.Delete)
     def visitDelete(self, node):
         self.flow.undefine(node.lcl)
+        return node
 
     @defaultdispatch
     def default(self, node):

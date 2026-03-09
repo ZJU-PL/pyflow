@@ -122,6 +122,19 @@ class TestMarkLocals(unittest.TestCase):
         # Flow should not have defined the local
         self.assertIsNone(flow.lookup(local))
 
+    def test_visit_container_marks_keyword_value_live(self):
+        """Test keyword tuple containers are traversed without crashing."""
+        marker = MarkLocals()
+        flow = MockFlow()
+        flow._current = "current"
+        marker.flow = flow
+
+        kw_local = ast.Local("kw")
+
+        marker.visitContainer([("name", kw_local)])
+
+        self.assertIsNotNone(flow.lookup(kw_local))
+
 
 class TestMarkLive(unittest.TestCase):
     """Test cases for MarkLive class."""
@@ -145,7 +158,7 @@ class TestMarkLive(unittest.TestCase):
         self.assertFalse(marker2.descriptive())
 
     def test_visitDelete(self):
-        """Test visitDelete undefines the local."""
+        """Test visitDelete undefines the local and preserves the node."""
         code = MockCode()
         marker = MarkLive(code)
         marker.flow = MockFlow()
@@ -154,11 +167,11 @@ class TestMarkLive(unittest.TestCase):
         marker.flow.define(local, "value")
         
         node = ast.Delete(local)
-        # Should not raise
-        marker.visitDelete(node)
-        
+        result = marker.visitDelete(node)
+
         # Local should be undefined
         self.assertIsNone(marker.flow.lookup(local))
+        self.assertIs(result, node)
 
 
 if __name__ == "__main__":

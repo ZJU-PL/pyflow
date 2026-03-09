@@ -5,7 +5,12 @@ import unittest
 from pyflow.language.asttools.annotation import annotationSet, makeContextualAnnotation
 from pyflow.language.python import ast
 from pyflow.optimization import dataflow
-from pyflow.optimization.methodcall import MethodPatternFinder, MethodRewrite, methodMeet
+from pyflow.optimization.methodcall import (
+    MethodAnalysis,
+    MethodPatternFinder,
+    MethodRewrite,
+    methodMeet,
+)
 
 
 class MockAnnotation:
@@ -53,6 +58,27 @@ class TestMethodRewrite(unittest.TestCase):
 
         expected = makeContextualAnnotation([annotationSet((target,))])
         self.assertEqual(rewritten.annotation.invokes, expected)
+
+
+class TestMethodAnalysis(unittest.TestCase):
+    def test_delete_kills_tracked_method_binding(self):
+        analysis = MethodAnalysis(pattern=None)
+        analysis.flow = dataflow.base.FlowDict()
+
+        expr = ast.Local("expr")
+        name = ast.Local("name")
+        meth = ast.Local("meth")
+        key = (expr, name, meth)
+
+        analysis.flow.define(("expr", expr), key)
+        analysis.flow.define(("name", name), key)
+        analysis.flow.define(("meth", meth), key)
+
+        analysis.visitDelete(ast.Delete(meth))
+
+        self.assertIs(analysis.flow.lookup(("expr", expr)), dataflow.base.undefined)
+        self.assertIs(analysis.flow.lookup(("name", name)), dataflow.base.undefined)
+        self.assertIs(analysis.flow.lookup(("meth", meth)), dataflow.base.undefined)
 
 
 if __name__ == "__main__":

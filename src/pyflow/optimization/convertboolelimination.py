@@ -47,6 +47,9 @@ class InferBoolean(TypeDispatcher):
         if isinstance(node.expr, ast.ConvertToBool):
             self.converts.append(node.expr)
 
+        for lcl in node.lcls:
+            self.undef(lcl)
+
         if node.expr.alwaysReturnsBoolean() and len(node.lcls) == 1:
             self.define(node.lcls[0])
 
@@ -62,8 +65,7 @@ class InferBoolean(TypeDispatcher):
         code.visitChildrenForced(self)
 
     def define(self, lcl):
-        if not lcl in self.lut:
-            self.lut[lcl] = True
+        self.lut[lcl] = True
 
     def undef(self, lcl):
         self.lut[lcl] = False

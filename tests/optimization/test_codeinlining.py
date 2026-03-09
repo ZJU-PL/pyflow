@@ -8,6 +8,13 @@ from pyflow.optimization.codeinlining import (
     CodeInliningTransform,
 )
 from pyflow.language.python import ast
+from pyflow.language.python.default_markers import MISSING_DEFAULT
+from pyflow.language.python.program import Object
+
+
+class MockAnnotation:
+    def contextSubset(self, remap):
+        return self
 
 
 class TestCodeInliningAnalysis(unittest.TestCase):
@@ -83,6 +90,76 @@ class TestOpInliningTransform(unittest.TestCase):
         code = MockCode()
         result = transform.visitCode(code)
         self.assertEqual(result, code)
+
+    def test_process_binds_posonly_and_default_parameters(self):
+        analysis = CodeInliningAnalysis()
+        transform = OpInliningTransform(analysis)
+
+        posonly = ast.Local("posonly")
+        regular = ast.Local("regular")
+        default_expr = ast.Local("default")
+        posonly.annotation = MockAnnotation()
+        regular.annotation = MockAnnotation()
+
+        code = type(
+            "MockCode",
+            (),
+            {
+                "codeparameters": ast.CodeParameters(
+                    selfparam=None,
+                    posonlyparams=[posonly],
+                    posonlynames=["only"],
+                    params=[regular],
+                    paramnames=["regular"],
+                    defaults=[default_expr],
+                    vparam=None,
+                    kparam=None,
+                    returnparams=[],
+                    type_params=None,
+                ),
+                "ast": ast.DoNotCare(),
+            },
+        )()
+
+        arg = ast.Local("arg")
+        result = transform.process(None, None, code, [], None, [arg], None)
+
+        self.assertEqual(len(result), 3)
+        self.assertIs(result[0].expr, arg)
+        self.assertIs(result[1].expr, default_expr)
+
+    def test_process_skips_missing_default_sentinel(self):
+        analysis = CodeInliningAnalysis()
+        transform = OpInliningTransform(analysis)
+
+        regular = ast.Local("regular")
+        regular.annotation = MockAnnotation()
+        missing_default = ast.Existing(Object(MISSING_DEFAULT))
+
+        code = type(
+            "MockCode",
+            (),
+            {
+                "codeparameters": ast.CodeParameters(
+                    selfparam=None,
+                    posonlyparams=[],
+                    posonlynames=[],
+                    params=[regular],
+                    paramnames=["regular"],
+                    defaults=[missing_default],
+                    vparam=None,
+                    kparam=None,
+                    returnparams=[],
+                    type_params=None,
+                ),
+                "ast": ast.DoNotCare(),
+            },
+        )()
+
+        result = transform.process(None, None, code, [], None, [], None)
+
+        self.assertEqual(len(result), 1)
+        self.assertIsInstance(result[0], ast.DoNotCare)
 
 
 class TestCodeInliningTransform(unittest.TestCase):

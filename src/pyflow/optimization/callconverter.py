@@ -61,7 +61,10 @@ class ConvertCalls(TypeDispatcher):
 
     @dispatch(list, tuple)
     def visitContainer(self, node):
-        return [self(child) for child in node]
+        items = [self(child) for child in node]
+        if isinstance(node, tuple):
+            return tuple(items)
+        return items
 
     @dispatch(
         ast.Suite,

@@ -129,6 +129,14 @@ class TestReverseDataflow(unittest.TestCase):
             [("Assert", frozenset({"normal", "raise-1", "raise-2"}))],
         )
 
+    def test_tuple_container_shape_is_preserved(self):
+        traverse, _strategy = self.make_traverse()
+        traverse.flow.restore(base.DynamicDict())
+
+        result = traverse.visitContainer((ast.Local("a"), ast.Local("b")))
+
+        self.assertIsInstance(result, tuple)
+
 
 if __name__ == "__main__":
     unittest.main()

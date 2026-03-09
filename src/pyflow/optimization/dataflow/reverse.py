@@ -129,6 +129,8 @@ class ReverseFlowTraverse(TypeDispatcher):
     def visitContainer(self, node):
         result = [self(child) for child in reversed(node)]
         result.reverse()
+        if isinstance(node, tuple):
+            return tuple(result)
         return result
 
     @dispatch(ast.Suite)

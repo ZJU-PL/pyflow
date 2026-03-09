@@ -90,6 +90,15 @@ class TestInferBoolean(unittest.TestCase):
         infer.define(local)
         self.assertEqual(infer.lut[local], True)
 
+    def test_define_overwrites_previous_false_state(self):
+        infer = InferBoolean()
+        local = MockLocal("x")
+
+        infer.undef(local)
+        infer.define(local)
+
+        self.assertTrue(infer.lut[local])
+
     def test_undef(self):
         """Test undef method."""
         infer = InferBoolean()
@@ -155,8 +164,9 @@ class TestInferBoolean(unittest.TestCase):
         
         # Should not add to converts
         self.assertEqual(len(infer.converts), 0)
-        # Should not define the local (not boolean)
-        self.assertNotIn(local, infer.lut)
+        # Non-boolean assignments conservatively clear boolean tracking.
+        self.assertIn(local, infer.lut)
+        self.assertFalse(infer.lut[local])
 
     def test_visitAssign_boolean(self):
         """Test visitAssign with boolean expression."""
@@ -171,6 +181,15 @@ class TestInferBoolean(unittest.TestCase):
         # Should define the local
         self.assertIn(local, infer.lut)
         self.assertTrue(infer.lut[local])
+
+    def test_visitAssign_non_boolean_clears_previous_boolean_state(self):
+        infer = InferBoolean()
+        local = MockLocal("x")
+
+        infer.define(local)
+        infer.visitAssign(MockAssign(MockExpr(always_boolean=False), [local]))
+
+        self.assertFalse(infer.isBoolean(local))
 
     def test_visitAssign_convert_to_bool(self):
         """Test visitAssign with ConvertToBool expression - verify behavior with proper AST types."""
@@ -202,8 +221,8 @@ class TestInferBoolean(unittest.TestCase):
         infer.visitAssign(assign)
         
         # Should not define (multiple targets)
-        self.assertNotIn(local1, infer.lut)
-        self.assertNotIn(local2, infer.lut)
+        self.assertFalse(infer.isBoolean(local1))
+        self.assertFalse(infer.isBoolean(local2))
 
     def test_process(self):
         """Test process method."""
