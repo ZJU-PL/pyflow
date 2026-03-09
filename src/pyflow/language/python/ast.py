@@ -614,7 +614,7 @@ class CodeParameters(PythonASTNode):
     """
     __fields__ = """selfparam:ParameterDecl?
             posonlyparams:ParameterDecl* posonlynames:str*
-            params:ParameterDecl* paramnames:str?* defaults:Existing*
+            params:ParameterDecl* paramnames:str?* defaults:Expression*
             vparam:ParameterDecl? kparam:ParameterDecl?
             returnparams:ParameterDecl*
             type_params:TypeParams?"""

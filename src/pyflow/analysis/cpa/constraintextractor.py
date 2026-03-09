@@ -471,6 +471,8 @@ class ExtractDataflow(TypeDispatcher):
 
     @dispatch(ast.FunctionDef)
     def visitFunctionDef(self, node, targets=None):
+        for default in node.code.codeparameters.defaults:
+            self(default)
         for decorator in node.decorators:
             self(decorator)
         if targets is not None:

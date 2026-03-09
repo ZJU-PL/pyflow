@@ -363,7 +363,7 @@ class FunctionExtractor:
 
         # Prefer inspect.signature for real callables; it captures pos-only and kw-only.
         # Parameter records are (kind, name, default) in declaration order.
-        param_records: list[tuple[str, str, pyflow_ast.Existing | None]] = []
+        param_records: list[tuple[str, str, PythonASTNode | None]] = []
         vararg = None
         kwarg = None
 
@@ -412,13 +412,7 @@ class FunctionExtractor:
                 start = len(positional_names) - len(pos_defaults)
                 for i, default_node in enumerate(pos_defaults):
                     idx = start + i
-                    try:
-                        default_value = python_ast.literal_eval(default_node)
-                        default = pyflow_ast.Existing(
-                            Object(default_value)
-                        )
-                    except Exception:
-                        default = pyflow_ast.Existing(Object(None))
+                    default = self.ast_converter._convert_default_value(default_node)
                     kind, name, _ = param_records[idx]
                     param_records[idx] = (kind, name, default)
 
@@ -428,13 +422,7 @@ class FunctionExtractor:
                 for i, default_node in enumerate(kw_defaults):
                     if default_node is None:
                         continue
-                    try:
-                        default_value = python_ast.literal_eval(default_node)
-                        default = pyflow_ast.Existing(
-                            Object(default_value)
-                        )
-                    except Exception:
-                        default = pyflow_ast.Existing(Object(None))
+                    default = self.ast_converter._convert_default_value(default_node)
                     kind, name, _ = param_records[base + i]
                     param_records[base + i] = (kind, name, default)
 

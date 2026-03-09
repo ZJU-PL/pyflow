@@ -575,6 +575,8 @@ class ConstraintExtractor(TypeDispatcher):
 
     @dispatch(ast.FunctionDef)
     def visitFunctionDef(self, node, targets=None):
+        for default in node.code.codeparameters.defaults:
+            self(default)
         for decorator in node.decorators:
             self(decorator)
         binding = self.context.local(ast.Local(node.name))

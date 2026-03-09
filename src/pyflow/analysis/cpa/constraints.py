@@ -825,7 +825,7 @@ class AbstractCallConstraint(CachedConstraint):
         # For regular function calls, selfarg should be False since we don't have a self parameter
         has_self = self.selfarg is not None
         info = calling.callStackToParamsInfo(
-            callee, has_self, numArgs, False, None, False
+            callee, has_self, numArgs, False, set(), kargs is not None
         )
 
         if info.willSucceed.maybeTrue():
@@ -843,7 +843,7 @@ class AbstractCallConstraint(CachedConstraint):
 
             # HACK this is actually somewhere between caller and callee...
             caller = calling.CallerArgs(
-                self.selfarg, allslots, [], None, None, self.targets
+                self.selfarg, allslots, [], None, self.kargs, self.targets
             )
 
             SimpleCallConstraint(self.sys, self.op, code, expr, allslots, caller)

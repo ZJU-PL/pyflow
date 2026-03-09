@@ -355,7 +355,13 @@ class AnalysisContext(CanonicalObject):
             # Handle default parameter values when caller provides fewer arguments
             defaultOffset = len(callee.params) - len(callee.defaults)
             for i in range(numArgs, numParam):
-                obj = callee.defaults[i - defaultOffset].object
+                default_expr = callee.defaults[i - defaultOffset]
+                if not isinstance(default_expr, ast.Existing):
+                    # Non-literal defaults are preserved as AST expressions. We cannot
+                    # materialize a stable existing-object slot for them here, so leave
+                    # the parameter unconstrained rather than binding an incorrect value.
+                    continue
+                obj = default_expr.object
 
                 # Create and initialize an existing object slot for the default value
                 name = sys.canonical.existingName(sig.code, obj, self)
@@ -390,10 +396,12 @@ class AnalysisContext(CanonicalObject):
             pass  # assert callee.vparam is not None or numArgs == numParam
 
         # Bind the kparams (keyword arguments **kwargs)
-        # Note: **kwargs handling is limited - skip binding for now
-        # This prevents crashes when analyzing functions with **kwargs
-        if callee.kparam is not None:
-            pass  # Skip kparam binding - **kwargs not fully supported yet
+        if (
+            callee.kparam is not None
+            and callee.kparam is not analysis.cpasignature.DoNotCare
+            and caller.kargs is not None
+        ):
+            sys.createAssign(caller.kargs, callee.kparam)
 
         # Copy the return value(s) from callee return params to caller return args
         if caller.returnargs is not None:

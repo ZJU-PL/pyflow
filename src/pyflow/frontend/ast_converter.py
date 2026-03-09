@@ -936,11 +936,7 @@ class ASTConverter:
             start = len(all_positional_names) - len(pos_defaults)
             for i, default_node in enumerate(pos_defaults):
                 idx = start + i
-                try:
-                    value = python_ast.literal_eval(default_node)
-                    per_param_defaults[idx] = pyflow_ast.Existing(Object(value))
-                except Exception:
-                    per_param_defaults[idx] = pyflow_ast.Existing(Object(None))
+                per_param_defaults[idx] = self._convert_default_value(default_node)
 
         kw_defaults = list(getattr(args_node, "kw_defaults", []) or [])
         if kwonly and kw_defaults:
@@ -948,11 +944,9 @@ class ASTConverter:
             for i, default_node in enumerate(kw_defaults):
                 if default_node is None:
                     continue
-                try:
-                    value = python_ast.literal_eval(default_node)
-                    per_param_defaults[base + i] = pyflow_ast.Existing(Object(value))
-                except Exception:
-                    per_param_defaults[base + i] = pyflow_ast.Existing(Object(None))
+                per_param_defaults[base + i] = self._convert_default_value(
+                    default_node
+                )
 
         first_default = next(
             (i for i, d in enumerate(per_param_defaults) if d is not None), None
@@ -1001,6 +995,14 @@ class ASTConverter:
                 bound = self._convert_expression_safe(tp.bound)
             params.append(pyflow_ast.TypeParam(name, bound))
         return pyflow_ast.TypeParams(params)
+
+    def _convert_default_value(self, node: python_ast.AST) -> PythonASTNode:
+        """Preserve non-literal defaults as expressions instead of coercing to ``None``."""
+        try:
+            value = python_ast.literal_eval(node)
+        except Exception:
+            return self._convert_expression_safe(node)
+        return pyflow_ast.Existing(Object(value))
 
     def _convert_import(self, node: python_ast.Import) -> Optional[PythonASTNode]:
         """Convert Python AST Import to pyflow AST."""
@@ -1700,6 +1702,16 @@ class ASTConverter:
                 value = self._call_named("interpreter_getitem", [subject, key_expr])
                 sub_condition = self._convert_pattern_with_bindings(sub_pattern, value, bindings)
                 result = pyflow_ast.ShortCircutAnd([result, sub_condition])
+            if getattr(pattern, "rest", None):
+                matched_keys = pyflow_ast.BuildList(
+                    [self._convert_expression_safe(key) for key in pattern.keys]
+                )
+                rest = self._call_named(
+                    "interpreter_match_mapping_rest", [subject, matched_keys]
+                )
+                bindings.append(
+                    pyflow_ast.Assign(rest, [pyflow_ast.Local(pattern.rest)])
+                )
             return result
         
         elif hasattr(python_ast, "MatchClass") and isinstance(pattern, python_ast.MatchClass):
@@ -1983,13 +1995,14 @@ class ASTConverter:
 
         for gen in reversed(generators):
             iter_expr = self._convert_expression_safe(gen.iter)
+            body_preamble = pyflow_ast.Suite([])
 
             if isinstance(gen.target, python_ast.Name):
                 index = pyflow_ast.Local(gen.target.id)
             else:
                 index = self._tmp_local("comp_idx", gen)
                 store = self._convert_store(gen.target, index)
-                inner_body = pyflow_ast.Suite([store, inner_body])
+                body_preamble.append(store)
 
             if gen.ifs:
                 for if_cond in reversed(gen.ifs):
@@ -2008,7 +2021,7 @@ class ASTConverter:
                 iterator=iter_expr,
                 index=index,
                 loopPreamble=pyflow_ast.Suite([]),
-                bodyPreamble=pyflow_ast.Suite([]),
+                bodyPreamble=body_preamble,
                 body=inner_body,
                 else_=pyflow_ast.Suite([]),
             )
@@ -2100,13 +2113,14 @@ class ASTConverter:
         
         for gen in reversed(generators):
             iter_expr = self._convert_expression_safe(gen.iter)
+            body_preamble = pyflow_ast.Suite([])
             
             if isinstance(gen.target, python_ast.Name):
                 index = pyflow_ast.Local(gen.target.id)
             else:
                 index = self._tmp_local("gen_idx", gen)
                 store = self._convert_store(gen.target, index)
-                inner_body = pyflow_ast.Suite([store, inner_body])
+                body_preamble.append(store)
             
             if gen.ifs:
                 for if_cond in reversed(gen.ifs):
@@ -2123,7 +2137,7 @@ class ASTConverter:
                 iterator=iter_expr,
                 index=index,
                 loopPreamble=pyflow_ast.Suite([]),
-                bodyPreamble=pyflow_ast.Suite([]),
+                bodyPreamble=body_preamble,
                 body=inner_body,
                 else_=pyflow_ast.Suite([]),
             )

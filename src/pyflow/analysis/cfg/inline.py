@@ -209,7 +209,7 @@ class CFGCloner(object):
             posonlynames=original.posonlynames,
             params=[self.lcl(p) for p in original.params],
             paramnames=original.paramnames,
-            defaults=[self.lcl(d) for d in original.defaults],
+            defaults=[self(d) for d in original.defaults],
             vparam=self.lcl(original.vparam),
             kparam=self.lcl(original.kparam),
             returnparams=[self.lcl(p) for p in (original.returnparams or [source_return])],

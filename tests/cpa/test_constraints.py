@@ -1,13 +1,15 @@
 from __future__ import absolute_import
 import unittest
-from unittest.mock import Mock, MagicMock
+from unittest.mock import Mock, MagicMock, patch
 
 from pyflow.analysis.cpa.constraints import (
     AssignmentConstraint, IsConstraint, LoadConstraint, StoreConstraint, 
-    AllocateConstraint, SimpleCheckConstraint, CallConstraint
+    AllocateConstraint, SimpleCheckConstraint, CallConstraint, AbstractCallConstraint
 )
+from pyflow.analysis.cpa.base import AnalysisContext
 from pyflow.analysis.storegraph import storegraph
 from pyflow.analysis import cpasignature
+from pyflow.util.python import calling
 
 
 class TestConstraintIntegration(unittest.TestCase):
@@ -117,6 +119,66 @@ class TestConstraintIntegration(unittest.TestCase):
         bad_slots = check_constraint.getBad()
         # print(bad_slots)
         self.assertIsInstance(bad_slots, list)
+
+    def test_analysis_context_binds_kwargs_parameter(self):
+        """**kwargs arguments should flow into the callee kparam slot."""
+        signature = Mock()
+        signature.selfparam = None
+        signature.params = ()
+        signature.code = Mock()
+        context = AnalysisContext(signature, None, Mock())
+
+        sys = Mock()
+        sys.createAssign = Mock()
+        sys.canonical.opContext.return_value = Mock()
+
+        kparam_slot = Mock(spec=storegraph.SlotNode)
+        caller_kargs = Mock(spec=storegraph.SlotNode)
+        caller = calling.CallerArgs(None, [], [], None, caller_kargs, None)
+        callee = calling.CalleeParams(None, (), (), (), None, kparam_slot, ())
+
+        with patch(
+            "pyflow.analysis.cpa.base.calleeSlotsFromContext", return_value=callee
+        ), patch.object(AnalysisContext, "initalizeParameter") as init_param:
+            context.bindParameters(sys, caller)
+
+        init_param.assert_called_once_with(sys, None, None, None)
+        sys.createAssign.assert_called_once_with(caller_kargs, kparam_slot)
+
+    def test_abstract_call_constraint_preserves_kargs_in_caller(self):
+        """Call constraint lowering should retain **kwargs information."""
+        fake = Mock()
+        fake.args = []
+        fake.selfarg = None
+        fake.vargs = None
+        fake.kargs = Mock(spec=storegraph.SlotNode)
+        fake.targets = None
+        fake.cache = set()
+        fake.sys = Mock()
+        fake.getCode = Mock()
+
+        code = Mock()
+        callee = calling.CalleeParams(None, (), (), (), None, Mock(), ())
+        code.codeParameters.return_value = callee
+        fake.getCode.return_value = code
+
+        expr = Mock()
+        expr.obj = Mock()
+
+        info = Mock()
+        info.willSucceed.maybeTrue.return_value = True
+
+        with patch(
+            "pyflow.analysis.cpa.constraints.calling.callStackToParamsInfo",
+            return_value=info,
+        ) as info_fn, patch(
+            "pyflow.analysis.cpa.constraints.SimpleCallConstraint"
+        ) as simple_call:
+            AbstractCallConstraint.finalCombination(fake, expr, None, Mock(), 0)
+
+        info_fn.assert_called_once_with(callee, False, 0, False, set(), True)
+        caller = simple_call.call_args[0][-1]
+        self.assertIs(caller.kargs, fake.kargs)
 
 
 if __name__ == "__main__":

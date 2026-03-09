@@ -78,6 +78,9 @@ class StubManager:
             ):
                 return make_params([pyflow_ast.Local("a")])
 
+            if op_name == "interpreter_match_mapping_rest":
+                return make_params([pyflow_ast.Local("subject"), pyflow_ast.Local("keys")])
+
             if op_name == "interpreter_setattr":
                 return make_params([
                     pyflow_ast.Local("obj"),
@@ -237,6 +240,15 @@ class StubManager:
             "interpreter_match_mapping_len": lambda mapping, n: bool(
                 hasattr(mapping, "__len__") and len(mapping) >= n
             ),
+            "interpreter_match_mapping_rest": lambda subject, keys: (
+                {
+                    key: value
+                    for key, value in getattr(subject, "items", lambda: [])()
+                    if key not in set(keys)
+                }
+                if hasattr(subject, "items")
+                else subject
+            ),
             "interpreter_match_class": isinstance,
             "interpreter_match_class_arg": lambda subject, cls, index: getattr(
                 subject,
@@ -384,6 +396,9 @@ class StubManager:
                     ),
                     "interpreter_match_mapping_len": create_stub_code(
                         "interpreter_match_mapping_len"
+                    ),
+                    "interpreter_match_mapping_rest": create_stub_code(
+                        "interpreter_match_mapping_rest"
                     ),
                     "interpreter_match_class": create_stub_code(
                         "interpreter_match_class"

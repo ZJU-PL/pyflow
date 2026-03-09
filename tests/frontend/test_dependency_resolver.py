@@ -480,6 +480,24 @@ def func2(x, y):
         methods = resolver.get_public_method_specs(child)
         self.assertIn("m", methods)
 
+    def test_star_imports_expand_for_class_proxy_base_resolution(self):
+        """Wildcard imports should expose imported bases to proxy MRO construction."""
+        resolver = DependencyResolver(
+            strategy="ast_only",
+            verbose=False,
+            source_files={
+                "pkg/__init__.py": "class Base:\n    def m(self):\n        return 1\n",
+                "consumer.py": "from pkg import *\nclass Child(Base):\n    pass\n",
+            },
+        )
+
+        resolver.extract_functions("class Base:\n    def m(self):\n        return 1\n", "pkg/__init__.py")
+        resolver.extract_functions("from pkg import *\nclass Child(Base):\n    pass\n", "consumer.py")
+
+        child = resolver.get_module_classes("consumer.py")["Child"]
+        methods = resolver.get_public_method_specs(child)
+        self.assertIn("m", methods)
+
     def test_get_module_name_from_path_uses_dotted_name(self):
         """Module naming should preserve package path segments."""
         resolver = DependencyResolver(strategy="ast_only", verbose=False)
@@ -513,6 +531,21 @@ def func2(x, y):
         self.assertEqual(path, "proj/pkg/util.py")
         telemetry = resolver.get_telemetry()
         self.assertGreaterEqual(telemetry["source_map_hits"], 1)
+
+    def test_module_source_lookup_requires_exact_module_match(self):
+        """A missing submodule should not resolve to a parent package __init__."""
+        import os
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as d:
+            os.makedirs(os.path.join(d, "pkg"))
+            with open(os.path.join(d, "pkg", "__init__.py"), "w", encoding="utf-8") as f:
+                f.write("VALUE = 1\n")
+
+            resolver = DependencyResolver(
+                strategy="ast_only", verbose=False, search_paths=[d]
+            )
+            self.assertIsNone(resolver._find_module_source("pkg.missing"))
 
 
 if __name__ == "__main__":

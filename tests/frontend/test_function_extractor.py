@@ -275,6 +275,18 @@ class TestClass:
         self.assertEqual([param.name for param in codeparams.posonlyparams], ["a"])
         self.assertEqual([param.name for param in codeparams.params], ["b"])
 
+    def test_convert_function_args_preserves_non_literal_default_expressions(self):
+        """AST-only argument lowering should keep non-literal defaults analyzable."""
+        source = "def test_func(a=f(), *, b=g()): pass"
+        tree = python_ast.parse(source)
+        func_node = tree.body[0]
+
+        codeparams = self.extractor._convert_function_args(func_node.args, None)
+        self.assertEqual(len(codeparams.defaults), 2)
+        self.assertTrue(
+            all(isinstance(default, pyflow_ast.Call) for default in codeparams.defaults)
+        )
+
     def test_convert_function_args_ensures_returnparams(self):
         """Test that function args always have returnparams."""
         source = "def test_func(): pass"

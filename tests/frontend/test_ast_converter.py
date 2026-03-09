@@ -364,6 +364,15 @@ while x > 0:
         defaults = result.code.codeparameters.defaults
         self.assertEqual(len(defaults), 3)
 
+    def test_convert_function_def_preserves_non_literal_default_expressions(self):
+        """Non-literal defaults should remain analyzable expressions."""
+        tree = python_ast.parse("def f(x=g(), *, y=h()):\n    return x, y\n")
+        result = self.converter._convert_node(tree.body[0])
+        self.assertIsInstance(result, pyflow_ast.FunctionDef)
+        defaults = result.code.codeparameters.defaults
+        self.assertEqual(len(defaults), 2)
+        self.assertTrue(all(isinstance(default, pyflow_ast.Call) for default in defaults))
+
     def test_convert_lambda_expression(self):
         """Test converting lambda expression."""
         source = "lambda x: x + 1"
@@ -379,6 +388,32 @@ while x > 0:
         result = self.converter._convert_expression(tree.body)
         self.assertIsInstance(result, pyflow_ast.Call)
         self.assertIsInstance(result.expr, pyflow_ast.MakeFunction)
+
+    def test_comprehension_destructuring_happens_before_guard(self):
+        """Destructuring targets in comprehensions must be available to guard expressions."""
+        tree = python_ast.parse("[(a, b) for (a, b) in items if a]", mode="eval")
+        result = self.converter._convert_expression(tree.body)
+        self.assertIsInstance(result, pyflow_ast.Call)
+        loop = result.expr.code.ast.blocks[1]
+        self.assertIsInstance(loop, pyflow_ast.For)
+        self.assertTrue(loop.bodyPreamble.blocks)
+        self.assertTrue(
+            all(isinstance(block, pyflow_ast.Assign) for block in loop.bodyPreamble.blocks)
+        )
+        self.assertIsInstance(loop.body.blocks[0], pyflow_ast.Switch)
+
+    def test_generator_destructuring_happens_before_guard(self):
+        """Generator guards should also see destructured target bindings."""
+        tree = python_ast.parse("((a, b) for (a, b) in items if a)", mode="eval")
+        result = self.converter._convert_expression(tree.body)
+        self.assertIsInstance(result, pyflow_ast.MakeFunction)
+        loop = result.code.ast.blocks[0]
+        self.assertIsInstance(loop, pyflow_ast.For)
+        self.assertTrue(loop.bodyPreamble.blocks)
+        self.assertTrue(
+            all(isinstance(block, pyflow_ast.Assign) for block in loop.bodyPreamble.blocks)
+        )
+        self.assertIsInstance(loop.body.blocks[0], pyflow_ast.Switch)
 
     def test_unhandled_expression_emits_tagged_helper(self):
         """Unsupported expression nodes should be explicit, not silent None."""

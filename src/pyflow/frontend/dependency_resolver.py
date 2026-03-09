@@ -182,6 +182,19 @@ def _extract_decorator_names(node: python_ast.AST) -> List[str]:
     return decorators
 
 
+def _extract_literal_string_list(node: python_ast.AST) -> Optional[List[str]]:
+    """Extract a static list/tuple/set of string values."""
+    if isinstance(node, (python_ast.List, python_ast.Tuple, python_ast.Set)):
+        out: List[str] = []
+        for elt in node.elts:
+            if isinstance(elt, python_ast.Constant) and isinstance(elt.value, str):
+                out.append(elt.value)
+            else:
+                return None
+        return out
+    return None
+
+
 def _is_property_decorator(name: str) -> bool:
     tail = name.rsplit(".", 1)[-1].lower()
     return tail in {"property", "cached_property", "abstractproperty"}
@@ -733,6 +746,10 @@ class DependencyResolver:
                 )
                 for alias in node.names:
                     if alias.name == "*":
+                        for exported in self._expand_star_import_names(effective_module):
+                            imports.setdefault(
+                                exported, f"{effective_module}.{exported}"
+                            )
                         continue
                     local_name = alias.asname or alias.name
                     imports[local_name] = (
@@ -742,6 +759,66 @@ class DependencyResolver:
                     )
 
         return imports
+
+    def _expand_star_import_names(self, module_name: str) -> List[str]:
+        """Expand ``from module import *`` names when source is available."""
+        if not module_name:
+            return []
+
+        source_file = self._find_module_source(module_name)
+        if source_file is None:
+            return []
+
+        try:
+            module_source = self._load_source(source_file)
+            tree = python_ast.parse(module_source)
+        except Exception:
+            return []
+
+        explicit_all: Optional[List[str]] = None
+        discovered: Set[str] = set()
+
+        for node in getattr(tree, "body", []) or []:
+            if isinstance(
+                node,
+                (
+                    python_ast.FunctionDef,
+                    python_ast.AsyncFunctionDef,
+                    python_ast.ClassDef,
+                ),
+            ):
+                if not node.name.startswith("_"):
+                    discovered.add(node.name)
+                continue
+
+            if isinstance(node, python_ast.Assign):
+                for target in node.targets:
+                    if not isinstance(target, python_ast.Name):
+                        continue
+                    if target.id == "__all__":
+                        explicit_all = _extract_literal_string_list(node.value)
+                    elif not target.id.startswith("_"):
+                        discovered.add(target.id)
+                continue
+
+            if isinstance(node, python_ast.Import):
+                for alias in node.names:
+                    local = alias.asname or alias.name.split(".")[-1]
+                    if not local.startswith("_"):
+                        discovered.add(local)
+                continue
+
+            if isinstance(node, python_ast.ImportFrom):
+                for alias in node.names:
+                    if alias.name == "*":
+                        continue
+                    local = alias.asname or alias.name
+                    if not local.startswith("_"):
+                        discovered.add(local)
+
+        if explicit_all is not None:
+            return [name for name in explicit_all if isinstance(name, str)]
+        return sorted(discovered)
 
     def _resolve_proxy_base_name(
         self,
@@ -1341,17 +1418,6 @@ class DependencyResolver:
             if os.path.isfile(init_file):
                 return init_file
             
-            # Try partial match (for nested packages)
-            partial_path = search_dir
-            for part in parts:
-                partial_path = os.path.join(partial_path, part)
-                py_file = f"{partial_path}.py"
-                if os.path.isfile(py_file):
-                    return py_file
-                init_file = os.path.join(partial_path, "__init__.py")
-                if os.path.isfile(init_file):
-                    return init_file
-        
         return None
 
     def _build_module_source_map(self) -> Dict[str, str]:

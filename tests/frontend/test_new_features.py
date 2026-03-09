@@ -448,6 +448,31 @@ match x:
         self.assertEqual(rest_value.expr.object.pyobj, "interpreter_getitem")
         self.assertIsInstance(rest_value.args[1], pyflow_ast.BuildSlice)
 
+    @unittest.skipIf(sys.version_info < (3, 10), "Requires Python 3.10+")
+    def test_mapping_rest_pattern_binds_rest_name(self):
+        """Mapping patterns with **rest should bind the residual mapping."""
+        source = """
+match x:
+    case {"a": y, **rest}:
+        z = rest
+"""
+        tree = python_ast.parse(source)
+        result = self.converter._convert_node(tree.body[0])
+
+        self.assertIsInstance(result, pyflow_ast.Suite)
+        match_switch = result.blocks[1]
+        self.assertIsInstance(match_switch, pyflow_ast.Switch)
+        rest_binds = [
+            block
+            for block in match_switch.t.blocks
+            if isinstance(block, pyflow_ast.Assign) and block.lcls[0].name == "rest"
+        ]
+        self.assertTrue(rest_binds)
+        self.assertIsInstance(rest_binds[0].expr, pyflow_ast.Call)
+        self.assertEqual(
+            rest_binds[0].expr.expr.object.pyobj, "interpreter_match_mapping_rest"
+        )
+
     @unittest.skipIf(sys.version_info < (3, 11), "Requires Python 3.11+")
     def test_try_star_handlers_keep_original_group_for_residual_raise(self):
         """except* handlers should keep residual exceptional flow explicit."""
