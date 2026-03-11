@@ -1016,6 +1016,9 @@ def create_interface_from_paths(python_files, args):
         class_hierarchy=class_hierarchy,
         source_files=all_source_code,
         analysis_root=analysis_root,
+        fail_on_diagnostics=getattr(args, "fail_on_diagnostics", False),
+        max_diagnostics=getattr(args, "max_diagnostics", None),
+        max_runtime_fallback_ratio=getattr(args, "max_runtime_fallback_ratio", None),
     )
 
     for file_path in python_files:

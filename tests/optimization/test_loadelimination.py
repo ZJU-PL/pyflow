@@ -35,6 +35,17 @@ class TestRedundantLoadEliminator(unittest.TestCase):
         self.assertEqual(loads, {load_assign})
         self.assertEqual(stores, {store})
 
+    def test_make_read_sig_unsupported_arg_is_skipped(self):
+        eliminator = RedundantLoadEliminator(
+            compiler=None,
+            prgm=None,
+            readNumbers={},
+            writeNumbers={},
+            dom={},
+        )
+
+        self.assertIsNone(eliminator.makeReadSig(None, object()))
+
 
 if __name__ == "__main__":
     unittest.main()

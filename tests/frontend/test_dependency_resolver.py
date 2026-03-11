@@ -1,6 +1,7 @@
 """Unit tests for dependency_resolver module."""
 
 import ast
+import sys
 import unittest
 from unittest.mock import Mock, patch
 import inspect
@@ -422,6 +423,47 @@ def func2(x, y):
         source = "raise RuntimeError('boom')\n\ndef f():\n    return 1\n"
         functions = resolver.extract_functions(source, "example.py")
         self.assertIn("f", functions)
+
+    def test_runtime_extraction_subprocess_does_not_pollute_sys_modules(self):
+        """Runtime extraction should not leak stub modules into parent process."""
+        missing_mod = "__pyflow_missing_for_subprocess_test__"
+        sys.modules.pop(missing_mod, None)
+
+        resolver = DependencyResolver(
+            strategy="stubs",
+            verbose=False,
+            allow_runtime_execution=True,
+        )
+        source = (
+            f"import {missing_mod}\n"
+            "\n"
+            "def f():\n"
+            "    return 1\n"
+        )
+        functions = resolver.extract_functions(source, "example.py")
+        self.assertIn("f", functions)
+        self.assertNotIn(missing_mod, sys.modules)
+
+    def test_fail_on_diagnostics_raises(self):
+        """Strict diagnostic mode should fail fast when diagnostics are emitted."""
+        resolver = DependencyResolver(
+            strategy="ast_only",
+            verbose=False,
+            fail_on_diagnostics=True,
+        )
+        with self.assertRaises(RuntimeError):
+            resolver.extract_functions("invalid syntax", "bad.py")
+
+    def test_max_runtime_fallback_ratio_raises(self):
+        """Fallback budget should fail when runtime strategies always degrade to AST."""
+        resolver = DependencyResolver(
+            strategy="stubs",
+            verbose=False,
+            allow_runtime_execution=False,
+            max_runtime_fallback_ratio=0.0,
+        )
+        with self.assertRaises(RuntimeError):
+            resolver.extract_functions("def f():\n    return 1\n", "example.py")
 
     def test_ast_proxy_has_code_and_signature(self):
         """AST extracted functions should look like callables with code/signature."""

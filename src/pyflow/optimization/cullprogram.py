@@ -127,6 +127,12 @@ def evaluate(compiler, prgm):
         prgm: Program to cull
     """
     with compiler.console.scope("cull"):
+        old_live = set(prgm.liveCode)
+        old_context_counts = {
+            code: len(code.annotation.contexts) if code.annotation.contexts is not None else 0
+            for code in old_live
+        }
+
         # Find all live execution contexts
         liveContexts = programculler.findLiveContexts(prgm)
 
@@ -136,3 +142,14 @@ def evaluate(compiler, prgm):
             evaluateCode(code, contexts, ccc)
 
         prgm.liveCode = set(liveContexts.keys())
+
+        if old_live != prgm.liveCode:
+            return True
+
+        for code in prgm.liveCode:
+            old_count = old_context_counts.get(code)
+            new_count = len(code.annotation.contexts) if code.annotation.contexts is not None else 0
+            if old_count is not None and old_count != new_count:
+                return True
+
+        return False

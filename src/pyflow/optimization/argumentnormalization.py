@@ -18,6 +18,32 @@ from pyflow.language.python import ast
 from pyflow.language.python import annotations
 
 
+class _ContainsLocalRef(TypeDispatcher):
+    """Identity-based local reference finder."""
+
+    def __init__(self, target):
+        self.target = target
+        self.found = False
+
+    @dispatch(ast.Local)
+    def visitLocal(self, node):
+        if node is self.target:
+            self.found = True
+
+    @dispatch(list, tuple)
+    def visitContainer(self, node):
+        if self.found:
+            return
+        for child in node:
+            self(child)
+
+    @defaultdispatch
+    def visitDefault(self, node):
+        if self.found:
+            return
+        node.visitChildren(self)
+
+
 class ArgumentNormalizationAnalysis(TypeDispatcher):
     """Analyzes whether argument normalization is applicable.
 
@@ -143,6 +169,7 @@ class ArgumentNormalizationTransform(TypeDispatcher):
 
     def __init__(self, storeGraph):
         self.storeGraph = storeGraph
+        self.last_skip_reason = None
 
     @defaultdispatch
     def visitDefault(self, node):
@@ -220,12 +247,19 @@ class ArgumentNormalizationTransform(TypeDispatcher):
         dst.rewriteAnnotation(references=refs)
 
     def process(self, node, vparamLen):
-        # TODO rewrite local references.
-
+        self.last_skip_reason = None
         p = node.codeparameters
 
         self.code = node
         self.vparam = p.vparam
+
+        # Conservative safety gate: if the variadic parameter is still referenced
+        # directly in the body, skipping normalization avoids stale local metadata.
+        finder = _ContainsLocalRef(self.vparam)
+        finder(node.ast)
+        if finder.found:
+            self.last_skip_reason = "vparam_local_referenced_in_body"
+            return False
 
         self.newParams = [ast.Local(None) for i in range(vparamLen)]
         self.newNames = [None for i in range(vparamLen)]
@@ -263,6 +297,8 @@ class ArgumentNormalizationTransform(TypeDispatcher):
             type_params=p.type_params,
         )
         node.ast = self(node.ast)
+        self.vparam.rewriteAnnotation(references=None)
+        return True
 
 
 def evaluate(compiler, prgm):
@@ -277,8 +313,20 @@ def evaluate(compiler, prgm):
     with compiler.console.scope("argument normalization"):
         analysis = ArgumentNormalizationAnalysis(prgm.storeGraph)
         transform = ArgumentNormalizationTransform(prgm.storeGraph)
+        changed = False
+        safety_blocked = 0
 
         for code in prgm.liveCode:
             applicable, vparamLen = analysis.process(code)
             if applicable:
-                transform.process(code, vparamLen)
+                transformed = bool(transform.process(code, vparamLen))
+                changed = transformed or changed
+                if not transformed and transform.last_skip_reason is not None:
+                    safety_blocked += 1
+
+        if safety_blocked:
+            compiler.console.output(
+                f"Argument normalization skipped for {safety_blocked} code objects due to safety guards."
+            )
+
+        return changed

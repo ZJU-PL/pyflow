@@ -86,6 +86,10 @@ class TestForwardDataflow(unittest.TestCase):
         self.assertEqual(analyze.seen, ["Local", "Return"])
         self.assertIn("return", traverse.flow.bags)
 
+    def test_loop_fixpoint_has_iteration_safety_cap(self):
+        traverse, _analyze = self.make_traverse()
+        self.assertEqual(traverse.maxLoopIterations, 128)
+
 
 class TestReverseDataflow(unittest.TestCase):
     def make_traverse(self):
@@ -136,6 +140,21 @@ class TestReverseDataflow(unittest.TestCase):
         result = traverse.visitContainer((ast.Local("a"), ast.Local("b")))
 
         self.assertIsInstance(result, tuple)
+
+    def test_reverse_loop_has_iteration_safety_cap(self):
+        traverse, _strategy = self.make_traverse()
+        self.assertEqual(traverse.maxLoopIterations, 128)
+
+    def test_reverse_while_handles_none_initial_frame(self):
+        traverse, _strategy = self.make_traverse()
+        node = ast.While(
+            ast.Condition(ast.Suite([]), ast.Local("cond")),
+            ast.Suite([]),
+            ast.Suite([]),
+        )
+
+        result = traverse(node)
+        self.assertIsInstance(result, ast.While)
 
 
 if __name__ == "__main__":

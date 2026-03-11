@@ -170,7 +170,9 @@ class FoldRewrite(TypeDispatcher):
             else:
                 return ()  # HACK?
         else:
-            assert False, type(ref)
+            # Unsupported reference shape. Be conservative and avoid crashing
+            # the optimization pipeline.
+            return ()
 
     def getExistingNames(self, ref):
         if isinstance(ref, ast.Local):

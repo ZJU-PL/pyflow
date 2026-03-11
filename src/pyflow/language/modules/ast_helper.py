@@ -18,13 +18,10 @@ import os
 import subprocess
 from functools import lru_cache
 
-from .transformer import PytTransformer
+from .transform import PytTransformer
 
 log = logging.getLogger(__name__)
 BLACK_LISTED_CALL_NAMES = ["self"]
-recursive = False
-
-
 def _convert_to_3(path):  # pragma: no cover
     """Convert Python 2 file to Python 3 using 2to3.
 
@@ -69,17 +66,17 @@ def generate_ast(path):
         SyntaxError: If parsing and conversion both fail
     """
     if os.path.isfile(path):
-        with open(path, "r") as f:
-            try:
-                tree = ast.parse(f.read())
-                return PytTransformer().visit(tree)
-            except SyntaxError:  # pragma: no cover
-                global recursive
-                if not recursive:
-                    _convert_to_3(path)
-                    recursive = True
-                    return generate_ast(path)
-                else:
+        # Keep retry state local to this call. A module-level mutable flag causes
+        # cross-call leakage when multiple files are analyzed in the same process.
+        for attempt in range(2):
+            with open(path, "r", encoding="utf-8") as f:
+                try:
+                    tree = ast.parse(f.read())
+                    return PytTransformer().visit(tree)
+                except SyntaxError:  # pragma: no cover
+                    if attempt == 0:
+                        _convert_to_3(path)
+                        continue
                     raise SyntaxError(
                         "The ast module can not parse the file"
                         " and the python 2 to 3 conversion"
@@ -188,9 +185,9 @@ class Arguments:
         if self.args:
             self.arguments.extend([x.arg for x in self.args])
         if self.varargs:
-            self.arguments.extend(self.varargs.arg)
+            self.arguments.append(self.varargs.arg)
         if self.kwarg:
-            self.arguments.extend(self.kwarg.arg)
+            self.arguments.append(self.kwarg.arg)
         if self.kwonlyargs:
             self.arguments.extend([x.arg for x in self.kwonlyargs])
 

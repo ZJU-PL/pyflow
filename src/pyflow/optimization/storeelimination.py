@@ -37,15 +37,25 @@ def evaluate(compiler, prgm, simplify=False):
         stores = collections.defaultdict(list)
 
         # Analysis pass
+        saw_annotation_data = False
         for code in prgm.liveCode:
             if code.annotation.codeReads:
                 live.update(code.annotation.codeReads[0])
+                saw_annotation_data = True
 
             for op in codeOps(code):
-                if op.annotation.reads:
-                    live.update(op.annotation.reads[0])
+                op_ann = getattr(op, "annotation", None)
+                if op_ann is not None and op_ann.reads:
+                    live.update(op_ann.reads[0])
+                    saw_annotation_data = True
                 if isinstance(op, ast.Store):
                     stores[code].append(op)
+
+        if not saw_annotation_data:
+            compiler.console.output(
+                "Skipping dead store elimination: missing read/modify annotations."
+            )
+            return False
 
         # Count total stores
         totalStores = sum(
@@ -66,9 +76,10 @@ def evaluate(compiler, prgm, simplify=False):
 
             # Look for dead stores
             for store in stores[code]:
-                if store.annotation.modifies:
+                store_ann = getattr(store, "annotation", None)
+                if store_ann is not None and store_ann.modifies:
                     # Check if any modified location is live
-                    for modify in store.annotation.modifies[0]:
+                    for modify in store_ann.modifies[0]:
                         if modify in live:
                             # Location is live, store is needed
                             break

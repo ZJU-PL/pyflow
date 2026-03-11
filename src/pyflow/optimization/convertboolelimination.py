@@ -38,9 +38,18 @@ class InferBoolean(TypeDispatcher):
     def visitLeaf(self, node):
         pass
 
-    @dispatch(ast.Suite, ast.Switch, ast.Condition)
-    def visitOK(self, node):
+    @dispatch(ast.Suite)
+    def visitSuite(self, node):
         node.visitChildren(self)
+
+    @dispatch(ast.Switch, ast.Condition)
+    def visitBranching(self, node):
+        # Conservative barrier: this lightweight analysis is not path-sensitive.
+        # Avoid propagating boolean facts across control-flow joins where a
+        # local may be undefined or have non-boolean values on some paths.
+        node.visitChildren(self)
+        for lcl in list(self.lut.keys()):
+            self.lut[lcl] = False
 
     @dispatch(ast.Assign)
     def visitAssign(self, node):
@@ -84,9 +93,9 @@ def evaluateCode(compiler, code):
         compiler: Compiler context
         code: Code node to optimize
 
-    Note: This transformation is slightly unsound, as conversions of
-    possibly undefined locals will be eliminated. A proper dataflow
-    analysis would be needed for full soundness.
+    Soundness policy: only remove ConvertToBool when the wrapped
+    expression is intrinsically boolean (alwaysReturnsBoolean). This
+    avoids eliminating conversions based on path-sensitive local facts.
     """
     infer = InferBoolean()
     infer.process(code)
@@ -95,7 +104,7 @@ def evaluateCode(compiler, code):
         # Eliminate ConvertToBool nodes that take booleans as arguments
         replace = {}
         for convert in infer.converts:
-            if infer.isBoolean(convert.expr):
+            if convert.expr.alwaysReturnsBoolean():
                 replace[convert] = convert.expr
 
         if replace:

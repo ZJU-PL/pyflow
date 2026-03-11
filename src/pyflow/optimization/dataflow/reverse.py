@@ -54,7 +54,7 @@ class ReverseFlowTraverse(TypeDispatcher):
         mayRaise: MayRaise dispatcher for exception analysis
     """
 
-    __slots__ = "strategy", "meet", "flow", "mayRaise"
+    __slots__ = "strategy", "meet", "flow", "mayRaise", "maxLoopIterations"
 
     def __init__(self, meetF, strategy):
         """
@@ -75,6 +75,7 @@ class ReverseFlowTraverse(TypeDispatcher):
         self.flow.save("return")
         self.flow.restore(base.DynamicDict())
         self.flow.save("raise")
+        self.maxLoopIterations = 128
 
     def mergedBagFrame(self, name):
         frames = self.flow.bags.get(name, ())
@@ -216,10 +217,16 @@ class ReverseFlowTraverse(TypeDispatcher):
     @dispatch(ast.While)
     def visitWhile(self, node):
         normalF, breakF = self.flow.popSplit()
+        condition = node.condition
+        body = node.body
 
         self.flow.restore(normalF)
         else_ = self(node.else_)
         inital = self.flow.pop()
+        if inital is None:
+            condition = self(condition)
+            body = self(body)
+            return ast.While(condition, body, else_)
 
         # Save the old loop points, and set new ones.
         oldBreak = self.flow.bags.get("break", [])
@@ -229,10 +236,15 @@ class ReverseFlowTraverse(TypeDispatcher):
         # Iterate until convergence
 
         current = inital.split()
+        iterations = 0
         while 1:
+            cur = current
+            if cur is None:
+                break
+            iterations += 1
             # TODO undef the index?
-            self.flow.bags["continue"] = [current.split()]
-            self.flow.restore(current.split())
+            self.flow.bags["continue"] = [cur.split()]
+            self.flow.restore(cur.split())
 
             condition = self(node.condition)
             body = self(node.body)
@@ -240,7 +252,7 @@ class ReverseFlowTraverse(TypeDispatcher):
             loopEntry = self.flow.pop()
             current, changed = meet(self.meet, current, loopEntry)
 
-            if not changed:
+            if not changed or iterations >= self.maxLoopIterations:
                 break
 
         self.flow.restore(current)
@@ -256,10 +268,21 @@ class ReverseFlowTraverse(TypeDispatcher):
     @dispatch(ast.For)
     def visitFor(self, node):
         normalF, breakF = self.flow.popSplit()
+        body = node.body
+        index = node.index
+        bodyPreamble = node.bodyPreamble
 
         self.flow.restore(normalF)
         else_ = self(node.else_)
         inital = self.flow.pop()
+        if inital is None:
+            body = self(body)
+            index = self(index)
+            bodyPreamble = self(bodyPreamble)
+            self.strategy.marker(node.iterator)
+            iterator = self(node.iterator)
+            loopPreamble = self(node.loopPreamble)
+            return ast.For(iterator, index, loopPreamble, bodyPreamble, body, else_)
 
         # Save the old loop points, and set new ones.
         oldBreak = self.flow.bags.get("break", [])
@@ -269,10 +292,15 @@ class ReverseFlowTraverse(TypeDispatcher):
         # Iterate until convergence
 
         current = inital.split()
+        iterations = 0
         while 1:
+            cur = current
+            if cur is None:
+                break
+            iterations += 1
             # TODO undef the index?
-            self.flow.bags["continue"] = [current.split()]
-            self.flow.restore(current.split())
+            self.flow.bags["continue"] = [cur.split()]
+            self.flow.restore(cur.split())
 
             body = self(node.body)
 
@@ -285,7 +313,7 @@ class ReverseFlowTraverse(TypeDispatcher):
             loopEntry = self.flow.pop()
             current, changed = meet(self.meet, current, loopEntry)
 
-            if not changed:
+            if not changed or iterations >= self.maxLoopIterations:
                 break
 
         self.flow.restore(current)

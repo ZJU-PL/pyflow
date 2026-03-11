@@ -1,6 +1,7 @@
 """Tests for optimization/convertboolelimination.py - Boolean conversion elimination optimization."""
 
 import unittest
+from unittest.mock import patch
 
 from pyflow.optimization.convertboolelimination import InferBoolean, evaluateCode
 
@@ -233,6 +234,21 @@ class TestInferBoolean(unittest.TestCase):
         infer.process(code)
         self.assertIn(infer, code.visited)
 
+    def test_branching_invalidates_boolean_facts(self):
+        from pyflow.language.python import ast
+
+        class BranchNode:
+            def visitChildren(self, _visitor):
+                return None
+
+        infer = InferBoolean()
+        local = ast.Local("x")
+        infer.define(local)
+        self.assertTrue(infer.isBoolean(local))
+
+        infer.visitBranching(BranchNode())
+        self.assertFalse(infer.isBoolean(local))
+
 
 class TestEvaluateCode(unittest.TestCase):
     """Test cases for evaluateCode function."""
@@ -289,6 +305,37 @@ class TestEvaluateCode(unittest.TestCase):
         
         # Local should not be marked as boolean
         self.assertFalse(infer.isBoolean(local))
+
+    def test_evaluateCode_eliminates_only_intrinsic_booleans(self):
+        class _Expr:
+            def __init__(self, intrinsic):
+                self._intrinsic = intrinsic
+
+            def alwaysReturnsBoolean(self):
+                return self._intrinsic
+
+        class _Convert:
+            def __init__(self, expr):
+                self.expr = expr
+
+        class _Infer:
+            def __init__(self):
+                self.converts = [_Convert(_Expr(True)), _Convert(_Expr(False))]
+
+            def process(self, _code):
+                return None
+
+        captured = {}
+
+        def _rewrite(_compiler, _code, replace):
+            captured.update(replace)
+
+        with patch("pyflow.optimization.convertboolelimination.InferBoolean", _Infer), patch(
+            "pyflow.optimization.convertboolelimination.rewrite", _rewrite
+        ):
+            evaluateCode(object(), object())
+
+        self.assertEqual(len(captured), 1)
 
 
 if __name__ == "__main__":

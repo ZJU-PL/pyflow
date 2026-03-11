@@ -115,6 +115,10 @@ class TestFoldRewrite(unittest.TestCase):
         result = fr.visitOK(node)
         self.assertEqual(result, node)
 
+    def test_getObjects_unsupported_ref_is_conservative(self):
+        fr = FoldRewrite(MockExtractor(), None, MockCode())
+        self.assertEqual(fr.getObjects(object()), ())
+
 
 class TestMakeCallRewrite(unittest.TestCase):
     """Test cases for makeCallRewrite function."""

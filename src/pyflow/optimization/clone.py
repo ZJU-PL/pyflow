@@ -635,14 +635,17 @@ def rewriteProgram(compiler, prgm, cloner):
     indicating that the optimization is worthwhile.
     """
     liveCode = cloner.liveFunctions
+    changed = False
 
     # Is cloning worthwhile?
     if cloner.clonedNumGroups() > cloner.originalNumGroups():
         with compiler.console.scope("rewrite"):
             cloner.rewriteProgram(compiler, prgm)
             liveCode = cloner.newLive
+            changed = True
 
     prgm.liveCode = liveCode
+    return changed
 
 
 def evaluate(compiler, prgm):
@@ -686,4 +689,4 @@ def evaluate(compiler, prgm):
             )
             compiler.console.output("")
 
-        rewriteProgram(compiler, prgm, cloner)
+        return rewriteProgram(compiler, prgm, cloner)

@@ -154,12 +154,15 @@ class RedundantLoadEliminator(object):
             # sig = (arg, self.readNumber(op, arg))
             sig = self.readNumber(op, arg)
         else:
-            assert False, arg
+            # Unsupported operand shape: conservatively skip this candidate
+            return None
         return sig
 
     def generateSignature(self, op, node, signatures):
         exprSig = self.makeReadSig(op, node.expr)
         nameSig = self.makeReadSig(op, node.name)
+        if exprSig is None or nameSig is None:
+            return
 
         if isinstance(node, ast.Load):
             fields = [
@@ -172,7 +175,8 @@ class RedundantLoadEliminator(object):
                 for field in node.annotation.modifies[0]
             ]
         else:
-            assert False, node
+            # Unsupported node shape: conservatively skip
+            return
 
         sig = (exprSig, node.fieldtype, nameSig, frozenset(fields))
 

@@ -19,6 +19,7 @@ from pyflow.optimization.dataflow.base import InternalError
 
 from io import StringIO
 from pyflow.language.python.simplecodegen import SimpleCodeGen
+from pyflow.analysis.tools import codeOps
 
 from pyflow.language.python import ast
 
@@ -56,6 +57,8 @@ def evaluateCode(compiler, prgm, node, outputAnchors=None):
     """
     assert node.isCode(), type(node)
 
+    before_ops = len(list(codeOps(node)))
+
     try:
         # Step 1: Constant folding
         fold.evaluateCode(compiler, prgm, node)
@@ -64,6 +67,9 @@ def evaluateCode(compiler, prgm, node, outputAnchors=None):
         # Can't process arbitrary abstract code nodes.
         if node.isStandardCode():
             dce.evaluateCode(compiler, node, outputAnchors)
+
+        after_ops = len(list(codeOps(node)))
+        return after_ops != before_ops
 
     except InternalError:
         # Print the code for debugging when internal errors occur
@@ -94,7 +100,11 @@ def evaluate(compiler, prgm):
     pipeline to create opportunities for later optimizations.
     """
     with compiler.console.scope("simplify"):
+        changed = False
         for code in prgm.liveCode:
             # Skip descriptive code (preserve behavioral information)
             if not code.annotation.descriptive:
-                evaluateCode(compiler, prgm, code)
+                if evaluateCode(compiler, prgm, code):
+                    changed = True
+
+        return changed

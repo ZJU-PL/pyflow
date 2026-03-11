@@ -47,7 +47,15 @@ class ForwardFlowTraverse(TypeDispatcher):
         meetF: Meet function for combining information from paths
     """
 
-    __slots__ = "analyze", "rewrite", "flow", "tryLevel", "mayRaise", "meetF"
+    __slots__ = (
+        "analyze",
+        "rewrite",
+        "flow",
+        "tryLevel",
+        "mayRaise",
+        "meetF",
+        "maxLoopIterations",
+    )
 
     def __init__(self, meetF, analyze, rewrite):
         """
@@ -66,6 +74,9 @@ class ForwardFlowTraverse(TypeDispatcher):
         self.mayRaise = base.MayRaise()
 
         self.meetF = meetF
+        # Safety guard: prevents pathological loops in abstract interpretation
+        # from causing non-terminating optimization passes.
+        self.maxLoopIterations = 128
 
     # TODO expose CodeParameters to the strategies?
     @dispatch(str, type(None), ast.CodeParameters)
@@ -308,11 +319,22 @@ class ForwardFlowTraverse(TypeDispatcher):
     @dispatch(ast.While)
     def visitWhile(self, node):
         conditionEntry = self.flow.pop()
+        if conditionEntry is None:
+            return ast.While(node.condition, node.body, node.else_)
 
         originalbags = self.flow.saveBags()
+        iterations = 0
+        condition = node.condition
+        body = node.body
+        conditionExit = conditionEntry
+        b = None
+        loopbags = {}
 
         # Iterate until convergence
         while 1:
+            iterations += 1
+            if conditionEntry is None:
+                break
             self.flow.restore(conditionEntry.split())
 
             condition = self(node.condition)
@@ -330,7 +352,6 @@ class ForwardFlowTraverse(TypeDispatcher):
 
                 # Has a fixed point been reached for loop exit?
                 # Check merge(current, "normal exit") == current
-                # HACK does not iterate
 
                 conditionEntry, changed = meet(self.meetF, conditionEntry, bodyExit)
                 shouldTerminate = not changed
@@ -351,6 +372,12 @@ class ForwardFlowTraverse(TypeDispatcher):
 
                 break
             else:
+                if iterations >= self.maxLoopIterations:
+                    # Conservative bailout if fixpoint does not converge quickly.
+                    self.flow.mergeCurrent(self.meetF, "break")
+                    b = self.flow.pop()
+                    loopbags = self.flow.saveBags()
+                    break
                 # Clears the bags
                 self.flow.saveBags()
 
@@ -386,9 +413,27 @@ class ForwardFlowTraverse(TypeDispatcher):
 
         originalbags = self.flow.saveBags()
         current = self.flow.pop()
+        if current is None:
+            return ast.For(
+                iterator,
+                node.index,
+                loopPreamble,
+                node.bodyPreamble,
+                node.body,
+                node.else_,
+            )
+        iterations = 0
+        bodyPreamble = node.bodyPreamble
+        index = node.index
+        body = node.body
+        b = None
+        loopbags = {}
 
         # Iterate until convergence
         while 1:
+            iterations += 1
+            if current is None:
+                break
             self.flow.restore(current.split())
 
             # TODO Need to invalidate index every iteration.
@@ -410,7 +455,6 @@ class ForwardFlowTraverse(TypeDispatcher):
 
             # Has a fixed point been reached for loop exit?
             # Check merge(current, "normal exit") == current
-            # HACK does not iterate
 
             current, changed = meet(self.meetF, current, c)
 
@@ -426,6 +470,11 @@ class ForwardFlowTraverse(TypeDispatcher):
 
                 break
             else:
+                if iterations >= self.maxLoopIterations:
+                    self.flow.mergeCurrent(self.meetF, "break")
+                    b = self.flow.pop()
+                    loopbags = self.flow.saveBags()
+                    break
                 # Clears the bags
                 self.flow.saveBags()
 

@@ -463,7 +463,7 @@ def evaluate(compiler, prgm):
         pattern = MethodPatternFinder()
         if not pattern.preprocess(compiler, prgm):
             compiler.console.output("No method calls to fuse.")
-            return
+            return False
 
         numrewritten = 0
         for code in prgm.liveCode:
@@ -491,3 +491,4 @@ def evaluate(compiler, prgm):
         # TODO may not be entirely correct, as the method call may
         # not be fused in the final iteration.
         compiler.console.output("%d method calls fused." % numrewritten)
+        return numrewritten > 0

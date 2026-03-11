@@ -96,8 +96,8 @@ class MethodCallOptimizationPass(OptimizationPass):
 
     def run(self, compiler, program) -> PassResult:
         try:
-            methodcall.evaluate(compiler, program)
-            return PassResult(success=True, changed=True)
+            changed = bool(methodcall.evaluate(compiler, program))
+            return PassResult(success=True, changed=changed)
         except Exception as e:
             return PassResult.from_exception(e)
 
@@ -112,8 +112,8 @@ class SimplifyOptimizationPass(OptimizationPass):
 
     def run(self, compiler, program) -> PassResult:
         try:
-            simplify.evaluate(compiler, program)
-            return PassResult(success=True, changed=True)
+            changed = bool(simplify.evaluate(compiler, program))
+            return PassResult(success=True, changed=changed)
         except Exception as e:
             return PassResult.from_exception(e)
 
@@ -126,8 +126,8 @@ class CloneOptimizationPass(OptimizationPass):
 
     def run(self, compiler, program) -> PassResult:
         try:
-            clone.evaluate(compiler, program)
-            return PassResult(success=True, changed=True)
+            changed = bool(clone.evaluate(compiler, program))
+            return PassResult(success=True, changed=changed)
         except Exception as e:
             return PassResult.from_exception(e)
 
@@ -143,8 +143,8 @@ class ArgumentNormalizationPass(OptimizationPass):
 
     def run(self, compiler, program) -> PassResult:
         try:
-            argumentnormalization.evaluate(compiler, program)
-            return PassResult(success=True, changed=True)
+            changed = bool(argumentnormalization.evaluate(compiler, program))
+            return PassResult(success=True, changed=changed)
         except Exception as e:
             return PassResult.from_exception(e)
 
@@ -157,8 +157,8 @@ class ProgramCullingPass(OptimizationPass):
 
     def run(self, compiler, program) -> PassResult:
         try:
-            cullprogram.evaluate(compiler, program)
-            return PassResult(success=True, changed=True)
+            changed = bool(cullprogram.evaluate(compiler, program))
+            return PassResult(success=True, changed=changed)
         except Exception as e:
             return PassResult.from_exception(e)
 
@@ -171,8 +171,8 @@ class StoreEliminationPass(OptimizationPass):
 
     def run(self, compiler, program) -> PassResult:
         try:
-            storeelimination.evaluate(compiler, program)
-            return PassResult(success=True, changed=True)
+            changed = bool(storeelimination.evaluate(compiler, program))
+            return PassResult(success=True, changed=changed)
         except Exception as e:
             return PassResult.from_exception(e)
 
@@ -234,6 +234,7 @@ def register_standard_passes(pass_manager):
         "clone",
         "argument_normalization",
         "cull_program",
+        "store_elimination",
     ]:
         if opt_name in pass_manager.passes:
             opt_pass = pass_manager.passes[opt_name]
@@ -242,7 +243,12 @@ def register_standard_passes(pass_manager):
     # Simplification should run before many other optimizations
     # (constant folding and DCE enable better optimization)
     simplify_pass = pass_manager.passes["simplify"]
-    for opt_name in ["clone", "argument_normalization", "cull_program"]:
+    for opt_name in [
+        "clone",
+        "argument_normalization",
+        "cull_program",
+        "store_elimination",
+    ]:
         if opt_name in pass_manager.passes:
             opt_pass = pass_manager.passes[opt_name]
             opt_pass.info.dependencies.add("simplify")

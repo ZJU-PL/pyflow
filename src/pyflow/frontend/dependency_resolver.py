@@ -31,11 +31,13 @@ handling the "missing dependencies" problem in a principled manner.
 import ast as python_ast
 import builtins
 import inspect
+import json
 import os
+import subprocess
 import sys
 import types
 from dataclasses import dataclass
-from typing import Dict, List, Any, Optional, Callable, Iterable, Tuple
+from typing import Dict, List, Any, Optional, Callable, Iterable, Tuple, Set
 from enum import Enum
 
 
@@ -356,6 +358,9 @@ class DependencyResolver:
         source_files: Optional[Dict[str, str]] = None,
         analysis_root: Optional[str] = None,
         allow_runtime_execution: bool = False,
+        fail_on_diagnostics: bool = False,
+        max_diagnostics: Optional[int] = None,
+        max_runtime_fallback_ratio: Optional[float] = None,
     ):
         """
         Initialize the dependency resolver.
@@ -388,6 +393,9 @@ class DependencyResolver:
             os.path.realpath(analysis_root) if analysis_root else None
         )
         self.allow_runtime_execution = allow_runtime_execution
+        self.fail_on_diagnostics = fail_on_diagnostics
+        self.max_diagnostics = max_diagnostics
+        self.max_runtime_fallback_ratio = max_runtime_fallback_ratio
         self._analysis_root_explicit = analysis_root is not None
         if self.analysis_root is None:
             self.analysis_root = _infer_analysis_root(self.source_files.keys())
@@ -405,6 +413,7 @@ class DependencyResolver:
             "files_processed": 0,
             "runtime_exec_attempts": 0,
             "runtime_exec_failures": 0,
+            "runtime_fallbacks": 0,
             "ast_extract_failures": 0,
             "diagnostics": 0,
             "private_defs_filtered": 0,
@@ -452,11 +461,36 @@ class DependencyResolver:
             DependencyStrategy.AST_ONLY: self._extract_ast_only,
             DependencyStrategy.AUTO: self._extract_auto,
         }
-        return strategy_handlers[self.strategy](source, file_path)
+        result = strategy_handlers[self.strategy](source, file_path)
+        self._enforce_quality_gates(file_path)
+        return result
+
+    def _enforce_quality_gates(self, file_path: str) -> None:
+        if self.fail_on_diagnostics and self._diagnostics:
+            raise RuntimeError(
+                f"Dependency diagnostics present for {file_path}: {self._diagnostics[-1]}"
+            )
+
+        if self.max_diagnostics is not None and len(self._diagnostics) > self.max_diagnostics:
+            raise RuntimeError(
+                f"Diagnostic budget exceeded ({len(self._diagnostics)} > {self.max_diagnostics})"
+            )
+
+        if self.max_runtime_fallback_ratio is not None:
+            processed = self._telemetry.get("files_processed", 0)
+            if processed > 0:
+                fallbacks = self._telemetry.get("runtime_fallbacks", 0)
+                ratio = fallbacks / processed
+                if ratio > self.max_runtime_fallback_ratio:
+                    raise RuntimeError(
+                        "Runtime fallback ratio exceeded "
+                        f"({ratio:.2f} > {self.max_runtime_fallback_ratio:.2f})"
+                    )
 
     def _runtime_disabled_fallback(
         self, source: str, file_path: str, mode: str
     ) -> Dict[str, Any]:
+        self._telemetry["runtime_fallbacks"] += 1
         if self.verbose:
             print(
                 f"DEBUG: {mode} runtime extraction disabled for {file_path}; using AST-only fallback"
@@ -479,10 +513,19 @@ class DependencyResolver:
         exec_globals: Dict[str, Any],
         *,
         diagnostic_stage: Optional[str] = None,
+        allow_stub_imports: bool = False,
     ) -> Dict[str, Any]:
-        compiled = compile(source, file_path, "exec")
-        self._exec_with_stub_modules(compiled, exec_globals)
-        functions = self._filter_functions(exec_globals, file_path)
+        # Runtime probing is isolated in a subprocess so sys.modules mutations
+        # and other global state changes cannot leak into the analyzer process.
+        names = self._runtime_probe_function_names(
+            source, file_path, allow_stub_imports=allow_stub_imports
+        )
+        ast_functions = self._extract_ast_functions(source, file_path)
+        functions = {
+            name: ast_functions[name]
+            for name in names
+            if name in ast_functions
+        }
         if functions:
             return functions
         if diagnostic_stage:
@@ -574,7 +617,11 @@ class DependencyResolver:
 
         try:
             return self._execute_runtime_extraction(
-                source, file_path, exec_globals, diagnostic_stage="runtime_exec"
+                source,
+                file_path,
+                exec_globals,
+                diagnostic_stage="runtime_exec",
+                allow_stub_imports=False,
             )
         except Exception as e:
             self._telemetry["runtime_exec_failures"] += 1
@@ -594,7 +641,12 @@ class DependencyResolver:
 
         # Try normal execution first
         try:
-            functions = self._execute_runtime_extraction(source, file_path, exec_globals)
+            functions = self._execute_runtime_extraction(
+                source,
+                file_path,
+                exec_globals,
+                allow_stub_imports=True,
+            )
             if functions:
                 return functions
         except ImportError as e:
@@ -611,6 +663,7 @@ class DependencyResolver:
                     file_path,
                     exec_globals_with_stubs,
                     diagnostic_stage="stub_runtime_exec",
+                    allow_stub_imports=True,
                 )
                 if functions:
                     return functions
@@ -627,6 +680,7 @@ class DependencyResolver:
             print(
                 f"DEBUG: Runtime execution failed for {file_path}, falling back to AST extraction"
             )
+        self._telemetry["runtime_fallbacks"] += 1
         return self._extract_ast_functions(source, file_path)
     
     def get_missing_dependencies(self) -> Dict[str, List[str]]:
@@ -648,7 +702,11 @@ class DependencyResolver:
 
         try:
             return self._execute_runtime_extraction(
-                source, file_path, exec_globals, diagnostic_stage="noop_runtime_exec"
+                source,
+                file_path,
+                exec_globals,
+                diagnostic_stage="noop_runtime_exec",
+                allow_stub_imports=True,
             )
         except Exception as e:
             self._telemetry["runtime_exec_failures"] += 1
@@ -657,7 +715,113 @@ class DependencyResolver:
             )
             if self.verbose:
                 print(f"DEBUG: No-op extraction failed for {file_path}: {e}")
+            self._telemetry["runtime_fallbacks"] += 1
             return {}
+
+    def _runtime_probe_function_names(
+        self,
+        source: str,
+        file_path: str,
+        *,
+        allow_stub_imports: bool,
+    ) -> List[str]:
+        script = r'''
+import builtins
+import json
+import os
+import sys
+import types
+
+FILE_PATH = sys.argv[1]
+ALLOW_STUBS = sys.argv[2] == "1"
+SOURCE = sys.stdin.read()
+
+def _noop(*args, **kwargs):
+    return None
+
+def _make_stub_module(module_name):
+    module = types.ModuleType(module_name)
+    module.__file__ = f"<stub:{module_name}>"
+    module.__getattr__ = lambda name, _module_name=module_name: _noop
+    return module
+
+orig_import = builtins.__import__
+
+def _safe_import(name, globals=None, locals=None, fromlist=(), level=0):
+    try:
+        return orig_import(name, globals, locals, fromlist, level)
+    except ImportError:
+        if not ALLOW_STUBS:
+            raise
+        parts = [p for p in name.split(".") if p]
+        if not parts:
+            raise
+        parent = None
+        module = None
+        for i in range(1, len(parts) + 1):
+            fullname = ".".join(parts[:i])
+            module = sys.modules.get(fullname)
+            if module is None:
+                module = _make_stub_module(fullname)
+                sys.modules[fullname] = module
+            if parent is not None:
+                setattr(parent, parts[i - 1], module)
+            parent = module
+        return module
+
+builtins.__import__ = _safe_import
+
+namespace = {"__name__": "__pyflow_analysis__", "__file__": FILE_PATH, "input": lambda *a, **k: ""}
+
+try:
+    import os as _os
+    _os.system = lambda *a, **k: 0
+    _os.popen = lambda *a, **k: None
+except Exception:
+    pass
+
+try:
+    compiled = compile(SOURCE, FILE_PATH, "exec")
+    exec(compiled, namespace)
+except Exception as exc:
+    print(json.dumps({"error": f"{type(exc).__name__}: {exc}"}))
+    sys.exit(1)
+finally:
+    builtins.__import__ = orig_import
+
+functions = []
+for name, obj in namespace.items():
+    if name.startswith("_"):
+        continue
+    if not callable(obj):
+        continue
+    code = getattr(obj, "__code__", None)
+    if code is None:
+        continue
+    if getattr(code, "co_filename", None) != FILE_PATH:
+        continue
+    functions.append(name)
+
+print(json.dumps({"functions": sorted(functions)}))
+'''
+
+        completed = subprocess.run(
+            [sys.executable, "-c", script, file_path, "1" if allow_stub_imports else "0"],
+            input=source,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+
+        stdout = (completed.stdout or "").strip()
+        stderr = (completed.stderr or "").strip()
+
+        if completed.returncode != 0:
+            message = stderr or stdout or "runtime probe failed"
+            raise RuntimeError(message)
+
+        payload = json.loads(stdout or "{}")
+        return list(payload.get("functions", []))
 
     def _extract_ast_only(self, source: str, file_path: str) -> Dict[str, Any]:
         """Extract functions using only AST parsing."""

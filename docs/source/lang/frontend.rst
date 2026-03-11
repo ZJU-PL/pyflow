@@ -89,11 +89,22 @@ Dependency Resolver
 
 The ``DependencyResolver`` class handles import dependencies with multiple strategies:
 
-**AUTO** (default): Tries runtime execution, falls back to AST parsing
+**AUTO** (default): AST-only extraction (side-effect free)
 **STUBS**: Creates stub modules for missing dependencies
 **AST_ONLY**: Only uses AST parsing (safe for untrusted code)
 **STRICT**: Fails if dependencies can't be resolved
 **NOOP**: Treats external dependencies as no-ops
+
+Runtime extraction (``STRICT``, ``STUBS``, ``NOOP`` with
+``allow_runtime_execution=True``) executes in an isolated subprocess to avoid
+polluting analyzer process state (for example, ``sys.modules`` mutations).
+
+For CI and production hardening, the dependency resolver also supports quality
+gates:
+
+- ``fail_on_diagnostics``: fail when any resolver diagnostic is recorded
+- ``max_diagnostics``: fail when diagnostic count exceeds a threshold
+- ``max_runtime_fallback_ratio``: fail when runtime-to-AST fallback ratio exceeds a threshold
 
 **Usage:**
 
