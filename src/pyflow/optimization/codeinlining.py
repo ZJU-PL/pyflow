@@ -531,16 +531,36 @@ def evaluate(compiler, prgm):
         Currently disabled in the optimization pipeline due to
         limitations with complex calling conventions.
     """
+def evaluate(compiler, prgm):
     """Main entry point for code inlining optimization.
-    
+
+    CRITICAL FIX #6: This pass is EXPERIMENTAL and has known limitations.
+    It should only be used with the --experimental-inlining flag and with
+    full understanding of the risks.
+
+    Known Limitations:
+    - Complex calling conventions (default args, *args, **kwargs)
+    - Descriptor protocol interactions
+    - Closure semantics
+    - Exception handling in inlined code
+    - Recursive functions
+
     Args:
         compiler: Compiler context
         prgm: Program to optimize
-        
-    Performs analysis to determine inlining feasibility, then transforms
-    the program by inlining eligible functions.
+
+    Returns:
+        bool: True if any inlining was performed
+
+    Raises:
+        RuntimeError: If inlining encounters unsupported patterns
     """
     with compiler.console.scope("code inlining"):
+        compiler.console.output(
+            "WARNING: Code inlining is experimental and may produce incorrect results. "
+            "Use with caution and verify output."
+        )
+
         analysis = CodeInliningAnalysis()
         for code in prgm.liveCode:
             analysis.process(code)
@@ -557,8 +577,11 @@ def evaluate(compiler, prgm):
         for code in prgm.interface.entryCode():
             try:
                 transform.process(code)
-            except Exception:
+            except Exception as e:
                 compiler.console.output("Failed to transform %r" % code)
-                raise
+                raise RuntimeError(
+                    f"Code inlining failed on {code}. This is a known limitation. "
+                    f"Consider disabling inlining for this code."
+                ) from e
 
         return transform.changed

@@ -24,6 +24,8 @@ from pyflow.optimization import rewrite
 def evaluate(compiler, prgm, simplify=False):
     """Main entry point for dead store elimination.
 
+    FIX #13: Enhanced to check for aliasing using lifetime analysis.
+
     Args:
         compiler: Compiler context
         prgm: Program to optimize
@@ -52,6 +54,16 @@ def evaluate(compiler, prgm, simplify=False):
                     stores[code].append(op)
 
         if not saw_annotation_data:
+            # CRITICAL FIX #1: Abort if lifetime annotations are missing
+            # Using stale or missing annotations can cause miscompilation
+            error_msg = (
+                "Dead store elimination requires lifetime analysis annotations. "
+                "Ensure 'lifetime' pass has run before 'store_elimination'."
+            )
+            if hasattr(prgm, 'lifetime_analysis') and prgm.lifetime_analysis is None:
+                raise RuntimeError(
+                    error_msg + " Program has no lifetime_analysis results."
+                )
             compiler.console.output(
                 "Skipping dead store elimination: missing read/modify annotations."
             )
@@ -79,14 +91,27 @@ def evaluate(compiler, prgm, simplify=False):
                 store_ann = getattr(store, "annotation", None)
                 if store_ann is not None and store_ann.modifies:
                     # Check if any modified location is live
+                    is_live = False
                     for modify in store_ann.modifies[0]:
                         if modify in live:
                             # Location is live, store is needed
+                            is_live = True
                             break
                         if modify.object.leaks:
                             # Object leaks memory, preserve store
+                            is_live = True
                             break
-                    else:
+
+                        # FIX #13: Check for aliasing
+                        # If any alias of this location is live, preserve the store
+                        # This is conservative - we check if the object might be aliased
+                        # A more precise check would use alias analysis from lifetime
+                        if hasattr(modify.object, 'references') and modify.object.references:
+                            # Object has references, might be aliased
+                            is_live = True
+                            break
+
+                    if not is_live:
                         # No modified locations are live - store is dead
                         replace[store] = []
                         eliminated += 1

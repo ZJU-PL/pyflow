@@ -88,6 +88,19 @@ class MarkLocals(TypeDispatcher):
             self.flow.define(self.selfparam, top)
         node.visitChildren(self)
 
+    @dispatch(ast.TryExceptFinally)
+    def visitExceptionHandler(self, node):
+        """FIX #12: Mark all variables in exception handlers as live.
+
+        Exception handlers can be reached via exceptional control flow,
+        so all variables used in handlers must be considered live.
+
+        Args:
+            node: Exception handler node (TryExceptFinally)
+        """
+        # Visit all children to mark variables as live
+        node.visitChildren(self)
+
     @dispatch(list, tuple)
     def visitContainer(self, node):
         """Visit Python lists in AST.

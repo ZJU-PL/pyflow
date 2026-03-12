@@ -30,7 +30,10 @@ from pyflow.language.python import ast
 
 
 def _snapshot_code(node):
-    """Capture a structural snapshot for change detection."""
+    """Capture a structural snapshot for change detection.
+
+    FIX #11: Enhanced to include annotation information for more accurate change detection.
+    """
 
     def snapshot_value(value):
         if isinstance(value, list):
@@ -40,15 +43,20 @@ def _snapshot_code(node):
         if isinstance(value, ast.DoNotCare):
             return ("DoNotCare",)
         if isinstance(value, ast.Local):
-            return ("Local", value.name)
+            # Include annotation hash for locals
+            ann_hash = hash(repr(getattr(value, 'annotation', None)))
+            return ("Local", value.name, ann_hash)
         if isinstance(value, ast.Existing):
             return ("Existing", repr(value.object))
         if isinstance(value, ast.leafTypes):
             return value
         if hasattr(value, "children"):
+            # Include annotation information in snapshot
+            ann_repr = repr(getattr(value, 'annotation', None))
             return (
                 type(value).__name__,
                 tuple(snapshot_value(child) for child in value.children()),
+                hash(ann_repr),
             )
         return repr(value)
 

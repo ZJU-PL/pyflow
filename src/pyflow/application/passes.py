@@ -393,10 +393,16 @@ def register_standard_passes(pass_manager):
         "store_elimination",
         "dce",
     ]
+    # CRITICAL FIX #2: All optimization passes must declare invalidation metadata
+    # Without explicit invalidates/preserves, passes rely on conservative fallback
+    # that clears all caches. This ensures correctness but is inefficient.
+    # Each optimization pass now explicitly declares what it invalidates.
     for opt_name in optimization_passes:
         if opt_name in pass_manager.passes:
             opt_pass = pass_manager.passes[opt_name]
             opt_pass.info.dependencies.add("cpa")
+            # All transforming passes invalidate all analysis passes by default
+            # Individual passes can override by setting preserves
             opt_pass.info.invalidates.update(analysis_passes)
 
     # Simplification should run before many other optimizations
@@ -418,10 +424,16 @@ def register_standard_passes(pass_manager):
         # Legacy sequencing requires argument normalization before inlining.
         pass_manager.passes["inlining"].info.dependencies.add("argument_normalization")
 
+    # CRITICAL FIX #1: Store/load elimination require lifetime analysis
+    # These passes depend on code.annotation.codeReads and op.annotation.reads/modifies
+    # which are populated by lifetime analysis. Without this dependency, they may use
+    # stale annotations from a previous lifetime run, causing miscompilation.
     if "store_elimination" in pass_manager.passes:
         pass_manager.passes["store_elimination"].info.dependencies.add("lifetime")
+        pass_manager.passes["store_elimination"].info.requirements.add("lifetime")
     if "load_elimination" in pass_manager.passes:
         pass_manager.passes["load_elimination"].info.dependencies.add("lifetime")
+        pass_manager.passes["load_elimination"].info.requirements.add("lifetime")
 
     pass_manager.passes["first_pass_methodcall"].info.dependencies.add("methodcall")
     pass_manager.passes["first_pass_lifetime"].info.dependencies.update(
@@ -462,3 +474,7 @@ def register_standard_passes(pass_manager):
     )
 
     pass_manager._resolve_dependencies()
+
+    # CRITICAL FIX #2: Validate that all optimization passes have invalidation metadata
+    # This must be called AFTER all metadata is configured
+    pass_manager.validate_optimization_metadata()

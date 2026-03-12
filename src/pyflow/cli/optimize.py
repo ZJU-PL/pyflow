@@ -17,19 +17,22 @@ OPTIMIZATION_PASSES = {
     "lifetime": "Lifetime analysis for variables and objects",
     "simplify": "Constant folding and dead code elimination",
     "clone": "Separate different invocations of the same code",
-    "argumentnormalization": "Specialize eligible *args when existing callers are positional-compatible",
-    "inlining": "Inline function calls where beneficial (experimental)",
-    "cullprogram": "Remove dead functions and contexts",
-    "loadelimination": "Eliminate redundant load operations",
-    "storeelimination": "Eliminate redundant store operations",
+    "argument_normalization": "Specialize eligible *args when existing callers are positional-compatible",
+    "inlining": "Inline function calls where beneficial (EXPERIMENTAL - use with caution)",
+    "cull_program": "Remove dead functions and contexts",
+    "load_elimination": "Eliminate redundant load operations",
+    "store_elimination": "Eliminate redundant store operations",
     "dce": "Dead code elimination",
 }
 
+# CRITICAL FIX #10: Standardize pass names to match registered names
+# Use snake_case consistently (argument_normalization, not argumentnormalization)
 OPT_PASS_ALIASES = {
-    "argument_normalization": "argumentnormalization",
-    "cull_program": "cullprogram",
-    "load_elimination": "loadelimination",
-    "store_elimination": "storeelimination",
+    # Legacy names for backward compatibility
+    "argumentnormalization": "argument_normalization",
+    "cullprogram": "cull_program",
+    "loadelimination": "load_elimination",
+    "storeelimination": "store_elimination",
 }
 
 ANALYSIS_MODULES = {
@@ -159,7 +162,13 @@ def _run_default_pipeline(
 
 
 def _normalize_opt_pass_name(pass_name):
-    """Normalize CLI pass names to the pass-manager registry."""
+    """Normalize CLI pass names to the pass-manager registry.
+
+    CRITICAL FIX #10: Use pass manager aliases for consistent naming.
+    This ensures CLI names match registered pass names.
+    """
+    # First check if it's already a valid pass name
+    # Then check CLI aliases for backward compatibility
     return OPT_PASS_ALIASES.get(pass_name, pass_name)
 
 

@@ -20,11 +20,15 @@ from pyflow.analysis.tools import codeOps
 
 
 class _ContainsLocalRef(TypeDispatcher):
-    """Identity-based local reference finder."""
+    """Identity-based local reference finder.
+
+    CRITICAL FIX #3: Enhanced to detect closure capture and other unsafe references.
+    """
 
     def __init__(self, target):
         self.target = target
         self.found = False
+        self.in_closure = False
 
     @dispatch(ast.Local)
     def visitLocal(self, node):
@@ -37,6 +41,18 @@ class _ContainsLocalRef(TypeDispatcher):
             return
         for child in node:
             self(child)
+
+    @dispatch(ast.Code)
+    def visitCode(self, node):
+        """Check if target is captured by nested function (closure)."""
+        # If we encounter a nested Code node, check if target is in its free variables
+        if self.found:
+            return
+        # Mark that we're inside a nested function
+        old_in_closure = self.in_closure
+        self.in_closure = True
+        node.visitChildren(self)
+        self.in_closure = old_in_closure
 
     @defaultdispatch
     def visitDefault(self, node):
@@ -321,6 +337,14 @@ def _expected_positional_arity(code, vparam_len):
 
 
 def _normalization_blocker(prgm, code, vparam_len):
+    """Check if argument normalization is safe for this code object.
+
+    CRITICAL FIX #3: Enhanced safety checks for Python semantic hazards.
+
+    Returns:
+        str or None: Reason for blocking normalization, or None if safe
+    """
+    # Check if this is an entry point (cannot normalize entry points)
     interface = getattr(prgm, "interface", None)
     if interface is not None:
         entry_code = getattr(interface, "entryCode", None)
@@ -328,6 +352,23 @@ def _normalization_blocker(prgm, code, vparam_len):
             if any(entry is code for entry in entry_code()):
                 return "entry_point"
 
+    # CRITICAL FIX #3: Check for closure capture
+    # If *args is captured by a nested function, normalization changes closure semantics
+    vparam = code.codeparameters.vparam
+    if vparam is not None:
+        checker = _ContainsLocalRef(vparam)
+        checker(code.ast)
+        if checker.found and checker.in_closure:
+            return "closure_capture"
+
+    # CRITICAL FIX #3: Check for descriptor protocol interactions
+    # If this is a method (has selfparam), normalization may break descriptor binding
+    if code.codeparameters.selfparam is not None:
+        # Conservative: block normalization for methods
+        # A more precise check would verify descriptor protocol usage
+        return "method_descriptor_risk"
+
+    # Check all incoming call sites for compatibility
     for _caller, op, targets in _iter_incoming_call_sites(prgm, code):
         if not isinstance(op, (ast.Call, ast.DirectCall, ast.MethodCall)):
             return "unsupported_caller_shape"

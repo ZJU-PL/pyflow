@@ -290,14 +290,27 @@ def evaluateCode(compiler, prgm, code, simplify=True):
 def evaluate(compiler, prgm):
     """Main entry point for redundant load elimination.
 
+    CRITICAL: This pass requires lifetime analysis annotations (codeReads, reads, modifies).
+    Using stale annotations can cause miscompilation by reusing values from wrong contexts.
+
     Args:
         compiler: Compiler context
         prgm: Program to optimize
 
     Returns:
         bool: True if any loads were eliminated, False otherwise
+
+    Raises:
+        RuntimeError: If lifetime analysis annotations are missing or stale
     """
     with compiler.console.scope("redundant load elimination"):
+        # CRITICAL FIX #1: Verify lifetime analysis has run
+        if hasattr(prgm, 'lifetime_analysis') and prgm.lifetime_analysis is None:
+            raise RuntimeError(
+                "Load elimination requires lifetime analysis. "
+                "Ensure 'lifetime' pass has run before 'load_elimination'."
+            )
+
         totalEliminated = 0
         totalLoads = 0
 

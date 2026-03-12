@@ -304,7 +304,15 @@ class PassManager:
         self.execution_log: List[Dict[str, Any]] = []
 
     def register_pass(self, pass_instance: Pass) -> None:
-        """Register a pass instance."""
+        """Register a pass instance.
+
+        CRITICAL FIX #2: Validate that optimization passes declare invalidation metadata.
+        Passes that transform the program must explicitly declare what they invalidate
+        or preserve to ensure cache correctness.
+
+        Note: Validation is deferred until _resolve_dependencies() to allow metadata
+        to be set after registration.
+        """
         if pass_instance.name in self.passes or pass_instance.name in self.pass_aliases:
             raise ValueError(f"Pass '{pass_instance.name}' already registered")
 
@@ -372,6 +380,24 @@ class PassManager:
                 visit(pass_name)
 
         self.pass_order = order
+
+    def validate_optimization_metadata(self) -> None:
+        """Validate that optimization passes declare invalidation metadata.
+
+        CRITICAL FIX #2: This should be called after all passes are registered
+        and their metadata is configured.
+        """
+        for pass_name, pass_obj in self.passes.items():
+            if pass_obj.kind == PassKind.OPTIMIZATION:
+                if not pass_obj.info.invalidates and not pass_obj.info.preserves:
+                    raise ValueError(
+                        f"Optimization pass '{pass_name}' must declare either "
+                        f"'invalidates' or 'preserves' metadata. Transforming passes must "
+                        f"explicitly specify which analysis results they invalidate or preserve "
+                        f"to ensure cache correctness. If the pass invalidates all analyses, "
+                        f"add them to 'invalidates'. If it preserves specific analyses, "
+                        f"add them to 'preserves'."
+                    )
 
     def _iter_prerequisites(
         self, pass_name: str, *, validate: bool = False
