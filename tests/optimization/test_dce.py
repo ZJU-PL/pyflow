@@ -65,7 +65,6 @@ class TestNodesWithNoSideEffects(unittest.TestCase):
 
     def test_contains_expected_types(self):
         """Test that expected node types are in the tuple."""
-        self.assertIn(ast.GetGlobal, nodesWithNoSideEffects)
         self.assertIn(ast.Existing, nodesWithNoSideEffects)
         self.assertIn(ast.Local, nodesWithNoSideEffects)
         self.assertIn(ast.Is, nodesWithNoSideEffects)
@@ -78,6 +77,10 @@ class TestNodesWithNoSideEffects(unittest.TestCase):
     def test_does_not_contain_call(self):
         """Test that Call is not in the tuple."""
         self.assertNotIn(ast.Call, nodesWithNoSideEffects)
+
+    def test_does_not_contain_getglobal(self):
+        """Global loads can raise, so they must not be treated as side-effect free."""
+        self.assertNotIn(ast.GetGlobal, nodesWithNoSideEffects)
 
     def test_does_not_contain_assign(self):
         """Test that Assign is not in the tuple."""

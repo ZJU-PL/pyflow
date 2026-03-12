@@ -267,6 +267,14 @@ class PassCache:
             else:
                 self._fallback_cache[program].pop(pass_name, None)
 
+    def pass_names(self, program) -> Set[str]:
+        """Return cached pass names for a program."""
+        if self._supports_weakrefs(program):
+            return set(self._cache.get(program, ()))
+        if not self._is_hashable(program):
+            return set()
+        return set(self._fallback_cache.get(program, ()))
+
     def clear(self) -> None:
         """Clear all cached results."""
         self._cache.clear()
@@ -338,8 +346,7 @@ class PassManager:
                 temp_visited.add(pass_name)
 
                 # Visit dependencies first
-                pass_obj = self.passes[pass_name]
-                for dep in pass_obj.info.dependencies:
+                for dep in self._iter_prerequisites(pass_name):
                     if dep in self.passes:
                         visit(dep)
 
@@ -353,6 +360,30 @@ class PassManager:
                 visit(pass_name)
 
         self.pass_order = order
+
+    def _iter_prerequisites(
+        self, pass_name: str, *, validate: bool = False
+    ) -> List[str]:
+        """Return prerequisite pass names for a pass.
+
+        Dependencies and analysis requirements are treated as scheduling
+        prerequisites. Validation is deferred until pipeline construction so
+        callers can register passes in any order.
+        """
+        pass_obj = self.passes[pass_name]
+        prerequisites: Set[str] = set(pass_obj.info.dependencies)
+        prerequisites.update(pass_obj.info.requirements)
+
+        resolved: List[str] = []
+        for prereq in sorted(prerequisites):
+            try:
+                resolved.append(self.resolve_pass_name(prereq))
+            except ValueError:
+                if validate:
+                    raise ValueError(
+                        f"Pass '{pass_name}' depends on unknown pass '{prereq}'"
+                    ) from None
+        return resolved
 
     def build_pipeline(self, pass_names: List[str]) -> "PassPipeline":
         """Build a pipeline from a list of pass names.
@@ -377,7 +408,7 @@ class PassManager:
                 return
 
             resolving.add(canonical)
-            for dep in self.passes[canonical].info.dependencies:
+            for dep in self._iter_prerequisites(canonical, validate=True):
                 emit(dep)
             resolving.remove(canonical)
 
@@ -503,11 +534,50 @@ class PassManager:
         """Invalidate passes that depend on the given pass or are invalidated by it."""
         if not self.cache:
             return
+        pass_obj = self.passes[pass_name]
 
-        # Program objects are mutated in place, so a changed pass invalidates every
-        # cached result associated with that program unless the manager grows a real
-        # versioned cache key. Keep the behavior conservative and correct.
-        self.cache.invalidate(program)
+        if not pass_obj.info.invalidates and not pass_obj.info.preserves:
+            # Program objects are mutated in place, so a changed pass invalidates every
+            # cached result associated with that program unless the manager grows a real
+            # versioned cache key. Keep the behavior conservative and correct.
+            self.cache.invalidate(program)
+            return
+
+        cached_names = self.cache.pass_names(program)
+        preserved = {
+            self.resolve_pass_name(name)
+            for name in pass_obj.info.preserves
+            if name in self.passes or name in self.pass_aliases
+        }
+        invalidated = {
+            self.resolve_pass_name(name)
+            for name in pass_obj.info.invalidates
+            if name in self.passes or name in self.pass_aliases
+        }
+
+        for cached_name in cached_names:
+            cached_pass = self.passes.get(cached_name)
+            if cached_pass is None:
+                self.cache.invalidate(program, cached_name)
+                continue
+
+            if cached_name == pass_name:
+                self.cache.invalidate(program, cached_name)
+                continue
+
+            if cached_pass.kind in (PassKind.OPTIMIZATION, PassKind.TRANSFORMATION):
+                self.cache.invalidate(program, cached_name)
+                continue
+
+            if cached_name in invalidated:
+                self.cache.invalidate(program, cached_name)
+                continue
+
+            if (
+                cached_pass.kind in (PassKind.ANALYSIS, PassKind.UTILITY)
+                and cached_name not in preserved
+            ):
+                self.cache.invalidate(program, cached_name)
 
     def get_pass_info(self, pass_name: str) -> Optional[PassInfo]:
         """Get metadata for a registered pass."""

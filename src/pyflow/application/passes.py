@@ -330,8 +330,17 @@ def register_standard_passes(pass_manager):
     lifetime_pass = pass_manager.passes["lifetime"]
     lifetime_pass.info.dependencies.add("cpa")
 
+    analysis_passes = {
+        "ipa",
+        "cpa",
+        "lifetime",
+        "ipa_refresh",
+        "cpa_path_sensitive",
+        "lifetime_refresh",
+    }
+
     # CPA should run before most optimizations (optimizations need type/flow info)
-    for opt_name in [
+    optimization_passes = [
         "methodcall",
         "simplify",
         "clone",
@@ -341,10 +350,12 @@ def register_standard_passes(pass_manager):
         "load_elimination",
         "store_elimination",
         "dce",
-    ]:
+    ]
+    for opt_name in optimization_passes:
         if opt_name in pass_manager.passes:
             opt_pass = pass_manager.passes[opt_name]
             opt_pass.info.dependencies.add("cpa")
+            opt_pass.info.invalidates.update(analysis_passes)
 
     # Simplification should run before many other optimizations
     # (constant folding and DCE enable better optimization)
@@ -374,6 +385,10 @@ def register_standard_passes(pass_manager):
     )
     pass_manager.passes["store_elimination_final"].info.dependencies.update(
         {"simplify_final", "lifetime_refresh"}
+    )
+    pass_manager.passes["simplify_final"].info.invalidates.update(analysis_passes)
+    pass_manager.passes["store_elimination_final"].info.invalidates.update(
+        analysis_passes
     )
 
     pass_manager._resolve_dependencies()

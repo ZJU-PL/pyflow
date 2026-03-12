@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from types import SimpleNamespace
+import argparse
 
 from pyflow.cli import optimize
 
@@ -91,3 +92,59 @@ def test_run_optimization_passes_all_expands_to_default_pipeline(monkeypatch):
 
     assert seen["default"] == 1
     assert seen["custom"] == []
+
+
+def test_optimize_parser_rejects_conflicting_mode_flags():
+    parser = argparse.ArgumentParser()
+    subparsers = parser.add_subparsers(dest="command")
+    optimize.add_optimize_parser(subparsers)
+
+    try:
+        parser.parse_args(
+            ["optimize", "sample.py", "--suggest-only", "--apply-optimizations"]
+        )
+    except SystemExit as exc:
+        assert exc.code == 2
+    else:
+        raise AssertionError("expected mutually exclusive optimize mode flags to fail")
+
+
+def test_run_analysis_honors_explicit_apply_mode(monkeypatch, tmp_path):
+    sample = tmp_path / "sample.py"
+    sample.write_text("def f():\n    return 1\n", encoding="utf-8")
+
+    compiler = _Compiler()
+    program = SimpleNamespace(interface=SimpleNamespace(func=[object()]))
+    calls = {"default": 0}
+
+    monkeypatch.setattr(
+        optimize,
+        "_build_analysis_state",
+        lambda _python_files, _args: (compiler, program),
+    )
+    monkeypatch.setattr(
+        optimize,
+        "_run_default_pipeline",
+        lambda *_args: calls.__setitem__("default", calls["default"] + 1),
+    )
+
+    args = SimpleNamespace(
+        verbose=False,
+        analysis="all",
+        no_opt_passes=False,
+        suggest_only=False,
+        apply_optimizations=True,
+        opt_passes=None,
+        dump=False,
+        dump_ipa=False,
+        dump_shape=False,
+        output=None,
+        recursive=False,
+        include=["*.py"],
+        exclude=[],
+        dependency_strategy="auto",
+    )
+
+    optimize.run_analysis(sample, args)
+
+    assert calls["default"] == 1

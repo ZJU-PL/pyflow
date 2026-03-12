@@ -62,7 +62,7 @@ The simplest way to apply optimizations:
 
 .. code-block:: bash
 
-   pyflow optimize input.py --output optimized.py
+   pyflow optimize input.py
 
 Apply specific passes:
 
@@ -70,8 +70,13 @@ Apply specific passes:
 
    pyflow optimize input.py \
        --opt-passes simplify methodcall inlining \
-       --experimental-inlining \
-       --output optimized.py
+       --experimental-inlining
+
+Write a report to disk:
+
+.. code-block:: bash
+
+   pyflow optimize input.py --dump --output optimization-analysis.txt
 
 Via Python API
 --------------

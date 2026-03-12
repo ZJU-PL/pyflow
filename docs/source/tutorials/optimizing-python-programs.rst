@@ -38,7 +38,7 @@ Run all default optimizations:
 
 .. code-block:: bash
 
-   pyflow optimize input.py --output optimized.py
+   pyflow optimize input.py
 
 This runs PyFlow's default optimization pipeline, including whole-program
 analysis, simplification, specialization, and a final path-sensitive cleanup pass.
@@ -50,7 +50,7 @@ Run specific optimization passes:
 
 .. code-block:: bash
 
-   pyflow optimize input.py --opt-passes simplify methodcall --output optimized.py
+   pyflow optimize input.py --opt-passes simplify methodcall
 
 Available optimization passes:
 
@@ -70,6 +70,12 @@ List available passes:
 .. code-block:: bash
 
    pyflow optimize --list-opt-passes
+
+If you want a report on the analyzed program, combine optimization with a dump:
+
+.. code-block:: bash
+
+   pyflow optimize input.py --dump --output analysis.txt
 
 Constant Folding
 ================
@@ -265,10 +271,11 @@ Optimization Pipeline
 
 PyFlow applies optimizations in a carefully ordered pipeline:
 
-1. **Analysis Phase**: Run IPA, CPA, and lifetime analysis
-2. **Simplification Phase**: Constant folding, dead code elimination
-3. **Advanced Phase**: Method optimization, code cloning, argument normalization, program culling
-4. **Finalization Phase**: Path-sensitive re-analysis, final simplification, and dead store elimination
+1. **Analysis Phase**: Run IPA and CPA
+2. **Dispatch/Lifetime Phase**: Optimize method calls, then refresh lifetime information
+3. **Simplification Phase**: Constant folding, dead code elimination
+4. **Advanced Phase**: Code cloning, argument normalization, program culling
+5. **Finalization Phase**: Path-sensitive re-analysis, final simplification, and dead store elimination
 
 Custom Pipelines
 ----------------

@@ -116,7 +116,6 @@ class MarkLocals(TypeDispatcher):
 
 # AST node types that have no side effects and can be safely eliminated
 nodesWithNoSideEffects = (
-    ast.GetGlobal,
     ast.Existing,
     ast.Local,
     ast.Is,

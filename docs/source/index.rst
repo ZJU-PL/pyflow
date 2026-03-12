@@ -74,7 +74,7 @@ After installation, use PyFlow's command-line interface:
    pyflow security input.py
 
    # Apply optimizations
-   pyflow optimize input.py --output optimized.py
+   pyflow optimize input.py
 
    # Visualize intermediate representations
    pyflow ir input.py --dump-cfg function_name

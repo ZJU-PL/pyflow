@@ -51,16 +51,21 @@ Apply optimization passes to Python code.
 
 ::
 
-  pyflow optimize input.py --passes fold,dce --output optimized.py
-  pyflow optimize input.py --all-passes --benchmark
+  pyflow optimize input.py
+  pyflow optimize input.py --opt-passes simplify methodcall
+  pyflow optimize input.py --suggest-only
+  pyflow optimize input.py --dump --output analysis.txt
 
 Options:
-- ``--passes``: Comma-separated list of optimization passes
-- ``--all-passes``: Apply all available optimizations
-- ``--output``: Output file for optimized code
-- ``--benchmark``: Show optimization timing and effects
+- ``--opt-passes``: Space-separated list of optimization passes
+- ``--list-opt-passes``: List available optimization passes
+- ``--suggest-only``: Report optimization opportunities without running transforming passes
+- ``--apply-optimizations``: Explicitly run optimization passes (also the default)
+- ``--output``: Output file for dumped analysis results
 
-Available passes: fold, dce, inline, simplify, loadelim, storeelim, etc.
+Available passes include ``simplify``, ``methodcall``, ``clone``,
+``argumentnormalization``, ``cullprogram``, ``loadelimination``,
+``storeelimination``, ``dce``, and experimental ``inlining``.
 
 Security Commands
 -----------------
@@ -134,7 +139,8 @@ PyFlow integrates with CI/CD pipelines:
     run: |
       pyflow callgraph src/ --format json --output callgraph.json
       pyflow security src/ --recursive
-      pyflow optimize src/main.py --all-passes --output optimized.py
+      pyflow optimize src/main.py --opt-passes all
+      pyflow optimize src/main.py --dump --output optimization-analysis.txt
 
 IDE Integration
 ---------------

@@ -61,6 +61,33 @@ def test_build_pipeline_preserves_requested_reruns_after_transform():
     assert pipeline.passes == ["analysis", "changing", "analysis"]
 
 
+def test_build_pipeline_includes_analysis_requirements():
+    manager = PassManager()
+    analysis = _DummyPass("analysis")
+    main = _DummyPass("main")
+    main.info.requirements.add("analysis")
+    manager.register_pass(main)
+    manager.register_pass(analysis)
+
+    pipeline = manager.build_pipeline(["main"])
+
+    assert pipeline.passes == ["analysis", "main"]
+
+
+def test_build_pipeline_rejects_unknown_prerequisites():
+    manager = PassManager()
+    main = _DummyPass("main")
+    main.info.dependencies.add("missing")
+    manager.register_pass(main)
+
+    try:
+        manager.build_pipeline(["main"])
+    except ValueError as exc:
+        assert "depends on unknown pass 'missing'" in str(exc)
+    else:
+        raise AssertionError("expected unknown dependency lookup to fail")
+
+
 def test_run_pipeline_records_execution_time_and_uses_cache():
     manager = PassManager(enable_caching=True)
     cached = _DummyPass("cached")
@@ -121,3 +148,17 @@ def test_changed_pass_does_not_reuse_cache_for_same_program():
     manager.run_passes(None, program, ["changing"])
 
     assert changing.calls == 2
+
+
+def test_changed_pass_can_preserve_analysis_cache_via_metadata():
+    manager = PassManager(enable_caching=True)
+    analysis = _DummyPass("analysis")
+    changing = _ChangingPass("changing")
+    changing.info.preserves.add("analysis")
+    manager.register_pass(analysis)
+    manager.register_pass(changing)
+
+    program = Program()
+    manager.run_passes(None, program, ["analysis", "changing", "analysis"])
+
+    assert analysis.calls == 1

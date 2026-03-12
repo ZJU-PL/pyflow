@@ -50,7 +50,9 @@ def add_optimize_parser(subparsers):
     parser.add_argument(
         "input_path", nargs="?", help="Python file, directory, or library to optimize"
     )
-    parser.add_argument("--output", "-o", help="Output file for results")
+    parser.add_argument(
+        "--output", "-o", help="Output file for dumped analysis results"
+    )
     parser.add_argument(
         "--verbose", "-v", action="store_true", help="Enable verbose output"
     )
@@ -92,15 +94,16 @@ def add_optimize_parser(subparsers):
     )
 
     # Optimization options
-    parser.add_argument(
+    mode_group = parser.add_mutually_exclusive_group()
+    mode_group.add_argument(
         "--suggest-only",
         action="store_true",
-        help="Generate optimization suggestions without modifying code (default)",
+        help="Generate optimization suggestions without running transforming passes",
     )
-    parser.add_argument(
+    mode_group.add_argument(
         "--apply-optimizations",
         action="store_true",
-        help="Apply optimization passes to modify the code/AST",
+        help="Explicitly run optimization passes (also the default behavior)",
     )
     parser.add_argument(
         "--experimental-inlining",
@@ -181,6 +184,7 @@ def run_analysis(input_path, args):
         # Run analysis based on mode
         with console.scope("analysis"):
             if args.analysis == "all":
+                apply_mode = getattr(args, "apply_optimizations", False)
                 if getattr(args, "no_opt_passes", False):
                     run_analysis_only(compiler, program)
                 elif getattr(args, "suggest_only", False):
@@ -193,6 +197,8 @@ def run_analysis(input_path, args):
                 elif getattr(args, "opt_passes", None):
                     run_optimization_passes(compiler, program, args.opt_passes, args)
                 else:
+                    # Optimization is the default mode, and --apply-optimizations
+                    # is an explicit spelling of the same behavior.
                     _run_default_pipeline(compiler, program, str(input_path))
             elif args.analysis == "ipa":
                 # Run only IPA analysis (skip CPA and later passes)

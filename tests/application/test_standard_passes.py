@@ -1,6 +1,7 @@
 from unittest.mock import patch
 
 from pyflow.application.program import Program
+from pyflow.application.pipeline import Pipeline
 from pyflow.application.passmanager import PassManager
 from pyflow.application.passes import (
     CPAAnalysisPass,
@@ -92,3 +93,26 @@ def test_path_sensitive_cpa_pass_uses_legacy_second_pass_settings():
         manager.run_passes(None, program, ["cpa_path_sensitive"])
 
     mocked.assert_called_once_with(None, program, 3, firstPass=False)
+
+
+def test_default_pipeline_keeps_methodcall_before_lifetime(monkeypatch):
+    pipeline = Pipeline(use_pass_manager=True)
+    program = Program()
+    captured = {}
+
+    def fake_run_pipeline(_compiler, _program, pass_pipeline):
+        captured["passes"] = list(pass_pipeline.passes)
+        return {}
+
+    monkeypatch.setattr(pipeline.pass_manager, "run_pipeline", fake_run_pipeline)
+
+    class _Compiler:
+        class _Console:
+            def output(self, _message):
+                return None
+
+        console = _Console()
+
+    pipeline.run(program, compiler=_Compiler())
+
+    assert captured["passes"].index("methodcall") < captured["passes"].index("lifetime")

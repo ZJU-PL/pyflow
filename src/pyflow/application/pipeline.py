@@ -88,8 +88,8 @@ class Pipeline(object):
         Builds a comprehensive pipeline with standard passes in dependency order:
         1. IPA (Inter-procedural analysis) - builds call graph
         2. CPA (Constraint propagation analysis) - type and flow analysis
-        3. Lifetime analysis - variable/object lifetime tracking
-        4. Method call optimization - optimizes method dispatch
+        3. Method call optimization - optimizes method dispatch
+        4. Lifetime analysis - variable/object lifetime tracking
         5. Simplification - constant folding and dead code elimination
         6. Code cloning - separates different invocations
         7. Argument normalization - eliminates *args, **kwargs
@@ -115,8 +115,8 @@ class Pipeline(object):
             [
                 "ipa",  # First analysis pass
                 "cpa",
-                "lifetime",
                 "methodcall",
+                "lifetime",
                 "simplify",
                 "clone",
                 "argument_normalization",

@@ -195,7 +195,9 @@ PyFlow can also optimize your Python code. Run the optimizer:
 
    pyflow optimize example.py --opt-passes simplify
 
-This will apply optimization passes to the code and output the optimized version.
+This runs the selected optimization passes over PyFlow's IR and prints the
+analysis/optimization progress in the console. Use ``--dump`` and ``--output``
+if you want a report written to disk.
 
 Getting Help
 ============
