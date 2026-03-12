@@ -26,7 +26,7 @@ The register_standard_passes() function sets up dependencies:
 - Many optimizations depend on Simplify
 """
 
-from .passmanager import AnalysisPass, OptimizationPass, PassResult
+from .passmanager import AnalysisPass, OptimizationPass, PassResult, UtilityPass
 from pyflow.analysis import ipa, cpa, lifetimeanalysis
 from pyflow.optimization import (
     methodcall,
@@ -246,6 +246,16 @@ class DeadCodeEliminationPass(OptimizationPass):
             return PassResult.from_exception(e)
 
 
+class DependencyAnchorPass(UtilityPass):
+    """No-op utility pass used to encode higher-level pipeline stages."""
+
+    def __init__(self, name: str, description: str):
+        super().__init__(name, description)
+
+    def run(self, compiler, program) -> PassResult:
+        return PassResult(success=True, changed=False)
+
+
 # Registry of standard passes
 STANDARD_PASSES = {
     "ipa": IPAAnalysisPass,
@@ -279,6 +289,38 @@ STANDARD_PASSES = {
     "store_elimination_final": lambda: StoreEliminationPass(
         "store_elimination_final",
         "Final dead-store elimination after path-sensitive CPA",
+    ),
+    "first_pass_methodcall": lambda: DependencyAnchorPass(
+        "first_pass_methodcall",
+        "Dependency anchor for the method-call stage of the first optimization pass",
+    ),
+    "first_pass_lifetime": lambda: DependencyAnchorPass(
+        "first_pass_lifetime",
+        "Dependency anchor for the lifetime stage of the first optimization pass",
+    ),
+    "first_pass_simplify": lambda: DependencyAnchorPass(
+        "first_pass_simplify",
+        "Dependency anchor for the simplify stage of the first optimization pass",
+    ),
+    "first_pass_clone": lambda: DependencyAnchorPass(
+        "first_pass_clone",
+        "Dependency anchor for the clone stage of the first optimization pass",
+    ),
+    "first_pass_argument_normalization": lambda: DependencyAnchorPass(
+        "first_pass_argument_normalization",
+        "Dependency anchor for the argument normalization stage of the first optimization pass",
+    ),
+    "first_pass_cull_program": lambda: DependencyAnchorPass(
+        "first_pass_cull_program",
+        "Dependency anchor for the cull-program stage of the first optimization pass",
+    ),
+    "first_pass_store_elimination": lambda: DependencyAnchorPass(
+        "first_pass_store_elimination",
+        "Dependency anchor for the store-elimination stage of the first optimization pass",
+    ),
+    "first_pass_complete": lambda: DependencyAnchorPass(
+        "first_pass_complete",
+        "Dependency anchor representing completion of the whole first optimization pass",
     ),
 }
 
@@ -378,7 +420,32 @@ def register_standard_passes(pass_manager):
     if "load_elimination" in pass_manager.passes:
         pass_manager.passes["load_elimination"].info.dependencies.add("lifetime")
 
-    pass_manager.passes["cpa_path_sensitive"].info.dependencies.add("ipa_refresh")
+    pass_manager.passes["first_pass_methodcall"].info.dependencies.add("methodcall")
+    pass_manager.passes["first_pass_lifetime"].info.dependencies.update(
+        {"first_pass_methodcall", "lifetime"}
+    )
+    pass_manager.passes["first_pass_simplify"].info.dependencies.update(
+        {"first_pass_lifetime", "simplify"}
+    )
+    pass_manager.passes["first_pass_clone"].info.dependencies.update(
+        {"first_pass_simplify", "clone"}
+    )
+    pass_manager.passes["first_pass_argument_normalization"].info.dependencies.update(
+        {"first_pass_clone", "argument_normalization"}
+    )
+    pass_manager.passes["first_pass_cull_program"].info.dependencies.update(
+        {"first_pass_argument_normalization", "cull_program"}
+    )
+    pass_manager.passes["first_pass_store_elimination"].info.dependencies.update(
+        {"first_pass_cull_program", "store_elimination"}
+    )
+    pass_manager.passes["first_pass_complete"].info.dependencies.add(
+        "first_pass_store_elimination"
+    )
+
+    pass_manager.passes["cpa_path_sensitive"].info.dependencies.update(
+        {"ipa_refresh", "first_pass_complete"}
+    )
     pass_manager.passes["lifetime_refresh"].info.dependencies.add("cpa_path_sensitive")
     pass_manager.passes["simplify_final"].info.dependencies.update(
         {"cpa_path_sensitive", "lifetime_refresh"}

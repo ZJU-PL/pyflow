@@ -146,9 +146,16 @@ def _build_analysis_state(python_files, args):
     return compiler, program
 
 
-def _run_default_pipeline(compiler, program, name):
+def _run_default_pipeline(
+    compiler, program, name, *, include_experimental_inlining: bool = False
+):
     """Run the default optimization pipeline through the pass manager."""
-    return Pipeline(use_pass_manager=True).run(program, compiler=compiler, name=name)
+    return Pipeline(use_pass_manager=True).run(
+        program,
+        compiler=compiler,
+        name=name,
+        include_experimental_inlining=include_experimental_inlining,
+    )
 
 
 def _normalize_opt_pass_name(pass_name):
@@ -199,7 +206,14 @@ def run_analysis(input_path, args):
                 else:
                     # Optimization is the default mode, and --apply-optimizations
                     # is an explicit spelling of the same behavior.
-                    _run_default_pipeline(compiler, program, str(input_path))
+                    _run_default_pipeline(
+                        compiler,
+                        program,
+                        str(input_path),
+                        include_experimental_inlining=getattr(
+                            args, "experimental_inlining", False
+                        ),
+                    )
             elif args.analysis == "ipa":
                 # Run only IPA analysis (skip CPA and later passes)
                 from pyflow.analysis import ipa as ipa_module
@@ -304,6 +318,12 @@ def dump_ipa_results(compiler, program, input_path, output_file):
     """Dump IPA analysis results."""
     try:
         from pyflow.analysis.ipa.dump import Dumper
+        from pyflow.analysis import ipa as ipa_module
+
+        if not (hasattr(program, "ipa_analysis") and program.ipa_analysis):
+            result = ipa_module.evaluate(compiler, program)
+            if result:
+                program.ipa_analysis = result
 
         if not (hasattr(program, "ipa_analysis") and program.ipa_analysis):
             print("IPA analysis results not available for dumping")
@@ -576,11 +596,14 @@ def run_optimization_passes(compiler, program, passes, args=None):
         normalized = [_normalize_opt_pass_name(pass_name) for pass_name in passes]
 
         if "all" in normalized:
-            _run_default_pipeline(compiler, program, "cli_optimize_all")
-            if args is not None and getattr(args, "experimental_inlining", False):
-                Pipeline(use_pass_manager=True).run_custom_pipeline(
-                    compiler, program, ["inlining"]
-                )
+            _run_default_pipeline(
+                compiler,
+                program,
+                "cli_optimize_all",
+                include_experimental_inlining=(
+                    args is not None and getattr(args, "experimental_inlining", False)
+                ),
+            )
             compiler.console.output("Completed full optimization pipeline")
             return
 

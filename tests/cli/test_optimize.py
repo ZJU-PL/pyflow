@@ -70,12 +70,12 @@ def test_run_optimization_passes_all_expands_to_default_pipeline(monkeypatch):
     compiler = _Compiler()
     program = object()
     args = SimpleNamespace(experimental_inlining=False)
-    seen = {"default": 0, "custom": []}
+    seen = {"default": [], "custom": []}
 
     monkeypatch.setattr(
         optimize,
         "_run_default_pipeline",
-        lambda *_args: seen.__setitem__("default", seen["default"] + 1),
+        lambda *_args, **kwargs: seen["default"].append(kwargs),
     )
 
     class _Pipeline:
@@ -90,7 +90,35 @@ def test_run_optimization_passes_all_expands_to_default_pipeline(monkeypatch):
 
     optimize.run_optimization_passes(compiler, program, ["all"], args)
 
-    assert seen["default"] == 1
+    assert seen["default"] == [{"include_experimental_inlining": False}]
+    assert seen["custom"] == []
+
+
+def test_run_optimization_passes_all_includes_experimental_inlining(monkeypatch):
+    compiler = _Compiler()
+    program = object()
+    args = SimpleNamespace(experimental_inlining=True)
+    seen = {"default": [], "custom": []}
+
+    monkeypatch.setattr(
+        optimize,
+        "_run_default_pipeline",
+        lambda *_args, **kwargs: seen["default"].append(kwargs),
+    )
+
+    class _Pipeline:
+        def __init__(self, *, use_pass_manager):
+            assert use_pass_manager is True
+
+        def run_custom_pipeline(self, _compiler, _program, pass_names):
+            seen["custom"].append(tuple(pass_names))
+            return {}
+
+    monkeypatch.setattr(optimize, "Pipeline", _Pipeline)
+
+    optimize.run_optimization_passes(compiler, program, ["all"], args)
+
+    assert seen["default"] == [{"include_experimental_inlining": True}]
     assert seen["custom"] == []
 
 
@@ -125,7 +153,7 @@ def test_run_analysis_honors_explicit_apply_mode(monkeypatch, tmp_path):
     monkeypatch.setattr(
         optimize,
         "_run_default_pipeline",
-        lambda *_args: calls.__setitem__("default", calls["default"] + 1),
+        lambda *_args, **_kwargs: calls.__setitem__("default", calls["default"] + 1),
     )
 
     args = SimpleNamespace(
@@ -148,6 +176,50 @@ def test_run_analysis_honors_explicit_apply_mode(monkeypatch, tmp_path):
     optimize.run_analysis(sample, args)
 
     assert calls["default"] == 1
+
+
+def test_run_analysis_threads_experimental_inlining_into_default_pipeline(
+    monkeypatch, tmp_path
+):
+    sample = tmp_path / "sample.py"
+    sample.write_text("def f():\n    return 1\n", encoding="utf-8")
+
+    compiler = _Compiler()
+    program = SimpleNamespace(interface=SimpleNamespace(func=[object()]))
+    seen = []
+
+    monkeypatch.setattr(
+        optimize,
+        "_build_analysis_state",
+        lambda _python_files, _args: (compiler, program),
+    )
+    monkeypatch.setattr(
+        optimize,
+        "_run_default_pipeline",
+        lambda *_args, **kwargs: seen.append(kwargs),
+    )
+
+    args = SimpleNamespace(
+        verbose=False,
+        analysis="all",
+        no_opt_passes=False,
+        suggest_only=False,
+        apply_optimizations=False,
+        experimental_inlining=True,
+        opt_passes=None,
+        dump=False,
+        dump_ipa=False,
+        dump_shape=False,
+        output=None,
+        recursive=False,
+        include=["*.py"],
+        exclude=[],
+        dependency_strategy="auto",
+    )
+
+    optimize.run_analysis(sample, args)
+
+    assert seen == [{"include_experimental_inlining": True}]
 
 
 def test_run_suggestions_stores_cpa_results_and_refreshes_ipa(monkeypatch, capsys):
@@ -198,3 +270,33 @@ def test_run_suggestions_stores_cpa_results_and_refreshes_ipa(monkeypatch, capsy
     assert program.cpa_analysis is cpa_result
     assert program.ipa_analysis is refreshed_ipa
     assert "2 unresolved calls" in output
+
+
+def test_dump_ipa_results_refreshes_missing_analysis(monkeypatch, tmp_path, capsys):
+    compiler = _Compiler()
+    analysis = SimpleNamespace(contexts={"ctx": object()}, root=object())
+    program = SimpleNamespace(ipa_analysis=None)
+    dumped = []
+
+    class _Dumper:
+        def __init__(self, path):
+            dumped.append(("init", path))
+
+        def index(self, contexts, root):
+            dumped.append(("index", list(contexts), root))
+
+        def dumpContext(self, context):
+            dumped.append(("context", context))
+
+    monkeypatch.setattr(
+        "pyflow.analysis.ipa.evaluate",
+        lambda _compiler, _program: analysis,
+    )
+    monkeypatch.setattr("pyflow.analysis.ipa.dump.Dumper", _Dumper)
+
+    optimize.dump_ipa_results(compiler, program, tmp_path / "sample.py", None)
+
+    assert program.ipa_analysis is analysis
+    assert dumped[0][0] == "init"
+    assert dumped[1][0] == "index"
+    assert "IPA analysis results dumped to:" in capsys.readouterr().out

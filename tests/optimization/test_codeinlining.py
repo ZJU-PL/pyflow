@@ -2,7 +2,7 @@
 
 import unittest
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from pyflow.optimization.codeinlining import (
     CodeInliningAnalysis,
@@ -213,6 +213,59 @@ class TestCodeInliningTransform(unittest.TestCase):
         # We test that the class can be imported and its attributes exist
         # Full initialization requires complex compiler/prgm objects
         self.assertTrue(hasattr(CodeInliningTransform, '__init__'))
+
+    def test_try_inline_rejects_non_literal_default_re_evaluation(self):
+        analysis = CodeInliningAnalysis()
+        caller_context = object()
+        callee_context = object()
+
+        class _Caller:
+            annotation = SimpleNamespace(descriptive=False, contexts=[caller_context])
+
+        class _Callee:
+            codeparameters = ast.CodeParameters(
+                selfparam=None,
+                posonlyparams=[],
+                posonlynames=[],
+                params=[ast.Local("x")],
+                paramnames=["x"],
+                defaults=[ast.Call(ast.Local("factory"), [], [], None, None)],
+                vparam=None,
+                kparam=None,
+                returnparams=[],
+                type_params=None,
+            )
+            annotation = SimpleNamespace(contexts=[callee_context])
+
+        caller = _Caller()
+        callee = _Callee()
+
+        analysis.canInline[callee] = True
+        analysis.invokeCount[callee] = 1
+        analysis.numOps[callee] = 1
+        analysis.numOps[caller] = 1
+
+        transform = CodeInliningTransform(
+            analysis,
+            compiler=SimpleNamespace(),
+            prgm=SimpleNamespace(),
+            intrinsics=lambda *_args: None,
+        )
+        transform.code = caller
+        transform.opinline = SimpleNamespace(process=Mock())
+
+        node = ast.Call(ast.Local("callee"), [], [], None, None)
+        node.annotation = SimpleNamespace(
+            invokes=(
+                ((callee, callee_context),),
+                [((callee, callee_context),)],
+            )
+        )
+
+        result = transform.tryInline(node, node.expr, node.args, None)
+
+        self.assertIsNone(result)
+        transform.opinline.process.assert_not_called()
 
 
 class TestCodeInliningEvaluate(unittest.TestCase):

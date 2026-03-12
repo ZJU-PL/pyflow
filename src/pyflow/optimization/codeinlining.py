@@ -23,6 +23,11 @@ import pyflow.optimization.simplify as simplify
 from pyflow.analysis.astcollector import getOps
 
 
+def _supports_inline_default_value(default_expr):
+    pyobj = getattr(getattr(default_expr, "object", None), "pyobj", None)
+    return isinstance(default_expr, ast.Existing) or pyobj is MISSING_DEFAULT
+
+
 class CodeInliningAnalysis(TypeDispatcher):
     """Determines the technical feasibility of inlining functions.
 
@@ -428,6 +433,17 @@ class CodeInliningTransform(TypeDispatcher):
             return None
 
         assert len(map) == len(self.code.annotation.contexts)
+
+        positional_params = list(allCode.codeparameters.posonlyparams) + list(
+            allCode.codeparameters.params
+        )
+        if len(args) < len(positional_params) and allCode.codeparameters.defaults:
+            default_offset = len(positional_params) - len(allCode.codeparameters.defaults)
+            start = max(len(args), default_offset)
+            for index in range(start, len(positional_params)):
+                default_expr = allCode.codeparameters.defaults[index - default_offset]
+                if not _supports_inline_default_value(default_expr):
+                    return None
 
         # Prevent the inlining of potential intrinsics.
         if self.intrinsics(None, node) is not None:

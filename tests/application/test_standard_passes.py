@@ -89,10 +89,47 @@ def test_path_sensitive_cpa_pass_uses_legacy_second_pass_settings():
 
     with patch("pyflow.application.passes.ipa.evaluate", return_value=object()), patch(
         "pyflow.application.passes.cpa.evaluate", return_value=object()
-    ) as mocked:
+    ) as mocked, patch(
+        "pyflow.application.passes.methodcall.evaluate", return_value=False
+    ), patch(
+        "pyflow.application.passes.simplify.evaluate", return_value=False
+    ), patch(
+        "pyflow.application.passes.clone.evaluate", return_value=False
+    ), patch(
+        "pyflow.application.passes.argumentnormalization.evaluate", return_value=False
+    ), patch(
+        "pyflow.application.passes.cullprogram.evaluate", return_value=False
+    ), patch(
+        "pyflow.application.passes.storeelimination.evaluate", return_value=False
+    ), patch(
+        "pyflow.application.passes.lifetimeanalysis.evaluate", return_value=object()
+    ):
         manager.run_passes(None, program, ["cpa_path_sensitive"])
 
-    mocked.assert_called_once_with(None, program, 3, firstPass=False)
+    assert mocked.call_count == 2
+    assert mocked.call_args_list[-1].args == (None, program, 3)
+    assert mocked.call_args_list[-1].kwargs == {"firstPass": False}
+
+
+def test_path_sensitive_cpa_pipeline_requires_first_pass_conditioning():
+    manager = PassManager()
+    register_standard_passes(manager)
+
+    pipeline = manager.build_pipeline(["cpa_path_sensitive"])
+
+    assert pipeline.passes.index("methodcall") < pipeline.passes.index(
+        "cpa_path_sensitive"
+    )
+    assert pipeline.passes.index("clone") < pipeline.passes.index("cpa_path_sensitive")
+    assert pipeline.passes.index("argument_normalization") < pipeline.passes.index(
+        "cpa_path_sensitive"
+    )
+    assert pipeline.passes.index("cull_program") < pipeline.passes.index(
+        "cpa_path_sensitive"
+    )
+    assert pipeline.passes.index("store_elimination") < pipeline.passes.index(
+        "cpa_path_sensitive"
+    )
 
 
 def test_default_pipeline_keeps_methodcall_before_lifetime(monkeypatch):
@@ -127,8 +164,44 @@ def test_default_pipeline_keeps_methodcall_before_lifetime(monkeypatch):
         "cull_program",
         "store_elimination",
         "ipa_refresh",
+        "first_pass_methodcall",
+        "first_pass_lifetime",
+        "first_pass_simplify",
+        "first_pass_clone",
+        "first_pass_argument_normalization",
+        "first_pass_cull_program",
+        "first_pass_store_elimination",
+        "first_pass_complete",
         "cpa_path_sensitive",
         "lifetime_refresh",
         "simplify_final",
         "store_elimination_final",
     ]
+
+
+def test_default_pipeline_splices_inlining_before_cull_program(monkeypatch):
+    pipeline = Pipeline(use_pass_manager=True)
+    program = Program()
+    captured = {}
+
+    def fake_run_pipeline(_compiler, _program, pass_pipeline):
+        captured["passes"] = list(pass_pipeline.passes)
+        return {}
+
+    monkeypatch.setattr(pipeline.pass_manager, "run_pipeline", fake_run_pipeline)
+
+    class _Compiler:
+        class _Console:
+            def output(self, _message):
+                return None
+
+        console = _Console()
+
+    pipeline.run(program, compiler=_Compiler(), include_experimental_inlining=True)
+
+    assert captured["passes"].index("argument_normalization") < captured["passes"].index(
+        "inlining"
+    )
+    assert captured["passes"].index("inlining") < captured["passes"].index(
+        "cull_program"
+    )

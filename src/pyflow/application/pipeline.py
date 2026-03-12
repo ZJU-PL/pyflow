@@ -63,7 +63,42 @@ class Pipeline(object):
             self.pass_manager = PassManager()
             register_standard_passes(self.pass_manager)
 
-    def run(self, program, compiler=None, name: str = "main"):
+    def default_pass_names(
+        self, *, include_experimental_inlining: bool = False
+    ) -> list[str]:
+        """Return the default pass-manager pipeline in execution order."""
+        passes = [
+            "ipa",
+            "cpa",
+            "methodcall",
+            "lifetime",
+            "simplify",
+            "clone",
+            "argument_normalization",
+        ]
+        if include_experimental_inlining:
+            passes.append("inlining")
+        passes.extend(
+            [
+                "cull_program",
+                "store_elimination",
+                "ipa_refresh",
+                "cpa_path_sensitive",
+                "lifetime_refresh",
+                "simplify_final",
+                "store_elimination_final",
+            ]
+        )
+        return passes
+
+    def run(
+        self,
+        program,
+        compiler=None,
+        name: str = "main",
+        *,
+        include_experimental_inlining: bool = False,
+    ):
         """Run the analysis pipeline on a program.
 
         Args:
@@ -77,11 +112,23 @@ class Pipeline(object):
         if self.use_pass_manager:
             if compiler is None:
                 raise ValueError("Compiler instance required when using pass manager")
-            return self._run_with_pass_manager(compiler, program, name)
+            return self._run_with_pass_manager(
+                compiler,
+                program,
+                name,
+                include_experimental_inlining=include_experimental_inlining,
+            )
         else:
             return self._run_legacy_pipeline(compiler, program, name)
 
-    def _run_with_pass_manager(self, compiler, program, name: str):
+    def _run_with_pass_manager(
+        self,
+        compiler,
+        program,
+        name: str,
+        *,
+        include_experimental_inlining: bool = False,
+    ):
         """
         Run pipeline using the pass manager system.
 
@@ -112,22 +159,9 @@ class Pipeline(object):
 
         # Build a comprehensive pipeline with standard passes
         pipeline = self.pass_manager.build_pipeline(
-            [
-                "ipa",  # First analysis pass
-                "cpa",
-                "methodcall",
-                "lifetime",
-                "simplify",
-                "clone",
-                "argument_normalization",
-                "cull_program",
-                "store_elimination",
-                "ipa_refresh",  # Legacy second pass
-                "cpa_path_sensitive",
-                "lifetime_refresh",
-                "simplify_final",
-                "store_elimination_final",
-            ]
+            self.default_pass_names(
+                include_experimental_inlining=include_experimental_inlining
+            )
         )
 
         # Run the pipeline

@@ -204,6 +204,18 @@ class TransformationPass(Pass):
         pass
 
 
+class UtilityPass(Pass):
+    """Base class for utility/no-op passes used for pipeline structure."""
+
+    def __init__(self, name: str, description: str = ""):
+        super().__init__(name, PassKind.UTILITY, description)
+
+    @abstractmethod
+    def run(self, compiler, program) -> PassResult:
+        """Run the utility pass."""
+        pass
+
+
 class PassCache:
     """Simple cache for pass results based on program state."""
 
