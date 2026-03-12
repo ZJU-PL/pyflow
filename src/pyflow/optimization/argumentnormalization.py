@@ -16,6 +16,7 @@ This enables better optimization by making argument passing explicit.
 from pyflow.util.typedispatch import *
 from pyflow.language.python import ast
 from pyflow.language.python import annotations
+from pyflow.analysis.tools import codeOps
 
 
 class _ContainsLocalRef(TypeDispatcher):
@@ -301,6 +302,37 @@ class ArgumentNormalizationTransform(TypeDispatcher):
         return True
 
 
+def _iter_incoming_call_sites(prgm, target_code):
+    for code in prgm.liveCode:
+        for op in codeOps(code):
+            op_ann = getattr(op, "annotation", None)
+            invokes = getattr(op_ann, "invokes", None)
+            if not invokes or not invokes[0]:
+                continue
+
+            targets = {func for func, _context in invokes[0]}
+            if target_code in targets:
+                yield code, op, targets
+
+
+def _normalization_blocker(prgm, code):
+    interface = getattr(prgm, "interface", None)
+    if interface is not None:
+        entry_code = getattr(interface, "entryCode", None)
+        if callable(entry_code) and code in entry_code():
+            return "entry_point"
+
+    for _caller, op, targets in _iter_incoming_call_sites(prgm, code):
+        if not isinstance(op, (ast.Call, ast.DirectCall, ast.MethodCall)):
+            return "unsupported_caller_shape"
+        if targets != {code}:
+            return "polymorphic_callsite"
+        if op.vargs is not None or op.kargs is not None or op.kwds:
+            return "unsupported_call_convention"
+
+    return None
+
+
 def evaluate(compiler, prgm):
     """Main entry point for argument normalization.
 
@@ -319,6 +351,11 @@ def evaluate(compiler, prgm):
         for code in prgm.liveCode:
             applicable, vparamLen = analysis.process(code)
             if applicable:
+                blocker = _normalization_blocker(prgm, code)
+                if blocker is not None:
+                    safety_blocked += 1
+                    continue
+
                 transformed = bool(transform.process(code, vparamLen))
                 changed = transformed or changed
                 if not transformed and transform.last_skip_reason is not None:

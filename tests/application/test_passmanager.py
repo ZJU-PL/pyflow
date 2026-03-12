@@ -18,6 +18,12 @@ class _DummyPass(AnalysisPass):
         return PassResult(success=True, changed=False, data=self.name)
 
 
+class _ChangingPass(_DummyPass):
+    def run(self, compiler, program) -> PassResult:
+        self.calls += 1
+        return PassResult(success=True, changed=True, data=self.name)
+
+
 def test_build_pipeline_includes_dependencies():
     manager = PassManager()
     dep = _DummyPass("dep")
@@ -65,3 +71,15 @@ def test_run_pipeline_wraps_exception_type_in_result_and_log():
     assert result.time is not None
     assert log_entry["exception_type"] == "RuntimeError"
     assert log_entry["error"] == "RuntimeError: boom"
+
+
+def test_changed_pass_does_not_reuse_cache_for_same_program():
+    manager = PassManager(enable_caching=True)
+    changing = _ChangingPass("changing")
+    manager.register_pass(changing)
+
+    program = Program()
+    manager.run_passes(None, program, ["changing"])
+    manager.run_passes(None, program, ["changing"])
+
+    assert changing.calls == 2

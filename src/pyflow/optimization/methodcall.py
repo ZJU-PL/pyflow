@@ -59,19 +59,21 @@ def opThatInvokes(func):
         func: Function code to search
 
     Returns:
-        AST node that performs the invocation
-
-    Raises:
-        AssertionError: If no or multiple invoke operations found
+        AST node that performs the invocation, or None when the function does
+        not have exactly one invoking operation.
     """
     # Find the single op in the function that invokes.
     invokeOp = None
+    multiple = False
     for op in tools.codeOps(func):
         invokes = op.annotation.invokes
         if invokes is not None and invokes[0]:
-            assert invokeOp is None
+            if invokeOp is not None:
+                multiple = True
+                break
             invokeOp = op
-    assert invokeOp
+    if multiple:
+        return None
     return invokeOp
 
 
@@ -176,12 +178,16 @@ class MethodPatternFinder(TypeDispatcher):
         for code, context in self.mcallsC:
             cindex = code.annotation.contexts.index(context)
             op = opThatInvokes(code)
+            if op is None:
+                continue
             targets = op.annotation.invokes[1][cindex]
             self.invokeLUT[(code, context)] = targets
 
         for code, context in self.icallsC:
             cindex = code.annotation.contexts.index(context)
             op = opThatInvokes(code)
+            if op is None:
+                continue
             targets = op.annotation.invokes[1][cindex]
 
             reach = set()

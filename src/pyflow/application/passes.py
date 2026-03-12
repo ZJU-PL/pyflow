@@ -50,7 +50,7 @@ class IPAAnalysisPass(AnalysisPass):
         try:
             result = ipa.evaluate(compiler, program)
             program.ipa_analysis = result
-            return PassResult(success=True, changed=result is not None, data=result)
+            return PassResult(success=True, changed=False, data=result)
         except Exception as e:
             return PassResult.from_exception(e)
 
@@ -68,7 +68,7 @@ class CPAAnalysisPass(AnalysisPass):
             # Run CPA with default parameters
             cpa_result = cpa.evaluate(compiler, program)
             program.cpa_analysis = cpa_result
-            return PassResult(success=True, changed=True, data=cpa_result)
+            return PassResult(success=True, changed=False, data=cpa_result)
         except Exception as e:
             return PassResult.from_exception(e)
 
@@ -83,7 +83,7 @@ class LifetimeAnalysisPass(AnalysisPass):
         try:
             result = lifetimeanalysis.evaluate(compiler, program)
             program.lifetime_analysis = result
-            return PassResult(success=True, changed=True, data=result)
+            return PassResult(success=True, changed=False, data=result)
         except Exception as e:
             return PassResult.from_exception(e)
 
@@ -226,6 +226,8 @@ def register_standard_passes(pass_manager):
     # misleading; removed to keep the code clean.
     cpa_pass = pass_manager.passes["cpa"]
     cpa_pass.info.dependencies.add("ipa")
+    lifetime_pass = pass_manager.passes["lifetime"]
+    lifetime_pass.info.dependencies.add("cpa")
 
     # CPA should run before most optimizations (optimizations need type/flow info)
     for opt_name in [
@@ -252,3 +254,8 @@ def register_standard_passes(pass_manager):
         if opt_name in pass_manager.passes:
             opt_pass = pass_manager.passes[opt_name]
             opt_pass.info.dependencies.add("simplify")
+
+    if "store_elimination" in pass_manager.passes:
+        pass_manager.passes["store_elimination"].info.dependencies.add("lifetime")
+
+    pass_manager._resolve_dependencies()

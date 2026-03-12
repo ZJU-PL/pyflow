@@ -95,6 +95,11 @@ def add_optimize_parser(subparsers):
         action="store_true",
         help="Apply optimization passes to modify the code/AST",
     )
+    parser.add_argument(
+        "--experimental-inlining",
+        action="store_true",
+        help="Enable the experimental and potentially unsafe inlining pass",
+    )
     parser.add_argument("--opt-passes", nargs="*", help="Specific optimization passes")
     parser.add_argument(
         "--list-opt-passes", action="store_true", help="List available passes"
@@ -166,7 +171,7 @@ def run_analysis(input_path, args):
                     # Generate suggestions (default behavior)
                     run_suggestions(compiler, program)
                 elif getattr(args, "opt_passes", None):
-                    run_optimization_passes(compiler, program, args.opt_passes)
+                    run_optimization_passes(compiler, program, args.opt_passes, args)
                 else:
                     # Default: generate suggestions without modifying code
                     run_suggestions(compiler, program)
@@ -537,7 +542,7 @@ def run_suggestions(compiler, program):
         compiler.console.output("Suggestion mode completed")
 
 
-def run_optimization_passes(compiler, program, passes):
+def run_optimization_passes(compiler, program, passes, args=None):
     """Run specific optimization passes."""
     from pyflow.analysis import cpa, lifetimeanalysis
     from pyflow.optimization import (
@@ -569,6 +574,15 @@ def run_optimization_passes(compiler, program, passes):
         }
 
         for pass_name in passes:
+            if pass_name == "inlining" and not (
+                args is not None and getattr(args, "experimental_inlining", False)
+            ):
+                print(
+                    "Warning: Skipping 'inlining' pass. "
+                    "Use --experimental-inlining to enable it."
+                )
+                continue
+
             if pass_name in pass_map:
                 with compiler.console.scope(pass_name):
                     pass_map[pass_name](compiler, program)

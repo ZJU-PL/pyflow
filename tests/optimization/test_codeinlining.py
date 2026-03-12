@@ -1,11 +1,14 @@
 """Tests for optimization/codeinlining.py - Code inlining optimization."""
 
 import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from pyflow.optimization.codeinlining import (
     CodeInliningAnalysis,
     OpInliningTransform,
     CodeInliningTransform,
+    evaluate,
 )
 from pyflow.language.python import ast
 from pyflow.language.python.default_markers import MISSING_DEFAULT
@@ -173,6 +176,48 @@ class TestCodeInliningTransform(unittest.TestCase):
         # We test that the class can be imported and its attributes exist
         # Full initialization requires complex compiler/prgm objects
         self.assertTrue(hasattr(CodeInliningTransform, '__init__'))
+
+
+class TestCodeInliningEvaluate(unittest.TestCase):
+    def test_evaluate_returns_transform_change_flag(self):
+        class _Console:
+            def scope(self, _name):
+                class _Scope:
+                    def __enter__(self_inner):
+                        return self_inner
+
+                    def __exit__(self_inner, exc_type, exc, tb):
+                        return False
+
+                return _Scope()
+
+            def output(self, _msg):
+                return None
+
+        compiler = SimpleNamespace(console=_Console())
+        entry = object()
+        prgm = SimpleNamespace(
+            liveCode=[entry],
+            interface=SimpleNamespace(entryCode=lambda: [entry]),
+        )
+
+        class _Transform:
+            def __init__(self, *_args, **_kwargs):
+                self.changed = True
+
+            def process(self, _code):
+                return None
+
+        class _Analysis:
+            def process(self, _code):
+                return None
+
+        with patch("pyflow.optimization.codeinlining.CodeInliningAnalysis", _Analysis), patch(
+            "pyflow.optimization.codeinlining.CodeInliningTransform", _Transform
+        ):
+            changed = evaluate(compiler, prgm)
+
+        self.assertTrue(changed)
 
 
 if __name__ == "__main__":

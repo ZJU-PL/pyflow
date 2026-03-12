@@ -19,7 +19,6 @@ from pyflow.optimization.dataflow.base import InternalError
 
 from io import StringIO
 from pyflow.language.python.simplecodegen import SimpleCodeGen
-from pyflow.analysis.tools import codeOps
 
 from pyflow.language.python import ast
 
@@ -28,6 +27,32 @@ from pyflow.language.python import ast
 # fold and propigate constants, etc.
 # In effect, this pass attempts to "de-dynamicize" Python
 #
+
+
+def _snapshot_code(node):
+    """Capture a structural snapshot for change detection."""
+
+    def snapshot_value(value):
+        if isinstance(value, list):
+            return tuple(snapshot_value(item) for item in value)
+        if isinstance(value, tuple):
+            return tuple(snapshot_value(item) for item in value)
+        if isinstance(value, ast.DoNotCare):
+            return ("DoNotCare",)
+        if isinstance(value, ast.Local):
+            return ("Local", value.name)
+        if isinstance(value, ast.Existing):
+            return ("Existing", repr(value.object))
+        if isinstance(value, ast.leafTypes):
+            return value
+        if hasattr(value, "children"):
+            return (
+                type(value).__name__,
+                tuple(snapshot_value(child) for child in value.children()),
+            )
+        return repr(value)
+
+    return snapshot_value(node)
 
 
 def evaluateCode(compiler, prgm, node, outputAnchors=None):
@@ -57,7 +82,7 @@ def evaluateCode(compiler, prgm, node, outputAnchors=None):
     """
     assert node.isCode(), type(node)
 
-    before_ops = len(list(codeOps(node)))
+    before_state = _snapshot_code(node)
 
     try:
         # Step 1: Constant folding
@@ -68,8 +93,8 @@ def evaluateCode(compiler, prgm, node, outputAnchors=None):
         if node.isStandardCode():
             dce.evaluateCode(compiler, node, outputAnchors)
 
-        after_ops = len(list(codeOps(node)))
-        return after_ops != before_ops
+        after_state = _snapshot_code(node)
+        return after_state != before_state
 
     except InternalError:
         # Print the code for debugging when internal errors occur

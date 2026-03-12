@@ -1,6 +1,8 @@
 """Tests for optimization/methodcall.py."""
 
 import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from pyflow.language.asttools.annotation import annotationSet, makeContextualAnnotation
 from pyflow.language.python import ast
@@ -10,6 +12,7 @@ from pyflow.optimization.methodcall import (
     MethodPatternFinder,
     MethodRewrite,
     methodMeet,
+    opThatInvokes,
 )
 
 
@@ -41,6 +44,39 @@ class TestMethodPatternFinder(unittest.TestCase):
         target = ("callee", "ctx")
 
         self.assertEqual(finder.resolveInvokeTargets(target), annotationSet((target,)))
+
+    def test_build_invoke_lut_skips_codes_without_unique_invocation_op(self):
+        class DummyCode:
+            pass
+
+        finder = MethodPatternFinder()
+        context = object()
+        code = DummyCode()
+        code.annotation = SimpleNamespace(contexts=[context])
+        finder.mcallsC = {(code, context)}
+        finder.icallsC = set()
+
+        with patch("pyflow.optimization.methodcall.opThatInvokes", return_value=None):
+            finder.buildInvokeLUT()
+
+        self.assertEqual(finder.invokeLUT, {})
+
+
+class TestOpThatInvokes(unittest.TestCase):
+    def test_returns_none_when_no_invoking_operation_exists(self):
+        func = object()
+        op = SimpleNamespace(annotation=SimpleNamespace(invokes=None))
+
+        with patch("pyflow.optimization.methodcall.tools.codeOps", return_value=[op]):
+            self.assertIsNone(opThatInvokes(func))
+
+    def test_returns_none_when_multiple_invoking_operations_exist(self):
+        func = object()
+        op1 = SimpleNamespace(annotation=SimpleNamespace(invokes=((1,), [()])))
+        op2 = SimpleNamespace(annotation=SimpleNamespace(invokes=((1,), [()])))
+
+        with patch("pyflow.optimization.methodcall.tools.codeOps", return_value=[op1, op2]):
+            self.assertIsNone(opThatInvokes(func))
 
 
 class TestMethodRewrite(unittest.TestCase):

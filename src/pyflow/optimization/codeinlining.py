@@ -299,6 +299,7 @@ class CodeInliningTransform(TypeDispatcher):
         self.maxOps = 4
         self.exhaustive = True
         self.preserveContexts = not self.exhaustive
+        self.changed = False
 
     # May contain inlinable nodes
     @dispatch(
@@ -482,6 +483,7 @@ class CodeInliningTransform(TypeDispatcher):
                     # Always done immediately after inlining, so if we inline
                     # this function, less needs to be processed.
                     simplify.evaluateCode(self.compiler, self.prgm, node)
+                    self.changed = True
             else:
                 ops, lcls = getOps(node)
                 for op in ops:
@@ -545,3 +547,5 @@ def evaluate(compiler, prgm):
             except Exception:
                 compiler.console.output("Failed to transform %r" % code)
                 raise
+
+        return transform.changed

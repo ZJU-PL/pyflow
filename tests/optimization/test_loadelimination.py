@@ -46,6 +46,41 @@ class TestRedundantLoadEliminator(unittest.TestCase):
 
         self.assertIsNone(eliminator.makeReadSig(None, object()))
 
+    def test_generate_replacements_handles_multiple_stores_for_same_signature(self):
+        obj = ast.Local("obj")
+        name = ast.Local("name")
+        value1 = ast.Local("value1")
+        value2 = ast.Local("value2")
+        dst = ast.Local("dst")
+
+        store1 = ast.Store(obj, "LowLevel", name, value1)
+        store2 = ast.Store(obj, "LowLevel", name, value2)
+        load_expr = ast.Load(obj, "LowLevel", name)
+        load_expr.annotation = SimpleNamespace(reads=((name,),))
+        load = ast.Assign(load_expr, [dst])
+
+        eliminator = RedundantLoadEliminator(
+            compiler=None,
+            prgm=None,
+            readNumbers={},
+            writeNumbers={},
+            dom={store1: (1, 6), store2: (2, 5), load: (3, 4)},
+        )
+
+        signatures = {
+            ("sig",): {
+                "loads": [load],
+                "stores": [store1, store2],
+            }
+        }
+
+        replacements = eliminator.generateReplacements(signatures)
+
+        self.assertIn(load, replacements)
+        self.assertNotIn(store1, replacements)
+        self.assertIsInstance(replacements[load], ast.Assign)
+        self.assertEqual(eliminator.eliminated, 1)
+
 
 if __name__ == "__main__":
     unittest.main()

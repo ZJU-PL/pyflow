@@ -180,11 +180,15 @@ class RedundantLoadEliminator(object):
 
         sig = (exprSig, node.fieldtype, nameSig, frozenset(fields))
 
-        signatures[sig].append(op)
+        bucket = signatures[sig]
+        if isinstance(node, ast.Load):
+            bucket["loads"].append(op)
+        else:
+            bucket["stores"].append(op)
 
     def generateSignatures(self, code):
         loads, stores = self.findLoadStores()
-        signatures = collections.defaultdict(list)
+        signatures = collections.defaultdict(lambda: {"loads": [], "stores": []})
 
         for op in loads:
             self.generateSignature(op, op.expr, signatures)
@@ -213,35 +217,35 @@ class RedundantLoadEliminator(object):
             src = self.newName[dominator]
         return src
 
-    def dominatorSubtree(self, loads):
-        # HACK n^2 for find the absolute dominator....
-        dom = {}
-
-        for load in loads:
-            dom[load] = load
-
-        for test in loads:
-            for load, dominator in dom.items():
-                if self.dominates(test, dominator):
-                    dom[load] = test
-        return dom
+    def nearestDominator(self, op, candidates):
+        dominator = None
+        for test in candidates:
+            if test is op:
+                continue
+            if self.dominates(test, op):
+                if dominator is None or self.dominates(dominator, test):
+                    dominator = test
+        return dominator
 
     def generateReplacements(self, signatures):
         self.newName = {}
         self.replace = {}
 
-        for sig, loads in signatures.items():
-            if len(loads) > 1:
-                dom = self.dominatorSubtree(loads)
+        for bucket in signatures.values():
+            loads = bucket["loads"]
+            if not loads:
+                continue
 
-                for op, dominator in dom.items():
-                    if op is not dominator:
-                        assert not isinstance(op, ast.Store)
-                        assert len(op.lcls) == 1
+            candidates = bucket["stores"] + loads
+            for op in loads:
+                dominator = self.nearestDominator(op, candidates)
+                if dominator is None:
+                    continue
 
-                        src = self.getReplacementSource(dominator)
-                        self.replace[op] = ast.Assign(src, [op.lcls[0]])
-                        self.eliminated += 1
+                assert len(op.lcls) == 1
+                src = self.getReplacementSource(dominator)
+                self.replace[op] = ast.Assign(src, [op.lcls[0]])
+                self.eliminated += 1
         return self.replace
 
     def processCode(self, code, simplify):

@@ -212,7 +212,8 @@ class PassCache:
             weakref.WeakKeyDictionary()
         )
         # Fallback for objects that do not support weak references.
-        self._fallback_cache: Dict[str, Dict[str, PassResult]] = {}
+        # Use object keys directly (when hashable) to avoid id-reuse collisions.
+        self._fallback_cache: Dict[Any, Dict[str, PassResult]] = {}
 
     def _supports_weakrefs(self, program) -> bool:
         try:
@@ -221,15 +222,20 @@ class PassCache:
             return False
         return True
 
-    def _get_fallback_key(self, program) -> str:
-        return f"{type(program).__qualname__}@{id(program)}"
+    def _is_hashable(self, program) -> bool:
+        try:
+            hash(program)
+        except TypeError:
+            return False
+        return True
 
     def get(self, program, pass_name: str) -> Optional[PassResult]:
         """Get cached result for a pass on a program."""
         if self._supports_weakrefs(program):
             return self._cache.get(program, {}).get(pass_name)
-        program_key = self._get_fallback_key(program)
-        return self._fallback_cache.get(program_key, {}).get(pass_name)
+        if not self._is_hashable(program):
+            return None
+        return self._fallback_cache.get(program, {}).get(pass_name)
 
     def put(self, program, pass_name: str, result: PassResult) -> None:
         """Cache a pass result for a program."""
@@ -238,10 +244,11 @@ class PassCache:
                 self._cache[program] = {}
             self._cache[program][pass_name] = result
             return
-        program_key = self._get_fallback_key(program)
-        if program_key not in self._fallback_cache:
-            self._fallback_cache[program_key] = {}
-        self._fallback_cache[program_key][pass_name] = result
+        if not self._is_hashable(program):
+            return
+        if program not in self._fallback_cache:
+            self._fallback_cache[program] = {}
+        self._fallback_cache[program][pass_name] = result
 
     def invalidate(self, program, pass_name: Optional[str] = None) -> None:
         """Invalidate cached results for a program or specific pass."""
@@ -252,12 +259,13 @@ class PassCache:
                 else:
                     self._cache[program].pop(pass_name, None)
             return
-        program_key = self._get_fallback_key(program)
-        if program_key in self._fallback_cache:
+        if not self._is_hashable(program):
+            return
+        if program in self._fallback_cache:
             if pass_name is None:
-                del self._fallback_cache[program_key]
+                del self._fallback_cache[program]
             else:
-                self._fallback_cache[program_key].pop(pass_name, None)
+                self._fallback_cache[program].pop(pass_name, None)
 
     def clear(self) -> None:
         """Clear all cached results."""
@@ -440,19 +448,10 @@ class PassManager:
         if not self.cache:
             return
 
-        pass_obj = self.passes[pass_name]
-
-        # Find passes that depend on this one or are invalidated by it
-        to_invalidate = set()
-        for other_name, other_pass in self.passes.items():
-            if other_pass.depends_on(pass_name) or pass_obj.invalidates_analysis(
-                other_name
-            ):
-                to_invalidate.add(other_name)
-
-        # Invalidate them
-        for invalid_name in to_invalidate:
-            self.cache.invalidate(program, invalid_name)
+        # Program objects are mutated in place, so a changed pass invalidates every
+        # cached result associated with that program unless the manager grows a real
+        # versioned cache key. Keep the behavior conservative and correct.
+        self.cache.invalidate(program)
 
     def get_pass_info(self, pass_name: str) -> Optional[PassInfo]:
         """Get metadata for a registered pass."""
