@@ -17,7 +17,7 @@ OPTIMIZATION_PASSES = {
     "lifetime": "Lifetime analysis for variables and objects",
     "simplify": "Constant folding and dead code elimination",
     "clone": "Separate different invocations of the same code",
-    "argumentnormalization": "Normalize function arguments (eliminate eligible *args)",
+    "argumentnormalization": "Specialize eligible *args when existing callers are positional-compatible",
     "inlining": "Inline function calls where beneficial (experimental)",
     "cullprogram": "Remove dead functions and contexts",
     "loadelimination": "Eliminate redundant load operations",
@@ -392,7 +392,6 @@ def run_analysis_only(compiler, program):
 def run_suggestions(compiler, program):
     """Run analysis and optimization passes, report what optimizations were found."""
     from pyflow.analysis import cpa, lifetimeanalysis, ipa
-    from pyflow.application.pipeline import depythonPass
     from pyflow.optimization import (
         methodcall,
         simplify,
@@ -430,7 +429,8 @@ def run_suggestions(compiler, program):
                 initial_funcs.add(code.name)
 
         # Run CPA analysis
-        cpa.evaluate(compiler, program)
+        cpa_result = cpa.evaluate(compiler, program)
+        program.cpa_analysis = cpa_result
 
         # Run lifetime analysis
         lifetime_analysis = lifetimeanalysis.evaluate(compiler, program)
@@ -476,6 +476,10 @@ def run_suggestions(compiler, program):
             # Store elimination
             storeelimination.evaluate(compiler, program)
 
+        refreshed_ipa = ipa.evaluate(compiler, program)
+        if refreshed_ipa:
+            program.ipa_analysis = refreshed_ipa
+
         # Capture final metrics
         final_code_count = len(getattr(program, "liveCode", []))
         final_funcs = set()
@@ -515,9 +519,9 @@ def run_suggestions(compiler, program):
             )
 
         # Check for unresolved calls (type hints needed)
-        if hasattr(program, "cpa_result") and program.cpa_result:
-            if hasattr(program.cpa_result, "unresolved"):
-                unresolved = getattr(program.cpa_result, "unresolved", [])
+        if hasattr(program, "cpa_analysis") and program.cpa_analysis:
+            if hasattr(program.cpa_analysis, "unresolved"):
+                unresolved = getattr(program.cpa_analysis, "unresolved", [])
                 unresolved_count = (
                     len(unresolved) if isinstance(unresolved, list) else 0
                 )

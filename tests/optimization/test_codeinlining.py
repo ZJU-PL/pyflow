@@ -53,6 +53,43 @@ class TestCodeInliningAnalysis(unittest.TestCase):
         # Should not raise for Local type
         analysis.visitLeaf(ast.Local("x"))
 
+    def test_process_rejects_partial_terminal_branching(self):
+        analysis = CodeInliningAnalysis()
+
+        call = ast.Call(ast.Local("side_effect"), [], [], None, None)
+        call.annotation = SimpleNamespace(invokes=None)
+
+        code = ast.Code(
+            "branchy",
+            ast.CodeParameters(
+                selfparam=None,
+                posonlyparams=[],
+                posonlynames=[],
+                params=[],
+                paramnames=[],
+                defaults=[],
+                vparam=None,
+                kparam=None,
+                returnparams=[ast.Local("ret")],
+                type_params=None,
+            ),
+            ast.Suite(
+                [
+                    ast.Switch(
+                        ast.Condition(ast.Suite([]), ast.Local("cond")),
+                        ast.Suite([ast.Return([ast.Local("one")])]),
+                        ast.Suite([]),
+                    ),
+                    ast.Discard(call),
+                    ast.Return([ast.Local("two")]),
+                ]
+            ),
+        )
+
+        analysis.process(code)
+
+        self.assertFalse(analysis.canInline[code])
+
 
 class TestOpInliningTransform(unittest.TestCase):
     """Test cases for OpInliningTransform class."""

@@ -116,3 +116,19 @@ def test_default_pipeline_keeps_methodcall_before_lifetime(monkeypatch):
     pipeline.run(program, compiler=_Compiler())
 
     assert captured["passes"].index("methodcall") < captured["passes"].index("lifetime")
+    assert captured["passes"] == [
+        "ipa",
+        "cpa",
+        "methodcall",
+        "lifetime",
+        "simplify",
+        "clone",
+        "argument_normalization",
+        "cull_program",
+        "store_elimination",
+        "ipa_refresh",
+        "cpa_path_sensitive",
+        "lifetime_refresh",
+        "simplify_final",
+        "store_elimination_final",
+    ]

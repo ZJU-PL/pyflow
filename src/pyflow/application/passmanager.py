@@ -420,19 +420,6 @@ class PassManager:
             emit(canonical)
             ordered.append(canonical)
 
-            # Transforming passes may invalidate all prior analyses; keep the
-            # builder conservative so later requested analyses are re-emitted.
-            if self.passes[canonical].kind in (
-                PassKind.OPTIMIZATION,
-                PassKind.TRANSFORMATION,
-            ):
-                available = {
-                    pass_name
-                    for pass_name in available
-                    if self.passes[pass_name].kind
-                    not in (PassKind.ANALYSIS, PassKind.UTILITY)
-                }
-
         # Remove redundant consecutive duplicates introduced by explicit
         # dependencies already requested immediately beforehand.
         compacted: List[str] = []
@@ -532,18 +519,23 @@ class PassManager:
 
     def _invalidate_dependent_passes(self, program, pass_name: str) -> None:
         """Invalidate passes that depend on the given pass or are invalidated by it."""
-        if not self.cache:
-            return
         pass_obj = self.passes[pass_name]
+        analysis_names = {
+            name
+            for name, registered_pass in self.passes.items()
+            if registered_pass.kind in (PassKind.ANALYSIS, PassKind.UTILITY)
+        }
 
         if not pass_obj.info.invalidates and not pass_obj.info.preserves:
+            self._clear_program_analysis_state(program, analysis_names)
+
             # Program objects are mutated in place, so a changed pass invalidates every
             # cached result associated with that program unless the manager grows a real
             # versioned cache key. Keep the behavior conservative and correct.
-            self.cache.invalidate(program)
+            if self.cache:
+                self.cache.invalidate(program)
             return
 
-        cached_names = self.cache.pass_names(program)
         preserved = {
             self.resolve_pass_name(name)
             for name in pass_obj.info.preserves
@@ -554,6 +546,19 @@ class PassManager:
             for name in pass_obj.info.invalidates
             if name in self.passes or name in self.pass_aliases
         }
+        self._clear_program_analysis_state(
+            program,
+            invalidated.union(
+                analysis_name
+                for analysis_name in analysis_names
+                if analysis_name not in preserved
+            ),
+        )
+
+        if not self.cache:
+            return
+
+        cached_names = self.cache.pass_names(program)
 
         for cached_name in cached_names:
             cached_pass = self.passes.get(cached_name)
@@ -578,6 +583,31 @@ class PassManager:
                 and cached_name not in preserved
             ):
                 self.cache.invalidate(program, cached_name)
+
+    def _clear_program_analysis_state(
+        self, program, analysis_pass_names: Set[str]
+    ) -> None:
+        """Clear program-level analysis objects that are no longer valid."""
+        pass_to_attr = {
+            "ipa": "ipa_analysis",
+            "ipa_refresh": "ipa_analysis",
+            "cpa": "cpa_analysis",
+            "cpa_path_sensitive": "cpa_analysis",
+            "lifetime": "lifetime_analysis",
+            "lifetime_refresh": "lifetime_analysis",
+        }
+        cleared = False
+        for pass_name in analysis_pass_names:
+            attr = pass_to_attr.get(pass_name)
+            if attr is None or not hasattr(program, attr):
+                continue
+            setattr(program, attr, None)
+            cleared = True
+
+        if cleared and hasattr(program, "semantic_queries"):
+            program.semantic_queries = None
+        if cleared and hasattr(program, "semantic_queries_mode"):
+            program.semantic_queries_mode = None
 
     def get_pass_info(self, pass_name: str) -> Optional[PassInfo]:
         """Get metadata for a registered pass."""

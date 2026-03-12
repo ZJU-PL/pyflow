@@ -199,7 +199,7 @@ PyFlow uses heuristics to determine when inlining is beneficial:
 
 - Small functions (few instructions)
 - Functions called infrequently
-- Functions with simple control flow
+- Functions with simple control flow and tail returns
 
 Example transformation:
 
@@ -243,7 +243,8 @@ Argument Normalization
 ======================
 
 Argument normalization currently targets ``*args`` when the argument length is
-statically known and call sites are monomorphic and positional.
+statically known and incoming call sites are monomorphic, positional, and
+already compatible with the specialized arity.
 
 Example transformation:
 

@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+from unittest.mock import patch
+
 from pyflow.application.program import Program
 from pyflow.application.passmanager import AnalysisPass, PassManager, PassResult
+from pyflow.application.passes import register_standard_passes
 
 
 class _DummyPass(AnalysisPass):
@@ -162,3 +166,25 @@ def test_changed_pass_can_preserve_analysis_cache_via_metadata():
     manager.run_passes(None, program, ["analysis", "changing", "analysis"])
 
     assert analysis.calls == 1
+
+
+def test_changed_transform_clears_program_level_analysis_results():
+    manager = PassManager(enable_caching=True)
+    register_standard_passes(manager)
+    program = Program()
+    program.semantic_queries = object()
+    program.semantic_queries_mode = "default"
+
+    with patch("pyflow.application.passes.ipa.evaluate", return_value=SimpleNamespace()), patch(
+        "pyflow.application.passes.cpa.evaluate", return_value=SimpleNamespace()
+    ), patch(
+        "pyflow.application.passes.lifetimeanalysis.evaluate",
+        return_value=SimpleNamespace(),
+    ), patch("pyflow.application.passes.simplify.evaluate", return_value=True):
+        manager.run_passes(None, program, ["ipa", "cpa", "lifetime", "simplify"])
+
+    assert program.ipa_analysis is None
+    assert program.cpa_analysis is None
+    assert program.lifetime_analysis is None
+    assert program.semantic_queries is None
+    assert program.semantic_queries_mode is None

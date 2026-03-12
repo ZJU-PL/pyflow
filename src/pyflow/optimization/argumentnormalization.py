@@ -7,8 +7,8 @@ positional arguments) when their length is statically known.
 The optimization:
 - Analyzes functions with *args to determine if length is constant
 - Checks if *args is used in ways that allow normalization
-- Transforms *args into explicit positional parameters
-- Updates all call sites to use the new parameter list
+- Transforms *args into explicit positional parameters when existing callers
+  already match the specialized positional arity
 
 This enables better optimization by making argument passing explicit.
 """
@@ -161,8 +161,8 @@ class ArgumentNormalizationAnalysis(TypeDispatcher):
 class ArgumentNormalizationTransform(TypeDispatcher):
     """Transforms code to normalize arguments.
 
-    Replaces *args with explicit positional parameters and updates all
-    call sites accordingly.
+    Replaces *args with explicit positional parameters when existing call
+    sites are already positionally compatible.
 
     Args:
         storeGraph: Store graph for analyzing object relationships
@@ -315,12 +315,18 @@ def _iter_incoming_call_sites(prgm, target_code):
                 yield code, op, targets
 
 
-def _normalization_blocker(prgm, code):
+def _expected_positional_arity(code, vparam_len):
+    params = code.codeparameters
+    return len(params.posonlyparams) + len(params.params) + vparam_len
+
+
+def _normalization_blocker(prgm, code, vparam_len):
     interface = getattr(prgm, "interface", None)
     if interface is not None:
         entry_code = getattr(interface, "entryCode", None)
-        if callable(entry_code) and code in entry_code():
-            return "entry_point"
+        if callable(entry_code):
+            if any(entry is code for entry in entry_code()):
+                return "entry_point"
 
     for _caller, op, targets in _iter_incoming_call_sites(prgm, code):
         if not isinstance(op, (ast.Call, ast.DirectCall, ast.MethodCall)):
@@ -329,6 +335,9 @@ def _normalization_blocker(prgm, code):
             return "polymorphic_callsite"
         if op.vargs is not None or op.kargs is not None or op.kwds:
             return "unsupported_call_convention"
+        expected_arity = _expected_positional_arity(code, vparam_len)
+        if len(op.args) != expected_arity:
+            return "arity_mismatch"
 
     return None
 
@@ -351,7 +360,7 @@ def evaluate(compiler, prgm):
         for code in prgm.liveCode:
             applicable, vparamLen = analysis.process(code)
             if applicable:
-                blocker = _normalization_blocker(prgm, code)
+                blocker = _normalization_blocker(prgm, code, vparamLen)
                 if blocker is not None:
                     safety_blocked += 1
                     continue

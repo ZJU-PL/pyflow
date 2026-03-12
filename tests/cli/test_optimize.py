@@ -148,3 +148,53 @@ def test_run_analysis_honors_explicit_apply_mode(monkeypatch, tmp_path):
     optimize.run_analysis(sample, args)
 
     assert calls["default"] == 1
+
+
+def test_run_suggestions_stores_cpa_results_and_refreshes_ipa(monkeypatch, capsys):
+    from pyflow.analysis import cpa as cpa_module
+    from pyflow.analysis import ipa as ipa_module
+    from pyflow.analysis import lifetimeanalysis as lifetime_module
+    from pyflow.optimization import argumentnormalization as argnorm_module
+    from pyflow.optimization import clone as clone_module
+    from pyflow.optimization import cullprogram as cull_module
+    from pyflow.optimization import methodcall as methodcall_module
+    from pyflow.optimization import simplify as simplify_module
+    from pyflow.optimization import storeelimination as storeelim_module
+
+    compiler = _Compiler()
+    initial_ipa = SimpleNamespace(contexts={"a": object()})
+    refreshed_ipa = SimpleNamespace(contexts={"a": object(), "b": object()})
+    cpa_result = SimpleNamespace(unresolved=["call1", "call2"])
+    program = SimpleNamespace(
+        liveCode=[],
+        ipa_analysis=None,
+        cpa_analysis=None,
+        lifetime_analysis=None,
+    )
+
+    monkeypatch.setattr(
+        ipa_module,
+        "evaluate",
+        lambda _compiler, _program: initial_ipa
+        if getattr(_program, "ipa_analysis", None) is None
+        else refreshed_ipa,
+    )
+    monkeypatch.setattr(cpa_module, "evaluate", lambda _compiler, _program: cpa_result)
+    monkeypatch.setattr(
+        lifetime_module,
+        "evaluate",
+        lambda _compiler, _program: SimpleNamespace(),
+    )
+    monkeypatch.setattr(methodcall_module, "evaluate", lambda *_args, **_kwargs: False)
+    monkeypatch.setattr(simplify_module, "evaluate", lambda *_args, **_kwargs: False)
+    monkeypatch.setattr(clone_module, "evaluate", lambda *_args, **_kwargs: False)
+    monkeypatch.setattr(argnorm_module, "evaluate", lambda *_args, **_kwargs: False)
+    monkeypatch.setattr(cull_module, "evaluate", lambda *_args, **_kwargs: False)
+    monkeypatch.setattr(storeelim_module, "evaluate", lambda *_args, **_kwargs: False)
+
+    optimize.run_suggestions(compiler, program)
+
+    output = capsys.readouterr().out
+    assert program.cpa_analysis is cpa_result
+    assert program.ipa_analysis is refreshed_ipa
+    assert "2 unresolved calls" in output

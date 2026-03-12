@@ -91,25 +91,22 @@ class CodeInliningAnalysis(TypeDispatcher):
     def processSwitch(self, cases):
         """Analyse a set of switch cases for terminal/inlinability.
 
-        Bug #11 fix: the original code used ``|=`` (bitwise OR) on booleans
-        and set ``self.terminal |= allterminal`` at the end, meaning that if
-        *any* branch was terminal the whole switch was treated as terminal.
-        That is wrong: a switch is only terminal if *all* branches are
-        terminal (i.e. every path through the switch ends in a return).
-
-        The corrected logic:
-        - ``allterminal`` starts as True (identity for AND).
-        - After visiting each case, AND the case's terminal flag in.
-        - Only set ``self.terminal = True`` if every case was terminal.
+        A switch is only terminal if every branch is terminal. Branch-local
+        returns are also not safe for this inliner: lowering ``return`` to
+        assignments only preserves semantics for tail returns.
         """
         original = self.terminal
-        # Start with True: a switch is terminal only if ALL branches are.
         allterminal = True
+        anyterminal = False
 
         for case in cases:
             self.terminal = original
             self(case)
+            anyterminal = anyterminal or self.terminal
             allterminal = allterminal and self.terminal
+
+        if anyterminal and not allterminal:
+            self.inlinable = False
 
         # Restore the pre-switch terminal state, then apply the switch result.
         self.terminal = original or allterminal

@@ -161,7 +161,7 @@ class ArgumentNormalizationPass(OptimizationPass):
     def __init__(self):
         super().__init__(
             "argument_normalization",
-            "Normalizes function arguments, eliminates *args, **kwargs",
+            "Specializes eligible *args when callers are already positionally compatible",
         )
 
     def run(self, compiler, program) -> PassResult:
