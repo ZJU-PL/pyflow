@@ -1,7 +1,7 @@
 Optimizing Python Programs
 ===========================
 
-PyFlow provides a comprehensive suite of optimization passes that transform Python code for better performance, smaller size, and improved efficiency. These optimizations leverage static analysis to make safe, semantics-preserving transformations.
+PyFlow provides a comprehensive suite of optimization passes that transform Python code for better performance, smaller size, and improved efficiency. These optimizations leverage static analysis to make conservative transformations, with some passes remaining explicitly experimental.
 
 Overview
 ========
@@ -37,10 +37,10 @@ Optimization Pipeline
 
 PyFlow applies optimizations in phases:
 
-1. **Analysis Phase**: IPA, CPA, lifetime analysis, shape analysis
+1. **Analysis Phase**: IPA, CPA, lifetime analysis
 2. **Simplification Phase**: Constant folding, dead code elimination, control flow simplification
-3. **Advanced Phase**: Method optimization, code cloning, argument normalization, function inlining
-4. **Finalization Phase**: Dead store elimination, redundant load elimination, program culling
+3. **Advanced Phase**: Method optimization, code cloning, argument normalization, optional experimental inlining
+4. **Finalization Phase**: Program culling, dead store elimination, optional redundant load elimination
 
 Pass Dependencies
 -----------------
@@ -87,8 +87,10 @@ For complex pipelines:
 .. code-block:: python
 
    from pyflow.application.passmanager import PassManager
+   from pyflow.application.passes import register_standard_passes
 
    pass_manager = PassManager()
+   register_standard_passes(pass_manager)
    pipeline = pass_manager.build_pipeline([
        "ipa", "cpa", "simplify", "methodcall", "clone"
    ])

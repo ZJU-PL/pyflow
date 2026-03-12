@@ -129,20 +129,30 @@ def makeCGF(interface):
 
     cgf = CallGraphFinder()
     entry_code_contexts = interface.entryCodeContexts()
+    unexpected = []
     for code, context in entry_code_contexts:
         try:
             if context not in code.annotation.contexts:
-                _LOG.debug(
-                    "makeCGF: context %r not in annotation.contexts for %r; skipping",
-                    context, code,
+                raise ValueError(
+                    "Entry-point context missing from code annotation contexts: "
+                    f"{code!r} / {context!r}"
                 )
-                continue
             cgf.process((code, context))
         except Exception as e:
-            _LOG.warning(
-                "makeCGF: unexpected error processing (%r, %r): %s",
-                code, context, e, exc_info=True,
-            )
+            unexpected.append((code, context, e))
+
+    if unexpected:
+        code, context, exc = unexpected[0]
+        _LOG.error(
+            "makeCGF: failed processing (%r, %r): %s",
+            code,
+            context,
+            exc,
+            exc_info=True,
+        )
+        raise RuntimeError(
+            f"Failed to build a complete call graph for {code!r} / {context!r}: {exc}"
+        ) from exc
 
     return cgf
 

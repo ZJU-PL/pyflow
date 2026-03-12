@@ -36,6 +36,31 @@ def test_build_pipeline_includes_dependencies():
     assert pipeline.passes == ["dep", "main"]
 
 
+def test_build_pipeline_rejects_unknown_passes():
+    manager = PassManager()
+    manager.register_pass(_DummyPass("known"))
+
+    try:
+        manager.build_pipeline(["unknown"])
+    except ValueError as exc:
+        assert "Unknown pass 'unknown'" in str(exc)
+    else:
+        raise AssertionError("expected unknown-pass lookup to fail")
+
+
+def test_build_pipeline_preserves_requested_reruns_after_transform():
+    manager = PassManager()
+    analysis = _DummyPass("analysis")
+    changing = _ChangingPass("changing")
+    changing.info.dependencies.add("analysis")
+    manager.register_pass(analysis)
+    manager.register_pass(changing)
+
+    pipeline = manager.build_pipeline(["analysis", "changing", "analysis"])
+
+    assert pipeline.passes == ["analysis", "changing", "analysis"]
+
+
 def test_run_pipeline_records_execution_time_and_uses_cache():
     manager = PassManager(enable_caching=True)
     cached = _DummyPass("cached")
@@ -71,6 +96,19 @@ def test_run_pipeline_wraps_exception_type_in_result_and_log():
     assert result.time is not None
     assert log_entry["exception_type"] == "RuntimeError"
     assert log_entry["error"] == "RuntimeError: boom"
+
+
+def test_run_pipeline_stops_after_first_failure():
+    manager = PassManager(enable_caching=False)
+    failing = _DummyPass("explode", boom=RuntimeError("boom"))
+    skipped = _DummyPass("skipped", depends_on=("explode",))
+    manager.register_pass(failing)
+    manager.register_pass(skipped)
+
+    results = manager.run_passes(None, object(), ["skipped"])
+
+    assert list(results) == ["explode"]
+    assert skipped.calls == 0
 
 
 def test_changed_pass_does_not_reuse_cache_for_same_program():

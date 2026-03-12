@@ -33,6 +33,16 @@ def test_store_elimination_pipeline_includes_lifetime_before_execution():
     )
 
 
+def test_standard_pass_aliases_resolve_to_registered_passes():
+    manager = PassManager()
+    register_standard_passes(manager)
+
+    assert manager.resolve_pass_name("argumentnormalization") == "argument_normalization"
+    assert manager.resolve_pass_name("cullprogram") == "cull_program"
+    assert manager.resolve_pass_name("loadelimination") == "load_elimination"
+    assert manager.resolve_pass_name("storeelimination") == "store_elimination"
+
+
 def test_methodcall_pass_reports_changed_from_optimizer_result():
     p = MethodCallOptimizationPass()
     with patch("pyflow.application.passes.methodcall.evaluate", return_value=False):
@@ -69,3 +79,16 @@ def test_cpa_analysis_pass_is_cacheable_for_same_program():
         manager.run_passes(None, program, ["cpa"])
 
     assert mocked.call_count == 1
+
+
+def test_path_sensitive_cpa_pass_uses_legacy_second_pass_settings():
+    manager = PassManager(enable_caching=False)
+    register_standard_passes(manager)
+    program = Program()
+
+    with patch("pyflow.application.passes.ipa.evaluate", return_value=object()), patch(
+        "pyflow.application.passes.cpa.evaluate", return_value=object()
+    ) as mocked:
+        manager.run_passes(None, program, ["cpa_path_sensitive"])
+
+    mocked.assert_called_once_with(None, program, 3, firstPass=False)

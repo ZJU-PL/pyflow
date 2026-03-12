@@ -34,16 +34,20 @@ from pyflow.optimization import (
     clone,
     argumentnormalization,
     cullprogram,
+    codeinlining,
+    loadelimination,
     storeelimination,
+    dce,
 )
 
 
 class IPAAnalysisPass(AnalysisPass):
     """Inter-procedural Analysis (IPA) pass."""
 
-    def __init__(self):
+    def __init__(self, name: str = "ipa", description: str | None = None):
         super().__init__(
-            "ipa", "Inter-procedural analysis for call graphs and contexts"
+            name,
+            description or "Inter-procedural analysis for call graphs and contexts",
         )
 
     def run(self, compiler, program) -> PassResult:
@@ -58,15 +62,29 @@ class IPAAnalysisPass(AnalysisPass):
 class CPAAnalysisPass(AnalysisPass):
     """Constraint Propagation Analysis (CPA) pass."""
 
-    def __init__(self):
+    def __init__(
+        self,
+        name: str = "cpa",
+        *,
+        op_path_length: int = 0,
+        first_pass: bool = True,
+        description: str | None = None,
+    ):
         super().__init__(
-            "cpa", "Constraint-based analysis for type and flow constraints"
+            name,
+            description or "Constraint-based analysis for type and flow constraints",
         )
+        self.op_path_length = op_path_length
+        self.first_pass = first_pass
 
     def run(self, compiler, program) -> PassResult:
         try:
-            # Run CPA with default parameters
-            cpa_result = cpa.evaluate(compiler, program)
+            cpa_result = cpa.evaluate(
+                compiler,
+                program,
+                self.op_path_length,
+                firstPass=self.first_pass,
+            )
             program.cpa_analysis = cpa_result
             return PassResult(success=True, changed=False, data=cpa_result)
         except Exception as e:
@@ -76,8 +94,11 @@ class CPAAnalysisPass(AnalysisPass):
 class LifetimeAnalysisPass(AnalysisPass):
     """Lifetime analysis pass for variable and object lifetimes."""
 
-    def __init__(self):
-        super().__init__("lifetime", "Analyzes lifetimes of variables and objects")
+    def __init__(self, name: str = "lifetime", description: str | None = None):
+        super().__init__(
+            name,
+            description or "Analyzes lifetimes of variables and objects",
+        )
 
     def run(self, compiler, program) -> PassResult:
         try:
@@ -105,9 +126,11 @@ class MethodCallOptimizationPass(OptimizationPass):
 class SimplifyOptimizationPass(OptimizationPass):
     """Simplification pass for constant folding and DCE."""
 
-    def __init__(self):
+    def __init__(self, name: str = "simplify", description: str | None = None):
         super().__init__(
-            "simplify", "Constant folding, dead code elimination, and simplification"
+            name,
+            description
+            or "Constant folding, dead code elimination, and simplification",
         )
 
     def run(self, compiler, program) -> PassResult:
@@ -163,15 +186,61 @@ class ProgramCullingPass(OptimizationPass):
             return PassResult.from_exception(e)
 
 
+class InliningPass(OptimizationPass):
+    """Experimental code inlining pass."""
+
+    def __init__(self):
+        super().__init__("inlining", "Experimentally inline eligible function calls")
+
+    def run(self, compiler, program) -> PassResult:
+        try:
+            changed = bool(codeinlining.evaluate(compiler, program))
+            return PassResult(success=True, changed=changed)
+        except Exception as e:
+            return PassResult.from_exception(e)
+
+
 class StoreEliminationPass(OptimizationPass):
     """Store elimination pass."""
 
-    def __init__(self):
-        super().__init__("store_elimination", "Eliminates redundant store operations")
+    def __init__(
+        self, name: str = "store_elimination", description: str | None = None
+    ):
+        super().__init__(
+            name, description or "Eliminates redundant store operations"
+        )
 
     def run(self, compiler, program) -> PassResult:
         try:
             changed = bool(storeelimination.evaluate(compiler, program))
+            return PassResult(success=True, changed=changed)
+        except Exception as e:
+            return PassResult.from_exception(e)
+
+
+class LoadEliminationPass(OptimizationPass):
+    """Load elimination pass."""
+
+    def __init__(self):
+        super().__init__("load_elimination", "Eliminates redundant load operations")
+
+    def run(self, compiler, program) -> PassResult:
+        try:
+            changed = bool(loadelimination.evaluate(compiler, program))
+            return PassResult(success=True, changed=changed)
+        except Exception as e:
+            return PassResult.from_exception(e)
+
+
+class DeadCodeEliminationPass(OptimizationPass):
+    """Standalone DCE pass."""
+
+    def __init__(self):
+        super().__init__("dce", "Eliminates dead code without constant folding")
+
+    def run(self, compiler, program) -> PassResult:
+        try:
+            changed = bool(dce.evaluate(compiler, program))
             return PassResult(success=True, changed=changed)
         except Exception as e:
             return PassResult.from_exception(e)
@@ -187,7 +256,37 @@ STANDARD_PASSES = {
     "clone": CloneOptimizationPass,
     "argument_normalization": ArgumentNormalizationPass,
     "cull_program": ProgramCullingPass,
+    "inlining": InliningPass,
+    "load_elimination": LoadEliminationPass,
     "store_elimination": StoreEliminationPass,
+    "dce": DeadCodeEliminationPass,
+    "ipa_refresh": lambda: IPAAnalysisPass(
+        "ipa_refresh", "Recompute IPA after whole-program transformations"
+    ),
+    "cpa_path_sensitive": lambda: CPAAnalysisPass(
+        "cpa_path_sensitive",
+        op_path_length=3,
+        first_pass=False,
+        description="Path-sensitive CPA rerun after first-pass optimizations",
+    ),
+    "lifetime_refresh": lambda: LifetimeAnalysisPass(
+        "lifetime_refresh", "Recompute lifetime analysis after path-sensitive CPA"
+    ),
+    "simplify_final": lambda: SimplifyOptimizationPass(
+        "simplify_final",
+        "Final simplification after path-sensitive CPA",
+    ),
+    "store_elimination_final": lambda: StoreEliminationPass(
+        "store_elimination_final",
+        "Final dead-store elimination after path-sensitive CPA",
+    ),
+}
+
+PASS_ALIASES = {
+    "argumentnormalization": "argument_normalization",
+    "cullprogram": "cull_program",
+    "loadelimination": "load_elimination",
+    "storeelimination": "store_elimination",
 }
 
 
@@ -218,6 +317,8 @@ def register_standard_passes(pass_manager):
     """
     for pass_name, pass_class in STANDARD_PASSES.items():
         pass_manager.register_pass(pass_class())
+    for alias, target in PASS_ALIASES.items():
+        pass_manager.register_alias(alias, target)
 
     # Set up dependencies based on the current hardcoded pipeline
     # IPA should run before CPA (CPA needs call graph from IPA).
@@ -236,7 +337,10 @@ def register_standard_passes(pass_manager):
         "clone",
         "argument_normalization",
         "cull_program",
+        "inlining",
+        "load_elimination",
         "store_elimination",
+        "dce",
     ]:
         if opt_name in pass_manager.passes:
             opt_pass = pass_manager.passes[opt_name]
@@ -249,7 +353,10 @@ def register_standard_passes(pass_manager):
         "clone",
         "argument_normalization",
         "cull_program",
+        "inlining",
+        "load_elimination",
         "store_elimination",
+        "dce",
     ]:
         if opt_name in pass_manager.passes:
             opt_pass = pass_manager.passes[opt_name]
@@ -257,5 +364,16 @@ def register_standard_passes(pass_manager):
 
     if "store_elimination" in pass_manager.passes:
         pass_manager.passes["store_elimination"].info.dependencies.add("lifetime")
+    if "load_elimination" in pass_manager.passes:
+        pass_manager.passes["load_elimination"].info.dependencies.add("lifetime")
+
+    pass_manager.passes["cpa_path_sensitive"].info.dependencies.add("ipa_refresh")
+    pass_manager.passes["lifetime_refresh"].info.dependencies.add("cpa_path_sensitive")
+    pass_manager.passes["simplify_final"].info.dependencies.update(
+        {"cpa_path_sensitive", "lifetime_refresh"}
+    )
+    pass_manager.passes["store_elimination_final"].info.dependencies.update(
+        {"simplify_final", "lifetime_refresh"}
+    )
 
     pass_manager._resolve_dependencies()

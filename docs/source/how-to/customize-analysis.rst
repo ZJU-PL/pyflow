@@ -98,26 +98,29 @@ Create custom optimization passes:
 
 .. code-block:: python
 
-   from pyflow.optimization import OptimizationPass
+   from pyflow.application.passmanager import OptimizationPass, PassResult
 
    class MyCustomOptimization(OptimizationPass):
        """Custom optimization pass."""
 
-       def optimize(self, program):
-           """Apply optimization to a program."""
+       def __init__(self):
+           super().__init__("my_optimization", "Custom optimization example")
+
+       def run(self, compiler, program):
            # Custom optimization logic here
-           for function in program.functions:
-               self.optimize_function(function)
-           return program
+           changed = False
+           for function in program.liveCode:
+               changed = self.optimize_function(function) or changed
+           return PassResult(success=True, changed=changed)
 
        def optimize_function(self, function):
-           """Optimize a single function."""
-           # Custom optimization logic here
-           pass
+           return False
 
    # Register the pass
-   from pyflow.optimization.registry import OptimizationRegistry
-   OptimizationRegistry.register("my_optimization", MyCustomOptimization)
+   from pyflow.application.passmanager import PassManager
+
+   manager = PassManager()
+   manager.register_pass(MyCustomOptimization())
 
 Running Custom Optimization
 ----------------------------

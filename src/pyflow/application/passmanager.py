@@ -278,13 +278,14 @@ class PassManager:
 
     def __init__(self, enable_caching: bool = True):
         self.passes: Dict[str, Pass] = {}
+        self.pass_aliases: Dict[str, str] = {}
         self.pass_order: List[str] = []
         self.cache = PassCache() if enable_caching else None
         self.execution_log: List[Dict[str, Any]] = []
 
     def register_pass(self, pass_instance: Pass) -> None:
         """Register a pass instance."""
-        if pass_instance.name in self.passes:
+        if pass_instance.name in self.passes or pass_instance.name in self.pass_aliases:
             raise ValueError(f"Pass '{pass_instance.name}' already registered")
 
         self.passes[pass_instance.name] = pass_instance
@@ -293,12 +294,33 @@ class PassManager:
         # Recompute pass ordering based on dependencies
         self._resolve_dependencies()
 
+    def register_alias(self, alias: str, target: str) -> None:
+        """Register an alternate pass name."""
+        if alias in self.passes or alias in self.pass_aliases:
+            raise ValueError(f"Pass alias '{alias}' already registered")
+        if target not in self.passes:
+            raise ValueError(f"Cannot alias unknown pass '{target}'")
+        self.pass_aliases[alias] = target
+
+    def resolve_pass_name(self, pass_name: str) -> str:
+        """Resolve canonical pass names and aliases."""
+        if pass_name in self.passes:
+            return pass_name
+        if pass_name in self.pass_aliases:
+            return self.pass_aliases[pass_name]
+        raise ValueError(f"Unknown pass '{pass_name}'")
+
     def unregister_pass(self, pass_name: str) -> None:
         """Unregister a pass."""
-        if pass_name in self.passes:
-            del self.passes[pass_name]
-            self.pass_order = [p for p in self.pass_order if p != pass_name]
-            self._resolve_dependencies()
+        canonical = self.resolve_pass_name(pass_name)
+        del self.passes[canonical]
+        self.pass_order = [p for p in self.pass_order if p != canonical]
+        self.pass_aliases = {
+            alias: target
+            for alias, target in self.pass_aliases.items()
+            if target != canonical
+        }
+        self._resolve_dependencies()
 
     def _resolve_dependencies(self) -> None:
         """Resolve pass execution order based on dependencies."""
@@ -336,27 +358,59 @@ class PassManager:
         """Build a pipeline from a list of pass names.
 
         Automatically inserts required dependencies for each requested pass
-        so that callers do not need to enumerate transitive prerequisites.
-        The final order respects the topological dependency order computed
-        by ``_resolve_dependencies``.
+        while preserving the caller's explicit ordering. Pass names may be
+        repeated to force re-analysis after transformations, and aliases are
+        resolved to their canonical registered names.
         """
-        # Collect the full set of passes needed (requested + their deps).
-        needed: Set[str] = set()
+        ordered: List[str] = []
+        available: Set[str] = set()
+        resolving: Set[str] = set()
 
-        def collect(name: str):
-            if name in needed or name not in self.passes:
+        def emit(name: str):
+            canonical = self.resolve_pass_name(name)
+            if canonical in resolving:
+                raise ValueError(
+                    f"Circular dependency detected involving '{canonical}'"
+                )
+
+            if canonical in available:
                 return
-            needed.add(name)
-            for dep in self.passes[name].info.dependencies:
-                collect(dep)
+
+            resolving.add(canonical)
+            for dep in self.passes[canonical].info.dependencies:
+                emit(dep)
+            resolving.remove(canonical)
+
+            ordered.append(canonical)
+            available.add(canonical)
 
         for name in pass_names:
-            collect(name)
+            canonical = self.resolve_pass_name(name)
+            emit(canonical)
+            ordered.append(canonical)
 
-        # Emit them in the globally-resolved dependency order so that
-        # prerequisites always run before the passes that need them.
-        ordered = [p for p in self.pass_order if p in needed]
-        return PassPipeline(self, ordered)
+            # Transforming passes may invalidate all prior analyses; keep the
+            # builder conservative so later requested analyses are re-emitted.
+            if self.passes[canonical].kind in (
+                PassKind.OPTIMIZATION,
+                PassKind.TRANSFORMATION,
+            ):
+                available = {
+                    pass_name
+                    for pass_name in available
+                    if self.passes[pass_name].kind
+                    not in (PassKind.ANALYSIS, PassKind.UTILITY)
+                }
+
+        # Remove redundant consecutive duplicates introduced by explicit
+        # dependencies already requested immediately beforehand.
+        compacted: List[str] = []
+        for pass_name in ordered:
+            if compacted and compacted[-1] == pass_name:
+                continue
+            compacted.append(pass_name)
+
+        return PassPipeline(self, compacted)
 
     def run_pipeline(
         self, compiler, program, pipeline: "PassPipeline"
@@ -365,29 +419,31 @@ class PassManager:
         results = {}
 
         for pass_name in pipeline.passes:
-            if pass_name not in self.passes:
-                raise ValueError(f"Unknown pass '{pass_name}' in pipeline")
+            canonical = self.resolve_pass_name(pass_name)
 
             # Check if we can skip this pass (caching)
             if self.cache:
-                cached = self.cache.get(program, pass_name)
+                cached = self.cache.get(program, canonical)
                 if cached is not None:
-                    results[pass_name] = cached
+                    results[canonical] = cached
                     continue
 
             # Run the pass
-            pass_obj = self.passes[pass_name]
+            pass_obj = self.passes[canonical]
             result = self._run_pass(pass_obj, compiler, program)
 
-            results[pass_name] = result
+            results[canonical] = result
 
             # Cache the result
             if self.cache and result.success:
-                self.cache.put(program, pass_name, result)
+                self.cache.put(program, canonical, result)
+
+            if not result.success:
+                break
 
             # Invalidate dependent passes if this pass changed something
             if result.changed:
-                self._invalidate_dependent_passes(program, pass_name)
+                self._invalidate_dependent_passes(program, canonical)
 
         return results
 
@@ -455,9 +511,11 @@ class PassManager:
 
     def get_pass_info(self, pass_name: str) -> Optional[PassInfo]:
         """Get metadata for a registered pass."""
-        if pass_name in self.passes:
-            return self.passes[pass_name].info
-        return None
+        try:
+            canonical = self.resolve_pass_name(pass_name)
+        except ValueError:
+            return None
+        return self.passes[canonical].info
 
     def list_passes(self) -> List[str]:
         """List all registered passes."""

@@ -40,8 +40,8 @@ Run all default optimizations:
 
    pyflow optimize input.py --output optimized.py
 
-This applies a carefully ordered sequence of optimization passes to improve
-code efficiency while preserving semantics.
+This runs PyFlow's default optimization pipeline, including whole-program
+analysis, simplification, specialization, and a final path-sensitive cleanup pass.
 
 Selective Optimization
 ----------------------
@@ -59,9 +59,11 @@ Available optimization passes:
 - ``lifetime``: Lifetime analysis for variables
 - ``clone``: Separate different invocations of the same code
 - ``argumentnormalization``: Normalize function arguments
-- ``inlining``: Inline function calls
+- ``inlining``: Inline function calls (experimental)
 - ``cullprogram``: Remove dead functions and contexts
 - ``loadelimination``: Eliminate redundant load operations
+- ``storeelimination``: Eliminate redundant store operations
+- ``dce``: Dead code elimination without constant folding
 
 List available passes:
 
@@ -213,7 +215,7 @@ Running Inlining
 
 .. code-block:: bash
 
-   pyflow optimize input.py --opt-passes inlining
+   pyflow optimize input.py --opt-passes inlining --experimental-inlining
 
 Method Call Optimization
 ========================
@@ -234,8 +236,8 @@ Running Method Call Optimization
 Argument Normalization
 ======================
 
-Argument normalization transforms functions to eliminate ``*args`` and ``**kwargs``
-when possible, enabling better optimization.
+Argument normalization currently targets ``*args`` when the argument length is
+statically known and call sites are monomorphic and positional.
 
 Example transformation:
 
@@ -248,7 +250,7 @@ Example transformation:
 .. code-block:: python
    :caption: After normalization
 
-   def func(a, b, __args, __kwargs):
+   def func(a, b, arg0, arg1):
        return a + b
 
 Running Argument Normalization
@@ -263,10 +265,10 @@ Optimization Pipeline
 
 PyFlow applies optimizations in a carefully ordered pipeline:
 
-1. **Analysis Phase**: Run IPA, CPA, lifetime analysis, shape analysis
+1. **Analysis Phase**: Run IPA, CPA, and lifetime analysis
 2. **Simplification Phase**: Constant folding, dead code elimination
-3. **Advanced Phase**: Method optimization, code cloning, inlining
-4. **Finalization Phase**: Dead store elimination, program culling
+3. **Advanced Phase**: Method optimization, code cloning, argument normalization, program culling
+4. **Finalization Phase**: Path-sensitive re-analysis, final simplification, and dead store elimination
 
 Custom Pipelines
 ----------------
@@ -276,14 +278,15 @@ Build custom optimization pipelines:
 .. code-block:: python
 
    from pyflow.application.passmanager import PassManager
+   from pyflow.application.passes import register_standard_passes
 
    pass_manager = PassManager()
+   register_standard_passes(pass_manager)
    pipeline = pass_manager.build_pipeline([
        "ipa",           # Inter-procedural analysis first
        "cpa",           # Constraint-based analysis
        "simplify",      # Basic simplifications
        "methodcall",    # Method call optimization
-       "inlining",      # Function inlining
        "cullprogram",   # Remove dead code
    ])
    results = pass_manager.run_pipeline(compiler, program, pipeline)

@@ -305,8 +305,10 @@ Orchestrates optimization passes:
 .. code-block:: python
 
    from pyflow.application.passmanager import PassManager
+   from pyflow.application.passes import register_standard_passes
 
    pm = PassManager()
+   register_standard_passes(pm)
    pipeline = pm.build_pipeline([
        "simplify",
        "methodcall",

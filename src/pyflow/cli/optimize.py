@@ -7,7 +7,7 @@ from pathlib import Path
 
 from pyflow.application.context import CompilerContext
 from pyflow.application.program import Program
-from pyflow.application.pipeline import evaluate
+from pyflow.application.pipeline import Pipeline
 from pyflow.frontend.programextractor import extractProgram
 from pyflow.util.application.console import Console
 
@@ -17,12 +17,19 @@ OPTIMIZATION_PASSES = {
     "lifetime": "Lifetime analysis for variables and objects",
     "simplify": "Constant folding and dead code elimination",
     "clone": "Separate different invocations of the same code",
-    "argumentnormalization": "Normalize function arguments (eliminate *args, **kwargs)",
-    "inlining": "Inline function calls where beneficial",
+    "argumentnormalization": "Normalize function arguments (eliminate eligible *args)",
+    "inlining": "Inline function calls where beneficial (experimental)",
     "cullprogram": "Remove dead functions and contexts",
     "loadelimination": "Eliminate redundant load operations",
     "storeelimination": "Eliminate redundant store operations",
     "dce": "Dead code elimination",
+}
+
+OPT_PASS_ALIASES = {
+    "argument_normalization": "argumentnormalization",
+    "cull_program": "cullprogram",
+    "load_elimination": "loadelimination",
+    "store_elimination": "storeelimination",
 }
 
 ANALYSIS_MODULES = {
@@ -114,6 +121,36 @@ def list_optimization_passes():
     print("Available optimization passes:")
     for name, desc in OPTIMIZATION_PASSES.items():
         print(f"  {name:<25} - {desc}")
+    print("  all".ljust(27) + "- Run the full default optimization pipeline")
+
+
+def _build_analysis_state(python_files, args):
+    """Create compiler/program state for one analysis run."""
+    console = Console(verbose=args.verbose)
+    compiler = CompilerContext(console)
+    program = Program()
+
+    from pyflow.frontend.programextractor import create_interface_from_paths, Extractor
+
+    program.interface, all_source_code = create_interface_from_paths(python_files, args)
+    compiler.extractor = Extractor(
+        compiler, verbose=args.verbose, source_code=all_source_code
+    )
+
+    with console.scope("extraction"):
+        extractProgram(compiler, program)
+
+    return compiler, program
+
+
+def _run_default_pipeline(compiler, program, name):
+    """Run the default optimization pipeline through the pass manager."""
+    return Pipeline(use_pass_manager=True).run(program, compiler=compiler, name=name)
+
+
+def _normalize_opt_pass_name(pass_name):
+    """Normalize CLI pass names to the pass-manager registry."""
+    return OPT_PASS_ALIASES.get(pass_name, pass_name)
 
 
 def run_analysis(input_path, args):
@@ -134,26 +171,8 @@ def run_analysis(input_path, args):
             )
             sys.exit(1)
 
-        # Setup compiler and program
-        console = Console(verbose=args.verbose)
-        compiler = CompilerContext(console)
-        program = Program()
-
-        # Extract program
-        from pyflow.frontend.programextractor import (
-            create_interface_from_paths,
-            Extractor,
-        )
-
-        program.interface, all_source_code = create_interface_from_paths(
-            python_files, args
-        )
-        compiler.extractor = Extractor(
-            compiler, verbose=args.verbose, source_code=all_source_code
-        )
-
-        with console.scope("extraction"):
-            extractProgram(compiler, program)
+        compiler, program = _build_analysis_state(python_files, args)
+        console = compiler.console
 
         if not program.interface.func:
             print("Warning: No functions found in interface")
@@ -164,17 +183,17 @@ def run_analysis(input_path, args):
             if args.analysis == "all":
                 if getattr(args, "no_opt_passes", False):
                     run_analysis_only(compiler, program)
-                elif getattr(args, "apply_optimizations", False):
-                    # Apply optimizations - full pipeline
-                    evaluate(compiler, program, str(input_path))
                 elif getattr(args, "suggest_only", False):
-                    # Generate suggestions (default behavior)
-                    run_suggestions(compiler, program)
+                    suggestion_compiler, suggestion_program = _build_analysis_state(
+                        python_files, args
+                    )
+                    run_suggestions(suggestion_compiler, suggestion_program)
+                    if args.dump or args.dump_ipa or args.dump_shape:
+                        run_analysis_only(compiler, program)
                 elif getattr(args, "opt_passes", None):
                     run_optimization_passes(compiler, program, args.opt_passes, args)
                 else:
-                    # Default: generate suggestions without modifying code
-                    run_suggestions(compiler, program)
+                    _run_default_pipeline(compiler, program, str(input_path))
             elif args.analysis == "ipa":
                 # Run only IPA analysis (skip CPA and later passes)
                 from pyflow.analysis import ipa as ipa_module
@@ -357,11 +376,10 @@ def dump_results(compiler, program, input_path, output_file):
 
 def run_analysis_only(compiler, program):
     """Run only analysis passes, no optimization."""
-    from pyflow.analysis import cpa, lifetimeanalysis
-
     with compiler.console.scope("analysis-only"):
-        cpa.evaluate(compiler, program)
-        lifetimeanalysis.evaluate(compiler, program)
+        Pipeline(use_pass_manager=True).run_custom_pipeline(
+            compiler, program, ["ipa", "cpa", "lifetime"]
+        )
         compiler.console.output("Analysis-only mode completed")
 
 
@@ -544,49 +562,32 @@ def run_suggestions(compiler, program):
 
 def run_optimization_passes(compiler, program, passes, args=None):
     """Run specific optimization passes."""
-    from pyflow.analysis import cpa, lifetimeanalysis
-    from pyflow.optimization import (
-        methodcall,
-        simplify,
-        clone,
-        argumentnormalization,
-        codeinlining,
-        cullprogram,
-        loadelimination,
-        storeelimination,
-    )
-
     with compiler.console.scope("specific-passes"):
-        cpa.evaluate(compiler, program)
-        lifetimeanalysis.evaluate(compiler, program)
+        normalized = [_normalize_opt_pass_name(pass_name) for pass_name in passes]
 
-        pass_map = {
-            "methodcall": methodcall.evaluate,
-            "lifetime": lambda c, p: None,
-            "simplify": simplify.evaluate,
-            "clone": clone.evaluate,
-            "argumentnormalization": argumentnormalization.evaluate,
-            "inlining": codeinlining.evaluate,
-            "cullprogram": cullprogram.evaluate,
-            "loadelimination": loadelimination.evaluate,
-            "storeelimination": storeelimination.evaluate,
-            "dce": lambda c, p: None,
-        }
-
-        for pass_name in passes:
-            if pass_name == "inlining" and not (
-                args is not None and getattr(args, "experimental_inlining", False)
-            ):
-                print(
-                    "Warning: Skipping 'inlining' pass. "
-                    "Use --experimental-inlining to enable it."
+        if "all" in normalized:
+            _run_default_pipeline(compiler, program, "cli_optimize_all")
+            if args is not None and getattr(args, "experimental_inlining", False):
+                Pipeline(use_pass_manager=True).run_custom_pipeline(
+                    compiler, program, ["inlining"]
                 )
-                continue
+            compiler.console.output("Completed full optimization pipeline")
+            return
 
-            if pass_name in pass_map:
-                with compiler.console.scope(pass_name):
-                    pass_map[pass_name](compiler, program)
-            else:
-                print(f"Warning: Unknown pass '{pass_name}'")
+        if "inlining" in normalized and not (
+            args is not None and getattr(args, "experimental_inlining", False)
+        ):
+            print(
+                "Warning: Skipping 'inlining' pass. "
+                "Use --experimental-inlining to enable it."
+            )
+            normalized = [pass_name for pass_name in normalized if pass_name != "inlining"]
 
-        compiler.console.output(f"Completed {len(passes)} optimization passes")
+        if not normalized:
+            compiler.console.output("No optimization passes selected")
+            return
+
+        Pipeline(use_pass_manager=True).run_custom_pipeline(
+            compiler, program, normalized
+        )
+        compiler.console.output(f"Completed {len(normalized)} optimization passes")

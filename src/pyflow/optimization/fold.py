@@ -482,6 +482,7 @@ class FoldRewrite(TypeDispatcher):
                 node.code
                 and isinstance(node.code.codeparameters.selfparam, ast.DoNotCare)
                 and not isinstance(node.selfarg, ast.DoNotCare)
+                and isinstance(node.selfarg, (ast.Local, ast.Existing))
             ):
                 result = ast.DirectCall(
                     node.code,

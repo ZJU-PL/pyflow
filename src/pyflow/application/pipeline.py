@@ -113,20 +113,31 @@ class Pipeline(object):
         # Build a comprehensive pipeline with standard passes
         pipeline = self.pass_manager.build_pipeline(
             [
-                "ipa",  # Inter-procedural analysis first
-                "cpa",  # Constraint propagation analysis
-                "lifetime",  # Lifetime analysis
-                "methodcall",  # Method call optimization
-                "simplify",  # Simplification (constant folding, DCE)
-                "clone",  # Code cloning
-                "argument_normalization",  # Argument normalization
-                "cull_program",  # Program culling
-                "store_elimination",  # Store elimination
+                "ipa",  # First analysis pass
+                "cpa",
+                "lifetime",
+                "methodcall",
+                "simplify",
+                "clone",
+                "argument_normalization",
+                "cull_program",
+                "store_elimination",
+                "ipa_refresh",  # Legacy second pass
+                "cpa_path_sensitive",
+                "lifetime_refresh",
+                "simplify_final",
+                "store_elimination_final",
             ]
         )
 
         # Run the pipeline
         results = self.pass_manager.run_pipeline(compiler, program, pipeline)
+
+        failed = [pass_name for pass_name, result in results.items() if not result.success]
+        if failed:
+            first_failed = failed[0]
+            error = results[first_failed].error or "unknown pass failure"
+            raise RuntimeError(f"Pass pipeline aborted at '{first_failed}': {error}")
 
         # Log execution summary
         # Bug F fix: the original code used print() directly, bypassing the
@@ -183,7 +194,13 @@ class Pipeline(object):
         if not self.use_pass_manager:
             raise RuntimeError("Pass manager not enabled")
         pipeline = self.pass_manager.build_pipeline(pass_names)
-        return self.pass_manager.run_pipeline(compiler, program, pipeline)
+        results = self.pass_manager.run_pipeline(compiler, program, pipeline)
+        failed = [pass_name for pass_name, result in results.items() if not result.success]
+        if failed:
+            first_failed = failed[0]
+            error = results[first_failed].error or "unknown pass failure"
+            raise RuntimeError(f"Pass pipeline aborted at '{first_failed}': {error}")
+        return results
 
     def list_available_passes(self) -> list:
         """List all available passes."""

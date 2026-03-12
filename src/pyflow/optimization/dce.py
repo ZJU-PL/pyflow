@@ -13,6 +13,32 @@ from pyflow.optimization.dataflow.base import top, undefined, MutateCodeReversed
 from pyflow.analysis import tools
 
 
+def _snapshot_code(node):
+    """Capture a structural snapshot for change detection."""
+
+    def snapshot_value(value):
+        if isinstance(value, list):
+            return tuple(snapshot_value(item) for item in value)
+        if isinstance(value, tuple):
+            return tuple(snapshot_value(item) for item in value)
+        if isinstance(value, ast.DoNotCare):
+            return ("DoNotCare",)
+        if isinstance(value, ast.Local):
+            return ("Local", value.name)
+        if isinstance(value, ast.Existing):
+            return ("Existing", repr(value.object))
+        if isinstance(value, ast.leafTypes):
+            return value
+        if hasattr(value, "children"):
+            return (
+                type(value).__name__,
+                tuple(snapshot_value(child) for child in value.children()),
+            )
+        return repr(value)
+
+    return snapshot_value(node)
+
+
 def liveMeet(values):
     """Meet function for liveness analysis.
 
@@ -301,3 +327,16 @@ def evaluateCode(compiler, node, initialLive=None):
     result = t(node)
 
     return result
+
+
+def evaluate(compiler, prgm, outputAnchors=None):
+    """Run DCE across all live code in a program."""
+    with compiler.console.scope("dead code elimination"):
+        changed = False
+        for code in prgm.liveCode:
+            if code.isStandardCode() and not code.annotation.descriptive:
+                before = _snapshot_code(code)
+                evaluateCode(compiler, code, outputAnchors)
+                if _snapshot_code(code) != before:
+                    changed = True
+        return changed

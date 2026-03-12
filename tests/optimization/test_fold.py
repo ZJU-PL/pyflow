@@ -119,6 +119,38 @@ class TestFoldRewrite(unittest.TestCase):
         fr = FoldRewrite(MockExtractor(), None, MockCode())
         self.assertEqual(fr.getObjects(object()), ())
 
+    def test_eliminateDeadArguments_keeps_effectful_selfarg(self):
+        fr = FoldRewrite(MockExtractor(), None, MockCode())
+        code = ast.Code(
+            "callee",
+            ast.CodeParameters(
+                selfparam=ast.DoNotCare(),
+                posonlyparams=(),
+                posonlynames=(),
+                params=(),
+                paramnames=(),
+                defaults=(),
+                vparam=None,
+                kparam=None,
+                returnparams=(),
+                type_params=None,
+            ),
+            ast.Suite([]),
+        )
+        node = ast.DirectCall(
+            code,
+            ast.Call(ast.Local("callee"), [], [], None, None),
+            [],
+            [],
+            None,
+            None,
+        )
+        node.annotation = MockAnnotation()
+
+        result = fr.eliminateDeadArguments(node)
+
+        self.assertIs(result, node)
+
 
 class TestMakeCallRewrite(unittest.TestCase):
     """Test cases for makeCallRewrite function."""

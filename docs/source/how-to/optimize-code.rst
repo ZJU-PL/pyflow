@@ -50,6 +50,8 @@ All available optimizations:
 
    pyflow optimize input.py --opt-passes all
 
+Inlining remains experimental and must be enabled explicitly when requested.
+
 Applying Optimizations
 ======================
 
@@ -68,6 +70,7 @@ Apply specific passes:
 
    pyflow optimize input.py \
        --opt-passes simplify methodcall inlining \
+       --experimental-inlining \
        --output optimized.py
 
 Via Python API
@@ -77,24 +80,17 @@ For programmatic optimization:
 
 .. code-block:: python
 
-   from pyflow import optimize
-   from pyflow.frontend.programextractor import ProgramExtractor
-   from pyflow.frontend.ast_converter import ASTConverter
+   from pyflow.application.passmanager import PassManager
+   from pyflow.application.passes import register_standard_passes
 
-   # Extract and convert program
-   extractor = ProgramExtractor()
-   ast = extractor.extract("input.py")
+   pass_manager = PassManager()
+   register_standard_passes(pass_manager)
 
-   converter = ASTConverter()
-   program = converter.convert(ast)
-
-   # Run optimization passes
-   optimized_program = optimize.simplify(program)
-   optimized_program = optimize.methodcall(optimized_program)
-   optimized_program = optimize.inlining(optimized_program)
-
-   # Save optimized code
-   optimized_program.save("optimized.py")
+   pass_manager.run_passes(
+       compiler,
+       program,
+       ["simplify", "methodcall", "inlining"],
+   )
 
 Via Pass Manager
 ----------------
@@ -104,8 +100,10 @@ For complex optimization pipelines:
 .. code-block:: python
 
    from pyflow.application.passmanager import PassManager
+   from pyflow.application.passes import register_standard_passes
 
    pass_manager = PassManager()
+   register_standard_passes(pass_manager)
    pipeline = pass_manager.build_pipeline([
        "simplify",          # Basic simplifications
        "methodcall",        # Method call optimization
@@ -201,7 +199,7 @@ Optimize method dispatch:
 Argument Normalization
 ----------------------
 
-Eliminate *args and **kwargs when possible:
+Eliminate ``*args`` when possible:
 
 .. code-block:: python
    :caption: Before
@@ -212,7 +210,7 @@ Eliminate *args and **kwargs when possible:
 .. code-block:: python
    :caption: After
 
-   def process(a, b, __args, __kwargs):
+   def process(a, b, arg0, arg1):
        return a + b
 
 Optimization Best Practices
@@ -274,7 +272,7 @@ Not all optimizations help every program. Test different combinations:
    # Try different pass combinations
    pyflow optimize input.py --opt-passes simplify
    pyflow optimize input.py --opt-passes simplify methodcall
-   pyflow optimize input.py --opt-passes simplify methodcall inlining
+   pyflow optimize input.py --opt-passes simplify methodcall inlining --experimental-inlining
 
 Troubleshooting
 ===============
