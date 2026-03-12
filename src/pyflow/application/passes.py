@@ -409,11 +409,14 @@ def register_standard_passes(pass_manager):
         "inlining",
         "load_elimination",
         "store_elimination",
-        "dce",
     ]:
         if opt_name in pass_manager.passes:
             opt_pass = pass_manager.passes[opt_name]
             opt_pass.info.dependencies.add("simplify")
+
+    if "inlining" in pass_manager.passes:
+        # Legacy sequencing requires argument normalization before inlining.
+        pass_manager.passes["inlining"].info.dependencies.add("argument_normalization")
 
     if "store_elimination" in pass_manager.passes:
         pass_manager.passes["store_elimination"].info.dependencies.add("lifetime")

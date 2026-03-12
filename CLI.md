@@ -68,6 +68,8 @@ Run only the specified optimization passes. Available passes:
 - `inlining`: Inline function calls where beneficial
 - `cullprogram`: Remove dead functions and contexts
 - `loadelimination`: Eliminate redundant load operations
+- `storeelimination`: Eliminate redundant store operations
+- `dce`: Dead code elimination (without constant folding)
 
 ## IR Command
 

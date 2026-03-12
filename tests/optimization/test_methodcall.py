@@ -116,6 +116,48 @@ class TestMethodAnalysis(unittest.TestCase):
         self.assertIs(analysis.flow.lookup(("name", name)), dataflow.base.undefined)
         self.assertIs(analysis.flow.lookup(("meth", meth)), dataflow.base.undefined)
 
+    def test_side_effecting_op_invalidates_all_tracked_method_bindings(self):
+        analysis = MethodAnalysis(pattern=None)
+        analysis.flow = dataflow.base.FlowDict()
+
+        expr = ast.Local("expr")
+        name = ast.Local("name")
+        meth = ast.Local("meth")
+        key = (expr, name, meth)
+        analysis.flow.define(("expr", expr), key)
+        analysis.flow.define(("name", name), key)
+        analysis.flow.define(("meth", meth), key)
+
+        call = ast.Call(ast.Local("callee"), [], [], None, None)
+        call.annotation = SimpleNamespace(modifies=None)
+
+        analysis.visitMayLeak(call)
+
+        self.assertIs(analysis.flow.lookup(("expr", expr)), dataflow.base.undefined)
+        self.assertIs(analysis.flow.lookup(("name", name)), dataflow.base.undefined)
+        self.assertIs(analysis.flow.lookup(("meth", meth)), dataflow.base.undefined)
+
+    def test_non_effecting_op_preserves_method_binding(self):
+        analysis = MethodAnalysis(pattern=None)
+        analysis.flow = dataflow.base.FlowDict()
+
+        expr = ast.Local("expr")
+        name = ast.Local("name")
+        meth = ast.Local("meth")
+        key = (expr, name, meth)
+        analysis.flow.define(("expr", expr), key)
+        analysis.flow.define(("name", name), key)
+        analysis.flow.define(("meth", meth), key)
+
+        load = ast.Load(ast.Local("other_obj"), "LowLevel", ast.Local("other_name"))
+        load.annotation = SimpleNamespace(modifies=((),))
+
+        analysis.visitMayLeak(load)
+
+        self.assertEqual(analysis.flow.lookup(("expr", expr)), key)
+        self.assertEqual(analysis.flow.lookup(("name", name)), key)
+        self.assertEqual(analysis.flow.lookup(("meth", meth)), key)
+
 
 if __name__ == "__main__":
     unittest.main()

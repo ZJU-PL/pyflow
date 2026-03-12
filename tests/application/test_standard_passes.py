@@ -132,6 +132,68 @@ def test_path_sensitive_cpa_pipeline_requires_first_pass_conditioning():
     )
 
 
+def test_path_sensitive_pipeline_preserves_legacy_first_pass_stage_order():
+    manager = PassManager()
+    register_standard_passes(manager)
+
+    pipeline = manager.build_pipeline(["cpa_path_sensitive"])
+
+    assert pipeline.passes.index("methodcall") < pipeline.passes.index("first_pass_methodcall")
+    assert pipeline.passes.index("first_pass_methodcall") < pipeline.passes.index("lifetime")
+    assert pipeline.passes.index("lifetime") < pipeline.passes.index("first_pass_lifetime")
+    assert pipeline.passes.index("first_pass_lifetime") < pipeline.passes.index("simplify")
+    assert pipeline.passes.index("simplify") < pipeline.passes.index("first_pass_simplify")
+    assert pipeline.passes.index("first_pass_simplify") < pipeline.passes.index("clone")
+    assert pipeline.passes.index("clone") < pipeline.passes.index("first_pass_clone")
+    assert pipeline.passes.index("first_pass_clone") < pipeline.passes.index(
+        "argument_normalization"
+    )
+    assert pipeline.passes.index("argument_normalization") < pipeline.passes.index(
+        "first_pass_argument_normalization"
+    )
+    assert pipeline.passes.index("first_pass_argument_normalization") < pipeline.passes.index(
+        "cull_program"
+    )
+    assert pipeline.passes.index("cull_program") < pipeline.passes.index(
+        "first_pass_cull_program"
+    )
+    assert pipeline.passes.index("first_pass_cull_program") < pipeline.passes.index(
+        "store_elimination"
+    )
+    assert pipeline.passes.index("store_elimination") < pipeline.passes.index(
+        "first_pass_store_elimination"
+    )
+    assert pipeline.passes.index("first_pass_store_elimination") < pipeline.passes.index(
+        "first_pass_complete"
+    )
+    assert pipeline.passes.index("first_pass_complete") < pipeline.passes.index(
+        "ipa_refresh"
+    )
+    assert pipeline.passes.index("ipa_refresh") < pipeline.passes.index("cpa_path_sensitive")
+
+
+def test_dce_pipeline_does_not_force_simplify():
+    manager = PassManager()
+    register_standard_passes(manager)
+
+    pipeline = manager.build_pipeline(["dce"])
+
+    assert "simplify" not in pipeline.passes
+    assert pipeline.passes == ["ipa", "cpa", "dce"]
+
+
+def test_inlining_pipeline_requires_argument_normalization():
+    manager = PassManager()
+    register_standard_passes(manager)
+
+    pipeline = manager.build_pipeline(["inlining"])
+
+    assert "argument_normalization" in pipeline.passes
+    assert pipeline.passes.index("argument_normalization") < pipeline.passes.index(
+        "inlining"
+    )
+
+
 def test_default_pipeline_keeps_methodcall_before_lifetime(monkeypatch):
     pipeline = Pipeline(use_pass_manager=True)
     program = Program()

@@ -288,6 +288,25 @@ class MethodAnalysis(TypeDispatcher):
         self.flow.undefine(("name", name))
         self.flow.undefine(("meth", meth))
 
+    def invalidateAllMethodBindings(self):
+        """Invalidate all tracked getter bindings in the current flow contour.
+
+        Method-call fusion is only sound while the object graph remains stable.
+        Any operation that may mutate state (or otherwise produce side effects)
+        can invalidate previously observed ``obj.attr`` -> method bindings.
+        """
+        current = self.flow._current
+        if current is None:
+            return
+
+        binding_keys = []
+        for key in tuple(current.lut.keys()):
+            if isinstance(key, tuple) and key and key[0] in ("expr", "name", "meth"):
+                binding_keys.append(key)
+
+        for key in binding_keys:
+            self.flow.undefine(key)
+
     @dispatch(ast.Local)
     def visitLocal(self, node):
         self.arg(node)
@@ -331,6 +350,8 @@ class MethodAnalysis(TypeDispatcher):
     )
     def visitMayLeak(self, node):
         node.visitChildren(self)
+        if tools.mightHaveSideEffect(node):
+            self.invalidateAllMethodBindings()
         return node
 
     @dispatch(ast.Assign)

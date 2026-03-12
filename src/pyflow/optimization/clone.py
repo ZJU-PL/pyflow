@@ -634,6 +634,7 @@ def rewriteProgram(compiler, prgm, cloner):
     Only performs cloning if it results in more function groups than the original,
     indicating that the optimization is worthwhile.
     """
+    old_live = set(prgm.liveCode)
     liveCode = cloner.liveFunctions
     changed = False
 
@@ -645,6 +646,8 @@ def rewriteProgram(compiler, prgm, cloner):
             changed = True
 
     prgm.liveCode = liveCode
+    if set(prgm.liveCode) != old_live:
+        changed = True
     return changed
 
 

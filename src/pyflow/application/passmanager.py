@@ -386,8 +386,16 @@ class PassManager:
         prerequisites: Set[str] = set(pass_obj.info.dependencies)
         prerequisites.update(pass_obj.info.requirements)
 
+        def prereq_sort_key(prereq: str) -> tuple[int, str]:
+            # "first_pass_*" utility anchors encode a strict stage ordering.
+            # Prefer prior anchors before real stage passes so dependency-only
+            # pipeline requests preserve the legacy first-pass sequence.
+            if pass_name.startswith("first_pass_") or pass_name == "cpa_path_sensitive":
+                return (0 if prereq.startswith("first_pass_") else 1, prereq)
+            return (0, prereq)
+
         resolved: List[str] = []
-        for prereq in sorted(prerequisites):
+        for prereq in sorted(prerequisites, key=prereq_sort_key):
             try:
                 resolved.append(self.resolve_pass_name(prereq))
             except ValueError:
