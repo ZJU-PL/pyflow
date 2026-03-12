@@ -21,9 +21,7 @@ class _Compiler:
         self.console = _Console()
 
 
-def test_run_optimization_passes_skips_inlining_without_experimental_flag(
-    monkeypatch, capsys
-):
+def test_run_optimization_passes_always_skips_public_inlining(monkeypatch, capsys):
     compiler = _Compiler()
     program = object()
     args = SimpleNamespace(experimental_inlining=False)
@@ -42,10 +40,12 @@ def test_run_optimization_passes_skips_inlining_without_experimental_flag(
     optimize.run_optimization_passes(compiler, program, ["inlining"], args)
 
     assert calls == []
-    assert "Skipping 'inlining' pass" in capsys.readouterr().out
+    assert "currently disabled in the public optimization pipeline" in capsys.readouterr().out
 
 
-def test_run_optimization_passes_allows_inlining_with_experimental_flag(monkeypatch):
+def test_run_optimization_passes_skips_inlining_even_with_experimental_flag(
+    monkeypatch, capsys
+):
     compiler = _Compiler()
     program = object()
     args = SimpleNamespace(experimental_inlining=True)
@@ -63,7 +63,8 @@ def test_run_optimization_passes_allows_inlining_with_experimental_flag(monkeypa
 
     optimize.run_optimization_passes(compiler, program, ["inlining"], args)
 
-    assert calls == [("inlining",)]
+    assert calls == []
+    assert "currently disabled in the public optimization pipeline" in capsys.readouterr().out
 
 
 def test_run_optimization_passes_all_expands_to_default_pipeline(monkeypatch):
@@ -118,7 +119,7 @@ def test_run_optimization_passes_all_includes_experimental_inlining(monkeypatch)
 
     optimize.run_optimization_passes(compiler, program, ["all"], args)
 
-    assert seen["default"] == [{"include_experimental_inlining": True}]
+    assert seen["default"] == [{"include_experimental_inlining": False}]
     assert seen["custom"] == []
 
 
@@ -222,27 +223,30 @@ def test_run_analysis_threads_experimental_inlining_into_default_pipeline(
     assert seen == [{"include_experimental_inlining": True}]
 
 
-def test_run_suggestions_stores_cpa_results_and_refreshes_ipa(monkeypatch, capsys):
-    from pyflow.analysis import cpa as cpa_module
+def test_run_suggestions_uses_pipeline_and_refreshes_ipa(monkeypatch, capsys):
     from pyflow.analysis import ipa as ipa_module
-    from pyflow.analysis import lifetimeanalysis as lifetime_module
-    from pyflow.optimization import argumentnormalization as argnorm_module
-    from pyflow.optimization import clone as clone_module
-    from pyflow.optimization import cullprogram as cull_module
-    from pyflow.optimization import methodcall as methodcall_module
-    from pyflow.optimization import simplify as simplify_module
-    from pyflow.optimization import storeelimination as storeelim_module
 
     compiler = _Compiler()
     initial_ipa = SimpleNamespace(contexts={"a": object()})
     refreshed_ipa = SimpleNamespace(contexts={"a": object(), "b": object()})
-    cpa_result = SimpleNamespace(unresolved=["call1", "call2"])
     program = SimpleNamespace(
         liveCode=[],
         ipa_analysis=None,
-        cpa_analysis=None,
+        cpa_analysis=SimpleNamespace(unresolved=["call1", "call2"]),
         lifetime_analysis=None,
     )
+    seen = []
+
+    class _Pipeline:
+        def __init__(self, *, use_pass_manager):
+            assert use_pass_manager is True
+
+        def default_pass_names(self):
+            return ["ipa", "cpa", "simplify"]
+
+        def run_custom_pipeline(self, _compiler, _program, pass_names):
+            seen.append(tuple(pass_names))
+            return {}
 
     monkeypatch.setattr(
         ipa_module,
@@ -251,23 +255,12 @@ def test_run_suggestions_stores_cpa_results_and_refreshes_ipa(monkeypatch, capsy
         if getattr(_program, "ipa_analysis", None) is None
         else refreshed_ipa,
     )
-    monkeypatch.setattr(cpa_module, "evaluate", lambda _compiler, _program: cpa_result)
-    monkeypatch.setattr(
-        lifetime_module,
-        "evaluate",
-        lambda _compiler, _program: SimpleNamespace(),
-    )
-    monkeypatch.setattr(methodcall_module, "evaluate", lambda *_args, **_kwargs: False)
-    monkeypatch.setattr(simplify_module, "evaluate", lambda *_args, **_kwargs: False)
-    monkeypatch.setattr(clone_module, "evaluate", lambda *_args, **_kwargs: False)
-    monkeypatch.setattr(argnorm_module, "evaluate", lambda *_args, **_kwargs: False)
-    monkeypatch.setattr(cull_module, "evaluate", lambda *_args, **_kwargs: False)
-    monkeypatch.setattr(storeelim_module, "evaluate", lambda *_args, **_kwargs: False)
+    monkeypatch.setattr(optimize, "Pipeline", _Pipeline)
 
     optimize.run_suggestions(compiler, program)
 
     output = capsys.readouterr().out
-    assert program.cpa_analysis is cpa_result
+    assert seen == [("ipa", "cpa", "simplify")]
     assert program.ipa_analysis is refreshed_ipa
     assert "2 unresolved calls" in output
 

@@ -215,25 +215,13 @@ def test_default_pipeline_keeps_methodcall_before_lifetime(monkeypatch):
     pipeline.run(program, compiler=_Compiler())
 
     assert captured["passes"].index("methodcall") < captured["passes"].index("lifetime")
-    assert captured["passes"] == [
-        "ipa",
-        "cpa",
-        "methodcall",
-        "lifetime",
-        "simplify",
-        "clone",
-        "argument_normalization",
-        "cull_program",
-        "store_elimination",
-        "ipa_refresh",
-        "first_pass_methodcall",
-        "first_pass_lifetime",
-        "first_pass_simplify",
-        "first_pass_clone",
-        "first_pass_argument_normalization",
-        "first_pass_cull_program",
-        "first_pass_store_elimination",
-        "first_pass_complete",
+    assert captured["passes"][:4] == ["ipa", "cpa", "methodcall", "simplify"]
+    assert captured["passes"].index("lifetime") < captured["passes"].index("store_elimination")
+    assert captured["passes"].index("clone") < captured["passes"].index("cull_program")
+    assert captured["passes"].index("argument_normalization") < captured["passes"].index(
+        "cull_program"
+    )
+    assert captured["passes"][-4:] == [
         "cpa_path_sensitive",
         "lifetime_refresh",
         "simplify_final",

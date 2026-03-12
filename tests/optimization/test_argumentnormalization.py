@@ -84,7 +84,11 @@ class TestArgumentNormalizationEvaluate(unittest.TestCase):
                 return _Scope()
 
         compiler = SimpleNamespace(console=_Console())
-        prgm = SimpleNamespace(storeGraph=None, liveCode=[object()])
+        candidate = SimpleNamespace(
+            codeparameters=SimpleNamespace(vparam=object(), selfparam=None),
+            ast=ast.Suite([]),
+        )
+        prgm = SimpleNamespace(storeGraph=None, liveCode=[candidate])
 
         def _blocked(self, _code, _vlen):
             self.last_skip_reason = "vparam_local_referenced_in_body"
@@ -165,7 +169,12 @@ class TestArgumentNormalizationEvaluate(unittest.TestCase):
                 return _Scope()
 
         compiler = SimpleNamespace(console=_Console())
-        candidate = object()
+        class _Candidate:
+            def __init__(self):
+                self.codeparameters = SimpleNamespace(vparam=object(), selfparam=None)
+                self.ast = ast.Suite([])
+
+        candidate = _Candidate()
         caller = object()
         context = object()
         incoming = ast.Call(ast.Local("func"), [], [], ast.Local("star"), None)
@@ -224,7 +233,9 @@ class TestArgumentNormalizationEvaluate(unittest.TestCase):
                     posonlyparams=[],
                     params=[object()],
                     vparam=object(),
+                    selfparam=None,
                 )
+                self.ast = ast.Suite([])
 
         candidate = _Candidate()
         caller = object()

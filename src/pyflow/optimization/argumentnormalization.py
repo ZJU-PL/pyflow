@@ -29,11 +29,14 @@ class _ContainsLocalRef(TypeDispatcher):
         self.target = target
         self.found = False
         self.in_closure = False
+        self.found_in_closure = False
 
     @dispatch(ast.Local)
     def visitLocal(self, node):
         if node is self.target:
             self.found = True
+            if self.in_closure:
+                self.found_in_closure = True
 
     @dispatch(list, tuple)
     def visitContainer(self, node):
@@ -344,6 +347,10 @@ def _normalization_blocker(prgm, code, vparam_len):
     Returns:
         str or None: Reason for blocking normalization, or None if safe
     """
+    codeparameters = getattr(code, "codeparameters", None)
+    if codeparameters is None:
+        return "missing_codeparameters"
+
     # Check if this is an entry point (cannot normalize entry points)
     interface = getattr(prgm, "interface", None)
     if interface is not None:
@@ -354,16 +361,19 @@ def _normalization_blocker(prgm, code, vparam_len):
 
     # CRITICAL FIX #3: Check for closure capture
     # If *args is captured by a nested function, normalization changes closure semantics
-    vparam = code.codeparameters.vparam
+    vparam = codeparameters.vparam
     if vparam is not None:
+        code_ast = getattr(code, "ast", None)
+        if code_ast is None:
+            return "missing_ast"
         checker = _ContainsLocalRef(vparam)
-        checker(code.ast)
-        if checker.found and checker.in_closure:
+        checker(code_ast)
+        if checker.found_in_closure:
             return "closure_capture"
 
     # CRITICAL FIX #3: Check for descriptor protocol interactions
     # If this is a method (has selfparam), normalization may break descriptor binding
-    if code.codeparameters.selfparam is not None:
+    if codeparameters.selfparam is not None:
         # Conservative: block normalization for methods
         # A more precise check would verify descriptor protocol usage
         return "method_descriptor_risk"

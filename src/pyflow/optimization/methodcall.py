@@ -400,6 +400,9 @@ class MethodRewrite(TypeDispatcher):
     def __init__(self, pattern):
         self.pattern = pattern
         self.rewritten = set()
+        # Conservatively disabled until the optimizer can prove descriptor and
+        # callable-object identity stability for Python's dynamic semantics.
+        self.allow_rewrite = getattr(pattern, "allow_safe_rewrite", False)
 
     @defaultdispatch
     def default(self, node):
@@ -417,6 +420,9 @@ class MethodRewrite(TypeDispatcher):
         Returns:
             tuple: (is_method_call, expr, name) where is_method_call is True if safe to optimize
         """
+        if not self.allow_rewrite:
+            return False, None, None
+
         invokes = node.annotation.invokes
         if invokes is not None:
             if self.pattern.icallsC.issuperset(invokes[0]):

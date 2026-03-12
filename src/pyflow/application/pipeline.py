@@ -71,7 +71,6 @@ class Pipeline(object):
             "ipa",
             "cpa",
             "methodcall",
-            "lifetime",
             "simplify",
             "clone",
             "argument_normalization",
@@ -81,6 +80,7 @@ class Pipeline(object):
         passes.extend(
             [
                 "cull_program",
+                "lifetime",
                 "store_elimination",
                 "ipa_refresh",
                 "cpa_path_sensitive",
@@ -136,12 +136,13 @@ class Pipeline(object):
         1. IPA (Inter-procedural analysis) - builds call graph
         2. CPA (Constraint propagation analysis) - type and flow analysis
         3. Method call optimization - optimizes method dispatch
-        4. Lifetime analysis - variable/object lifetime tracking
-        5. Simplification - constant folding and dead code elimination
+        4. Simplification - constant folding and dead code elimination
+        5. Lifetime analysis - refreshed before lifetime-sensitive transforms
         6. Code cloning - separates different invocations
         7. Argument normalization - eliminates *args, **kwargs
         8. Program culling - removes dead functions/contexts
-        9. Store elimination - removes redundant stores
+        9. Lifetime analysis refresh - recomputes read/modify facts
+        10. Store elimination - removes redundant stores
 
         Args:
             compiler: Compiler context

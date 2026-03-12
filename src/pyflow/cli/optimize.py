@@ -18,7 +18,6 @@ OPTIMIZATION_PASSES = {
     "simplify": "Constant folding and dead code elimination",
     "clone": "Separate different invocations of the same code",
     "argument_normalization": "Specialize eligible *args when existing callers are positional-compatible",
-    "inlining": "Inline function calls where beneficial (EXPERIMENTAL - use with caution)",
     "cull_program": "Remove dead functions and contexts",
     "load_elimination": "Eliminate redundant load operations",
     "store_elimination": "Eliminate redundant store operations",
@@ -157,7 +156,7 @@ def _run_default_pipeline(
         program,
         compiler=compiler,
         name=name,
-        include_experimental_inlining=include_experimental_inlining,
+        include_experimental_inlining=False,
     )
 
 
@@ -420,15 +419,7 @@ def run_analysis_only(compiler, program):
 
 def run_suggestions(compiler, program):
     """Run analysis and optimization passes, report what optimizations were found."""
-    from pyflow.analysis import cpa, lifetimeanalysis, ipa
-    from pyflow.optimization import (
-        methodcall,
-        simplify,
-        clone,
-        argumentnormalization,
-        cullprogram,
-        storeelimination,
-    )
+    from pyflow.analysis import ipa
 
     suggestions = {
         "Dead Functions Removed": [],
@@ -457,14 +448,6 @@ def run_suggestions(compiler, program):
             if code and hasattr(code, "name") and code.name:
                 initial_funcs.add(code.name)
 
-        # Run CPA analysis
-        cpa_result = cpa.evaluate(compiler, program)
-        program.cpa_analysis = cpa_result
-
-        # Run lifetime analysis
-        lifetime_analysis = lifetimeanalysis.evaluate(compiler, program)
-        program.lifetime_analysis = lifetime_analysis
-
         # Analyze functions for *args/**kwargs BEFORE normalization
         funcs_with_varargs = []
         funcs_with_kwargs = []
@@ -485,25 +468,12 @@ def run_suggestions(compiler, program):
             else 0
         )
 
-        # Run optimization passes one by one
         with compiler.console.scope("analyzing"):
-            # Method call optimization
-            methodcall.evaluate(compiler, program)
-
-            # Simplification (constant folding, dead code elimination)
-            simplify.evaluate(compiler, program)
-
-            # Code cloning (specialization)
-            clone.evaluate(compiler, program)
-
-            # Argument normalization
-            argumentnormalization.evaluate(compiler, program)
-
-            # Program culling (dead function elimination)
-            cullprogram.evaluate(compiler, program)
-
-            # Store elimination
-            storeelimination.evaluate(compiler, program)
+            Pipeline(use_pass_manager=True).run_custom_pipeline(
+                compiler,
+                program,
+                Pipeline(use_pass_manager=True).default_pass_names(),
+            )
 
         refreshed_ipa = ipa.evaluate(compiler, program)
         if refreshed_ipa:
@@ -604,26 +574,22 @@ def run_optimization_passes(compiler, program, passes, args=None):
     with compiler.console.scope("specific-passes"):
         normalized = [_normalize_opt_pass_name(pass_name) for pass_name in passes]
 
+        if "inlining" in normalized:
+            print(
+                "Warning: 'inlining' is currently disabled in the public optimization pipeline "
+                "because its semantic preconditions are not fully enforced."
+            )
+            normalized = [pass_name for pass_name in normalized if pass_name != "inlining"]
+
         if "all" in normalized:
             _run_default_pipeline(
                 compiler,
                 program,
                 "cli_optimize_all",
-                include_experimental_inlining=(
-                    args is not None and getattr(args, "experimental_inlining", False)
-                ),
+                include_experimental_inlining=False,
             )
             compiler.console.output("Completed full optimization pipeline")
             return
-
-        if "inlining" in normalized and not (
-            args is not None and getattr(args, "experimental_inlining", False)
-        ):
-            print(
-                "Warning: Skipping 'inlining' pass. "
-                "Use --experimental-inlining to enable it."
-            )
-            normalized = [pass_name for pass_name in normalized if pass_name != "inlining"]
 
         if not normalized:
             compiler.console.output("No optimization passes selected")

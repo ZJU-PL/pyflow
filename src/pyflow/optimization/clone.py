@@ -23,6 +23,7 @@ import collections
 from pyflow.util.PADS.UnionFind import UnionFind
 from pyflow.util.typedispatch import *
 from pyflow.language.python import ast
+from pyflow.language.python import annotations
 import pyflow.optimization.simplify as simplify
 from pyflow.analysis import programculler
 from pyflow.analysis import tools
@@ -670,17 +671,29 @@ def _fix_invocation_annotations_after_clone(prgm, cloner):
         prgm: Program with cloned code
         cloner: ProgramCloner with context mapping information
     """
-    # Build a mapping from old contexts to new contexts
-    # This is complex because cloner uses UnionFind and context groups
-    # For now, we add a warning comment that this is a known issue
-    # A full fix would require tracking the context remapping through the clone process
+    live_code = set(getattr(prgm, "liveCode", ()))
 
-    # TODO: Implement full context remapping for invocation annotations
-    # This requires:
-    # 1. Track old_context -> new_context mapping during clone
-    # 2. Walk all live code and update op.annotation.invokes
-    # 3. Update both invokes[0] (direct invocations) and invokes[1] (context-specific)
-    pass
+    for code in live_code:
+        ops = tools.codeOps(code)
+        for op in ops:
+            op_ann = getattr(op, "annotation", None)
+            invokes = getattr(op_ann, "invokes", None)
+            if not invokes:
+                continue
+
+            contextual = []
+            for cindex, cinvokes in enumerate(invokes[1]):
+                filtered = []
+                for target_code, target_context in cinvokes:
+                    if target_code not in live_code:
+                        continue
+                    target_contexts = getattr(target_code.annotation, "contexts", ())
+                    if target_context not in target_contexts:
+                        continue
+                    filtered.append((target_code, target_context))
+                contextual.append(annotations.annotationSet(filtered))
+
+            op.rewriteAnnotation(invokes=annotations.makeContextualAnnotation(contextual))
 
 
 def evaluate(compiler, prgm):

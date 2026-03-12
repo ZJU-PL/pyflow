@@ -6,6 +6,7 @@ including closures, descriptors, aliasing, and exception handling.
 """
 
 import pytest
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 from pyflow.language.python import ast
 from pyflow.optimization import argumentnormalization, clone, methodcall
@@ -28,21 +29,16 @@ def test_argument_normalization_blocks_closure_capture():
     # Should detect that vparam is referenced
     assert checker.found
 
-    # Test the in_closure flag tracking
-    # The visitCode method should set in_closure=True when entering nested code
+    # Test persistent closure-capture tracking.
     checker2 = argumentnormalization._ContainsLocalRef(vparam)
     assert checker2.in_closure == False  # Initially False
 
     # Create a mock Code node
     mock_code = Mock()
-    mock_code.visitChildren = Mock()
+    mock_code.visitChildren = Mock(side_effect=lambda visitor: visitor(vparam))
 
-    # Call visitCode - it should set in_closure temporarily
-    old_in_closure = checker2.in_closure
     checker2.visitCode(mock_code)
-    # After visiting, in_closure is restored to old value
-    # The test verifies the method exists and can be called
-    assert hasattr(checker2, 'in_closure')
+    assert checker2.found_in_closure is True
 
 
 def test_argument_normalization_blocks_methods():
@@ -96,7 +92,7 @@ def test_method_call_optimization_checks_single_target():
     rewriter.flow = Mock()
     rewriter.flow.lookup = Mock(return_value=("expr", "name", "meth"))
 
-    # Should return False due to multiple targets
+    # Should return False because public rewriting is conservatively disabled.
     is_method, expr, name = rewriter.isMethodCall(node, "meth")
     assert not is_method
 
@@ -169,16 +165,46 @@ def test_store_elimination_checks_aliasing():
         assert result in (True, False, None)  # Accept any valid return value
 
 
-def test_clone_warns_about_invocation_annotation_fixup():
-    """Test that clone pass has TODO for fixing invocation annotations."""
+def test_clone_fixup_filters_invocations_to_live_code():
+    """Clone fixup should drop invocation targets that no longer exist in liveCode."""
     from pyflow.optimization.clone import _fix_invocation_annotations_after_clone
 
+    live_code = Mock()
+    live_code.annotation = SimpleNamespace(contexts=("ctx",))
+    dead_code = Mock()
+    dead_code.annotation = SimpleNamespace(contexts=("dead_ctx",))
+    op = Mock()
+    op.annotation = SimpleNamespace(invokes=((), [((live_code, "ctx"), (dead_code, "dead_ctx"))]))
+    op.rewriteAnnotation = Mock()
+    code = Mock()
     program = Mock()
+    program.liveCode = {code, live_code}
     cloner = Mock()
 
-    # This function currently does nothing (has TODO comment)
-    # Just verify it doesn't crash
-    _fix_invocation_annotations_after_clone(program, cloner)
+    with patch("pyflow.optimization.clone.tools.codeOps", return_value=[op]):
+        _fix_invocation_annotations_after_clone(program, cloner)
+
+    rewritten_invokes = op.rewriteAnnotation.call_args.kwargs["invokes"]
+    assert tuple(rewritten_invokes[1][0]) == ((live_code, "ctx"),)
+
+
+def test_clone_fixup_tolerates_missing_contexts():
+    """Clone fixup should drop targets whose contexts disappeared during rewriting."""
+    from pyflow.optimization.clone import _fix_invocation_annotations_after_clone
+
+    target = Mock()
+    target.annotation = SimpleNamespace(contexts=("other",))
+    op = Mock()
+    op.annotation = SimpleNamespace(invokes=((), [((target, "missing"),)]))
+    op.rewriteAnnotation = Mock()
+    code = Mock()
+    program = Mock(liveCode={code, target})
+
+    with patch("pyflow.optimization.clone.tools.codeOps", return_value=[op]):
+        _fix_invocation_annotations_after_clone(program, Mock())
+
+    rewritten_invokes = op.rewriteAnnotation.call_args.kwargs["invokes"]
+    assert tuple(rewritten_invokes[1][0]) == ()
 
 
 def test_simplify_change_detection_includes_annotations():

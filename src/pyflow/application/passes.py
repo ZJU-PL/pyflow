@@ -420,6 +420,10 @@ def register_standard_passes(pass_manager):
             opt_pass = pass_manager.passes[opt_name]
             opt_pass.info.dependencies.add("simplify")
 
+    if "clone" in pass_manager.passes:
+        pass_manager.passes["clone"].info.dependencies.add("lifetime")
+        pass_manager.passes["clone"].info.requirements.add("lifetime")
+
     if "inlining" in pass_manager.passes:
         # Legacy sequencing requires argument normalization before inlining.
         pass_manager.passes["inlining"].info.dependencies.add("argument_normalization")

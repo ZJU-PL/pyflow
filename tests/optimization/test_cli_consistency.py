@@ -68,9 +68,9 @@ def test_all_optimization_passes_have_descriptions():
         assert len(description) > 10, f"Pass '{pass_name}' has too short description"
 
 
-def test_experimental_inlining_has_warning():
-    """Test that experimental inlining pass has warning in description."""
-    assert "EXPERIMENTAL" in OPTIMIZATION_PASSES["inlining"].upper()
+def test_public_cli_omits_disabled_inlining_pass():
+    """Inlining is not publicly exposed while semantic guards are incomplete."""
+    assert "inlining" not in OPTIMIZATION_PASSES
 
 
 def test_pass_manager_rejects_unknown_passes():
@@ -154,7 +154,8 @@ def test_cli_help_text_matches_registered_passes():
         "first_pass_clone", "first_pass_argument_normalization",
         "first_pass_cull_program", "first_pass_store_elimination",
         "first_pass_complete", "ipa_refresh", "cpa_path_sensitive",
-        "lifetime_refresh", "simplify_final", "store_elimination_final"
+        "lifetime_refresh", "simplify_final", "store_elimination_final",
+        "inlining",
     }
 
     # All registered optimization passes should be in CLI
