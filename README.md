@@ -1,7 +1,13 @@
 
-# PyFlow: A Static Analysis Framework for Python
+# PyFlow: Static Analysis and Optimization for Python
 
-pyflow is a program analysis and optimization framework for Python.
+PyFlow is a static analysis and optimization framework for Python. It combines
+program analysis infrastructure, experimental optimization passes, and security
+checking in a single research-oriented toolkit.
+
+Current status: **alpha**. The project already contains substantial analysis
+and testing infrastructure, but APIs, pass behavior, and CLI details are still
+evolving.
 
 If you use pyflow in your research or work, please cite the following:
 ~~~~
@@ -14,6 +20,16 @@ If you use pyflow in your research or work, please cite the following:
 }
 ~~~~
 
+
+## What PyFlow includes
+
+- **Program analysis**: CFG, call graph, IFDS/dataflow, IPA, CPA, shape, and
+  lifetime analysis infrastructure
+- **Optimization pipeline**: modular passes such as simplify, method-call
+  optimization, cloning, argument normalization, and load/store elimination
+- **Security checking**: pattern-based and semantic security analysis
+- **CLI tooling**: commands for optimization, call graph generation, IR dumps,
+  security analysis, and dataflow analysis
 
 ## Installation and Usage
 
@@ -33,14 +49,24 @@ pip install -e .
 
 
 ```bash
-# Basic optimization
+# Basic optimization pipeline
 pyflow optimize input.py
 
 # Dump AST for a specific function
 pyflow optimize input.py --dump-ast function_name
+
+# Generate a call graph
+pyflow callgraph input.py
+
+# Run security checks
+pyflow security input.py
+
+# Run IFDS/IDE-style dataflow analyses
+pyflow dataflow input.py --help
 ```
 
-See [CLI.md](CLI.md) for detailed documentation of all CLI options.
+See [CLI.md](CLI.md) for the command reference and `docs/` for broader project
+documentation.
 
 ### Running Tests
 
@@ -57,7 +83,7 @@ pytest tests/checker
 
 ## Development
 
-### Project Structure
+The repository is organized around a few major subsystems:
 
 - `src/pyflow/analysis`: core analysis engines such as call graph, CFG, IFDS, IPA, CPA, shape, and lifetime analysis.
 - `src/pyflow/application`: orchestration code including compiler context, pipeline execution, and the pass manager.
@@ -69,4 +95,12 @@ pytest tests/checker
 - `src/pyflow/optimization`: optimization and simplification passes.
 - `src/pyflow/stubs`: builtin/runtime modeling used during analysis.
 - `tests`: focused coverage for analysis, frontend, checker, integration, and API regressions.
+
+## Project maturity and expectations
+
+PyFlow is best viewed today as an ambitious, actively developed framework for
+research, experimentation, and advanced static-analysis prototyping. The codebase
+has broad subsystem coverage and a large test suite, but documentation and some
+subsystems are still catching up with the implementation. If you are evaluating
+the project, expect strong technical depth with some rough edges.
 

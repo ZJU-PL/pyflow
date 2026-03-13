@@ -1,7 +1,11 @@
 Command Line Interface
 ======================
 
-PyFlow provides a comprehensive CLI for static analysis, optimization, and security checking of Python code.
+PyFlow provides a CLI for static analysis, optimization, IR inspection,
+security checking, and dataflow-oriented analysis of Python code.
+
+This page summarizes the most important commands. For the authoritative option
+reference used by the repository today, also see ``CLI.md`` in the project root.
 
 Main Commands
 =============
@@ -17,13 +21,13 @@ Generate and analyze call graphs from Python code.
 ::
 
   pyflow callgraph input.py --format dot --output callgraph.dot
-  pyflow callgraph package/ --recursive --algorithm pycg
+  pyflow callgraph input.py --show-cycles --max-depth 5
 
 Options:
 - ``--format``: Output format (dot, json, text)
 - ``--output``: Output file path
-- ``--algorithm``: Call graph algorithm (ast, pycg)
-- ``--recursive``: Analyze directories recursively
+- ``--max-depth``: Limit call depth
+- ``--show-cycles``: Report cycles in the call graph
 
 **pyflow ir**
 ~~~~~~~~~~~~~
@@ -32,14 +36,16 @@ Visualize intermediate representations and analysis results.
 
 ::
 
-  pyflow ir input.py --dump-cfg --output cfg.dot
-  pyflow ir input.py --dump-ssa --function main
+  pyflow ir input.py --dump-cfg main --dump-format dot
+  pyflow ir input.py --dump-ssa main
 
 Options:
-- ``--dump-cfg``: Dump control flow graph
-- ``--dump-ssa``: Dump SSA form
-- ``--dump-analysis``: Dump analysis results
-- ``--function``: Focus on specific function
+- ``--dump-ast FUNCTION``: Dump AST for a named function
+- ``--dump-cfg FUNCTION``: Dump CFG for a named function
+- ``--dump-ssa FUNCTION``: Dump SSA for a named function
+- ``--dump-format``: Output format (text, dot, json)
+- ``--dump-output``: Directory for emitted artifacts
+- ``--recursive`` / ``--include`` / ``--exclude``: Control file selection
 
 Optimization Commands
 ---------------------
@@ -53,15 +59,16 @@ Apply optimization passes to Python code.
 
   pyflow optimize input.py
   pyflow optimize input.py --opt-passes simplify methodcall
-  pyflow optimize input.py --suggest-only
-  pyflow optimize input.py --dump --output analysis.txt
+  pyflow optimize --list-opt-passes
+  pyflow optimize input.py --dump-cfg main --dump-format dot
 
 Options:
 - ``--opt-passes``: Space-separated list of optimization passes
 - ``--list-opt-passes``: List available optimization passes
-- ``--suggest-only``: Report optimization opportunities without running transforming passes
-- ``--apply-optimizations``: Explicitly run optimization passes (also the default)
-- ``--output``: Output file for dumped analysis results
+- ``--no-opt-passes``: Run analysis without optimization passes
+- ``--dump-ast FUNCTION`` / ``--dump-cfg FUNCTION``: Inspect IR around optimization
+- ``--dump-format``: Output format (text, dot, json)
+- ``--dump-output``: Directory for emitted artifacts
 
 Available passes include ``simplify``, ``methodcall``, ``clone``,
 ``argumentnormalization``, ``cullprogram``, ``loadelimination``,
@@ -90,6 +97,21 @@ Options:
 The security command uses the pattern-based checker engine for fast AST pattern matching.
 For deep semantic analysis, use the semantic checker via the PyFlow API.
 
+Dataflow Command
+----------------
+
+**pyflow dataflow**
+~~~~~~~~~~~~~~~~~~~
+
+Run IFDS/IDE-backed dataflow analyses.
+
+::
+
+  pyflow dataflow input.py --help
+
+The exact analyses and options available may evolve as the dataflow subsystem
+continues to mature.
+
 Global Options
 ==============
 
@@ -99,30 +121,6 @@ Common options available across all commands:
 - ``--quiet, -q``: Suppress output
 - ``--help``: Show help information
 - ``--version``: Show version information
-
-Configuration
-=============
-
-PyFlow can be configured via:
-
-1. **Command line options**: Direct configuration per command
-2. **Configuration files**: YAML/JSON files for persistent settings
-3. **Environment variables**: PYFLOW_* prefixed variables
-
-Example configuration file:
-
-.. code-block:: yaml
-
-  analysis:
-    callgraph:
-      algorithm: pycg
-      format: json
-  optimization:
-    passes: [fold, dce, inline]
-    benchmark: true
-  security:
-    recursive: true
-    exclude: [tests/, .venv/]
 
 Integration
 ===========
@@ -137,10 +135,10 @@ PyFlow integrates with CI/CD pipelines:
   # GitHub Actions example
   - name: Run PyFlow analysis
     run: |
-      pyflow callgraph src/ --format json --output callgraph.json
+      pyflow callgraph src/main.py --format json --output callgraph.json
       pyflow security src/ --recursive
-      pyflow optimize src/main.py --opt-passes all
-      pyflow optimize src/main.py --dump --output optimization-analysis.txt
+      pyflow optimize src/main.py --opt-passes simplify dce
+      pyflow ir src/main.py --dump-cfg main --dump-format dot
 
 IDE Integration
 ---------------

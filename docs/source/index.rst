@@ -1,9 +1,15 @@
 Welcome to PyFlow's Documentation!
 ==================================
 
-PyFlow is a comprehensive static analysis and compilation framework for Python
-code. It provides advanced analysis capabilities for understanding, optimizing,
-and securing Python programs without execution.
+PyFlow is a static analysis and optimization framework for Python. It provides
+analysis infrastructure, experimental compiler-style transformations, and
+security checking for Python programs without executing them.
+
+.. note::
+
+   PyFlow is currently an **alpha-stage** project. The architecture is already
+   substantial and the test suite is broad, but parts of the public interface
+   and documentation are still evolving.
 
 If you are new to PyFlow, start with the :ref:`tutorials`.
 
@@ -25,16 +31,16 @@ If you are new to PyFlow, start with the :ref:`tutorials`.
 
     explanation/index
 
-QT|.. toctree::
-NQ|    :maxdepth: 2
-SW|    :caption: Reference
-SZ|
-KY|    cli
-VY|    api
-RR|    analysis/index
-RR|    optimization/index
-NS|    checker/sec
-MV|
+.. toctree::
+    :maxdepth: 2
+    :caption: Reference
+
+    cli
+    api
+    analysis/index
+    optimization/index
+    checker/sec
+
 ================================================================================
 
 What is PyFlow?
@@ -46,6 +52,13 @@ PyFlow is designed to be a powerful tool for:
 - **Code Optimization**: Compiler-level optimizations for Python code
 - **Security Analysis**: Automated vulnerability detection and security checking
 - **Research**: Advancing static analysis techniques for dynamic languages
+
+It is particularly well suited to:
+
+- experimenting with static-analysis ideas for Python,
+- inspecting intermediate representations such as AST/CFG/SSA,
+- evaluating optimization passes over a shared program model, and
+- building query or checker features on top of existing analyses.
 
 Installation
 ============
@@ -78,6 +91,9 @@ After installation, use PyFlow's command-line interface:
 
    # Visualize intermediate representations
    pyflow ir input.py --dump-cfg function_name
+
+   # Explore available optimization passes
+   pyflow optimize --list-opt-passes
 
 Documentation Structure
 =======================

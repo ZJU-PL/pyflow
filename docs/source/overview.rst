@@ -1,17 +1,27 @@
 Overview
 ========
 
-===============
 What is PyFlow?
 ===============
 
-PyFlow is a comprehensive static analysis and compilation framework for Python code. It provides a rich set of analysis capabilities that enable deep understanding and optimization of Python programs without requiring their execution.
+PyFlow is a static analysis and optimization framework for Python. It provides
+a rich set of program analyses that support understanding, transforming, and
+checking Python code without executing it.
 
-PyFlow is built around a modular architecture that separates concerns into distinct analysis domains, making it both powerful and extensible for research and practical applications.
+The project is organized as a modular toolkit: frontends and language modeling
+feed shared intermediate representations, analyses build on one another, and the
+application layer coordinates pipelines, passes, and query APIs. This makes the
+repo especially suitable for research prototypes and for adding new analyses or
+optimizations incrementally.
 
-===============
+.. note::
+
+   PyFlow is currently alpha-stage software. Many core ideas are implemented and
+   tested, but some documentation, naming, and subsystem polish still lag behind
+   the breadth of the implementation.
+
 Key Features
-===============
+============
 
 Static Analysis Capabilities
 ----------------------------
@@ -42,8 +52,8 @@ Static Analysis Capabilities
   - Support for list, dictionary, and custom object shapes
 
 **Call Graph Analysis**
-  - Multiple algorithms for call graph construction
-  - AST-based and PyCG-based approaches
+  - Multiple approaches for call graph construction
+  - AST-based, PyCG-based, and constraint-based support in the codebase
   - Support for dynamic dispatch and complex calling patterns
 
 Optimization Capabilities
@@ -74,10 +84,8 @@ Optimization Capabilities
   - Elimination of indirect calls where possible
   - Support for complex inheritance hierarchies
 
-
-===============
 Architecture
-===============
+============
 
 PyFlow is built around a modular architecture with clear separation of concerns:
 
@@ -90,11 +98,6 @@ PyFlow is built around a modular architecture with clear separation of concerns:
   - Compiler optimization passes
   - Data flow-based optimizations
   - Integration with analysis results
-
-**Decompiler Layer** (`src/pyflow/decompiler/`)
-  - Bytecode analysis and decompilation
-  - AST reconstruction from bytecode
-  - Integration with analysis pipeline
 
 **Application Layer** (`src/pyflow/application/`)
   - High-level program representation
@@ -110,3 +113,25 @@ PyFlow is built around a modular architecture with clear separation of concerns:
   - Command-line interface
   - Integration with analysis and optimization
   - Support for various output formats
+
+Repository status in practice
+=============================
+
+From a contributor's perspective, the repository already has several strong
+signals:
+
+- a broad and well-partitioned source tree,
+- an extensive automated test suite,
+- packaging and CLI entry points,
+- dedicated examples and evaluation assets, and
+- separate documentation for architecture and commands.
+
+At the same time, new contributors should expect some rough edges:
+
+- terminology is not fully uniform across README, package metadata, and docs,
+- some docs describe aspirational or older interfaces,
+- there are many TODO markers across advanced subsystems, and
+- some features are clearly more mature than others.
+
+The best way to think about PyFlow today is as a serious, evolving analysis
+framework with substantial depth, rather than a fully productized end-user tool.
