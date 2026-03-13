@@ -304,8 +304,9 @@ def evaluate(compiler, prgm):
         RuntimeError: If lifetime analysis annotations are missing or stale
     """
     with compiler.console.scope("redundant load elimination"):
-        # CRITICAL FIX #1: Verify lifetime analysis has run
-        if hasattr(prgm, 'lifetime_analysis') and prgm.lifetime_analysis is None:
+        # Require a fresh lifetime pass result rather than trusting possibly-stale
+        # annotations left on code objects after earlier transformations.
+        if getattr(prgm, "lifetime_analysis", None) is None:
             raise RuntimeError(
                 "Load elimination requires lifetime analysis. "
                 "Ensure 'lifetime' pass has run before 'load_elimination'."

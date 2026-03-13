@@ -119,7 +119,7 @@ def test_run_optimization_passes_all_includes_experimental_inlining(monkeypatch)
 
     optimize.run_optimization_passes(compiler, program, ["all"], args)
 
-    assert seen["default"] == [{"include_experimental_inlining": False}]
+    assert seen["default"] == [{"include_experimental_inlining": True}]
     assert seen["custom"] == []
 
 

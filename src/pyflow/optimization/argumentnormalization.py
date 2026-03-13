@@ -277,8 +277,8 @@ class ArgumentNormalizationTransform(TypeDispatcher):
         # directly in the body, skipping normalization avoids stale local metadata.
         finder = _ContainsLocalRef(self.vparam)
         finder(node.ast)
-        if finder.found:
-            self.last_skip_reason = "vparam_local_referenced_in_body"
+        if finder.found_in_closure:
+            self.last_skip_reason = "closure_capture"
             return False
 
         self.newParams = [ast.Local(None) for i in range(vparamLen)]

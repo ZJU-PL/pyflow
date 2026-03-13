@@ -12,29 +12,35 @@ from pyflow.application.passmanager import PassManager
 from pyflow.application.passes import register_standard_passes
 
 
+class _Scope:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+
+def _compiler():
+    compiler = Mock()
+    compiler.console = Mock()
+    compiler.console.scope = Mock(return_value=_Scope())
+    compiler.console.output = Mock()
+    return compiler
+
+
 def test_store_elimination_requires_lifetime_analysis():
     """Test that store_elimination checks for lifetime_analysis attribute."""
     from pyflow.optimization import storeelimination
     from pyflow.language.python import ast
 
-    compiler = Mock()
-    compiler.console = Mock()
-    compiler.console.scope = Mock()
-    compiler.console.scope.return_value.__enter__ = Mock()
-    compiler.console.scope.return_value.__exit__ = Mock()
-    compiler.console.output = Mock()
+    compiler = _compiler()
 
     program = Program()
     program.liveCode = set()
     program.lifetime_analysis = None  # Explicitly None
 
-    # Call storeelimination directly - it should check lifetime_analysis
-    # When there's no annotation data and lifetime_analysis is None, it should raise
-    result = storeelimination.evaluate(compiler, program)
-
-    # Should return False (skipped) since there's no code
-    # (returns None when no loads, which is falsy)
-    assert not result
+    with pytest.raises(RuntimeError, match="requires lifetime analysis"):
+        storeelimination.evaluate(compiler, program)
 
 
 def test_store_elimination_dependency_on_lifetime():
@@ -52,21 +58,14 @@ def test_load_elimination_requires_lifetime_analysis():
     """Test that load_elimination checks for lifetime_analysis attribute."""
     from pyflow.optimization import loadelimination
 
-    compiler = Mock()
-    compiler.console = Mock()
-    compiler.console.scope = Mock()
-    compiler.console.scope.return_value.__enter__ = Mock()
-    compiler.console.scope.return_value.__exit__ = Mock()
-    compiler.console.output = Mock()
+    compiler = _compiler()
 
     program = Program()
     program.liveCode = set()
     program.lifetime_analysis = None
 
-    # When lifetime_analysis is None and there's code, should raise
-    # But with no code, it just returns False (or None)
-    result = loadelimination.evaluate(compiler, program)
-    assert not result
+    with pytest.raises(RuntimeError, match="requires lifetime analysis"):
+        loadelimination.evaluate(compiler, program)
 
 
 def test_load_elimination_dependency_on_lifetime():
@@ -89,12 +88,7 @@ def test_optimization_pass_invalidates_analysis():
     program.cpa_analysis = Mock()
     program.lifetime_analysis = Mock()
 
-    compiler = Mock()
-    compiler.console = Mock()
-    compiler.console.scope = Mock()
-    compiler.console.scope.return_value.__enter__ = Mock()
-    compiler.console.scope.return_value.__exit__ = Mock()
-    compiler.console.output = Mock()
+    compiler = _compiler()
 
     # Mock simplify to return changed=True
     with patch("pyflow.application.passes.simplify.evaluate", return_value=True), \
@@ -115,12 +109,7 @@ def test_analysis_pass_preserves_results():
 
     program = Program()
 
-    compiler = Mock()
-    compiler.console = Mock()
-    compiler.console.scope = Mock()
-    compiler.console.scope.return_value.__enter__ = Mock()
-    compiler.console.scope.return_value.__exit__ = Mock()
-    compiler.console.output = Mock()
+    compiler = _compiler()
 
     mock_ipa_result = Mock()
 
@@ -144,12 +133,7 @@ def test_transformation_clears_cache():
 
     program = Program()
 
-    compiler = Mock()
-    compiler.console = Mock()
-    compiler.console.scope = Mock()
-    compiler.console.scope.return_value.__enter__ = Mock()
-    compiler.console.scope.return_value.__exit__ = Mock()
-    compiler.console.output = Mock()
+    compiler = _compiler()
 
     # Run analysis and cache it
     with patch("pyflow.application.passes.cpa.evaluate", return_value=Mock()):
@@ -171,12 +155,7 @@ def test_stale_annotation_detection():
     program = Program()
     program.liveCode = set()
 
-    compiler = Mock()
-    compiler.console = Mock()
-    compiler.console.scope = Mock()
-    compiler.console.scope.return_value.__enter__ = Mock()
-    compiler.console.scope.return_value.__exit__ = Mock()
-    compiler.console.output = Mock()
+    compiler = _compiler()
 
     # Run lifetime analysis
     with patch("pyflow.application.passes.lifetimeanalysis.evaluate", return_value=Mock()), \
@@ -228,12 +207,7 @@ def test_two_pass_pipeline_recomputes_analysis():
 
     program = Program()
 
-    compiler = Mock()
-    compiler.console = Mock()
-    compiler.console.scope = Mock()
-    compiler.console.scope.return_value.__enter__ = Mock()
-    compiler.console.scope.return_value.__exit__ = Mock()
-    compiler.console.output = Mock()
+    compiler = _compiler()
 
     ipa_call_count = 0
 

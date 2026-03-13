@@ -156,7 +156,7 @@ def _run_default_pipeline(
         program,
         compiler=compiler,
         name=name,
-        include_experimental_inlining=False,
+        include_experimental_inlining=include_experimental_inlining,
     )
 
 
@@ -586,7 +586,9 @@ def run_optimization_passes(compiler, program, passes, args=None):
                 compiler,
                 program,
                 "cli_optimize_all",
-                include_experimental_inlining=False,
+                include_experimental_inlining=getattr(
+                    args, "experimental_inlining", False
+                ),
             )
             compiler.console.output("Completed full optimization pipeline")
             return

@@ -35,6 +35,12 @@ def evaluate(compiler, prgm, simplify=False):
         bool: True if any stores were eliminated, False otherwise
     """
     with compiler.console.scope("dead store elimination"):
+        if getattr(prgm, "lifetime_analysis", None) is None:
+            raise RuntimeError(
+                "Dead store elimination requires lifetime analysis. "
+                "Ensure 'lifetime' pass has run before 'store_elimination'."
+            )
+
         live = set()
         stores = collections.defaultdict(list)
 
@@ -54,16 +60,6 @@ def evaluate(compiler, prgm, simplify=False):
                     stores[code].append(op)
 
         if not saw_annotation_data:
-            # CRITICAL FIX #1: Abort if lifetime annotations are missing
-            # Using stale or missing annotations can cause miscompilation
-            error_msg = (
-                "Dead store elimination requires lifetime analysis annotations. "
-                "Ensure 'lifetime' pass has run before 'store_elimination'."
-            )
-            if hasattr(prgm, 'lifetime_analysis') and prgm.lifetime_analysis is None:
-                raise RuntimeError(
-                    error_msg + " Program has no lifetime_analysis results."
-                )
             compiler.console.output(
                 "Skipping dead store elimination: missing read/modify annotations."
             )
@@ -99,15 +95,6 @@ def evaluate(compiler, prgm, simplify=False):
                             break
                         if modify.object.leaks:
                             # Object leaks memory, preserve store
-                            is_live = True
-                            break
-
-                        # FIX #13: Check for aliasing
-                        # If any alias of this location is live, preserve the store
-                        # This is conservative - we check if the object might be aliased
-                        # A more precise check would use alias analysis from lifetime
-                        if hasattr(modify.object, 'references') and modify.object.references:
-                            # Object has references, might be aliased
                             is_live = True
                             break
 

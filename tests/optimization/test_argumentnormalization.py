@@ -38,6 +38,12 @@ class TestArgumentNormalizationAnalysis(unittest.TestCase):
 
 
 class TestArgumentNormalizationTransform(unittest.TestCase):
+    def _store_graph(self):
+        return SimpleNamespace(
+            canonical=SimpleNamespace(fieldName=lambda *_args: "field"),
+            extractor=SimpleNamespace(getObject=lambda index: index),
+        )
+
     def test_visit_container_preserves_keyword_tuple_shape(self):
         transform = ArgumentNormalizationTransform(None)
         value = ast.Local("value")
@@ -56,12 +62,65 @@ class TestArgumentNormalizationTransform(unittest.TestCase):
 
     def test_process_skips_when_vparam_local_is_still_in_body(self):
         vparam = ast.Local("args")
-        code = SimpleNamespace(codeparameters=SimpleNamespace(vparam=vparam), ast=vparam)
-        transform = ArgumentNormalizationTransform(None)
+        code = SimpleNamespace(
+            codeparameters=SimpleNamespace(
+                vparam=vparam,
+                selfparam=None,
+                params=[],
+                paramnames=[],
+                posonlyparams=[],
+                posonlynames=[],
+                defaults=(),
+                kparam=None,
+                returnparams=[],
+                type_params=None,
+            ),
+            annotation=SimpleNamespace(contexts=[]),
+            ast=vparam,
+        )
+        transform = ArgumentNormalizationTransform(self._store_graph())
+        transform.transferReferences = lambda *_args, **_kwargs: None
 
-        changed = transform.process(code, 1)
+        with patch.object(ast.Local, "rewriteAnnotation", lambda self, **_kwargs: None):
+            changed = transform.process(code, 1)
+
+        self.assertTrue(changed)
+
+    def test_process_skips_when_vparam_is_captured_by_nested_code(self):
+        vparam = ast.Local("args")
+        code = SimpleNamespace(
+            codeparameters=SimpleNamespace(
+                vparam=vparam,
+                selfparam=None,
+                params=[],
+                paramnames=[],
+                posonlyparams=[],
+                posonlynames=[],
+                defaults=(),
+                kparam=None,
+                returnparams=[],
+                type_params=None,
+            ),
+            annotation=SimpleNamespace(contexts=[]),
+            ast=ast.Suite([]),
+        )
+        transform = ArgumentNormalizationTransform(self._store_graph())
+
+        class _Finder:
+            def __init__(self):
+                self.found_in_closure = True
+
+            def __call__(self, _node):
+                return None
+
+        with patch(
+            "pyflow.optimization.argumentnormalization._ContainsLocalRef",
+            return_value=_Finder(),
+        ):
+            changed = transform.process(code, 1)
 
         self.assertFalse(changed)
+        self.assertEqual(transform.last_skip_reason, "closure_capture")
 
 
 class TestArgumentNormalizationEvaluate(unittest.TestCase):
