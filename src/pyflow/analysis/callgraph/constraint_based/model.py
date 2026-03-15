@@ -175,7 +175,7 @@ class ScopeResult:
     module_binding_changed: bool
     changed_instance_fields: Set[Tuple[str, str]]
     changed_class_fields: Set[Tuple[str, str]]
-    changed_container_state: bool
+    changed_container_keys: Set[Tuple[str, str]]
     nonlocal_binding_changed: bool
     singledispatch_changed: bool
 
@@ -231,7 +231,8 @@ def make_partial(kind: str, name: str) -> AbstractValue:
 
 
 def parse_partial(value: AbstractValue) -> Tuple[str, str]:
-    return value.name.split("|", 1)
+    kind, _sep, name = value.name.partition("|")
+    return kind, name
 
 
 def make_string(name: str) -> AbstractValue:

@@ -715,9 +715,24 @@ class _ResolverMixin:
                             (target_value.name, attr_name)
                         )
 
-    def _note_container_state_changed(self) -> None:
+    def _note_container_state_changed(
+        self,
+        container_name: str,
+        key_name: str = "*",
+    ) -> None:
         if self._active_changed_container_state is not None:
-            self._active_changed_container_state = True
+            self._active_changed_container_state.add((container_name, key_name))
+
+    def _register_container_read(
+        self,
+        container_name: str,
+        key_names: Set[str] | None = None,
+    ) -> None:
+        if key_names:
+            for key_name in key_names:
+                self._register_container_dependency(container_name, key_name)
+            return
+        self._register_container_dependency(container_name, "*")
 
     def _mark_container_key_maybe_missing(
         self,
@@ -734,7 +749,11 @@ class _ResolverMixin:
             missing_keys.update(normalized_keys)
             changed = changed or len(missing_keys) != before
         if changed:
-            self._note_container_state_changed()
+            for target_value in target_values:
+                if target_value.kind != CONTAINER_KIND:
+                    continue
+                for key_name in normalized_keys:
+                    self._note_container_state_changed(target_value.name, key_name)
 
     def _clear_container_key_maybe_missing(
         self,
@@ -758,7 +777,12 @@ class _ResolverMixin:
                 missing_keys.discard("*")
                 changed = True
         if changed:
-            self._note_container_state_changed()
+            for target_value in target_values:
+                if target_value.kind != CONTAINER_KIND:
+                    continue
+                for key_name in key_names:
+                    self._note_container_state_changed(target_value.name, key_name)
+                self._note_container_state_changed(target_value.name, "*")
 
     def _container_key_maybe_missing(
         self,
@@ -991,6 +1015,7 @@ class _ResolverMixin:
 
             for unpacked in values:
                 if unpacked.kind == CONTAINER_KIND:
+                    self._register_container_read(unpacked.name)
                     key_map = self.container_key_values.get(unpacked.name, {})
                     if key_map:
                         for key_name, key_values in key_map.items():
@@ -1316,17 +1341,21 @@ class _ResolverMixin:
                                     preserve_callables=True,
                                 )
                                 if changed:
-                                    self._note_container_state_changed()
+                                    self._note_container_state_changed(receiver_dict, "*")
+                                self._register_container_read(source_dict)
                                 source_key_map = self.container_key_values.get(
                                     source_dict, {}
                                 )
                                 for key_name, key_values in source_key_map.items():
+                                    self._register_container_read(source_dict, {key_name})
                                     if self._merge_value_set(
                                         self.container_key_values[receiver_dict][key_name],
                                         set(key_values),
                                         preserve_callables=True,
                                     ):
-                                        self._note_container_state_changed()
+                                        self._note_container_state_changed(
+                                            receiver_dict, key_name
+                                        )
                     out.add(UNKNOWN_VALUE)
                 elif callee_name in {
                     "<**PyDict**>.items",
@@ -1354,6 +1383,7 @@ class _ResolverMixin:
                         if receiver.kind != CONTAINER_KIND:
                             continue
                         key_map = self.container_key_values.get(receiver.name, {})
+                        self._register_container_read(receiver.name, key_names)
                         if key_names:
                             for key_name in key_names:
                                 existing = key_map.get(key_name, set())
@@ -1370,6 +1400,7 @@ class _ResolverMixin:
                                 for key_values in key_map.values():
                                     matched_values.update(key_values)
                             else:
+                                self._register_container_read(receiver.name)
                                 matched_values.update(
                                     self.container_elements.get(receiver.name, set())
                                 )
@@ -1399,6 +1430,7 @@ class _ResolverMixin:
                         if receiver.kind != CONTAINER_KIND:
                             continue
                         key_map = self.container_key_values.get(receiver.name, {})
+                        self._register_container_read(receiver.name, key_names)
                         if key_names:
                             for key_name in key_names:
                                 existing = key_map.get(key_name, set())
@@ -1411,18 +1443,21 @@ class _ResolverMixin:
                                         set(default_values),
                                         preserve_callables=True,
                                     ):
-                                        self._note_container_state_changed()
+                                        self._note_container_state_changed(
+                                            receiver.name, key_name
+                                        )
                                     if self._merge_value_set(
                                         self.container_elements[receiver.name],
                                         set(default_values),
                                         preserve_callables=True,
                                     ):
-                                        self._note_container_state_changed()
+                                        self._note_container_state_changed(receiver.name, "*")
                             maybe_missing = (
                                 maybe_missing
                                 or self._container_key_maybe_missing(receiver.name, key_names)
                             )
                         else:
+                            self._register_container_read(receiver.name)
                             matched_values.update(self.container_elements.get(receiver.name, set()))
                             maybe_missing = True
                     if matched_values:
@@ -1448,6 +1483,7 @@ class _ResolverMixin:
                         if receiver.kind != CONTAINER_KIND:
                             continue
                         key_map = self.container_key_values.get(receiver.name, {})
+                        self._register_container_read(receiver.name, key_names)
                         if key_names:
                             for key_name in key_names:
                                 existing = key_map.get(key_name, set())
@@ -1464,6 +1500,7 @@ class _ResolverMixin:
                                 for existing in key_map.values():
                                     popped_values.update(existing)
                             else:
+                                self._register_container_read(receiver.name)
                                 popped_values.update(
                                     self.container_elements.get(receiver.name, set())
                                 )
@@ -2031,6 +2068,7 @@ class _ResolverMixin:
             for value in values:
                 if value.kind != CONTAINER_KIND:
                     continue
+                self._register_container_read(value.name)
                 key_map = self.container_key_values.get(value.name, {})
                 for key_name, key_values in key_map.items():
                     if not key_name.startswith("#"):
@@ -2240,6 +2278,7 @@ class _ResolverMixin:
                 for parent_value in parent_values:
                     if parent_value.kind != CONTAINER_KIND:
                         continue
+                    self._register_container_read(parent_value.name, parent_keys)
                     parent_key_map = self.container_key_values.get(
                         parent_value.name, {}
                     )
@@ -2248,6 +2287,7 @@ class _ResolverMixin:
                         for key_name in parent_keys:
                             nested_values.update(parent_key_map.get(key_name, set()))
                     else:
+                        self._register_container_read(parent_value.name)
                         nested_values.update(
                             self.container_elements.get(parent_value.name, set())
                         )
@@ -2260,11 +2300,12 @@ class _ResolverMixin:
                 if base_value.kind != CONTAINER_KIND:
                     continue
                 current = self.container_elements[base_value.name]
-                changed = self._merge_value_set(
+                container_elements_changed = self._merge_value_set(
                     current, set(values), preserve_callables=True
-                ) or changed
-                if changed:
-                    self._note_container_state_changed()
+                )
+                changed = container_elements_changed or changed
+                if container_elements_changed:
+                    self._note_container_state_changed(base_value.name, "*")
                 for key_name in key_names:
                     keyed_current = self.container_key_values[base_value.name][key_name]
                     if weak:
@@ -2273,7 +2314,7 @@ class _ResolverMixin:
                         )
                         changed = key_changed or changed
                         if key_changed:
-                            self._note_container_state_changed()
+                            self._note_container_state_changed(base_value.name, key_name)
                     else:
                         replacement = self._cap_values(
                             set(values), preserve_callables=True
@@ -2281,7 +2322,9 @@ class _ResolverMixin:
                         if keyed_current != replacement:
                             self.container_key_values[base_value.name][key_name] = replacement
                             changed = True
-                            self._note_container_state_changed()
+                            self._note_container_state_changed(base_value.name, key_name)
+            if key_names:
+                self._clear_container_key_maybe_missing(base_values, key_names)
             return changed
 
         return False

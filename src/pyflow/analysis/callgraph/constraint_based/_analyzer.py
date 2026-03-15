@@ -725,7 +725,7 @@ class _AnalyzerMixin:
                 or result.module_binding_changed
                 or bool(result.changed_instance_fields)
                 or bool(result.changed_class_fields)
-                or result.changed_container_state
+                or bool(result.changed_container_keys)
                 or result.nonlocal_binding_changed
                 or result.singledispatch_changed
             )
@@ -751,11 +751,15 @@ class _AnalyzerMixin:
                 if (
                     result.changed_instance_fields
                     or result.changed_class_fields
-                    or result.changed_container_state
+                    or result.changed_container_keys
                 ):
                     self._global_heap_stamp += 1
-                if result.changed_container_state:
-                    impacted.update(self._known_scope_contexts())
+                if result.changed_container_keys:
+                    impacted.update(
+                        self._container_impacted_scope_contexts(
+                            result.changed_container_keys
+                        )
+                    )
                 if result.singledispatch_changed:
                     impacted.update(self._known_scope_contexts())
                 for candidate in impacted:
@@ -770,6 +774,7 @@ class _AnalyzerMixin:
                         result.module_binding_changed
                         or result.changed_instance_fields
                         or result.changed_class_fields
+                        or result.changed_container_keys
                     ):
                         reason_weight = max(reason_weight, 3)
                     _enqueue(
@@ -816,7 +821,7 @@ class _AnalyzerMixin:
         self._active_scope_context = scope_ctx_key
         self._active_changed_instance_fields = set()
         self._active_changed_class_fields = set()
-        self._active_changed_container_state = False
+        self._active_changed_container_state = set()
         self._active_changed_closure_scopes = set()
         self._active_singledispatch_changed = False
         self._register_module_dependency(scope.module, scope_ctx_key)
@@ -918,7 +923,7 @@ class _AnalyzerMixin:
                 module_binding_changed=module_binding_changed,
                 changed_instance_fields=changed_instance_fields,
                 changed_class_fields=changed_class_fields,
-                changed_container_state=bool(self._active_changed_container_state),
+                changed_container_keys=set(self._active_changed_container_state),
                 nonlocal_binding_changed=global_changed or nonlocal_changed,
                 singledispatch_changed=self._active_singledispatch_changed,
             )

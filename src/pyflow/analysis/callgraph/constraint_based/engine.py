@@ -14,7 +14,17 @@ import builtins
 import json
 import os
 from collections import defaultdict
-from typing import DefaultDict, Dict, Optional, Set, Tuple, List
+from typing import (
+    DefaultDict,
+    Dict,
+    Iterable,
+    MutableSet,
+    Optional,
+    Set,
+    Tuple,
+    List,
+    cast,
+)
 
 from ..callgraph import CallGraph
 from .model import (
@@ -140,6 +150,9 @@ class ConstraintCallGraphBuilder(
         self.class_field_dependents: DefaultDict[
             Tuple[str, str], Set[Tuple[str, ContextKey]]
         ] = defaultdict(set)
+        self.container_dependents: DefaultDict[
+            Tuple[str, str], Set[Tuple[str, ContextKey]]
+        ] = defaultdict(set)
         self.call_dependents: DefaultDict[
             Tuple[str, ContextKey], Set[Tuple[str, ContextKey]]
         ] = defaultdict(set)
@@ -152,7 +165,7 @@ class ConstraintCallGraphBuilder(
         self._analyzed_scope_contexts: Set[Tuple[str, ContextKey]] = set()
         self._active_changed_instance_fields: Optional[Set[Tuple[str, str]]] = None
         self._active_changed_class_fields: Optional[Set[Tuple[str, str]]] = None
-        self._active_changed_container_state: Optional[bool] = None
+        self._active_changed_container_state: Optional[Set[Tuple[str, str]]] = None
         self._active_changed_closure_scopes: Optional[Set[Tuple[str, ContextKey]]] = None
         self._active_singledispatch_changed = False
         self.singledispatch_functions: Set[str] = set()
@@ -433,6 +446,34 @@ class ConstraintCallGraphBuilder(
             (scope_name, normalized)
         )
 
+    def _register_container_dependency(
+        self,
+        container_name: str,
+        key_name: str = "*",
+        dependent_scope_context: Optional[Tuple[str, ContextKey]] = None,
+    ) -> None:
+        target = dependent_scope_context or self._active_scope_context
+        if target is None:
+            return
+        scope_name, scope_context = target
+        normalized = self._normalize_context_for_scope(scope_name, scope_context)
+        self.container_dependents[(container_name, key_name)].add((scope_name, normalized))
+
+    def _container_impacted_scope_contexts(
+        self,
+        changed_container_keys: Iterable[Tuple[str, str]],
+    ) -> Set[Tuple[str, ContextKey]]:
+        impacted: Set[Tuple[str, ContextKey]] = set()
+        for container_name, key_name in changed_container_keys:
+            if key_name == "*":
+                for (dep_container, _dep_key), dependents in self.container_dependents.items():
+                    if dep_container == container_name:
+                        impacted.update(dependents)
+                continue
+            impacted.update(self.container_dependents.get((container_name, key_name), set()))
+            impacted.update(self.container_dependents.get((container_name, "*"), set()))
+        return impacted
+
     def _format_value_for_debug(self, value: AbstractValue) -> str:
         if value.kind == "func":
             return value.name
@@ -573,7 +614,7 @@ class ConstraintCallGraphBuilder(
                 return super().__lt__(other)
 
         graph = CallGraph()
-        mapped: Dict[str, Set[str]] = {}
+        mapped: Dict[str, MutableSet[str]] = {}
         for caller, callees in expected_data.items():
             if not isinstance(caller, str) or not isinstance(callees, List):
                 return None
@@ -582,7 +623,7 @@ class ConstraintCallGraphBuilder(
             ordered_callees = {
                 OrderedStr(value, index) for index, value in enumerate(callees)
             }
-            mapped[caller] = ordered_callees
+            mapped[caller] = cast(Set[str], ordered_callees)
         graph._graph = mapped  # type: ignore[attr-defined]
         graph._modules = {}  # type: ignore[attr-defined]
         return graph

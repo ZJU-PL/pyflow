@@ -60,16 +60,33 @@ class _LoaderMixin:
 
     def _iter_imported_modules(self, module_info: ModuleInfo) -> Iterable[str]:
         """Yield imported module names referenced anywhere in the module AST."""
+        yielded: Set[str] = set()
+
+        def _emit(module_name: str) -> Iterable[str]:
+            if not module_name or module_name in yielded:
+                return ()
+            yielded.add(module_name)
+            return (module_name,)
+
         for node in ast.walk(module_info.tree):
             if isinstance(node, ast.Import):
                 for alias in node.names:
-                    yield alias.name
+                    for module_name in _emit(alias.name):
+                        yield module_name
             elif isinstance(node, ast.ImportFrom):
                 resolved = self._resolve_import_module_name(
                     module_info.name, node.module, node.level
                 )
                 if resolved:
-                    yield resolved
+                    for module_name in _emit(resolved):
+                        yield module_name
+                    for alias in node.names:
+                        if alias.name == "*":
+                            continue
+                        candidate_module = f"{resolved}.{alias.name}"
+                        if self._resolve_module_file(candidate_module):
+                            for module_name in _emit(candidate_module):
+                                yield module_name
 
     def _resolve_import_module_name(
         self, current_module: str, imported_module: Optional[str], level: int

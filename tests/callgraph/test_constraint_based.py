@@ -1180,6 +1180,51 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
             improved = extract_call_graph_constraint(source, source_path=main_path).get()
             self.assertIn("pkg.sub.target", improved.get("main.run", set()))
 
+    def test_from_import_submodule_loads_transitive_body_edges(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            pkg_dir = os.path.join(temp_dir, "pkg")
+            os.makedirs(pkg_dir, exist_ok=True)
+            with open(os.path.join(pkg_dir, "__init__.py"), "w", encoding="utf-8") as handle:
+                handle.write("")
+            with open(os.path.join(pkg_dir, "sub.py"), "w", encoding="utf-8") as handle:
+                handle.write(
+                    textwrap.dedent(
+                        """
+                        def sink():
+                            return 1
+
+                        def target():
+                            return sink()
+                        """
+                    )
+                )
+
+            main_path = os.path.join(temp_dir, "main.py")
+            with open(main_path, "w", encoding="utf-8") as handle:
+                handle.write(
+                    textwrap.dedent(
+                        """
+                        from pkg import sub
+
+                        def run():
+                            return sub.target()
+
+                        run()
+                        """
+                    )
+                )
+
+            with open(main_path, "r", encoding="utf-8") as handle:
+                source = handle.read()
+            improved = extract_call_graph_constraint(
+                source,
+                source_path=main_path,
+                allow_fixture_graph_loading=False,
+            ).get()
+
+        self.assertIn("pkg.sub.target", improved.get("main.run", set()))
+        self.assertIn("pkg.sub.sink", improved.get("pkg.sub.target", set()))
+
     def test_tuple_destructuring_assignment_uses_iterable_members(self):
         source = textwrap.dedent(
             """
@@ -1949,6 +1994,32 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
         ).get()
         self.assertIn("main.target", improved.get("main.run", set()))
 
+    def test_keyed_subscript_fallback_tracks_wildcard_container_dependency(self):
+        source = textwrap.dedent(
+            """
+            def target():
+                return 1
+
+            def install(table):
+                table["other"] = target
+
+            def run(table):
+                fn = table["k"]
+                install(table)
+                return fn()
+
+            run({})
+            """
+        )
+
+        improved = extract_call_graph_constraint(
+            source,
+            context_sensitive=True,
+            context_depth=1,
+            allow_fixture_graph_loading=False,
+        ).get()
+        self.assertIn("main.target", improved.get("main.run", set()))
+
     def test_exec_literal_string_is_analyzed(self):
         source = textwrap.dedent(
             """
@@ -2500,6 +2571,55 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
             builder.solver_stats.states_analyzed,
             builder.solver_stats.states_requeued,
         )
+
+    def test_container_invalidation_requeues_only_container_dependents(self):
+        unrelated_defs = "\n\n".join(
+            f"def unrelated_{index}():\n    return {index}" for index in range(40)
+        )
+        source = (
+            textwrap.dedent(
+                """
+                def a():
+                    return 1
+
+                def b():
+                    return 2
+
+                def mutate(table, flag):
+                    if flag:
+                        table["k"] = a
+                    else:
+                        table["k"] = b
+
+                def read(table):
+                    return table["k"]()
+
+                def run():
+                    table = {}
+                    mutate(table, True)
+                    mutate(table, False)
+                    return read(table)
+
+                run()
+                """
+            )
+            + "\n"
+            + unrelated_defs
+        )
+        builder = ConstraintCallGraphBuilder(
+            source,
+            options=AnalysisOptions(
+                context_sensitive=True,
+                context_depth=1,
+                requeue_policy="priority",
+                emit_solver_stats=True,
+                allow_fixture_graph_loading=False,
+            ),
+        )
+        graph = builder.build().get()
+        self.assertFalse(builder.fixpoint_truncated)
+        self.assertIn("main.b", graph.get("main.read", set()))
+        self.assertLess(builder.solver_stats.states_requeued, 140)
 
     def test_context_budget_cap_degrades_to_global_without_truncation(self):
         source = textwrap.dedent(

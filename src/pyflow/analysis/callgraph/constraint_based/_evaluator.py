@@ -42,6 +42,7 @@ class _EvaluatorMixin:
         out: Set[AbstractValue] = set()
         for value in values:
             if value.kind == CONTAINER_KIND:
+                self._register_container_dependency(value.name, "*")
                 out.update(self.container_elements.get(value.name, set()))
             elif (
                 value.kind == GENERATOR_KIND
@@ -801,10 +802,16 @@ class _EvaluatorMixin:
                         for key_name in keys:
                             out7.update(self._resolve_attribute({base_value}, key_name))
                     continue
+                if keys:
+                    for key_name in keys:
+                        self._register_container_dependency(base_value.name, key_name)
+                else:
+                    self._register_container_dependency(base_value.name, "*")
                 key_map = self.container_key_values.get(base_value.name, {})
                 if isinstance(expr.slice, ast.Slice):
                     # Preserve positional precision for slices by creating a
                     # dedicated abstract container representing the slice view.
+                    self._register_container_dependency(base_value.name, "*")
                     index_keys = sorted(
                         [k for k in key_map if k.startswith("#")],
                         key=lambda k: int(k[1:]),
@@ -855,6 +862,7 @@ class _EvaluatorMixin:
                     if matched:
                         out7.update(matched)
                         continue
+                    self._register_container_dependency(base_value.name, "*")
                 out7.update(self.container_elements.get(base_value.name, set()))
             return out7
 
