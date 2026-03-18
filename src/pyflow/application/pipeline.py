@@ -1,11 +1,9 @@
 """Analysis pipeline for PyFlow static analysis.
 
-This module defines the main analysis pipeline that orchestrates various
-static analysis passes including inter-procedural analysis, constraint-based
-analysis, and optimization passes.
-
-The pipeline now supports both the legacy hardcoded pipeline and the new
-pass manager system for better modularity and extensibility.
+The pass-manager path is the canonical execution model. A legacy compatibility
+entrypoint is still kept for older callers that invoke ``evaluate(...)``
+directly, but all new orchestration should flow through ``Pipeline`` with the
+pass manager enabled.
 """
 
 import time
@@ -40,21 +38,12 @@ from .passes import register_standard_passes
 
 
 class Pipeline(object):
-    """Main analysis pipeline for PyFlow static analysis.
-
-    The Pipeline class orchestrates the execution of various analysis passes
-    including inter-procedural analysis, constraint-based analysis, and
-    optimization passes on Python programs.
-
-    Supports both legacy hardcoded pipelines and the new pass manager system.
-    """
+    """Main analysis pipeline for PyFlow static analysis."""
 
     def __init__(self, use_pass_manager: bool = True):
         """Initialize the analysis pipeline.
 
-        Args:
-            use_pass_manager: Whether to use the new pass manager system.
-                             If False, falls back to legacy hardcoded pipeline.
+        ``use_pass_manager=False`` remains for compatibility only.
         """
         self.use_pass_manager = use_pass_manager
         self.pass_manager = None
@@ -109,17 +98,16 @@ class Pipeline(object):
         Returns:
             Dict of pass results if using pass manager, None otherwise.
         """
-        if self.use_pass_manager:
-            if compiler is None:
-                raise ValueError("Compiler instance required when using pass manager")
-            return self._run_with_pass_manager(
-                compiler,
-                program,
-                name,
-                include_experimental_inlining=include_experimental_inlining,
-            )
-        else:
+        if not self.use_pass_manager:
             return self._run_legacy_pipeline(compiler, program, name)
+        if compiler is None:
+            raise ValueError("Compiler instance required when using pass manager")
+        return self._run_with_pass_manager(
+            compiler,
+            program,
+            name,
+            include_experimental_inlining=include_experimental_inlining,
+        )
 
     def _run_with_pass_manager(
         self,
@@ -188,21 +176,7 @@ class Pipeline(object):
         return results
 
     def _run_legacy_pipeline(self, compiler, program, name: str):
-        """
-        Run the legacy hardcoded pipeline for backward compatibility.
-
-        This method runs the original hardcoded pipeline that was used before
-        the pass manager system. It executes passes in a fixed order without
-        dependency tracking or caching.
-
-        Args:
-            compiler: Compiler context
-            program: Program to analyze
-            name: Name for logging
-
-        Returns:
-            None (legacy pipeline doesn't return structured results)
-        """
+        """Run the retained legacy compatibility pipeline."""
         return evaluate(compiler, program, name)
 
     # Convenience methods for pass manager operations
@@ -287,7 +261,10 @@ def codeConditioning(compiler, prgm, firstPass, dumpStats=False):
             # Try to identify and optimize method calls
             methodcall.evaluate(compiler, prgm)
 
-        prgm.lifetime_analysis = lifetimeanalysis.evaluate(compiler, prgm)
+        prgm.set_analysis_result(
+            "lifetime" if firstPass else "lifetime_refresh",
+            lifetimeanalysis.evaluate(compiler, prgm),
+        )
 
         if True:
             # Fold, DCE, etc.
@@ -352,7 +329,9 @@ def bruteForceSimplification(compiler, prgm):
     """
     with compiler.console.scope("brute force"):
         for _i in range(2):
-            prgm.lifetime_analysis = lifetimeanalysis.evaluate(compiler, prgm)
+            prgm.set_analysis_result(
+                "lifetime_refresh", lifetimeanalysis.evaluate(compiler, prgm)
+            )
             simplify.evaluate(compiler, prgm)
 
 
@@ -375,13 +354,19 @@ def depythonPass(compiler, prgm, opPathLength=0, firstPass=True):
         opPathLength: Call path length for CPA (0 = no path sensitivity)
         firstPass: Whether this is the first pass (affects statistics and optimizations)
     """
-    with compiler.console.scope("depython"):
+    with compiler.console.scope("legacy-analysis"):
         # Run IPA analysis and store results for later access
         ipa_result = ipa.evaluate(compiler, prgm)
         if ipa_result:
-            prgm.ipa_analysis = ipa_result
+            prgm.set_analysis_result(
+                "ipa" if firstPass else "ipa_refresh",
+                ipa_result,
+            )
 
-        cpa.evaluate(compiler, prgm, opPathLength, firstPass=firstPass)
+        prgm.set_analysis_result(
+            "cpa" if firstPass else "cpa_path_sensitive",
+            cpa.evaluate(compiler, prgm, opPathLength, firstPass=firstPass),
+        )
 
         if firstPass:
             stats.contextStats(
@@ -435,7 +420,9 @@ def evaluate(compiler, prgm, name):
                     depythonPass(compiler, prgm, 3, firstPass=False)
                 else:
                     # HACK rerun lifetime analysis, as inlining causes problems for the function annotations.
-                    prgm.lifetime_analysis = lifetimeanalysis.evaluate(compiler, prgm)
+                    prgm.set_analysis_result(
+                        "lifetime_refresh", lifetimeanalysis.evaluate(compiler, prgm)
+                    )
 
                 stats.contextStats(compiler, prgm, "secondpass")
 
@@ -446,25 +433,27 @@ def evaluate(compiler, prgm, name):
                 # Dump analysis reports if configured
                 if config.doDump:
                     try:
-                        dumpreport.evaluate(compiler, prgm, name)
+                            dumpreport.evaluate(compiler, prgm, name)
                     except Exception as e:
                         if config.maskDumpErrors:
-                            # HACK prevents it from masking any exception that was thrown before.
-                            print("Exception dumping the report: ", e)
+                            compiler.console.output(
+                                f"Exception dumping the report: {e}"
+                            )
                         else:
                             raise
 
                 # Clean up threads if configured
                 if config.doThreadCleanup:
-                    if threading.activeCount() > 1:
+                    active_threads = threading.active_count()
+                    if active_threads > 1:
                         with compiler.console.scope("threading cleanup"):
                             compiler.console.output(
-                                "Threads: %d" % (threading.activeCount() - 1)
+                                "Threads: %d" % (active_threads - 1)
                             )
                             for t in threading.enumerate():
-                                if t is not threading.currentThread():
+                                if t is not threading.current_thread():
                                     compiler.console.output(".")
                                     t.join()
     except errors.CompilerAbort as e:
-        print()
-        print("ABORT", e)
+        compiler.console.output("")
+        compiler.console.output(f"ABORT {e}")

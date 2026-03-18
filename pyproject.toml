@@ -1,4 +1,6 @@
 # Copyright 2025 rainoftime
+
+[build-system]
 requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
@@ -32,7 +34,6 @@ requires-python = ">=3.10"
 dependencies = [
     "graphviz",
     "networkx",
-    "pycg==0.0.6",
 ]
 
 [project.optional-dependencies]
@@ -42,10 +43,15 @@ dev = [
     "black",
     "flake8",
     "mypy",
+    "tomli; python_version < '3.11'",
 ]
 test = [
     "pytest>=6.0",
     "pytest-cov",
+    "tomli; python_version < '3.11'",
+]
+callgraph = [
+    "pycg==0.0.6",
 ]
 
 [project.scripts]
@@ -70,6 +76,8 @@ addopts = [
     "--strict-markers",
     "--strict-config",
     "--verbose",
+    "-m",
+    "not integration",
     #"-W", "ignore::DeprecationWarning",
     "-W",
     "ignore::pytest.PytestUnhandledThreadExceptionWarning",

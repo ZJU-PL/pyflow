@@ -253,7 +253,10 @@ def report(manager, fileobj, sev_level, conf_level, lines=-1):
         sarif_output, indent=2, separators=(",", ": "), ensure_ascii=False
     )
 
-    wrap_file_object(fileobj).write(result)
+    writer = wrap_file_object(fileobj)
+    writer.write(result)
+    if writer is not fileobj and hasattr(writer, "flush"):
+        writer.flush()
 
     # Check if this is a real file (not stdout) and log accordingly
     if hasattr(fileobj, "name") and fileobj.name != sys.stdout.name:

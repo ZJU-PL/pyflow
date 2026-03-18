@@ -1,274 +1,120 @@
 # PyFlow CLI Options
 
-This document describes the CLI options available in PyFlow, following the style of clang.
+This document matches the current `pyflow` command surface.
 
 ## Commands
 
-PyFlow provides four main commands:
-- `optimize`: Run static analysis and optimization on Python code
-- `callgraph`: Build and visualize call graphs from Python code
-- `ir`: Dump AST, CFG, and SSA forms for specific functions
-- `security`: Check security bugs
+- `optimize`: Run the analysis and optimization pipeline
+- `callgraph`: Build a call graph from a single Python file
+- `ir`: Dump AST, CFG, SSA, CDG, or DDG forms for specific functions
+- `security`: Run pattern-based or semantic security checks
+- `dataflow`: Run IFDS/IDE-backed dataflow analyses
 
-## Optimize Command
+## Optimize
 
-### Basic Usage
 ```bash
 pyflow optimize [OPTIONS] INPUT_PATH
 ```
 
-Where `INPUT_PATH` is a Python file, directory, or library to optimize.
+`INPUT_PATH` may be a Python file or directory.
 
-### AST and CFG Dumping
+Key options:
+- `--analysis`, `-a`: `all`, `cpa`, `ipa`, `shape`, or `lifetime`
+- `--dependency-strategy`: `auto`, `stubs`, `noop`, `strict`, or `ast_only`
+- `--recursive`, `-r`
+- `--include PATTERN [PATTERN ...]`
+- `--exclude PATTERN [PATTERN ...]`
+- `--dump`, `-d`
+- `--dump-ipa`
+- `--dump-shape`
+- `--suggest-only`
+- `--apply-optimizations`
+- `--experimental-inlining`
+- `--opt-passes PASS1 [PASS2 ...]`
+- `--list-opt-passes`
+- `--no-opt-passes`
+- `--output`, `-o`
+- `--verbose`, `-v`
 
-#### --dump-ast FUNCTION
-Dump the Abstract Syntax Tree (AST) for the specified function name.
+Available optimization passes:
+`methodcall`, `lifetime`, `simplify`, `clone`, `argument_normalization`,
+`cull_program`, `inlining`, `load_elimination`, `store_elimination`, `dce`
 
-**Example:**
-```bash
-pyflow optimize examples/test_function.py --dump-ast fibonacci
-```
+## IR
 
-#### --dump-cfg FUNCTION
-Dump the Control Flow Graph (CFG) for the specified function name.
-
-**Example:**
-```bash
-pyflow optimize examples/test_function.py --dump-cfg quicksort
-```
-
-#### --dump-format FORMAT
-Specify the output format for AST/CFG dumps. Available formats:
-- `text` (default): Human-readable text format
-- `dot`: Graphviz DOT format for visualization
-- `json`: JSON format for programmatic processing
-
-**Example:**
-```bash
-pyflow optimize examples/test_function.py --dump-ast fibonacci --dump-format dot
-```
-
-#### --dump-output DIRECTORY
-Specify the output directory for AST/CFG dumps. Defaults to the current directory.
-
-**Example:**
-```bash
-pyflow optimize examples/test_function.py --dump-ast fibonacci --dump-output ./output/
-```
-
-### Optimization Passes Selection
-
-#### --opt-passes PASS1 [PASS2 ...]
-Run only the specified optimization passes. Available passes:
-- `methodcall`: Fuse method calls and optimize method dispatch
-- `lifetime`: Lifetime analysis for variables and objects
-- `simplify`: Constant folding and dead code elimination
-- `clone`: Separate different invocations of the same code
-- `argumentnormalization`: Normalize function arguments (eliminate *args, **kwargs)
-- `inlining`: Inline function calls where beneficial
-- `cullprogram`: Remove dead functions and contexts
-- `loadelimination`: Eliminate redundant load operations
-- `storeelimination`: Eliminate redundant store operations
-- `dce`: Dead code elimination (without constant folding)
-
-## IR Command
-
-### Basic Usage
 ```bash
 pyflow ir [OPTIONS] INPUT_PATH
 ```
 
-Where `INPUT_PATH` is a Python file or directory to analyze.
+`INPUT_PATH` may be a Python file or directory.
 
-### IR Dumping Options
+Key options:
+- `--dump-ast FUNCTION`
+- `--dump-cfg FUNCTION`
+- `--dump-ssa FUNCTION`
+- `--dump-cdg FUNCTION`
+- `--dump-ddg FUNCTION`
+- `--dump-format`, choices: `text`, `dot`, `json`
+- `--dump-output DIRECTORY`
+- `--dependency-strategy`: `auto`, `stubs`, `noop`, `strict`, or `ast_only`
+- `--recursive`, `-r`
+- `--include PATTERN [PATTERN ...]`
+- `--exclude PATTERN [PATTERN ...]`
+- `--verbose`, `-v`
 
-#### --dump-ast FUNCTION
-Dump the Abstract Syntax Tree (AST) for the specified function name.
+## Callgraph
 
-**Example:**
-```bash
-pyflow ir examples/test_function.py --dump-ast fibonacci
-```
-
-#### --dump-cfg FUNCTION
-Dump the Control Flow Graph (CFG) for the specified function name.
-
-**Example:**
-```bash
-pyflow ir examples/test_function.py --dump-cfg quicksort
-```
-
-#### --dump-ssa FUNCTION
-Dump the Static Single Assignment (SSA) form for the specified function name.
-
-**Example:**
-```bash
-pyflow ir examples/test_function.py --dump-ssa fibonacci
-```
-
-#### --dump-format FORMAT
-Specify the output format for IR dumps. Available formats:
-- `text` (default): Human-readable text format
-- `dot`: Graphviz DOT format for visualization
-- `json`: JSON format for programmatic processing
-
-**Example:**
-```bash
-pyflow ir examples/test_function.py --dump-ast fibonacci --dump-format dot
-```
-
-#### --dump-output DIRECTORY
-Specify the output directory for IR dumps. Defaults to the current directory.
-
-**Example:**
-```bash
-pyflow ir examples/test_function.py --dump-ast fibonacci --dump-output ./output/
-```
-
-### File Selection Options
-
-#### --recursive, -r
-Recursively analyze subdirectories.
-
-#### --include PATTERN [PATTERN ...]
-File patterns to include in analysis (default: *.py).
-
-#### --exclude PATTERN [PATTERN ...]
-Patterns to exclude from analysis (e.g., 'test_*', '__pycache__').
-
-### Examples
-
-Dump all three forms for a function:
-```bash
-pyflow ir examples/test_function.py --dump-ast fibonacci --dump-cfg fibonacci --dump-ssa fibonacci
-```
-
-Dump CFG in DOT format for visualization:
-```bash
-pyflow ir examples/test_function.py --dump-cfg quicksort --dump-format dot
-```
-
-Analyze all Python files in a directory:
-```bash
-pyflow ir src/ --recursive --dump-ast my_function
-```
-
-## Call Graph Command
-
-### Basic Usage
-```bash
-pyflow callgraph [OPTIONS] INPUT_PATH
-```
-
-Where `INPUT_PATH` is a Python file or directory to analyze.
-
-**Examples:**
-```bash
-# Run only specific passes
-pyflow optimize examples/test_function.py --opt-passes methodcall inlining
-
-# Run multiple passes
-pyflow optimize examples/test_function.py --opt-passes simplify dce storeelimination
-```
-
-#### --list-opt-passes
-List all available optimization passes and their descriptions.
-
-**Example:**
-```bash
-pyflow optimize --list-opt-passes
-```
-
-#### --no-opt-passes
-Skip all optimization passes and run only analysis (no optimization).
-
-**Example:**
-```bash
-pyflow optimize examples/test_function.py --no-opt-passes
-```
-
-### General Options
-
-#### --verbose, -v
-Enable verbose output during analysis and optimization.
-
-#### --analysis, -a
-Type of analysis to run. Choices:
-- `all` (default): Run all analysis types
-- `cpa`: Control flow analysis
-- `ipa`: Inter-procedural analysis  
-- `shape`: Shape analysis
-- `lifetime`: Lifetime analysis
-
-#### --dump, -d
-Dump analysis results to files.
-
-#### --output, -o
-Output file for results.
-
-#### --recursive, -r
-Recursively analyze subdirectories.
-
-#### --exclude
-Patterns to exclude from analysis (e.g., 'test_*', '__pycache__').
-
-#### --include
-File patterns to include in analysis (default: *.py).
-
-## Callgraph Command
-
-### Basic Usage
 ```bash
 pyflow callgraph [OPTIONS] INPUT_FILE
 ```
 
-Where `INPUT_FILE` is a Python file to analyze for call graph generation.
+`INPUT_FILE` must be a Python file.
 
-### Options
+Key options:
+- `--algorithm`, `-a`: `simple`, `constraint`, or `pycg`
+- `--output`, `-o`
+- `--verbose`, `-v`
+- `--context-sensitive`
+- `--context-depth`
+- `--fixpoint-max-iterations`
+- `--no-fixpoint-warning`
+- `--allocation-site-sensitive-instances`
+- `--as-graph-output PATH`
 
-#### --format, -f
-Output format for the call graph. Choices:
-- `text` (default): Human-readable text format
-- `dot`: Graphviz DOT format for visualization
-- `json`: JSON format for programmatic processing
+`--as-graph-output` is only supported with `--algorithm constraint`.
 
-#### --output, -o
-Output file for the call graph (default: stdout).
-
-#### --max-depth, -d
-Maximum call depth to analyze.
-
-#### --show-cycles
-Detect and show cycles in the call graph.
-
-#### --verbose, -v
-Enable verbose output.
-
-### Examples
+## Security
 
 ```bash
-# Generate text call graph
-pyflow callgraph examples/test_function.py
-
-# Generate DOT format for visualization
-pyflow callgraph examples/test_function.py --format dot --output callgraph.dot
-
-# Find cycles with limited depth
-pyflow callgraph examples/test_function.py --show-cycles --max-depth 5
+pyflow security [OPTIONS] [TARGET ...]
 ```
 
-## Security Checker 
+Key options:
+- `--engine`: `pattern` or `semantic`
+- `--taint-engine`: `ast`, `ipa`, or `both`
+- `--micro-bench PATH`
+- `--format`: `text`, `json`, or `sarif`
+- `--output`, `-o`
+- `--exclude PATH1,PATH2,...`
+- `--recursive`, `-r`
+- `--verbose`, `-v`
+- `--debug`, `-d`
 
-~~~~
-#### Run on a specific config.json file
-pyflow security --micro-bench evaluation/sast-python3/accuracy/field_sensitive/multidimensional_collection/config.json
+## Dataflow
 
-#### Run on a directory (finds all config.json files)
-pyflow security --micro-bench evaluation/sast-python3/accuracy --engine semantic
+```bash
+pyflow dataflow [OPTIONS] INPUT_PATH
+```
 
-#### With verbose output
-pyflow security --micro-bench evaluation/sast-python3/accuracy --engine semantic -v
+Key options:
+- `--function FUNCTION`
+- `--analysis`: currently `taint`
+- `--sources NAME [NAME ...]`
+- `--sinks NAME [NAME ...]`
+- `--sanitizers NAME [NAME ...]`
+- `--format`: `text` or `json`
+- `--recursive`, `-r`
+- `--dependency-strategy`: `auto`, `stubs`, `noop`, `strict`, or `ast_only`
+- `--verbose`, `-v`
 
-
-pyflow security --micro-bench evaluation/sast-python3/accuracy --engine semantic --taint-engine ipa (use pyflow/checker/semantic/detectors/taint2.py)
-~~~~
+`dataflow` exits with `1` when taint findings are reported and `0` otherwise.

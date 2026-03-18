@@ -13,8 +13,8 @@ management, and error handling.
    - `InterfaceDeclaration`: Declarations of functions, classes, and entry points
 
 2. **Pipeline Management** (`pipeline.py`):
-   - `Pipeline`: Main analysis pipeline orchestrating passes
-   - Supports both legacy hardcoded pipeline and new pass manager system
+   - `Pipeline`: Main pass-manager-backed analysis pipeline
+   - `evaluate(...)`: Legacy compatibility entrypoint for older callers
 
 3. **Pass Manager System** (`passmanager.py`):
    - `PassManager`: LLVM-inspired pass manager for flexible pass composition
@@ -29,6 +29,7 @@ management, and error handling.
 
 5. **Context Management** (`context.py`):
    - `CompilerContext`: Compilation context with console, slots, stats
+   - `Context`: Backward-compatible alias of `CompilerContext`
    - `Slots`: Unique slot name management
 
 6. **Makefile DSL** (`makefile.py`):
@@ -40,9 +41,8 @@ management, and error handling.
 
 **Architecture:**
 The application layer sits on top of the analysis and optimization modules,
-providing a unified interface for running static analysis. The pass manager
-system enables flexible composition of analysis passes while maintaining
-correctness through dependency tracking and caching.
+with the pass manager as the canonical orchestration path. Legacy helpers are
+retained only for compatibility with older direct callers.
 
 **Usage:**
 ```python

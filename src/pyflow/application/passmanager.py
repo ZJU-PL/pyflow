@@ -634,6 +634,10 @@ class PassManager:
         self, program, analysis_pass_names: Set[str]
     ) -> None:
         """Clear program-level analysis objects that are no longer valid."""
+        if hasattr(program, "clear_analysis_results"):
+            program.clear_analysis_results(analysis_pass_names)
+            return
+
         pass_to_attr = {
             "ipa": "ipa_analysis",
             "ipa_refresh": "ipa_analysis",

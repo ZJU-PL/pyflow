@@ -21,6 +21,16 @@ from pyflow.checker.formatters import json as json_formatter
 from pyflow.checker.formatters import sarif as sarif_formatter
 
 
+def _parse_exclude_paths(exclude: str | None) -> tuple[str, ...]:
+    if not exclude:
+        return ()
+    return tuple(
+        path.strip()
+        for path in exclude.split(",")
+        if path.strip()
+    )
+
+
 def add_security_parser(subparsers):
     """Add security subcommand parser."""
     security_parser = subparsers.add_parser(
@@ -111,9 +121,10 @@ def run_security_analysis(targets, args):
         return 0
 
     targets = targets or ["."]
+    excluded_paths = _parse_exclude_paths(args.exclude)
 
     # Determine output file
-    output_file = open(args.output, "w") if args.output else sys.stdout
+    output_file = open(args.output, "w", encoding="utf-8") if args.output else sys.stdout
 
     try:
         # Choose engine based on --engine option
@@ -122,7 +133,7 @@ def run_security_analysis(targets, args):
             config = BugFinderConfig(
                 verbose=args.verbose,
                 recursive=args.recursive,
-                exclude=tuple(args.exclude.split(",")) if args.exclude else tuple(),
+                exclude=excluded_paths,
                 taint_engine=(
                     args.taint_engine if args.taint_engine != "both" else "ast"
                 ),
@@ -141,7 +152,11 @@ def run_security_analysis(targets, args):
             )
 
             # Discover files
-            manager.discover_files(targets, recursive=args.recursive, excluded_paths="")
+            manager.discover_files(
+                targets,
+                recursive=args.recursive,
+                excluded_paths=",".join(excluded_paths),
+            )
 
             # Run security checks
             manager.run_tests()

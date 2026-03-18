@@ -75,6 +75,7 @@ import logging
 import sys
 
 from ..pattern.core.test_properties import accepts_baseline
+from .utils import wrap_file_object
 
 LOG = logging.getLogger(__name__)
 
@@ -143,8 +144,10 @@ def report(manager, fileobj, sev_level, conf_level, lines=-1):
         machine_output, sort_keys=True, indent=2, separators=(",", ": ")
     )
 
-    with fileobj:
-        fileobj.write(result)
+    writer = wrap_file_object(fileobj)
+    writer.write(result)
+    if writer is not fileobj and hasattr(writer, "flush"):
+        writer.flush()
 
     if hasattr(fileobj, "name") and fileobj.name != sys.stdout.name:
         LOG.info("JSON output written to file: %s", fileobj.name)

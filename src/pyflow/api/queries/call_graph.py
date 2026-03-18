@@ -2,8 +2,8 @@
 Call-graph query helpers for PyFlow.
 
 These queries surface agent-friendly insights such as reachable functions,
-callers, and shortest call paths without exposing the raw graph objects
-directly.
+callers, and shortest call paths. Backward-compatible raw graph access is
+still available, but new consumers should prefer the plain-data helpers.
 """
 
 from collections import deque
@@ -48,8 +48,16 @@ class CallGraphQueries:
         raise TypeError("Expected a function name or a PyFlow code object.")
 
     def get_callgraph(self):
-        """Return the raw call graph for consumers that need graph traversal APIs."""
+        """Return the raw call graph for compatibility callers."""
         return self.graph_engine.get_callgraph()
+
+    def get_callgraph_data(self) -> Dict[str, List[str]]:
+        """Return the call graph as plain serializable data."""
+        graph = self._callgraph_dict()
+        return {
+            caller: sorted(callees)
+            for caller, callees in sorted(graph.items(), key=lambda item: item[0])
+        }
 
     def get_callers(self, function: Union[str, object]) -> List[str]:
         """List functions that call the given target."""

@@ -159,8 +159,10 @@ def report(manager, fileobj, sev_level, conf_level, lines=-1):
     bits.extend([get_metrics(manager), f"Files skipped ({len(skipped)}):"])
     bits.extend(f"\t{skip[0]} ({skip[1]})" for skip in skipped)
 
-    with fileobj:
-        wrap_file_object(fileobj).write("\n".join(bits) + "\n")
+    writer = wrap_file_object(fileobj)
+    writer.write("\n".join(bits) + "\n")
+    if writer is not fileobj and hasattr(writer, "flush"):
+        writer.flush()
 
     if hasattr(fileobj, "name") and fileobj.name != sys.stdout.name:
         LOG.info("Text output written to file: %s", fileobj.name)

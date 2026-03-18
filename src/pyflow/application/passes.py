@@ -53,7 +53,7 @@ class IPAAnalysisPass(AnalysisPass):
     def run(self, compiler, program) -> PassResult:
         try:
             result = ipa.evaluate(compiler, program)
-            program.ipa_analysis = result
+            program.set_analysis_result(self.name, result)
             return PassResult(success=True, changed=False, data=result)
         except Exception as e:
             return PassResult.from_exception(e)
@@ -85,7 +85,7 @@ class CPAAnalysisPass(AnalysisPass):
                 self.op_path_length,
                 firstPass=self.first_pass,
             )
-            program.cpa_analysis = cpa_result
+            program.set_analysis_result(self.name, cpa_result)
             return PassResult(success=True, changed=False, data=cpa_result)
         except Exception as e:
             return PassResult.from_exception(e)
@@ -103,7 +103,7 @@ class LifetimeAnalysisPass(AnalysisPass):
     def run(self, compiler, program) -> PassResult:
         try:
             result = lifetimeanalysis.evaluate(compiler, program)
-            program.lifetime_analysis = result
+            program.set_analysis_result(self.name, result)
             return PassResult(success=True, changed=False, data=result)
         except Exception as e:
             return PassResult.from_exception(e)

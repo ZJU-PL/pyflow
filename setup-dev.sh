@@ -1,3 +1,4 @@
+#!/usr/bin/env bash
 # Copyright 2025 rainoftime
 # Development setup script for PyFlow
 
@@ -5,12 +6,12 @@ set -e
 
 echo "Setting up PyFlow development environment..."
 
-# Check if Python 3.8+ is available
+# Check if Python 3.10+ is available
 python_version=$(python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
-required_version="3.8"
+required_version="3.10"
 
 if [ "$(printf '%s\n' "$required_version" "$python_version" | sort -V | head -n1)" != "$required_version" ]; then
-    echo "Error: Python 3.8 or higher is required. Found: $python_version"
+    echo "Error: Python 3.10 or higher is required. Found: $python_version"
     exit 1
 fi
 
@@ -44,7 +45,7 @@ echo "To run tests:"
 echo "  pytest"
 echo ""
 echo "To format code:"
-echo "  black src/ tests/ scripts/"
+echo "  black src/ tests/"
 echo ""
 echo "To run all checks:"
 echo "  make all-checks"

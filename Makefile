@@ -1,4 +1,4 @@
-.PHONY: help install install-dev test clean format lint type-check docs
+.PHONY: help install install-dev test test-integration clean format lint type-check docs
 
 help:  ## Show this help message
 	@echo "Available commands:"
@@ -12,6 +12,9 @@ install-dev:  ## Install with development dependencies
 
 test:  ## Run tests
 	pytest
+
+test-integration:  ## Run integration tests
+	pytest -m integration tests/integration
 
 test-cov:  ## Run tests with coverage
 	pytest --cov=pyflow --cov-report=html --cov-report=term
@@ -27,10 +30,10 @@ clean:  ## Clean up build artifacts
 	find . -type f -name "*.pyc" -delete
 
 format:  ## Format code with black
-	black src/ tests/ scripts/
+	black src/ tests/
 
 lint:  ## Lint code with flake8
-	flake8 src/ scripts/
+	flake8 src/ tests/
 
 type-check:  ## Type check with mypy
 	mypy src/
@@ -39,6 +42,6 @@ docs:  ## Build documentation
 	cd docs && make html
 
 docs-serve:  ## Serve documentation locally
-	cd docs && python -m http.server 8000 --directory build/html
+	cd docs && python -m http.server 8000 --directory _build/html
 
 all-checks: format lint type-check test  ## Run all checks

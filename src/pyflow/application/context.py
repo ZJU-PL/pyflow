@@ -1,15 +1,4 @@
-"""
-Context management for PyFlow static analysis.
-
-This module provides context classes that manage the compilation and analysis
-state throughout the PyFlow pipeline. Contexts maintain shared state like
-console output, slot naming, statistics, and the current program being analyzed.
-
-**Context Types:**
-- `CompilerContext`: Main compilation context with console, slots, stats
-- `Slots`: Manages unique slot names for object descriptors
-- `Context`: Simple placeholder context for basic operations
-"""
+"""Context management for PyFlow static analysis."""
 
 from pyflow.util.python import uniqueSlotName
 from pyflow.util.application.console import Console
@@ -115,15 +104,13 @@ class CompilerContext(object):
         self.program = None
 
 
-class Context(object):
-    """
-    A simple context class for PyFlow analysis.
+class Context(CompilerContext):
+    """Backward-compatible alias for ``CompilerContext``.
 
-    This is a placeholder context class for basic analysis operations
-    that don't require the full CompilerContext functionality. It can
-    be extended with additional attributes as needed.
+    Older call sites imported ``Context`` as a minimal shell object. Keeping it
+    as a thin subclass preserves that API while ensuring all contexts expose the
+    same console/slot/stat interfaces.
     """
 
-    def __init__(self):
-        """Initialize the context."""
-        pass
+    def __init__(self, console=None):
+        super().__init__(console)

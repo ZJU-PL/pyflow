@@ -95,7 +95,12 @@ class SemanticQueryService:
 
     # Call graph queries
     def get_callgraph(self):
+        """Return the raw call graph object for compatibility callers."""
         return self.call_graph_queries.get_callgraph()
+
+    def get_callgraph_data(self) -> Dict[str, List[str]]:
+        """Return the call graph as plain serializable data."""
+        return self.call_graph_queries.get_callgraph_data()
 
     def get_callers(self, function: Union[str, object]) -> List[str]:
         return self.call_graph_queries.get_callers(function)

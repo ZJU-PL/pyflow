@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import asdict, is_dataclass
 import json
 import sys
 from pathlib import Path
@@ -76,17 +77,80 @@ def _discover_python_files(input_path: Path, recursive: bool) -> list[Path]:
     raise FileNotFoundError(f"Path not found: {input_path}")
 
 
-def _format_text(result) -> str:
+def _code_name(code) -> str:
+    if hasattr(code, "codeName"):
+        return code.codeName()
+    if hasattr(code, "__name__"):
+        return code.__name__
+    return str(code)
+
+
+def _serialize_statistics(statistics) -> dict:
+    if is_dataclass(statistics):
+        return asdict(statistics)
+    if hasattr(statistics, "__dict__"):
+        return dict(vars(statistics))
+    return dict(statistics)
+
+
+def _taint_report_from_result(function: str, taint_result) -> dict:
+    findings = []
+    for finding in taint_result.findings:
+        tainted_arguments = [local.name for local in finding.tainted_arguments]
+        if not tainted_arguments:
+            tainted_arguments = list(finding.tainted_argument_labels)
+
+        explanations = []
+        if finding.tainted_arguments:
+            fact = taint_result.fact_for_local(
+                finding.sink, finding.tainted_arguments[0]
+            )
+            if fact is not None:
+                for edge, traces in taint_result.explain_fact(finding.sink, fact).items():
+                    explanations.append(
+                        {
+                            "source": getattr(
+                                edge.source_node.procedure.code, "name", None
+                            ),
+                            "target_kind": edge.node.kind,
+                            "trace": [
+                                {
+                                    "kind": step.kind,
+                                    "note": step.note,
+                                }
+                                for step in traces
+                            ],
+                        }
+                    )
+
+        findings.append(
+            {
+                "sink_name": finding.sink_name,
+                "procedure": _code_name(finding.sink.procedure.code),
+                "block_kind": finding.sink.kind,
+                "tainted_arguments": tainted_arguments,
+                "explanations": explanations,
+            }
+        )
+
+    return {
+        "function": function,
+        "findings": findings,
+        "statistics": _serialize_statistics(taint_result.statistics),
+    }
+
+
+def _format_text(report: dict) -> str:
     lines = [
-        f"Function: {result.function}",
-        f"Findings: {len(result.findings)}",
+        f"Function: {report['function']}",
+        f"Findings: {len(report['findings'])}",
         "Statistics:",
     ]
-    for key, value in sorted(result.statistics.items()):
+    for key, value in sorted(report["statistics"].items()):
         lines.append(f"  {key}: {value}")
-    if result.findings:
+    if report["findings"]:
         lines.append("Taint Findings:")
-    for finding in result.findings:
+    for finding in report["findings"]:
         args = ", ".join(finding["tainted_arguments"]) or "<none>"
         lines.append(
             f"  sink={finding['sink_name']} procedure={finding['procedure']} args=[{args}]"
@@ -105,7 +169,7 @@ def run_dataflow_analysis(input_path, args):
         print(f"Unsupported analysis: {args.analysis}", file=sys.stderr)
         return 1
 
-    session, taint_result = run_taint_analysis(
+    _session, taint_result = run_taint_analysis(
         files,
         function=args.function,
         source_names=args.sources,
@@ -114,14 +178,9 @@ def run_dataflow_analysis(input_path, args):
         verbose=getattr(args, "verbose", False),
         dependency_strategy=getattr(args, "dependency_strategy", "auto"),
     )
-    report = session.program.get_queries(session.compiler).get_interprocedural_taint(
-        args.function,
-        source_names=set(args.sources),
-        sink_names=set(args.sinks),
-        sanitizer_names=set(args.sanitizers),
-    )
+    report = _taint_report_from_result(args.function, taint_result)
     if args.format == "json":
-        print(json.dumps(report.__dict__, indent=2, sort_keys=True))
+        print(json.dumps(report, indent=2, sort_keys=True))
     else:
         print(_format_text(report))
-    return 1 if taint_result.findings else 0
+    return 1 if report["findings"] else 0

@@ -14,11 +14,43 @@ from pyflow.analysis.callgraph.constraint_based import (
 from pyflow.analysis.callgraph.pycg_based import analyze_file_pycg
 
 
+def _validate_algorithm_options(args) -> bool:
+    if args.algorithm == "constraint":
+        return True
+
+    incompatible_flags = []
+    if getattr(args, "context_sensitive", False):
+        incompatible_flags.append("--context-sensitive")
+    if getattr(args, "context_depth", 1) != 1:
+        incompatible_flags.append("--context-depth")
+    if getattr(args, "fixpoint_max_iterations", None) is not None:
+        incompatible_flags.append("--fixpoint-max-iterations")
+    if getattr(args, "no_fixpoint_warning", False):
+        incompatible_flags.append("--no-fixpoint-warning")
+    if getattr(args, "allocation_site_sensitive_instances", False):
+        incompatible_flags.append("--allocation-site-sensitive-instances")
+    if getattr(args, "as_graph_output", None):
+        incompatible_flags.append("--as-graph-output")
+
+    if incompatible_flags:
+        joined = ", ".join(incompatible_flags)
+        print(
+            "Error: "
+            f"{joined} are only supported with --algorithm constraint",
+            file=sys.stderr,
+        )
+        return False
+    return True
+
+
 def run_callgraph(input_path, args):
     """Build and visualize call graphs from Python code."""
     try:
         if not input_path.exists() or input_path.suffix != ".py":
             print(f"Error: '{input_path}' is not a valid Python file", file=sys.stderr)
+            return 1
+
+        if not _validate_algorithm_options(args):
             return 1
 
         # Generate call graph analysis based on selected algorithm

@@ -186,5 +186,8 @@ def test_changed_transform_clears_program_level_analysis_results():
     assert program.ipa_analysis is None
     assert program.cpa_analysis is None
     assert program.lifetime_analysis is None
+    assert program.analysis_results["ipa_analysis"] is None
+    assert program.analysis_results["cpa_analysis"] is None
+    assert program.analysis_results["lifetime_analysis"] is None
     assert program.semantic_queries is None
     assert program.semantic_queries_mode is None

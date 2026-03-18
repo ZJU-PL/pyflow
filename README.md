@@ -44,6 +44,16 @@ cd pyflow
 pip install -e .
 ```
 
+For development, install the dev extras:
+```bash
+pip install -e ".[dev]"
+```
+
+If you want the optional PyCG-backed call-graph algorithm, install:
+```bash
+pip install -e ".[dev,callgraph]"
+```
+
 
 ### Usage
 
@@ -52,11 +62,14 @@ pip install -e .
 # Basic optimization pipeline
 pyflow optimize input.py
 
-# Dump AST for a specific function
-pyflow optimize input.py --dump-ast function_name
+# Dump IR for a specific function
+pyflow ir input.py --dump-ast function_name
 
 # Generate a call graph
 pyflow callgraph input.py
+
+# Generate a PyCG-backed call graph
+pyflow callgraph input.py --algorithm pycg
 
 # Run security checks
 pyflow security input.py
@@ -71,12 +84,14 @@ documentation.
 ### Running Tests
 
 ```bash
-# Run all tests
+# Run the default unit-focused test suite
 pytest
+
+# Run integration tests explicitly
+pytest -m integration tests/integration
 
 # Run focused areas
 pytest tests/frontend
-pytest tests/integration/
 pytest tests/api
 pytest tests/checker
 ```
@@ -103,4 +118,3 @@ research, experimentation, and advanced static-analysis prototyping. The codebas
 has broad subsystem coverage and a large test suite, but documentation and some
 subsystems are still catching up with the implementation. If you are evaluating
 the project, expect strong technical depth with some rough edges.
-

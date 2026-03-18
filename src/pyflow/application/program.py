@@ -1,19 +1,4 @@
-"""
-Program representation for PyFlow static analysis.
-
-This module defines the core Program class that represents a Python program
-being analyzed by PyFlow's static analysis tools. The Program class serves
-as the central data structure that holds all information about a program
-throughout the analysis pipeline.
-
-**Program Structure:**
-- Interface: Declarations of functions, classes, and entry points
-- Store Graph: Object relationship graph (populated during analysis)
-- Entry Points: Functions/methods where analysis starts
-- Live Code: Set of code elements that are reachable
-- Analysis Results: Results from various analyses (e.g., IPA)
-- Class Hierarchy: Cross-module class hierarchy with MRO resolution
-"""
+"""Program representation for PyFlow static analysis."""
 
 from pyflow.api.entrypoints import InterfaceDeclaration
 
@@ -37,19 +22,20 @@ class Program(object):
     4. Analysis: Various analysis passes populate storeGraph, liveCode, etc.
     5. Results: Analysis results are stored (e.g., ipa_analysis)
 
-    Attributes:
-        interface: InterfaceDeclaration containing function/class declarations
-        storeGraph: Store graph for object relationships (populated during analysis)
-        entryPoints: List of program entry points (populated during extraction)
-        liveCode: Set of live code elements (functions, classes) reachable from entry points
-        stats: Statistics about the program (optional, populated during analysis)
-        ipa_analysis: Results from Inter-Procedural Analysis (populated by IPA pass)
-        cpa_analysis: Results from Constraint Propagation Analysis (optional)
-        lifetime_analysis: Results from lifetime analysis (optional)
-        semantic_queries: Cached semantic query service (optional)
-        class_hierarchy: ClassHierarchy for MRO and cross-module resolution
-        cross_module_resolver: CrossModuleResolver for resolving across modules
+    Analysis outputs are kept in a small central registry so pass-manager based
+    invalidation has a single place to clear and refresh them. The legacy
+    attributes (`ipa_analysis`, `cpa_analysis`, `lifetime_analysis`) remain as
+    compatibility mirrors for existing analysis code.
     """
+
+    ANALYSIS_ATTRS = {
+        "ipa": "ipa_analysis",
+        "ipa_refresh": "ipa_analysis",
+        "cpa": "cpa_analysis",
+        "cpa_path_sensitive": "cpa_analysis",
+        "lifetime": "lifetime_analysis",
+        "lifetime_refresh": "lifetime_analysis",
+    }
 
     __slots__ = (
         "__weakref__",
@@ -66,6 +52,7 @@ class Program(object):
         "class_hierarchy",
         "cross_module_resolver",
         "frontend_telemetry",
+        "analysis_results",
     )
 
     def __init__(self):
@@ -94,6 +81,46 @@ class Program(object):
         self.class_hierarchy = None
         self.cross_module_resolver = None
         self.frontend_telemetry = None
+        self.analysis_results = {
+            "ipa_analysis": None,
+            "cpa_analysis": None,
+            "lifetime_analysis": None,
+        }
+
+    def set_analysis_result(self, pass_name: str, result) -> None:
+        """Record an analysis result in the canonical registry and legacy slot."""
+        attr = self.ANALYSIS_ATTRS.get(pass_name)
+        if attr is None:
+            raise KeyError(f"Unknown analysis pass '{pass_name}'")
+        setattr(self, attr, result)
+        self.analysis_results[attr] = result
+        self.invalidate_semantic_queries()
+
+    def get_analysis_result(self, analysis_name: str):
+        """Return an analysis result from the central registry."""
+        if analysis_name not in self.analysis_results:
+            raise KeyError(f"Unknown analysis result '{analysis_name}'")
+        return self.analysis_results[analysis_name]
+
+    def clear_analysis_result(self, pass_name: str) -> None:
+        """Clear one analysis result and dependent semantic-query caches."""
+        attr = self.ANALYSIS_ATTRS.get(pass_name)
+        if attr is None:
+            return
+        if getattr(self, attr, None) is not None:
+            setattr(self, attr, None)
+            self.analysis_results[attr] = None
+            self.invalidate_semantic_queries()
+
+    def clear_analysis_results(self, pass_names) -> None:
+        """Clear multiple analysis results addressed by pass names."""
+        for pass_name in pass_names:
+            self.clear_analysis_result(pass_name)
+
+    def invalidate_semantic_queries(self) -> None:
+        """Drop cached semantic-query facades after analysis changes."""
+        self.semantic_queries = None
+        self.semantic_queries_mode = None
 
     def get_semantic_queries(self, compiler, server_mode=None):
         """Get or create a semantic query service for this program."""

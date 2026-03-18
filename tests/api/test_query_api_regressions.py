@@ -103,6 +103,10 @@ def test_callgraph_uses_disambiguated_node_ids():
     assert len(graph.keys()) == 2
     assert all("@/" in name for name in graph.keys())
     assert queries.get_callees("foo")
+    assert queries.get_callgraph_data() == {
+        caller: sorted(callees)
+        for caller, callees in sorted(graph.items(), key=lambda item: item[0])
+    }
 
 
 def test_compute_slice_respects_variable_filter():
