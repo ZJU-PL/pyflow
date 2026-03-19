@@ -6,7 +6,13 @@ from types import SimpleNamespace
 
 from pyflow.application import context
 from pyflow.analysis.ifds import bind_call_arguments, build_supergraph_from_cfgs
-from pyflow.analysis.ifds.cfg_adapter import annotation_invokes_cfg_resolver
+from pyflow.analysis.ifds.cfg_adapter import (
+    CallEffect,
+    ExceptionalEffect,
+    GuardEffect,
+    StoreEffect,
+    annotation_invokes_cfg_resolver,
+)
 from pyflow.language.python import ast
 from pyflow.language.python.default_markers import MISSING_DEFAULT
 
@@ -296,6 +302,189 @@ def test_cfg_adapter_preserves_exceptional_successor_for_call_inside_try_finally
     )
     return_sites = adapter.supergraph.return_sites_of_call_at(call_node)
     assert {site.scope for site in return_sites} == {("0", "try", "body", "0")}
+
+
+def test_cfg_adapter_exposes_call_effect_bindings_and_result_route():
+    compiler = context.CompilerContext(None)
+
+    x = ast.Local("x")
+    helper_code, _ = make_code("helper", [x], [ast.Return([x])], return_name="helper_ret")
+    a = ast.Local("a")
+    b = ast.Local("b")
+    main_code, _ = make_code(
+        "main",
+        [a],
+        [
+            ast.Assign(ast.DirectCall(helper_code, None, [a], [], None, None), [b]),
+            ast.Return([b]),
+        ],
+        return_name="main_ret",
+    )
+
+    helper_cfg = build_cfg(compiler, helper_code)
+    main_cfg = build_cfg(compiler, main_code)
+    adapter = build_supergraph_from_cfgs([main_cfg, helper_cfg])
+
+    call_node = next(
+        node for node in adapter.supergraph.nodes_of(main_cfg) if node.kind == "call"
+    )
+    effect = adapter.effect_of(call_node)
+
+    assert isinstance(effect, CallEffect)
+    assert effect.callees == (helper_cfg,)
+    assert effect.result_route.kind == "assigned_locals"
+    assert effect.result_route.assigned_locals == (b,)
+    assert effect.argument_bindings == ((helper_cfg, ((a, x),)),)
+    assert len(effect.kill_slots) == 1
+
+
+def test_cfg_adapter_orders_nested_calls_by_evaluation_index():
+    compiler = context.CompilerContext(None)
+
+    source_code, _ = make_code("source", [], [ast.Return([])], return_name="source_ret")
+    helper_param = ast.Local("helper_param")
+    helper_code, _ = make_code(
+        "helper",
+        [helper_param],
+        [ast.Return([helper_param])],
+        return_name="helper_ret",
+    )
+    sink_param = ast.Local("sink_param")
+    sink_code, _ = make_code("sink", [sink_param], [], return_name="sink_ret")
+    main_code, _ = make_code(
+        "main",
+        [],
+        [
+            ast.Discard(
+                ast.Call(
+                    ast.Local("sink"),
+                    [ast.Call(ast.Local("helper"), [ast.Call(ast.Local("source"), [], [], None, None)], [], None, None)],
+                    [],
+                    None,
+                    None,
+                )
+            ),
+            ast.Return([]),
+        ],
+        return_name="main_ret",
+    )
+
+    cfgs = [
+        build_cfg(compiler, main_code),
+        build_cfg(compiler, source_code),
+        build_cfg(compiler, helper_code),
+        build_cfg(compiler, sink_code),
+    ]
+    adapter = build_supergraph_from_cfgs(cfgs)
+    call_effects = sorted(
+        (
+            adapter.effect_of(node)
+            for node in adapter.supergraph.nodes_of(cfgs[0])
+            if node.kind == "call"
+        ),
+        key=lambda effect: effect.evaluation_index,
+    )
+
+    assert [effect.call_name for effect in call_effects] == ["source", "helper", "sink"]
+    assert [effect.evaluation_index for effect in call_effects] == [0, 1, 2]
+
+
+def test_cfg_adapter_exposes_guard_effect_for_lowered_null_check():
+    compiler = context.CompilerContext(None)
+
+    value = ast.Local("value")
+    main_code, _ = make_code(
+        "main",
+        [],
+        [
+            ast.Switch(
+                ast.Condition(
+                    ast.Suite([]),
+                    ast.Call(
+                        ast.Existing(ast.program.Object("interpreter__is_not__")),
+                        [value, ast.Existing(ast.program.Object(None))],
+                        [],
+                        None,
+                        None,
+                    ),
+                ),
+                ast.Suite([]),
+                ast.Suite([]),
+            ),
+            ast.Return([]),
+        ],
+        return_name="main_ret",
+    )
+
+    cfg = build_cfg(compiler, main_code)
+    adapter = build_supergraph_from_cfgs([cfg])
+
+    condition_node = next(
+        node for node in adapter.supergraph.nodes_of(cfg) if node.kind == "condition"
+    )
+    effect = adapter.effect_of(condition_node)
+
+    assert isinstance(effect, GuardEffect)
+    assert effect.nullable_target is value
+    assert effect.true_branch_means_null is False
+    assert len(effect.true_successors) == 1
+
+
+def test_cfg_adapter_exposes_heap_writes_without_strong_update_kills():
+    compiler = context.CompilerContext(None)
+
+    obj = ast.Local("obj")
+    payload = ast.Existing(ast.program.Object("payload"))
+    main_code, _ = make_code(
+        "main",
+        [],
+        [
+            ast.SetAttr(ast.Existing(ast.program.Object(1)), obj, payload),
+            ast.Return([]),
+        ],
+        return_name="main_ret",
+    )
+
+    cfg = build_cfg(compiler, main_code)
+    adapter = build_supergraph_from_cfgs([cfg])
+
+    store_node = next(
+        node
+        for node in adapter.supergraph.nodes_of(cfg)
+        if isinstance(adapter.operation_of(node), ast.SetAttr)
+    )
+    effect = adapter.effect_of(store_node)
+
+    assert isinstance(effect, StoreEffect)
+    assert effect.written_slots
+    assert effect.strong_update_slots == ()
+
+
+def test_cfg_adapter_exposes_exceptional_effect_for_raise():
+    compiler = context.CompilerContext(None)
+
+    main_code, _ = make_code(
+        "main",
+        [],
+        [
+            ast.Raise(ast.Existing(ast.program.Object(ValueError)), None, None),
+            ast.Return([]),
+        ],
+        return_name="main_ret",
+    )
+
+    cfg = build_cfg(compiler, main_code)
+    adapter = build_supergraph_from_cfgs([cfg])
+
+    raise_node = next(
+        node
+        for node in adapter.supergraph.nodes_of(cfg)
+        if isinstance(adapter.operation_of(node), ast.Raise)
+    )
+    effect = adapter.effect_of(raise_node)
+
+    assert isinstance(effect, ExceptionalEffect)
+    assert effect.raises is True
 
 
 def test_bind_call_arguments_maps_keywords_to_matching_formals():

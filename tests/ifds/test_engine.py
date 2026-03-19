@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 from pyflow.analysis.ifds import (
     EdgeFunction,
+    FactTransition,
     IDEProblem,
     IDESolver,
     IFDSProblem,
@@ -493,6 +494,15 @@ class DuplicatePropagationIFDSProblem(LinearIFDSProblem):
         return super().normal_flow(node, successor, fact)
 
 
+class WrappedTransitionIFDSProblem(LinearIFDSProblem):
+    def normal_flow(self, node: str, successor: str, fact: str):
+        if node == "main.entry" and successor == "main.body" and fact == ZERO:
+            return (FactTransition(ZERO), FactTransition("x"))
+        if fact in {ZERO, "x"}:
+            return (FactTransition(fact),)
+        return ()
+
+
 class DuplicatePropagationIDEProblem(SplitCallIDEProblem):
     def normal_flow(self, node: str, successor: str, fact: str):
         transitions = list(super().normal_flow(node, successor, fact))
@@ -520,6 +530,13 @@ def test_solvers_only_record_traces_for_new_information():
 
     ide_edge = PathEdge("main.entry", ZERO, "main.call1", "d")
     assert len(ide_result.traces_for(ide_edge)) == 1
+
+
+def test_ifds_accepts_explicit_fact_transitions():
+    result = IFDSSolver().solve(WrappedTransitionIFDSProblem(build_linear_supergraph()))
+
+    assert result.is_reached("main.exit", ZERO)
+    assert result.is_reached("main.exit", "x")
 
 
 def test_edge_function_join_is_idempotent_for_duplicate_terms():

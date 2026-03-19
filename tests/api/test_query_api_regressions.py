@@ -220,6 +220,45 @@ def test_get_ifds_supergraph_ignores_unrelated_cfg_failures(monkeypatch):
         return DummyCfg(code)
 
     monkeypatch.setattr(engine_module.cfg_transform, "evaluate", fake_evaluate)
+    adapter = engine.get_ifds_supergraph()
 
-    with pytest.raises(TemporaryLimitation, match="annotation-complete programs"):
-        engine.get_ifds_supergraph()
+    assert adapter.supergraph.procedures() == frozenset({engine.get_cfg(code_a)})
+
+
+def test_get_ifds_supergraph_rebuilds_after_reset_cache(monkeypatch):
+    code = DummyCode("ok", "/tmp/a.py", 1)
+    context = QueryContext(
+        compiler=object(),
+        program=SimpleNamespace(liveCode=[code], interface=None),
+    )
+    engine = GraphQueryEngine(context)
+
+    from pyflow.api.queries import engine as engine_module
+
+    class DummyCfg:
+        def __init__(self, code):
+            self.code = code
+            self.entryTerminal = DummyBlock(1)
+
+    calls = []
+
+    monkeypatch.setattr(
+        engine_module.cfg_transform,
+        "evaluate",
+        lambda _compiler, _code: DummyCfg(_code),
+    )
+
+    def fake_build_supergraph(cfgs, include_exceptional_edges=True):
+        calls.append((cfgs, include_exceptional_edges))
+        return object()
+
+    monkeypatch.setattr(engine_module, "build_supergraph_from_cfgs", fake_build_supergraph)
+
+    first = engine.get_ifds_supergraph()
+    second = engine.get_ifds_supergraph()
+    engine.reset_cache()
+    third = engine.get_ifds_supergraph()
+
+    assert first is second
+    assert third is not first
+    assert len(calls) == 2

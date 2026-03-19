@@ -8,6 +8,7 @@ from typing import DefaultDict, Dict, FrozenSet, Generic, Hashable, Iterable, Ty
 
 from .problem import (
     EdgeFunction,
+    FactTransition,
     IDEProblem,
     IFDSProblem,
     IdentityEdgeFunction,
@@ -74,6 +75,78 @@ class _IDEIncomingRecord(Generic[NodeT, FactT, ValueT]):
     call_fact: FactT
     return_site: NodeT
     call_jump: EdgeFunction[ValueT]
+
+
+class _SolverBookkeeping(Generic[NodeT, FactT]):
+    """Shared statistics/tracing/limit tracking for IFDS and IDE solvers."""
+
+    def __init__(
+        self,
+        *,
+        record_traces: bool,
+        max_propagated_path_edges: int | None,
+        limit_label: str,
+    ) -> None:
+        self.record_traces = record_traces
+        self.max_propagated_path_edges = max_propagated_path_edges
+        self.limit_label = limit_label
+        self.traces: DefaultDict[
+            PathEdge[NodeT, FactT], list[PropagationTrace[NodeT, FactT]]
+        ] = defaultdict(list)
+        self.stats = {
+            "processed_path_edges": 0,
+            "propagated_path_edges": 0,
+            "normal_flow_steps": 0,
+            "call_flow_steps": 0,
+            "return_flow_steps": 0,
+            "call_to_return_steps": 0,
+            "incoming_records": 0,
+            "summary_updates": 0,
+        }
+
+    def increment(self, key: str) -> None:
+        self.stats[key] += 1
+
+    def record_propagation(
+        self,
+        path_edge: PathEdge[NodeT, FactT],
+        *,
+        kind: str,
+        predecessor: PathEdge[NodeT, FactT] | None = None,
+        note: str | None = None,
+    ) -> None:
+        if self.record_traces:
+            self.traces[path_edge].append(
+                PropagationTrace(path_edge, kind, predecessor, note)
+            )
+        self.stats["propagated_path_edges"] += 1
+        if (
+            self.max_propagated_path_edges is not None
+            and self.stats["propagated_path_edges"] > self.max_propagated_path_edges
+        ):
+            raise SolverLimitExceeded(
+                f"{self.limit_label} propagation exceeded max_propagated_path_edges="
+                f"{self.max_propagated_path_edges}"
+            )
+
+    def frozen_traces(
+        self,
+    ) -> Dict[PathEdge[NodeT, FactT], tuple[PropagationTrace[NodeT, FactT], ...]]:
+        return {edge: tuple(records) for edge, records in self.traces.items()}
+
+    def statistics(self) -> SolverStatistics:
+        return SolverStatistics(**self.stats)
+
+
+def _normalize_ifds_transitions(outputs) -> tuple[FactTransition[FactT], ...]:
+    """Accept raw IFDS facts or explicit FactTransition wrappers."""
+    normalized: list[FactTransition[FactT]] = []
+    for output in outputs:
+        if isinstance(output, FactTransition):
+            normalized.append(output)
+        else:
+            normalized.append(FactTransition(output))
+    return tuple(normalized)
 
 
 class IFDSResult(Generic[NodeT, FactT]):
@@ -199,19 +272,11 @@ class IFDSSolver(Generic[ProcT, NodeT, FactT]):
         end_summary: DefaultDict[
             tuple[NodeT, FactT, NodeT], set[FactT]
         ] = defaultdict(set)
-        traces: DefaultDict[
-            PathEdge[NodeT, FactT], list[PropagationTrace[NodeT, FactT]]
-        ] = defaultdict(list)
-        stats = {
-            "processed_path_edges": 0,
-            "propagated_path_edges": 0,
-            "normal_flow_steps": 0,
-            "call_flow_steps": 0,
-            "return_flow_steps": 0,
-            "call_to_return_steps": 0,
-            "incoming_records": 0,
-            "summary_updates": 0,
-        }
+        bookkeeping = _SolverBookkeeping[NodeT, FactT](
+            record_traces=self.record_traces,
+            max_propagated_path_edges=self.max_propagated_path_edges,
+            limit_label="IFDS",
+        )
 
         def propagate(
             path_edge: PathEdge[NodeT, FactT],
@@ -222,20 +287,14 @@ class IFDSSolver(Generic[ProcT, NodeT, FactT]):
         ) -> None:
             if path_edge in seen:
                 return
-            if self.record_traces:
-                trace = PropagationTrace(path_edge, kind, predecessor, note)
-                traces[path_edge].append(trace)
             seen.add(path_edge)
             reached[path_edge.node].add(path_edge.fact)
-            stats["propagated_path_edges"] += 1
-            if (
-                self.max_propagated_path_edges is not None
-                and stats["propagated_path_edges"] > self.max_propagated_path_edges
-            ):
-                raise SolverLimitExceeded(
-                    "IFDS propagation exceeded max_propagated_path_edges="
-                    f"{self.max_propagated_path_edges}"
-                )
+            bookkeeping.record_propagation(
+                path_edge,
+                kind=kind,
+                predecessor=predecessor,
+                note=note,
+            )
             queue.append(path_edge)
 
         for node, facts in problem.initial_seeds().items():
@@ -244,7 +303,7 @@ class IFDSSolver(Generic[ProcT, NodeT, FactT]):
 
         while queue:
             edge = queue.popleft()
-            stats["processed_path_edges"] += 1
+            bookkeeping.increment("processed_path_edges")
             source_node = edge.source_node
             source_fact = edge.source_fact
             node = edge.node
@@ -252,11 +311,13 @@ class IFDSSolver(Generic[ProcT, NodeT, FactT]):
 
             if supergraph.is_call_node(node):
                 for return_site in supergraph.call_to_return_successors(node):
-                    stats["call_to_return_steps"] += 1
-                    for out_fact in problem.call_to_return_flow(node, return_site, fact):
+                    bookkeeping.increment("call_to_return_steps")
+                    for transition in _normalize_ifds_transitions(
+                        problem.call_to_return_flow(node, return_site, fact)
+                    ):
                         propagate(
                             PathEdge(
-                                source_node, source_fact, return_site, out_fact
+                                source_node, source_fact, return_site, transition.fact
                             ),
                             kind="call_to_return",
                             predecessor=edge,
@@ -265,8 +326,11 @@ class IFDSSolver(Generic[ProcT, NodeT, FactT]):
 
                 for callee in supergraph.callees_of_call_at(node):
                     start = supergraph.entry_of(callee)
-                    stats["call_flow_steps"] += 1
-                    for start_fact in problem.call_flow(node, callee, fact):
+                    bookkeeping.increment("call_flow_steps")
+                    for transition in _normalize_ifds_transitions(
+                        problem.call_flow(node, callee, fact)
+                    ):
+                        start_fact = transition.fact
                         incoming_key = (start, start_fact)
                         for return_site in supergraph.return_sites_of_call_at(node):
                             incoming_record = _IncomingRecord(
@@ -278,26 +342,28 @@ class IFDSSolver(Generic[ProcT, NodeT, FactT]):
                             )
                             if incoming_record not in incoming[incoming_key]:
                                 incoming[incoming_key].add(incoming_record)
-                                stats["incoming_records"] += 1
+                                bookkeeping.increment("incoming_records")
                                 for exit_node in supergraph.exits_of(callee):
                                     for exit_fact in end_summary.get(
                                         (start, start_fact, exit_node), ()
                                     ):
-                                        stats["return_flow_steps"] += 1
-                                        for return_fact in problem.return_flow(
-                                            node,
-                                            callee,
-                                            exit_node,
-                                            return_site,
-                                            fact,
-                                            exit_fact,
+                                        bookkeeping.increment("return_flow_steps")
+                                        for transition in _normalize_ifds_transitions(
+                                            problem.return_flow(
+                                                node,
+                                                callee,
+                                                exit_node,
+                                                return_site,
+                                                fact,
+                                                exit_fact,
+                                            )
                                         ):
                                             propagate(
                                                 PathEdge(
                                                     source_node,
                                                     source_fact,
                                                     return_site,
-                                                    return_fact,
+                                                    transition.fact,
                                                 ),
                                                 kind="return_flow(summary_replay)",
                                                 note=f"{callee!r} via {return_site!r}",
@@ -314,24 +380,26 @@ class IFDSSolver(Generic[ProcT, NodeT, FactT]):
                 summary_key = (source_node, source_fact, node)
                 if fact not in end_summary[summary_key]:
                     end_summary[summary_key].add(fact)
-                    stats["summary_updates"] += 1
+                    bookkeeping.increment("summary_updates")
                     callee = supergraph.procedure_of(node)
                     for incoming_record in incoming.get((source_node, source_fact), ()):
-                        stats["return_flow_steps"] += 1
-                        for return_fact in problem.return_flow(
-                            incoming_record.call_node,
-                            callee,
-                            node,
-                            incoming_record.return_site,
-                            incoming_record.call_fact,
-                            fact,
+                        bookkeeping.increment("return_flow_steps")
+                        for transition in _normalize_ifds_transitions(
+                            problem.return_flow(
+                                incoming_record.call_node,
+                                callee,
+                                node,
+                                incoming_record.return_site,
+                                incoming_record.call_fact,
+                                fact,
+                            )
                         ):
                             propagate(
                                 PathEdge(
                                     incoming_record.caller_source_node,
                                     incoming_record.caller_source_fact,
                                     incoming_record.return_site,
-                                    return_fact,
+                                    transition.fact,
                                 ),
                                 kind="return_flow",
                                 predecessor=edge,
@@ -339,10 +407,12 @@ class IFDSSolver(Generic[ProcT, NodeT, FactT]):
                             )
 
             for successor in supergraph.normal_successors(node):
-                stats["normal_flow_steps"] += 1
-                for out_fact in problem.normal_flow(node, successor, fact):
+                bookkeeping.increment("normal_flow_steps")
+                for transition in _normalize_ifds_transitions(
+                    problem.normal_flow(node, successor, fact)
+                ):
                     propagate(
-                        PathEdge(source_node, source_fact, successor, out_fact),
+                        PathEdge(source_node, source_fact, successor, transition.fact),
                         kind="normal_flow",
                         predecessor=edge,
                         note=f"{node!r} -> {successor!r}",
@@ -351,8 +421,8 @@ class IFDSSolver(Generic[ProcT, NodeT, FactT]):
         return IFDSResult(
             dict(reached),
             frozenset(seen),
-            SolverStatistics(**stats),
-            {edge: tuple(records) for edge, records in traces.items()},
+            bookkeeping.statistics(),
+            bookkeeping.frozen_traces(),
             {key: tuple(value) for key, value in incoming.items()},
             {key: frozenset(value) for key, value in end_summary.items()},
         )
@@ -381,19 +451,11 @@ class IDESolver(Generic[ProcT, NodeT, FactT, ValueT]):
         end_summary: Dict[
             tuple[NodeT, FactT, NodeT, FactT], EdgeFunction[ValueT]
         ] = {}
-        traces: DefaultDict[
-            PathEdge[NodeT, FactT], list[PropagationTrace[NodeT, FactT]]
-        ] = defaultdict(list)
-        stats = {
-            "processed_path_edges": 0,
-            "propagated_path_edges": 0,
-            "normal_flow_steps": 0,
-            "call_flow_steps": 0,
-            "return_flow_steps": 0,
-            "call_to_return_steps": 0,
-            "incoming_records": 0,
-            "summary_updates": 0,
-        }
+        bookkeeping = _SolverBookkeeping[NodeT, FactT](
+            record_traces=self.record_traces,
+            max_propagated_path_edges=self.max_propagated_path_edges,
+            limit_label="IDE",
+        )
         identity = IdentityEdgeFunction[ValueT]()
         seed_values = dict(problem.initial_seed_values())
 
@@ -412,40 +474,26 @@ class IDESolver(Generic[ProcT, NodeT, FactT, ValueT]):
         ) -> None:
             current = jump_functions.get(path_edge)
             if current is None:
-                if self.record_traces:
-                    traces[path_edge].append(
-                        PropagationTrace(path_edge, kind, predecessor, note)
-                    )
                 jump_functions[path_edge] = jump
                 reached[path_edge.node].add(path_edge.fact)
-                stats["propagated_path_edges"] += 1
-                if (
-                    self.max_propagated_path_edges is not None
-                    and stats["propagated_path_edges"] > self.max_propagated_path_edges
-                ):
-                    raise SolverLimitExceeded(
-                        "IDE propagation exceeded max_propagated_path_edges="
-                        f"{self.max_propagated_path_edges}"
-                    )
+                bookkeeping.record_propagation(
+                    path_edge,
+                    kind=kind,
+                    predecessor=predecessor,
+                    note=note,
+                )
                 queue.append(path_edge)
                 return
             joined = join_edge_functions(current, jump)
             if joined != current:
-                if self.record_traces:
-                    traces[path_edge].append(
-                        PropagationTrace(path_edge, kind, predecessor, note)
-                    )
                 jump_functions[path_edge] = joined
                 reached[path_edge.node].add(path_edge.fact)
-                stats["propagated_path_edges"] += 1
-                if (
-                    self.max_propagated_path_edges is not None
-                    and stats["propagated_path_edges"] > self.max_propagated_path_edges
-                ):
-                    raise SolverLimitExceeded(
-                        "IDE propagation exceeded max_propagated_path_edges="
-                        f"{self.max_propagated_path_edges}"
-                    )
+                bookkeeping.record_propagation(
+                    path_edge,
+                    kind=kind,
+                    predecessor=predecessor,
+                    note=note,
+                )
                 queue.append(path_edge)
 
         for seed, value in seed_values.items():
@@ -455,7 +503,7 @@ class IDESolver(Generic[ProcT, NodeT, FactT, ValueT]):
 
         while queue:
             edge = queue.popleft()
-            stats["processed_path_edges"] += 1
+            bookkeeping.increment("processed_path_edges")
             source_node = edge.source_node
             source_fact = edge.source_fact
             node = edge.node
@@ -464,7 +512,7 @@ class IDESolver(Generic[ProcT, NodeT, FactT, ValueT]):
 
             if supergraph.is_call_node(node):
                 for return_site in supergraph.call_to_return_successors(node):
-                    stats["call_to_return_steps"] += 1
+                    bookkeeping.increment("call_to_return_steps")
                     for transition in problem.call_to_return_flow(node, return_site, fact):
                         propagate(
                             PathEdge(
@@ -481,7 +529,7 @@ class IDESolver(Generic[ProcT, NodeT, FactT, ValueT]):
 
                 for callee in supergraph.callees_of_call_at(node):
                     start = supergraph.entry_of(callee)
-                    stats["call_flow_steps"] += 1
+                    bookkeeping.increment("call_flow_steps")
                     for transition in problem.call_flow(node, callee, fact):
                         call_jump = transition.edge_function.compose(current_jump)
                         incoming_key = (start, transition.fact)
@@ -496,7 +544,7 @@ class IDESolver(Generic[ProcT, NodeT, FactT, ValueT]):
                             )
                             if incoming_record not in incoming[incoming_key]:
                                 incoming[incoming_key].add(incoming_record)
-                                stats["incoming_records"] += 1
+                                bookkeeping.increment("incoming_records")
                                 for exit_node in supergraph.exits_of(callee):
                                     for exit_fact in reached.get(exit_node, ()):
                                         summary = end_summary.get(
@@ -549,11 +597,11 @@ class IDESolver(Generic[ProcT, NodeT, FactT, ValueT]):
                     if summary_changed:
                         end_summary[summary_key] = joined_summary
                 if summary_changed:
-                    stats["summary_updates"] += 1
+                    bookkeeping.increment("summary_updates")
                     callee = supergraph.procedure_of(node)
                     summary = end_summary[summary_key]
                     for incoming_record in incoming.get((source_node, source_fact), ()):
-                        stats["return_flow_steps"] += 1
+                        bookkeeping.increment("return_flow_steps")
                         for return_transition in problem.return_flow(
                             incoming_record.call_node,
                             callee,
@@ -581,7 +629,7 @@ class IDESolver(Generic[ProcT, NodeT, FactT, ValueT]):
                             )
 
             for successor in supergraph.normal_successors(node):
-                stats["normal_flow_steps"] += 1
+                bookkeeping.increment("normal_flow_steps")
                 for transition in problem.normal_flow(node, successor, fact):
                     propagate(
                         PathEdge(source_node, source_fact, successor, transition.fact),
@@ -649,8 +697,8 @@ class IDESolver(Generic[ProcT, NodeT, FactT, ValueT]):
             values,
             dict(reached),
             jump_functions,
-            SolverStatistics(**stats),
-            {edge: tuple(records) for edge, records in traces.items()},
+            bookkeeping.statistics(),
+            bookkeeping.frozen_traces(),
             {key: tuple(value) for key, value in incoming.items()},
             dict(end_summary),
         )

@@ -9,11 +9,17 @@ from pyflow.application.errors import TemporaryLimitation
 from pyflow.analysis.cfg import graph as cfg_graph
 from pyflow.language.python import ast as py_ast
 
-from ..cfg_adapter import CFGNode, CFGSupergraphAdapter, assigned_locals
-from ..transfers import resolve_call_name
+from ..cfg_adapter import CFGNode, CFGSupergraphAdapter, CallEffect, GuardEffect, assigned_locals
+from ..transfers import collect_locals, resolve_call_name
+from ._call_model import CallModelRegistry
 
 
 FactT = TypeVar("FactT")
+
+
+def build_entry_seeds(entry_nodes: Sequence[CFGNode], zero_fact: object):
+    """Build standard zero-fact seeds for entry-rooted IFDS analyses."""
+    return {node: frozenset({zero_fact}) for node in entry_nodes}
 
 
 class AnnotatedFactProblemBase(Generic[FactT], ABC):
@@ -21,8 +27,14 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
 
     analysis_name = "IFDS analysis"
 
-    def __init__(self, adapter: CFGSupergraphAdapter) -> None:
+    def __init__(
+        self,
+        adapter: CFGSupergraphAdapter,
+        *,
+        call_models: CallModelRegistry | None = None,
+    ) -> None:
         self.adapter = adapter
+        self.call_models = call_models or CallModelRegistry()
         self._require_complete_annotations()
 
     @abstractmethod
@@ -50,6 +62,34 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
 
     def local_slots(self, procedure: cfg_graph.Code, local: py_ast.Local) -> tuple[object, ...]:
         return tuple(self._slot_from_fact(fact) for fact in self._facts_for_locals(procedure, (local,)))
+
+    def _call_effect(self, node: CFGNode) -> CallEffect | None:
+        effect = self.adapter.effect_of(node)
+        if isinstance(effect, CallEffect):
+            return effect
+        return None
+
+    def _guard_effect(self, node: CFGNode) -> GuardEffect | None:
+        effect = self.adapter.effect_of(node)
+        if isinstance(effect, GuardEffect):
+            return effect
+        return None
+
+    def _killed_slots_for_node(self, node: CFGNode) -> tuple[object, ...]:
+        effect = self.adapter.effect_of(node)
+        strong_update_slots = getattr(effect, "strong_update_slots", None)
+        if strong_update_slots:
+            return tuple(strong_update_slots)
+        kill_slots = getattr(effect, "kill_slots", None)
+        if kill_slots:
+            return tuple(kill_slots)
+        return ()
+
+    def _call_model_for_node(self, node: CFGNode):
+        return self.call_models.model_for_name(self._call_name(node))
+
+    def _call_model_for_expression(self, expr: object):
+        return self.call_models.model_for_name(self._call_name_from_expression(expr))
 
     def _direct_expression_fact(
         self,
@@ -395,6 +435,11 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
             return expr.cell.name if isinstance(expr.cell, py_ast.Cell) else "<cell>"
         if isinstance(expr, py_ast.Local) and expr.name is not None:
             return expr.name
+        local_names = sorted(
+            {local.name for local in collect_locals(expr) if local.name is not None}
+        )
+        if local_names:
+            return ", ".join(local_names)
         return "<expr>"
 
     def _object_name(self, obj) -> str | None:

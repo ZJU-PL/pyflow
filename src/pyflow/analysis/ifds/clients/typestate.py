@@ -8,7 +8,8 @@ from typing import FrozenSet, Mapping, Sequence
 from pyflow.analysis.cfg import graph as cfg_graph
 from pyflow.language.python import ast as py_ast
 
-from ._client_common import AnnotatedFactProblemBase
+from ._call_model import CallModelRegistry, STATE_CLOSE, STATE_USE
+from ._client_common import AnnotatedFactProblemBase, build_entry_seeds
 from ..cfg_adapter import CFGNode, CFGSupergraphAdapter, assigned_locals
 from ..problem import IFDSProblem
 from ..solver import IFDSSolver
@@ -96,7 +97,10 @@ class InterproceduralTypestateProblem(
         entry_nodes: Sequence[CFGNode] | None = None,
     ) -> None:
         self.configuration = configuration
-        super().__init__(adapter)
+        super().__init__(
+            adapter,
+            call_models=CallModelRegistry.from_typestate_configuration(configuration),
+        )
         if entry_nodes is None:
             raise ValueError(
                 "IFDS typestate requires explicit entry_nodes; "
@@ -113,7 +117,7 @@ class InterproceduralTypestateProblem(
         return ZERO_TYPESTATE
 
     def initial_seeds(self) -> Mapping[CFGNode, frozenset[object]]:
-        return {node: frozenset({ZERO_TYPESTATE}) for node in self.entry_nodes}
+        return build_entry_seeds(self.entry_nodes, ZERO_TYPESTATE)
 
     def normal_flow(self, node: CFGNode, successor: CFGNode, fact: object):
         local_call_outputs = self._local_call_outputs(node, fact)
@@ -121,11 +125,12 @@ class InterproceduralTypestateProblem(
             return local_call_outputs
 
         del successor
-        operation = self.adapter.operation_of(node)
+        effect = self.adapter.effect_of(node)
+        operation = getattr(effect, "operation", self.adapter.operation_of(node))
         if operation is None:
             return self._identity_outputs(fact, ())
 
-        killed = self._killed_slots_for_operation(node.procedure, operation)
+        killed = self._killed_slots_for_node(node)
 
         if isinstance(operation, (py_ast.Assign, py_ast.UnpackSequence, py_ast.AnnAssign)):
             outputs = set(self._identity_outputs(fact, killed))
@@ -203,7 +208,8 @@ class InterproceduralTypestateProblem(
         if fact == ZERO_TYPESTATE:
             outputs.add(ZERO_TYPESTATE)
 
-        call = self.adapter.call_expression_of(call_node)
+        call_effect = self._call_effect(call_node)
+        call = call_effect.call_expression if call_effect is not None else None
         if call is None:
             return tuple(outputs)
 
@@ -232,14 +238,15 @@ class InterproceduralTypestateProblem(
         if exit_fact == ZERO_TYPESTATE:
             outputs.add(ZERO_TYPESTATE)
 
+        call_effect = self._call_effect(call_node)
         return_index = self._return_fact_index(callee, exit_fact)
         state = self._fact_state(exit_fact)
         if return_index is not None and state is not None:
             outputs.update(
                 self._facts_for_nested_call_result(
                     call_node.procedure,
-                    self.adapter.operation_of(call_node),
-                    self.adapter.call_expression_of(call_node),
+                    call_effect.operation if call_effect is not None else self.adapter.operation_of(call_node),
+                    call_effect.call_expression if call_effect is not None else self.adapter.call_expression_of(call_node),
                     return_index,
                     state,
                     nested=False,
@@ -247,7 +254,7 @@ class InterproceduralTypestateProblem(
             )
 
         formal = self._formal_for_fact(callee, exit_fact)
-        call = self.adapter.call_expression_of(call_node)
+        call = call_effect.call_expression if call_effect is not None else None
         if formal is not None and state is not None and call is not None:
             for actual, bound_formal in bind_call_arguments(call, callee.code.codeparameters):
                 if bound_formal is formal:
@@ -259,17 +266,14 @@ class InterproceduralTypestateProblem(
 
     def call_to_return_flow(self, call_node: CFGNode, return_site: CFGNode, fact: object):
         del return_site
-        operation = self.adapter.operation_of(call_node)
-        call_expression = self.adapter.call_expression_of(call_node)
-        killed = self._killed_slots_for_call_expression(
-            call_node.procedure,
-            operation,
-            call_expression,
-        )
+        call_effect = self._call_effect(call_node)
+        operation = call_effect.operation if call_effect is not None else self.adapter.operation_of(call_node)
+        call_expression = call_effect.call_expression if call_effect is not None else None
+        killed = self._killed_slots_for_node(call_node)
         outputs = set(self._identity_outputs(fact, killed))
-        call_name = self._call_name(call_node)
+        model = self._call_model_for_node(call_node)
 
-        if fact == ZERO_TYPESTATE and call_name in self.configuration.open_names:
+        if fact == ZERO_TYPESTATE and model is not None and STATE_OPEN in model.typestate_actions:
             outputs.update(
                 self._facts_for_nested_call_result(
                     call_node.procedure,
@@ -286,11 +290,15 @@ class InterproceduralTypestateProblem(
         if state is None or call_expression is None:
             return tuple(outputs)
 
-        resource_slots = self._resource_slots_for_call(call_node.procedure, call_expression)
+        resource_slots = self._resource_slots_for_call(
+            call_node.procedure,
+            call_expression,
+            model=model,
+        )
         if not resource_slots:
             return tuple(outputs)
 
-        if call_name in self.configuration.close_names and state == STATE_OPEN:
+        if model is not None and STATE_CLOSE in model.typestate_actions and state == STATE_OPEN:
             if isinstance(fact, ResourceStateFact) and fact.slot in resource_slots:
                 outputs.discard(fact)
                 outputs.add(ResourceStateFact(fact.slot, STATE_CLOSED))
@@ -316,16 +324,18 @@ class InterproceduralTypestateProblem(
             )
 
         for node in self.adapter.supergraph.nodes():
-            call = self.adapter.call_expression_of(node)
+            call_effect = self._call_effect(node)
+            call = call_effect.call_expression if call_effect is not None else None
             if call is None:
                 continue
-            call_name = self._call_name(node) or "<call>"
-            slots = self._resource_slots_for_call(node.procedure, call)
-            if call_name in self.configuration.use_names:
+            model = self._call_model_for_node(node)
+            call_name = (call_effect.call_name if call_effect is not None else self._call_name(node)) or "<call>"
+            slots = self._resource_slots_for_call(node.procedure, call, model=model)
+            if model is not None and STATE_USE in model.typestate_actions:
                 for slot in slots:
                     if result.is_reached(node, ResourceStateFact(slot, STATE_CLOSED)):
                         record(node, "use_after_close", call_name, self.describe_slot(slot))
-            if call_name in self.configuration.close_names:
+            if model is not None and STATE_CLOSE in model.typestate_actions:
                 for slot in slots:
                     if result.is_reached(node, ResourceStateFact(slot, STATE_CLOSED)):
                         record(node, "double_close", call_name, self.describe_slot(slot))
@@ -344,20 +354,17 @@ class InterproceduralTypestateProblem(
         return tuple(findings)
 
     def _local_call_outputs(self, node: CFGNode, fact: object):
-        call_expression = self.adapter.call_expression_of(node)
-        if call_expression is None or self.adapter.callees_of(node):
+        call_effect = self._call_effect(node)
+        if call_effect is None or call_effect.callees:
             return None
 
-        operation = self.adapter.operation_of(node)
-        killed = self._killed_slots_for_call_expression(
-            node.procedure,
-            operation,
-            call_expression,
-        )
+        call_expression = call_effect.call_expression
+        operation = call_effect.operation
+        killed = self._killed_slots_for_node(node)
         outputs = set(self._identity_outputs(fact, killed))
-        call_name = self._call_name(node)
+        model = self._call_model_for_node(node)
 
-        if fact == ZERO_TYPESTATE and call_name in self.configuration.open_names:
+        if fact == ZERO_TYPESTATE and model is not None and STATE_OPEN in model.typestate_actions:
             outputs.update(
                 self._facts_for_nested_call_result(
                     node.procedure,
@@ -374,8 +381,12 @@ class InterproceduralTypestateProblem(
         if state is None:
             return tuple(outputs)
 
-        resource_slots = self._resource_slots_for_call(node.procedure, call_expression)
-        if call_name in self.configuration.close_names and isinstance(fact, ResourceStateFact):
+        resource_slots = self._resource_slots_for_call(
+            node.procedure,
+            call_expression,
+            model=model,
+        )
+        if model is not None and STATE_CLOSE in model.typestate_actions and isinstance(fact, ResourceStateFact):
             if state == STATE_OPEN and fact.slot in resource_slots:
                 outputs.discard(fact)
                 outputs.add(ResourceStateFact(fact.slot, STATE_CLOSED))
@@ -681,6 +692,8 @@ class InterproceduralTypestateProblem(
         self,
         procedure: cfg_graph.Code,
         call: py_ast.PythonASTNode,
+        *,
+        model=None,
     ) -> tuple[object, ...]:
         resources: list[object] = []
         seen: set[object] = set()
@@ -692,10 +705,21 @@ class InterproceduralTypestateProblem(
                 seen.add(slot)
                 resources.append(slot)
 
-        if isinstance(call, py_ast.MethodCall) and self.configuration.track_method_receiver:
+        track_method_receiver = (
+            model.track_method_receiver
+            if model is not None
+            else self.configuration.track_method_receiver
+        )
+        resource_arg_positions = (
+            model.resource_arg_positions
+            if model is not None
+            else self.configuration.resource_arg_positions
+        )
+
+        if isinstance(call, py_ast.MethodCall) and track_method_receiver:
             extend_slots(call.expr)
         for index, actual in enumerate(actual_argument_expressions(call)):
-            if index in self.configuration.resource_arg_positions:
+            if index in resource_arg_positions:
                 extend_slots(actual)
         return tuple(resources)
 

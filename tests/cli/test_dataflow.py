@@ -84,6 +84,7 @@ def main():
         calls.append(True)
         session = SimpleNamespace(
             compiler=object(),
+            diagnostics=(),
             program=SimpleNamespace(
                 get_queries=lambda *_args, **_kwargs: (_ for _ in ()).throw(
                     AssertionError("CLI should not call back into query service")
@@ -102,9 +103,11 @@ def main():
     if output_format == "json":
         payload = json.loads(out)
         assert payload["function"] == "main"
+        assert payload["diagnostics"] == []
         assert payload["findings"][0]["tainted_arguments"] == ["b"]
     else:
         assert "Function: main" in out
+        assert "Diagnostics:" not in out
         assert "sink=sink procedure=sinkproc args=[b]" in out
 
 
@@ -131,6 +134,7 @@ def main():
     def fake_run_taint_analysis(*_args, **_kwargs):
         session = SimpleNamespace(
             compiler=object(),
+            diagnostics=(),
             program=SimpleNamespace(
                 get_queries=lambda *_args, **_kwargs: (_ for _ in ()).throw(
                     AssertionError("CLI should not call back into query service")
@@ -145,4 +149,40 @@ def main():
     payload = json.loads(capsys.readouterr().out)
 
     assert exit_code == 1
+    assert payload["diagnostics"] == []
     assert payload["findings"][0]["tainted_arguments"] == ["source()"]
+
+
+@pytest.mark.parametrize("output_format", ["text", "json"])
+def test_dataflow_cli_emits_session_diagnostics(
+    monkeypatch, tmp_path, capsys, output_format
+):
+    target = tmp_path / "sample.py"
+    target.write_text("def main():\n    return 0\n", encoding="utf-8")
+
+    fake_result = _DummyResult((), ("source()",))
+
+    def fake_run_taint_analysis(*_args, **_kwargs):
+        session = SimpleNamespace(
+            compiler=object(),
+            diagnostics=("IFDS session fell back to best-effort mode",),
+            program=SimpleNamespace(
+                get_queries=lambda *_args, **_kwargs: (_ for _ in ()).throw(
+                    AssertionError("CLI should not call back into query service")
+                )
+            ),
+        )
+        return session, fake_result
+
+    monkeypatch.setattr(dataflow_cli, "run_taint_analysis", fake_run_taint_analysis)
+
+    exit_code = dataflow_cli.run_dataflow_analysis(target, _make_args(output_format))
+    out = capsys.readouterr().out
+
+    assert exit_code == 1
+    if output_format == "json":
+        payload = json.loads(out)
+        assert payload["diagnostics"] == ["IFDS session fell back to best-effort mode"]
+    else:
+        assert "Diagnostics:" in out
+        assert "IFDS session fell back to best-effort mode" in out

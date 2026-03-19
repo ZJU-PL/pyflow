@@ -8,7 +8,7 @@ from typing import Mapping, Sequence
 from pyflow.analysis.cfg import graph as cfg_graph
 from pyflow.language.python import ast as py_ast
 
-from ._client_common import AnnotatedFactProblemBase
+from ._client_common import AnnotatedFactProblemBase, build_entry_seeds
 from ..cfg_adapter import CFGNode, CFGSupergraphAdapter, assigned_locals
 from ..problem import IFDSProblem
 from ..solver import IFDSSolver
@@ -102,18 +102,19 @@ class InterproceduralNullnessProblem(
         return ZERO_NULLNESS
 
     def initial_seeds(self) -> Mapping[CFGNode, frozenset[object]]:
-        return {node: frozenset({ZERO_NULLNESS}) for node in self.entry_nodes}
+        return build_entry_seeds(self.entry_nodes, ZERO_NULLNESS)
 
     def normal_flow(self, node: CFGNode, successor: CFGNode, fact: object):
         condition_outputs = self._condition_outputs(node, successor, fact)
         if condition_outputs is not None:
             return condition_outputs
 
-        operation = self.adapter.operation_of(node)
+        effect = self.adapter.effect_of(node)
+        operation = getattr(effect, "operation", self.adapter.operation_of(node))
         if operation is None:
             return self._identity_outputs(fact, ())
 
-        killed = self._killed_slots_for_operation(node.procedure, operation)
+        killed = self._killed_slots_for_node(node)
 
         if isinstance(operation, (py_ast.Assign, py_ast.UnpackSequence, py_ast.AnnAssign)):
             outputs = set(self._identity_outputs(fact, killed))
@@ -183,7 +184,8 @@ class InterproceduralNullnessProblem(
         if fact == ZERO_NULLNESS:
             outputs.add(ZERO_NULLNESS)
 
-        call = self.adapter.call_expression_of(call_node)
+        call_effect = self._call_effect(call_node)
+        call = call_effect.call_expression if call_effect is not None else None
         if call is None:
             return tuple(outputs)
 
@@ -215,8 +217,8 @@ class InterproceduralNullnessProblem(
             outputs.update(
                 self._facts_for_nested_call_result(
                     call_node.procedure,
-                    self.adapter.operation_of(call_node),
-                    self.adapter.call_expression_of(call_node),
+                    call_effect.operation if (call_effect := self._call_effect(call_node)) is not None else self.adapter.operation_of(call_node),
+                    call_effect.call_expression if call_effect is not None else self.adapter.call_expression_of(call_node),
                     return_index,
                     nested=False,
                 )
@@ -226,13 +228,7 @@ class InterproceduralNullnessProblem(
 
     def call_to_return_flow(self, call_node: CFGNode, return_site: CFGNode, fact: object):
         del return_site
-        operation = self.adapter.operation_of(call_node)
-        call_expression = self.adapter.call_expression_of(call_node)
-        killed = self._killed_slots_for_call_expression(
-            call_node.procedure,
-            operation,
-            call_expression,
-        )
+        killed = self._killed_slots_for_node(call_node)
         return self._identity_outputs(fact, killed)
 
     def findings(self, result) -> tuple[NullnessFinding, ...]:
@@ -248,8 +244,10 @@ class InterproceduralNullnessProblem(
             findings.append(NullnessFinding(node=node, kind=kind, expression_label=label))
 
         for node in self.adapter.supergraph.nodes():
-            call = self.adapter.call_expression_of(node)
-            operation = self.adapter.operation_of(node)
+            call_effect = self._call_effect(node)
+            call = call_effect.call_expression if call_effect is not None else None
+            effect = self.adapter.effect_of(node)
+            operation = getattr(effect, "operation", self.adapter.operation_of(node))
 
             if call is not None:
                 self._collect_null_risks(node, call, result, record, inspect_calls=True)
@@ -341,15 +339,15 @@ class InterproceduralNullnessProblem(
     def _condition_outputs(
         self, node: CFGNode, successor: CFGNode, fact: object
     ) -> tuple[object, ...] | None:
-        operation = self.adapter.operation_of(node)
-        if operation is None:
+        guard_effect = self._guard_effect(node)
+        if guard_effect is None:
             return None
-        conditional = operation.conditional if isinstance(operation, py_ast.Condition) else operation
         exit_name = node.block.findExit(successor.block)
         if exit_name not in ("true", "false"):
             return None
 
-        target_expr, true_means_null = self._nullable_condition_target(conditional)
+        target_expr = guard_effect.nullable_target
+        true_means_null = guard_effect.true_branch_means_null
         if target_expr is None:
             return None
 

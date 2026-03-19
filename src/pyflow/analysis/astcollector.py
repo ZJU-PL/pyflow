@@ -139,6 +139,7 @@ class GetOps(TypeDispatcher):
         ast.MakeFunction,
         ast.Import,
         ast.Yield,
+        ast.NamedExpr,
     )
     def visitOp(self, node):
         node.visitChildren(self)

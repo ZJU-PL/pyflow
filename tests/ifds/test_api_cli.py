@@ -196,7 +196,7 @@ def main():
 """
     )
 
-    _session, result = run_taint_analysis(
+    session, result = run_taint_analysis(
         [target],
         function="main",
         source_names=["source"],
@@ -204,6 +204,7 @@ def main():
     )
 
     assert len(result.findings) == 1
+    assert any("best-effort mode" in diagnostic for diagnostic in session.diagnostics)
 
 
 def test_run_taint_analysis_handles_nested_and_computed_sink_expressions(tmp_path):
@@ -444,6 +445,7 @@ def f(a, b, xs):
     session = load_analysis_session([target], verbose=False)
 
     assert {code.codeName() for code in session.program.liveCode} >= {"f"}
+    assert any("best-effort mode" in diagnostic for diagnostic in session.diagnostics)
 
 
 def test_load_analysis_session_handles_annotated_assignments(tmp_path):

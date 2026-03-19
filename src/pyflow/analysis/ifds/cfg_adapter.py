@@ -10,6 +10,7 @@ from pyflow.analysis.cfg import graph as cfg_graph
 from pyflow.language.python import ast as py_ast
 
 from .supergraph import Supergraph
+from .transfers import actual_argument_expressions, bind_call_arguments, resolve_call_name
 
 
 CallResolver = Callable[
@@ -28,6 +29,78 @@ class CFGNode:
     index: int | None = None
     call_index: int | None = None
     scope: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class CallResultRoute:
+    """Adapter-level metadata for where a call result ultimately lands."""
+
+    kind: str
+    assigned_locals: tuple[py_ast.Local, ...] = ()
+    modified_slots: tuple[object, ...] = ()
+    return_expression_index: int | None = None
+
+
+@dataclass(frozen=True)
+class CallEffect:
+    """Effect summary for a lowered call-expression node."""
+
+    node: CFGNode
+    operation: py_ast.PythonASTNode | None
+    call_expression: py_ast.PythonASTNode
+    evaluation_index: int | None
+    call_name: str | None
+    callees: tuple[cfg_graph.Code, ...]
+    actual_arguments: tuple[object, ...]
+    argument_bindings: tuple[tuple[cfg_graph.Code, tuple[tuple[object, py_ast.Local], ...]], ...]
+    return_sites: tuple[CFGNode, ...]
+    kill_slots: tuple[object, ...]
+    result_route: CallResultRoute
+
+
+@dataclass(frozen=True)
+class StoreEffect:
+    """Effect summary for nodes that overwrite storage."""
+
+    node: CFGNode
+    operation: py_ast.PythonASTNode | None
+    assigned_locals: tuple[py_ast.Local, ...]
+    written_slots: tuple[object, ...]
+    strong_update_slots: tuple[object, ...]
+
+
+@dataclass(frozen=True)
+class ReturnEffect:
+    """Effect summary for return statements."""
+
+    node: CFGNode
+    operation: py_ast.Return
+    expressions: tuple[object, ...]
+    return_slots_by_index: tuple[tuple[object, ...], ...]
+
+
+@dataclass(frozen=True)
+class GuardEffect:
+    """Effect summary for branch-refining conditional nodes."""
+
+    node: CFGNode
+    operation: py_ast.PythonASTNode | None
+    condition: object
+    true_successors: tuple[CFGNode, ...]
+    false_successors: tuple[CFGNode, ...]
+    nullable_target: object | None = None
+    true_branch_means_null: bool | None = None
+
+
+@dataclass(frozen=True)
+class ExceptionalEffect:
+    """Effect summary for nodes on exceptional control-flow paths."""
+
+    node: CFGNode
+    operation: py_ast.PythonASTNode | None
+    exceptional_successors: tuple[CFGNode, ...]
+    normal_successors: tuple[CFGNode, ...]
+    raises: bool
 
 
 @dataclass
@@ -318,6 +391,7 @@ class CFGSupergraphAdapter:
         self._call_expr_by_node: Dict[CFGNode, py_ast.PythonASTNode] = {}
         self._callee_cfgs_by_node: Dict[CFGNode, tuple[cfg_graph.Code, ...]] = {}
         self._local_successors: Dict[CFGNode, set[CFGNode]] = {}
+        self._effect_by_node: Dict[CFGNode, object] = {}
         self._suite_exit_nodes: Dict[
             cfg_graph.CFGBlock, tuple[set[CFGNode], set[CFGNode]]
         ] = {}
@@ -336,6 +410,15 @@ class CFGSupergraphAdapter:
     def callees_of(self, node: CFGNode) -> tuple[cfg_graph.Code, ...]:
         return self._callee_cfgs_by_node.get(node, ())
 
+    def effect_of(self, node: CFGNode):
+        """Return cached adapter-level effect metadata for a lowered CFG node."""
+        effect = self._effect_by_node.get(node)
+        if effect is not None:
+            return effect
+        effect = self._build_effect(node)
+        self._effect_by_node[node] = effect
+        return effect
+
     def nodes_for_block(self, block: cfg_graph.CFGBlock) -> tuple[CFGNode, ...]:
         return tuple(self._nodes_by_block[block])
 
@@ -344,6 +427,291 @@ class CFGSupergraphAdapter:
 
     def last_node_of_block(self, block: cfg_graph.CFGBlock) -> CFGNode:
         return self._nodes_by_block[block][-1]
+
+    def _canonical_slot(self, slot: object) -> object:
+        get_forward = getattr(slot, "getForward", None)
+        if callable(get_forward):
+            return get_forward()
+        return slot
+
+    def _annotation_slots(self, annotation) -> tuple[object, ...]:
+        if annotation is None:
+            return ()
+        merged = getattr(annotation, "merged", None)
+        if merged is None:
+            if isinstance(annotation, (str, bytes)):
+                return ()
+            if isinstance(annotation, (list, tuple, set, frozenset)):
+                merged = tuple(annotation)
+            else:
+                return ()
+        return tuple(self._canonical_slot(slot) for slot in merged)
+
+    def _slots_for_local(
+        self, procedure: cfg_graph.Code, local: object
+    ) -> tuple[object, ...]:
+        del procedure
+        refs = getattr(getattr(local, "annotation", None), "references", None)
+        return self._annotation_slots(refs)
+
+    def _modified_slots_for_operation(self, operation: object) -> tuple[object, ...]:
+        annotation = getattr(getattr(operation, "annotation", None), "opModifies", None)
+        return self._annotation_slots(annotation)
+
+    def _written_slots_for_operation(
+        self, procedure: cfg_graph.Code, operation: object
+    ) -> tuple[object, ...]:
+        if operation is None:
+            return ()
+        if isinstance(operation, (py_ast.Assign, py_ast.UnpackSequence, py_ast.AnnAssign)):
+            return tuple(
+                slot
+                for local in assigned_locals(operation)
+                for slot in self._slots_for_local(procedure, local)
+            )
+        if isinstance(operation, py_ast.Delete):
+            return tuple(self._slots_for_local(procedure, operation.lcl))
+        if isinstance(operation, py_ast.InputBlock):
+            locals_: list[py_ast.Local] = []
+            for input_ in getattr(operation, "inputs", ()):
+                lcl = getattr(input_, "lcl", None)
+                if isinstance(lcl, py_ast.Local):
+                    locals_.append(lcl)
+            return tuple(
+                slot for local in locals_ for slot in self._slots_for_local(procedure, local)
+            )
+        if isinstance(
+            operation,
+            (
+                py_ast.SetAttr,
+                py_ast.SetSubscript,
+                py_ast.SetSlice,
+                py_ast.SetGlobal,
+                py_ast.DeleteGlobal,
+                py_ast.SetCellDeref,
+                py_ast.Store,
+            ),
+        ):
+            return self._modified_slots_for_operation(operation)
+        return ()
+
+    def _strong_update_slots_for_operation(
+        self, procedure: cfg_graph.Code, operation: object
+    ) -> tuple[object, ...]:
+        if operation is None:
+            return ()
+        if isinstance(operation, (py_ast.Assign, py_ast.UnpackSequence, py_ast.AnnAssign)):
+            return self._written_slots_for_operation(procedure, operation)
+        if isinstance(operation, (py_ast.Delete, py_ast.InputBlock)):
+            return self._written_slots_for_operation(procedure, operation)
+        if isinstance(
+            operation,
+            (py_ast.SetGlobal, py_ast.DeleteGlobal, py_ast.SetCellDeref),
+        ):
+            return self._written_slots_for_operation(procedure, operation)
+        return ()
+
+    def _call_kill_slots(self, node: CFGNode) -> tuple[object, ...]:
+        operation = self.operation_of(node)
+        call_expression = self.call_expression_of(node)
+        if operation is None or call_expression is None:
+            return ()
+        if isinstance(operation, (py_ast.Assign, py_ast.UnpackSequence)) and operation.expr is call_expression:
+            return tuple(
+                slot
+                for local in assigned_locals(operation)
+                for slot in self._slots_for_local(node.procedure, local)
+            )
+        if isinstance(operation, py_ast.AnnAssign) and operation.value is call_expression:
+            return tuple(
+                slot
+                for local in assigned_locals(operation)
+                for slot in self._slots_for_local(node.procedure, local)
+            )
+        if isinstance(operation, (py_ast.SetGlobal, py_ast.SetCellDeref)) and operation.value is call_expression:
+            return self._modified_slots_for_operation(operation)
+        return ()
+
+    def _call_result_route(self, node: CFGNode) -> CallResultRoute:
+        operation = self.operation_of(node)
+        call_expression = self.call_expression_of(node)
+        if operation is None or call_expression is None:
+            return CallResultRoute("expression")
+        if isinstance(operation, (py_ast.Assign, py_ast.UnpackSequence)) and operation.expr is call_expression:
+            return CallResultRoute(
+                "assigned_locals",
+                assigned_locals=assigned_locals(operation),
+            )
+        if isinstance(operation, py_ast.AnnAssign) and operation.value is call_expression:
+            return CallResultRoute(
+                "assigned_locals",
+                assigned_locals=assigned_locals(operation),
+            )
+        if isinstance(operation, py_ast.Return):
+            for index, expr in enumerate(operation.exprs):
+                if expr is call_expression:
+                    return CallResultRoute("return_slot", return_expression_index=index)
+        if isinstance(
+            operation,
+            (
+                py_ast.SetAttr,
+                py_ast.SetSubscript,
+                py_ast.SetSlice,
+                py_ast.SetGlobal,
+                py_ast.SetCellDeref,
+                py_ast.Store,
+            ),
+        ) and getattr(operation, "value", None) is call_expression:
+            return CallResultRoute(
+                "modified_slots",
+                modified_slots=self._modified_slots_for_operation(operation),
+            )
+        return CallResultRoute("expression")
+
+    def _guard_nullable_target(self, expr: object):
+        if isinstance(expr, py_ast.ConvertToBool):
+            return self._guard_nullable_target(expr.expr)
+        if isinstance(expr, py_ast.Is):
+            if self._is_explicit_null_expression(expr.right):
+                return expr.left, True
+            if self._is_explicit_null_expression(expr.left):
+                return expr.right, True
+        if isinstance(expr, (py_ast.Call, py_ast.DirectCall, py_ast.MethodCall)):
+            call_name = resolve_call_name(expr)
+            if call_name in {"interpreter__is__", "interpreter__is_not__"}:
+                actuals = actual_argument_expressions(expr)
+                if len(actuals) == 2:
+                    left, right = actuals
+                    if self._is_explicit_null_expression(right):
+                        return left, call_name == "interpreter__is__"
+                    if self._is_explicit_null_expression(left):
+                        return right, call_name == "interpreter__is__"
+        if isinstance(expr, py_ast.Not):
+            target, true_means_null = self._guard_nullable_target(expr.expr)
+            if target is not None:
+                return target, not true_means_null
+        return None, None
+
+    def _is_explicit_null_expression(self, expr: object) -> bool:
+        return (
+            isinstance(expr, py_ast.Existing)
+            and getattr(expr.object, "pyobj", object()) is None
+        )
+
+    def _build_effect(self, node: CFGNode):
+        operation = self.operation_of(node)
+        if node.kind == "call":
+            call_expression = self.call_expression_of(node)
+            if call_expression is None:
+                return None
+            callees = self.callees_of(node)
+            bindings: list[tuple[cfg_graph.Code, tuple[tuple[object, py_ast.Local], ...]]] = []
+            for callee in callees:
+                params = getattr(getattr(callee, "code", None), "codeparameters", None)
+                if params is None:
+                    continue
+                bindings.append((callee, bind_call_arguments(call_expression, params)))
+            return CallEffect(
+                node=node,
+                operation=operation,
+                call_expression=call_expression,
+                evaluation_index=node.call_index,
+                call_name=resolve_call_name(
+                    call_expression,
+                    fallback_callee_names=tuple(
+                        cfg.code.codeName()
+                        for cfg in callees
+                        if getattr(cfg, "code", None) is not None
+                    ),
+                ),
+                callees=callees,
+                actual_arguments=actual_argument_expressions(call_expression),
+                argument_bindings=tuple(bindings),
+                return_sites=self.supergraph.return_sites_of_call_at(node),
+                kill_slots=self._call_kill_slots(node),
+                result_route=self._call_result_route(node),
+            )
+
+        if isinstance(operation, py_ast.Return):
+            return ReturnEffect(
+                node=node,
+                operation=operation,
+                expressions=tuple(operation.exprs),
+                return_slots_by_index=tuple(
+                    self._slots_for_local(node.procedure, local)
+                    for local in node.procedure.code.codeparameters.returnparams
+                )
+                if getattr(node.procedure, "code", None) is not None
+                else (),
+            )
+
+        if operation is not None and isinstance(
+            operation,
+            (
+                py_ast.Assign,
+                py_ast.UnpackSequence,
+                py_ast.AnnAssign,
+                py_ast.Delete,
+                py_ast.InputBlock,
+                py_ast.SetAttr,
+                py_ast.SetSubscript,
+                py_ast.SetSlice,
+                py_ast.SetGlobal,
+                py_ast.DeleteGlobal,
+                py_ast.SetCellDeref,
+                py_ast.Store,
+            ),
+        ):
+            return StoreEffect(
+                node=node,
+                operation=operation,
+                assigned_locals=assigned_locals(operation),
+                written_slots=self._written_slots_for_operation(node.procedure, operation),
+                strong_update_slots=self._strong_update_slots_for_operation(
+                    node.procedure, operation
+                ),
+            )
+
+        if node.kind in {"condition", "typeswitch"} and operation is not None:
+            true_successors: list[CFGNode] = []
+            false_successors: list[CFGNode] = []
+            for successor in self.supergraph.normal_successors(node):
+                exit_name = node.block.findExit(successor.block)
+                if exit_name == "true":
+                    true_successors.append(successor)
+                elif exit_name == "false":
+                    false_successors.append(successor)
+            condition = (
+                operation.conditional if isinstance(operation, py_ast.Condition) else operation
+            )
+            nullable_target, true_branch_means_null = self._guard_nullable_target(condition)
+            return GuardEffect(
+                node=node,
+                operation=operation,
+                condition=condition,
+                true_successors=tuple(true_successors),
+                false_successors=tuple(false_successors),
+                nullable_target=nullable_target,
+                true_branch_means_null=true_branch_means_null,
+            )
+
+        normal_successors: list[CFGNode] = []
+        exceptional_successors: list[CFGNode] = []
+        for successor in self.supergraph.normal_successors(node):
+            exit_name = node.block.findExit(successor.block)
+            if exit_name in ("error", "fail"):
+                exceptional_successors.append(successor)
+            else:
+                normal_successors.append(successor)
+        if exceptional_successors or isinstance(operation, py_ast.Raise):
+            return ExceptionalEffect(
+                node=node,
+                operation=operation,
+                exceptional_successors=tuple(exceptional_successors),
+                normal_successors=tuple(normal_successors),
+                raises=isinstance(operation, py_ast.Raise),
+            )
+        return None
 
     def _reachable_blocks(self, cfg: cfg_graph.Code) -> tuple[cfg_graph.CFGBlock, ...]:
         order: list[cfg_graph.CFGBlock] = []

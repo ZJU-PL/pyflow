@@ -16,7 +16,6 @@ from pyflow.application.program import Program
 from pyflow.frontend.programextractor import Extractor, create_interface_from_paths, extractProgram
 from pyflow.util.application.console import Console
 
-from .annotation_fallback import ensure_ifds_annotations_complete
 from .cfg_adapter import CFGSupergraphAdapter, build_supergraph_from_cfgs
 from .clients.nullness import NullnessAnalysisResult, analyze_nullness
 from .clients.taint import TaintAnalysisResult, TaintConfiguration, analyze_taint
@@ -25,15 +24,17 @@ from .clients.typestate import (
     TypestateConfiguration,
     analyze_typestate,
 )
+from .preparation import prepare_program_for_ifds
 
 
 @dataclass(frozen=True)
 class AnalysisSession:
-    """Loaded program plus IFDS-ready CFG supergraph."""
+    """Loaded program plus IFDS-ready CFG supergraph and non-fatal preparation notes."""
 
     compiler: CompilerContext
     program: Program
     adapter: CFGSupergraphAdapter
+    diagnostics: tuple[str, ...] = ()
 
 
 def _path_args(verbose: bool, dependency_strategy: str, search_paths):
@@ -112,6 +113,20 @@ def _source_filename_from_code(code) -> str | None:
         if filename:
             return os.path.realpath(filename)
     return None
+
+
+def _code_display_name(code) -> str:
+    if code is None:
+        return "<unknown>"
+    code_name = getattr(code, "codeName", None)
+    if callable(code_name):
+        try:
+            name = code_name()
+        except Exception:
+            name = None
+        if isinstance(name, str):
+            return name
+    return repr(code)
 
 
 def _is_synthetic_module_code(code) -> bool:
@@ -222,19 +237,25 @@ def load_analysis_session(
             )
         if root_function is not None:
             _restrict_program_entry_points(compiler, program, root_function)
-        Pipeline(use_pass_manager=True).run_custom_pipeline(
-            compiler, program, ["ipa", "cpa"]
+        prepared = prepare_program_for_ifds(
+            compiler,
+            program,
+            get_cfg=lambda code: program.get_queries(compiler).get_cfg(code),
+            describe_code=_code_display_name,
+            run_pipeline=lambda: Pipeline(use_pass_manager=True).run_custom_pipeline(
+                compiler, program, ["ipa", "cpa"]
+            ),
+            supplemental_live_codes=preserved_codes,
         )
-    if preserved_codes:
-        program.liveCode.update(preserved_codes)
-    ensure_ifds_annotations_complete(tuple(program.liveCode))
-
-    queries = program.get_queries(compiler)
-    cfgs = [queries.get_cfg(code) for code in program.liveCode]
     adapter = build_supergraph_from_cfgs(
-        cfgs, include_exceptional_edges=include_exceptional_edges
+        prepared.cfgs, include_exceptional_edges=include_exceptional_edges
     )
-    return AnalysisSession(compiler, program, adapter)
+    return AnalysisSession(
+        compiler,
+        program,
+        adapter,
+        diagnostics=prepared.diagnostics,
+    )
 
 
 def run_taint_analysis(

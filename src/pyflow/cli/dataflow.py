@@ -93,7 +93,7 @@ def _serialize_statistics(statistics) -> dict:
     return dict(statistics)
 
 
-def _taint_report_from_result(function: str, taint_result) -> dict:
+def _taint_report_from_result(function: str, taint_result, diagnostics=()) -> dict:
     findings = []
     for finding in taint_result.findings:
         tainted_arguments = [local.name for local in finding.tainted_arguments]
@@ -136,6 +136,7 @@ def _taint_report_from_result(function: str, taint_result) -> dict:
     return {
         "function": function,
         "findings": findings,
+        "diagnostics": list(diagnostics),
         "statistics": _serialize_statistics(taint_result.statistics),
     }
 
@@ -148,6 +149,10 @@ def _format_text(report: dict) -> str:
     ]
     for key, value in sorted(report["statistics"].items()):
         lines.append(f"  {key}: {value}")
+    if report["diagnostics"]:
+        lines.append("Diagnostics:")
+        for diagnostic in report["diagnostics"]:
+            lines.append(f"  {diagnostic}")
     if report["findings"]:
         lines.append("Taint Findings:")
     for finding in report["findings"]:
@@ -169,7 +174,7 @@ def run_dataflow_analysis(input_path, args):
         print(f"Unsupported analysis: {args.analysis}", file=sys.stderr)
         return 1
 
-    _session, taint_result = run_taint_analysis(
+    session, taint_result = run_taint_analysis(
         files,
         function=args.function,
         source_names=args.sources,
@@ -178,7 +183,11 @@ def run_dataflow_analysis(input_path, args):
         verbose=getattr(args, "verbose", False),
         dependency_strategy=getattr(args, "dependency_strategy", "auto"),
     )
-    report = _taint_report_from_result(args.function, taint_result)
+    report = _taint_report_from_result(
+        args.function,
+        taint_result,
+        diagnostics=getattr(session, "diagnostics", ()),
+    )
     if args.format == "json":
         print(json.dumps(report, indent=2, sort_keys=True))
     else:

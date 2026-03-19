@@ -6,12 +6,12 @@ from collections import deque
 from typing import Any, Dict, List, Optional, Set, Union
 
 from pyflow.application.errors import TemporaryLimitation
-from pyflow.language.python import ast as py_ast
 from pyflow.analysis.callgraph import CallGraph
 from pyflow.analysis.cfg import ssa as cfg_ssa
 from pyflow.analysis.cfg import transform as cfg_transform
 from pyflow.analysis.cdg import construct_cdg
 from pyflow.analysis.ifds import build_supergraph_from_cfgs
+from pyflow.analysis.ifds.preparation import prepare_program_for_ifds
 
 from .context import QueryContext
 
@@ -115,84 +115,21 @@ class GraphQueryEngine:
     def get_ifds_supergraph(self):
         """Return a cached CFG-backed IFDS supergraph adapter."""
         if self._ifds_supergraph_cache is None:
-            cfgs = tuple(self.get_all_cfgs(ignore_failures=True).values())
-            if not cfgs:
-                raise TemporaryLimitation(
-                    "Unable to build any CFGs for IFDS analysis."
-                )
-            self._ensure_ifds_annotations_complete(cfgs)
+            prepared = prepare_program_for_ifds(
+                self.context.compiler,
+                self.context.program,
+                get_cfg=self.get_cfg,
+                describe_code=lambda code: (
+                    self.context.code_identifier(code)
+                    or self.context.code_name(code)
+                    or repr(code)
+                ),
+            )
             self._ifds_supergraph_cache = build_supergraph_from_cfgs(
-                cfgs,
+                prepared.cfgs,
                 include_exceptional_edges=True,
             )
         return self._ifds_supergraph_cache
-
-    def _ensure_ifds_annotations_complete(self, cfgs) -> None:
-        problems: List[str] = []
-        seen_codes: Set[object] = set()
-        for cfg in cfgs:
-            code = getattr(cfg, "code", None)
-            if code is None or code in seen_codes:
-                continue
-            seen_codes.add(code)
-
-            annotation = getattr(code, "annotation", None)
-            if getattr(annotation, "contexts", None) is None:
-                problems.append(f"{self.context.code_name(code) or repr(code)}: missing code contexts")
-                continue
-
-            for node in self._iter_ast_nodes(code):
-                node_annotation = getattr(node, "annotation", None)
-                if node_annotation is None:
-                    continue
-                if hasattr(node_annotation, "opReads") and getattr(node_annotation, "opReads", None) is None:
-                    problems.append(
-                        f"{self.context.code_name(code) or repr(code)}: {type(node).__name__} missing opReads"
-                    )
-                    break
-                if hasattr(node_annotation, "opModifies") and getattr(node_annotation, "opModifies", None) is None:
-                    problems.append(
-                        f"{self.context.code_name(code) or repr(code)}: {type(node).__name__} missing opModifies"
-                    )
-                    break
-                if hasattr(node_annotation, "references") and getattr(node_annotation, "references", None) is None:
-                    name = getattr(node, "name", None)
-                    problems.append(
-                        f"{self.context.code_name(code) or repr(code)}: local {name if name is not None else '<anon>'} missing references"
-                    )
-                    break
-
-        if problems:
-            raise TemporaryLimitation(
-                "IFDS requires annotation-complete programs (run IPA/CPA first): "
-                + "; ".join(problems[:5])
-            )
-
-    def _iter_ast_nodes(self, node):
-        if node is None or isinstance(node, py_ast.leafTypes):
-            return
-        yield node
-        if isinstance(node, (list, tuple)):
-            for child in node:
-                yield from self._iter_ast_nodes(child)
-            return
-        if isinstance(node, py_ast.Code):
-            params = getattr(node, "codeparameters", None)
-            if params is not None:
-                yield from self._iter_ast_nodes(getattr(params, "selfparam", None))
-                yield from self._iter_ast_nodes(getattr(params, "posonlyparams", ()))
-                yield from self._iter_ast_nodes(getattr(params, "params", ()))
-                yield from self._iter_ast_nodes(getattr(params, "defaults", ()))
-                yield from self._iter_ast_nodes(getattr(params, "vparam", None))
-                yield from self._iter_ast_nodes(getattr(params, "kparam", None))
-                yield from self._iter_ast_nodes(getattr(params, "returnparams", ()))
-            yield from self._iter_ast_nodes(node.ast)
-            return
-
-        children = []
-        node.visitChildren(children.append)
-        for child in children:
-            yield from self._iter_ast_nodes(child)
 
     def get_cfg_structure(self, function: Union[str, object]) -> Dict[str, Any]:
         """
