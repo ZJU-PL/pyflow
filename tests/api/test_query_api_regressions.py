@@ -143,6 +143,106 @@ def test_compute_slice_respects_variable_filter():
     assert fwd.forward_slice == ["d2"]
 
 
+def test_compute_backward_slice_prefers_structured_evidence_over_reason():
+    call_graph = SimpleNamespace(
+        get_upstream_functions=lambda *_args, **_kw: ["u1", "u2"],
+        get_downstream_functions=lambda *_args, **_kw: [],
+        get_callees=lambda *_args, **_kw: [],
+        get_callers=lambda *_args, **_kw: [],
+        get_shortest_path=lambda *_args, **_kw: None,
+        get_callgraph=lambda: SimpleNamespace(get=lambda: {}),
+    )
+    queries = LocalizationQueries(
+        context=SimpleNamespace(resolve_function_name=lambda _: "target"),
+        graph_engine=None,
+        call_graph_queries=call_graph,
+        control_flow_queries=SimpleNamespace(get_ssa=lambda _: None),
+        data_flow_queries=SimpleNamespace(
+            get_reaching_defs=lambda *_: {},
+            get_aliases=lambda *_: {},
+            get_points_to=lambda *_: {},
+            get_variable_uses=lambda *_: [],
+        ),
+    )
+    queries.get_localization_candidates = lambda *_args, **_kwargs: [
+        LocalizationCandidate(
+            "u1",
+            0.9,
+            "no match for 'x'",
+            [],
+            [],
+            evidence=SimpleNamespace(variable_match=True),
+        ),
+        LocalizationCandidate(
+            "u2",
+            0.8,
+            "touches 'x'",
+            [],
+            [],
+            evidence=SimpleNamespace(variable_match=False),
+        ),
+    ]
+
+    back = queries.compute_backward_slice("target", variable="x")
+    assert back.backward_slice == ["u1"]
+
+
+def test_trace_data_flow_returns_richer_backward_compatible_shape():
+    queries = LocalizationQueries(
+        context=SimpleNamespace(resolve_function_name=lambda _: "target"),
+        graph_engine=None,
+        call_graph_queries=SimpleNamespace(
+            get_callees=lambda *_args, **_kw: ["d1"],
+            get_callers=lambda *_args, **_kw: ["u1"],
+            get_upstream_functions=lambda *_args, **_kw: ["u1"],
+            get_downstream_functions=lambda *_args, **_kw: ["d1"],
+        ),
+        control_flow_queries=SimpleNamespace(get_ssa=lambda _: None),
+        data_flow_queries=SimpleNamespace(
+            get_reaching_defs=lambda *_: {"x": [SimpleNamespace(def_location=3, def_value="var:y")]},
+            get_aliases=lambda *_: {},
+            get_points_to=lambda *_: {},
+            get_variable_uses=lambda *_: ["line 4"],
+        ),
+    )
+    queries.get_localization_candidates = lambda *_args, **_kwargs: [
+        LocalizationCandidate("u1", 0.7, "match", [], [], evidence=SimpleNamespace(variable_match=True))
+    ]
+
+    trace = queries.trace_data_flow("target", "x")
+
+    assert trace["origin_function"] == "target"
+    assert trace["definitions"]
+    assert trace["uses"]
+    assert trace["interprocedural_flow"] == ["d1"]
+    assert trace["upstream_functions"] == ["u1"]
+    assert trace["candidate_locations"] == ["u1"]
+
+
+def test_change_impact_includes_downstream_dependencies():
+    queries = LocalizationQueries(
+        context=SimpleNamespace(resolve_function_name=lambda _: "target"),
+        graph_engine=None,
+        call_graph_queries=SimpleNamespace(
+            get_callers=lambda *_args, **_kw: ["u1"],
+            get_upstream_functions=lambda *_args, **_kw: ["u1", "u2"],
+            get_callees=lambda *_args, **_kw: ["d1"],
+            get_downstream_functions=lambda *_args, **_kw: ["d1", "d2"],
+        ),
+        control_flow_queries=SimpleNamespace(get_ssa=lambda _: None),
+        data_flow_queries=SimpleNamespace(),
+    )
+
+    impact = queries.get_change_impact("target")
+
+    assert impact["changed_function"] == "target"
+    assert impact["directly_affected"] == ["u1"]
+    assert impact["transitively_affected"] == ["u1", "u2"]
+    assert impact["direct_dependencies"] == ["d1"]
+    assert impact["transitive_dependencies"] == ["d1", "d2"]
+    assert "impact_score" in impact
+
+
 def test_entrypoint_maps_keyword_arguments_to_positional():
     interface = InterfaceDeclaration()
     code = SimpleNamespace(
