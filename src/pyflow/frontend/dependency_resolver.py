@@ -716,7 +716,7 @@ class DependencyResolver:
             if self.verbose:
                 print(f"DEBUG: No-op extraction failed for {file_path}: {e}")
             self._telemetry["runtime_fallbacks"] += 1
-            return {}
+            return self._extract_ast_functions(source, file_path)
 
     def _runtime_probe_function_names(
         self,

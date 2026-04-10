@@ -100,6 +100,22 @@ def test_func():
             functions = resolver.extract_functions(source, "test.py")
             self.assertIn("test_func", functions)
 
+    def test_noop_runtime_failures_fall_back_to_ast(self):
+        """NOOP mode should preserve local functions when runtime probing fails."""
+        resolver = DependencyResolver(
+            strategy="noop", verbose=False, allow_runtime_execution=True
+        )
+        source = """
+raise RuntimeError("boom")
+
+def test_func():
+    return 42
+"""
+
+        functions = resolver.extract_functions(source, "test.py")
+
+        self.assertIn("test_func", functions)
+
     def test_extract_functions_ast_only(self):
         """Test extract_functions with AST_ONLY strategy."""
         resolver = DependencyResolver(strategy="ast_only", verbose=False)
