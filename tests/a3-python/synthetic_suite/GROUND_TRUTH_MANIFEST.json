@@ -1,0 +1,1002 @@
+{
+  "metadata": {
+    "created_at": "2026-01-23T17:03:46.016Z",
+    "purpose": "Ground truth labels for synthetic test suite to validate analyzer against",
+    "total_files": 200,
+    "bug_types_covered": 20,
+    "files_per_bug_type": 10,
+    "expected_precision": 1.0,
+    "expected_recall": 1.0,
+    "validation_protocol": "Analyzer output must match these labels exactly. Any deviation is a false positive or false negative."
+  },
+  "bug_types": {
+    "ASSERT_FAIL": {
+      "tp_01_unconditional_assert_false.py": {
+        "expected": "BUG",
+        "bug_type": "ASSERT_FAIL",
+        "reason": "Unconditional assert False with no handler",
+        "unsafe_line": "assert False"
+      },
+      "tp_02_impossible_condition.py": {
+        "expected": "BUG",
+        "bug_type": "ASSERT_FAIL",
+        "reason": "assert x > x is impossible (x cannot be greater than itself)",
+        "unsafe_line": "assert x > x"
+      },
+      "tp_03_failing_precondition.py": {
+        "expected": "BUG",
+        "bug_type": "ASSERT_FAIL",
+        "reason": "Precondition assert x >= 0 violated when called with x=-5",
+        "unsafe_line": "assert x >= 0"
+      },
+      "tp_04_loop_invariant_violation.py": {
+        "expected": "BUG",
+        "bug_type": "ASSERT_FAIL",
+        "reason": "Loop accumulator exceeds stated invariant bound",
+        "unsafe_line": "assert total <= 100"
+      },
+      "tp_05_postcondition_violation.py": {
+        "expected": "BUG",
+        "bug_type": "ASSERT_FAIL",
+        "reason": "Result violates postcondition assert result > 0 when input causes zero",
+        "unsafe_line": "assert result > 0"
+      },
+      "tn_01_always_true_condition.py": {
+        "expected": "SAFE",
+        "reason": "assert True always passes"
+      },
+      "tn_02_precondition_satisfied.py": {
+        "expected": "SAFE",
+        "reason": "Valid input satisfies precondition"
+      },
+      "tn_03_debug_only_assertions.py": {
+        "expected": "SAFE",
+        "reason": "Assertions compiled out with -O flag"
+      },
+      "tn_04_caught_assertion_error.py": {
+        "expected": "SAFE",
+        "reason": "AssertionError caught by try-except"
+      },
+      "tn_05_loop_invariant_maintained.py": {
+        "expected": "SAFE",
+        "reason": "Guard condition maintains loop invariant"
+      }
+    },
+    "DIV_ZERO": {
+      "tp_01_direct_literal.py": {
+        "expected": "BUG",
+        "bug_type": "DIV_ZERO",
+        "reason": "Direct division by literal zero",
+        "unsafe_line": "result = 1 / 0"
+      },
+      "tp_02_variable_zero.py": {
+        "expected": "BUG",
+        "bug_type": "DIV_ZERO",
+        "reason": "Division by variable set to zero",
+        "unsafe_line": "result = x / y"
+      },
+      "tp_03_modulo_zero.py": {
+        "expected": "BUG",
+        "bug_type": "DIV_ZERO",
+        "reason": "Modulo by zero",
+        "unsafe_line": "result = a % 0"
+      },
+      "tp_04_floor_division_zero.py": {
+        "expected": "BUG",
+        "bug_type": "DIV_ZERO",
+        "reason": "Floor division by zero",
+        "unsafe_line": "result = a // 0"
+      },
+      "tp_05_conditional_path_to_zero.py": {
+        "expected": "BUG",
+        "bug_type": "DIV_ZERO",
+        "reason": "Conditional path where divisor becomes zero",
+        "unsafe_line": "result = x / divisor"
+      },
+      "tn_01_nonzero_check.py": {
+        "expected": "SAFE",
+        "reason": "Division guarded by non-zero check"
+      },
+      "tn_02_nonzero_constant.py": {
+        "expected": "SAFE",
+        "reason": "Division by non-zero constant"
+      },
+      "tn_03_exception_handler.py": {
+        "expected": "SAFE",
+        "reason": "Division with try-except ZeroDivisionError"
+      },
+      "tn_04_all_paths_nonzero.py": {
+        "expected": "SAFE",
+        "reason": "All paths guarantee non-zero divisor"
+      },
+      "tn_05_default_fallback.py": {
+        "expected": "SAFE",
+        "reason": "Potentially-zero divisor replaced with default"
+      }
+    },
+    "FP_DOMAIN": {
+      "tp_01_sqrt_negative.py": {
+        "expected": "BUG",
+        "bug_type": "FP_DOMAIN",
+        "reason": "math.sqrt with negative argument",
+        "unsafe_line": "result = math.sqrt(-4)"
+      },
+      "tp_02_log_negative.py": {
+        "expected": "BUG",
+        "bug_type": "FP_DOMAIN",
+        "reason": "math.log with negative argument",
+        "unsafe_line": "result = math.log(-5.0)"
+      },
+      "tp_03_log_zero.py": {
+        "expected": "BUG",
+        "bug_type": "FP_DOMAIN",
+        "reason": "math.log with zero argument (undefined)",
+        "unsafe_line": "result = math.log(0.0)"
+      },
+      "tp_04_asin_out_of_range.py": {
+        "expected": "BUG",
+        "bug_type": "FP_DOMAIN",
+        "reason": "math.asin above valid range [-1, 1]",
+        "unsafe_line": "result = math.asin(1.5)"
+      },
+      "tp_05_acos_below_range.py": {
+        "expected": "BUG",
+        "bug_type": "FP_DOMAIN",
+        "reason": "math.acos below valid range [-1, 1]",
+        "unsafe_line": "result = math.acos(-2.0)"
+      },
+      "tn_01_sqrt_checked.py": {
+        "expected": "SAFE",
+        "reason": "sqrt with non-negative check"
+      },
+      "tn_02_log_positive_check.py": {
+        "expected": "SAFE",
+        "reason": "log with positive check"
+      },
+      "tn_03_asin_clamped.py": {
+        "expected": "SAFE",
+        "reason": "asin with input clamped to valid domain"
+      },
+      "tn_04_exception_handler.py": {
+        "expected": "SAFE",
+        "reason": "Domain error caught via try-except ValueError"
+      },
+      "tn_05_valid_constants.py": {
+        "expected": "SAFE",
+        "reason": "All functions with valid constant arguments"
+      }
+    },
+    "USE_AFTER_FREE": {
+      "tp_01_file_use_after_close.py": {
+        "expected": "BUG",
+        "bug_type": "USE_AFTER_FREE",
+        "reason": "File write after close()",
+        "unsafe_line": "f.write('data after close')"
+      },
+      "tp_02_iterator_after_del.py": {
+        "expected": "BUG",
+        "bug_type": "USE_AFTER_FREE",
+        "reason": "Iterator use after collection deleted",
+        "unsafe_line": "next(it)"
+      },
+      "tp_03_context_manager_after_exit.py": {
+        "expected": "BUG",
+        "bug_type": "USE_AFTER_FREE",
+        "reason": "Resource use after with-block exit",
+        "unsafe_line": "f.write('data after exit')"
+      },
+      "tp_04_weakref_after_del.py": {
+        "expected": "BUG",
+        "bug_type": "USE_AFTER_FREE",
+        "reason": "Weakref dereference after referent deleted",
+        "unsafe_line": "ref().value"
+      },
+      "tp_05_socket_after_close.py": {
+        "expected": "BUG",
+        "bug_type": "USE_AFTER_FREE",
+        "reason": "Socket I/O after close()",
+        "unsafe_line": "s.send(b'data after close')"
+      },
+      "tn_01_proper_lifecycle.py": {
+        "expected": "SAFE",
+        "reason": "Correct resource lifecycle before close"
+      },
+      "tn_02_context_manager_proper.py": {
+        "expected": "SAFE",
+        "reason": "All usage within with-block scope"
+      },
+      "tn_03_copy_before_del.py": {
+        "expected": "SAFE",
+        "reason": "Copy before del pattern"
+      },
+      "tn_04_weakref_checked.py": {
+        "expected": "SAFE",
+        "reason": "Defensive weakref None check"
+      },
+      "tn_05_multiple_references.py": {
+        "expected": "SAFE",
+        "reason": "Multiple references keep object alive"
+      }
+    },
+    "DOUBLE_FREE": {
+      "tp_01_file_double_close.py": {
+        "expected": "BUG",
+        "bug_type": "DOUBLE_FREE",
+        "reason": "File closed twice",
+        "unsafe_line": "f.close() (second call)"
+      },
+      "tp_02_socket_double_close.py": {
+        "expected": "BUG",
+        "bug_type": "DOUBLE_FREE",
+        "reason": "Socket closed twice",
+        "unsafe_line": "s.close() (second call)"
+      },
+      "tp_03_nested_context_double_exit.py": {
+        "expected": "BUG",
+        "bug_type": "DOUBLE_FREE",
+        "reason": "Manual __exit__ after with-block exit",
+        "unsafe_line": "f.__exit__(None, None, None)"
+      },
+      "tp_04_conditional_double_close.py": {
+        "expected": "BUG",
+        "bug_type": "DOUBLE_FREE",
+        "reason": "Conditional paths lead to double-close",
+        "unsafe_line": "f.close() (both branches executed)"
+      },
+      "tp_05_exception_handler_double_close.py": {
+        "expected": "BUG",
+        "bug_type": "DOUBLE_FREE",
+        "reason": "Finally block close + post-try close",
+        "unsafe_line": "f.close() (in finally) + f.close() (after try)"
+      },
+      "tn_01_single_close_guard.py": {
+        "expected": "SAFE",
+        "reason": "Guard condition prevents double-close"
+      },
+      "tn_02_idempotent_cleanup.py": {
+        "expected": "SAFE",
+        "reason": "Idempotent close with state tracking"
+      },
+      "tn_03_context_manager_proper.py": {
+        "expected": "SAFE",
+        "reason": "Proper with-statement usage"
+      },
+      "tn_04_flag_based_prevention.py": {
+        "expected": "SAFE",
+        "reason": "Flag-based double-close prevention"
+      },
+      "tn_05_separate_resources.py": {
+        "expected": "SAFE",
+        "reason": "Two separate resources, each closed once"
+      }
+    },
+    "MEMORY_LEAK": {
+      "tp_01_unbounded_list_growth.py": {
+        "expected": "BUG",
+        "bug_type": "MEMORY_LEAK",
+        "reason": "Global list accumulates indefinitely",
+        "unsafe_line": "cache.append(item) (unbounded loop)"
+      },
+      "tp_02_circular_reference_gc_prevention.py": {
+        "expected": "BUG",
+        "bug_type": "MEMORY_LEAK",
+        "reason": "Circular references prevent GC",
+        "unsafe_line": "a.ref = b; b.ref = a (10K times)"
+      },
+      "tp_03_global_cache_without_cleanup.py": {
+        "expected": "BUG",
+        "bug_type": "MEMORY_LEAK",
+        "reason": "Global cache without eviction",
+        "unsafe_line": "cache[key] = value (100K entries)"
+      },
+      "tp_04_event_handlers_never_removed.py": {
+        "expected": "BUG",
+        "bug_type": "MEMORY_LEAK",
+        "reason": "Event handlers accumulate with large closures",
+        "unsafe_line": "handlers.append(lambda: ...) (unbounded)"
+      },
+      "tp_05_closure_capture_large_context.py": {
+        "expected": "BUG",
+        "bug_type": "MEMORY_LEAK",
+        "reason": "Closures retain large captured contexts",
+        "unsafe_line": "lambdas.append(lambda: data[0]) (10K times)"
+      },
+      "tn_01_bounded_buffer_max_size.py": {
+        "expected": "SAFE",
+        "reason": "Bounded buffer with max size enforcement"
+      },
+      "tn_02_weakref_proper_usage.py": {
+        "expected": "SAFE",
+        "reason": "Weak references allow garbage collection"
+      },
+      "tn_03_context_scoped_allocations.py": {
+        "expected": "SAFE",
+        "reason": "Function-scoped allocations freed on return"
+      },
+      "tn_04_handler_proper_cleanup.py": {
+        "expected": "SAFE",
+        "reason": "Event handlers explicitly cleared"
+      },
+      "tn_05_lru_cache_eviction.py": {
+        "expected": "SAFE",
+        "reason": "LRU cache with eviction policy"
+      }
+    },
+    "UNINIT_MEMORY": {
+      "tp_01_variable_used_before_assignment.py": {
+        "expected": "BUG",
+        "bug_type": "UNINIT_MEMORY",
+        "reason": "Direct use-before-def without any assignment",
+        "unsafe_line": "print(x)"
+      },
+      "tp_02_conditional_missing_branch.py": {
+        "expected": "BUG",
+        "bug_type": "UNINIT_MEMORY",
+        "reason": "Variable assigned only in if-branch, used after conditional",
+        "unsafe_line": "print(result)"
+      },
+      "tp_03_loop_conditional_init.py": {
+        "expected": "BUG",
+        "bug_type": "UNINIT_MEMORY",
+        "reason": "Loop with conditional assignment (uninitialized if no match)",
+        "unsafe_line": "print(found)"
+      },
+      "tp_04_exception_handler_uninitialized.py": {
+        "expected": "BUG",
+        "bug_type": "UNINIT_MEMORY",
+        "reason": "Variable used in except block before try-block assignment",
+        "unsafe_line": "print(value)"
+      },
+      "tp_05_class_attribute_uninitialized.py": {
+        "expected": "BUG",
+        "bug_type": "UNINIT_MEMORY",
+        "reason": "Instance attribute conditionally initialized in __init__",
+        "unsafe_line": "print(obj.value)"
+      },
+      "tn_01_all_paths_assigned.py": {
+        "expected": "SAFE",
+        "reason": "Variable assigned in all branches before use"
+      },
+      "tn_02_default_init_in_constructor.py": {
+        "expected": "SAFE",
+        "reason": "All instance attributes initialized in __init__"
+      },
+      "tn_03_default_parameter_init.py": {
+        "expected": "SAFE",
+        "reason": "Default parameters and explicit initialization"
+      },
+      "tn_04_try_except_both_branches.py": {
+        "expected": "SAFE",
+        "reason": "Variable assigned in both try and except branches"
+      },
+      "tn_05_loop_default_before_iteration.py": {
+        "expected": "SAFE",
+        "reason": "Default value assigned before loop"
+      }
+    },
+    "NULL_PTR": {
+      "tp_01_method_call_on_none.py": {
+        "expected": "BUG",
+        "bug_type": "NULL_PTR",
+        "reason": "Method call on None (AttributeError)",
+        "unsafe_line": "x.some_method()"
+      },
+      "tp_02_attribute_access_on_none_return.py": {
+        "expected": "BUG",
+        "bug_type": "NULL_PTR",
+        "reason": "Attribute access on dict.get() None return",
+        "unsafe_line": "value.strip()"
+      },
+      "tp_03_subscript_on_none.py": {
+        "expected": "BUG",
+        "bug_type": "NULL_PTR",
+        "reason": "Subscript on None (TypeError)",
+        "unsafe_line": "x[0]"
+      },
+      "tp_04_iteration_over_none.py": {
+        "expected": "BUG",
+        "bug_type": "NULL_PTR",
+        "reason": "Iteration over None (TypeError)",
+        "unsafe_line": "for item in items:"
+      },
+      "tp_05_conditional_none_path.py": {
+        "expected": "BUG",
+        "bug_type": "NULL_PTR",
+        "reason": "Conditional path with None dereference",
+        "unsafe_line": "result.append(value)"
+      },
+      "tn_01_none_check_before_use.py": {
+        "expected": "SAFE",
+        "reason": "Explicit None check guards use"
+      },
+      "tn_02_optional_default_fallback.py": {
+        "expected": "SAFE",
+        "reason": "dict.get() with default (never None)"
+      },
+      "tn_03_type_narrowing_isinstance.py": {
+        "expected": "SAFE",
+        "reason": "isinstance check excludes None"
+      },
+      "tn_04_guaranteed_non_none_return.py": {
+        "expected": "SAFE",
+        "reason": "Function always returns non-None"
+      },
+      "tn_05_all_paths_assign_non_none.py": {
+        "expected": "SAFE",
+        "reason": "All paths assign non-None before use"
+      }
+    },
+    "BOUNDS": {
+      "tp_01_list_index_out_of_range.py": {
+        "expected": "BUG",
+        "bug_type": "BOUNDS",
+        "reason": "Index 5 on 3-element list (IndexError)",
+        "unsafe_line": "value = arr[5]"
+      },
+      "tp_02_negative_index_beyond_length.py": {
+        "expected": "BUG",
+        "bug_type": "BOUNDS",
+        "reason": "Index -10 on 4-element list (negative overflow)",
+        "unsafe_line": "value = arr[-10]"
+      },
+      "tp_03_dict_missing_key.py": {
+        "expected": "BUG",
+        "bug_type": "BOUNDS",
+        "reason": "Access missing_key not in dict (KeyError)",
+        "unsafe_line": "value = d['missing_key']"
+      },
+      "tp_04_computed_index_overflow.py": {
+        "expected": "BUG",
+        "bug_type": "BOUNDS",
+        "reason": "Index len(arr) on arr (off-by-one)",
+        "unsafe_line": "value = arr[len(arr)]"
+      },
+      "tp_05_tuple_indexing_past_end.py": {
+        "expected": "BUG",
+        "bug_type": "BOUNDS",
+        "reason": "Index 3 on 3-element tuple (IndexError)",
+        "unsafe_line": "value = t[3]"
+      },
+      "tn_01_index_with_bounds_check.py": {
+        "expected": "SAFE",
+        "reason": "Explicit bounds check guards access"
+      },
+      "tn_02_dict_get_with_default.py": {
+        "expected": "SAFE",
+        "reason": "dict.get() with default (no KeyError path)"
+      },
+      "tn_03_range_based_iteration.py": {
+        "expected": "SAFE",
+        "reason": "range(len(items)) guarantees valid indices"
+      },
+      "tn_04_enumerate_safe_access.py": {
+        "expected": "SAFE",
+        "reason": "enumerate() yields valid index/value pairs"
+      },
+      "tn_05_try_except_keyerror.py": {
+        "expected": "SAFE",
+        "reason": "KeyError caught in exception handler"
+      }
+    },
+    "DATA_RACE": {
+      "tp_01_shared_counter_no_lock.py": {
+        "expected": "BUG",
+        "bug_type": "DATA_RACE",
+        "reason": "Shared counter without lock (read-modify-write race)",
+        "unsafe_line": "counter += 1"
+      },
+      "tp_02_list_append_race.py": {
+        "expected": "BUG",
+        "bug_type": "DATA_RACE",
+        "reason": "List append race (concurrent structure modification)",
+        "unsafe_line": "shared_list.append(i)"
+      },
+      "tp_03_dict_update_race.py": {
+        "expected": "BUG",
+        "bug_type": "DATA_RACE",
+        "reason": "Dictionary update race (structure corruption possible)",
+        "unsafe_line": "shared_dict[i] = i * 2"
+      },
+      "tp_04_check_then_act_race.py": {
+        "expected": "BUG",
+        "bug_type": "DATA_RACE",
+        "reason": "Check-then-act race/TOCTOU (balance can go negative)",
+        "unsafe_line": "if balance >= amount: balance -= amount"
+      },
+      "tp_05_attribute_race.py": {
+        "expected": "BUG",
+        "bug_type": "DATA_RACE",
+        "reason": "Object attribute race (inconsistent state)",
+        "unsafe_line": "obj.counter += 1"
+      },
+      "tn_01_lock_protected_counter.py": {
+        "expected": "SAFE",
+        "reason": "Lock-protected counter (all accesses guarded)"
+      },
+      "tn_02_thread_local_storage.py": {
+        "expected": "SAFE",
+        "reason": "Thread-local storage (no sharing)"
+      },
+      "tn_03_immutable_shared_data.py": {
+        "expected": "SAFE",
+        "reason": "Immutable shared data (reads only)"
+      },
+      "tn_04_queue_based_communication.py": {
+        "expected": "SAFE",
+        "reason": "Queue-based thread communication (internally synchronized)"
+      },
+      "tn_05_atomic_operations.py": {
+        "expected": "SAFE",
+        "reason": "Atomic operations with RLock"
+      }
+    },
+    "DEADLOCK": {
+      "tp_01_circular_lock_acquisition.py": {
+        "expected": "BUG",
+        "bug_type": "DEADLOCK",
+        "reason": "Classic AB-BA deadlock (circular wait)",
+        "unsafe_line": "lock_a.acquire(); lock_b.acquire() (reverse order)"
+      },
+      "tp_02_self_deadlock_non_reentrant.py": {
+        "expected": "BUG",
+        "bug_type": "DEADLOCK",
+        "reason": "Self-deadlock on non-reentrant Lock",
+        "unsafe_line": "lock.acquire() (second time)"
+      },
+      "tp_03_condition_wait_with_held_lock.py": {
+        "expected": "BUG",
+        "bug_type": "DEADLOCK",
+        "reason": "Condition wait while holding another lock",
+        "unsafe_line": "condition.wait()"
+      },
+      "tp_04_three_way_deadlock.py": {
+        "expected": "BUG",
+        "bug_type": "DEADLOCK",
+        "reason": "Three-way circular deadlock (A→B→C→A)",
+        "unsafe_line": "lock_c.acquire(); lock_a.acquire()"
+      },
+      "tp_05_nested_lock_acquisition_mixed_order.py": {
+        "expected": "BUG",
+        "bug_type": "DEADLOCK",
+        "reason": "Nested locks with conflicting orderings",
+        "unsafe_line": "lock_b.acquire(); lock_a.acquire()"
+      },
+      "tn_01_consistent_lock_ordering.py": {
+        "expected": "SAFE",
+        "reason": "Consistent lock ordering across threads"
+      },
+      "tn_02_rlock_reentrant_safe.py": {
+        "expected": "SAFE",
+        "reason": "RLock allows reentrant acquisition"
+      },
+      "tn_03_timeout_based_acquisition.py": {
+        "expected": "SAFE",
+        "reason": "Timeout prevents indefinite blocking"
+      },
+      "tn_04_single_lock_all_resources.py": {
+        "expected": "SAFE",
+        "reason": "Single lock eliminates circular dependency"
+      },
+      "tn_05_queue_based_coordination.py": {
+        "expected": "SAFE",
+        "reason": "Queue-based producer-consumer (deadlock-free)"
+      }
+    },
+    "SEND_SYNC": {
+      "tp_01_file_object_shared_across_threads.py": {
+        "expected": "BUG",
+        "bug_type": "SEND_SYNC",
+        "reason": "File object shared across threads (concurrent writes)",
+        "unsafe_line": "f.write()"
+      },
+      "tp_02_mutable_default_shared_across_threads.py": {
+        "expected": "BUG",
+        "bug_type": "SEND_SYNC",
+        "reason": "Mutable default argument shared across threads",
+        "unsafe_line": "cache.append(x)"
+      },
+      "tp_03_generator_shared_between_threads.py": {
+        "expected": "BUG",
+        "bug_type": "SEND_SYNC",
+        "reason": "Generator internal state corrupted by concurrent access",
+        "unsafe_line": "next(gen)"
+      },
+      "tp_04_iterator_shared_across_threads.py": {
+        "expected": "BUG",
+        "bug_type": "SEND_SYNC",
+        "reason": "Iterator position tracking corrupted",
+        "unsafe_line": "next(it)"
+      },
+      "tp_05_non_reentrant_function_recursive_signal.py": {
+        "expected": "BUG",
+        "bug_type": "SEND_SYNC",
+        "reason": "Reentrancy violation via signal handler",
+        "unsafe_line": "signal_count += 1"
+      },
+      "tn_01_immutable_data_sharing.py": {
+        "expected": "SAFE",
+        "reason": "Immutable tuple safely shared"
+      },
+      "tn_02_deep_copy_before_send.py": {
+        "expected": "SAFE",
+        "reason": "Deep copy ensures independent per-thread data"
+      },
+      "tn_03_queue_based_message_passing.py": {
+        "expected": "SAFE",
+        "reason": "Thread-safe Queue for communication"
+      },
+      "tn_04_thread_local_storage.py": {
+        "expected": "SAFE",
+        "reason": "threading.local() provides per-thread namespace"
+      },
+      "tn_05_per_thread_file_objects.py": {
+        "expected": "SAFE",
+        "reason": "Each thread has its own file object"
+      }
+    },
+    "NON_TERMINATION": {
+      "tp_01_while_true_no_break.py": {
+        "expected": "BUG",
+        "bug_type": "NON_TERMINATION",
+        "reason": "Unconditional while True loop without break/return/raise",
+        "unsafe_line": "while True:"
+      },
+      "tp_02_loop_non_decreasing_counter.py": {
+        "expected": "BUG",
+        "bug_type": "NON_TERMINATION",
+        "reason": "Loop counter increments but condition expects decrease",
+        "unsafe_line": "while x < 100: x += 1"
+      },
+      "tp_03_mutual_recursion_no_base_case.py": {
+        "expected": "BUG",
+        "bug_type": "NON_TERMINATION",
+        "reason": "Functions call each other with no terminating condition",
+        "unsafe_line": "def a(): b(); def b(): a()"
+      },
+      "tp_04_recursion_wrong_base_case.py": {
+        "expected": "BUG",
+        "bug_type": "NON_TERMINATION",
+        "reason": "Recursive function increments instead of decrementing toward base",
+        "unsafe_line": "return fact(n + 1)"
+      },
+      "tp_05_loop_condition_never_false.py": {
+        "expected": "BUG",
+        "bug_type": "NON_TERMINATION",
+        "reason": "Loop modifies wrong variable, condition variable unchanged",
+        "unsafe_line": "while count < 10: other += 1"
+      },
+      "tn_01_bounded_loop_with_range.py": {
+        "expected": "SAFE",
+        "reason": "Bounded range() iterator guarantees termination"
+      },
+      "tn_02_recursion_proper_base_case.py": {
+        "expected": "SAFE",
+        "reason": "Factorial with reachable base case and decreasing argument"
+      },
+      "tn_03_loop_guaranteed_progress.py": {
+        "expected": "SAFE",
+        "reason": "While loop with strictly decreasing counter"
+      },
+      "tn_04_while_true_with_break.py": {
+        "expected": "SAFE",
+        "reason": "while True with reachable break after exhausting list"
+      },
+      "tn_05_mutual_recursion_with_base.py": {
+        "expected": "SAFE",
+        "reason": "Even/odd mutual recursion with base cases and progress"
+      }
+    },
+    "PANIC": {
+      "tp_01_unhandled_exception.py": {
+        "expected": "BUG",
+        "bug_type": "PANIC",
+        "reason": "ValueError from int() with no handler",
+        "unsafe_line": "int('not_a_number')"
+      },
+      "tp_02_raise_without_try.py": {
+        "expected": "BUG",
+        "bug_type": "PANIC",
+        "reason": "Unconditional RuntimeError with no try-except",
+        "unsafe_line": "raise RuntimeError()"
+      },
+      "tp_03_sys_exit_in_library.py": {
+        "expected": "BUG",
+        "bug_type": "PANIC",
+        "reason": "Library function calls sys.exit(1)",
+        "unsafe_line": "sys.exit(1)"
+      },
+      "tp_04_assertion_error_in_prod.py": {
+        "expected": "BUG",
+        "bug_type": "PANIC",
+        "reason": "assert statement fails with no handler",
+        "unsafe_line": "assert value > 0"
+      },
+      "tp_05_exception_in_finally_block.py": {
+        "expected": "BUG",
+        "bug_type": "PANIC",
+        "reason": "ZeroDivisionError in finally block",
+        "unsafe_line": "1 / 0"
+      },
+      "tn_01_proper_exception_handling.py": {
+        "expected": "SAFE",
+        "reason": "ValueError caught by try-except"
+      },
+      "tn_02_graceful_degradation.py": {
+        "expected": "SAFE",
+        "reason": "Top-level handler with fallback values"
+      },
+      "tn_03_exception_chaining.py": {
+        "expected": "SAFE",
+        "reason": "Exception chaining with context preserved"
+      },
+      "tn_04_exception_logged_not_raised.py": {
+        "expected": "SAFE",
+        "reason": "Exceptions converted to return values"
+      },
+      "tn_05_top_level_catch_all.py": {
+        "expected": "SAFE",
+        "reason": "Top-level except Exception catches all"
+      }
+    },
+    "STACK_OVERFLOW": {
+      "tp_01_unbounded_recursion.py": {
+        "expected": "BUG",
+        "bug_type": "STACK_OVERFLOW",
+        "reason": "Unbounded recursion with no base case",
+        "unsafe_line": "return recurse(n + 1)"
+      },
+      "tp_02_mutual_recursion_deep.py": {
+        "expected": "BUG",
+        "bug_type": "STACK_OVERFLOW",
+        "reason": "Mutual recursion without depth limit",
+        "unsafe_line": "def a(n): b(n+1); def b(n): a(n+1)"
+      },
+      "tp_03_deep_recursion_traversal.py": {
+        "expected": "BUG",
+        "bug_type": "STACK_OVERFLOW",
+        "reason": "Deeply nested structure traversal (depth=10000)",
+        "unsafe_line": "traverse(node.child)"
+      },
+      "tp_04_fibonacci_naive_deep.py": {
+        "expected": "BUG",
+        "bug_type": "STACK_OVERFLOW",
+        "reason": "Naive recursive fibonacci with n=5000",
+        "unsafe_line": "fib(n-1) + fib(n-2)"
+      },
+      "tp_05_json_like_parser_deep.py": {
+        "expected": "BUG",
+        "bug_type": "STACK_OVERFLOW",
+        "reason": "Recursive parser with nested input (depth=5000)",
+        "unsafe_line": "parse(nested_dict)"
+      },
+      "tn_01_tail_recursion_with_limit.py": {
+        "expected": "SAFE",
+        "reason": "Explicit depth limit with ValueError before RecursionError"
+      },
+      "tn_02_iterative_conversion.py": {
+        "expected": "SAFE",
+        "reason": "Iterative factorial/fibonacci (O(1) stack)"
+      },
+      "tn_03_setrecursionlimit_guarded.py": {
+        "expected": "SAFE",
+        "reason": "Increased limit with validated input bounds"
+      },
+      "tn_04_bounded_recursion_base_case.py": {
+        "expected": "SAFE",
+        "reason": "Proper base cases with guaranteed termination"
+      },
+      "tn_05_trampoline_pattern.py": {
+        "expected": "SAFE",
+        "reason": "Trampoline pattern converts recursion to iteration"
+      }
+    },
+    "TYPE_CONFUSION": {
+      "tp_01_wrong_type_passed.py": {
+        "expected": "BUG",
+        "bug_type": "TYPE_CONFUSION",
+        "reason": "Function expects dict but receives int (AttributeError on .get())",
+        "unsafe_line": "data.get('key')"
+      },
+      "tp_02_union_without_narrowing.py": {
+        "expected": "BUG",
+        "bug_type": "TYPE_CONFUSION",
+        "reason": "Union type without isinstance check before method call",
+        "unsafe_line": "value.strip()"
+      },
+      "tp_03_dynamic_attribute_wrong_class.py": {
+        "expected": "BUG",
+        "bug_type": "TYPE_CONFUSION",
+        "reason": "Attribute access on object lacking the attribute",
+        "unsafe_line": "obj.missing_attr"
+      },
+      "tp_04_numeric_string_confusion.py": {
+        "expected": "BUG",
+        "bug_type": "TYPE_CONFUSION",
+        "reason": "String passed to arithmetic operation (TypeError)",
+        "unsafe_line": "result = x + y"
+      },
+      "tp_05_iterator_protocol_violation.py": {
+        "expected": "BUG",
+        "bug_type": "TYPE_CONFUSION",
+        "reason": "Non-iterable passed to for-loop",
+        "unsafe_line": "for item in value:"
+      },
+      "tn_01_isinstance_check.py": {
+        "expected": "SAFE",
+        "reason": "Proper isinstance checks before type-specific operations"
+      },
+      "tn_02_validated_annotations.py": {
+        "expected": "SAFE",
+        "reason": "Runtime type validation matching annotations"
+      },
+      "tn_03_protocol_duck_typing.py": {
+        "expected": "SAFE",
+        "reason": "hasattr checks before attribute access"
+      },
+      "tn_04_union_proper_narrowing.py": {
+        "expected": "SAFE",
+        "reason": "Union type with exhaustive isinstance narrowing"
+      },
+      "tn_05_try_except_type_errors.py": {
+        "expected": "SAFE",
+        "reason": "AttributeError/TypeError caught by exception handler"
+      }
+    },
+    "ITERATOR_INVALID": {
+      "tp_01_dict_modification_during_iteration.py": {
+        "expected": "BUG",
+        "bug_type": "ITERATOR_INVALID",
+        "reason": "Dict deletion during iteration (RuntimeError)",
+        "unsafe_line": "del d[key]"
+      },
+      "tp_02_list_append_during_for_loop.py": {
+        "expected": "BUG",
+        "bug_type": "ITERATOR_INVALID",
+        "reason": "List append during iteration (unbounded growth)",
+        "unsafe_line": "items.append(item * 2)"
+      },
+      "tp_03_set_add_while_iterating.py": {
+        "expected": "BUG",
+        "bug_type": "ITERATOR_INVALID",
+        "reason": "Set addition during iteration (RuntimeError)",
+        "unsafe_line": "s.add(item * 2)"
+      },
+      "tp_04_list_remove_during_iteration.py": {
+        "expected": "BUG",
+        "bug_type": "ITERATOR_INVALID",
+        "reason": "List removal during iteration (silent element skipping)",
+        "unsafe_line": "items.remove(item)"
+      },
+      "tp_05_dict_keys_view_mutation.py": {
+        "expected": "BUG",
+        "bug_type": "ITERATOR_INVALID",
+        "reason": "Dict keys view invalidation (RuntimeError)",
+        "unsafe_line": "d[new_key] = value"
+      },
+      "tn_01_iterate_over_dict_copy.py": {
+        "expected": "SAFE",
+        "reason": "Iterate over list(keys) snapshot"
+      },
+      "tn_02_list_snapshot_before_mutation.py": {
+        "expected": "SAFE",
+        "reason": "Iterate over slice copy [:]"
+      },
+      "tn_03_separate_collection_for_additions.py": {
+        "expected": "SAFE",
+        "reason": "Deferred modifications after iteration"
+      },
+      "tn_04_list_comprehension_filter.py": {
+        "expected": "SAFE",
+        "reason": "List comprehension creates new list"
+      },
+      "tn_05_dict_comprehension_transform.py": {
+        "expected": "SAFE",
+        "reason": "Dict comprehension creates new dict"
+      }
+    },
+    "INFO_LEAK": {
+      "tp_01_secret_logged_to_console.py": {
+        "expected": "BUG",
+        "bug_type": "INFO_LEAK",
+        "reason": "API key logged via logging.debug()",
+        "unsafe_line": "logging.debug(f'API key: {api_key}')"
+      },
+      "tp_02_password_in_error_message.py": {
+        "expected": "BUG",
+        "bug_type": "INFO_LEAK",
+        "reason": "Password included in ValueError message",
+        "unsafe_line": "raise ValueError(f'Invalid password: {password}')"
+      },
+      "tp_03_api_key_in_url_parameter.py": {
+        "expected": "BUG",
+        "bug_type": "INFO_LEAK",
+        "reason": "API key in URL query parameter",
+        "unsafe_line": "url = f'{base}?api_key={api_key}'"
+      },
+      "tp_04_token_in_http_header_logged.py": {
+        "expected": "BUG",
+        "bug_type": "INFO_LEAK",
+        "reason": "JWT token in logged headers dict",
+        "unsafe_line": "logging.info(f'Headers: {headers}')"
+      },
+      "tp_05_private_key_in_traceback.py": {
+        "expected": "BUG",
+        "bug_type": "INFO_LEAK",
+        "reason": "Private key in local var when exception raised",
+        "unsafe_line": "raise RuntimeError()"
+      },
+      "tn_01_secrets_masked_in_logs.py": {
+        "expected": "SAFE",
+        "reason": "API key masked before logging"
+      },
+      "tn_02_sensitive_data_redacted_from_errors.py": {
+        "expected": "SAFE",
+        "reason": "Password excluded from error messages"
+      },
+      "tn_03_secure_credential_handling.py": {
+        "expected": "SAFE",
+        "reason": "API key in header, not URL; headers not logged"
+      },
+      "tn_04_filtered_logging_secret_exclusion.py": {
+        "expected": "SAFE",
+        "reason": "Custom logging filter redacts sensitive keys"
+      },
+      "tn_05_exception_handling_no_secret_exposure.py": {
+        "expected": "SAFE",
+        "reason": "Exceptions sanitized, no secret in output"
+      }
+    },
+    "TIMING_CHANNEL": {
+      "tp_01_early_return_on_password_mismatch.py": {
+        "expected": "BUG",
+        "bug_type": "TIMING_CHANNEL",
+        "reason": "Early return on first mismatch leaks password info",
+        "unsafe_line": "return False"
+      },
+      "tp_02_length_dependent_string_comparison.py": {
+        "expected": "BUG",
+        "bug_type": "TIMING_CHANNEL",
+        "reason": "String == short-circuits on length difference",
+        "unsafe_line": "return user_password == stored_password"
+      },
+      "tp_03_short_circuit_on_secret_bit.py": {
+        "expected": "BUG",
+        "bug_type": "TIMING_CHANNEL",
+        "reason": "Admin flag determines fast vs slow path",
+        "unsafe_line": "if is_admin: return True"
+      },
+      "tp_04_secret_dependent_loop_iterations.py": {
+        "expected": "BUG",
+        "bug_type": "TIMING_CHANNEL",
+        "reason": "Loop count/hamming weight depends on secret",
+        "unsafe_line": "for i in range(secret): ..."
+      },
+      "tp_05_conditional_expensive_operation.py": {
+        "expected": "BUG",
+        "bug_type": "TIMING_CHANNEL",
+        "reason": "Expensive operation conditional on secret match",
+        "unsafe_line": "if token == secret_token: expensive_hash()"
+      },
+      "tn_01_constant_time_comparison_hmac.py": {
+        "expected": "SAFE",
+        "reason": "hmac.compare_digest prevents timing leaks"
+      },
+      "tn_02_fixed_iteration_count.py": {
+        "expected": "SAFE",
+        "reason": "Fixed iterations with dummy operations"
+      },
+      "tn_03_dummy_operations_equalize_timing.py": {
+        "expected": "SAFE",
+        "reason": "All paths perform equivalent work"
+      },
+      "tn_04_blinded_operations_on_secrets.py": {
+        "expected": "SAFE",
+        "reason": "Blinding/masking decorrelates timing from secrets"
+      },
+      "tn_05_data_independent_control_flow.py": {
+        "expected": "SAFE",
+        "reason": "Control flow independent of secret data"
+      }
+    }
+  }
+}

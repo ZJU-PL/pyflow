@@ -14,8 +14,8 @@ import json
 from pathlib import Path
 from typing import Any
 
-from a3_python import __version__
-from a3_python.unsafe.registry import SECURITY_BUG_TYPES
+from pyflow.a3_python import __version__
+from pyflow.a3_python.unsafe.registry import SECURITY_BUG_TYPES
 
 # ── Bug-type metadata ────────────────────────────────────────────────────────
 

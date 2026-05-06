@@ -25,7 +25,7 @@ from dataclasses import dataclass
 from typing import Dict, Set, Optional, Any
 import z3
 
-from a3_python.z3model.taint_lattice import (
+from pyflow.a3_python.z3model.taint_lattice import (
     SinkType, TaintLabel, create_barrier_certificate
 )
 

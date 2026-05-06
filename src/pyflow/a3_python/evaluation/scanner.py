@@ -19,8 +19,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 
-from a3_python.evaluation.repo_list import RepoInfo, get_tier, get_all_repos
-from a3_python.analyzer import analyze_file, AnalysisResult
+from pyflow.a3_python.evaluation.repo_list import RepoInfo, get_tier, get_all_repos
+from pyflow.a3_python.analyzer import analyze_file, AnalysisResult
 
 
 @dataclass

@@ -25,7 +25,7 @@ import os
 # Debug flag for taint tracing
 TAINT_DEBUG = os.environ.get('TAINT_DEBUG') == '1'
 
-from a3_python.z3model.taint_lattice import (
+from pyflow.a3_python.z3model.taint_lattice import (
     SourceType, SinkType, SanitizerType,
     TaintLabel, SymbolicTaintLabel,
     PCTaint, SymbolicPCTaint,
@@ -36,7 +36,7 @@ from a3_python.z3model.taint_lattice import (
     tau_zero, kappa_zero, kappa_full, sigma_zero,
     TAU_WIDTH, KAPPA_WIDTH, SIGMA_WIDTH,
 )
-from a3_python.contracts.security_lattice import (
+from pyflow.a3_python.contracts.security_lattice import (
     init_security_contracts,
     is_taint_source, is_security_sink, is_sanitizer,
     get_source_contract, get_sink_contract, get_sink_contracts, get_sanitizer_contract,
@@ -44,7 +44,7 @@ from a3_python.contracts.security_lattice import (
     check_sink_taint, create_sink_unsafe_constraint,
     apply_sanitizer, apply_sanitizer_symbolic,
 )
-from a3_python.z3model.type_tracking import (
+from pyflow.a3_python.z3model.type_tracking import (
     ConcreteType, TypeLabel, TypeAwareTaintLabel,
     get_conversion_result_type, is_type_conversion
 )
@@ -143,7 +143,7 @@ class LatticeSecurityTracker:
     def _ensure_path_validation_tracker(self):
         """Lazy initialization of path validation tracker to avoid circular import."""
         if self.path_validation_tracker is None:
-            from a3_python.barriers.path_validation import PathValidationTracker
+            from pyflow.a3_python.barriers.path_validation import PathValidationTracker
             self.path_validation_tracker = PathValidationTracker()
         return self.path_validation_tracker
     
@@ -637,7 +637,7 @@ class LatticeSecurityTracker:
         # Detect startswith() calls for path validation (tarslip/zipslip)
         # Pattern: member_path.startswith(safe_prefix) returns True on safe paths
         # Lazy import to avoid circular dependency
-        from a3_python.barriers.path_validation import detect_startswith_validation, detect_abspath_check
+        from pyflow.a3_python.barriers.path_validation import detect_startswith_validation, detect_abspath_check
         
         validation_detected = detect_startswith_validation(func_name, func_ref, args, result)
         if validation_detected:

@@ -5,7 +5,7 @@ Based on testing, we achieved 52% FP reduction. This enhanced version
 adds more sophisticated patterns to reach 70-90% FP reduction.
 """
 
-from a3_python.barriers.deep_barrier_theory import (
+from pyflow.a3_python.barriers.deep_barrier_theory import (
     DeepBarrierTheoryEngine,
     AssumeGuaranteeBarrier,
     PostConditionBarrier,
@@ -542,7 +542,7 @@ class EnhancedDeepBarrierTheoryEngine(DeepBarrierTheoryEngine):
         ]
         
         # Also include original checkers for other patterns
-        from a3_python.barriers.deep_barrier_theory import (
+        from pyflow.a3_python.barriers.deep_barrier_theory import (
             InductiveInvariantBarrier,
             ControlFlowBarrier,
             DataflowBarrier,

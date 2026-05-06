@@ -18,7 +18,7 @@ This complements the interprocedural analysis in interprocedural_bugs.py:
 - Intraprocedural: tracks locals → locals, sources → sinks within one function
 
 Usage:
-    from a3_python.semantics.intraprocedural_taint import IntraproceduralTaintAnalyzer
+    from pyflow.a3_python.semantics.intraprocedural_taint import IntraproceduralTaintAnalyzer
     
     analyzer = IntraproceduralTaintAnalyzer(code_object)
     bugs = analyzer.find_bugs()
@@ -575,7 +575,7 @@ class IntraproceduralTaintAnalyzer:
                                 if key_str and contract.sensitive_arg_patterns:
                                     key_lower = key_str.lower()
                                     if any(pattern in key_lower for pattern in contract.sensitive_arg_patterns):
-                                        from a3_python.z3model.taint_lattice import SourceType
+                                        from pyflow.a3_python.z3model.taint_lattice import SourceType
                                         result = result.with_sensitivity(SourceType.PASSWORD)
                 
                 # ITERATION 476: Sensitivity inference for subscript operations
@@ -595,11 +595,11 @@ class IntraproceduralTaintAnalyzer:
                     
                     if key_str:
                         # Check if key matches sensitive patterns
-                        from a3_python.frontend.entry_points import SENSITIVE_PARAM_PATTERNS
+                        from pyflow.a3_python.frontend.entry_points import SENSITIVE_PARAM_PATTERNS
                         key_lower = key_str.lower()
                         if any(pattern in key_lower for pattern in SENSITIVE_PARAM_PATTERNS):
                             # Add PASSWORD sensitivity
-                            from a3_python.z3model.taint_lattice import SourceType
+                            from pyflow.a3_python.z3model.taint_lattice import SourceType
                             result = result.with_sensitivity(SourceType.PASSWORD)
                             if DEBUG_SENSITIVITY:
                                 print(f"  MATCHED! Adding PASSWORD sensitivity")

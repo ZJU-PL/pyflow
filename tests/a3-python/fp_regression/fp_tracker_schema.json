@@ -1,0 +1,59 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "FP Tracker",
+  "description": "Tracks false positives across repos for FP reduction validation",
+  "type": "object",
+  "properties": {
+    "metadata": {
+      "type": "object",
+      "properties": {
+        "created_at": {"type": "string", "format": "date-time"},
+        "updated_at": {"type": "string", "format": "date-time"},
+        "analyzer_version": {"type": "string"},
+        "notes": {"type": "string"}
+      },
+      "required": ["updated_at", "analyzer_version"]
+    },
+    "repos": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "path": {"type": "string"},
+          "total_findings": {"type": "integer"},
+          "true_positives": {"type": "integer"},
+          "false_positives": {"type": "integer"},
+          "unknown": {"type": "integer"},
+          "precision": {"type": "number", "minimum": 0, "maximum": 1},
+          "fp_categories": {
+            "type": "object",
+            "additionalProperties": {"type": "integer"}
+          },
+          "findings_by_type": {
+            "type": "object",
+            "additionalProperties": {"type": "integer"}
+          },
+          "last_analyzed": {"type": "string", "format": "date-time"}
+        },
+        "required": ["total_findings", "fp_categories"]
+      }
+    },
+    "aggregate": {
+      "type": "object",
+      "properties": {
+        "total_repos": {"type": "integer"},
+        "total_findings": {"type": "integer"},
+        "total_true_positives": {"type": "integer"},
+        "total_false_positives": {"type": "integer"},
+        "precision": {"type": "number"},
+        "target_precision": {"type": "number", "default": 0.75}
+      }
+    },
+    "fp_categories_global": {
+      "type": "object",
+      "description": "Aggregate FP counts by category across all repos",
+      "additionalProperties": {"type": "integer"}
+    }
+  },
+  "required": ["repos", "aggregate"]
+}

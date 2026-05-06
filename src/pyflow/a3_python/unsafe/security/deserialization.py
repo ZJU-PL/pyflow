@@ -8,7 +8,7 @@ Sinks: pickle.loads(), yaml.load() without SafeLoader, marshal.loads()
 Sanitizers: yaml.safe_load(), json.loads()
 """
 
-from a3_python.z3model.taint import SinkType
+from pyflow.a3_python.z3model.taint import SinkType
 
 
 def is_unsafe_deserialization(state) -> bool:

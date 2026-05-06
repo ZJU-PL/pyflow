@@ -18,7 +18,7 @@ import z3
 from enum import Enum
 
 # Import from existing modules
-from a3_python.z3model.values import SymbolicValue, ValueTag
+from pyflow.a3_python.z3model.values import SymbolicValue, ValueTag
 
 
 class HeapObserver(Enum):

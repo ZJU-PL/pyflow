@@ -8,7 +8,7 @@ Sinks: xml.etree.parse(), lxml.etree.parse()
 Sanitizers: defusedxml, parser with resolve_entities=False
 """
 
-from a3_python.z3model.taint import SinkType
+from pyflow.a3_python.z3model.taint import SinkType
 
 
 def is_unsafe_xxe(state) -> bool:

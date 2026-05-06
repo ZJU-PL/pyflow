@@ -33,6 +33,12 @@ If you are new to PyFlow, start with the :ref:`tutorials`.
 
 .. toctree::
     :maxdepth: 2
+    :caption: A3 Python
+
+    a3_python/index
+
+.. toctree::
+    :maxdepth: 2
     :caption: Reference
 
     cli

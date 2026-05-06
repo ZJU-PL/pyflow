@@ -747,7 +747,7 @@ class SummaryAnalyzer(ast.NodeVisitor):
                 else:
                     # Iteration 433: Parameterized query acts as sanitizer
                     # The query (first arg) flows through but is sanitized for SQL_EXECUTE
-                    from a3_python.z3model.taint_lattice import SinkType
+                    from pyflow.a3_python.z3model.taint_lattice import SinkType
                     self.is_sanitizer = True
                     self.sinks_protected.add(SinkType.SQL_EXECUTE.value)
             

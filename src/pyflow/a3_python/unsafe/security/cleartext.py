@@ -10,7 +10,7 @@ Sinks: logging.*, print(), file.write()
 Sanitizers: Hashing, encryption
 """
 
-from a3_python.z3model.taint import SinkType
+from pyflow.a3_python.z3model.taint import SinkType
 
 
 def is_unsafe_cleartext_logging(state) -> bool:

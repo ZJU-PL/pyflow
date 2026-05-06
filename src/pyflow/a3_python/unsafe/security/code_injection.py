@@ -9,7 +9,7 @@ Sources: User input, HTTP parameters, file content
 Sinks: eval(), exec(), compile(), __import__()
 """
 
-from a3_python.z3model.taint import SinkType
+from pyflow.a3_python.z3model.taint import SinkType
 
 
 def is_unsafe_code_injection(state) -> bool:

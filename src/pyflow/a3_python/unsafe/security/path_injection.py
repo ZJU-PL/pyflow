@@ -8,7 +8,7 @@ Sinks: open(), os.remove(), shutil.copy(), send_file()
 Sanitizers: os.path.basename(), realpath+startswith, secure_filename()
 """
 
-from a3_python.z3model.taint import SinkType
+from pyflow.a3_python.z3model.taint import SinkType
 
 
 def is_unsafe_path_injection(state) -> bool:

@@ -5,7 +5,7 @@ Models unknown function calls as over-approximating relations R_f ⊆ In × Out,
 ensuring soundness: Sem_f ⊆ R_f.
 """
 
-from a3_python.contracts.schema import (
+from pyflow.a3_python.contracts.schema import (
     Contract,
     HeapEffect,
     ExceptionEffect,
@@ -16,11 +16,11 @@ from a3_python.contracts.schema import (
 )
 
 # Import stdlib contracts to register them
-import a3_python.contracts.stdlib
+import pyflow.a3_python.contracts.stdlib
 
 # Import relational summaries to register them (elevation plan)
-import a3_python.contracts.builtin_relations
-import a3_python.contracts.stdlib_module_relations
+import pyflow.a3_python.contracts.builtin_relations
+import pyflow.a3_python.contracts.stdlib_module_relations
 
 __all__ = [
     "Contract",

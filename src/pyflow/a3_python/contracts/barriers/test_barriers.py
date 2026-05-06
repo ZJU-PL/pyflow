@@ -25,7 +25,7 @@ class TestIntervalDomain(unittest.TestCase):
     """Test the interval abstract domain."""
     
     def test_interval_creation(self):
-        from a3_python.contracts.barriers.intervals import Interval
+        from pyflow.a3_python.contracts.barriers.intervals import Interval
         
         # Basic interval
         i = Interval(0, 10)
@@ -38,7 +38,7 @@ class TestIntervalDomain(unittest.TestCase):
         self.assertEqual(unit.hi, 1)
         
     def test_interval_contains(self):
-        from a3_python.contracts.barriers.intervals import Interval
+        from pyflow.a3_python.contracts.barriers.intervals import Interval
         
         i = Interval(-5, 5)
         self.assertTrue(i.contains(0))
@@ -47,7 +47,7 @@ class TestIntervalDomain(unittest.TestCase):
         self.assertFalse(i.contains(10))
         
     def test_interval_arithmetic(self):
-        from a3_python.contracts.barriers.intervals import Interval
+        from pyflow.a3_python.contracts.barriers.intervals import Interval
         
         a = Interval(1, 3)
         b = Interval(2, 4)
@@ -63,7 +63,7 @@ class TestIntervalDomain(unittest.TestCase):
         self.assertEqual(sub.hi, 1)
         
     def test_interval_multiplication(self):
-        from a3_python.contracts.barriers.intervals import Interval
+        from pyflow.a3_python.contracts.barriers.intervals import Interval
         
         a = Interval(-2, 3)
         b = Interval(1, 2)
@@ -73,7 +73,7 @@ class TestIntervalDomain(unittest.TestCase):
         self.assertEqual(mul.hi, 6)   # 3 * 2
         
     def test_interval_union(self):
-        from a3_python.contracts.barriers.intervals import Interval
+        from pyflow.a3_python.contracts.barriers.intervals import Interval
         
         a = Interval(0, 5)
         b = Interval(3, 10)
@@ -83,7 +83,7 @@ class TestIntervalDomain(unittest.TestCase):
         self.assertEqual(union.hi, 10)
         
     def test_interval_intersection(self):
-        from a3_python.contracts.barriers.intervals import Interval
+        from pyflow.a3_python.contracts.barriers.intervals import Interval
         
         a = Interval(0, 5)
         b = Interval(3, 10)
@@ -93,7 +93,7 @@ class TestIntervalDomain(unittest.TestCase):
         self.assertEqual(inter.hi, 5)
         
     def test_interval_functions(self):
-        from a3_python.contracts.barriers.intervals import Interval
+        from pyflow.a3_python.contracts.barriers.intervals import Interval
         
         i = Interval(-1, 1)
         
@@ -117,7 +117,7 @@ class TestDeviceAbstraction(unittest.TestCase):
     """Test device abstraction for device barrier checking."""
     
     def test_device_creation(self):
-        from a3_python.contracts.barriers.abstract_values import Device
+        from pyflow.a3_python.contracts.barriers.abstract_values import Device
         
         cpu = Device("cpu")
         cuda0 = Device("cuda", 0)
@@ -128,7 +128,7 @@ class TestDeviceAbstraction(unittest.TestCase):
         self.assertEqual(cuda0.index, 0)
         
     def test_device_compatibility(self):
-        from a3_python.contracts.barriers.abstract_values import Device
+        from pyflow.a3_python.contracts.barriers.abstract_values import Device
         
         cpu = Device("cpu")
         cuda0 = Device("cuda", 0)
@@ -145,7 +145,7 @@ class TestDeviceAbstraction(unittest.TestCase):
         self.assertTrue(cuda0.compatible_with(cuda0))
         
     def test_device_string_conversion(self):
-        from a3_python.contracts.barriers.abstract_values import Device
+        from pyflow.a3_python.contracts.barriers.abstract_values import Device
         
         cpu = Device("cpu")
         cuda0 = Device("cuda", 0)
@@ -158,14 +158,14 @@ class TestShapeAbstraction(unittest.TestCase):
     """Test shape abstraction."""
     
     def test_shape_creation(self):
-        from a3_python.contracts.barriers.abstract_values import Shape
+        from pyflow.a3_python.contracts.barriers.abstract_values import Shape
         
         s = Shape([32, 3, 224, 224])
         self.assertEqual(s.dims, [32, 3, 224, 224])
         self.assertEqual(len(s), 4)
         
     def test_shape_broadcast(self):
-        from a3_python.contracts.barriers.abstract_values import Shape
+        from pyflow.a3_python.contracts.barriers.abstract_values import Shape
         
         a = Shape([32, 1, 224])
         b = Shape([3, 224])
@@ -174,7 +174,7 @@ class TestShapeAbstraction(unittest.TestCase):
         self.assertTrue(a.can_broadcast_with(b))
         
     def test_shape_matmul(self):
-        from a3_python.contracts.barriers.abstract_values import Shape
+        from pyflow.a3_python.contracts.barriers.abstract_values import Shape
         
         a = Shape([32, 64])  # (32, 64)
         b = Shape([64, 128])  # (64, 128)
@@ -188,8 +188,8 @@ class TestDeferredBarrier(unittest.TestCase):
     """Test deferred barrier functionality."""
     
     def test_barrier_creation(self):
-        from a3_python.contracts.barriers.deferred import DeferredBarrier
-        from a3_python.contracts.barriers.intervals import Interval
+        from pyflow.a3_python.contracts.barriers.deferred import DeferredBarrier
+        from pyflow.a3_python.contracts.barriers.intervals import Interval
         
         source = Interval(-10, 10)
         barrier = DeferredBarrier(source)
@@ -198,8 +198,8 @@ class TestDeferredBarrier(unittest.TestCase):
         self.assertEqual(barrier.source.hi, 10)
         
     def test_barrier_transformation(self):
-        from a3_python.contracts.barriers.deferred import DeferredBarrier
-        from a3_python.contracts.barriers.intervals import Interval
+        from pyflow.a3_python.contracts.barriers.deferred import DeferredBarrier
+        from pyflow.a3_python.contracts.barriers.intervals import Interval
         
         source = Interval(-10, 10)
         barrier = DeferredBarrier(source)
@@ -212,8 +212,8 @@ class TestDeferredBarrier(unittest.TestCase):
         self.assertLessEqual(current.hi, 1)
         
     def test_barrier_safety_check(self):
-        from a3_python.contracts.barriers.deferred import DeferredBarrier
-        from a3_python.contracts.barriers.intervals import Interval
+        from pyflow.a3_python.contracts.barriers.deferred import DeferredBarrier
+        from pyflow.a3_python.contracts.barriers.intervals import Interval
         
         source = Interval(1, 10)  # Strictly positive
         barrier = DeferredBarrier(source)
@@ -227,8 +227,8 @@ class TestDeviceBarrier(unittest.TestCase):
     """Test PyTorch-specific device barrier."""
     
     def test_device_barrier_creation(self):
-        from a3_python.contracts.barriers.deferred import DeviceBarrier
-        from a3_python.contracts.barriers.abstract_values import Device
+        from pyflow.a3_python.contracts.barriers.deferred import DeviceBarrier
+        from pyflow.a3_python.contracts.barriers.abstract_values import Device
         
         barrier = DeviceBarrier()
         
@@ -242,8 +242,8 @@ class TestDeviceBarrier(unittest.TestCase):
         self.assertEqual(barrier.get_device("b").device_type, "cuda")
         
     def test_device_barrier_compatibility(self):
-        from a3_python.contracts.barriers.deferred import DeviceBarrier
-        from a3_python.contracts.barriers.abstract_values import Device
+        from pyflow.a3_python.contracts.barriers.deferred import DeviceBarrier
+        from pyflow.a3_python.contracts.barriers.abstract_values import Device
         
         barrier = DeviceBarrier()
         
@@ -265,16 +265,16 @@ class TestContractRegistry(unittest.TestCase):
     """Test contract registry functionality."""
     
     def test_registry_creation(self):
-        from a3_python.contracts.barriers.contracts import ContractRegistry
+        from pyflow.a3_python.contracts.barriers.contracts import ContractRegistry
         
         registry = ContractRegistry()
         self.assertEqual(len(registry), 0)
         
     def test_contract_registration(self):
-        from a3_python.contracts.barriers.contracts import (
+        from pyflow.a3_python.contracts.barriers.contracts import (
             ContractRegistry, FunctionContract
         )
-        from a3_python.contracts.barriers.intervals import Interval
+        from pyflow.a3_python.contracts.barriers.intervals import Interval
         
         registry = ContractRegistry()
         
@@ -304,7 +304,7 @@ class TestDeviceAnalyzer(unittest.TestCase):
     """Test the AST-based device analyzer."""
     
     def test_simple_device_tracking(self):
-        from a3_python.contracts.barriers.device_analyzer import (
+        from pyflow.a3_python.contracts.barriers.device_analyzer import (
             DeviceAnalyzer, analyze_device_mismatches
         )
         
@@ -322,7 +322,7 @@ c = a + b  # Mismatch: a is CPU, b is CUDA
         self.assertGreater(len(bugs), 0)
         
     def test_no_false_positive(self):
-        from a3_python.contracts.barriers.device_analyzer import (
+        from pyflow.a3_python.contracts.barriers.device_analyzer import (
             analyze_device_mismatches
         )
         
@@ -340,7 +340,7 @@ c = a + b  # Both on CUDA - OK
         self.assertEqual(len(bugs), 0)
         
     def test_device_transfer_tracking(self):
-        from a3_python.contracts.barriers.device_analyzer import (
+        from pyflow.a3_python.contracts.barriers.device_analyzer import (
             analyze_device_mismatches
         )
         
@@ -361,10 +361,10 @@ class TestTorchContracts(unittest.TestCase):
     """Test PyTorch contract registration."""
     
     def test_load_all_contracts(self):
-        from a3_python.contracts.barriers.torch import (
+        from pyflow.a3_python.contracts.barriers.torch import (
             register_all_torch_contracts
         )
-        from a3_python.contracts.barriers.contracts import ContractRegistry
+        from pyflow.a3_python.contracts.barriers.contracts import ContractRegistry
         
         registry = ContractRegistry()
         register_all_torch_contracts(registry)
@@ -373,7 +373,7 @@ class TestTorchContracts(unittest.TestCase):
         self.assertGreater(len(registry), 100)
         
     def test_core_contracts(self):
-        from a3_python.contracts.barriers.torch import get_torch_contract
+        from pyflow.a3_python.contracts.barriers.torch import get_torch_contract
         
         # Test sigmoid contract
         sigmoid = get_torch_contract("torch", "sigmoid")
@@ -383,7 +383,7 @@ class TestTorchContracts(unittest.TestCase):
             self.assertEqual(sigmoid.return_interval.hi, 1)
             
     def test_requires_same_device(self):
-        from a3_python.contracts.barriers.torch import get_torch_contract
+        from pyflow.a3_python.contracts.barriers.torch import get_torch_contract
         
         # torch.add requires same device
         add = get_torch_contract("torch", "add")
@@ -395,7 +395,7 @@ class TestIntervalTransformations(unittest.TestCase):
     """Test mathematical function interval transformations."""
     
     def test_exp_interval(self):
-        from a3_python.contracts.barriers.intervals import Interval
+        from pyflow.a3_python.contracts.barriers.intervals import Interval
         
         i = Interval(0, 1)
         exp_i = i.exp()
@@ -405,7 +405,7 @@ class TestIntervalTransformations(unittest.TestCase):
         self.assertAlmostEqual(exp_i.hi, 2.718281828, places=5)
         
     def test_log_interval(self):
-        from a3_python.contracts.barriers.intervals import Interval
+        from pyflow.a3_python.contracts.barriers.intervals import Interval
         
         i = Interval(1, 10)
         log_i = i.log()
@@ -415,7 +415,7 @@ class TestIntervalTransformations(unittest.TestCase):
         self.assertAlmostEqual(log_i.hi, 2.302585, places=5)
         
     def test_sqrt_interval(self):
-        from a3_python.contracts.barriers.intervals import Interval
+        from pyflow.a3_python.contracts.barriers.intervals import Interval
         
         i = Interval(4, 9)
         sqrt_i = i.sqrt()
@@ -428,14 +428,14 @@ class TestEdgeCases(unittest.TestCase):
     """Test edge cases and error handling."""
     
     def test_empty_interval(self):
-        from a3_python.contracts.barriers.intervals import Interval
+        from pyflow.a3_python.contracts.barriers.intervals import Interval
         
         # Interval with lo > hi is empty
         empty = Interval(5, 3)
         self.assertTrue(empty.is_empty())
         
     def test_infinite_interval(self):
-        from a3_python.contracts.barriers.intervals import Interval
+        from pyflow.a3_python.contracts.barriers.intervals import Interval
         
         pos_inf = Interval(0, float('inf'))
         self.assertTrue(pos_inf.contains(1000000))
@@ -444,7 +444,7 @@ class TestEdgeCases(unittest.TestCase):
         self.assertTrue(neg_inf.contains(-1000000))
         
     def test_division_by_zero_interval(self):
-        from a3_python.contracts.barriers.intervals import Interval
+        from pyflow.a3_python.contracts.barriers.intervals import Interval
         
         a = Interval(1, 2)
         b = Interval(-1, 1)  # Contains 0
@@ -458,8 +458,8 @@ class TestContractBuilder(unittest.TestCase):
     """Test the fluent contract builder API."""
     
     def test_builder_basic(self):
-        from a3_python.contracts.barriers.contracts import ContractBuilder
-        from a3_python.contracts.barriers.intervals import Interval
+        from pyflow.a3_python.contracts.barriers.contracts import ContractBuilder
+        from pyflow.a3_python.contracts.barriers.intervals import Interval
         
         builder = ContractBuilder("torch.relu")
         contract = (builder

@@ -1,0 +1,69 @@
+{
+  "metadata": {
+    "created_at": "2025-01-14T00:00:00Z",
+    "updated_at": "2025-01-14T00:00:00Z",
+    "analyzer_version": "0.1.0",
+    "notes": "Initial FP tracking after FP context reduction implementation"
+  },
+  "repos": {
+    "FLAML": {
+      "path": "external_tools/FLAML",
+      "total_findings": 0,
+      "true_positives": 0,
+      "false_positives": 0,
+      "unknown": 0,
+      "precision": 1.0,
+      "fp_categories": {},
+      "findings_by_type": {},
+      "last_analyzed": "2025-01-14T00:00:00Z"
+    },
+    "Qlib": {
+      "path": "external_tools/qlib",
+      "total_findings": 16,
+      "true_positives": 5,
+      "false_positives": 11,
+      "unknown": 0,
+      "precision": 0.31,
+      "fp_categories": {
+        "optional_field_access": 8,
+        "guarded_index": 3
+      },
+      "findings_by_type": {
+        "NULL_PTR": 10,
+        "BOUNDS": 4,
+        "ITERATOR_INVALID": 2
+      },
+      "last_analyzed": "2025-01-14T00:00:00Z"
+    },
+    "GraphRAG": {
+      "path": "external_tools/graphrag",
+      "total_findings": 2,
+      "true_positives": 0,
+      "false_positives": 2,
+      "unknown": 0,
+      "precision": 0.0,
+      "fp_categories": {
+        "transitive_div_zero": 2
+      },
+      "findings_by_type": {
+        "DIV_ZERO": 2
+      },
+      "notes": "98.6% FP reduction (138->2). Remaining DIV_ZERO are transitive FP at threshold edge.",
+      "last_analyzed": "2025-01-25T00:00:00Z"
+    }
+  },
+  "aggregate": {
+    "total_repos": 3,
+    "total_findings": 151,
+    "total_true_positives": 20,
+    "total_false_positives": 131,
+    "precision": 0.13,
+    "target_precision": 0.75
+  },
+  "fp_categories_global": {
+    "optional_field_access": 68,
+    "cli_path": 20,
+    "guarded_index": 33,
+    "test_code": 10
+  }
+}

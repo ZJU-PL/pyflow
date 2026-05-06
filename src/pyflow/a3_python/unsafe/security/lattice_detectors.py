@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from typing import Optional, List, Dict, Any, Callable
 import z3
 
-from a3_python.z3model.taint_lattice import (
+from pyflow.a3_python.z3model.taint_lattice import (
     SourceType, SinkType,
     TaintLabel, SymbolicTaintLabel,
     SecurityBugType, CODEQL_BUG_TYPES,

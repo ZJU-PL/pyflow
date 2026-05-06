@@ -8,7 +8,7 @@ Sinks: requests.get(), urllib.urlopen(), httpx.get()
 Sanitizers: URL allowlist validation, schema validation
 """
 
-from a3_python.z3model.taint import SinkType
+from pyflow.a3_python.z3model.taint import SinkType
 
 
 def is_unsafe_ssrf(state) -> bool:

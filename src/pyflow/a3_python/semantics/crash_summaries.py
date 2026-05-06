@@ -5,10 +5,10 @@ Extends taint summaries to track crash-inducing conditions across function bound
 This covers ALL 20 core bug types + 47 security bug types.
 
 INTEGRATION WITH EXISTING INFRASTRUCTURE:
-- Uses UNSAFE_PREDICATES from a3_python/unsafe/registry.py
-- Uses TaintLabel/SymbolicTaintLabel from a3_python/z3model/taint_lattice.py
-- Uses barrier synthesis from a3_python/barriers/synthesis.py
-- Uses security contracts from a3_python/contracts/security_lattice.py
+- Uses UNSAFE_PREDICATES from pyflow.a3_python/unsafe/registry.py
+- Uses TaintLabel/SymbolicTaintLabel from pyflow.a3_python/z3model/taint_lattice.py
+- Uses barrier synthesis from pyflow.a3_python/barriers/synthesis.py
+- Uses security contracts from pyflow.a3_python/contracts/security_lattice.py
 
 For each function f, we compute:
 1. **Precondition Summary** Π_f: Required conditions on parameters to avoid crashes
@@ -390,7 +390,7 @@ class CrashSummary:
     Complete crash summary for a function.
     
     Captures all conditions under which a function may crash or trigger bugs.
-    Uses string bug type names from a3_python/unsafe/registry.py as the
+    Uses string bug type names from pyflow.a3_python/unsafe/registry.py as the
     canonical source of truth.
     """
     function_name: str

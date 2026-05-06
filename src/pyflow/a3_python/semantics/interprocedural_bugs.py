@@ -54,7 +54,7 @@ class InterproceduralBug:
     A bug found through interprocedural analysis.
     
     Contains full provenance: the call chain from entry point to bug site.
-    Uses string bug type names from a3_python/unsafe/registry.py as the
+    Uses string bug type names from pyflow.a3_python/unsafe/registry.py as the
     canonical source of truth (e.g., 'DIV_ZERO', 'NULL_PTR', 'SQL_INJECTION').
     
     The `inferred_source` field indicates whether sensitive data was identified through
@@ -1695,7 +1695,7 @@ class InterproceduralBugTracker:
                 # reporting and let intraprocedural analysis handle it.
                 
                 # Get all sink contracts for this sink_type across all functions
-                from a3_python.contracts.security_lattice import get_all_sink_contracts
+                from pyflow.a3_python.contracts.security_lattice import get_all_sink_contracts
                 all_sink_contracts = get_all_sink_contracts()
                 
                 if DEBUG:

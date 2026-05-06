@@ -12,11 +12,11 @@ Provenance: Python standard library documentation + CPython source.
 import z3
 from typing import List
 
-from a3_python.contracts.relations import (
+from pyflow.a3_python.contracts.relations import (
     RelationalSummary, RelationalCase, PostCondition, HavocCase,
     register_relational_summary
 )
-from a3_python.z3model.values import SymbolicValue, ValueTag
+from pyflow.a3_python.z3model.values import SymbolicValue, ValueTag
 
 
 def init_stdlib_module_relations():

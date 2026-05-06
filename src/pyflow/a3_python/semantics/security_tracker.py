@@ -15,18 +15,18 @@ from typing import List, Optional, Dict, Set
 from dataclasses import dataclass, field
 import z3
 
-from a3_python.z3model.taint import (
+from pyflow.a3_python.z3model.taint import (
     TaintSource, SinkType, SanitizerType, TaintState, TaintLabel,
     SecurityViolation, create_violation,
     create_symbolic_taint, taint_propagate_binop
 )
-from a3_python.contracts.security import (
+from pyflow.a3_python.contracts.security import (
     get_source_contract, get_sink_contract, get_sanitizer_contract,
     is_taint_source, is_security_sink, is_sanitizer,
     apply_source_taint, check_sink_taint, apply_sanitizer,
     init_security_contracts
 )
-from a3_python.z3model.values import SymbolicValue
+from pyflow.a3_python.z3model.values import SymbolicValue
 
 
 @dataclass

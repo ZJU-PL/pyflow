@@ -38,7 +38,7 @@ enable static detection of such errors before runtime.
 
 Usage:
 ------
-    from a3_python.contracts.barriers.torch import (
+    from pyflow.a3_python.contracts.barriers.torch import (
         get_torch_contract,
         register_all_torch_contracts,
         TORCH_REGISTRY

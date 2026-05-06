@@ -12,7 +12,7 @@ Mode B (concolic): Optional concrete SQL parsing to validate
 """
 
 from typing import Optional
-from a3_python.z3model.taint import SinkType, TaintState
+from pyflow.a3_python.z3model.taint import SinkType, TaintState
 
 
 def is_unsafe_sql_injection(state) -> bool:

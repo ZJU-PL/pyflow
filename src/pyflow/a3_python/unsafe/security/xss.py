@@ -8,7 +8,7 @@ Sinks: HttpResponse(), render_template_string(), f"<div>{user_input}</div>"
 Sanitizers: html.escape(), markupsafe.escape(), template autoescape
 """
 
-from a3_python.z3model.taint import SinkType
+from pyflow.a3_python.z3model.taint import SinkType
 
 
 def is_unsafe_xss(state) -> bool:

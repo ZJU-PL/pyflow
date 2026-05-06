@@ -15,12 +15,12 @@ from typing import List, Dict, Set, Optional, Callable, FrozenSet
 from enum import Enum
 import z3
 
-from a3_python.z3model.taint import (
+from pyflow.a3_python.z3model.taint import (
     TaintSource, SinkType, SanitizerType, TaintState, TaintLabel,
     SecurityViolation, create_violation
 )
-from a3_python.z3model.values import SymbolicValue
-from a3_python.contracts.relations import (
+from pyflow.a3_python.z3model.values import SymbolicValue
+from pyflow.a3_python.contracts.relations import (
     RelationalSummary, RelationalCase, PostCondition, HavocCase,
     register_relational_summary
 )

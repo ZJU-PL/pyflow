@@ -6303,7 +6303,7 @@ class Analyzer:
         if not bug_found:
             summary = context.get_summary(func_name)
             if summary and summary.dependency.params_to_sinks:
-                from a3_python.z3model.taint_lattice import SinkType, CODEQL_BUG_TYPES
+                from pyflow.a3_python.z3model.taint_lattice import SinkType, CODEQL_BUG_TYPES
                 for sink_type_int, param_indices in summary.dependency.params_to_sinks.items():
                     # Check if -1 (internal taint) flows to this sink
                     if -1 in param_indices:
@@ -7652,7 +7652,7 @@ def security_scan(
         AnalysisResult with security bugs found, or SAFE/UNKNOWN verdict
     
     Example:
-        >>> from a3_python.analyzer import security_scan
+        >>> from pyflow.a3_python.analyzer import security_scan
         >>> result = security_scan(Path("views.py"), verbose=True)
         >>> if result.verdict == "BUG":
         ...     print(f"Security bug found: {result.bug_type}")

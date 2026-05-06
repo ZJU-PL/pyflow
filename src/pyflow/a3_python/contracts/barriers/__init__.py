@@ -37,7 +37,7 @@ Architecture:
         └── autograd.py       # torch.autograd.* (50+ contracts)
 
 Usage:
-    from a3_python.contracts.barriers import (
+    from pyflow.a3_python.contracts.barriers import (
         Interval,
         DeferredBarrier,
         ContractRegistry,

@@ -16,7 +16,7 @@ Usage (CLI):
     a3 triage --sarif results.sarif --output-sarif triaged.sarif --agentic
 
 Usage (Python):
-    from a3_python.ci.agentic_triage import agentic_triage_sarif
+    from pyflow.a3_python.ci.agentic_triage import agentic_triage_sarif
     filtered = agentic_triage_sarif(sarif, repo_root=Path("."))
 """
 

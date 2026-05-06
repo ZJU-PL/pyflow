@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from typing import Dict, Optional, FrozenSet, List, Callable, Set
 import z3
 
-from a3_python.z3model.taint_lattice import (
+from pyflow.a3_python.z3model.taint_lattice import (
     SourceType, SinkType, SanitizerType,
     TaintLabel, SymbolicTaintLabel,
     SecurityViolation, SecurityBugType, CODEQL_BUG_TYPES,
@@ -458,7 +458,7 @@ def check_sink_taint(
             
             # Handle SymbolicValue objects
             if hasattr(shell_value, 'tag') and hasattr(shell_value, 'payload'):
-                from a3_python.z3model.values import ValueTag
+                from pyflow.a3_python.z3model.values import ValueTag
                 if shell_value.tag == ValueTag.BOOL:
                     # Extract concrete boolean from Z3 IntVal payload
                     import z3

@@ -9,7 +9,7 @@ These contracts are conservative summaries of stdlib functions, justified by:
 All contracts MUST be over-approximations: Sem_f ⊆ R_f.
 """
 
-from a3_python.contracts.schema import (
+from pyflow.a3_python.contracts.schema import (
     Contract, HeapEffect, ExceptionEffect, ValueConstraint, register_contract
 )
 

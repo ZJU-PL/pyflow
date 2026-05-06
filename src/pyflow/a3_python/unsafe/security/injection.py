@@ -5,7 +5,7 @@ LDAP_INJECTION (CWE-090), XPATH_INJECTION (CWE-643), NOSQL_INJECTION (CWE-943),
 REGEX_INJECTION (CWE-730), URL_REDIRECT (CWE-601), HEADER_INJECTION (CWE-113)
 """
 
-from a3_python.z3model.taint import SinkType
+from pyflow.a3_python.z3model.taint import SinkType
 
 
 # ============================================================================

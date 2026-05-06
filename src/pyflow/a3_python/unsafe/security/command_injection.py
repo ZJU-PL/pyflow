@@ -8,7 +8,7 @@ Sinks: os.system, subprocess.call(shell=True), os.popen
 Sanitizers: shlex.quote, using array form without shell=True
 """
 
-from a3_python.z3model.taint import SinkType
+from pyflow.a3_python.z3model.taint import SinkType
 
 
 def is_unsafe_command_injection(state) -> bool:

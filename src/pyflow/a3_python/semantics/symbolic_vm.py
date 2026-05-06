@@ -1350,7 +1350,7 @@ class SymbolicVM:
         OR be None/other. We handle None separately with Z3 checks. For other cases,
         OBJ fallback maintains soundness.
         """
-        from a3_python.z3model.values import ValueTag
+        from pyflow.a3_python.z3model.values import ValueTag
         
         # String-valued attributes (HTTP/web framework patterns)
         string_attrs = {
@@ -1424,7 +1424,7 @@ class SymbolicVM:
         
         Uses the new taint lattice SinkType from taint_lattice.py.
         """
-        from a3_python.z3model.taint_lattice import SinkType
+        from pyflow.a3_python.z3model.taint_lattice import SinkType
         
         sink_type = violation.sink_type
         state.security_violations.append(violation)
@@ -1433,7 +1433,7 @@ class SymbolicVM:
         # execution path in the contracted semantics (PTS_R). This is reporting
         # metadata only and must not affect BUG/SAFE/UNKNOWN semantics.
         try:
-            from a3_python.confidence_interval import ReachabilityIntervalPTS
+            from pyflow.a3_python.confidence_interval import ReachabilityIntervalPTS
             violation.reachability_pts = ReachabilityIntervalPTS.reachable(
                 evidence=["witness=symbolic_pts", f"at={violation.sink_location}"]
             )
@@ -4422,7 +4422,7 @@ class SymbolicVM:
                     
                     # SECURITY: Propagate taint through binary operation
                     if state.security_tracker:
-                        from a3_python.semantics.security_tracker_lattice import handle_binop
+                        from pyflow.a3_python.semantics.security_tracker_lattice import handle_binop
                         handle_binop(state.security_tracker, left, right, result)
             
             elif op == 10:  # SUBTRACT
@@ -4453,7 +4453,7 @@ class SymbolicVM:
                     
                     # SECURITY: Propagate taint through binary operation
                     if state.security_tracker:
-                        from a3_python.semantics.security_tracker_lattice import handle_binop
+                        from pyflow.a3_python.semantics.security_tracker_lattice import handle_binop
                         handle_binop(state.security_tracker, left, right, result)
             
             elif op == 5:  # MULTIPLY
@@ -4484,7 +4484,7 @@ class SymbolicVM:
                     
                     # SECURITY: Propagate taint through binary operation
                     if state.security_tracker:
-                        from a3_python.semantics.security_tracker_lattice import handle_binop
+                        from pyflow.a3_python.semantics.security_tracker_lattice import handle_binop
                         handle_binop(state.security_tracker, left, right, result)
             
             elif op == 11:  # TRUE_DIVIDE
@@ -4534,7 +4534,7 @@ class SymbolicVM:
                     
                     # SECURITY: Propagate taint through binary operation
                     if state.security_tracker:
-                        from a3_python.semantics.security_tracker_lattice import handle_binop
+                        from pyflow.a3_python.semantics.security_tracker_lattice import handle_binop
                         handle_binop(state.security_tracker, left, right, result)
             
             elif op == 2:  # FLOOR_DIVIDE
@@ -4581,7 +4581,7 @@ class SymbolicVM:
                     
                     # SECURITY: Propagate taint through binary operation
                     if state.security_tracker:
-                        from a3_python.semantics.security_tracker_lattice import handle_binop
+                        from pyflow.a3_python.semantics.security_tracker_lattice import handle_binop
                         handle_binop(state.security_tracker, left, right, result)
             
             elif op == 6:  # MODULO
@@ -4628,7 +4628,7 @@ class SymbolicVM:
                     
                     # SECURITY: Propagate taint through binary operation
                     if state.security_tracker:
-                        from a3_python.semantics.security_tracker_lattice import handle_binop
+                        from pyflow.a3_python.semantics.security_tracker_lattice import handle_binop
                         handle_binop(state.security_tracker, left, right, result)
             
             elif op == 26:  # SUBSCRIPT ([])
@@ -4682,7 +4682,7 @@ class SymbolicVM:
                     # SECURITY: Propagate taint through subscript operation
                     # Note: subscript uses handle_subscript, not handle_binop
                     if state.security_tracker:
-                        from a3_python.semantics.security_tracker_lattice import handle_subscript
+                        from pyflow.a3_python.semantics.security_tracker_lattice import handle_subscript
                         handle_subscript(state.security_tracker, left, right, result)
                         
                         # ITERATION 463: Runtime sensitivity inference for dict subscripts
@@ -4692,7 +4692,7 @@ class SymbolicVM:
                         # FIXED: Remove ValueTag.DICT restriction - works on any subscript with tainted result
                         import os
                         DEBUG_SIGMA = os.environ.get('DEBUG_SIGMA') == '1'
-                        from a3_python.frontend.entry_points import SENSITIVE_PARAM_PATTERNS
+                        from pyflow.a3_python.frontend.entry_points import SENSITIVE_PARAM_PATTERNS
                         
                         if DEBUG_SIGMA:
                             print(f"[DEBUG_SIGMA] Checking subscript for sensitivity:")
@@ -4735,7 +4735,7 @@ class SymbolicVM:
                                     if DEBUG_SIGMA:
                                         print(f"[DEBUG_SIGMA] Matched sensitive pattern: {matched_pattern}")
                                     # Add sensitivity to result (both concrete and symbolic labels)
-                                    from a3_python.z3model.taint_lattice import SourceType
+                                    from pyflow.a3_python.z3model.taint_lattice import SourceType
                                     
                                     # Update concrete label
                                     concrete_label = state.security_tracker.get_label(result)
@@ -4806,7 +4806,7 @@ class SymbolicVM:
                     
                     # SECURITY: Propagate taint through binary operation
                     if state.security_tracker:
-                        from a3_python.semantics.security_tracker_lattice import handle_binop
+                        from pyflow.a3_python.semantics.security_tracker_lattice import handle_binop
                         handle_binop(state.security_tracker, left, right, result)
             
             elif op == 3:  # LEFT_SHIFT (<<)
@@ -4856,7 +4856,7 @@ class SymbolicVM:
                     
                     # SECURITY: Propagate taint through binary operation
                     if state.security_tracker:
-                        from a3_python.semantics.security_tracker_lattice import handle_binop
+                        from pyflow.a3_python.semantics.security_tracker_lattice import handle_binop
                         handle_binop(state.security_tracker, left, right, result)
             
             elif op == 9:  # RIGHT_SHIFT (>>)
@@ -4906,7 +4906,7 @@ class SymbolicVM:
                     
                     # SECURITY: Propagate taint through binary operation
                     if state.security_tracker:
-                        from a3_python.semantics.security_tracker_lattice import handle_binop
+                        from pyflow.a3_python.semantics.security_tracker_lattice import handle_binop
                         handle_binop(state.security_tracker, left, right, result)
             
             elif op == 1:  # BITWISE_AND (&)
@@ -4937,7 +4937,7 @@ class SymbolicVM:
                     
                     # SECURITY: Propagate taint through binary operation
                     if state.security_tracker:
-                        from a3_python.semantics.security_tracker_lattice import handle_binop
+                        from pyflow.a3_python.semantics.security_tracker_lattice import handle_binop
                         handle_binop(state.security_tracker, left, right, result)
             
             elif op == 7:  # BITWISE_OR (|)
@@ -4968,7 +4968,7 @@ class SymbolicVM:
                     
                     # SECURITY: Propagate taint through binary operation
                     if state.security_tracker:
-                        from a3_python.semantics.security_tracker_lattice import handle_binop
+                        from pyflow.a3_python.semantics.security_tracker_lattice import handle_binop
                         handle_binop(state.security_tracker, left, right, result)
             
             elif op == 12:  # BITWISE_XOR (^)
@@ -4999,7 +4999,7 @@ class SymbolicVM:
                     
                     # SECURITY: Propagate taint through binary operation
                     if state.security_tracker:
-                        from a3_python.semantics.security_tracker_lattice import handle_binop
+                        from pyflow.a3_python.semantics.security_tracker_lattice import handle_binop
                         handle_binop(state.security_tracker, left, right, result)
             
             # Augmented assignment operators (INPLACE_* variants)
@@ -5031,7 +5031,7 @@ class SymbolicVM:
                     state.path_condition = z3.And(state.path_condition, type_ok, z3.Not(none_misuse))
                     frame.operand_stack.append(result)
                     if state.security_tracker:
-                        from a3_python.semantics.security_tracker_lattice import handle_binop
+                        from pyflow.a3_python.semantics.security_tracker_lattice import handle_binop
                         handle_binop(state.security_tracker, left, right, result)
             
             elif op == 23:  # INPLACE_SUBTRACT (-=)
@@ -5058,7 +5058,7 @@ class SymbolicVM:
                     state.path_condition = z3.And(state.path_condition, type_ok, z3.Not(none_misuse))
                     frame.operand_stack.append(result)
                     if state.security_tracker:
-                        from a3_python.semantics.security_tracker_lattice import handle_binop
+                        from pyflow.a3_python.semantics.security_tracker_lattice import handle_binop
                         handle_binop(state.security_tracker, left, right, result)
             
             elif op == 18:  # INPLACE_MULTIPLY (*=)
@@ -5085,7 +5085,7 @@ class SymbolicVM:
                     state.path_condition = z3.And(state.path_condition, type_ok, z3.Not(none_misuse))
                     frame.operand_stack.append(result)
                     if state.security_tracker:
-                        from a3_python.semantics.security_tracker_lattice import handle_binop
+                        from pyflow.a3_python.semantics.security_tracker_lattice import handle_binop
                         handle_binop(state.security_tracker, left, right, result)
             
             elif op == 15:  # INPLACE_FLOOR_DIVIDE (//=)
@@ -5131,7 +5131,7 @@ class SymbolicVM:
                     state.path_condition = z3.And(state.path_condition, type_ok, z3.Not(div_zero), z3.Not(none_misuse))
                     frame.operand_stack.append(result)
                     if state.security_tracker:
-                        from a3_python.semantics.security_tracker_lattice import handle_binop
+                        from pyflow.a3_python.semantics.security_tracker_lattice import handle_binop
                         handle_binop(state.security_tracker, left, right, result)
             
             elif op == 19:  # INPLACE_MODULO (%=)
@@ -5177,7 +5177,7 @@ class SymbolicVM:
                     state.path_condition = z3.And(state.path_condition, type_ok, z3.Not(div_zero), z3.Not(none_misuse))
                     frame.operand_stack.append(result)
                     if state.security_tracker:
-                        from a3_python.semantics.security_tracker_lattice import handle_binop
+                        from pyflow.a3_python.semantics.security_tracker_lattice import handle_binop
                         handle_binop(state.security_tracker, left, right, result)
             
             elif op == 21:  # INPLACE_POWER (**=)
@@ -5224,7 +5224,7 @@ class SymbolicVM:
                     state.path_condition = z3.And(state.path_condition, type_ok, z3.Not(fp_domain), z3.Not(none_misuse))
                     frame.operand_stack.append(result)
                     if state.security_tracker:
-                        from a3_python.semantics.security_tracker_lattice import handle_binop
+                        from pyflow.a3_python.semantics.security_tracker_lattice import handle_binop
                         handle_binop(state.security_tracker, left, right, result)
             
             elif op == 16:  # INPLACE_LSHIFT (<<=)
@@ -5270,7 +5270,7 @@ class SymbolicVM:
                     state.path_condition = z3.And(state.path_condition, type_ok, z3.Not(domain_error), z3.Not(none_misuse))
                     frame.operand_stack.append(result)
                     if state.security_tracker:
-                        from a3_python.semantics.security_tracker_lattice import handle_binop
+                        from pyflow.a3_python.semantics.security_tracker_lattice import handle_binop
                         handle_binop(state.security_tracker, left, right, result)
             
             elif op == 22:  # INPLACE_RSHIFT (>>=)
@@ -5316,7 +5316,7 @@ class SymbolicVM:
                     state.path_condition = z3.And(state.path_condition, type_ok, z3.Not(domain_error), z3.Not(none_misuse))
                     frame.operand_stack.append(result)
                     if state.security_tracker:
-                        from a3_python.semantics.security_tracker_lattice import handle_binop
+                        from pyflow.a3_python.semantics.security_tracker_lattice import handle_binop
                         handle_binop(state.security_tracker, left, right, result)
             
             elif op == 14:  # INPLACE_AND (&=)
@@ -5343,7 +5343,7 @@ class SymbolicVM:
                     state.path_condition = z3.And(state.path_condition, type_ok, z3.Not(none_misuse))
                     frame.operand_stack.append(result)
                     if state.security_tracker:
-                        from a3_python.semantics.security_tracker_lattice import handle_binop
+                        from pyflow.a3_python.semantics.security_tracker_lattice import handle_binop
                         handle_binop(state.security_tracker, left, right, result)
             
             elif op == 20:  # INPLACE_OR (|=)
@@ -5370,7 +5370,7 @@ class SymbolicVM:
                     state.path_condition = z3.And(state.path_condition, type_ok, z3.Not(none_misuse))
                     frame.operand_stack.append(result)
                     if state.security_tracker:
-                        from a3_python.semantics.security_tracker_lattice import handle_binop
+                        from pyflow.a3_python.semantics.security_tracker_lattice import handle_binop
                         handle_binop(state.security_tracker, left, right, result)
             
             elif op == 25:  # INPLACE_XOR (^=)
@@ -5397,7 +5397,7 @@ class SymbolicVM:
                     state.path_condition = z3.And(state.path_condition, type_ok, z3.Not(none_misuse))
                     frame.operand_stack.append(result)
                     if state.security_tracker:
-                        from a3_python.semantics.security_tracker_lattice import handle_binop
+                        from pyflow.a3_python.semantics.security_tracker_lattice import handle_binop
                         handle_binop(state.security_tracker, left, right, result)
             
             else:
@@ -5454,7 +5454,7 @@ class SymbolicVM:
                 
                 # Propagate taint through subscript
                 if state.security_tracker:
-                    from a3_python.semantics.security_tracker_lattice import handle_subscript
+                    from pyflow.a3_python.semantics.security_tracker_lattice import handle_subscript
                     handle_subscript(state.security_tracker, container, index, result)
             
             if not state.exception:

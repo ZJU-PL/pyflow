@@ -71,6 +71,7 @@ python_functions = ["test*"]
 norecursedirs = ["tests/full"]
 markers = [
     "integration: integration tests (CLI, full pipeline); run with -m integration",
+    "slow: slow-running tests excluded from the default fast path by convention",
 ]
 addopts = [
     "--strict-markers",

@@ -10,7 +10,7 @@ a3_python.unsafe.security.lattice_detectors for precise taint tracking.
 """
 
 from typing import Any, Optional
-from a3_python.unsafe.security.lattice_detectors import (
+from pyflow.a3_python.unsafe.security.lattice_detectors import (
     XML_BOMB_DETECTOR,
 )
 
