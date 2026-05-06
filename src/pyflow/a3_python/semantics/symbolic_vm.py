@@ -2686,11 +2686,9 @@ class SymbolicVM:
                     exc_ref = SymbolicValue(ValueTag.OBJ, z3.IntVal(exc_id))
                     exc_ref._exception_type = var_name
                     value_to_push = exc_ref
-                else:
-                    # For unknown builtins, create a symbolic function reference
-                    # Tag it with the function name for contract lookup
-                    # ITERATION 499 FIX: Use unique ID per unknown global (not -1000 for all)
-                    # This enables LOAD_ATTR to build qualified names like "cursor.execute"
+                elif push_null:
+                    # For unresolved globals used in call position, over-approximate with
+                    # an unknown callable so library/model contracts can still fire.
                     if not hasattr(state, 'unknown_global_counter'):
                         state.unknown_global_counter = 1000
                     state.unknown_global_counter += 1
@@ -2701,6 +2699,9 @@ class SymbolicVM:
                         state.func_names = {}
                     state.func_names[unique_id] = var_name
                     value_to_push = func_ref
+                else:
+                    state.exception = "NameError"
+                    return
             
             # Push values in correct order: NULL first (if present), then value
             if push_null:
@@ -7646,7 +7647,7 @@ class SymbolicVM:
                         obj_id_eval = model.eval(annotations_dict_id, model_completion=True)
                         if z3.is_int_value(obj_id_eval):
                             concrete_id = obj_id_eval.as_long()
-                            state.heap.dicts[concrete_id] = {}
+                            state.heap.dicts[concrete_id] = DictObject(keys=set(), values={})
                     self.solver.pop()
                 except:
                     pass

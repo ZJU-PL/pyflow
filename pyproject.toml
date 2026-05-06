@@ -38,6 +38,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
+    "z3-solver",
     "pytest>=6.0",
     "pytest-cov",
     "black",
@@ -46,6 +47,7 @@ dev = [
     "tomli; python_version < '3.11'",
 ]
 test = [
+    "z3-solver",
     "pytest>=6.0",
     "pytest-cov",
     "tomli; python_version < '3.11'",
