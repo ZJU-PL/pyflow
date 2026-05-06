@@ -1,0 +1,93 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# a3 — Scheduled Full Scan
+#
+# Runs a full-repo analysis weekly with agentic LLM triage (the LLM uses
+# tools to explore callers, tests, guards, imports before classifying),
+# diffs against baseline, and auto-files GitHub issues for new TPs.
+#
+# Install:  a3 init . --copilot
+# Docs:     https://github.com/thehalleyyoung/A³
+# ──────────────────────────────────────────────────────────────────────────────
+
+name: "A³: Weekly Scan"
+
+on:
+  schedule:
+    - cron: "0 6 * * 1"     # Every Monday at 06:00 UTC
+  workflow_dispatch:         # Allow manual trigger
+
+permissions:
+  contents: write            # needed to update baseline
+  security-events: write     # needed for SARIF upload
+  issues: write              # needed for auto-issue creation
+  models: read               # needed for GitHub Models (agentic triage)
+
+jobs:
+  a3-full-scan:
+    name: Full Analysis
+    runs-on: ubuntu-latest
+    steps:
+      # ── Checkout ─────────────────────────────────────────────────────
+      - uses: actions/checkout@v4
+
+      # ── Python setup ─────────────────────────────────────────────────
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+
+      # ── Install a3 ────────────────────────────────────────
+      - name: Install a3
+        run: pip install a3-python[ci]
+
+      # ── Full scan ────────────────────────────────────────────────────
+      - name: Run full analysis
+        run: |
+          a3 scan . \
+            --output-sarif a3-full.sarif
+
+      # ── Agentic triage (multi-turn — the LLM explores the repo) ──────
+      - name: Agentic triage
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          a3 triage \
+            --sarif a3-full.sarif \
+            --output-sarif a3-triaged.sarif \
+            --repo-root . \
+            --provider github \
+            --model gpt-4o \
+            --agentic \
+            --verbose
+          mv a3-triaged.sarif a3-full.sarif
+
+      # ── Baseline diff + auto-issue ───────────────────────────────────
+      - name: Check for new findings
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          a3 baseline diff \
+            --sarif a3-full.sarif \
+            --auto-issue
+        continue-on-error: true
+
+      # ── Update baseline ──────────────────────────────────────────────
+      - name: Update baseline
+        run: |
+          a3 baseline accept --sarif a3-full.sarif
+          git config user.name "a3[bot]"
+          git config user.email "a3[bot]@users.noreply.github.com"
+          git add .a3-baseline.json
+          if ! git diff --cached --quiet; then
+            git commit -m "ci: update a3 baseline [skip ci]"
+            git push
+          fi
+
+      # ── Upload SARIF to GitHub Code Scanning ─────────────────────────
+      - name: Upload SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        continue-on-error: true
+        with:
+          sarif_file: a3-full.sarif
+          category: a3-weekly

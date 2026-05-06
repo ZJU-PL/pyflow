@@ -1,0 +1,102 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# a3 — Continuous scan on every code change
+#
+# Triggers on every push / PR that touches Python files.  Scans the repo,
+# runs agentic LLM triage (the LLM uses tools to explore callers, tests,
+# guards, and imports before deciding TP/FP), diffs against the committed
+# baseline, and uploads SARIF to Code Scanning.
+#
+# Install:  a3 init . --copilot
+# Docs:     https://github.com/thehalleyyoung/A³
+# ──────────────────────────────────────────────────────────────────────────────
+
+name: "A³: Scan"
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - "**.py"
+  pull_request:
+    paths:
+      - "**.py"
+
+permissions:
+  contents: read
+  security-events: write   # needed for SARIF upload
+  pull-requests: write      # needed for PR comments (optional)
+  models: read              # needed for GitHub Models (agentic triage)
+
+jobs:
+  a3-scan:
+    name: Static Analysis
+    runs-on: ubuntu-latest
+    steps:
+      # ── Checkout ─────────────────────────────────────────────────────
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # full history for diff
+
+      # ── Python setup ─────────────────────────────────────────────────
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+
+      # ── Install a3 ────────────────────────────────────────
+      - name: Install a3
+        run: pip install a3-python[ci]
+
+      # ── Collect changed Python files ─────────────────────────────────
+      - name: Get changed files
+        id: changed
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE="origin/${{ github.base_ref }}"
+          else
+            BASE="${{ github.event.before }}"
+          fi
+          git diff --name-only --diff-filter=ACMR "$BASE"...HEAD -- '*.py' > changed_files.txt
+          echo "count=$(wc -l < changed_files.txt | tr -d ' ')" >> "$GITHUB_OUTPUT"
+          echo "Changed Python files:"
+          cat changed_files.txt
+
+      # ── Run analysis ────────────────────────────────────────────────
+      - name: Run a3
+        if: steps.changed.outputs.count != '0'
+        run: |
+          a3 scan . \
+            --output-sarif a3-results.sarif
+        continue-on-error: true
+
+      # ── Agentic triage (multi-turn — the LLM explores the repo) ──────
+      - name: Agentic triage
+        if: steps.changed.outputs.count != '0'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          a3 triage \
+            --sarif a3-results.sarif \
+            --output-sarif a3-triaged.sarif \
+            --repo-root . \
+            --provider github \
+            --model gpt-4o \
+            --agentic \
+            --verbose
+          mv a3-triaged.sarif a3-results.sarif
+
+      # ── Baseline ratchet check ───────────────────────────────────────
+      - name: Check baseline
+        if: steps.changed.outputs.count != '0'
+        run: |
+          a3 baseline diff \
+            --sarif a3-results.sarif
+
+      # ── Upload SARIF to GitHub Code Scanning ─────────────────────────
+      - name: Upload SARIF
+        if: always() && steps.changed.outputs.count != '0'
+        uses: github/codeql-action/upload-sarif@v3
+        continue-on-error: true
+        with:
+          sarif_file: a3-results.sarif
+          category: a3
