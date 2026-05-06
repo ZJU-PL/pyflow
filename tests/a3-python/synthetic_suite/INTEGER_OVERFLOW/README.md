@@ -63,8 +63,8 @@ The analyzer must:
 
 Run analyzer on each test case:
 ```bash
-python -m pyfromscratch.cli tests/synthetic_suite/INTEGER_OVERFLOW/tp_*.py
-python -m pyfromscratch.cli tests/synthetic_suite/INTEGER_OVERFLOW/tn_*.py
+python -m pyflow.a3_python.cli tests/a3-python/synthetic_suite/INTEGER_OVERFLOW/tp_01_ctypes_overflow.py
+python -m pyflow.a3_python.cli tests/a3-python/synthetic_suite/INTEGER_OVERFLOW/tn_01_pure_python_arithmetic.py
 ```
 
 Expected: 5 BUGs detected (tp_*), 0 BUGs for tn_*.

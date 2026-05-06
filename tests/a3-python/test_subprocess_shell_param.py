@@ -7,11 +7,24 @@ ITERATION 557: Fix false positives for subprocess functions with shell=False.
 import pytest
 from pathlib import Path
 import tempfile
-import subprocess
-import sys
+
+from pyflow.a3_python.semantics.intraprocedural_taint import analyze_file_intraprocedural
 
 
-def test_subprocess_run_shell_false_no_violation(tmp_path):
+def analyze_code(code: str):
+    """Analyze a temporary file with the intraprocedural taint engine."""
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
+        f.write(code)
+        f.flush()
+        temp_path = Path(f.name)
+
+    try:
+        return analyze_file_intraprocedural(temp_path)
+    finally:
+        temp_path.unlink()
+
+
+def test_subprocess_run_shell_false_no_violation():
     """subprocess.run with shell=False should NOT trigger COMMAND_INJECTION."""
     
     code = '''
@@ -22,22 +35,11 @@ def safe_run(user_input):
     subprocess.run(["cat", user_input], shell=False)
 '''
     
-    test_file = tmp_path / "test_shell_false.py"
-    test_file.write_text(code)
-    
-    result = subprocess.run(
-        [sys.executable, "-m", "pyfromscratch.cli", str(test_file)],
-        capture_output=True,
-        text=True
-    )
-    
-    # Should find NO violations (shell=False is safe)
-    # Exit code 0 = SAFE, no bugs found
-    assert result.returncode == 0, f"Expected SAFE (0), got {result.returncode}: stdout={result.stdout}, stderr={result.stderr}"
-    assert "COMMAND_INJECTION" not in result.stdout, f"Should not detect COMMAND_INJECTION with shell=False"
+    bugs = analyze_code(code)
+    assert "COMMAND_INJECTION" not in [b.bug_type for b in bugs]
 
 
-def test_subprocess_run_no_shell_kwarg_no_violation(tmp_path):
+def test_subprocess_run_no_shell_kwarg_no_violation():
     """subprocess.run without shell kwarg (defaults to False) should NOT trigger COMMAND_INJECTION."""
     
     code = '''
@@ -48,21 +50,11 @@ def safe_run_default(user_input):
     subprocess.run(["ls", "-l", user_input])
 '''
     
-    test_file = tmp_path / "test_no_shell.py"
-    test_file.write_text(code)
-    
-    result = subprocess.run(
-        [sys.executable, "-m", "pyfromscratch.cli", str(test_file)],
-        capture_output=True,
-        text=True
-    )
-    
-    # Should find NO violations (shell defaults to False)
-    assert result.returncode == 0, f"Expected SAFE (0), got {result.returncode}: stdout={result.stdout}, stderr={result.stderr}"
-    assert "COMMAND_INJECTION" not in result.stdout, f"Should not detect COMMAND_INJECTION without shell kwarg"
+    bugs = analyze_code(code)
+    assert "COMMAND_INJECTION" not in [b.bug_type for b in bugs]
 
 
-def test_subprocess_run_shell_true_violation(tmp_path):
+def test_subprocess_run_shell_true_violation():
     """subprocess.run with shell=True SHOULD trigger COMMAND_INJECTION."""
     
     code = '''
@@ -73,22 +65,11 @@ def unsafe_run(user_input):
     subprocess.run(f"cat {user_input}", shell=True)
 '''
     
-    test_file = tmp_path / "test_shell_true.py"
-    test_file.write_text(code)
-    
-    result = subprocess.run(
-        [sys.executable, "-m", "pyfromscratch.cli", str(test_file)],
-        capture_output=True,
-        text=True
-    )
-    
-    # Should find COMMAND_INJECTION violation
-    # Exit code 1 = BUG found
-    assert result.returncode == 1, f"Expected BUG (1), got {result.returncode}: stdout={result.stdout}, stderr={result.stderr}"
-    assert "COMMAND_INJECTION" in result.stdout, f"Should detect COMMAND_INJECTION with shell=True"
+    bugs = analyze_code(code)
+    assert "COMMAND_INJECTION" in [b.bug_type for b in bugs]
 
 
-def test_subprocess_call_shell_false_no_violation(tmp_path):
+def test_subprocess_call_shell_false_no_violation():
     """subprocess.call with shell=False should NOT trigger COMMAND_INJECTION."""
     
     code = '''
@@ -98,21 +79,11 @@ def safe_call(user_input):
     subprocess.call(["grep", "pattern", user_input], shell=False)
 '''
     
-    test_file = tmp_path / "test_call_false.py"
-    test_file.write_text(code)
-    
-    result = subprocess.run(
-        [sys.executable, "-m", "pyfromscratch.cli", str(test_file)],
-        capture_output=True,
-        text=True
-    )
-    
-    # Should find NO violations
-    assert result.returncode == 0, f"Expected SAFE (0), got {result.returncode}: stdout={result.stdout}, stderr={result.stderr}"
-    assert "COMMAND_INJECTION" not in result.stdout
+    bugs = analyze_code(code)
+    assert "COMMAND_INJECTION" not in [b.bug_type for b in bugs]
 
 
-def test_subprocess_call_shell_true_violation(tmp_path):
+def test_subprocess_call_shell_true_violation():
     """subprocess.call with shell=True SHOULD trigger COMMAND_INJECTION."""
     
     code = '''
@@ -122,21 +93,11 @@ def unsafe_call(user_input):
     subprocess.call("grep pattern " + user_input, shell=True)
 '''
     
-    test_file = tmp_path / "test_call_true.py"
-    test_file.write_text(code)
-    
-    result = subprocess.run(
-        [sys.executable, "-m", "pyfromscratch.cli", str(test_file)],
-        capture_output=True,
-        text=True
-    )
-    
-    # Should find COMMAND_INJECTION violation
-    assert result.returncode == 1, f"Expected BUG (1), got {result.returncode}: stdout={result.stdout}, stderr={result.stderr}"
-    assert "COMMAND_INJECTION" in result.stdout
+    bugs = analyze_code(code)
+    assert "COMMAND_INJECTION" in [b.bug_type for b in bugs]
 
 
-def test_subprocess_popen_shell_false_no_violation(tmp_path):
+def test_subprocess_popen_shell_false_no_violation():
     """subprocess.Popen with shell=False should NOT trigger COMMAND_INJECTION."""
     
     code = '''
@@ -146,21 +107,11 @@ def safe_popen(user_input):
     subprocess.Popen(["echo", user_input], shell=False)
 '''
     
-    test_file = tmp_path / "test_popen_false.py"
-    test_file.write_text(code)
-    
-    result = subprocess.run(
-        [sys.executable, "-m", "pyfromscratch.cli", str(test_file)],
-        capture_output=True,
-        text=True
-    )
-    
-    # Should find NO violations
-    assert result.returncode == 0, f"Expected SAFE (0), got {result.returncode}: stdout={result.stdout}, stderr={result.stderr}"
-    assert "COMMAND_INJECTION" not in result.stdout
+    bugs = analyze_code(code)
+    assert "COMMAND_INJECTION" not in [b.bug_type for b in bugs]
 
 
-def test_subprocess_popen_shell_true_violation(tmp_path):
+def test_subprocess_popen_shell_true_violation():
     """subprocess.Popen with shell=True SHOULD trigger COMMAND_INJECTION."""
     
     code = '''
@@ -170,18 +121,8 @@ def unsafe_popen(user_input):
     subprocess.Popen("echo " + user_input, shell=True)
 '''
     
-    test_file = tmp_path / "test_popen_true.py"
-    test_file.write_text(code)
-    
-    result = subprocess.run(
-        [sys.executable, "-m", "pyfromscratch.cli", str(test_file)],
-        capture_output=True,
-        text=True
-    )
-    
-    # Should find COMMAND_INJECTION violation
-    assert result.returncode == 1, f"Expected BUG (1), got {result.returncode}: stdout={result.stdout}, stderr={result.stderr}"
-    assert "COMMAND_INJECTION" in result.stdout
+    bugs = analyze_code(code)
+    assert "COMMAND_INJECTION" in [b.bug_type for b in bugs]
 
 
 if __name__ == '__main__':

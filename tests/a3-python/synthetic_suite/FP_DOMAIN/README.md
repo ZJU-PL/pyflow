@@ -72,7 +72,7 @@ To detect FP_DOMAIN bugs semantically (not via regex), the analyzer must:
 Run the analyzer on all 10 files and compare results:
 
 ```bash
-python -m pyfromscratch.cli --scan tests/synthetic_suite/FP_DOMAIN/
+python -m pyflow.a3_python.cli tests/a3-python/synthetic_suite/FP_DOMAIN/
 ```
 
 Expected metrics:

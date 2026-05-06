@@ -31,7 +31,7 @@ Any deviation indicates:
 ## Directory Structure
 
 ```
-tests/synthetic_suite/
+tests/a3-python/synthetic_suite/
 ├── README.md (this file)
 ├── GROUND_TRUTH_MANIFEST.json (expected results for all 200 tests)
 ├── INTEGER_OVERFLOW/
@@ -76,7 +76,7 @@ Each file contains code demonstrating the bug or safety pattern with descriptive
 
 1. **Run analyzer on entire suite:**
    ```bash
-   python -m pyfromscratch.cli --scan tests/synthetic_suite --output results/synthetic_suite_results.json
+   python -m pyflow.a3_python.cli tests/a3-python/synthetic_suite --save-results results/synthetic_suite_results.json
    ```
 
 2. **Validate results against ground truth:**

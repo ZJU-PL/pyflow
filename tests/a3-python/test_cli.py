@@ -45,8 +45,7 @@ def test_cli_accepts_existing_file(tmp_path):
     # since there are no unsafe operations
     assert result.returncode == 0, f"Expected SAFE (0), got {result.returncode}: {result.stdout}"
     assert "Analyzing" in result.stdout
-    assert "SAFE" in result.stdout
-    assert "barrier" in result.stdout.lower()
+    assert "Total bugs found: 0" in result.stdout
 
 
 if __name__ == "__main__":

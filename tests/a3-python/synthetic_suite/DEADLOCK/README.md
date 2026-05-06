@@ -147,8 +147,8 @@ A program state σ exhibits DEADLOCK iff:
 Run each test through the analyzer:
 
 ```bash
-python -m pyfromscratch.cli --analyze tests/synthetic_suite/DEADLOCK/tp_*.py
-python -m pyfromscratch.cli --analyze tests/synthetic_suite/DEADLOCK/tn_*.py
+python -m pyflow.a3_python.cli tests/a3-python/synthetic_suite/DEADLOCK/tp_01_circular_lock_acquisition.py
+python -m pyflow.a3_python.cli tests/a3-python/synthetic_suite/DEADLOCK/tn_01_consistent_lock_ordering.py
 ```
 
 Expected results:

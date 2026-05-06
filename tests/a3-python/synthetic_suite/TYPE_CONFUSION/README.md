@@ -54,7 +54,7 @@ And the resulting AttributeError/TypeError propagates without being caught.
 
 ```bash
 # Run analyzer on single test
-python -m pyfromscratch.cli tests/synthetic_suite/TYPE_CONFUSION/tp_01_wrong_type_passed.py
+python -m pyflow.a3_python.cli tests/a3-python/synthetic_suite/TYPE_CONFUSION/tp_01_wrong_type_passed.py
 
 # Validate entire suite
 python scripts/validate_synthetic_suite.py TYPE_CONFUSION

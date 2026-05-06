@@ -3,8 +3,8 @@ Documentation tests for file object taint propagation patterns.
 
 These tests document the expected behavior of file object taint tracking.
 The actual functionality is implemented in:
-- pyfromscratch/semantics/security_tracker_lattice.py (handle_call_post)
-- pyfromscratch/contracts/security_lattice.py (file operation contracts)
+- pyflow.a3_python.semantics.security_tracker_lattice (handle_call_post)
+- pyflow.a3_python.contracts.security_lattice (file operation contracts)
 
 And tested in:
 - tests/test_file_object_taint.py (unit tests)

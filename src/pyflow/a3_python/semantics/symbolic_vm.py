@@ -8,7 +8,7 @@ Target: Python 3.11+ bytecode as abstract machine (symbolic version).
 import dis
 import types
 from dataclasses import dataclass, field
-from typing import Any, Optional, List
+from typing import Any, Optional, List, Dict
 import z3
 
 from .state import Frame, MachineState
