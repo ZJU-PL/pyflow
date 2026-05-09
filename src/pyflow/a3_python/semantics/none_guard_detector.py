@@ -1976,8 +1976,4 @@ def _is_none(node) -> bool:
     """Check if an AST node represents ``None``."""
     if isinstance(node, ast.Constant) and node.value is None:
         return True
-    # Python 3.7 compat
-    _name_const = getattr(ast, 'NameConstant', None)
-    if _name_const is not None and isinstance(node, _name_const) and node.value is None:
-        return True
     return False

@@ -129,92 +129,16 @@ def _var_modified_before_site_in_iteration(
     If `var` might be stored on any path from loop entry (after header guard)
     to `site_offset` within a single iteration, do not produce a compact proof.
     """
-    header_block = cfg.get_block_for_offset(loop.header_offset)
-    site_block = cfg.get_block_for_offset(site_offset)
-    if header_block is None or site_block is None:
-        return True
-
-    loop_block_ids: set[int] = set()
-    for off in loop.body_offsets | {loop.header_offset}:
-        bid = cfg.offset_to_block.get(off)
-        if bid is not None:
-            loop_block_ids.add(bid)
-
-    if header_block.id not in loop_block_ids or site_block.id not in loop_block_ids:
-        return True
-
-    header_offsets = {ins.offset for ins in header_block.instructions}
-    candidate_store_offsets: list[int] = []
-    for ins in dis.get_instructions(code_obj):
-        if ins.offset not in loop.body_offsets:
-            continue
-        if ins.offset in header_offsets:
-            continue
+    # Conservative ordered-bytecode check: if the variable is stored anywhere
+    # earlier than the hazard site in the loop body's linear instruction order,
+    # treat the compact proof as unsound. This intentionally ignores stores
+    # that occur after the site in the same iteration.
+    ordered_body = _ordered_body_instructions(code_obj, loop.body_offsets)
+    for ins in ordered_body:
+        if ins.offset >= site_offset:
+            break
         if _is_store_to_var(ins, var):
-            candidate_store_offsets.append(ins.offset)
-
-    if not candidate_store_offsets:
-        return False
-
-    # Within-iteration reachability: cut edges that jump back to the loop header.
-    adjacency: dict[int, list[int]] = {}
-    reverse: dict[int, list[int]] = {}
-    for bid in loop_block_ids:
-        block = cfg.blocks.get(bid)
-        if not block:
-            continue
-        succs: list[int] = []
-        for tgt_id, _, _ in block.successors:
-            if tgt_id not in loop_block_ids:
-                continue
-            if tgt_id == header_block.id:
-                continue
-            succs.append(tgt_id)
-        adjacency[bid] = succs
-        for tgt_id in succs:
-            reverse.setdefault(tgt_id, []).append(bid)
-
-    entry_blocks = {
-        tgt_id
-        for tgt_id, _, _ in header_block.successors
-        if tgt_id in loop_block_ids and tgt_id != header_block.id
-    }
-    if not entry_blocks:
-        return True
-
-    reachable_from_entry: set[int] = set()
-    work = list(entry_blocks)
-    while work:
-        bid = work.pop()
-        if bid in reachable_from_entry:
-            continue
-        reachable_from_entry.add(bid)
-        work.extend(adjacency.get(bid, []))
-
-    if site_block.id not in reachable_from_entry:
-        return True
-
-    can_reach_site: set[int] = set()
-    work = [site_block.id]
-    while work:
-        bid = work.pop()
-        if bid in can_reach_site:
-            continue
-        can_reach_site.add(bid)
-        work.extend(reverse.get(bid, []))
-
-    for store_offset in candidate_store_offsets:
-        store_block_id = cfg.offset_to_block.get(store_offset)
-        if store_block_id is None:
-            continue
-        if store_block_id not in reachable_from_entry:
-            continue
-        if store_block_id not in can_reach_site:
-            continue
-        if store_block_id == site_block.id and store_offset >= site_offset:
-            continue
-        return True
-
+            return True
     return False
 
 

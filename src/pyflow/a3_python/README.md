@@ -184,7 +184,7 @@ When you run `a3 init . --copilot`, it creates `.github/workflows/a3-pr-scan.yml
       --output-sarif a3-triaged.sarif \
       --repo-root . \
       --provider github \
-      --model gpt-4o \
+      --model gpt-5.4 \
       --agentic \
       --verbose
     mv a3-triaged.sarif a3-results.sarif

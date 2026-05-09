@@ -246,12 +246,12 @@ def _handle_triage(args: argparse.Namespace) -> int:
 
     # Resolve model from provider if not explicitly set
     _PROVIDER_DEFAULT_MODELS = {
-        "github": "gpt-4o",
-        "openai": "gpt-4o",
+        "github": "gpt-5.4",
+        "openai": "gpt-5.4",
         "anthropic": "claude-sonnet-4-20250514",
     }
     if not args.model:
-        args.model = _PROVIDER_DEFAULT_MODELS.get(args.provider, "gpt-4o")
+        args.model = _PROVIDER_DEFAULT_MODELS.get(args.provider, "gpt-5.4")
 
     if getattr(args, "agentic", False):
         from .ci.agentic_triage import cmd_agentic_triage
@@ -369,7 +369,7 @@ def main():
     )
     triage_parser.add_argument(
         "--model", default=None,
-        help="LLM model to use (default: auto per provider — gpt-4o for github/openai, claude-sonnet for anthropic)",
+        help="LLM model to use (default: auto per provider — gpt-5.4 for github/openai, claude-sonnet for anthropic)",
     )
     triage_parser.add_argument(
         "--provider", default="github", choices=["anthropic", "openai", "github"],
@@ -1069,11 +1069,11 @@ def _analyze_project(args):
                 triage_api_key = os.environ.get("ANTHROPIC_API_KEY", "")
 
         _TRIAGE_MODEL_DEFAULTS = {
-            "github": "gpt-4o",
-            "openai": "gpt-4o",
+            "github": "gpt-5.4",
+            "openai": "gpt-5.4",
             "anthropic": "claude-sonnet-4-20250514",
         }
-        triage_model = getattr(args, "triage_model", None) or _TRIAGE_MODEL_DEFAULTS.get(provider, "gpt-4o")
+        triage_model = getattr(args, "triage_model", None) or _TRIAGE_MODEL_DEFAULTS.get(provider, "gpt-5.4")
 
         # Output triaged SARIF alongside the original
         triaged_path = str(sarif_path).replace(".sarif", "_triaged.sarif")

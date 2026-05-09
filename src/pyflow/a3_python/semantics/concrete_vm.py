@@ -12,6 +12,12 @@ from typing import Any
 from .state import Frame, MachineState
 
 
+_NB_OP_SYMBOLS = {
+    index: symbol
+    for index, (_, symbol) in enumerate(getattr(dis, "_nb_ops", ()))
+}
+
+
 class ConcreteVM:
     """
     Concrete bytecode interpreter.
@@ -145,38 +151,46 @@ class ConcreteVM:
             right = frame.operand_stack.pop()
             left = frame.operand_stack.pop()
             
-            op = instr.argval
+            op_symbol = _NB_OP_SYMBOLS.get(instr.arg, instr.argval)
             try:
-                if op == 0:  # ADD
+                if op_symbol == "+":  # ADD
                     result = left + right
-                elif op == 10:  # SUBTRACT
+                elif op_symbol == "-":  # SUBTRACT
                     result = left - right
-                elif op == 5:  # MULTIPLY
+                elif op_symbol == "*":  # MULTIPLY
                     result = left * right
-                elif op == 11:  # TRUE_DIVIDE
+                elif op_symbol == "/":  # TRUE_DIVIDE
                     result = left / right
-                elif op == 6:  # FLOOR_DIVIDE
+                elif op_symbol == "//":  # FLOOR_DIVIDE
                     result = left // right
-                elif op == 1:  # AND
+                elif op_symbol == "&":  # AND
                     result = left & right
-                elif op == 2:  # OR
+                elif op_symbol == "|":  # OR
                     result = left | right
-                elif op == 7:  # MODULO
+                elif op_symbol == "%":  # MODULO
                     result = left % right
-                elif op == 4:  # LSHIFT
+                elif op_symbol == "<<":  # LSHIFT
                     result = left << right
-                elif op == 9:  # RSHIFT
+                elif op_symbol == ">>":  # RSHIFT
                     result = left >> right
-                elif op == 13:  # XOR
+                elif op_symbol == "^":  # XOR
                     result = left ^ right
                 else:
-                    self.state.exception = (NotImplementedError, f"BINARY_OP {op} not implemented", None)
+                    self.state.exception = (NotImplementedError, f"BINARY_OP {op_symbol!r} not implemented", None)
                     return
                 frame.operand_stack.append(result)
             except Exception as e:
                 self.state.exception = (type(e), str(e), None)
                 return
             frame.instruction_offset = self._next_offset(instr)
+
+        elif opname == "RETURN_CONST":
+            self.state.return_value = instr.argval
+            self.state.frame_stack.pop()
+            if not self.state.frame_stack:
+                self.state.halted = True
+            else:
+                self.state.frame_stack[-1].operand_stack.append(self.state.return_value)
         
         elif opname == "RETURN_VALUE":
             if not frame.operand_stack:

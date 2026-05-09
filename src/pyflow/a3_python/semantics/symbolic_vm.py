@@ -1746,6 +1746,15 @@ class SymbolicVM:
                 'func_ref': func_ref
             } if func_name or func_ref else None
         )
+
+        # Restore closure-captured values for nested functions.
+        closure_values = func_meta.get('closure_values')
+        if isinstance(closure_values, dict):
+            new_frame.freevars.update(closure_values)
+            for freevar_index, freevar_name in enumerate(func_code.co_freevars):
+                if freevar_index in closure_values:
+                    # Python 3.13 may access copied freevars through LOAD_FAST.
+                    new_frame.locals[freevar_name] = closure_values[freevar_index]
         
         # Bind arguments to parameters
         for param_name, arg_value in zip(param_names, args):
@@ -2586,6 +2595,13 @@ class SymbolicVM:
                 else:
                     state.exception = "UnboundLocalError"
                     return
+            elif hasattr(frame.code, 'co_freevars') and var_name in frame.code.co_freevars:
+                freevar_index = frame.code.co_freevars.index(var_name)
+                if freevar_index in frame.freevars:
+                    frame.operand_stack.append(frame.freevars[freevar_index])
+                else:
+                    state.exception = "UnboundLocalError"
+                    return
             elif var_name in frame.locals:
                 frame.operand_stack.append(frame.locals[var_name])
             else:
@@ -2606,11 +2622,45 @@ class SymbolicVM:
                 else:
                     state.exception = "UnboundLocalError"
                     return
+            elif hasattr(frame.code, 'co_freevars') and var_name in frame.code.co_freevars:
+                freevar_index = frame.code.co_freevars.index(var_name)
+                if freevar_index in frame.freevars:
+                    frame.operand_stack.append(frame.freevars[freevar_index])
+                else:
+                    state.exception = "UnboundLocalError"
+                    return
             elif var_name in frame.locals:
                 frame.operand_stack.append(frame.locals[var_name])
             else:
                 state.exception = "UnboundLocalError"
                 return
+            frame.instruction_offset = self._next_offset(frame, instr)
+
+        elif opname == "LOAD_FAST_LOAD_FAST":
+            # Python 3.13 fused load of two locals.
+            # Push first local, then second local, so the second ends up on TOS.
+            if isinstance(instr.argval, tuple) and len(instr.argval) >= 2:
+                var_name1, var_name2 = instr.argval[0], instr.argval[1]
+            else:
+                arg = instr.arg if instr.arg is not None else 0
+                idx1 = (arg >> 4) & 0xF
+                idx2 = arg & 0xF
+                var_names = frame.code.co_varnames
+                var_name1 = var_names[idx1] if idx1 < len(var_names) else f"var_{idx1}"
+                var_name2 = var_names[idx2] if idx2 < len(var_names) else f"var_{idx2}"
+
+            if var_name1 in frame.locals:
+                frame.operand_stack.append(frame.locals[var_name1])
+            else:
+                state.exception = "UnboundLocalError"
+                return
+
+            if var_name2 in frame.locals:
+                frame.operand_stack.append(frame.locals[var_name2])
+            else:
+                state.exception = "UnboundLocalError"
+                return
+
             frame.instruction_offset = self._next_offset(frame, instr)
         
         elif opname == "LOAD_FAST_AND_CLEAR":
@@ -5782,6 +5832,64 @@ class SymbolicVM:
                 current_instr = self._get_instruction(caller_frame)
                 if current_instr:
                     caller_frame.instruction_offset = self._next_offset(caller_frame, current_instr)
+
+        elif opname == "RETURN_CONST":
+            return_val = self._symbolic_from_concrete(state, instr.argval)
+
+            returned_frame = frame
+            state.frame_stack.pop()
+
+            if not state.frame_stack:
+                state.return_value = return_val
+                state.halted = True
+            else:
+                if returned_frame.call_context:
+                    ctx = returned_frame.call_context
+                    func_name = ctx.get('func_name')
+                    func_ref = ctx.get('func_ref')
+                    args = ctx.get('args', [])
+
+                    caller_frame = state.frame_stack[-1]
+                    current_instr = self._get_instruction(caller_frame)
+                    location = f"{caller_frame.code.co_filename}:{current_instr.offset if current_instr else 0}"
+
+                    is_user_function = False
+                    if func_ref and hasattr(state, 'user_functions'):
+                        func_stable_id = None
+                        if func_ref.tag == ValueTag.OBJ:
+                            if hasattr(func_ref.payload, 'as_long'):
+                                try:
+                                    func_stable_id = int(func_ref.payload.as_long())
+                                except:
+                                    pass
+                            elif hasattr(func_ref.payload, 'sexpr'):
+                                try:
+                                    sexpr = func_ref.payload.sexpr()
+                                    if sexpr.startswith('func_'):
+                                        func_stable_id = int(sexpr[5:])
+                                except:
+                                    pass
+
+                        is_user_function = (
+                            (func_stable_id is not None and func_stable_id in state.user_functions) or
+                            (id(func_ref) in state.user_functions)
+                        )
+
+                    if state.security_tracker and func_name and not is_user_function:
+                        handle_call_post(
+                            state.security_tracker,
+                            func_name,
+                            func_ref,
+                            args,
+                            return_val,
+                            location
+                        )
+
+                caller_frame = state.frame_stack[-1]
+                caller_frame.operand_stack.append(return_val)
+                current_instr = self._get_instruction(caller_frame)
+                if current_instr:
+                    caller_frame.instruction_offset = self._next_offset(caller_frame, current_instr)
         
         elif opname == "POP_TOP":
             if frame.operand_stack:
@@ -7148,8 +7256,40 @@ class SymbolicVM:
             attr = frame.operand_stack.pop()   # TOS1 = attribute value (consumed)
             frame.operand_stack.append(func)   # Push function back on stack
             
-            # For symbolic execution, we don't need to track these attributes yet
-            # Just consume the attr value and keep the function
+            # Track closure tuples so nested closures can restore freevars when called.
+            if instr.argval == 8:
+                func_meta_id = None
+                if func.tag == ValueTag.OBJ:
+                    if hasattr(func.payload, 'as_long'):
+                        try:
+                            func_meta_id = int(func.payload.as_long())
+                        except:
+                            pass
+                    elif hasattr(func.payload, 'sexpr'):
+                        try:
+                            sexpr = func.payload.sexpr()
+                            if sexpr.startswith('func_'):
+                                func_meta_id = int(sexpr[5:])
+                        except:
+                            pass
+
+                closure_values = {}
+                tuple_obj_id = None
+                if hasattr(attr, 'payload') and hasattr(attr.payload, 'as_long'):
+                    try:
+                        tuple_obj_id = int(attr.payload.as_long())
+                    except:
+                        pass
+                if tuple_obj_id is not None:
+                    seq = state.heap.get_sequence(tuple_obj_id)
+                    if seq is not None:
+                        closure_values = dict(seq.elements)
+
+                if func_meta_id is not None:
+                    if hasattr(state, 'function_metadata') and func_meta_id in state.function_metadata:
+                        state.function_metadata[func_meta_id]['closure_values'] = closure_values
+                    if func_meta_id in state.user_functions:
+                        state.user_functions[func_meta_id]['closure_values'] = closure_values
             
             frame.instruction_offset = self._next_offset(frame, instr)
         

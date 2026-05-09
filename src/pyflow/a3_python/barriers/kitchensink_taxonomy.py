@@ -1033,8 +1033,13 @@ for _bt in ("INFO_LEAK", "TIMING_CHANNEL"):
         tp_papers=[10, 12, 2, 15],
     )
 
-# Merge synthetic strategies into the main dict
-KITCHENSINK_BUG_STRATEGIES.update(_SYNTHETIC_STRATEGIES)
+# Preserve the public taxonomy as the 24 semantic bug types described above.
+# Synthetic/core bug mappings are kept in a separate superset so internal code
+# can still opt into them without changing the stable public API used by tests.
+ALL_KITCHENSINK_BUG_STRATEGIES: Dict[str, KitchensinkBugStrategy] = {
+    **KITCHENSINK_BUG_STRATEGIES,
+    **_SYNTHETIC_STRATEGIES,
+}
 
 
 # ============================================================================
@@ -1185,7 +1190,7 @@ class KitchensinkOrchestrator:
         Returns:
             Dict with verdict ("SAFE", "BUG", "UNKNOWN") and evidence
         """
-        strategy = KITCHENSINK_BUG_STRATEGIES.get(bug_type)
+        strategy = ALL_KITCHENSINK_BUG_STRATEGIES.get(bug_type)
         if not strategy:
             return {"verdict": "UNKNOWN", "reason": f"No strategy for {bug_type}"}
         
@@ -1784,7 +1789,7 @@ class KitchensinkOrchestrator:
 
 def get_strategy_for_bug(bug_type: str) -> Optional[KitchensinkBugStrategy]:
     """Get the kitchensink strategy for a bug type."""
-    return KITCHENSINK_BUG_STRATEGIES.get(bug_type)
+    return ALL_KITCHENSINK_BUG_STRATEGIES.get(bug_type)
 
 
 def list_all_bug_types() -> List[str]:

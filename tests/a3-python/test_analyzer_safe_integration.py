@@ -11,12 +11,15 @@ from pathlib import Path
 from pyflow.a3_python.analyzer import Analyzer, AnalysisResult
 
 
+FIXTURES_DIR = Path(__file__).with_name("fixtures")
+
+
 def test_analyzer_safe_simple_arithmetic():
     """
     Test analyzer produces SAFE verdict for simple arithmetic.
     """
     # Create test file
-    test_file = Path("tests/fixtures/safe_simple.py")
+    test_file = FIXTURES_DIR / "safe_simple.py"
     assert test_file.exists()
     
     analyzer = Analyzer(verbose=False, max_paths=100, max_depth=500)
@@ -36,7 +39,7 @@ def test_analyzer_safe_bounded_loop():
     Note: Phase 3 intra-procedural analysis inlines user functions, which may increase
     path count due to loops in inlined functions. Increased max_paths to accommodate.
     """
-    test_file = Path("tests/fixtures/safe_sum_loop.py")
+    test_file = FIXTURES_DIR / "safe_sum_loop.py"
     assert test_file.exists()
     
     analyzer = Analyzer(verbose=False, max_paths=200, max_depth=500)
@@ -58,7 +61,7 @@ def test_analyzer_safe_proof_has_details():
     """
     Test that SAFE proof includes proper details for human review.
     """
-    test_file = Path("tests/fixtures/safe_simple.py")
+    test_file = FIXTURES_DIR / "safe_simple.py"
     
     analyzer = Analyzer(verbose=False, max_paths=100, max_depth=500)
     result = analyzer.analyze_file(test_file)
@@ -87,14 +90,14 @@ def test_analyzer_safe_vs_bug():
     Phase 3 note: Increased max_paths to accommodate function inlining path expansion.
     """
     # Safe case - should produce SAFE verdict with barrier
-    safe_file = Path("tests/fixtures/safe_simple.py")
+    safe_file = FIXTURES_DIR / "safe_simple.py"
     analyzer = Analyzer(verbose=False, max_paths=200, max_depth=500)
     safe_result = analyzer.analyze_file(safe_file)
     assert safe_result.verdict == "SAFE"
     assert safe_result.barrier is not None
     
     # Another safe case with loop
-    safe_loop = Path("tests/fixtures/safe_sum_loop.py")
+    safe_loop = FIXTURES_DIR / "safe_sum_loop.py"
     loop_result = analyzer.analyze_file(safe_loop)
     assert loop_result.verdict == "SAFE"
     assert loop_result.barrier is not None

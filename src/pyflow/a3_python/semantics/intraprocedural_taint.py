@@ -469,6 +469,14 @@ class IntraproceduralTaintAnalyzer:
             label2 = state.get_local(idx2)
             state.push(label1)
             state.push(label2)
+
+        elif opname == 'LOAD_FAST_LOAD_FAST':
+            # Python 3.13 fused load of two locals.
+            # The arg packs two local indices as nibbles: (idx1 << 4) | idx2.
+            idx1 = (instr.arg >> 4) & 0xF
+            idx2 = instr.arg & 0xF
+            state.push(state.get_local(idx1))
+            state.push(state.get_local(idx2))
         
         elif opname == 'LOAD_NAME' or opname == 'LOAD_GLOBAL':
             label = state.get_name(instr.argval)
@@ -647,12 +655,17 @@ class IntraproceduralTaintAnalyzer:
         # === BUILD instructions ===
         elif opname.startswith('BUILD_'):
             # BUILD_MAP pops 2*count items (key-value pairs)
+            # BUILD_CONST_KEY_MAP pops count values plus one tuple of keys
             # Other BUILD_ instructions pop count items
             count = instr.arg
             
             if opname == 'BUILD_MAP':
                 # BUILD_MAP pops 2*count items: key1, value1, key2, value2, ...
                 num_items = 2 * count
+            elif opname == 'BUILD_CONST_KEY_MAP':
+                # BUILD_CONST_KEY_MAP pops N values and a constant tuple of keys.
+                # Only the values matter for taint; the keys tuple is typically clean.
+                num_items = count + 1
             else:
                 # BUILD_STRING, BUILD_LIST, BUILD_TUPLE, BUILD_SET, etc.
                 num_items = count
@@ -1110,10 +1123,17 @@ class IntraproceduralTaintAnalyzer:
             
             if found_push_null:
                 # Found PUSH_NULL - the callable is right before it
-                # Just find the last LOAD_ATTR/LOAD_METHOD/LOAD_GLOBAL before PUSH_NULL
+                # Just find the last callable-producing load before PUSH_NULL.
+                # This must include LOAD_FAST for patterns like:
+                #   from getpass import getpass
+                #   getpass()
                 while i >= 0:
                     instr = self.instructions[i]
-                    if instr.opname in ('LOAD_ATTR', 'LOAD_METHOD', 'LOAD_GLOBAL', 'LOAD_NAME'):
+                    if instr.opname in (
+                        'LOAD_ATTR', 'LOAD_METHOD',
+                        'LOAD_GLOBAL', 'LOAD_NAME',
+                        'LOAD_FAST', 'LOAD_FAST_BORROW',
+                    ):
                         # This is part of the callable
                         # Keep i here to start building the name
                         break

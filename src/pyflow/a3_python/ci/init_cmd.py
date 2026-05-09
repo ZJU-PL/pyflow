@@ -60,7 +60,7 @@ def init_repo(
     if copilot:
         enable_llm_triage = True
         llm_provider = "github"
-        llm_model = "gpt-4o"
+        llm_model = "gpt-5.4"
 
     # ── 1. Workflow files ────────────────────────────────────────────────
     workflows_dir = repo_root / ".github" / "workflows"

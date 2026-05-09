@@ -1536,6 +1536,45 @@ class Analyzer:
                 reason = "(Symbolic execution thorough - only very high confidence bugs)"
             
             high_conf_bugs = [b for b in interprocedural_bugs if b.confidence >= conf_threshold]
+
+            # For files with executable module-level code, be stricter about
+            # trusting direct crash summaries for a single helper function.
+            # A one-function call chain with a generic "Function may trigger X"
+            # reason is only a potential bug summary, not proof that the
+            # top-level concrete call sites actually violate the preconditions.
+            #
+            # Keep richer interprocedural evidence (longer call chains,
+            # precondition-violation reports, transitive callee bugs, etc.).
+            if module_has_executable_code:
+                filtered_bugs = []
+                for bug in high_conf_bugs:
+                    is_direct_summary_bug = (
+                        len(bug.call_chain) <= 1
+                        and isinstance(bug.reason, str)
+                        and bug.reason.startswith("Function may trigger ")
+                    )
+                    if not is_direct_summary_bug:
+                        filtered_bugs.append(bug)
+                high_conf_bugs = filtered_bugs
+
+            # ASSERT_FAIL summaries are especially noisy for function-only files
+            # with locally-provable safe assertions (for example simple unary-op
+            # sanity checks). If the dedicated function-level error scan already
+            # concluded SAFE, do not let a bare one-function crash summary
+            # override that with BUG.
+            if error_result.verdict == "SAFE":
+                filtered_bugs = []
+                for bug in high_conf_bugs:
+                    is_direct_assert_summary = (
+                        bug.bug_type == "ASSERT_FAIL"
+                        and len(bug.call_chain) <= 1
+                        and isinstance(bug.reason, str)
+                        and bug.reason.startswith("Function may trigger ")
+                    )
+                    if not is_direct_assert_summary:
+                        filtered_bugs.append(bug)
+                high_conf_bugs = filtered_bugs
+
             if high_conf_bugs:
                 best_bug = max(high_conf_bugs, key=lambda b: b.confidence)
                 if self.verbose:
@@ -4716,6 +4755,7 @@ class Analyzer:
                 'SET_FUNCTION_ATTRIBUTE', 'LOAD_SMALL_INT', 'LOAD_NAME',
                 'PUSH_NULL', 'SETUP_ANNOTATIONS',
                 'IMPORT_NAME', 'IMPORT_FROM', 'COPY_FREE_VARS',
+                'RETURN_CONST',
             }
             
             for instr in dis.get_instructions(module_code):
@@ -6297,30 +6337,37 @@ class Analyzer:
                     early_safe_detected = True
                     break
         
-        # ITERATION 595: Check if this function has internal taint sources
-        # Functions with sys.argv, os.environ, etc. that flow to sinks should be reported
-        # even when analyzed directly (not via call)
+        # Summary-level fallback: if the entry function's summary already proves that
+        # tainted parameters or internal taint sources flow to a sink, report that
+        # directly even when symbolic execution did not materialize a tracker violation.
+        #
+        # This is important for wrapper-style entry points where the summary captures
+        # the sink reachability precisely but the bounded symbolic exploration exits
+        # without triggering an explicit unsafe state.
         if not bug_found:
             summary = context.get_summary(func_name)
             if summary and summary.dependency.params_to_sinks:
                 from pyflow.a3_python.z3model.taint_lattice import SinkType, CODEQL_BUG_TYPES
-                for sink_type_int, param_indices in summary.dependency.params_to_sinks.items():
-                    # Check if -1 (internal taint) flows to this sink
+                tainted_param_indices = set(range(len(tainted_params)))
+
+                for sink_type_int in sorted(summary.dependency.params_to_sinks):
+                    param_indices = summary.dependency.params_to_sinks[sink_type_int]
+                    sink_type_enum = SinkType(sink_type_int)
+
+                    # Find the matching bug type
+                    bug_type_name = None
+                    cwe = "CWE-000"
+                    for bug_name, bug_def in CODEQL_BUG_TYPES.items():
+                        if sink_type_enum == bug_def.sink_type:
+                            bug_type_name = bug_name
+                            cwe = bug_def.cwe
+                            break
+
+                    if not bug_type_name:
+                        bug_type_name = f"{sink_type_enum.name}_BUG"
+
+                    # Internal taint marker (-1): sys.argv, os.environ, etc.
                     if -1 in param_indices:
-                        sink_type_enum = SinkType(sink_type_int)
-                        
-                        # Find the matching bug type
-                        bug_type_name = None
-                        cwe = "CWE-000"
-                        for bug_name, bug_def in CODEQL_BUG_TYPES.items():
-                            if sink_type_enum == bug_def.sink_type:
-                                bug_type_name = bug_name
-                                cwe = bug_def.cwe
-                                break
-                        
-                        if not bug_type_name:
-                            bug_type_name = f"{sink_type_enum.name}_BUG"
-                        
                         bug_found = {
                             'bug_type': bug_type_name,
                             'cwe': cwe,
@@ -6329,12 +6376,40 @@ class Analyzer:
                             'trace': [f'Function {func_name} reads from internal source and uses at {sink_type_enum.name} sink'],
                             'taint_sources': ['ARGV']
                         }
-                        
+
                         if self.verbose:
                             print(f"  [INTERNAL TAINT] Detected {bug_type_name} from summary params_to_sinks")
                         break
+
+                    # Entry-point parameters are modeled as tainted. If any of them reach
+                    # a sink in the summary, we can conservatively report a bug directly.
+                    flowing_entry_params = sorted(i for i in param_indices if i in tainted_param_indices)
+                    if flowing_entry_params:
+                        flowing_names = [
+                            func_code.co_varnames[i]
+                            for i in flowing_entry_params
+                            if i < len(func_code.co_varnames)
+                        ]
+                        bug_found = {
+                            'bug_type': bug_type_name,
+                            'cwe': cwe,
+                            'location': f'{func_name} (summary)',
+                            'reason': (
+                                f"Tainted entry parameter(s) {', '.join(flowing_names) or flowing_entry_params} "
+                                f"flow to {sink_type_enum.name} sink"
+                            ),
+                            'trace': [
+                                f"Summary for {func_name} shows parameter(s) "
+                                f"{', '.join(flowing_names) or flowing_entry_params} reaching {sink_type_enum.name}"
+                            ],
+                            'taint_sources': flowing_names or [str(i) for i in flowing_entry_params],
+                        }
+
+                        if self.verbose:
+                            print(f"  [SUMMARY TAINT] Detected {bug_type_name} from entry parameter flow")
+                        break
                 if bug_found:
-                    # Don't check tracker violations if we found internal taint bug
+                    # Don't check tracker violations if we already found a summary-level bug
                     pass
         
         # ITERATION 419: After path exploration, transfer ALL violations from tracker to state

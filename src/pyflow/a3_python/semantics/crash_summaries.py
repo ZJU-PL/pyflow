@@ -1620,7 +1620,8 @@ class BytecodeCrashSummaryAnalyzer:
         elif (opname == 'LOAD_ASSERTION_ERROR'
               or (opname == 'LOAD_COMMON_CONSTANT' and instr.arg == 0)):
             # Skip defensive assertions (assert False in else after exhaustive type checks)
-            if self._is_defensive_assert(offset):
+            if (self._is_defensive_assert(offset)
+                    or self._is_defensive_type_validation_assert(offset)):
                 return
             self.summary.may_trigger.add('ASSERT_FAIL')
             self.summary.may_raise.add(ExceptionType.ASSERTION_ERROR)
@@ -2118,6 +2119,10 @@ class BytecodeCrashSummaryAnalyzer:
             # in __init__, so accessing a method/attribute on self.<attr>
             # is a potential NULL_PTR unless guarded by a nonnull check.
             self_attr = self._get_self_attr_on_tos(location.offset)
+            maybe_none_from_call = (
+                tos_var is not None
+                and self._is_local_from_nullable_call(tos_var, location.offset)
+            )
             if self_attr is not None:
                 # Check if a nonnull guard was established for self.<attr>
                 qual_name = f"self.{self_attr}"
@@ -2135,6 +2140,11 @@ class BytecodeCrashSummaryAnalyzer:
                         is_guarded = True
                 else:
                     is_guarded = False
+            elif maybe_none_from_call:
+                # The local was produced by a call whose summary allows None.
+                # Even though the value is not parameter-derived syntactically,
+                # this dereference is still a real NULL_PTR risk.
+                is_guarded = False
             else:
                 is_guarded = True
         
@@ -2152,6 +2162,48 @@ class BytecodeCrashSummaryAnalyzer:
             # suppressed by the intent filter (self is never None).
             if self_attr is not None:
                 self.summary.null_ptr_target_vars.add(f"self.{self_attr}")
+
+    def _is_local_from_nullable_call(self, var_name: str, offset: int) -> bool:
+        """Return True if *var_name* was last assigned from a call that may return None."""
+        idx = self._instr_index_by_offset.get(offset)
+        if idx is None:
+            for i, instr in enumerate(self.instructions):
+                if instr.offset == offset:
+                    idx = i
+                    break
+        if idx is None:
+            return False
+
+        for j in range(idx - 1, -1, -1):
+            instr = self.instructions[j]
+            if instr.opname != 'STORE_FAST' or instr.argval != var_name:
+                continue
+            if j == 0:
+                return False
+
+            producer = self.instructions[j - 1]
+            if producer.opname not in ('CALL', 'CALL_KW', 'CALL_FUNCTION', 'CALL_FUNCTION_EX'):
+                return False
+
+            callee_name = self._get_callee_name_at(producer.offset)
+            if not callee_name:
+                return False
+
+            callee_summary = self.summaries.get(callee_name)
+            if callee_summary is None:
+                for qname, summary in self.summaries.items():
+                    if qname.endswith('.' + callee_name) or qname == callee_name:
+                        callee_summary = summary
+                        break
+            if callee_summary is None:
+                return False
+
+            return callee_summary.return_nullability in (
+                Nullability.MAY_BE_NONE,
+                Nullability.IS_NONE,
+            )
+
+        return False
     
     def _check_call(
         self,
@@ -2936,6 +2988,42 @@ class BytecodeCrashSummaryAnalyzer:
 
         return self._ast_has_defensive_assert_at_line(tree, line_no)
 
+    def _is_defensive_type_validation_assert(self, offset: int) -> bool:
+        """
+        Detect defensive asserts inside branches already selected by exhaustive
+        type/tag dispatch.
+
+        Example:
+            if isinstance(child, Leaf):
+                ...
+            elif child.type == IMPORT_AS_NAME:
+                assert isinstance(orig_name, Leaf)
+                assert orig_name.type == NAME
+
+        These are structural sanity checks on an already-refined branch and
+        should not be reported as ASSERT_FAIL crash sites.
+        """
+        idx = self._instr_index_by_offset.get(offset)
+        if idx is None:
+            return False
+
+        instr = self.instructions[idx]
+        line_no = (instr.positions.lineno
+                   if hasattr(instr, 'positions') and instr.positions
+                   else None)
+        if line_no is None:
+            return False
+
+        try:
+            source = self._get_source_for_defensive_assert_check()
+            if source is None:
+                return False
+            tree = ast.parse(source)
+        except (OSError, SyntaxError):
+            return False
+
+        return self._ast_has_type_guarded_validation_assert_at_line(tree, line_no)
+
     # ---- helpers for _is_defensive_assert ----
 
     def _get_source_for_defensive_assert_check(self) -> Optional[str]:
@@ -2980,6 +3068,22 @@ class BytecodeCrashSummaryAnalyzer:
         return False
 
     @staticmethod
+    def _ast_has_type_guarded_validation_assert_at_line(
+        tree: ast.AST, target_line: int
+    ) -> bool:
+        """
+        Return True if *target_line* is an assert inside a branch governed by
+        an isinstance/type guard chain, and the assert itself is another
+        structural validation check.
+        """
+        for node in ast.walk(tree):
+            if isinstance(node, ast.If):
+                if BytecodeCrashSummaryAnalyzer._check_if_chain_for_type_guarded_assert(
+                        node, target_line):
+                    return True
+        return False
+
+    @staticmethod
     def _check_if_chain_for_defensive_assert(
         if_node: ast.If, target_line: int
     ) -> bool:
@@ -3020,6 +3124,59 @@ class BytecodeCrashSummaryAnalyzer:
                                 and stmt.lineno == target_line):
                             return True
             break
+        return False
+
+    @staticmethod
+    def _check_if_chain_for_type_guarded_assert(
+        if_node: ast.If, target_line: int
+    ) -> bool:
+        """
+        Walk an if/elif chain and return True when *target_line* is an
+        assertion nested in a branch whose chain contains type guards.
+        """
+        has_type_guard = False
+        chain: ast.If | None = if_node
+        while chain is not None:
+            if BytecodeCrashSummaryAnalyzer._test_is_type_guard(chain.test):
+                has_type_guard = True
+
+            if has_type_guard:
+                for stmt in chain.body:
+                    if (isinstance(stmt, ast.Assert)
+                            and stmt.lineno == target_line
+                            and BytecodeCrashSummaryAnalyzer._assert_test_is_type_validation(stmt.test)):
+                        return True
+
+            for stmt in chain.body:
+                if isinstance(stmt, ast.If):
+                    if BytecodeCrashSummaryAnalyzer._check_if_chain_for_type_guarded_assert(
+                            stmt, target_line):
+                        return True
+
+            else_body = chain.orelse
+            if else_body:
+                if len(else_body) == 1 and isinstance(else_body[0], ast.If):
+                    chain = else_body[0]
+                    continue
+
+                if has_type_guard:
+                    for stmt in else_body:
+                        if (isinstance(stmt, ast.Assert)
+                                and stmt.lineno == target_line
+                                and BytecodeCrashSummaryAnalyzer._assert_test_is_type_validation(stmt.test)):
+                            return True
+                        if isinstance(stmt, ast.If):
+                            if BytecodeCrashSummaryAnalyzer._check_if_chain_for_type_guarded_assert(
+                                    stmt, target_line):
+                                return True
+            break
+        return False
+
+    @staticmethod
+    def _assert_test_is_type_validation(test_node: ast.expr) -> bool:
+        """Return True if an assert test is itself a type/tag validation."""
+        if BytecodeCrashSummaryAnalyzer._test_is_type_guard(test_node):
+            return True
         return False
 
     @staticmethod

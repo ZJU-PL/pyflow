@@ -17,6 +17,7 @@ This produces a unified report of all potential bugs reachable from entry points
 """
 
 from __future__ import annotations
+import ast
 from dataclasses import dataclass, field
 from typing import Dict, List, Set, Optional, Tuple, Any
 from pathlib import Path
@@ -429,10 +430,10 @@ class InterproceduralBugTracker:
     def find_all_bugs(
         self, 
         apply_fp_reduction: bool = False,
-        apply_intent_filter: bool = True,
+        apply_intent_filter: bool = False,
         intent_confidence: float = 0.7,
         root_path: Optional[Path] = None,
-        only_non_security: bool = True,  # NEW: skip security bugs for speed
+        only_non_security: bool = False,
     ) -> List[InterproceduralBug]:
         """
         Find all bugs reachable from entry points.
@@ -1425,21 +1426,35 @@ class InterproceduralBugTracker:
             if func_info:
                 for call_site in func_info.call_sites:
                     callee = call_site.callee_name
+                    qualified_callee = callee
+
+                    # Call graph call sites may store unqualified names like
+                    # "foo" while the function table/reachability sets store
+                    # qualified names like "module.foo". Resolve uniquely when
+                    # possible so precondition checks and recursive descent
+                    # still work.
+                    if qualified_callee and qualified_callee not in self.call_graph.functions:
+                        matches = [
+                            qname for qname in self.call_graph.functions.keys()
+                            if qname.endswith(f".{qualified_callee}") or qname == qualified_callee
+                        ]
+                        if len(matches) == 1:
+                            qualified_callee = matches[0]
                     
                     # Check for external/library function sinks (e.g., print, logging.*)
                     if callee and callee not in self.call_graph.functions:
                         self._check_external_sink(callee, call_site, call_chain)
                     
-                    if callee and callee in self.reachable_functions:
+                    if qualified_callee and qualified_callee in self.reachable_functions:
                         # Check if this call may trigger bugs
-                        callee_summary = self.crash_summaries.get(callee)
+                        callee_summary = self.crash_summaries.get(qualified_callee)
                         if callee_summary:
                             self._check_call_site_bugs(
                                 call_chain, call_site, callee_summary, context
                             )
                         
                         # Continue analysis into callee
-                        new_chain = call_chain + [callee]
+                        new_chain = call_chain + [qualified_callee]
                         worklist.append((new_chain, context.copy()))
     
     def _check_direct_bugs(
@@ -1546,6 +1561,33 @@ class InterproceduralBugTracker:
                     bug_variable = 'index'
                 else:
                     bug_variable = 'var'
+
+            # Parameter-dependent crash summaries should generally be enforced
+            # at call sites via precondition checking, not reported as direct
+            # bugs on the callee itself. Reporting them directly causes false
+            # positives for safe concrete calls like:
+            #   m = max(values); m.bit_length()
+            # or:
+            #   r = t.__repr__(); r.upper()
+            # where the function is only unsafe for bad arguments, but all
+            # reachable callers satisfy the precondition.
+            has_param_precondition = False
+            if isinstance(bug_variable, str) and bug_variable.startswith("param_"):
+                for precond in summary.preconditions:
+                    if PRECONDITION_TO_BUG.get(precond.condition_type) == bug_type:
+                        has_param_precondition = True
+                        break
+                if not has_param_precondition:
+                    try:
+                        param_idx = int(bug_variable.split("_", 1)[1])
+                    except Exception:
+                        param_idx = None
+                    if param_idx is not None:
+                        has_param_precondition = bug_type in summary.param_bug_propagation.get(param_idx, set())
+
+            if has_param_precondition:
+                logger.info(f"[TRACKER] Parameter-dependent {bug_type} deferred to caller precondition checks")
+                continue
             
             # EXTREME CONTEXT-AWARE VERIFICATION: ALL bugs now go through 25-paper verification
             # Layer 0 (fast barriers) will catch easy FPs in O(n) time before expensive layers
@@ -1996,6 +2038,19 @@ class InterproceduralBugTracker:
             for exc in callee_summary.may_raise:
                 if exc in EXCEPTION_TO_BUG:
                     bug_type = EXCEPTION_TO_BUG[exc]  # Now returns string
+
+                    # If all relevant preconditions for this propagated crash bug
+                    # are definitely satisfied at this call site, do not surface
+                    # the exception as an interprocedural bug.
+                    related_preconditions = [
+                        p for p in callee_summary.preconditions
+                        if PRECONDITION_TO_BUG.get(p.condition_type) == bug_type
+                    ]
+                    if related_preconditions and all(
+                        self._callsite_satisfies_precondition(call_site, p)
+                        for p in related_preconditions
+                    ):
+                        continue
                     
                     # Compute confidence for exception propagation
                     confidence = self._compute_confidence_for_error_bug(
@@ -2004,11 +2059,11 @@ class InterproceduralBugTracker:
                         certainty='POSSIBLE',  # May be caught
                     )
                     
-                    # ITERATION 610: Reduce confidence if this exception comes from a guarded operation
-                    # If the callee has guarded_bugs for this type, the exception is likely
-                    # from controlled/expected code paths, not actual bugs
-                    if bug_type in callee_summary.guarded_bugs:
-                        confidence *= 0.3  # Same reduction as direct guarded bugs
+                    # If the callee only raises this exception on guarded /
+                    # intentional paths, do not report it as a propagated bug.
+                    if (bug_type in callee_summary.guarded_bugs
+                            and callee_summary.get_unguarded_count(bug_type) == 0):
+                        continue
                     
                     bug = InterproceduralBug(
                         bug_type=bug_type,
@@ -2037,18 +2092,41 @@ class InterproceduralBugTracker:
         
         # Check if we have arg info
         arg_idx = precond.param_index
-        
-        # Compute confidence for precondition violation
-        confidence = self._compute_confidence_for_error_bug(
-            bug_type=bug_type,
-            call_chain_length=len(call_chain) + 1,
-            certainty='POSSIBLE',  # Preconditions are uncertain
-        )
-        
+
         # Attach stochastic risk bound (metadata only)
         arg_state = None
         if context and precond.param_index is not None:
             arg_state = context.get(f"arg{precond.param_index}")
+        if arg_state is None and precond.param_index is not None:
+            arg_state = self._infer_callsite_arg_state(call_site, precond.param_index)
+
+        certainty = 'POSSIBLE'
+        if arg_state is not None and precond.condition_type == PreconditionType.NOT_ZERO and arg_state.may_be_zero:
+            # Concrete 0 at the call site is a strong indicator for DIV_ZERO.
+            certainty = 'LIKELY'
+
+        # Compute confidence for precondition violation
+        confidence = self._compute_confidence_for_error_bug(
+            bug_type=bug_type,
+            call_chain_length=len(call_chain) + 1,
+            certainty=certainty,
+        )
+
+        # If the concrete/literal call-site argument definitely satisfies the
+        # precondition, this is not a violation.
+        if arg_state is not None:
+            if precond.condition_type == PreconditionType.NOT_NONE:
+                if arg_state.nullability == Nullability.NOT_NONE:
+                    return None
+            elif precond.condition_type == PreconditionType.NOT_ZERO:
+                if not arg_state.may_be_zero:
+                    return None
+            elif precond.condition_type == PreconditionType.NOT_EMPTY:
+                if arg_state.has_upper_bound and arg_state.upper_bound and arg_state.upper_bound > 0:
+                    return None
+            elif precond.condition_type == PreconditionType.POSITIVE:
+                if (not arg_state.may_be_negative) and (not arg_state.may_be_zero):
+                    return None
         risk_interval = risk_interval_for_precondition(precond, arg_state)
         
         # SYMBOLIC VARIABLE: Track which variable causes this bug
@@ -2071,6 +2149,83 @@ class InterproceduralBugTracker:
             risk_interval=risk_interval,
             bug_variable=bug_variable,
         )
+
+    def _infer_callsite_arg_state(self, call_site: CallSite, arg_idx: int) -> Optional[ValueState]:
+        """Best-effort literal argument evaluation for a call site."""
+        try:
+            source = Path(call_site.file_path).read_text(encoding="utf-8")
+            tree = ast.parse(source, filename=str(call_site.file_path))
+        except Exception:
+            return None
+
+        matching_calls = [
+            node for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and getattr(node, "lineno", None) == call_site.line_number
+            and getattr(node, "col_offset", None) == call_site.col_offset
+        ]
+        if not matching_calls:
+            return None
+
+        call = matching_calls[0]
+        if arg_idx >= len(call.args):
+            return None
+
+        return self._value_state_from_ast(call.args[arg_idx])
+
+    def _callsite_satisfies_precondition(self, call_site: CallSite, precond: Precondition) -> bool:
+        """Return True if a call site's concrete/literal argument satisfies *precond*."""
+        if precond.param_index is None:
+            return False
+        arg_state = self._infer_callsite_arg_state(call_site, precond.param_index)
+        if arg_state is None:
+            return False
+
+        if precond.condition_type == PreconditionType.NOT_NONE:
+            return arg_state.nullability == Nullability.NOT_NONE
+        if precond.condition_type == PreconditionType.NOT_ZERO:
+            return not arg_state.may_be_zero
+        if precond.condition_type == PreconditionType.NOT_EMPTY:
+            return bool(arg_state.has_upper_bound and arg_state.upper_bound and arg_state.upper_bound > 0)
+        if precond.condition_type == PreconditionType.POSITIVE:
+            return (not arg_state.may_be_negative) and (not arg_state.may_be_zero)
+        return False
+
+    def _value_state_from_ast(self, node: ast.AST) -> Optional[ValueState]:
+        """Evaluate a small safe subset of AST expressions into ValueState."""
+        if isinstance(node, ast.Constant):
+            return ValueState.from_literal(node.value)
+
+        if isinstance(node, (ast.List, ast.Tuple, ast.Set)):
+            state = ValueState(nullability=Nullability.NOT_NONE, may_be_zero=False)
+            state.has_upper_bound = True
+            state.upper_bound = len(getattr(node, "elts", []))
+            return state
+
+        if isinstance(node, ast.Dict):
+            state = ValueState(nullability=Nullability.NOT_NONE, may_be_zero=False)
+            state.has_upper_bound = True
+            state.upper_bound = len(node.keys)
+            return state
+
+        if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub) and isinstance(node.operand, ast.Constant):
+            if isinstance(node.operand.value, (int, float)):
+                return ValueState.from_literal(-node.operand.value)
+
+        if isinstance(node, ast.Call):
+            func_name = None
+            if isinstance(node.func, ast.Name):
+                func_name = node.func.id
+            elif isinstance(node.func, ast.Attribute):
+                func_name = node.func.attr
+
+            if func_name and (
+                func_name[0:1].isupper()
+                or func_name in {"list", "tuple", "set", "dict", "frozenset", "str", "bytes", "bytearray", "int", "float", "bool", "max", "min", "abs"}
+            ):
+                return ValueState(nullability=Nullability.NOT_NONE, may_be_zero=True)
+
+        return None
     
     # ========================================================================
     # QUERY INTERFACE

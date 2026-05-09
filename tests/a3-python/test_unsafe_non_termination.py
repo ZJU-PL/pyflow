@@ -5,6 +5,8 @@ Tests both BUG cases (non-terminating loops/recursion) and NON-BUG cases
 (provably terminating programs with valid ranking functions).
 """
 
+from pathlib import Path
+
 import pytest
 import z3
 from pyflow.a3_python.semantics.symbolic_vm import SymbolicVM, SymbolicMachineState
@@ -156,6 +158,8 @@ def test_termination_checker_not_bounded_below():
 # Integration tests with fixtures (symbolic execution)
 # =============================================================================
 
+FIXTURES_DIR = Path(__file__).with_name("fixtures")
+
 def test_terminating_countdown_loop():
     """
     NON-BUG: Simple countdown loop should terminate.
@@ -167,7 +171,7 @@ def test_terminating_countdown_loop():
     
     Ranking function: R = i (decreases on each step, bounded below by 0)
     """
-    with open("tests/fixtures/termination_countdown.py") as f:
+    with open(FIXTURES_DIR / "termination_countdown.py") as f:
         code = compile(f.read(), "termination_countdown.py", "exec")
     
     vm = SymbolicVM()
@@ -199,7 +203,7 @@ def test_terminating_for_loop():
     
     Ranking function: R = 10 - i
     """
-    with open("tests/fixtures/termination_for_loop.py") as f:
+    with open(FIXTURES_DIR / "termination_for_loop.py") as f:
         code = compile(f.read(), "termination_for_loop.py", "exec")
     
     vm = SymbolicVM()
@@ -226,7 +230,7 @@ def test_terminating_while_false():
     
     Trivially terminates (loop body never entered).
     """
-    with open("tests/fixtures/termination_while_false.py") as f:
+    with open(FIXTURES_DIR / "termination_while_false.py") as f:
         code = compile(f.read(), "termination_while_false.py", "exec")
     
     vm = SymbolicVM()
@@ -256,7 +260,7 @@ def test_terminating_break_loop():
     
     Loop exits after 11 iterations.
     """
-    with open("tests/fixtures/termination_break.py") as f:
+    with open(FIXTURES_DIR / "termination_break.py") as f:
         code = compile(f.read(), "termination_break.py", "exec")
     
     vm = SymbolicVM()
@@ -286,7 +290,7 @@ def test_terminating_recursion():
     
     Ranking function: R = n (decreases on each recursive call)
     """
-    with open("tests/fixtures/termination_recursion.py") as f:
+    with open(FIXTURES_DIR / "termination_recursion.py") as f:
         code = compile(f.read(), "termination_recursion.py", "exec")
     
     vm = SymbolicVM()
@@ -320,7 +324,7 @@ def test_infinite_loop_bug():
     
     This is clearly non-terminating.
     """
-    with open("tests/fixtures/non_termination_infinite_loop.py") as f:
+    with open(FIXTURES_DIR / "non_termination_infinite_loop.py") as f:
         code = compile(f.read(), "non_termination_infinite_loop.py", "exec")
     
     vm = SymbolicVM()
@@ -348,7 +352,7 @@ def test_no_progress_loop_bug():
     
     Loop never terminates because i never changes.
     """
-    with open("tests/fixtures/non_termination_no_progress.py") as f:
+    with open(FIXTURES_DIR / "non_termination_no_progress.py") as f:
         code = compile(f.read(), "non_termination_no_progress.py", "exec")
     
     vm = SymbolicVM()

@@ -40,6 +40,7 @@ from ..contracts.security_lattice import (
     get_source_contract, get_sink_contract, get_sanitizer_contract,
     apply_source_taint, check_sink_taint, apply_sanitizer,
 )
+from .security_tracker_lattice import infer_sensitivity_from_name
 from ..cfg.control_flow import (
     ControlFlowGraph, BasicBlock, EdgeType, build_cfg
 )
@@ -635,6 +636,13 @@ class SOTAIntraproceduralAnalyzer:
             label2 = state.get_local(idx2)
             state.push(label1)
             state.push(label2)
+
+        elif opname == 'LOAD_FAST_LOAD_FAST':
+            # Python 3.13 fused load of two locals.
+            idx1 = (instr.arg >> 4) & 0xF
+            idx2 = instr.arg & 0xF
+            state.push(state.get_local(idx1))
+            state.push(state.get_local(idx2))
         
         elif opname == 'LOAD_CONST' or opname == 'LOAD_SMALL_INT':
             # Constants (including small integers) are clean
@@ -1734,19 +1742,19 @@ class SOTAIntraproceduralAnalyzer:
     
     def _maybe_add_sensitivity(self, name: str, label: TaintLabel) -> TaintLabel:
         """Add sensitivity to label if name matches sensitive patterns."""
-        if not label.has_any_taint():
+        sensitive_source = infer_sensitivity_from_name(name)
+        if sensitive_source is None:
+            name_lower = name.lower()
+            if any(p in name_lower for p in ['secret', 'key', 'token', 'auth', 'credential', 'credit']):
+                sensitive_source = SourceType.PASSWORD
+        
+        if sensitive_source is None:
             return label
         
-        sensitive_patterns = [
-            'password', 'passwd', 'pwd', 'secret', 'key', 'token',
-            'api_key', 'apikey', 'auth', 'credential', 'ssn', 'credit',
-        ]
-        
-        name_lower = name.lower()
-        if any(p in name_lower for p in sensitive_patterns):
-            return label.with_sensitivity(SourceType.PASSWORD)
-        
-        return label
+        return label_join(
+            label,
+            TaintLabel.from_sensitive_source(sensitive_source, f"name:{name}")
+        )
 
 
 # ============================================================================
