@@ -2,7 +2,7 @@ Analysis Techniques
 ===================
 
 This page summarizes the main analysis techniques documented in the original
-``a3-python`` notes and how they show up in ``pyflow.a3_python``.
+``a3-python`` notes and how they show up in ``a3_python``.
 
 Execution-centered analysis
 ---------------------------

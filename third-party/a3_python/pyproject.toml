@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "a3-python"
+version = "0.0.0+dev"
+description = "Advanced Automated Analysis for Python — barrier-certificate verifier & bug finder"
+requires-python = ">=3.11"
+dependencies = [
+    "z3-solver",
+]
+
+[tool.setuptools.packages.find]
+include = ["a3_python*"]

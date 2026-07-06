@@ -4,7 +4,7 @@ Overview
 What ``a3_python`` is
 ---------------------
 
-``pyflow.a3_python`` is a specialized Python analysis subsystem with a different
+``a3_python`` is a specialized Python analysis subsystem with a different
 focus from the main PyFlow optimization pipeline. Its core goal is to answer
 questions like:
 
@@ -43,10 +43,10 @@ Entry points
 
 The main programmatic and CLI entry points live here:
 
-* ``pyflow.a3_python.analyzer``: high-level analysis orchestration
-* ``pyflow.a3_python.cli``: command-line interface for scans, CI bootstrap,
+* ``a3_python.analyzer``: high-level analysis orchestration
+* ``a3_python.cli``: command-line interface for scans, CI bootstrap,
   SARIF handling, and triage
-* ``python -m pyflow.a3_python.cli --help``: module-style CLI invocation
+* ``python -m a3_python.cli --help``: module-style CLI invocation
 
 The CLI exposes both a legacy direct-scan mode and explicit subcommands such as
 ``scan``, ``init``, ``triage``, and ``baseline``.
@@ -70,4 +70,4 @@ The original ``a3-python`` project carried a large set of standalone Markdown
 notes covering architecture, library contracts, barrier-certificate theory, and
 true-positive case studies. This section brings the most relevant material into
 PyFlow's Sphinx docs while keeping the content aligned with the package's
-current location under ``src/pyflow/a3_python``.
+current location under ``third-party/a3_python/a3_python``.

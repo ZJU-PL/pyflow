@@ -3,7 +3,7 @@ Bug Taxonomy
 
 The original ``a3-python`` documentation described a broad, layered bug
 taxonomy intended to support both precise reporting and technique selection.
-That framing is useful here because ``pyflow.a3_python`` contains more than a
+That framing is useful here because ``a3_python`` contains more than a
 single flat list of detectors.
 
 Core idea

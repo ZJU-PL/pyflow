@@ -1,7 +1,7 @@
 Package Map
 ===========
 
-This page is a contributor-oriented map of the ``pyflow.a3_python`` source
+This page is a contributor-oriented map of the ``a3_python`` source
 tree.
 
 Top-level modules

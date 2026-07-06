@@ -4,7 +4,7 @@
 ``a3_python``
 =================
 
-The ``pyflow.a3_python`` package is a research-oriented analysis stack embedded
+The ``a3_python`` package is a research-oriented analysis stack embedded
 inside this repository. It focuses on semantic bug finding, taint analysis,
 interprocedural reasoning, dynamic-symbolic refinement, and barrier-certificate
 based safety proofs for Python programs.

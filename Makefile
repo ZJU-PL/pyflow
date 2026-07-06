@@ -9,6 +9,13 @@ install:  ## Install the package in development mode
 
 install-dev:  ## Install with development dependencies
 	pip install -e ".[dev]"
+	pip install -e third-party/a3_python
+
+install-third-party:  ## Install third-party packages
+	pip install -e third-party/a3_python
+
+test-a3:  ## Run a3_python tests
+	pytest third-party/a3_python/tests/
 
 test:  ## Run tests
 	pytest

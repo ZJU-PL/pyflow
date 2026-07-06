@@ -46,6 +46,8 @@ dev = [
     "mypy",
     "tomli; python_version < '3.11'",
 ]
+# a3-python is a standalone third-party package at third-party/a3_python/.
+# Install it separately: pip install -e third-party/a3_python
 test = [
     "z3-solver",
     "pytest>=6.0",
@@ -104,6 +106,7 @@ extend-exclude = '''
   | buck-out
   | build
   | dist
+  | third-party
 )/
 '''
 

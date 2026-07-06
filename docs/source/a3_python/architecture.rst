@@ -19,7 +19,7 @@ pass. The major pieces work together roughly as follows:
 Source-level package layout
 ---------------------------
 
-The most important directories under ``src/pyflow/a3_python`` are:
+The most important directories under ``third-party/a3_python/a3_python`` are:
 
 * ``frontend``: file loading, source ingestion, and entry-point discovery
 * ``cfg``: control-flow and call-graph support

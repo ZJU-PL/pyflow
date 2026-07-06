@@ -4,7 +4,7 @@ Interprocedural Barrier Synthesis
 The original ``INTERPROCEDURAL_BARRIER_SYNTHESIS`` note described how the
 standalone project intended to connect summary-based interprocedural analysis
 with barrier-certificate reasoning. That architecture is directly relevant to
-the current ``pyflow.a3_python`` tree because the repository now contains an
+the current ``a3_python`` tree because the repository now contains an
 explicit ``semantics/interprocedural_barriers.py`` module.
 
 Core idea
