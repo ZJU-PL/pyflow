@@ -322,6 +322,12 @@ class CodePropertyGraph:
             self._build_import_edges(fname, pdg)
             self._build_collection_metadata(fname, pdg)
             self._build_async_metadata(fname, pdg)
+            self._build_annassign_metadata(fname, pdg)
+            self._build_delete_metadata(fname, pdg)
+            self._build_raise_metadata(fname, pdg)
+            self._build_assert_metadata(fname, pdg)
+            self._build_try_metadata(fname, pdg)
+            self._build_loop_metadata(fname, pdg)
 
         if self._call_graph is not None:
             self._build_call_edges()
@@ -936,6 +942,183 @@ class CodePropertyGraph:
                 meta["async_lowered"] = True
                 meta["async_lowered_kind"] = call_name
 
+    # ── Statement-type-specific metadata ────────────────────────────
+
+    def _build_annassign_metadata(
+        self, fname: str, pdg: ProgramDependenceGraph
+    ) -> None:
+        """Annotate AnnAssign nodes with the target variable name and
+        annotation type string.
+        """
+        for node in pdg.nodes:
+            ast_node = node.ast_node
+            if ast_node is None:
+                continue
+            if not isinstance(ast_node, py_ast.AnnAssign):
+                continue
+            meta = self._meta_for(node)
+            meta["ann_assign"] = True
+            target = getattr(ast_node, "target", None)
+            if isinstance(target, py_ast.Local):
+                meta["ann_target"] = getattr(target, "name", "") or ""
+            ann = getattr(ast_node, "annotation", None)
+            if ann is not None:
+                meta["ann_type"] = _safe_type_name(ann)
+
+    def _build_delete_metadata(
+        self, fname: str, pdg: ProgramDependenceGraph
+    ) -> None:
+        """Annotate Delete nodes with the deleted variable name(s)."""
+        for node in pdg.nodes:
+            ast_node = node.ast_node
+            if ast_node is None:
+                continue
+            if not isinstance(ast_node, py_ast.Delete):
+                continue
+            meta = self._meta_for(node)
+            meta["is_delete"] = True
+            lcl = getattr(ast_node, "lcl", None)
+            if isinstance(lcl, py_ast.Local):
+                meta["deleted_var"] = getattr(lcl, "name", "") or ""
+
+    def _build_raise_metadata(
+        self, fname: str, pdg: ProgramDependenceGraph
+    ) -> None:
+        """Annotate Raise nodes with metadata about the raised exception."""
+        for node in pdg.nodes:
+            ast_node = node.ast_node
+            if ast_node is None:
+                continue
+            if not isinstance(ast_node, py_ast.Raise):
+                continue
+            meta = self._meta_for(node)
+            meta["is_raise"] = True
+            exc = getattr(ast_node, "exception", None)
+            if isinstance(exc, py_ast.Local):
+                meta["raise_var"] = getattr(exc, "name", "") or ""
+
+    def _build_assert_metadata(
+        self, fname: str, pdg: ProgramDependenceGraph
+    ) -> None:
+        """Annotate Assert nodes with metadata."""
+        for node in pdg.nodes:
+            ast_node = node.ast_node
+            if ast_node is None:
+                continue
+            if not isinstance(ast_node, py_ast.Assert):
+                continue
+            meta = self._meta_for(node)
+            meta["is_assert"] = True
+
+    def _build_try_metadata(
+        self, fname: str, pdg: ProgramDependenceGraph
+    ) -> None:
+        """Annotate TryExceptFinally nodes with handler metadata."""
+        for node in pdg.nodes:
+            ast_node = node.ast_node
+            if ast_node is None:
+                continue
+            if not isinstance(ast_node, py_ast.TryExceptFinally):
+                continue
+            meta = self._meta_for(node)
+            meta["is_try_stmt"] = True
+            handlers_info = []
+            for handler in (getattr(ast_node, "handlers", None) or ()):
+                htype = getattr(handler, "type", None)
+                hval = getattr(handler, "value", None)
+                type_name = None
+                if htype is not None:
+                    if isinstance(htype, py_ast.Local):
+                        type_name = getattr(htype, "name", None)
+                    elif hasattr(htype, "toStr"):
+                        type_name = str(htype.toStr())
+                caught_var = None
+                if hval is not None:
+                    if isinstance(hval, py_ast.Local):
+                        caught_var = getattr(hval, "name", None)
+                handlers_info.append({
+                    "type_name": type_name,
+                    "caught_var": caught_var,
+                })
+            meta["handlers"] = handlers_info
+            else_blk = getattr(ast_node, "else_", None)
+            finally_blk = getattr(ast_node, "finally_", None)
+            meta["has_else"] = (
+                else_blk is not None and len(else_blk.blocks) > 0
+            )
+            meta["has_finally"] = (
+                finally_blk is not None and len(finally_blk.blocks) > 0
+            )
+
+    def _build_loop_metadata(
+        self, fname: str, pdg: ProgramDependenceGraph
+    ) -> None:
+        """Mark loop header PDG nodes and collect for-loop variable mappings."""
+        cfg = pdg.cfg
+        entry_term = getattr(cfg, "entryTerminal", None)
+        if entry_term is None:
+            return
+
+        processed: Set[int] = set()
+        on_stack: Set[int] = set()
+        loop_cfg_blocks: Set[int] = set()
+
+        def _dfs(block: cfg_graph.CFGBlock) -> None:
+            bid = id(block)
+            if bid in processed:
+                if bid in on_stack:
+                    loop_cfg_blocks.add(bid)
+                return
+            on_stack.add(bid)
+            processed.add(bid)
+            for child in block.forward():
+                if child is not None:
+                    _dfs(child)
+            on_stack.discard(bid)
+
+        _dfs(entry_term)
+
+        if not loop_cfg_blocks:
+            return
+
+        for_loop_vars: List[Tuple[str, str]] = []
+        code = getattr(cfg, "code", None)
+        if code is not None:
+            CodePropertyGraph._collect_for_loop_vars(code.ast, for_loop_vars)
+
+        for node in pdg.nodes:
+            cfg_node = getattr(node, "cfg_node", None)
+            if cfg_node is not None and id(cfg_node) in loop_cfg_blocks:
+                meta = self._meta_for(node)
+                meta["loop_header"] = True
+                if for_loop_vars:
+                    meta["for_loop_vars"] = list(for_loop_vars)
+
+    @staticmethod
+    def _collect_for_loop_vars(
+        suite: py_ast.Suite,
+        result: List[Tuple[str, str]],
+    ) -> None:
+        for stmt in getattr(suite, "blocks", []):
+            if isinstance(stmt, py_ast.For):
+                iter_name = (
+                    stmt.iterator.name
+                    if isinstance(stmt.iterator, py_ast.Local) else ""
+                )
+                index_name = (
+                    stmt.index.name
+                    if isinstance(stmt.index, py_ast.Local) else ""
+                )
+                if iter_name and index_name:
+                    result.append((iter_name, index_name))
+                CodePropertyGraph._collect_for_loop_vars(stmt.body, result)
+            elif hasattr(stmt, "body") and isinstance(
+                getattr(stmt, "body", None), py_ast.Suite
+            ):
+                CodePropertyGraph._collect_for_loop_vars(
+                    stmt.body, result
+                )
+
     # ── Navigation ───────────────────────────────────────────────────────
 
     def successors(
@@ -1020,6 +1203,53 @@ class CodePropertyGraph:
         """Return Ansede-style metadata for *node*."""
         self._ensure_built()
         return dict(self._node_meta.get(node.node_id, {}))
+
+    # ── Typed meta accessors (convenience wrappers over node_meta) ────
+
+    def node_type(self, node: PDGNode) -> str:
+        """Return the AST type name for *node* (e.g. ``"Assign"``, ``"Call"``).
+
+        Falls back to ``node.kind`` when no AST node is attached.
+        """
+        return self.node_meta(node).get("node_type", node.kind)
+
+    def node_lineno(self, node: PDGNode) -> int:
+        """Return the source line number for *node*."""
+        return self.node_meta(node).get("lineno", 0)
+
+    def node_col(self, node: PDGNode) -> int:
+        """Return the source column offset for *node*."""
+        return self.node_meta(node).get("col", 0)
+
+    def node_value(self, node: PDGNode) -> str:
+        """Return a human-readable code snippet for *node*."""
+        return self.node_meta(node).get("value", node.label or node.kind)
+
+    def node_func_name(self, node: PDGNode) -> str:
+        """Return the enclosing function name for *node*."""
+        return self.node_meta(node).get("func_name", "")
+
+    def node_to_dict(self, node: PDGNode) -> Dict[str, Any]:
+        """Serialize *node* and its CPG metadata to a JSON-compatible dict.
+
+        Mirrors Ansede's ``CPGNode.as_dict()`` but is richer — includes
+        the underlying PDG fields (``kind``, ``label``) alongside the
+        convenience accessors (``ast_type``, ``lineno``, ``col``, ``value``,
+        ``func``).
+        """
+        self._ensure_built()
+        meta = dict(self._node_meta.get(node.node_id, {}))
+        return {
+            "id": node.node_id,
+            "kind": node.kind,
+            "label": node.label,
+            "ast_type": meta.get("node_type", node.kind),
+            "lineno": meta.get("lineno", 0),
+            "col": meta.get("col", 0),
+            "value": meta.get("value", node.label or node.kind),
+            "func": meta.get("func_name", ""),
+            "meta": meta,
+        }
 
     # ── Unified queries ──────────────────────────────────────────────────
 

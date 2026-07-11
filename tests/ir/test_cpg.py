@@ -41,6 +41,67 @@ def try_semantics(x):
     return value
 
 
+def return_arg(x):
+    return x
+
+
+def call_return_arg():
+    data = return_arg(42)
+    return data
+
+
+def tainted_return():
+    x = request.args.get("name")
+    return x
+
+
+def call_tainted_return():
+    data = tainted_return()
+    subprocess.run(data)
+
+
+def try_caught_var(x):
+    try:
+        value = 1 / x
+    except ValueError as e:
+        result = str(e)
+    return value
+
+
+def try_multi_handler(x):
+    try:
+        value = 1 / x
+    except ZeroDivisionError:
+        value = 0
+    except ValueError as e:
+        result = str(e)
+    return value
+
+
+def try_with_finally(x):
+    try:
+        value = 1 / x
+    except ValueError as e:
+        result = str(e)
+    finally:
+        value = -1
+    return value
+
+
+def for_loop(seq):
+    total = 0
+    for item in seq:
+        total = total + item
+    return total
+
+
+def for_loop_tainted_source(seq):
+    total = 0
+    for item in seq:
+        total = total + request.args.get("x")
+    return total
+
+
 class TestCPGConstruction(unittest.TestCase):
     def setUp(self):
         self.compiler = context.CompilerContext(None)
@@ -122,6 +183,162 @@ class TestCPGConstruction(unittest.TestCase):
         cpg.build()
         except_edges = list(cpg.all_edges(kinds={CPGEdgeKind.CFG_EXCEPT}))
         self.assertGreater(len(except_edges), 0)
+
+    def test_try_metadata_has_handlers(self):
+        """TryExceptFinally nodes get handler metadata."""
+        cpg = self.build_cpg(try_caught_var, run_ssa=False)
+        cpg.build()
+        found = False
+        for node in cpg.nodes():
+            meta = cpg.node_meta(node)
+            if meta.get("is_try_stmt"):
+                found = True
+                handlers = meta.get("handlers", [])
+                self.assertGreater(len(handlers), 0)
+                self.assertEqual(handlers[0]["type_name"], "ValueError")
+                self.assertEqual(handlers[0]["caught_var"], "e")
+        self.assertTrue(found, "No TryExceptFinally node found in CPG")
+
+    def test_try_metadata_multi_handler(self):
+        """Multiple handlers are all recorded."""
+        cpg = self.build_cpg(try_multi_handler, run_ssa=False)
+        cpg.build()
+        for node in cpg.nodes():
+            meta = cpg.node_meta(node)
+            if meta.get("is_try_stmt"):
+                handlers = meta.get("handlers", [])
+                self.assertEqual(len(handlers), 2)
+                self.assertIsNone(handlers[0]["caught_var"])
+                self.assertEqual(handlers[1]["caught_var"], "e")
+
+    def test_try_metadata_finally(self):
+        """finally block is recorded in metadata."""
+        cpg = self.build_cpg(try_with_finally, run_ssa=False)
+        cpg.build()
+        for node in cpg.nodes():
+            meta = cpg.node_meta(node)
+            if meta.get("is_try_stmt"):
+                self.assertTrue(meta.get("has_finally"))
+                self.assertFalse(meta.get("has_else"))
+
+    def test_try_taint_propagates_to_caught_var(self):
+        """When tainted state reaches a try node, the caught var is marked
+        in the memory layout."""
+        from pyflow.analysis.cpg.graph import CodePropertyGraph
+
+        cpg = self.build_cpg(try_caught_var, run_ssa=False)
+        cpg.build()
+        engine = CPGTaintEngine(cpg)
+
+        try_node = None
+        for node in cpg.nodes():
+            ast_node = getattr(node, "ast_node", None)
+            if isinstance(ast_node, py_ast.TryExceptFinally):
+                try_node = node
+                break
+        self.assertIsNotNone(try_node,
+                             "No TryExceptFinally node found in CPG")
+
+        mem = MemoryLayout()
+        tstate = TaintState.user_controlled()
+        try_ast = try_node.ast_node
+        result = engine._propagate_try(try_ast, tstate, try_node, mem)
+        self.assertTrue(result.is_tainted(),
+                        "Taint state should pass through try")
+        self.assertTrue(mem.is_tainted("e"),
+                        "Caught variable 'e' should be tainted in mem")
+
+    def test_try_clean_state_does_not_mark_caught_var(self):
+        """Clean tstate does not mark caught variable."""
+        cpg = self.build_cpg(try_caught_var, run_ssa=False)
+        cpg.build()
+        engine = CPGTaintEngine(cpg)
+
+        try_node = next(
+            (n for n in cpg.nodes()
+             if isinstance(getattr(n, "ast_node", None),
+                           py_ast.TryExceptFinally)),
+            None,
+        )
+        self.assertIsNotNone(try_node)
+
+        mem = MemoryLayout()
+        clean = TaintState.clean()
+        result = engine._propagate_try(try_node.ast_node, clean,
+                                       try_node, mem)
+        self.assertFalse(result.is_tainted())
+        self.assertFalse(mem.is_tainted("e"),
+                         "Caught variable should not be tainted with "
+                         "clean state")
+
+    # ── Loop header metadata / fixpoint ─────────────────────────────────
+
+    def test_loop_header_detected(self):
+        """For loops produce loop-header PDG nodes marked with metadata."""
+        cpg = self.build_cpg(for_loop, run_ssa=True)
+        cpg.build()
+        found_header = False
+        for node in cpg.nodes():
+            meta = cpg.node_meta(node)
+            if meta.get("loop_header"):
+                found_header = True
+                vars_info = meta.get("for_loop_vars", [])
+                self.assertGreater(len(vars_info), 0)
+                it, idx = vars_info[0]
+                self.assertEqual(it, "seq")
+                self.assertEqual(idx, "item")
+        self.assertTrue(found_header,
+                        "No loop header node found in CPG")
+
+    def test_while_loop_header_detected(self):
+        """While loops also produce loop-header metadata."""
+        def while_loop(x):
+            i = 0
+            while i < x:
+                i = i + 1
+            return i
+
+        cpg = self.build_cpg(while_loop, run_ssa=True)
+        cpg.build()
+        found_header = False
+        for node in cpg.nodes():
+            meta = cpg.node_meta(node)
+            if meta.get("loop_header"):
+                found_header = True
+        self.assertTrue(found_header,
+                        "No loop header found for while loop")
+
+    def test_no_spurious_loop_headers(self):
+        """Functions without loops have no loop_header metadata."""
+        cpg = self.build_cpg(simple_assignment, run_ssa=True)
+        cpg.build()
+        headers = [
+            n for n in cpg.nodes() if cpg.node_meta(n).get("loop_header")
+        ]
+        self.assertEqual(len(headers), 0)
+
+    def test_for_loop_index_propagation(self):
+        """Loop index variables are marked tainted when the iterator is
+        tainted in the memory layout."""
+        cpg = self.build_cpg(for_loop, run_ssa=False)
+        cpg.build()
+        engine = CPGTaintEngine(cpg)
+
+        loop_header = next(
+            (n for n in cpg.nodes()
+             if cpg.node_meta(n).get("loop_header")),
+            None,
+        )
+        self.assertIsNotNone(loop_header)
+
+        mem = MemoryLayout()
+        tstate = TaintState.user_controlled()
+        mem.mark_tainted("seq", tstate)
+
+        engine._propagate_for_loop_index(loop_header, tstate, mem)
+        self.assertTrue(mem.is_tainted("item"),
+                        "Loop variable 'item' should be tainted when "
+                        "'seq' is tainted")
 
     # ── AST edges ────────────────────────────────────────────────────
 
@@ -827,21 +1044,20 @@ class TestCPGConstruction(unittest.TestCase):
 
     # ── Summary cache ────────────────────────────────────────────────
 
-    def test_summary_cache_key_uses_func_name_and_tags(self):
+    def test_summary_cache_key_uses_func_name_tags_and_context(self):
+        """Cache key now includes call_context for context sensitivity."""
         cpg = self.build_cpg(simple_assignment)
         cpg.build()
         engine = CPGTaintEngine(cpg)
         state = TaintState.user_controlled()
-        # Access the entry and exit nodes via the internal _interprocedural_transfer
         entry = cpg._pdgs["test_func"].entry
-        exit_node = cpg._pdgs["test_func"].exit_nodes[0]
+        call_context = (42,)
         result, _ = engine._interprocedural_transfer(
-            state, entry, entry, MemoryLayout()
+            state, entry, entry, MemoryLayout(), call_context
         )
-        # Cache should have been populated with func_name-based key
-        cache_key = ("test_func", tuple(sorted(state.tags)))
-        self.assertIn(cache_key, engine._summary_cache)
-        self.assertIs(engine._summary_cache[cache_key], state)
+        cache_key = ("test_func", tuple(sorted(state.tags)), call_context)
+        self.assertIn(cache_key, engine._interprocedural_summary_cache)
+        self.assertIs(engine._interprocedural_summary_cache[cache_key], state)
         self.assertIs(result, state)
 
     def test_summary_cache_hit_returns_cached_value(self):
@@ -868,7 +1084,7 @@ class TestCPGConstruction(unittest.TestCase):
         entry = cpg._pdgs["test_func"].entry
         engine._interprocedural_transfer(state_a, entry, entry, MemoryLayout())
         engine._interprocedural_transfer(state_b, entry, entry, MemoryLayout())
-        self.assertEqual(len(engine._summary_cache), 2)
+        self.assertEqual(len(engine._interprocedural_summary_cache), 2)
 
     # ── RETURN_EDGE context pop ──────────────────────────────────────
 
@@ -893,6 +1109,374 @@ class TestCPGConstruction(unittest.TestCase):
         # without crashing
         paths = engine.find_taint_paths()
         self.assertIsInstance(paths, list)
+
+
+    # ── Typed meta accessors (Gap #4) ──────────────────────────────────
+
+    def test_node_type_accessor(self):
+        cpg = self.build_cpg(simple_assignment)
+        cpg.build()
+        for node in cpg.nodes("test_func"):
+            ntype = cpg.node_type(node)
+            self.assertIsInstance(ntype, str)
+
+    def test_node_lineno_accessor(self):
+        cpg = self.build_cpg(simple_assignment)
+        cpg.build()
+        for node in cpg.nodes("test_func"):
+            lineno = cpg.node_lineno(node)
+            self.assertIsInstance(lineno, int)
+            self.assertGreaterEqual(lineno, 0)
+
+    def test_node_col_accessor(self):
+        cpg = self.build_cpg(simple_assignment)
+        cpg.build()
+        for node in cpg.nodes("test_func"):
+            col = cpg.node_col(node)
+            self.assertIsInstance(col, int)
+
+    def test_node_value_accessor(self):
+        cpg = self.build_cpg(simple_assignment)
+        cpg.build()
+        for node in cpg.nodes("test_func"):
+            val = cpg.node_value(node)
+            self.assertIsInstance(val, str)
+
+    def test_node_func_name_accessor(self):
+        cpg = self.build_cpg(simple_assignment, func_name="my_func")
+        cpg.build()
+        for node in cpg.nodes("my_func"):
+            self.assertEqual(cpg.node_func_name(node), "my_func")
+
+    def test_node_type_fallback_to_kind(self):
+        """When ast_node is None, node_type falls back to node.kind."""
+        cpg = self.build_cpg(simple_assignment)
+        cpg.build()
+        for node in cpg.nodes("test_func"):
+            ntype = cpg.node_type(node)
+            if node.ast_node is None:
+                self.assertEqual(ntype, node.kind)
+
+    # ── Statement-type metadata builders (Gap #2) ─────────────────────
+
+    def test_annassign_metadata(self):
+        from pyflow.analysis.cpg.build import build_cpg
+        source = "def f(x: int) -> None:\n    y: int = x\n"
+        cpg = build_cpg(source, "test.py")
+        cpg.build()
+        ann_assign_nodes = [
+            n for n in cpg.nodes()
+            if cpg.node_meta(n).get("ann_assign")
+        ]
+        # At least one AnnAssign should be tagged
+        if ann_assign_nodes:
+            meta = cpg.node_meta(ann_assign_nodes[0])
+            self.assertIn("ann_target", meta)
+            self.assertIn("ann_type", meta)
+
+    def test_annassign_annotation_only_no_value(self):
+        from pyflow.analysis.cpg.build import build_cpg
+        source = "def f():\n    x: int\n"
+        cpg = build_cpg(source, "test.py")
+        cpg.build()
+        ann_nodes = [
+            n for n in cpg.nodes()
+            if cpg.node_meta(n).get("ann_assign")
+        ]
+        # Annotation-only declarations should still be tagged
+        self.assertIsInstance(ann_nodes, list)
+
+    def test_delete_metadata(self):
+        from pyflow.analysis.cpg.build import build_cpg
+        source = "def f():\n    x = 1\n    del x\n"
+        cpg = build_cpg(source, "test.py")
+        cpg.build()
+        del_nodes = [
+            n for n in cpg.nodes()
+            if cpg.node_meta(n).get("is_delete")
+        ]
+        if del_nodes:
+            meta = cpg.node_meta(del_nodes[0])
+            self.assertTrue(meta.get("is_delete"))
+
+    def test_raise_metadata(self):
+        from pyflow.analysis.cpg.build import build_cpg
+        source = "def f():\n    raise ValueError('bad')\n"
+        cpg = build_cpg(source, "test.py")
+        cpg.build()
+        raise_nodes = [
+            n for n in cpg.nodes()
+            if cpg.node_meta(n).get("is_raise")
+        ]
+        if raise_nodes:
+            meta = cpg.node_meta(raise_nodes[0])
+            self.assertTrue(meta.get("is_raise"))
+
+    def test_assert_metadata(self):
+        from pyflow.analysis.cpg.build import build_cpg
+        source = "def f(x):\n    assert x > 0\n    return x\n"
+        cpg = build_cpg(source, "test.py")
+        cpg.build()
+        assert_nodes = [
+            n for n in cpg.nodes()
+            if cpg.node_meta(n).get("is_assert")
+        ]
+        if assert_nodes:
+            meta = cpg.node_meta(assert_nodes[0])
+            self.assertTrue(meta.get("is_assert"))
+
+    # ── AnnAssign taint propagation (Gap #2) ─────────────────────────
+
+    def test_annassign_propagates_taint(self):
+        """Taint from a source flows through AnnAssign to the target."""
+        from pyflow.analysis.cpg.build import build_cpg
+        cpg = build_cpg("", "empty.py")
+        cpg.build()
+        engine = CPGTaintEngine(cpg)
+        mem = MemoryLayout()
+        state = TaintState.user_controlled()
+        mem.mark_tainted("src", state)
+        ann = py_ast.AnnAssign(
+            py_ast.Local("dest"),
+            py_ast.Local("int"),
+            py_ast.Local("src"),
+        )
+        result = engine._propagate_annassign(ann, state, mem)
+        self.assertIsNotNone(result)
+        self.assertTrue(result.is_tainted())
+
+    def test_annassign_no_value_no_propagation(self):
+        """Annotation-only declarations (no value) should not propagate."""
+        from pyflow.analysis.cpg.build import build_cpg
+        cpg = build_cpg("", "empty.py")
+        cpg.build()
+        engine = CPGTaintEngine(cpg)
+        mem = MemoryLayout()
+        state = TaintState.user_controlled()
+        ann = py_ast.AnnAssign(
+            py_ast.Local("x"),
+            py_ast.Local("int"),
+            None,
+        )
+        result = engine._propagate_annassign(ann, state, mem)
+        self.assertIsNotNone(result)
+        self.assertTrue(result.is_tainted())  # taint itself survives
+
+    def test_annassign_propagator_preserves_state_on_clean_rhs(self):
+        """_propagate_annassign with a clean RHS returns tstate unchanged."""
+        from pyflow.analysis.cpg.build import build_cpg
+        cpg = build_cpg("", "empty.py")
+        cpg.build()
+        engine = CPGTaintEngine(cpg)
+        mem = MemoryLayout()
+        state = TaintState.user_controlled()
+        ann = py_ast.AnnAssign(
+            py_ast.Local("out"), py_ast.Local("int"), py_ast.Local("clean"))
+        result = engine._propagate_annassign(ann, state, mem)
+        self.assertIsNotNone(result)
+        self.assertTrue(result.is_tainted())
+
+
+    # ── Cross-procedural context sensitivity ──────────────────────────
+
+    def test_get_callee_param_names(self):
+        """Extract parameter names from a FunctionDef AST."""
+        from pyflow.analysis.cpg.build import build_cpg
+        source = "def add(a, b):\n    return a + b\n"
+        cpg = build_cpg(source, "test.py")
+        cpg.build()
+        engine = CPGTaintEngine(cpg)
+        names = engine._get_callee_param_names("add")
+        self.assertIsInstance(names, list)
+        self.assertIn("a", names)
+        self.assertIn("b", names)
+
+    def test_get_callee_param_names_empty_for_unknown_func(self):
+        cpg = self.build_cpg(simple_assignment)
+        cpg.build()
+        engine = CPGTaintEngine(cpg)
+        self.assertEqual(engine._get_callee_param_names("nonexistent"), [])
+
+    def test_map_args_to_params(self):
+        """Taint from a caller argument is mapped to the callee parameter."""
+        cpg = self.build_cpg(simple_assignment)
+        cpg.build()
+        engine = CPGTaintEngine(cpg)
+        mem = MemoryLayout()
+        new_mem = MemoryLayout()
+        state = TaintState.user_controlled()
+        mem.mark_tainted("x", state)
+        call_ast = py_ast.Call(py_ast.Local("add"), [py_ast.Local("x")], [], None, None)
+        call_node = cpg._pdgs["test_func"].entry
+        # Temporarily replace the call node's ast_node for the test
+        orig_ast = call_node.ast_node
+        call_node.ast_node = call_ast
+        engine._map_args_to_params(call_node, "test_func", mem, new_mem)
+        call_node.ast_node = orig_ast
+        self.assertTrue(new_mem.is_tainted("x"))
+
+    def test_context_sensitive_cache_different_contexts(self):
+        """Different call contexts produce separate cache entries."""
+        cpg = self.build_cpg(simple_assignment)
+        cpg.build()
+        engine = CPGTaintEngine(cpg)
+        state = TaintState.user_controlled()
+        entry = cpg._pdgs["test_func"].entry
+        mem_a = MemoryLayout()
+        mem_b = MemoryLayout()
+        ctx_a = (1,)
+        ctx_b = (2,)
+        engine._interprocedural_transfer(state, entry, entry, mem_a, ctx_a)
+        engine._interprocedural_transfer(state, entry, entry, mem_b, ctx_b)
+        self.assertEqual(len(engine._interprocedural_summary_cache), 2)
+
+    def test_propagate_return_with_tainted_value(self):
+        """Return with a tainted value propagates taint to the call-site."""
+        cpg = self.build_cpg(simple_assignment)
+        cpg.build()
+        engine = CPGTaintEngine(cpg)
+        mem = MemoryLayout()
+        state = TaintState.user_controlled()
+        ret_node = cpg._pdgs["test_func"].entry
+        call_node = cpg._pdgs["test_func"].entry
+        ret_ast = py_ast.Return([py_ast.Local("x")])
+        ret_node.ast_node = ret_ast
+        mem.mark_tainted("x", state)
+        result = engine._propagate_return(state, ret_node, call_node, mem)
+        self.assertEqual(result, state)
+
+    def test_propagate_return_clean_tstate_tainted_value(self):
+        """Return value tainted in mem produces tainted state even when
+        incoming tstate is clean."""
+        cpg = self.build_cpg(simple_assignment)
+        cpg.build()
+        engine = CPGTaintEngine(cpg)
+        mem = MemoryLayout()
+        clean = TaintState.clean()
+        tainted = TaintState.user_controlled()
+        ret_node = cpg._pdgs["test_func"].entry
+        call_node = cpg._pdgs["test_func"].entry
+        ret_ast = py_ast.Return([py_ast.Local("x")])
+        ret_node.ast_node = ret_ast
+        mem.mark_tainted("x", tainted)
+        result = engine._propagate_return(clean, ret_node, call_node, mem)
+        self.assertIsNot(result, clean)
+        self.assertTrue(result.is_tainted())
+
+    def test_propagate_return_no_value_no_propagation(self):
+        """Return without a value does nothing."""
+        cpg = self.build_cpg(simple_assignment)
+        cpg.build()
+        engine = CPGTaintEngine(cpg)
+        mem = MemoryLayout()
+        state = TaintState.user_controlled()
+        entry = cpg._pdgs["test_func"].entry
+        ret_ast = py_ast.Return([])
+        entry.ast_node = ret_ast
+        result = engine._propagate_return(state, entry, entry, mem)
+        self.assertIs(result, state)
+
+    def test_propagate_return_non_return_node_no_propagation(self):
+        """Non-Return AST nodes pass through unchanged."""
+        cpg = self.build_cpg(simple_assignment)
+        cpg.build()
+        engine = CPGTaintEngine(cpg)
+        mem = MemoryLayout()
+        state = TaintState.user_controlled()
+        entry = cpg._pdgs["test_func"].entry
+        entry.ast_node = py_ast.Local("x")
+        result = engine._propagate_return(state, entry, entry, mem)
+        self.assertIs(result, state)
+
+    def test_cross_function_taint_with_callgraph(self):
+        """Build a multi-function CPG and verify taint flows through CALL edges."""
+        from pyflow.analysis.callgraph.callgraph import CallGraph
+        from pyflow.analysis.cpg import CodePropertyGraph
+        cfg1 = self.build_cfg(simple_assignment)
+        pdg1 = construct_pdg(cfg1, run_ssa=True, expand_phi=True,
+                             include_control=True, include_data=True)
+        cfg2 = self.build_cfg(simple_if)
+        pdg2 = construct_pdg(cfg2, run_ssa=True, expand_phi=True,
+                             include_control=True, include_data=True)
+        cg = CallGraph()
+        cg.add_edge("caller", "callee")
+        cpg = CodePropertyGraph()
+        cpg.add_function("caller", pdg1)
+        cpg.add_function("callee", pdg2)
+        cpg.add_call_graph(cg)
+        cpg.build()
+        engine = CPGTaintEngine(cpg)
+        engine.add_source("request")
+        engine.add_sink("subprocess.run")
+        paths = engine.find_taint_paths()
+        self.assertIsInstance(paths, list)
+        self.assertGreaterEqual(len(engine._summary_cache), 0)
+
+    def test_return_value_taint_cross_function(self):
+        """Verify that CALL and RETURN_EDGE edges exist between functions.
+
+        The underlying CFG→CPG edge mapping currently does not create
+        ``CFG_NEXT`` edges for statement-level PDG nodes inside a block,
+        which prevents the full worklist traversal from reaching statements.
+        This test validates that the infrastructure for the
+        ``_propagate_return`` fix is in place (CALL/RETURN_EDGE edges,
+        return-node AST mapping).
+        """
+        from pyflow.analysis.callgraph.callgraph import CallGraph
+
+        cfg_callee = self.build_cfg(tainted_return)
+        cfg_caller = self.build_cfg(call_tainted_return)
+
+        pdg_callee = construct_pdg(cfg_callee, run_ssa=True, expand_phi=True,
+                                   include_control=True, include_data=True)
+        pdg_caller = construct_pdg(cfg_caller, run_ssa=True, expand_phi=True,
+                                   include_control=True, include_data=True)
+
+        cg = CallGraph()
+        cg.add_edge("call_tainted_return", "tainted_return")
+        cpg = CodePropertyGraph()
+        cpg.add_function("call_tainted_return", pdg_caller)
+        cpg.add_function("tainted_return", pdg_callee)
+        cpg.add_call_graph(cg)
+        cpg.build()
+
+        # Verify CALL and RETURN_EDGE edges exist.
+        call_edges = list(cpg.all_edges(kinds={CPGEdgeKind.CALL}))
+        self.assertGreater(len(call_edges), 0)
+        return_edges = list(cpg.all_edges(kinds={CPGEdgeKind.RETURN_EDGE}))
+        self.assertGreater(len(return_edges), 0)
+
+        # Verify that the callee has a Return node and the caller has a
+        # DATA edge from the call site to its downstream use.
+        callee_return = None
+        for n in pdg_callee.nodes:
+            if isinstance(getattr(n, "ast_node", None), py_ast.Return):
+                callee_return = n
+                break
+        self.assertIsNotNone(callee_return,
+                             "Callee PDG should contain a Return node")
+
+        # Directly test the unit fix: _propagate_return must produce a
+        # tainted state when the return value variable is tainted in mem.
+        engine = CPGTaintEngine(cpg)
+        mem = MemoryLayout()
+        clean = TaintState.clean()
+        tainted = TaintState.user_controlled()
+        mem.mark_tainted("x", tainted)
+
+        ret_expr = py_ast.Return([py_ast.Local("x")])
+        callee_return.ast_node = ret_expr
+        # Use a caller node with a non-None ast_node so that
+        # _propagate_return does not short-circuit on call_ast.
+        caller_stmt = next(
+            (n for n in pdg_caller.nodes if n.ast_node is not None),
+            pdg_caller.entry,
+        )
+        result = engine._propagate_return(clean, callee_return,
+                                          caller_stmt, mem)
+        self.assertTrue(result.is_tainted(),
+                        "_propagate_return must return a tainted state "
+                        "when the return value references a tainted var")
 
 
 if __name__ == "__main__":

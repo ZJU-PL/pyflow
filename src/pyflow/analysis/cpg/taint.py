@@ -479,12 +479,14 @@ class CPGTaintEngine:
         sanitizers: Optional[Set[str]] = None,
         extra_taint_specs: Optional[Dict[str, Any]] = None,
         max_call_depth: int = 5,
+        max_loop_iterations: int = 3,
     ) -> None:
         self._cpg = cpg
         self._sources: Set[str] = set(_DEFAULT_SOURCES)
         self._sinks: Dict[str, str] = dict(_DEFAULT_SINKS)
         self._sanitizers: Dict[str, FrozenSet[str]] = dict(_DEFAULT_SANITIZERS)
         self._max_call_depth: int = max_call_depth
+        self._max_loop_iterations: int = max_loop_iterations
 
         if sources:
             self._sources.update(sources)
@@ -498,6 +500,9 @@ class CPGTaintEngine:
 
         self._node_taint: Dict[int, TaintState] = {}
         self._summary_cache: Dict[Tuple[str, Tuple[str, ...]], TaintState] = {}
+        self._interprocedural_summary_cache: Dict[
+            Tuple[str, Tuple[str, ...], Tuple[int, ...]], TaintState
+        ] = {}
 
     # ── Configuration ───────────────────────────────────────────────────
 
@@ -575,6 +580,9 @@ class CPGTaintEngine:
         for seed_node, seed_tag in seeds:
             # (node_id, tags, call_context) → context-sensitive visited state
             visited: Set[Tuple[int, Tuple[str, ...], Tuple[int, ...]]] = set()
+            # Loop re-entry: track how many times each loop header has been
+            # entered with a distinct (node_id, call_context) pair.
+            loop_entries: Dict[Tuple[int, Tuple[int, ...]], int] = {}
             worklist: deque[
                 Tuple[
                     PDGNode, TaintState, List[PDGNode],
@@ -592,13 +600,26 @@ class CPGTaintEngine:
                     call_context,
                 )
                 if state_key in visited:
-                    continue
-                visited.add(state_key)
+                    # Allow re-entering loop headers (fixpoint iteration).
+                    if self._is_loop_header(node):
+                        lk = (node.node_id, call_context)
+                        loop_entries[lk] = loop_entries.get(lk, 0) + 1
+                        if loop_entries[lk] > self._max_loop_iterations:
+                            continue
+                    else:
+                        continue
+                else:
+                    visited.add(state_key)
 
                 existing = self._node_taint.get(node.node_id, _CLEAN)
                 self._node_taint[node.node_id] = existing.merge(tstate)
 
                 path = path + [node]
+
+                # For-loop iterator → index taint propagation: when
+                # iterating over a tainted container, the loop variable
+                # inherits the taint.
+                self._propagate_for_loop_index(node, tstate, mem)
 
                 sink_name, cwe = self._check_sink(node)
                 if sink_name is not None and tstate.is_tainted():
@@ -635,14 +656,15 @@ class CPGTaintEngine:
                     new_call_context = call_context
                     if self._is_call_edge(node, succ):
                         next_state, new_mem = self._interprocedural_transfer(
-                            next_state, node, succ, mem
+                            next_state, node, succ, mem, call_context
                         )
                         new_ctx_path = path + [succ]
                         new_call_context = call_context + (succ.node_id,)
                         if len(new_call_context) > self._max_call_depth:
                             continue
                     elif self._is_return_edge(node, succ):
-                        # Pop call context — restore caller's MemoryLayout
+                        # Propagate taint from callee's return value to call-site
+                        next_state = self._propagate_return(next_state, node, succ, mem)
                         if call_context:
                             new_call_context = call_context[:-1]
                     worklist.append(
@@ -822,12 +844,17 @@ class CPGTaintEngine:
             return self._propagate_call(ast_node, tstate, mem)
         if isinstance(ast_node, py_ast.Assign):
             return self._propagate_assign(ast_node, tstate, mem)
+        if isinstance(ast_node, py_ast.AnnAssign):
+            return self._propagate_annassign(ast_node, tstate, mem)
         if isinstance(ast_node, py_ast.BinaryOp):
             return self._propagate_binary_op(ast_node, tstate, mem)
         if isinstance(ast_node, py_ast.GetSubscript):
             return self._propagate_subscript(ast_node, tstate, mem)
         if isinstance(ast_node, py_ast.Return):
             return tstate
+
+        if isinstance(ast_node, py_ast.TryExceptFinally):
+            return self._propagate_try(ast_node, tstate, dst_node, mem)
 
         label = dst_node.label or ""
         for san, san_cwes in self._sanitizers.items():
@@ -966,6 +993,8 @@ class CPGTaintEngine:
                 return tstate
 
         if isinstance(rhs, py_ast.Call):
+            if tstate.is_tainted():
+                mem.mark_tainted(var_name, tstate)
             return tstate
 
         rhs_type = type(rhs).__name__
@@ -984,6 +1013,40 @@ class CPGTaintEngine:
             return tstate
 
         if self._looks_like_fstring(rhs) and self._contains_tainted_local(rhs, mem):
+            mem.mark_tainted(var_name, tstate)
+            return tstate
+
+        return tstate
+
+    # ── AnnAssign Propagation ─────────────────────────────────────────
+
+    def _propagate_annassign(
+        self,
+        ann_node: py_ast.AnnAssign,
+        tstate: TaintState,
+        mem: MemoryLayout,
+    ) -> Optional[TaintState]:
+        """Propagate taint through an annotated assignment (``x: int = val``).
+
+        If the RHS value is tainted, or if the target is itself a tainted
+        expression, taint flows through.  Annotation-only declarations
+        (``x: int`` with no value) do not propagate.
+        """
+        value = getattr(ann_node, "value", None)
+        if value is None:
+            return tstate
+        target = getattr(ann_node, "target", None)
+        if not isinstance(target, py_ast.Local):
+            return tstate
+        var_name = getattr(target, "name", "") or ""
+
+        if isinstance(value, py_ast.Local):
+            rhs_name = getattr(value, "name", "") or ""
+            if rhs_name and mem.is_tainted(rhs_name):
+                mem.mark_tainted(var_name, tstate)
+                return tstate
+
+        if self._contains_tainted_local(value, mem):
             mem.mark_tainted(var_name, tstate)
             return tstate
 
@@ -1144,6 +1207,11 @@ class CPGTaintEngine:
 
     # ── Interprocedural Taint ───────────────────────────────────────────
 
+    def _is_loop_header(self, node: PDGNode) -> bool:
+        """Check if a PDG node corresponds to a loop header Merge block."""
+        meta = self._cpg.node_meta(node)
+        return bool(meta.get("loop_header"))
+
     def _is_call_edge(self, src: PDGNode, dst: PDGNode) -> bool:
         self._cpg._ensure_built()
         for e in self._cpg._cpg_edges_out.get(src.node_id, ()):
@@ -1158,21 +1226,169 @@ class CPGTaintEngine:
                 return True
         return False
 
+    # ── Parameter extraction ─────────────────────────────────────────
+
+    def _get_callee_param_names(self, func_name: str) -> List[str]:
+        """Extract positional parameter names from a callee's ``Code`` object.
+
+        ``ProgramDependenceGraph.cfg.code`` holds the ``py_ast.Code`` AST node,
+        giving us direct access to ``Code.codeparameters``.  Returns an empty
+        list when the function cannot be found or has no parameters.
+        """
+        pdg = self._cpg._pdgs.get(func_name)
+        if pdg is None:
+            return []
+        code_ast = getattr(pdg.cfg, "code", None)
+        if code_ast is None or not isinstance(code_ast, py_ast.Code):
+            return []
+        codeparams = getattr(code_ast, "codeparameters", None)
+        if codeparams is None:
+            return []
+        posonly = getattr(codeparams, "posonlyparams", None) or []
+        params = getattr(codeparams, "params", None) or []
+        result: List[str] = []
+        for p in posonly:
+            if isinstance(p, py_ast.Local):
+                result.append(getattr(p, "name", "") or "")
+        for p in params:
+            if isinstance(p, py_ast.Local):
+                result.append(getattr(p, "name", "") or "")
+        return result
+
+    @staticmethod
+    def _get_call_arg_exprs(call_node: Any) -> List[Any]:
+        """Extract positional argument expressions from a ``Call`` AST node."""
+        if not isinstance(call_node, py_ast.Call):
+            return []
+        return list(getattr(call_node, "args", None) or [])
+
+    def _map_args_to_params(
+        self,
+        call_site: PDGNode,
+        func_name: str,
+        mem: MemoryLayout,
+        new_mem: MemoryLayout,
+    ) -> None:
+        """Transfer taint from caller-side actual arguments to callee-side
+        formal parameters in *new_mem*."""
+        call_ast = call_site.ast_node
+        if call_ast is None:
+            return
+        args = self._get_call_arg_exprs(call_ast)
+        if not args:
+            return
+        param_names = self._get_callee_param_names(func_name)
+        if not param_names:
+            return
+        for arg_expr, pname in zip(args, param_names):
+            if isinstance(arg_expr, py_ast.Local):
+                aname = getattr(arg_expr, "name", "") or ""
+                if aname and mem.is_tainted(aname):
+                    new_mem.mark_tainted(pname, mem.read(aname))
+
+    def _propagate_return(
+        self,
+        tstate: TaintState,
+        exit_node: PDGNode,
+        call_site: PDGNode,
+        mem: MemoryLayout,
+    ) -> TaintState:
+        """Propagate taint from a callee's ``Return`` value back to the
+        caller's call-site result.
+
+        When the callee exit carries a ``Return`` whose value references a
+        variable that is tainted in *mem*, the return is marked as tainted.
+        """
+        exit_ast = exit_node.ast_node
+        if not isinstance(exit_ast, py_ast.Return):
+            return tstate
+        # py_ast.Return uses "exprs" (a list; stdlib ast uses "value").
+        ret_exprs = getattr(exit_ast, "exprs", None)
+        if not ret_exprs:
+            return tstate
+        # The return value is either the sole expression or the first one.
+        ret_value = ret_exprs[0] if len(ret_exprs) == 1 else ret_exprs[0]
+        call_ast = call_site.ast_node
+        if call_ast is None:
+            return tstate
+
+        # If the return value references a tainted variable, produce a
+        # tainted state that flows back to the call site.  The caller's
+        # DATA edges will then mark the LHS variable at the call site.
+        if isinstance(ret_value, py_ast.Local):
+            rname = getattr(ret_value, "name", "") or ""
+            if rname and mem.is_tainted(rname):
+                ret_taint = mem.read(rname)
+                return tstate.merge(ret_taint)
+        if self._contains_tainted_local(ret_value, mem):
+            return tstate.merge(_USER_CONTROLLED)
+
+        # Also propagate if the tstate at the exit is already tainted
+        # (e.g. the return node itself was reached with tainted state).
+        if tstate.is_tainted():
+            return tstate
+
+        return tstate
+
+    def _propagate_for_loop_index(
+        self,
+        node: PDGNode,
+        tstate: TaintState,
+        mem: MemoryLayout,
+    ) -> None:
+        """If *node* is a loop header with for-loop variable metadata,
+        mark loop index variables as tainted when their iterators are
+        tainted in *mem*.
+        """
+        if not tstate.is_tainted():
+            return
+        meta = self._cpg.node_meta(node)
+        for_loop_vars = meta.get("for_loop_vars", [])
+        for iter_name, index_name in for_loop_vars:
+            if mem.is_tainted(iter_name):
+                mem.mark_tainted(index_name, tstate)
+
+    def _propagate_try(
+        self,
+        try_node: py_ast.TryExceptFinally,
+        tstate: TaintState,
+        pdg_node: PDGNode,
+        mem: MemoryLayout,
+    ) -> TaintState:
+        """Propagate taint through a TryExceptFinally node.
+
+        If ``tstate`` is tainted, any handler with a caught variable
+        ``except ... as e`` gets that variable marked as tainted in
+        *mem* (modelling exception flow into the handler).
+        """
+        if not tstate.is_tainted():
+            return tstate
+
+        meta = self._cpg.node_meta(pdg_node)
+        handlers = meta.get("handlers", [])
+        for hinfo in handlers:
+            caught_var = hinfo.get("caught_var")
+            if caught_var:
+                mem.mark_tainted(caught_var, tstate)
+        return tstate
+
     def _interprocedural_transfer(
         self,
         tstate: TaintState,
         src: PDGNode,
         dst: PDGNode,
         mem: MemoryLayout,
+        call_context: Tuple[int, ...] = (),
     ) -> Tuple[TaintState, MemoryLayout]:
         dst_meta = self._cpg.node_meta(dst)
         func_name = dst_meta.get("func_name", str(dst.node_id))
-        cache_key = (func_name, tuple(sorted(tstate.tags)))
-        cached = self._summary_cache.get(cache_key)
+        cache_key = (func_name, tuple(sorted(tstate.tags)), call_context)
+        cached = self._interprocedural_summary_cache.get(cache_key)
         if cached is not None:
             return cached, mem
-        self._summary_cache[cache_key] = tstate
+        self._interprocedural_summary_cache[cache_key] = tstate
         new_mem = MemoryLayout()
+        self._map_args_to_params(src, func_name, mem, new_mem)
         return tstate, new_mem
 
     # ── isinstance Guard Stripping ──────────────────────────────────────
