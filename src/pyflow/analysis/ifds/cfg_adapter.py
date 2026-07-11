@@ -7,10 +7,11 @@ from typing import Callable, Dict, Iterable, Sequence
 
 from pyflow.analysis.cfg import dfs as cfg_dfs
 from pyflow.analysis.cfg import graph as cfg_graph
+from pyflow.analysis.ir_utils import actual_argument_expressions, assigned_locals, resolve_call_name
 from pyflow.language.python import ast as py_ast
 
 from .supergraph import Supergraph
-from .transfers import actual_argument_expressions, bind_call_arguments, resolve_call_name
+from .transfers import bind_call_arguments
 
 
 CallResolver = Callable[
@@ -165,68 +166,6 @@ def iter_call_expressions_in_eval_order(
 
     visit(node)
     return tuple(found)
-
-
-def assigned_locals(operation: py_ast.PythonASTNode | None) -> tuple[py_ast.Local, ...]:
-    """Return locals overwritten by an operation.
-
-    This is used by IFDS clients to implement strong updates (kills) and
-    to route multi-result calls to specific assignment targets. Keep it a
-    best-effort overapproximation of Python "stores to locals".
-    """
-    direct: list[py_ast.Local] = []
-
-    if isinstance(operation, py_ast.Assign):
-        direct.extend(lcl for lcl in operation.lcls if isinstance(lcl, py_ast.Local))
-    elif isinstance(operation, py_ast.UnpackSequence):
-        direct.extend(lcl for lcl in operation.targets if isinstance(lcl, py_ast.Local))
-    elif isinstance(operation, py_ast.AnnAssign):
-        # Only an annotated assignment with a value overwrites the target.
-        if operation.value is None:
-            direct = []
-        elif isinstance(operation.target, py_ast.Local):
-            direct.append(operation.target)
-    elif isinstance(operation, py_ast.InputBlock):
-        for input_ in getattr(operation, "inputs", ()):
-            lcl = getattr(input_, "lcl", None)
-            if isinstance(lcl, py_ast.Local):
-                direct.append(lcl)
-    else:
-        direct = []
-
-    # Nested assignment expressions (walrus) also overwrite their targets.
-    # This is an intentional overapproximation: it ignores short-circuiting
-    # conditions and other path sensitivity.
-    walrus_targets: list[py_ast.Local] = []
-
-    def visit(current) -> None:
-        if current is None or isinstance(current, py_ast.leafTypes):
-            return
-        if isinstance(current, py_ast.Code):
-            return
-        if isinstance(current, py_ast.NamedExpr):
-            if isinstance(current.target, py_ast.Local):
-                walrus_targets.append(current.target)
-            visit(current.value)
-            return
-        if isinstance(current, (list, tuple)):
-            for child in current:
-                visit(child)
-            return
-        if hasattr(current, "visitChildren"):
-            current.visitChildren(visit)
-
-    visit(operation)
-
-    if not walrus_targets:
-        return tuple(direct)
-    merged: list[py_ast.Local] = []
-    seen: set[py_ast.Local] = set()
-    for lcl in (*direct, *walrus_targets):
-        if lcl not in seen:
-            seen.add(lcl)
-            merged.append(lcl)
-    return tuple(merged)
 
 
 def direct_call_cfg_resolver(

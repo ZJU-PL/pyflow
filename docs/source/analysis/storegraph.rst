@@ -56,13 +56,14 @@ Relationship to Other Modules
 | ``lifetimeanalysis``| Read/modify tracking using        |
 |                     | shape and CPA results             |
 +---------------------+-----------------------------------+
-| ``heap``            | **Independent** — operates on     |
-|                     | IFDS supergraph, not store graph  |
+| ``heap``            | **Independent** — operates on the     |
+|                     | CFG supergraph (consumed by IFDS),    |
+|                     | not the store graph                   |
 +---------------------+-----------------------------------+
 
 .. note::
 
    The :doc:`heap` abstraction uses its own model (``HeapLocation``,
-   ``HeapObject``) and does not depend on the store graph.  Heap serves IFDS
-   clients (taint, nullness, typestate); store graph serves CPA/shape/lifetime.
-   These are separate subsystems.
+   ``HeapObject``) and does not depend on the store graph.  Heap is
+   primarily consumed by IFDS clients (taint, nullness, typestate);
+   store graph serves CPA/shape/lifetime.  These are separate subsystems.

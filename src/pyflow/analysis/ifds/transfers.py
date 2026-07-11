@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import FrozenSet, Iterable
 
+from pyflow.analysis.ir_utils import actual_argument_expressions, resolve_call_name
 from pyflow.language.python import ast as py_ast
 from pyflow.language.python.default_markers import MISSING_DEFAULT
 
@@ -53,27 +54,6 @@ def identity_unless_killed(fact, killed: Iterable[object]):
     if fact in killed_set:
         return ()
     return (fact,)
-
-
-def actual_argument_expressions(call) -> tuple[object, ...]:
-    """Return positional, keyword, and unpacked argument expressions for a call."""
-    actuals: list[object] = []
-    selfarg = getattr(call, "selfarg", None)
-    if selfarg is not None:
-        actuals.append(selfarg)
-    actuals.extend(getattr(call, "args", ()))
-    for keyword in getattr(call, "kwds", ()):
-        if isinstance(keyword, tuple) and len(keyword) == 2:
-            actuals.append(keyword[1])
-        else:
-            actuals.append(keyword)
-    vargs = getattr(call, "vargs", None)
-    if vargs is not None:
-        actuals.append(vargs)
-    kargs = getattr(call, "kargs", None)
-    if kargs is not None:
-        actuals.append(kargs)
-    return tuple(actuals)
 
 
 def formal_parameters(params) -> tuple[py_ast.Local, ...]:
@@ -205,33 +185,3 @@ def actual_parameters(call, params=None) -> tuple[py_ast.Local, ...]:
         if isinstance(actual, py_ast.Local):
             actuals.append(actual)
     return tuple(actuals)
-
-
-def resolve_call_name(call, fallback_callee_names=()) -> str | None:
-    """Resolve a best-effort symbolic name for a call expression."""
-    if isinstance(call, py_ast.DirectCall) and call.code is not None:
-        return call.code.codeName()
-    if isinstance(call, py_ast.Call):
-        expr = call.expr
-        if isinstance(expr, py_ast.Local):
-            return expr.name
-        if isinstance(expr, py_ast.Existing):
-            name = getattr(expr.object, "pythonName", lambda: None)()
-            if isinstance(name, str):
-                return name
-            pyobj = getattr(expr.object, "pyobj", None)
-            if isinstance(pyobj, str):
-                return pyobj
-            return None
-    if isinstance(call, py_ast.MethodCall):
-        name = call.name
-        if isinstance(name, py_ast.Local):
-            return name.name
-        if isinstance(name, py_ast.Existing):
-            pyobj = getattr(name.object, "pyobj", None)
-            if isinstance(pyobj, str):
-                return pyobj
-    fallback = tuple(fallback_callee_names)
-    if len(fallback) == 1:
-        return fallback[0]
-    return None

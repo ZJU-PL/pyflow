@@ -36,7 +36,7 @@ Data Flow Analysis
 Heap, Shape, and Object Analysis
 --------------------------------
 
-* :doc:`heap` - Heap abstraction for IFDS clients (canonical locations, aliasing, update policy)
+* :doc:`heap` - Heap abstraction (canonical locations, aliasing, update policy; used by IFDS)
 * :doc:`storegraph` - Store graph analysis for object relationships (foundational data model for CPA/shape)
 * :doc:`shape` - Region-based shape analysis for data structures (reference counts, path info)
 * :doc:`lifetimeanalysis` - Variable lifetime analysis (read/modify tracking, post-shape pipeline)

@@ -114,6 +114,126 @@ class HeapPolicy:
          "complex", "NoneType", "ellipsis", "range", "slice"}
     )
 
+    # ── factory presets ──────────────────────────────────────────────
+
+    @classmethod
+    def precise(cls) -> "HeapPolicy":
+        """Maximum precision: context-sensitive allocation, named fields,
+        literal keys, recency tracking, strong nested updates."""
+        return cls(
+            allocation_sensitivity=AllocationSensitivity.CONTEXT,
+            field_sensitivity=FieldSensitivity.NAMED_FIELDS,
+            container_sensitivity=ContainerSensitivity.LITERAL_KEYS,
+            max_selector_depth=None,
+            context_sensitivity_depth=2,
+            recency=True,
+            allow_strong_nested_fresh=True,
+        )
+
+    @classmethod
+    def fast(cls) -> "HeapPolicy":
+        """Fast path: no field/container sensitivity, no escape tracking,
+        summary returns only."""
+        return cls(
+            allocation_sensitivity=AllocationSensitivity.SITE,
+            field_sensitivity=FieldSensitivity.NONE,
+            container_sensitivity=ContainerSensitivity.NONE,
+            recency=False,
+            track_escapes=False,
+            escape_on_unresolved_call=False,
+            escape_on_return=False,
+            treat_capitalized_calls_as_fresh=False,
+        )
+
+    @classmethod
+    def field_insensitive(cls) -> "HeapPolicy":
+        """Disable field sensitivity; keep allocation-site and container
+        sensitivity at defaults."""
+        return cls(field_sensitivity=FieldSensitivity.NONE)
+
+    @classmethod
+    def bounded_path(cls, *, max_depth: int = 3) -> "HeapPolicy":
+        """Limit selector depth to *max_depth*, summarizing beyond it."""
+        return cls(
+            field_sensitivity=FieldSensitivity.BOUNDED_PATH,
+            max_selector_depth=max_depth,
+        )
+
+    @classmethod
+    def context_sensitive(cls, *, depth: int = 2) -> "HeapPolicy":
+        """Context-sensitive allocation with default field/container sensitivity."""
+        return cls(
+            allocation_sensitivity=AllocationSensitivity.CONTEXT,
+            context_sensitivity_depth=depth,
+        )
+
+    # ── serialization ────────────────────────────────────────────────
+
+    def to_dict(self) -> dict:
+        return {
+            "allocation_sensitivity": self.allocation_sensitivity.value,
+            "field_sensitivity": self.field_sensitivity.value,
+            "container_sensitivity": self.container_sensitivity.value,
+            "max_selector_depth": self.max_selector_depth,
+            "max_index": self.max_index,
+            "context_sensitivity_depth": self.context_sensitivity_depth,
+            "recency": self.recency,
+            "allow_strong_nested_fresh": self.allow_strong_nested_fresh,
+            "bind_call_results": self.bind_call_results,
+            "track_escapes": self.track_escapes,
+            "escape_on_unresolved_call": self.escape_on_unresolved_call,
+            "escape_on_return": self.escape_on_return,
+            "fresh_return_names": sorted(self.fresh_return_names),
+            "summary_return_names": sorted(self.summary_return_names),
+            "copy_return_names": sorted(self.copy_return_names),
+            "treat_capitalized_calls_as_fresh": self.treat_capitalized_calls_as_fresh,
+            "immutable_type_hints": sorted(self.immutable_type_hints),
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "HeapPolicy":
+        return cls(
+            allocation_sensitivity=AllocationSensitivity(data["allocation_sensitivity"]),
+            field_sensitivity=FieldSensitivity(data["field_sensitivity"]),
+            container_sensitivity=ContainerSensitivity(data["container_sensitivity"]),
+            max_selector_depth=data.get("max_selector_depth"),
+            max_index=data.get("max_index", 8),
+            context_sensitivity_depth=data.get("context_sensitivity_depth", 0),
+            recency=data.get("recency", True),
+            allow_strong_nested_fresh=data.get("allow_strong_nested_fresh", False),
+            bind_call_results=data.get("bind_call_results", True),
+            track_escapes=data.get("track_escapes", True),
+            escape_on_unresolved_call=data.get("escape_on_unresolved_call", True),
+            escape_on_return=data.get("escape_on_return", True),
+            fresh_return_names=frozenset(data.get("fresh_return_names", ())),
+            summary_return_names=frozenset(data.get("summary_return_names", ())),
+            copy_return_names=frozenset(data.get("copy_return_names", ())),
+            treat_capitalized_calls_as_fresh=data.get("treat_capitalized_calls_as_fresh", True),
+            immutable_type_hints=frozenset(data.get("immutable_type_hints", ())),
+        )
+
+    def validate(self) -> None:
+        """Raise ValueError if the policy contains incompatible settings."""
+        if (
+            self.field_sensitivity is FieldSensitivity.BOUNDED_PATH
+            and self.max_selector_depth is None
+        ):
+            raise ValueError(
+                "field_sensitivity=BOUNDED_PATH requires max_selector_depth "
+                "to be set (not None)"
+            )
+        if self.max_selector_depth is not None and self.max_selector_depth < 0:
+            raise ValueError(
+                f"max_selector_depth must be >= 0, got {self.max_selector_depth}"
+            )
+        if self.max_index < 0:
+            raise ValueError(f"max_index must be >= 0, got {self.max_index}")
+        if self.context_sensitivity_depth < 0:
+            raise ValueError(
+                f"context_sensitivity_depth must be >= 0, "
+                f"got {self.context_sensitivity_depth}"
+            )
+
 
 @dataclass(frozen=True)
 class HeapObject:
@@ -138,6 +258,21 @@ class HeapObject:
         if self.freshness is not HeapObjectFreshness.FRESH:
             return False
         return self.escape is HeapEscapeState.LOCAL
+
+    def __repr__(self) -> str:
+        return f"HeapObject({self.kind.value}:{self.label})"
+
+    def to_dict(self) -> dict:
+        return {
+            "kind": self.kind.value,
+            "key": repr(self.key) if not isinstance(self.key, (str, int, tuple)) else self.key,
+            "label": self.label,
+            "type_hint": self.type_hint,
+            "allocation_site": repr(self.allocation_site) if self.allocation_site is not None else None,
+            "context": [repr(c) for c in self.context],
+            "freshness": self.freshness.value,
+            "escape": self.escape.value,
+        }
 
 
 @dataclass(frozen=True)
@@ -184,6 +319,29 @@ class HeapSelector:
     def summary(cls) -> "HeapSelector":
         return cls("summary", "*", precise=False)
 
+    def __repr__(self) -> str:
+        kind = self.kind
+        if kind == "field":
+            return ".*" if not self.precise else f".{self.value}"
+        if kind in ("element", "index"):
+            return "[*]" if not self.precise else f"[{self.value}]"
+        if kind == "key":
+            return f"[{self.value!r}]"
+        if kind == "element_type":
+            return f"[:{self.value}]"
+        if kind == "slice":
+            return "[:]"
+        if kind == "summary":
+            return "..."
+        return f"HeapSelector({self.kind!r}, {self.value!r})"
+
+    def to_dict(self) -> dict:
+        return {"kind": self.kind, "value": self.value, "precise": self.precise}
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "HeapSelector":
+        return cls(kind=data["kind"], value=data["value"], precise=data.get("precise", True))
+
 
 @dataclass(frozen=True)
 class HeapLocation:
@@ -222,6 +380,18 @@ class HeapLocation:
     def is_precise(self) -> bool:
         return all(selector.precise for selector in self.selectors)
 
+    def __repr__(self) -> str:
+        base = repr(self.root)
+        if not self.selectors:
+            return base
+        return base + "".join(repr(s) for s in self.selectors)
+
+    def to_dict(self) -> dict:
+        return {
+            "root": self.root.to_dict(),
+            "selectors": [s.to_dict() for s in self.selectors],
+        }
+
 
 @dataclass(frozen=True)
 class HeapWrite:
@@ -229,6 +399,12 @@ class HeapWrite:
 
     location: HeapLocation
     policy: UpdatePolicy
+
+    def __repr__(self) -> str:
+        return f"HeapWrite({self.location!r}, {self.policy.value})"
+
+    def to_dict(self) -> dict:
+        return {"location": self.location.to_dict(), "policy": self.policy.value}
 
 
 class HeapAbstraction:
@@ -981,6 +1157,33 @@ class HeapAbstraction:
             len(stored_path) <= len(query_path)
             and query_path[: len(stored_path)] == stored_path
         )
+
+    def to_dict(self) -> dict:
+        """Serialize the full heap state for inspection and debugging.
+
+        Returns a dictionary with policy, allocation sites, equivalence
+        classes, ref counts, and canonicalized object/location caches.
+        The ``raw_storage_provider`` callable is not serializable and is
+        omitted; reconstruction requires a new provider.
+        """
+        return {
+            "policy": self.policy.to_dict(),
+            "next_site": self.next_site,
+            "storage_overrides": {
+                str(k): [self._describe_raw_storage(r) for r in v]
+                for k, v in self.storage_overrides.items()
+            },
+            "allocation_sites": {str(k): v for k, v in self.allocation_sites.items()},
+            "site_count": len(self.site_storage),
+            "escaped_objects": sorted(
+                self.display_label_for_location(HeapLocation(obj))
+                for obj in sorted(self._escaped_objects, key=lambda o: o.label)
+            ),
+            "equivalence_classes": len(self._equiv_parent),
+            "total_ref_counts": sum(self._site_ref_counts.values()),
+            "cached_objects": len(self._objects),
+            "cached_locations": len(self._raw_locations),
+        }
 
     @staticmethod
     def _local_key(procedure: object, local: object) -> tuple[int, int]:

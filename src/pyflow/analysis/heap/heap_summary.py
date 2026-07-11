@@ -28,6 +28,30 @@ class HeapSummary:
             )
         )
 
+    def __repr__(self) -> str:
+        nz = {
+            k: len(v) for k, v in (
+                ("r", self.reads), ("w", self.writes),
+                ("d", self.deletes), ("e", self.escapes),
+                ("ret", self.returns),
+            ) if v
+        }
+        detail = " ".join(f"{k}={c}" for k, c in sorted(nz.items()))
+        n_alloc = len(self.allocations)
+        if n_alloc:
+            detail = f"{detail} alloc={n_alloc}" if detail else f"alloc={n_alloc}"
+        return f"HeapSummary({detail or 'empty'})"
+
+    def to_dict(self) -> dict:
+        return {
+            "reads": [loc.to_dict() for loc in self.reads],
+            "writes": [w.to_dict() for w in self.writes],
+            "deletes": [loc.to_dict() for loc in self.deletes],
+            "escapes": [loc.to_dict() for loc in self.escapes],
+            "returns": [loc.to_dict() for loc in self.returns],
+            "allocations": [obj.to_dict() for obj in self.allocations],
+        }
+
 
 class HeapSummaryBuilder:
     """Build fixed heap summaries from Python IR code bodies."""

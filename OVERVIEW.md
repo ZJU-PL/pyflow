@@ -26,11 +26,9 @@ PyFlow builds two main views of the program:
 
 ## IFDS and Heap Abstraction
 
-- **Heap abstraction** (`analysis/heap/`) — Canonical heap locations, alias tracking, and strong/weak update policy for IFDS clients (taint, nullness, typestate).  Precision is fixed by `HeapPolicy` before solving.  The heap model operates on the IFDS supergraph and is independent of the store graph pipeline.
+- **Heap abstraction** (`analysis/heap/`) — Standalone heap model providing canonical locations, alias tracking, and strong/weak update policy.  Primarily consumed by IFDS clients (taint, nullness, typestate).  Precision is fixed by `HeapPolicy` before solving.  The core model (`heap.py`) has zero IFDS dependencies; shared IR utilities live in `analysis/ir_utils.py`.
 
 - **IFDS** (`analysis/ifds/`) — Interprocedural Finite Distributive Subset solver.  The IFDS engine consumes the heap abstraction to track facts over canonical locations.  Clients live under `ifds/clients/`.
-
-The heap package was extracted from `ifds/` into an independent module.  The core model (`heap.py`) has no IFDS dependencies; the IFDS-dependent submodules (`heap_effects.py`, `heap_summary.py`) import from IFDS utilities.
 
 ---
 
@@ -58,7 +56,7 @@ Results pass down the pipeline: shape uses CPA; lifetime uses CPA and shape.
 
 | Module | Purpose | Data source |
 |--------|---------|-------------|
-| `heap` | Canonical locations, alias tracking, update policy for IFDS | IFDS supergraph (CFG-based) |
+| `heap` | Canonical locations, alias tracking, update policy | CFG supergraph (consumed by IFDS) |
 | `storegraph` | Foundational object/slot/region model | Shared by CPA/IPA/shape/lifetime |
 | `shape` | Data structure shape inference, reference counts | Store graph + CPA results |
 | `lifetimeanalysis` | Variable lifetime, read/modify tracking | Store graph + shape results |

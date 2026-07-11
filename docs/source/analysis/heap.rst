@@ -2,16 +2,17 @@ Heap Abstraction
 ================
 
 The heap abstraction (``pyflow.analysis.heap``) provides a canonical,
-policy-driven heap model for IFDS/IDE dataflow clients such as taint,
-nullness, and typestate analysis.  Unlike the storegraph-based analyses
-(CPA, shape, lifetime), the heap layer operates directly on the IFDS
-supergraph and expresses facts over fixed :class:`HeapLocation` values.
+policy-driven heap model for field-sensitive program analysis.  Its primary
+consumers are IFDS/IDE dataflow clients (taint, nullness, typestate), but
+the core model has no IFDS-specific dependencies — it is a standalone
+analysis module.  Unlike the storegraph-based analyses (CPA, shape,
+lifetime), the heap layer operates on the CFG supergraph and expresses
+facts over fixed :class:`HeapLocation` values.
 
-The package was extracted from ``pyflow.analysis.ifds`` into an independent
-module so that the heap model can evolve separately from IFDS solver
-machinery.  The IFDS-dependent submodules (:mod:`heap_effects`,
-:mod:`heap_summary`) remain importable through the package while the core
-model (:mod:`heap`) has no IFDS dependencies at all.
+The package was originally part of ``pyflow.analysis.ifds`` and was
+extracted into an independent module.  It now has zero IFDS imports:
+shared IR utilities live in :mod:`pyflow.analysis.ir_utils`, which both
+``heap`` and ``ifds`` import from.
 
 .. _heap-vs-shape:
 
@@ -21,10 +22,11 @@ How heap differs from shape and storegraph
 +-----------------+--------------------------------------+----------------------------------------+
 | Module          | Purpose                              | Runs on                                |
 +=================+======================================+========================================+
-| ``heap``        | Canonical locations, alias tracking, | IFDS supergraph (CFG-based)            |
-|                 | strong/weak update policy for        |                                        |
-|                 | IFDS clients.  Precision is fixed    |                                        |
-|                 | before solving.                      |                                        |
+| ``heap``        | Canonical locations, alias tracking, | CFG supergraph (e.g., IFDS)            |
+|                 | strong/weak update policy.  Primarily|                                        |
+|                 | consumed by IFDS clients (taint,     |                                        |
+|                 | nullness, typestate).  Precision is  |                                        |
+|                 | fixed before solving.                |                                        |
 +-----------------+--------------------------------------+----------------------------------------+
 | ``shape``       | Region-based data-structure          | Store graph, post-CPA pipeline         |
 |                 | inference.  Tracks object shapes,    |                                        |
@@ -41,7 +43,7 @@ How heap differs from shape and storegraph
 |                      | results.                           |                                        |
 +-----------------+--------------------------------------+----------------------------------------+
 
-In short: **heap** answers *"which abstract locations does this IFDS fact
+In short: **heap** answers *"which abstract locations does this fact
 refer to, and can I strong-update it?"*  **shape** answers *"what structural
 properties does this data structure have, and how many references point to
 each field?"*  **storegraph** is the shared data layer both of the latter two
@@ -116,7 +118,7 @@ Heap Effects and Summaries
 --------------------------
 
 ``HeapEffect`` (from :mod:`pyflow.analysis.heap.heap_effects`) is the
-operation-level heap contract shared by IFDS clients.  It records reads,
+operation-level heap contract shared by analysis clients.  It records reads,
 writes, deletes, escapes, returns, and allocations without encoding
 taint/nullness/typestate-specific facts.
 
@@ -124,20 +126,10 @@ taint/nullness/typestate-specific facts.
 effects over a procedure body.  It is a monotone, fixed summary intended for
 client reuse and future interprocedural heap-effect composition.
 
-.. note::
-
-   ``heap_effects`` and ``heap_summary`` depend on IFDS utilities
-   (``cfg_adapter``, ``transfers``).  They are importable through the
-   ``pyflow.analysis.heap`` package but are not auto-imported at package
-   level to avoid circular imports.  Import them directly::
-
-       from pyflow.analysis.heap.heap_effects import HeapEffect, HeapEffectBuilder
-       from pyflow.analysis.heap.heap_summary import HeapSummary, HeapSummaryBuilder
-
 Known Limits
 ------------
 
-The abstraction is designed as a heap layer for IFDS clients, not a complete
+The abstraction is primarily consumed by IFDS clients and is not a complete
 Python heap analysis.  It does not fully model descriptors, metaclasses,
 reflection, monkey-patching, native library behavior, or path-sensitive shape
 refinement.  For those concerns, see :doc:`shape` and :doc:`storegraph`.

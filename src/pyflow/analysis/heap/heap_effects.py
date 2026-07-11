@@ -12,9 +12,9 @@ from typing import Callable
 
 from pyflow.language.python import ast as py_ast
 
-from ..ifds.cfg_adapter import assigned_locals
+from pyflow.analysis.ir_utils import actual_argument_expressions, assigned_locals, resolve_call_name
+
 from .heap import HeapAbstraction, HeapLocation, HeapObject, HeapWrite, UpdatePolicy
-from ..ifds.transfers import actual_argument_expressions, resolve_call_name
 
 
 DYNAMIC_ATTRIBUTE_WILDCARD = "*"
@@ -44,6 +44,56 @@ class HeapEffect:
                 for write in self.writes
                 if write.policy is UpdatePolicy.STRONG
             )
+        )
+
+    def __repr__(self) -> str:
+        nz = {
+            k: len(v) for k, v in (
+                ("r", self.reads), ("w", self.writes),
+                ("d", self.deletes), ("e", self.escapes),
+            ) if v
+        }
+        detail = " ".join(f"{k}={c}" for k, c in sorted(nz.items()))
+        n_alloc = len(self.allocations)
+        if n_alloc:
+            detail = f"{detail} alloc={n_alloc}" if detail else f"alloc={n_alloc}"
+        return f"HeapEffect({detail or 'empty'})"
+
+    def to_dict(self) -> dict:
+        return {
+            "reads": [loc.to_dict() for loc in self.reads],
+            "writes": [w.to_dict() for w in self.writes],
+            "deletes": [loc.to_dict() for loc in self.deletes],
+            "escapes": [loc.to_dict() for loc in self.escapes],
+            "returns": [loc.to_dict() for loc in self.returns],
+            "allocations": [obj.to_dict() for obj in self.allocations],
+        }
+
+    def __bool__(self) -> bool:
+        return bool(
+            self.reads
+            or self.writes
+            or self.deletes
+            or self.escapes
+            or self.returns
+            or self.allocations
+        )
+
+    @property
+    def is_empty(self) -> bool:
+        return not bool(self)
+
+    def merge(self, other: "HeapEffect") -> "HeapEffect":
+        """Return a new effect combining both effects (union with dedup)."""
+        return HeapEffect(
+            reads=tuple(dict.fromkeys((*self.reads, *other.reads))),
+            writes=tuple(dict.fromkeys((*self.writes, *other.writes))),
+            deletes=tuple(dict.fromkeys((*self.deletes, *other.deletes))),
+            escapes=tuple(dict.fromkeys((*self.escapes, *other.escapes))),
+            returns=tuple(dict.fromkeys((*self.returns, *other.returns))),
+            allocations=tuple(
+                dict.fromkeys((*self.allocations, *other.allocations))
+            ),
         )
 
 
