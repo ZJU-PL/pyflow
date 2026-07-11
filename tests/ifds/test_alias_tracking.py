@@ -5,7 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from pyflow.analysis.ifds import IFDSResult, IFDSSolver, Supergraph, ZERO
+from pyflow.analysis.ifds.cfg_adapter import CallEffect, CallResultRoute, CFGNode
 from pyflow.analysis.ifds.clients._client_common import AnnotatedFactProblemBase
+from pyflow.analysis.ifds.heap import HeapObjectKind, HeapPolicy, UpdatePolicy
 from pyflow.analysis.ifds.problem import IFDSProblem
 from pyflow.language.python import ast as py_ast
 
@@ -68,6 +70,13 @@ class Location:
 
 def _labels(locations):
     return tuple(location.root.label for location in locations)
+
+
+def _problem() -> AliasTestProblem:
+    sg = Supergraph[str, str]()
+    sg.add_procedure("main", "main.entry", ["main.exit"])
+    sg.add_normal_edge("main.entry", "main.exit")
+    return AliasTestProblem(sg)
 
 
 class TestLocationAliasing:
@@ -253,8 +262,141 @@ class TestAllocationSites:
         p.set_raw_storage(y, ys)
 
         p._alias_locals(None, y, x)
-        assert p._allocation_sites[(id(None), id(y))] == p._allocation_sites[(id(None), id(x))]
+        assert p._allocation_sites[(id(None), id(y))] == p._allocation_sites[
+            (id(None), id(x))
+        ]
         p._unalias_locals(None, y)
         y_new_site = p._allocation_sites[(id(None), id(y))]
         x_site = p._allocation_sites[(id(None), id(x))]
         assert y_new_site != x_site
+
+
+class TestHeapPolicyIntegration:
+    def test_return_marks_returned_object_escaped(self):
+        x = py_ast.Local("x")
+        p = _problem()
+        heap = p._heap()
+        heap.policy = HeapPolicy(allow_strong_nested_fresh=True)
+        heap.bind_allocation_targets(None, (x,), object(), label="fresh object")
+        field = heap.dynamic_attribute_location(
+            p._locations_for_local(None, x)[0],
+            "payload",
+        )
+
+        assert heap.update_policy_for_location(field) is UpdatePolicy.STRONG
+        p._mark_escaped_values_for_operation(None, py_ast.Return([x]))
+
+        assert heap.update_policy_for_location(field) is UpdatePolicy.WEAK
+
+    def test_unresolved_call_marks_argument_object_escaped(self):
+        x = py_ast.Local("x")
+        p = _problem()
+        heap = p._heap()
+        heap.policy = HeapPolicy(allow_strong_nested_fresh=True)
+        heap.bind_allocation_targets(None, (x,), object(), label="fresh object")
+        field = heap.dynamic_attribute_location(
+            p._locations_for_local(None, x)[0],
+            "payload",
+        )
+        call = py_ast.Call(py_ast.Local("external"), [x], [], None, None)
+        node = CFGNode(None, None, "call")
+        p.adapter = _EffectAdapter(
+            CallEffect(
+                node=node,
+                operation=call,
+                call_expression=call,
+                evaluation_index=None,
+                call_name="external",
+                callees=(),
+                actual_arguments=(x,),
+                argument_bindings=(),
+                return_sites=(),
+                kill_slots=(),
+                result_route=CallResultRoute("expression"),
+            )
+        )
+
+        assert heap.update_policy_for_location(field) is UpdatePolicy.STRONG
+        p._mark_unresolved_call_arguments_escaped(node, call)
+
+        assert heap.update_policy_for_location(field) is UpdatePolicy.WEAK
+
+    def test_strong_dynamic_writes_kill_only_precise_singleton_locations(self):
+        obj = py_ast.Local("obj")
+        value = py_ast.Local("value")
+        key = py_ast.Existing(py_ast.program.Object("payload"))
+        p = _problem()
+        heap = p._heap()
+        heap.policy = HeapPolicy(allow_strong_nested_fresh=True)
+        heap.bind_allocation_targets(None, (obj,), object(), label="fresh object")
+        base = p._locations_for_local(None, obj)[0]
+        operation = py_ast.SetSubscript(value, obj, key)
+
+        kills = p._strong_dynamic_write_locations_for_operation(None, operation)
+
+        assert heap.dynamic_subscript_location(base, "['payload']") in kills
+        assert heap.dynamic_subscript_location(base, "[*]") not in kills
+
+    def test_call_assignment_materializes_constructor_as_fresh_allocation(self):
+        target = py_ast.Local("target")
+        call = py_ast.Call(py_ast.Local("User"), [], [], None, None)
+        operation = py_ast.Assign(call, [target])
+        p = _problem()
+
+        p._materialize_call_result_location(None, operation, call, 0)
+
+        location = p._locations_for_local(None, target)[0]
+        assert location.root.kind is HeapObjectKind.ALLOCATION
+        assert location.root.label == "User()"
+
+    def test_call_assignment_materializes_configured_summary_return(self):
+        target = py_ast.Local("target")
+        call = py_ast.Call(py_ast.Local("library_value"), [], [], None, None)
+        operation = py_ast.Assign(call, [target])
+        p = _problem()
+        p._heap().policy = HeapPolicy(
+            summary_return_names=frozenset({"library_value"})
+        )
+
+        p._materialize_call_result_location(None, operation, call, 0)
+
+        location = p._locations_for_local(None, target)[0]
+        assert location.root.kind is HeapObjectKind.SUMMARY
+        assert location.root.label == "library_value()"
+
+    def test_unresolved_lowercase_call_assignment_stays_summary(self):
+        target = py_ast.Local("target")
+        call = py_ast.Call(py_ast.Local("unknown_factory"), [], [], None, None)
+        operation = py_ast.Assign(call, [target])
+        node = CFGNode(None, None, "call")
+        p = _problem()
+        p.adapter = _EffectAdapter(
+            CallEffect(
+                node=node,
+                operation=operation,
+                call_expression=call,
+                evaluation_index=None,
+                call_name="unknown_factory",
+                callees=(),
+                actual_arguments=(),
+                argument_bindings=(),
+                return_sites=(),
+                kill_slots=(),
+                result_route=CallResultRoute("assigned"),
+            )
+        )
+
+        p._materialize_unresolved_call_summary(node, operation, call)
+
+        location = p._locations_for_local(None, target)[0]
+        assert location.root.kind is HeapObjectKind.SUMMARY
+        assert location.root.label == "unknown_factory()"
+
+
+class _EffectAdapter:
+    def __init__(self, effect: CallEffect) -> None:
+        self._effect = effect
+
+    def effect_of(self, node: CFGNode):
+        del node
+        return self._effect

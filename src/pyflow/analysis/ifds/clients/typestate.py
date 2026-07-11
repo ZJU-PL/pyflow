@@ -13,7 +13,7 @@ from ._client_common import AnnotatedFactProblemBase, build_entry_seeds
 from ..cfg_adapter import CFGNode, CFGSupergraphAdapter, assigned_locals
 from ..problem import IFDSProblem
 from ..solver import IFDSSolver
-from ..transfers import actual_argument_expressions, bind_call_arguments
+from ..transfers import actual_argument_expressions
 
 
 ZERO_TYPESTATE = "ZERO_TYPESTATE"
@@ -164,7 +164,13 @@ class InterproceduralTypestateProblem(
                 and state is not None
                 and self._expr_has_state(node.procedure, value, fact)
             ):
-                outputs.update(self._facts_for_modified_operation(operation, state))
+                outputs.update(
+                    self._facts_for_modified_operation(
+                        operation,
+                        state,
+                        procedure=node.procedure,
+                    )
+                )
                 outputs.update(
                     ResourceStateFact(location, state) for location in dynamic_subscript_locations
                 )
@@ -293,7 +299,10 @@ class InterproceduralTypestateProblem(
                 path = self._access_path_for_expression(value)
                 outputs.update(
                     self._facts_for_modified_operation(
-                        operation, state, access_path=path,
+                        operation,
+                        state,
+                        access_path=path,
+                        procedure=node.procedure,
                     )
                 )
             return tuple(outputs)
@@ -314,8 +323,8 @@ class InterproceduralTypestateProblem(
         if state is None:
             return tuple(outputs)
 
-        params = callee.code.codeparameters
-        for actual, formal in bind_call_arguments(call, params):
+        self._bind_callee_formals(call_node, callee)
+        for actual, formal in self._bind_call_arguments_for_callee(call_node, callee):
             if self._expr_has_state(call_node.procedure, actual, fact):
                 path = self._access_path_for_expression(actual)
                 outputs.update(
@@ -366,13 +375,17 @@ class InterproceduralTypestateProblem(
         formal = self._formal_for_fact(callee, exit_fact)
         call = call_effect.call_expression if call_effect is not None else None
         if formal is not None and state is not None and call is not None:
-            for actual, bound_formal in bind_call_arguments(
-                call, callee.code.codeparameters
+            for actual, bound_formal in self._bind_call_arguments_for_callee(
+                call_node,
+                callee,
             ):
                 if bound_formal is formal:
                     outputs.update(
                         self._facts_for_actual_locations(call_node.procedure, actual, state)
                     )
+        projected = self._project_constructor_heap_fact_to_caller(call_node, exit_fact)
+        if projected is not None:
+            outputs.add(projected)
 
         return tuple(outputs)
 
@@ -385,6 +398,12 @@ class InterproceduralTypestateProblem(
             else self.adapter.operation_of(call_node)
         )
         call_expression = call_effect.call_expression if call_effect is not None else None
+        self._mark_unresolved_call_arguments_escaped(call_node, call_expression)
+        self._materialize_unresolved_call_summary(
+            call_node,
+            operation,
+            call_expression,
+        )
         killed = self._killed_locations_for_node(call_node, include_semantic=False)
         outputs = set(self._identity_outputs(fact, killed))
         model = self._call_model_for_node(call_node)
@@ -598,7 +617,11 @@ class InterproceduralTypestateProblem(
         ):
             return tuple(
                 location
-                for fact in self._facts_for_modified_operation(operation, STATE_OPEN)
+                for fact in self._facts_for_modified_operation(
+                    operation,
+                    STATE_OPEN,
+                    procedure=procedure,
+                )
                 for location in (self._location_from_fact(fact),)
                 if location is not None
             )
@@ -633,7 +656,11 @@ class InterproceduralTypestateProblem(
         ):
             return tuple(
                 location
-                for fact in self._facts_for_modified_operation(operation, STATE_OPEN)
+                for fact in self._facts_for_modified_operation(
+                    operation,
+                    STATE_OPEN,
+                    procedure=procedure,
+                )
                 for location in (self._location_from_fact(fact),)
                 if location is not None
             )
@@ -690,9 +717,18 @@ class InterproceduralTypestateProblem(
     def _facts_for_modified_operation(
         self, operation: object, state: str,
         access_path: tuple[str, ...] = (),
+        *,
+        procedure: cfg_graph.Code | None = None,
     ) -> set[object]:
-        locations = self._annotation_locations(
-            getattr(getattr(operation, "annotation", None), "opModifies", None)
+        locations = tuple(
+            dict.fromkeys(
+                (
+                    *self._annotation_locations(
+                        getattr(getattr(operation, "annotation", None), "opModifies", None)
+                    ),
+                    *self._static_attribute_write_locations(procedure, operation),
+                )
+            )
         )
         return {
             ResourceStateFact(location, state, access_path=access_path)
@@ -737,17 +773,33 @@ class InterproceduralTypestateProblem(
     ) -> set[object]:
         if operation is None or call_expression is None:
             return set()
+        self._materialize_call_result_location(
+            procedure,
+            operation,
+            call_expression,
+            return_index,
+        )
 
         if (
             isinstance(operation, (py_ast.Assign, py_ast.UnpackSequence))
             and operation.expr is call_expression
         ):
             if not nested:
-                return {
+                facts = {
                     ExpressionResourceFact(
                         procedure, call_expression, state, return_index
                     )
                 }
+                if self._heap().policy.bind_call_results:
+                    facts.update(
+                        self._facts_for_assigned_locals(
+                            procedure,
+                            assigned_locals(operation),
+                            state,
+                            return_index,
+                        )
+                    )
+                return facts
             return self._facts_for_assigned_locals(
                 procedure,
                 assigned_locals(operation),
@@ -756,11 +808,21 @@ class InterproceduralTypestateProblem(
             )
         if isinstance(operation, py_ast.AnnAssign) and operation.value is call_expression:
             if not nested:
-                return {
+                facts = {
                     ExpressionResourceFact(
                         procedure, call_expression, state, return_index
                     )
                 }
+                if self._heap().policy.bind_call_results:
+                    facts.update(
+                        self._facts_for_assigned_locals(
+                            procedure,
+                            assigned_locals(operation),
+                            state,
+                            return_index,
+                        )
+                    )
+                return facts
             return self._facts_for_assigned_locals(
                 procedure,
                 assigned_locals(operation),
@@ -798,7 +860,11 @@ class InterproceduralTypestateProblem(
                         procedure, call_expression, state, return_index
                     )
                 }
-            return self._facts_for_modified_operation(operation, state)
+            return self._facts_for_modified_operation(
+                operation,
+                state,
+                procedure=procedure,
+            )
 
         for child in self._nested_operations(operation):
             child_result = self._facts_for_nested_call_result(

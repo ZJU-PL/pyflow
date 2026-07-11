@@ -28,6 +28,18 @@ from .heap import (
     HeapWrite,
     UpdatePolicy,
 )
+from .heap_effects import (
+    CALL_RETURN_COPY,
+    CALL_RETURN_FRESH,
+    CALL_RETURN_OPAQUE,
+    CALL_RETURN_SUMMARY,
+    HeapEffect,
+    HeapEffectBuilder,
+)
+from .heap_summary import (
+    HeapSummary,
+    HeapSummaryBuilder,
+)
 from .problem import (
     ComposedEdgeFunction,
     ConstantEdgeFunction,
@@ -127,6 +139,10 @@ __all__ = [
     "ConstantEdgeFunction",
     "CFGNode",
     "CFGSupergraphAdapter",
+    "CALL_RETURN_COPY",
+    "CALL_RETURN_FRESH",
+    "CALL_RETURN_OPAQUE",
+    "CALL_RETURN_SUMMARY",
     "EdgeFunction",
     "ExpressionNullFact",
     "ExpressionResourceFact",
@@ -193,6 +209,8 @@ __all__ = [
     "ContainerSensitivity",
     "FieldSensitivity",
     "HeapAbstraction",
+    "HeapEffect",
+    "HeapEffectBuilder",
     "HeapEscapeState",
     "HeapLocation",
     "HeapObject",
@@ -200,6 +218,8 @@ __all__ = [
     "HeapObjectKind",
     "HeapPolicy",
     "HeapSelector",
+    "HeapSummary",
+    "HeapSummaryBuilder",
     "HeapWrite",
     "identity_unless_killed",
     "iter_call_expressions",

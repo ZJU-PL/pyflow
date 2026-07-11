@@ -11,11 +11,11 @@ from pyflow.language.python import ast as py_ast
 from ._call_model import CallModelRegistry
 from ._client_common import AnnotatedFactProblemBase, build_entry_seeds
 from ..cfg_adapter import CFGNode, CFGSupergraphAdapter, assigned_locals
+from ..heap import HeapLocation, HeapObjectKind
 from ..problem import IFDSProblem
 from ..solver import IFDSSolver
 from ..transfers import (
     actual_argument_expressions,
-    bind_call_arguments,
 )
 
 
@@ -115,11 +115,18 @@ class TaintAnalysisResult:
         return self._ifds_result.explain_fact(node, fact)
 
     def fact_for_local(self, node: CFGNode, local: py_ast.Local) -> TaintFact | None:
+        fallback: TaintFact | None = None
         for location in self._problem.local_locations(node.procedure, local):
             fact = TaintFact(location)
             if self._ifds_result.is_reached(node, fact):
-                return fact
-        return None
+                if (
+                    isinstance(location, HeapLocation)
+                    and location.root.kind is not HeapObjectKind.STORAGE
+                ):
+                    return fact
+                if fallback is None:
+                    fallback = fact
+        return fallback
 
 
 class InterproceduralTaintProblem(
@@ -194,7 +201,12 @@ class InterproceduralTaintProblem(
                 self._direct_expression_fact(value, fact) is not None
                 or self._expr_is_tainted(node.procedure, value, fact)
             ):
-                outputs.update(self._facts_for_modified_operation(operation))
+                outputs.update(
+                    self._facts_for_modified_operation(
+                        operation,
+                        procedure=node.procedure,
+                    )
+                )
                 outputs.update(
                     self._make_location_fact(location) for location in dynamic_subscript_locations
                 )
@@ -314,7 +326,9 @@ class InterproceduralTaintProblem(
                 path = self._access_path_for_expression(value)
                 outputs.update(
                     self._facts_for_modified_operation(
-                        operation, access_path=path,
+                        operation,
+                        access_path=path,
+                        procedure=node.procedure,
                     )
                 )
             return tuple(outputs)
@@ -335,8 +349,8 @@ class InterproceduralTaintProblem(
         if call is None:
             return tuple(outputs)
 
-        params = callee.code.codeparameters
-        for actual, formal in bind_call_arguments(call, params):
+        self._bind_callee_formals(call_node, callee)
+        for actual, formal in self._bind_call_arguments_for_callee(call_node, callee):
             if self._expr_is_tainted(call_node.procedure, actual, fact):
                 path = self._access_path_for_expression(actual)
                 if path:
@@ -378,12 +392,24 @@ class InterproceduralTaintProblem(
                     nested=False,
                 )
             )
+        projected = self._project_constructor_heap_fact_to_caller(call_node, exit_fact)
+        if projected is not None:
+            outputs.add(projected)
 
         return tuple(outputs)
 
     def call_to_return_flow(self, call_node: CFGNode, return_site: CFGNode, fact: object):
         del return_site
         call_effect = self._call_effect(call_node)
+        call_expression = call_effect.call_expression if call_effect is not None else None
+        self._mark_unresolved_call_arguments_escaped(call_node, call_expression)
+        self._materialize_unresolved_call_summary(
+            call_node,
+            call_effect.operation
+            if call_effect is not None
+            else self.adapter.operation_of(call_node),
+            call_expression,
+        )
         killed = self._killed_locations_for_node(call_node, include_semantic=False)
         outputs = set(self._identity_outputs(fact, killed))
         model = self._call_model_for_node(call_node)
