@@ -99,7 +99,16 @@ class HeapPolicy:
     context_sensitivity_depth: int = 0
     recency: bool = True
     allow_strong_nested_fresh: bool = False
-    bind_call_results: bool = False
+    bind_call_results: bool = True
+    track_escapes: bool = True
+    escape_on_unresolved_call: bool = True
+    escape_on_return: bool = True
+    fresh_return_names: frozenset[str] = frozenset()
+    summary_return_names: frozenset[str] = frozenset()
+    copy_return_names: frozenset[str] = frozenset(
+        {"copy", "list", "tuple", "set", "dict"}
+    )
+    treat_capitalized_calls_as_fresh: bool = True
 
 
 @dataclass(frozen=True)
@@ -249,6 +258,7 @@ class HeapAbstraction:
         self._raw_locations: dict[int, HeapLocation] = {}
         self._objects: dict[tuple[object, ...], HeapObject] = {}
         self._object_labels: dict[HeapObject, str] = {}
+        self._escaped_objects: set[HeapObject] = set()
         self.next_site = next_site
 
     def locations_for_local(
@@ -298,6 +308,8 @@ class HeapAbstraction:
         can make another access path observe the old value.
         """
         if location.is_nested() and not self.policy.allow_strong_nested_fresh:
+            return UpdatePolicy.WEAK
+        if location.root in self._escaped_objects:
             return UpdatePolicy.WEAK
         if not location.root.is_singleton():
             return UpdatePolicy.WEAK
@@ -392,16 +404,75 @@ class HeapAbstraction:
         procedure: object,
         local: object,
         obj: HeapObject,
+        *,
+        include_raw_fallback: bool = False,
     ) -> None:
         """Bind a local directly to an abstract object root."""
         if not self._is_named_local(local):
             return
         key = self._local_key(procedure, local)
-        self.storage_overrides[key] = (obj,)
+        storage = (obj,)
+        if include_raw_fallback:
+            storage = (*storage, *self._raw_storage_provider(procedure, local))
+        self.storage_overrides[key] = storage
         name = getattr(local, "name", None)
         if isinstance(name, str) and obj not in self._object_labels:
             self._object_labels[obj] = name
-        self._assign_site(key, (obj,))
+        self._assign_site(key, storage)
+
+    def bind_local_to_locations(
+        self,
+        procedure: object,
+        local: object,
+        locations: tuple[object, ...],
+        *,
+        include_raw_fallback: bool = False,
+    ) -> None:
+        """Bind a local to existing abstract locations."""
+        if not self._is_named_local(local):
+            return
+        storage = tuple(
+            dict.fromkeys(self.location_for_raw(location) for location in locations)
+        )
+        if include_raw_fallback:
+            storage = (*storage, *self._raw_storage_provider(procedure, local))
+        if not storage:
+            return
+        key = self._local_key(procedure, local)
+        self.storage_overrides[key] = storage
+        name = getattr(local, "name", None)
+        if isinstance(name, str):
+            for raw in storage:
+                location = self.location_for_raw(raw)
+                if location.root not in self._object_labels:
+                    self._object_labels[location.root] = name
+        self._assign_site(key, storage)
+
+    def bind_parameter(
+        self,
+        procedure: object,
+        formal: object,
+        index: int,
+        actual_locations: tuple[object, ...],
+        *,
+        include_raw_fallback: bool = True,
+    ) -> None:
+        """Bind a callee formal to actual heap roots or to a parameter root."""
+        if actual_locations:
+            self.bind_local_to_locations(
+                procedure,
+                formal,
+                actual_locations,
+                include_raw_fallback=include_raw_fallback,
+            )
+            return
+        label = getattr(formal, "name", None)
+        self.bind_local_to_object(
+            procedure,
+            formal,
+            self.parameter_object(procedure, index, label=label),
+            include_raw_fallback=include_raw_fallback,
+        )
 
     def bind_allocation_targets(
         self,
@@ -412,6 +483,7 @@ class HeapAbstraction:
         label: str | None = None,
         type_hint: str | None = None,
         context: tuple[object, ...] = (),
+        include_raw_fallback: bool = False,
     ) -> None:
         """Bind assignment targets to a fixed allocation-site object."""
         obj = self.allocation_object(
@@ -422,7 +494,41 @@ class HeapAbstraction:
             context=context,
         )
         for target in targets:
-            self.bind_local_to_object(procedure, target, obj)
+            self.bind_local_to_object(
+                procedure,
+                target,
+                obj,
+                include_raw_fallback=include_raw_fallback,
+            )
+
+    def bind_fresh_return_targets(
+        self,
+        procedure: object,
+        targets: tuple[object, ...],
+        site: object,
+        *,
+        label: str | None = None,
+        type_hint: str | None = None,
+        context: tuple[object, ...] = (),
+    ) -> None:
+        """Bind call-result targets to a fresh allocation-like return object."""
+        obj = self.allocation_object(
+            procedure,
+            site,
+            label=label,
+            type_hint=type_hint,
+            context=context,
+        )
+        for target in targets:
+            self.bind_local_to_object(
+                procedure,
+                target,
+                obj,
+                include_raw_fallback=True,
+            )
+            name = getattr(target, "name", None)
+            if isinstance(name, str):
+                self._object_labels[obj] = name
 
     def bind_call_result_targets(
         self,
@@ -445,7 +551,31 @@ class HeapAbstraction:
                 type_hint=type_hint,
                 context=context,
             )
-            self.bind_local_to_object(procedure, target, obj)
+            self.bind_local_to_object(
+                procedure,
+                target,
+                obj,
+                include_raw_fallback=True,
+            )
+
+    def bind_summary_targets(
+        self,
+        procedure: object,
+        targets: tuple[object, ...],
+        key: object,
+        *,
+        label: str | None = None,
+        type_hint: str | None = None,
+    ) -> None:
+        """Bind assignment targets to a summary object."""
+        obj = self.summary_object(key, label=label, type_hint=type_hint)
+        for target in targets:
+            self.bind_local_to_object(
+                procedure,
+                target,
+                obj,
+                include_raw_fallback=True,
+            )
 
     def update_assignment_aliases(
         self,
@@ -577,6 +707,59 @@ class HeapAbstraction:
             escape=HeapEscapeState.EXTERNAL,
         )
 
+    def global_object(
+        self,
+        name: object,
+        *,
+        module: object | None = None,
+        label: str | None = None,
+        type_hint: str | None = None,
+    ) -> HeapObject:
+        display = label or str(name)
+        key = ("global", module, name)
+        return self._object(
+            HeapObjectKind.GLOBAL,
+            key,
+            display,
+            type_hint=type_hint,
+            freshness=HeapObjectFreshness.FRESH,
+            escape=HeapEscapeState.EXTERNAL,
+        )
+
+    def cell_object(
+        self,
+        name: object,
+        *,
+        label: str | None = None,
+        type_hint: str | None = None,
+    ) -> HeapObject:
+        display = label or str(name)
+        return self._object(
+            HeapObjectKind.CELL,
+            ("cell", name),
+            display,
+            type_hint=type_hint,
+            freshness=HeapObjectFreshness.FRESH,
+            escape=HeapEscapeState.UNKNOWN,
+        )
+
+    def module_object(
+        self,
+        name: object,
+        *,
+        label: str | None = None,
+        type_hint: str | None = None,
+    ) -> HeapObject:
+        display = label or str(name)
+        return self._object(
+            HeapObjectKind.GLOBAL,
+            ("module", name),
+            display,
+            type_hint=type_hint or "module",
+            freshness=HeapObjectFreshness.FRESH,
+            escape=HeapEscapeState.EXTERNAL,
+        )
+
     def summary_object(
         self,
         key: object,
@@ -611,6 +794,17 @@ class HeapAbstraction:
             elif selector.kind == "summary":
                 label = f"{label}.*"
         return label
+
+    def mark_escaped(self, location: object) -> None:
+        """Mark a location's root as escaped under the fixed escape policy."""
+        if not self.policy.track_escapes:
+            return
+        heap_location = self.location_for_raw(location)
+        self._escaped_objects.add(heap_location.root)
+
+    def mark_all_escaped(self, locations: tuple[object, ...]) -> None:
+        for location in locations:
+            self.mark_escaped(location)
 
     @staticmethod
     def access_path_prefix_matches(stored: object, query: object) -> bool:
@@ -727,6 +921,8 @@ class HeapAbstraction:
     ) -> tuple[object, ...]:
         if self.policy.allocation_sensitivity is AllocationSensitivity.NONE:
             return (kind,)
+        if isinstance(site, tuple) and site and site[0] == "call_return":
+            return (kind, *site)
         if self.policy.allocation_sensitivity is AllocationSensitivity.SITE:
             return kind, id(site)
         if self.policy.allocation_sensitivity is AllocationSensitivity.PROCEDURE:

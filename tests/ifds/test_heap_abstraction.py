@@ -197,6 +197,70 @@ def test_heap_abstraction_binds_call_result_targets():
     assert location.root.escape is HeapEscapeState.UNKNOWN
 
 
+def test_heap_abstraction_binds_summary_targets_as_weak_objects():
+    x = py_ast.Local("x")
+    heap = HeapAbstraction(lambda _procedure, _local: ())
+
+    heap.bind_summary_targets(None, (x,), "library", label="library()")
+
+    location = heap.locations_for_local(None, x)[0]
+    assert location.root.kind is HeapObjectKind.SUMMARY
+    assert location.root.label == "library()"
+    assert heap.update_policy_for_location(location) is UpdatePolicy.WEAK
+
+
+def test_heap_abstraction_binds_formals_to_actual_locations():
+    actual = py_ast.Local("actual")
+    formal = py_ast.Local("formal")
+    raw = {id(formal): (RawStorage("formal raw"),)}
+    heap = HeapAbstraction(lambda _procedure, local: raw.get(id(local), ()))
+    heap.bind_allocation_targets(None, (actual,), object(), label="fresh object")
+
+    heap.bind_parameter(None, formal, 0, heap.locations_for_local(None, actual))
+
+    formal_locations = heap.locations_for_local(None, formal)
+    assert formal_locations[0] == heap.locations_for_local(None, actual)[0]
+    assert formal_locations[0].root.kind is HeapObjectKind.ALLOCATION
+    assert formal_locations[1].root.kind is HeapObjectKind.STORAGE
+
+
+def test_heap_abstraction_binds_unknown_formals_to_parameter_objects():
+    formal = py_ast.Local("formal")
+    raw = {id(formal): (RawStorage("formal raw"),)}
+    heap = HeapAbstraction(lambda _procedure, local: raw.get(id(local), ()))
+
+    heap.bind_parameter(None, formal, 2, ())
+
+    formal_locations = heap.locations_for_local(None, formal)
+    assert formal_locations[0].root.kind is HeapObjectKind.PARAMETER
+    assert formal_locations[0].root.label == "formal"
+    assert formal_locations[1].root.kind is HeapObjectKind.STORAGE
+
+
+def test_heap_abstraction_exposes_global_cell_and_module_roots():
+    heap = HeapAbstraction(lambda _procedure, _local: ())
+
+    global_location = heap.location_for_raw(heap.global_object("CONFIG"))
+    cell_location = heap.location_for_raw(heap.cell_object("closed_over"))
+    module_location = heap.location_for_raw(heap.module_object("pkg.mod"))
+
+    assert global_location.root.kind is HeapObjectKind.GLOBAL
+    assert global_location.root.label == "CONFIG"
+    assert global_location.root.escape is HeapEscapeState.EXTERNAL
+    assert cell_location.root.kind is HeapObjectKind.CELL
+    assert cell_location.root.escape is HeapEscapeState.UNKNOWN
+    assert module_location.root.kind is HeapObjectKind.GLOBAL
+    assert module_location.root.type_hint == "module"
+
+
+def test_heap_policy_enables_fixed_escape_knobs_by_default():
+    policy = HeapPolicy()
+
+    assert policy.track_escapes
+    assert policy.escape_on_unresolved_call
+    assert policy.escape_on_return
+
+
 def test_heap_abstraction_field_policy_can_collapse_fields():
     base = RawStorage("obj")
     heap = HeapAbstraction(
@@ -259,3 +323,16 @@ def test_heap_abstraction_weak_update_for_summary_or_imprecise_locations():
 
     assert heap.update_policy_for_location(summary_field) is UpdatePolicy.WEAK
     assert heap.update_policy_for_location(imprecise) is UpdatePolicy.WEAK
+
+
+def test_heap_abstraction_escaped_fresh_object_uses_weak_updates():
+    heap = HeapAbstraction(
+        lambda _procedure, _local: (),
+        policy=HeapPolicy(allow_strong_nested_fresh=True),
+    )
+    obj = heap.allocation_object(None, object(), label="object")
+    field = heap.dynamic_attribute_location(obj, "payload")
+
+    assert heap.update_policy_for_location(field) is UpdatePolicy.STRONG
+    heap.mark_escaped(field)
+    assert heap.update_policy_for_location(field) is UpdatePolicy.WEAK
