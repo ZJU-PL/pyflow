@@ -26,6 +26,7 @@ from .optimize import run_analysis, list_optimization_passes, add_optimize_parse
 from .ir import run_ir_dump, add_ir_parser
 from .security import run_security_analysis, add_security_parser
 from .dataflow import run_dataflow_analysis, add_dataflow_parser
+from .cpg import run_cpg, add_cpg_parser
 from . import callgraph
 
 
@@ -62,6 +63,9 @@ def main():
 
     # IFDS/IDE-backed dataflow command
     add_dataflow_parser(subparsers)
+
+    # CPG command
+    add_cpg_parser(subparsers)
 
     args = parser.parse_args()
 
@@ -113,6 +117,8 @@ def main():
         return run_security_analysis(args.targets, args)
     elif args.command == "dataflow":
         return run_dataflow_analysis(input_path, args)
+    elif args.command == "cpg":
+        return run_cpg(args)
     else:
         parser.print_help()
         return 1

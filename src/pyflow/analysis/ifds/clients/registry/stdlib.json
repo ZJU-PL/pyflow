@@ -91,5 +91,91 @@
     {"call": "str.lstrip", "taint_sanitizer": true},
     {"call": "str.rstrip", "taint_sanitizer": true},
     {"call": "str.replace", "taint_sanitizer": true}
+  ],
+  "rules": [
+    {
+      "id": "PYFLOW-SRC-USER-INPUT",
+      "title": "User-controlled standard input source",
+      "pattern_type": "taint_source",
+      "category": "user_input",
+      "calls": ["input", "sys.argv", "sys.stdin.read", "sys.stdin.readline"]
+    },
+    {
+      "id": "PYFLOW-SRC-ENV",
+      "title": "Environment-derived input source",
+      "pattern_type": "taint_source",
+      "category": "env",
+      "calls": ["os.environ", "os.environ.get", "os.getenv"]
+    },
+    {
+      "id": "PYFLOW-SRC-FILE",
+      "title": "File-derived input source",
+      "pattern_type": "taint_source",
+      "category": "file",
+      "calls": ["open", "io.open", "pathlib.Path.read_text", "pathlib.Path.read_bytes"]
+    },
+    {
+      "id": "PYFLOW-SRC-NETWORK",
+      "title": "Network-derived input source",
+      "pattern_type": "taint_source",
+      "category": "network",
+      "calls": ["socket.recv", "socket.recvfrom"]
+    },
+    {
+      "id": "PYFLOW-SINK-CMD-INJECTION",
+      "title": "Command execution with tainted data",
+      "pattern_type": "taint_sink",
+      "cwe": "CWE-78",
+      "severity": "HIGH",
+      "sink_arg_positions": [0],
+      "calls": ["os.system", "os.popen", "subprocess.run", "subprocess.call", "subprocess.Popen", "subprocess.check_output"],
+      "suggestion": "Pass argument lists to subprocess with shell=False and validate user-controlled command components."
+    },
+    {
+      "id": "PYFLOW-SINK-CODE-INJECTION",
+      "title": "Dynamic code execution with tainted data",
+      "pattern_type": "taint_sink",
+      "cwe": "CWE-95",
+      "severity": "HIGH",
+      "sink_arg_positions": [0],
+      "calls": ["eval", "exec", "compile"],
+      "suggestion": "Avoid dynamic code execution; use explicit dispatch tables or parsers for user-controlled expressions."
+    },
+    {
+      "id": "PYFLOW-SINK-DESERIALIZATION",
+      "title": "Unsafe deserialization with tainted data",
+      "pattern_type": "taint_sink",
+      "cwe": "CWE-502",
+      "severity": "HIGH",
+      "sink_arg_positions": [0],
+      "calls": ["pickle.loads", "pickle.load", "yaml.load", "marshal.loads", "marshal.load"],
+      "suggestion": "Use safe data formats or safe loaders, and avoid deserializing untrusted bytes."
+    },
+    {
+      "id": "PYFLOW-SINK-LOG-INJECTION",
+      "title": "Logging tainted data",
+      "pattern_type": "taint_sink",
+      "cwe": "CWE-117",
+      "severity": "MEDIUM",
+      "sink_arg_positions": [0],
+      "calls": ["logging.info", "logging.warning", "logging.error", "logging.debug"],
+      "suggestion": "Normalize or encode untrusted text before writing it to logs."
+    },
+    {
+      "id": "PYFLOW-SANITIZE-HTML",
+      "title": "HTML and URL encoding sanitizer",
+      "pattern_type": "taint_sanitizer",
+      "sanitizer_categories": ["user_input"],
+      "calls": ["html.escape", "urllib.parse.quote", "urllib.parse.quote_plus"],
+      "suggestion": "Use context-specific encoding for the output context."
+    },
+    {
+      "id": "PYFLOW-SANITIZE-PATH",
+      "title": "Path component sanitizer",
+      "pattern_type": "taint_sanitizer",
+      "sanitizer_categories": ["file", "user_input"],
+      "calls": ["os.path.basename", "os.path.realpath"],
+      "suggestion": "Validate normalized paths against an allowed base directory."
+    }
   ]
 }

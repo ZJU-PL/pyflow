@@ -28,5 +28,52 @@
     {"call": "fastapi.responses.FileResponse", "taint_sink": true},
     {"call": "starlette.datastructures.UploadFile.read", "taint_source": true, "category": "file"},
     {"call": "starlette.datastructures.UploadFile.filename", "taint_source": true, "category": "file"}
+  ],
+  "rules": [
+    {
+      "id": "PYFLOW-FASTAPI-SRC-REQUEST",
+      "title": "FastAPI request data source",
+      "pattern_type": "taint_source",
+      "category": "user_input",
+      "calls": [
+        "fastapi.Request.query_params.get",
+        "fastapi.Request.path_params.get",
+        "fastapi.Request.headers.get",
+        "fastapi.Request.cookies.get",
+        "fastapi.Request.json",
+        "fastapi.Request.body",
+        "fastapi.Request.form"
+      ]
+    },
+    {
+      "id": "PYFLOW-FASTAPI-SINK-SSRF",
+      "title": "Outbound HTTP request with tainted URL",
+      "pattern_type": "taint_sink",
+      "cwe": "CWE-918",
+      "severity": "HIGH",
+      "sink_arg_positions": [0],
+      "calls": ["requests.get", "requests.post", "httpx.get", "httpx.post", "httpx.AsyncClient.get"],
+      "suggestion": "Validate outbound URLs against an allowlist and block private network ranges."
+    },
+    {
+      "id": "PYFLOW-FASTAPI-SINK-PATH-TRAVERSAL",
+      "title": "File response with tainted path",
+      "pattern_type": "taint_sink",
+      "cwe": "CWE-22",
+      "severity": "HIGH",
+      "sink_arg_positions": [0],
+      "calls": ["fastapi.responses.FileResponse", "starlette.responses.FileResponse", "open"],
+      "suggestion": "Resolve paths against a trusted base directory and reject traversal outside it."
+    },
+    {
+      "id": "PYFLOW-FASTAPI-SINK-XSS",
+      "title": "HTML response with tainted content",
+      "pattern_type": "taint_sink",
+      "cwe": "CWE-79",
+      "severity": "HIGH",
+      "sink_arg_positions": [0],
+      "calls": ["fastapi.responses.HTMLResponse", "starlette.responses.HTMLResponse"],
+      "suggestion": "Escape or sanitize user-controlled content before returning HTML."
+    }
   ]
 }

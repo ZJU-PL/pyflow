@@ -97,13 +97,21 @@ def _collect_local_defs_uses(
     return set(duv.lcldef.keys()), set(duv.lcluse.keys())
 
 
+def _flatten_children(child: Any, into: List[Any]) -> None:
+    """Recursively flatten nested tuples/lists into *into*, skipping Nones."""
+    if child is None:
+        return
+    if isinstance(child, (list, tuple)):
+        for item in child:
+            _flatten_children(item, into)
+    else:
+        into.append(child)
+
+
 def _iter_ast_children(node: Any) -> List[Any]:
     children: List[Any] = []
     for child in node.children():
-        if isinstance(child, (list, tuple)):
-            children.extend(item for item in child if item is not None)
-        elif child is not None:
-            children.append(child)
+        _flatten_children(child, children)
     return children
 
 

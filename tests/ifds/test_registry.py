@@ -58,6 +58,24 @@ class TestRegistryLoading:
         assert mapping["re.match"].nullness_nullable_return is True
         assert mapping["get"].nullness_nullable_return is True
 
+    def test_rich_rules_compile_to_call_models(self):
+        r = Registry()
+        r.activate("stdlib")
+        mapping = r.active_models().as_mapping()
+        model = mapping["subprocess.run"]
+        assert model.taint_sink is True
+        assert model.cwe == "CWE-78"
+        assert model.severity == "HIGH"
+        assert model.rule_id == "PYFLOW-SINK-CMD-INJECTION"
+        assert model.sink_arg_positions == frozenset({0})
+
+    def test_active_rule_metadata(self):
+        r = Registry()
+        r.activate("fastapi")
+        metadata = {rule.rule_id: rule for rule in r.active_rule_metadata()}
+        assert metadata["PYFLOW-FASTAPI-SINK-SSRF"].cwe == "CWE-918"
+        assert "requests.get" in metadata["PYFLOW-FASTAPI-SINK-SSRF"].calls
+
 
 class TestFrameworkDetection:
     def test_flask_detection(self):
@@ -123,6 +141,15 @@ class TestTaintConfiguration:
         assert "custom.source" in tc.source_names
         assert "custom.sink" in tc.sink_names
         assert "custom.sanitizer" in tc.sanitizer_names
+
+    def test_as_config_preserves_sanitizer_categories(self):
+        r = Registry()
+        r.activate("stdlib")
+        tc = r.as_config()
+        assert tc.sanitizer_categories["html.escape"] == frozenset({"user_input"})
+        assert tc.sanitizer_categories["os.path.basename"] == frozenset(
+            {"file", "user_input"}
+        )
 
 
 class TestTypeStatePresets:

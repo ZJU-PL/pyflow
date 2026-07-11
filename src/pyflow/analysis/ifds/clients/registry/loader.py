@@ -16,15 +16,35 @@ from __future__ import annotations
 
 import json
 import logging
+from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 from typing import FrozenSet, Iterable, Mapping, Sequence
 
-from .._call_model import STATE_CLOSE, STATE_OPEN, STATE_USE, CallModel, CallModelRegistry
+from .._call_model import (
+    STATE_CLOSE,
+    STATE_OPEN,
+    STATE_USE,
+    CallModel,
+    CallModelRegistry,
+)
 
 _log = logging.getLogger(__name__)
 
 _REGISTRY_DIR = Path(__file__).parent
+
+
+@dataclass(frozen=True)
+class RuleMetadata:
+    """Security metadata attached to a registry rule."""
+
+    rule_id: str
+    title: str
+    cwe: str | None = None
+    severity: str | None = None
+    suggestion: str | None = None
+    calls: tuple[str, ...] = ()
+    pattern_type: str = "call_model"
 
 
 class RulePack:
@@ -35,6 +55,7 @@ class RulePack:
         self.description: str = data.get("description", "")
         self.detection: dict = data.get("detection", {})
         self._models_data: list[dict] = data.get("models", [])
+        self._rules_data: list[dict] = data.get("rules", [])
 
     @property
     def detection_imports(self) -> tuple[str, ...]:
@@ -58,26 +79,148 @@ class RulePack:
     def to_call_models(self) -> tuple[CallModel, ...]:
         models: list[CallModel] = []
         for entry in self._models_data:
-            name = entry.get("call", "")
+            model = _call_model_from_entry(entry)
+            if model is not None:
+                models.append(model)
+        for rule in self._rules_data:
+            models.extend(_call_models_from_rule(rule))
+        return tuple(models)
+
+    def rule_metadata(self) -> tuple[RuleMetadata, ...]:
+        metadata: list[RuleMetadata] = []
+        for rule in self._rules_data:
+            rule_id = str(rule.get("id", "")).strip()
+            if not rule_id:
+                continue
+            metadata.append(
+                RuleMetadata(
+                    rule_id=rule_id,
+                    title=str(rule.get("title", rule_id)),
+                    cwe=_optional_str(rule.get("cwe")),
+                    severity=_optional_str(rule.get("severity")),
+                    suggestion=_optional_str(rule.get("suggestion")),
+                    calls=tuple(_iter_rule_calls(rule)),
+                    pattern_type=str(rule.get("pattern_type", "call_model")),
+                )
+            )
+        return tuple(metadata)
+
+
+def _optional_str(value: object) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _parse_string_set(value: object) -> FrozenSet[str]:
+    if value is None:
+        return frozenset()
+    if isinstance(value, str):
+        return frozenset({value}) if value else frozenset()
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return frozenset(str(item) for item in value if str(item))
+    return frozenset()
+
+
+def _parse_int_set(value: object, default: Iterable[int]) -> FrozenSet[int]:
+    if value is None:
+        return frozenset(default)
+    values = value if isinstance(value, (list, tuple, set, frozenset)) else (value,)
+    parsed: set[int] = set()
+    for item in values:
+        try:
+            parsed.add(int(item))
+        except (TypeError, ValueError):
+            continue
+    return frozenset(parsed)
+
+
+def _taint_categories(entry: dict) -> FrozenSet[str]:
+    return _parse_string_set(entry.get("categories")) | _parse_string_set(
+        entry.get("category")
+    )
+
+
+def _call_model_from_entry(entry: dict) -> CallModel | None:
+    name = str(entry.get("call", "")).strip()
+    if not name:
+        return None
+    return CallModel(
+        name=name,
+        taint_source=entry.get("taint_source", False),
+        taint_sink=entry.get("taint_sink", False),
+        taint_sanitizer=entry.get("taint_sanitizer", False),
+        taint_categories=_taint_categories(entry),
+        sanitizer_categories=_parse_string_set(entry.get("sanitizer_categories")),
+        sink_arg_positions=_parse_int_set(entry.get("sink_arg_positions"), [0]),
+        rule_id=_optional_str(entry.get("rule_id")),
+        cwe=_optional_str(entry.get("cwe")),
+        severity=_optional_str(entry.get("severity")),
+        suggestion=_optional_str(entry.get("suggestion")),
+        nullness_nullable_return=entry.get("nullness_nullable_return", False),
+        typestate_actions=_parse_typestate(entry),
+        resource_arg_positions=_parse_int_set(
+            entry.get("resource_arg_positions"), [0]
+        ),
+        track_method_receiver=entry.get("track_method_receiver", True),
+    )
+
+
+def _iter_rule_calls(rule: dict) -> tuple[str, ...]:
+    names: list[str] = []
+    for key in ("calls", "call", "sources", "sinks", "sanitizers"):
+        raw = rule.get(key, ())
+        if isinstance(raw, str):
+            raw = (raw,)
+        for name in raw or ():
+            text = str(name).strip()
+            if text and text not in names:
+                names.append(text)
+    return tuple(names)
+
+
+def _call_models_from_rule(rule: dict) -> tuple[CallModel, ...]:
+    pattern_type = str(rule.get("pattern_type", "")).strip().lower()
+    taint_source = pattern_type == "taint_source"
+    taint_sink = pattern_type == "taint_sink"
+    taint_sanitizer = pattern_type == "taint_sanitizer"
+
+    models: list[CallModel] = []
+    for key, source, sink, sanitizer in (
+        ("sources", True, False, False),
+        ("sinks", False, True, False),
+        ("sanitizers", False, False, True),
+        ("calls", taint_source, taint_sink, taint_sanitizer),
+        ("call", taint_source, taint_sink, taint_sanitizer),
+    ):
+        raw_names = rule.get(key, ())
+        if isinstance(raw_names, str):
+            raw_names = (raw_names,)
+        for raw_name in raw_names or ():
+            name = str(raw_name).strip()
             if not name:
                 continue
             models.append(
                 CallModel(
                     name=name,
-                    taint_source=entry.get("taint_source", False),
-                    taint_sink=entry.get("taint_sink", False),
-                    taint_sanitizer=entry.get("taint_sanitizer", False),
-                    nullness_nullable_return=entry.get(
-                        "nullness_nullable_return", False
+                    taint_source=source,
+                    taint_sink=sink,
+                    taint_sanitizer=sanitizer,
+                    taint_categories=_taint_categories(rule),
+                    sanitizer_categories=_parse_string_set(
+                        rule.get("sanitizer_categories")
                     ),
-                    typestate_actions=_parse_typestate(entry),
-                    resource_arg_positions=frozenset(
-                        entry.get("resource_arg_positions", [0])
+                    sink_arg_positions=_parse_int_set(
+                        rule.get("sink_arg_positions"), [0]
                     ),
-                    track_method_receiver=entry.get("track_method_receiver", True),
+                    rule_id=_optional_str(rule.get("id")),
+                    cwe=_optional_str(rule.get("cwe")),
+                    severity=_optional_str(rule.get("severity")),
+                    suggestion=_optional_str(rule.get("suggestion")),
                 )
             )
-        return tuple(models)
+    return tuple(models)
 
 
 def _parse_typestate(entry: dict) -> FrozenSet[str]:
@@ -129,7 +272,10 @@ class Registry:
     def activate(self, *framework_names: str) -> None:
         """Explicitly activate packs by framework name."""
         for pack in _available_packs():
-            if pack.framework in framework_names and pack.framework not in self._detected:
+            if (
+                pack.framework in framework_names
+                and pack.framework not in self._detected
+            ):
                 self._detected.add(pack.framework)
                 self._active_packs.append(pack)
 
@@ -151,6 +297,13 @@ class Registry:
             models.extend(pack.to_call_models())
         return CallModelRegistry(models)
 
+    def active_rule_metadata(self) -> tuple[RuleMetadata, ...]:
+        """Return reporting metadata for active rich registry rules."""
+        metadata: list[RuleMetadata] = []
+        for pack in self._active_packs:
+            metadata.extend(pack.rule_metadata())
+        return tuple(metadata)
+
     def as_config(
         self,
         *,
@@ -170,6 +323,7 @@ class Registry:
         sources: set[str] = set(extra_sources)
         sinks: set[str] = set(extra_sinks)
         sanitizers: set[str] = set(extra_sanitizers)
+        sanitizer_categories: dict[str, FrozenSet[str]] = {}
         for name, model in mapping.items():
             if model.taint_source:
                 sources.add(name)
@@ -177,10 +331,13 @@ class Registry:
                 sinks.add(name)
             if model.taint_sanitizer:
                 sanitizers.add(name)
+                if model.sanitizer_categories:
+                    sanitizer_categories[name] = model.sanitizer_categories
         return TaintConfiguration(
             source_names=frozenset(sources),
             sink_names=frozenset(sinks),
             sanitizer_names=frozenset(sanitizers),
+            sanitizer_categories=sanitizer_categories,
         )
 
 
