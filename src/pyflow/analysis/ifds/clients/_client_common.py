@@ -54,7 +54,90 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
     ) -> None:
         self.adapter = adapter
         self.call_models = call_models or CallModelRegistry()
+        self._slot_overrides: dict[tuple, tuple[object, ...]] = {}
+        self._site_counter: int = 0
+        self._allocation_sites: dict[tuple, int] = {}
+        self._site_slots: dict[int, tuple[object, ...]] = {}
         self._require_complete_annotations()
+
+    def _alias_locals(
+        self, procedure: cfg_graph.Code, target: object, source: object
+    ) -> None:
+        """Make *target* share slot identity and allocation site with *source*.
+
+        After this call, ``_slots_for_local(procedure, target)`` returns the
+        same objects as ``_slots_for_local(procedure, source)``, so facts
+        created for *source* are also visible through *target*.  The
+        allocation site is also shared, so ``x = Foo(); y = x`` gives *y*
+        the same abstract cell as *x*, while ``z = Foo()`` gets a distinct
+        cell.
+        """
+        if not isinstance(target, py_ast.Local) or target.name is None:
+            return
+        if not isinstance(source, py_ast.Local) or source.name is None:
+            return
+        source_slots = self._slots_for_local(procedure, source)
+        if not source_slots:
+            return
+        self._slot_overrides[(id(procedure), id(target))] = source_slots
+        source_site = self._allocation_sites.get((id(procedure), id(source)))
+        if source_site is not None:
+            self._allocation_sites[(id(procedure), id(target))] = source_site
+
+    def _unalias_locals(self, procedure: cfg_graph.Code, local: object) -> None:
+        """Break any slot alias for *local*, restoring its own identity.
+
+        Called on strong updates (assignment, delete) so that overwriting
+        one variable does not clear facts for variables it was aliased to.
+        Also assigns a fresh allocation site so the variable no longer
+        shares abstract state with its previous alias source.
+        """
+        if not isinstance(local, py_ast.Local) or local.name is None:
+            return
+        self._slot_overrides.pop((id(procedure), id(local)), None)
+        raw = self._slots_for_local_raw(procedure, local)
+        site = self._site_counter
+        self._site_counter += 1
+        self._allocation_sites[(id(procedure), id(local))] = site
+        self._site_slots[site] = raw
+
+    def _update_aliases_for_assignment(
+        self,
+        procedure: cfg_graph.Code,
+        targets: tuple[object, ...],
+        expr: object,
+    ) -> None:
+        """Handle alias tracking for ``targets = expr``.
+
+        Strong updates break any existing aliases and assign fresh
+        allocation sites on *targets*.  When *expr* is a plain local
+        reference the targets are aliased to it, sharing both slots and
+        allocation site.
+        """
+        for target in targets:
+            self._unalias_locals(procedure, target)
+        if isinstance(expr, py_ast.Local) and expr.name is not None:
+            for target in targets:
+                self._alias_locals(procedure, target, expr)
+
+    def _slots_for_local(self, procedure: cfg_graph.Code, local: object) -> tuple[object, ...]:
+        override = self._slot_overrides.get((id(procedure), id(local)))
+        if override is not None:
+            return override
+        site = self._allocation_sites.get((id(procedure), id(local)))
+        if site is not None:
+            return self._site_slots[site]
+        raw = self._slots_for_local_raw(procedure, local)
+        site = self._site_counter
+        self._site_counter += 1
+        self._allocation_sites[(id(procedure), id(local))] = site
+        self._site_slots[site] = raw
+        return raw
+
+    def _slots_for_local_raw(self, procedure: cfg_graph.Code, local: object) -> tuple[object, ...]:
+        del procedure
+        refs = getattr(getattr(local, "annotation", None), "references", None)
+        return self._annotation_slots(refs)
 
     @abstractmethod
     def _make_slot_fact(self, slot: object) -> FactT:
@@ -72,6 +155,37 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
     @abstractmethod
     def _slot_from_fact(self, fact: FactT) -> object | None:
         raise NotImplementedError
+
+    def _access_path_from_fact(self, fact: FactT) -> tuple[str, ...]:
+        return getattr(fact, "access_path", ())
+
+    @staticmethod
+    def _fact_prefix_matches(stored: object, query: object) -> bool:
+        """True when *stored* implies *query* via access-path prefix.
+
+        ``stored`` is the known fact (from reached set or current flow).
+        ``query`` is the fact being checked against.  When *stored* has
+        ``access_path=()`` it means the whole object is affected, so ANY
+        sub-path matches.  When *stored* has a specific path like
+        ``("f",)`` only that exact path and its descendants match —
+        the base object and sibling fields do NOT.
+        """
+        if stored == query:
+            return True
+        s_slot = getattr(stored, "slot", None)
+        q_slot = getattr(query, "slot", None)
+        if s_slot is None or q_slot is None or s_slot != q_slot:
+            return False
+        s_path = getattr(stored, "access_path", ())
+        q_path = getattr(query, "access_path", ())
+        if s_path == q_path:
+            return True
+        return len(s_path) <= len(q_path) and q_path[: len(s_path)] == s_path
+
+    def _make_slot_fact_with_path(
+        self, slot: object, access_path: tuple[str, ...]
+    ) -> FactT:
+        return self._make_slot_fact(slot)
 
     @abstractmethod
     def _expression_fact_result(
@@ -141,6 +255,32 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
             facts.update(self._make_slot_fact(slot) for slot in slots)
         return facts
 
+    def _facts_for_locals_with_path(
+        self,
+        procedure: cfg_graph.Code,
+        locals_: Iterable[object],
+        access_path: tuple[str, ...],
+    ) -> set[FactT]:
+        facts: set[FactT] = set()
+        for local in locals_:
+            if not isinstance(local, py_ast.Local) or local.name is None:
+                continue
+            slots = self._slots_for_local(procedure, local)
+            facts.update(
+                self._make_slot_fact_with_path(slot, access_path)
+                for slot in slots
+            )
+        return facts
+
+    def _access_path_for_expression(self, expr: object) -> tuple[str, ...]:
+        path: list[str] = []
+        current = expr
+        while isinstance(current, py_ast.GetAttr):
+            path.append(self._path_component(current.name))
+            current = current.expr
+        path.reverse()
+        return tuple(path)
+
     def _facts_for_assigned_locals(
         self,
         procedure: cfg_graph.Code,
@@ -151,17 +291,38 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
             return set()
         return self._facts_for_locals(procedure, (locals_[result_index],))
 
-    def _facts_for_return_slot(self, procedure: cfg_graph.Code, index: int) -> set[FactT]:
+    def _facts_for_return_slot(
+        self, procedure: cfg_graph.Code, index: int,
+        access_path: tuple[str, ...] = (),
+    ) -> set[FactT]:
         returnparams = tuple(procedure.code.codeparameters.returnparams)
         if index >= len(returnparams):
             return set()
-        return self._facts_for_locals(procedure, (returnparams[index],))
+        if not access_path:
+            return self._facts_for_locals(procedure, (returnparams[index],))
+        return self._facts_for_locals_with_path(
+            procedure, (returnparams[index],), access_path,
+        )
 
     def _facts_for_expression_node(
-        self, procedure: cfg_graph.Code, current: object
+        self, procedure: cfg_graph.Code, current: object,
+        extend_paths: bool = False,
     ) -> tuple[FactT, ...]:
         if current is None or isinstance(current, py_ast.leafTypes):
             return ()
+        if extend_paths and isinstance(current, py_ast.GetAttr):
+            attr = self._path_component(current.name)
+            base = self._facts_for_expression_node(
+                procedure, current.expr, extend_paths=True,
+            )
+            return tuple(
+                self._make_slot_fact_with_path(
+                    self._slot_from_fact(f),
+                    (*self._access_path_from_fact(f), attr),
+                )
+                for f in base
+                if self._slot_from_fact(f) is not None
+            )
         if isinstance(current, (py_ast.DirectCall, py_ast.Call, py_ast.MethodCall)):
             dynamic_facts = tuple(
                 self._make_slot_fact(slot)
@@ -401,11 +562,18 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
             return tuple(nested)
         return ()
 
-    def _facts_for_modified_operation(self, operation: object) -> set[FactT]:
+    def _facts_for_modified_operation(
+        self, operation: object, access_path: tuple[str, ...] = (),
+    ) -> set[FactT]:
         slots = self._annotation_slots(
             getattr(getattr(operation, "annotation", None), "opModifies", None)
         )
-        return {self._make_slot_fact(slot) for slot in slots}
+        if not access_path:
+            return {self._make_slot_fact(slot) for slot in slots}
+        return {
+            self._make_slot_fact_with_path(slot, access_path)
+            for slot in slots
+        }
 
     def _dynamic_getattr_slots(
         self, procedure: cfg_graph.Code, expr: object
@@ -878,11 +1046,6 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
             return None
         value = getattr(expr.object, "pyobj", None)
         return f"[{value!r}]"
-
-    def _slots_for_local(self, procedure: cfg_graph.Code, local: object) -> tuple[object, ...]:
-        del procedure
-        refs = getattr(getattr(local, "annotation", None), "references", None)
-        return self._annotation_slots(refs)
 
     def _slots_read_by_node(
         self, procedure: cfg_graph.Code, node: object

@@ -1,0 +1,32 @@
+{
+  "framework": "fastapi",
+  "version": "1.0",
+  "description": "FastAPI framework taint sources and sinks",
+  "detection": {
+    "imports": ["fastapi", "from fastapi", "import fastapi", "FastAPI(", "APIRouter("],
+    "patterns": ["Depends(", "@router.", "Query(", "Path(", "Header(", "Cookie("]
+  },
+  "models": [
+    {"call": "fastapi.Request.query_params.get", "taint_source": true, "nullness_nullable_return": true, "category": "user_input"},
+    {"call": "fastapi.Request.path_params.get", "taint_source": true, "category": "user_input"},
+    {"call": "fastapi.Request.headers.get", "taint_source": true, "category": "user_input"},
+    {"call": "fastapi.Request.cookies.get", "taint_source": true, "category": "user_input"},
+    {"call": "fastapi.Request.json", "taint_source": true, "category": "user_input"},
+    {"call": "fastapi.Request.body", "taint_source": true, "category": "user_input"},
+    {"call": "fastapi.Request.form", "taint_source": true, "category": "user_input"},
+    {"call": "starlette.requests.Request.query_params.get", "taint_source": true, "category": "user_input"},
+    {"call": "starlette.requests.Request.path_params.get", "taint_source": true, "category": "user_input"},
+    {"call": "starlette.requests.Request.headers.get", "taint_source": true, "category": "user_input"},
+    {"call": "starlette.requests.Request.cookies.get", "taint_source": true, "category": "user_input"},
+    {"call": "starlette.requests.Request.json", "taint_source": true, "category": "user_input"},
+    {"call": "starlette.requests.Request.body", "taint_source": true, "category": "user_input"},
+    {"call": "starlette.requests.Request.form", "taint_source": true, "category": "user_input"},
+    {"call": "fastapi.Response", "taint_sink": true},
+    {"call": "fastapi.responses.JSONResponse", "taint_sink": true},
+    {"call": "fastapi.responses.HTMLResponse", "taint_sink": true},
+    {"call": "fastapi.responses.RedirectResponse", "taint_sink": true},
+    {"call": "fastapi.responses.FileResponse", "taint_sink": true},
+    {"call": "starlette.datastructures.UploadFile.read", "taint_source": true, "category": "file"},
+    {"call": "starlette.datastructures.UploadFile.filename", "taint_source": true, "category": "file"}
+  ]
+}

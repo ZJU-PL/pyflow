@@ -32,9 +32,10 @@ class NullnessConfiguration:
 
 @dataclass(frozen=True)
 class SlotNullFact:
-    """A storage slot that may hold ``None``."""
+    """A storage slot that may hold ``None``, optionally scoped to a field chain."""
 
     slot: object
+    access_path: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -44,6 +45,7 @@ class ExpressionNullFact:
     procedure: cfg_graph.Code
     expression: py_ast.PythonASTNode
     result_index: int = 0
+    access_path: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -195,6 +197,7 @@ class InterproceduralNullnessProblem(
             if isinstance(operation, py_ast.AnnAssign):
                 expr = operation.value
             targets = assigned_locals(operation)
+            self._update_aliases_for_assignment(node.procedure, targets, expr)
 
             direct_fact = self._direct_expression_fact(expr, fact)
             if direct_fact is not None:
@@ -217,9 +220,10 @@ class InterproceduralNullnessProblem(
                 and self._expr_is_nullable(node.procedure, expr, fact)
             ):
                 outputs.update(
-                    self._facts_for_locals(
+                    self._facts_for_locals_with_path(
                         node.procedure,
                         targets,
+                        self._access_path_for_expression(expr),
                     )
                 )
             outputs.update(
@@ -244,13 +248,21 @@ class InterproceduralNullnessProblem(
                 direct_fact = self._direct_expression_fact(operation.exprs[0], fact)
                 if direct_fact is not None:
                     _procedure, _expr, result_index = direct_fact
+                    path = self._access_path_from_fact(fact)
                     outputs.update(
-                        self._facts_for_return_slot(node.procedure, result_index)
+                        self._facts_for_return_slot(
+                            node.procedure, result_index, access_path=path,
+                        )
                     )
                     return tuple(outputs)
             for index, expr in enumerate(operation.exprs):
                 if self._expr_is_nullable(node.procedure, expr, fact):
-                    outputs.update(self._facts_for_return_slot(node.procedure, index))
+                    path = self._access_path_for_expression(expr)
+                    outputs.update(
+                        self._facts_for_return_slot(
+                            node.procedure, index, access_path=path,
+                        )
+                    )
             return tuple(outputs)
 
         if isinstance(
@@ -269,7 +281,10 @@ class InterproceduralNullnessProblem(
             if value is None:
                 return tuple(outputs)
             if self._expr_is_nullable(node.procedure, value, fact):
-                outputs.update(self._facts_for_modified_operation(operation))
+                path = self._access_path_for_expression(value)
+                outputs.update(
+                    self._facts_for_modified_operation(operation, access_path=path)
+                )
             return tuple(outputs)
 
         return self._identity_outputs(fact, killed)
@@ -289,7 +304,13 @@ class InterproceduralNullnessProblem(
 
         for actual, formal in bind_call_arguments(call, params):
             if self._expr_is_nullable(call_node.procedure, actual, fact):
-                outputs.update(self._facts_for_locals(callee, (formal,)))
+                path = self._access_path_for_expression(actual)
+                if path:
+                    outputs.update(
+                        self._facts_for_locals_with_path(callee, (formal,), path)
+                    )
+                else:
+                    outputs.update(self._facts_for_locals(callee, (formal,)))
 
         return tuple(outputs)
 
@@ -395,6 +416,9 @@ class InterproceduralNullnessProblem(
     def _make_slot_fact(self, slot: object) -> object:
         return SlotNullFact(slot)
 
+    def _make_slot_fact_with_path(self, slot: object, access_path: tuple[str, ...]) -> object:
+        return SlotNullFact(slot, access_path=access_path)
+
     def _make_expression_fact(
         self,
         procedure: cfg_graph.Code,
@@ -430,7 +454,7 @@ class InterproceduralNullnessProblem(
         return self._expression_matches(
             expr,
             lambda current: any(
-                candidate == fact
+                self._fact_prefix_matches(fact, candidate)
                 for candidate in self._facts_for_expression_node(procedure, current)
             ),
         )
@@ -587,7 +611,9 @@ class InterproceduralNullnessProblem(
             return True
         return any(
             result.is_reached(node, fact)
-            for fact in self._facts_for_expression_node(node.procedure, expr)
+            for fact in self._facts_for_expression_node(
+                node.procedure, expr, extend_paths=True,
+            )
         )
 
 

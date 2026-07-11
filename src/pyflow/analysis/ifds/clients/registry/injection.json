@@ -1,0 +1,43 @@
+{
+  "framework": "injection",
+  "version": "1.0",
+  "description": "SSTI, XSS, command injection sinks and markup/command sanitizers",
+  "detection": {
+    "imports": ["jinja2", "mako", "bleach", "markupsafe", "nh3", "shlex"],
+    "patterns": ["Template(", "render(", "from_string(", "bleach.clean(", "escape("]
+  },
+  "models": [
+    {"call": "jinja2.Template.render", "taint_sink": true},
+    {"call": "jinja2.Environment.from_string", "taint_sink": true},
+    {"call": "mako.template.Template.render", "taint_sink": true},
+    {"call": "django.template.Template.render", "taint_sink": true},
+    {"call": "django.shortcuts.render", "taint_sink": true},
+    {"call": "markupsafe.escape", "taint_sanitizer": true},
+    {"call": "markupsafe.Markup.escape", "taint_sanitizer": true},
+    {"call": "markupsafe.Markup.striptags", "taint_sanitizer": true},
+    {"call": "bleach.clean", "taint_sanitizer": true},
+    {"call": "bleach.linkify", "taint_sanitizer": true},
+    {"call": "nh3.clean", "taint_sanitizer": true},
+    {"call": "django.utils.html.escape", "taint_sanitizer": true},
+    {"call": "django.utils.html.strip_tags", "taint_sanitizer": true},
+    {"call": "django.utils.html.format_html", "taint_sanitizer": true},
+    {"call": "html.escape", "taint_sanitizer": true},
+    {"call": "shlex.quote", "taint_sanitizer": true},
+    {"call": "shlex.split", "taint_sanitizer": true},
+    {"call": "pipes.quote", "taint_sanitizer": true},
+    {"call": "subprocess.list2cmdline", "taint_sanitizer": true},
+    {"call": "werkzeug.http.parse_options_header", "taint_sanitizer": true},
+    {"call": "email.header.Header.encode", "taint_sanitizer": true},
+    {"call": "email.utils.formataddr", "taint_sanitizer": true},
+    {"call": "urllib.parse.urlencode", "taint_sanitizer": true},
+    {"call": "urllib.parse.urlparse", "taint_sanitizer": true},
+    {"call": "urllib.parse.urlsplit", "taint_sanitizer": true},
+    {"call": "urllib.parse.urljoin", "taint_sanitizer": true},
+    {"call": "werkzeug.urls.url_parse", "taint_sanitizer": true},
+    {"call": "werkzeug.urls.url_encode", "taint_sanitizer": true},
+    {"call": "django.utils.http.url_has_allowed_host_and_scheme", "taint_sanitizer": true},
+    {"call": "django.utils.http.is_safe_url", "taint_sanitizer": true},
+    {"call": "werkzeug.utils.secure_filename", "taint_sanitizer": true},
+    {"call": "django.utils.text.get_valid_filename", "taint_sanitizer": true}
+  ]
+}

@@ -21,14 +21,29 @@ from ..transfers import (
 
 ZERO_TAINT = "ZERO_TAINT"
 
+# Well-known taint categories.  Clients may define additional categories.
+CATEGORY_USER_INPUT = "user_input"
+CATEGORY_ENVIRONMENT = "env"
+CATEGORY_FILE = "file"
+CATEGORY_NETWORK = "network"
+CATEGORY_DATABASE = "database"
+
 
 @dataclass(frozen=True)
 class TaintConfiguration:
-    """Name-based taint models for direct-call analyses."""
+    """Name-based taint models for IFDS taint analysis.
+
+    ``sanitizer_categories`` enables category-aware sanitization: when a
+    sanitizer function is called, only taint belonging to the listed
+    categories is cleared.  If a sanitizer name appears only in
+    ``sanitizer_names`` (not in ``sanitizer_categories``) it kills *all*
+    taint — the legacy behaviour.
+    """
 
     source_names: FrozenSet[str] = frozenset()
     sink_names: FrozenSet[str] = frozenset()
     sanitizer_names: FrozenSet[str] = frozenset()
+    sanitizer_categories: Mapping[str, FrozenSet[str]] = frozenset()
     collection_mutator_names: FrozenSet[str] = frozenset(
         {"append", "add", "extend", "update"}
     )
@@ -48,9 +63,17 @@ class TaintFinding:
 
 @dataclass(frozen=True)
 class SlotTaintFact:
-    """Taint on a canonical storage slot."""
+    """Taint on a canonical storage slot.
+
+    *access_path* refines the fact to a specific field chain.
+    ``()`` means the slot itself; ``("f",)`` means ``slot.f``;
+    ``("f", "g")`` means ``slot.f.g``.  Facts with shorter paths
+    are matched as prefixes: ``access_path=("f",)`` is considered
+    tainted when checking if ``slot.f.g`` may be tainted.
+    """
 
     slot: object
+    access_path: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -60,6 +83,7 @@ class ExpressionTaintFact:
     procedure: cfg_graph.Code
     expression: py_ast.PythonASTNode
     result_index: int = 0
+    access_path: tuple[str, ...] = ()
 
 
 class TaintAnalysisResult:
@@ -204,6 +228,7 @@ class InterproceduralTaintProblem(
             if isinstance(operation, py_ast.AnnAssign):
                 expr = operation.value
             targets = assigned_locals(operation)
+            self._update_aliases_for_assignment(node.procedure, targets, expr)
 
             direct_fact = self._direct_expression_fact(expr, fact)
             if direct_fact is not None:
@@ -217,7 +242,15 @@ class InterproceduralTaintProblem(
                 )
                 return tuple(outputs)
             if expr is not None and self._expr_is_tainted(node.procedure, expr, fact):
-                outputs.update(self._facts_for_locals(node.procedure, targets))
+                path = self._access_path_for_expression(expr)
+                if path:
+                    outputs.update(
+                        self._facts_for_locals_with_path(
+                            node.procedure, targets, path,
+                        )
+                    )
+                else:
+                    outputs.update(self._facts_for_locals(node.procedure, targets))
             outputs.update(
                 self._make_slot_fact(slot)
                 for slot in self._aliased_dynamic_slots_for_assignment(
@@ -243,15 +276,21 @@ class InterproceduralTaintProblem(
                 direct_fact = self._direct_expression_fact(operation.exprs[0], fact)
                 if direct_fact is not None:
                     _procedure, _expr, result_index = direct_fact
+                    path = self._access_path_from_fact(fact)
                     outputs.update(
                         self._facts_for_return_slot(
-                            node.procedure, result_index
+                            node.procedure, result_index, access_path=path,
                         )
                     )
                     return tuple(outputs)
             for index, expr in enumerate(operation.exprs):
                 if self._expr_is_tainted(node.procedure, expr, fact):
-                    outputs.update(self._facts_for_return_slot(node.procedure, index))
+                    path = self._access_path_for_expression(expr)
+                    outputs.update(
+                        self._facts_for_return_slot(
+                            node.procedure, index, access_path=path,
+                        )
+                    )
             return tuple(outputs)
 
         if isinstance(
@@ -272,7 +311,12 @@ class InterproceduralTaintProblem(
             if self._direct_expression_fact(value, fact) is not None or self._expr_is_tainted(
                 node.procedure, value, fact
             ):
-                outputs.update(self._facts_for_modified_operation(operation))
+                path = self._access_path_for_expression(value)
+                outputs.update(
+                    self._facts_for_modified_operation(
+                        operation, access_path=path,
+                    )
+                )
             return tuple(outputs)
 
         return self._identity_outputs(fact, killed)
@@ -294,7 +338,13 @@ class InterproceduralTaintProblem(
         params = callee.code.codeparameters
         for actual, formal in bind_call_arguments(call, params):
             if self._expr_is_tainted(call_node.procedure, actual, fact):
-                outputs.update(self._facts_for_locals(callee, (formal,)))
+                path = self._access_path_for_expression(actual)
+                if path:
+                    outputs.update(
+                        self._facts_for_locals_with_path(callee, (formal,), path)
+                    )
+                else:
+                    outputs.update(self._facts_for_locals(callee, (formal,)))
 
         return tuple(outputs)
 
@@ -410,6 +460,9 @@ class InterproceduralTaintProblem(
     def _make_slot_fact(self, slot: object) -> object:
         return SlotTaintFact(slot)
 
+    def _make_slot_fact_with_path(self, slot: object, access_path: tuple[str, ...]) -> object:
+        return SlotTaintFact(slot, access_path=access_path)
+
     def _make_expression_fact(
         self,
         procedure: cfg_graph.Code,
@@ -445,7 +498,7 @@ class InterproceduralTaintProblem(
         return self._expression_matches(
             expr,
             lambda current: any(
-                candidate == fact
+                self._fact_prefix_matches(fact, candidate)
                 for candidate in self._facts_for_expression_node(procedure, current)
             ),
         )

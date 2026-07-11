@@ -1,0 +1,33 @@
+{
+  "framework": "concurrency",
+  "version": "1.0",
+  "description": "Concurrency primitives typestate — locks, subprocesses, temp files, sockets",
+  "detection": {
+    "imports": ["threading", "multiprocessing", "asyncio", "tempfile", "subprocess", "import threading", "import asyncio"],
+    "patterns": ["Lock()", "RLock()", "TemporaryFile(", "TemporaryDirectory("]
+  },
+  "models": [
+    {"call": "threading.Lock", "typestate_open": true, "resource_arg_positions": []},
+    {"call": "threading.RLock", "typestate_open": true, "resource_arg_positions": []},
+    {"call": "threading.Semaphore", "typestate_open": true, "resource_arg_positions": []},
+    {"call": "threading.BoundedSemaphore", "typestate_open": true, "resource_arg_positions": []},
+    {"call": "multiprocessing.Lock", "typestate_open": true, "resource_arg_positions": []},
+    {"call": "asyncio.Lock", "typestate_open": true, "resource_arg_positions": []},
+    {"call": "release", "typestate_close": true, "resource_arg_positions": []},
+    {"call": "acquire", "typestate_use": true, "resource_arg_positions": []},
+    {"call": "subprocess.Popen", "typestate_open": true, "resource_arg_positions": []},
+    {"call": "asyncio.subprocess.create_subprocess_exec", "typestate_open": true, "resource_arg_positions": []},
+    {"call": "asyncio.subprocess.create_subprocess_shell", "typestate_open": true, "resource_arg_positions": []},
+    {"call": "terminate", "typestate_close": true, "resource_arg_positions": []},
+    {"call": "kill", "typestate_close": true, "resource_arg_positions": []},
+    {"call": "wait", "typestate_close": true, "resource_arg_positions": []},
+    {"call": "communicate", "typestate_close": true, "resource_arg_positions": []},
+    {"call": "poll", "typestate_use": true, "resource_arg_positions": []},
+    {"call": "tempfile.NamedTemporaryFile", "typestate_open": true, "resource_arg_positions": []},
+    {"call": "tempfile.TemporaryFile", "typestate_open": true, "resource_arg_positions": []},
+    {"call": "tempfile.mkstemp", "typestate_open": true, "resource_arg_positions": []},
+    {"call": "tempfile.TemporaryDirectory", "typestate_open": true, "resource_arg_positions": []},
+    {"call": "tempfile.mkdtemp", "typestate_open": true, "resource_arg_positions": []},
+    {"call": "cleanup", "typestate_close": true, "resource_arg_positions": []}
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "framework": "sqlalchemy",
+  "version": "1.0",
+  "description": "SQLAlchemy ORM taint sinks, typestate models, and nullness",
+  "detection": {
+    "imports": ["sqlalchemy", "from sqlalchemy", "import sqlalchemy", "create_engine(", "declarative_base", "sessionmaker("],
+    "patterns": ["Column(", "relationship(", "Session(", "scoped_session"]
+  },
+  "models": [
+    {"call": "sqlalchemy.engine.Engine.execute", "taint_sink": true},
+    {"call": "sqlalchemy.orm.Session.execute", "taint_sink": true},
+    {"call": "sqlalchemy.orm.Session.query", "taint_sink": true},
+    {"call": "sqlalchemy.create_engine", "typestate_open": true, "resource_arg_positions": []},
+    {"call": "sqlalchemy.orm.sessionmaker", "typestate_open": true, "resource_arg_positions": []},
+    {"call": "close", "typestate_close": true},
+    {"call": "execute", "typestate_use": true},
+    {"call": "executemany", "typestate_use": true},
+    {"call": "executescript", "typestate_use": true},
+    {"call": "scalar", "nullness_nullable_return": true},
+    {"call": "first", "nullness_nullable_return": true},
+    {"call": "one_or_none", "nullness_nullable_return": true},
+    {"call": "fetchone", "nullness_nullable_return": true},
+    {"call": "fetchmany", "nullness_nullable_return": true}
+  ]
+}

@@ -31,13 +31,13 @@ def add_dataflow_parser(subparsers):
     parser.add_argument(
         "--sources",
         nargs="+",
-        required=True,
+        default=[],
         help="Function names treated as taint sources",
     )
     parser.add_argument(
         "--sinks",
         nargs="+",
-        required=True,
+        default=[],
         help="Function names treated as taint sinks",
     )
     parser.add_argument(
@@ -45,6 +45,18 @@ def add_dataflow_parser(subparsers):
         nargs="*",
         default=[],
         help="Function names treated as taint sanitizers",
+    )
+    parser.add_argument(
+        "--registry",
+        action="store_true",
+        help="Activate all framework rule packs (sources, sinks, sanitizers)",
+    )
+    parser.add_argument(
+        "--framework",
+        nargs="*",
+        default=[],
+        metavar="FRAMEWORK",
+        help="Activate specific framework rule packs (e.g. flask django)",
     )
     parser.add_argument(
         "--collection-mutators",
@@ -186,6 +198,39 @@ def _format_text(report: dict) -> str:
     return "\n".join(lines)
 
 
+def _merge_registry(args) -> tuple[list[str], list[str], list[str]]:
+    """Merge framework registry models with CLI-provided names."""
+    sources = list(args.sources or [])
+    sinks = list(args.sinks or [])
+    sanitizers = list(args.sanitizers or [])
+
+    use_registry = getattr(args, "registry", False)
+    frameworks = getattr(args, "framework", []) or []
+
+    if not use_registry and not frameworks:
+        return sources, sinks, sanitizers
+
+    from pyflow.analysis.ifds.clients.registry import load_registry
+
+    registry = load_registry()
+    if use_registry:
+        registry.activate_all()
+    else:
+        registry.activate(*frameworks)
+
+    models = registry.active_models()
+    mapping = models.as_mapping()
+    for name, model in mapping.items():
+        if model.taint_source:
+            sources.append(name)
+        if model.taint_sink:
+            sinks.append(name)
+        if model.taint_sanitizer:
+            sanitizers.append(name)
+
+    return list(dict.fromkeys(sources)), list(dict.fromkeys(sinks)), list(dict.fromkeys(sanitizers))
+
+
 def run_dataflow_analysis(input_path, args):
     """Run the selected IFDS/IDE-backed dataflow analysis."""
     files = _discover_python_files(Path(input_path), getattr(args, "recursive", False))
@@ -197,12 +242,22 @@ def run_dataflow_analysis(input_path, args):
         print(f"Unsupported analysis: {args.analysis}", file=sys.stderr)
         return 1
 
+    sources, sinks, sanitizers = _merge_registry(args)
+
+    if not sources and not sinks:
+        print(
+            "No sources or sinks specified. Use --registry, --framework, "
+            "or --sources/--sinks flags.",
+            file=sys.stderr,
+        )
+        return 1
+
     session, taint_result = run_taint_analysis(
         files,
         function=args.function,
-        source_names=args.sources,
-        sink_names=args.sinks,
-        sanitizer_names=args.sanitizers,
+        source_names=sources,
+        sink_names=sinks,
+        sanitizer_names=sanitizers,
         collection_mutator_names=getattr(args, "collection_mutators", None),
         collection_accessor_names=getattr(args, "collection_accessors", None),
         conservative_unresolved_call_side_effects=getattr(
