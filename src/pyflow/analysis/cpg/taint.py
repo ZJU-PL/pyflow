@@ -5,17 +5,27 @@ Walks CPG edges (CFG + DATA) from sources to sinks using a worklist-based
 forward dataflow traversal with heap-aware alias tracking.  Matching uses
 both PDGNode labels and AST structure inspection via pyflow's AST types.
 
-Features (ported from Ansede):
+Features:
 - AST-based call name resolution for source/sink matching
 - Parameterized SQL detection (safe queries with tuple/list/dict args)
 - isinstance type-guard stripping on CFG_BRANCH_TRUE edges
 - Validating regex heuristic (anchored ^...$ patterns only)
 - Assign RHS propagation (alias, subscript, collection, f-string, %-format)
-- Per-AST-kind propagation dispatch (Call, Assign, BinaryOp, Return)
+- Per-AST-kind propagation dispatch (Call, Assign, BinaryOp, Return,
+  GetSubscript, AugAssign)
+- Context-sensitive visited state with call-context tracking and
+  configurable max call depth (``max_call_depth``)
 - Interprocedural summary cache per (func, context)
 - Source tag provenance ("from:request.args")
 - Per-node taint state queryable post-analysis
 - Lambda call handling via CPG funcs
+- getattr dynamic dispatch detection
+- Dict unpack (``**kwargs``) taint propagation
+- Subscript read propagation (``x = tainted_list[i]``)
+- F-string and %-format taint propagation
+- Ansede-style taint spec loading (JSON sources / sinks / sanitizers)
+- Extended default source/sink/sanitizer registries
+- SARIF export for CI/CD integration
 
 Data structures
 ---------------
@@ -327,14 +337,29 @@ _DEFAULT_SOURCES: Set[str] = {
     "request.data",
     "request.cookies",
     "request.headers",
+    "request.files",
+    "request.values",
+    "request.get_data",
     "os.environ",
     "os.getenv",
+    "os.environ.get",
     "input",
     "sys.stdin.read",
     "sys.argv",
+    "cursor.fetchone",
+    "cursor.fetchall",
+    "cursor.fetchmany",
     "get_json",
     "form.get",
     "args.get",
+    "pd.read_csv",
+    "pd.read_json",
+    "pd.read_sql",
+    "pd.read_excel",
+    "pd.read_parquet",
+    "df.query",
+    "spark.sql",
+    "sc.textFile",
 }
 
 _DEFAULT_SINKS: Dict[str, str] = {
@@ -346,26 +371,48 @@ _DEFAULT_SINKS: Dict[str, str] = {
     "eval": "CWE-95",
     "exec": "CWE-95",
     "cursor.execute": "CWE-89",
+    "db.execute": "CWE-89",
+    "conn.execute": "CWE-89",
+    "session.execute": "CWE-89",
+    "engine.execute": "CWE-89",
+    "spark.sql": "CWE-89",
     "execute": "CWE-89",
     "requests.get": "CWE-918",
     "requests.post": "CWE-918",
+    "requests.put": "CWE-918",
+    "requests.request": "CWE-918",
+    "urllib.request.urlopen": "CWE-918",
+    "urllib.urlopen": "CWE-918",
     "open": "CWE-22",
     "os.path.join": "CWE-22",
+    "pathlib.Path": "CWE-22",
     "pickle.loads": "CWE-502",
     "yaml.load": "CWE-502",
+    "marshal.loads": "CWE-502",
     "render_template_string": "CWE-79",
+    "Markup": "CWE-79",
+    "jinja2.Template": "CWE-79",
+    "df.query": "CWE-89",
 }
 
 _DEFAULT_SANITIZERS: Set[str] = {
     "html.escape",
+    "markupsafe.escape",
     "bleach.clean",
     "escape",
+    "urllib.parse.quote",
+    "quote",
+    "quote_plus",
     "int",
     "float",
     "bool",
+    "uuid.UUID",
     "re.match",
     "re.fullmatch",
     "re.search",
+    "parameterized",
+    "sqlalchemy.text",
+    "flask_wtf.csrf",
 }
 
 # SQL sink methods that support parameterized queries via a second argument
@@ -388,6 +435,15 @@ class CPGTaintEngine:
     Walks ``CFG_NEXT``, ``CFG_BRANCH_*``, ``CFG_EXCEPT``, and ``DATA``
     edges from source-tagged nodes to sinks, maintaining per-path
     ``TaintState`` and an optional ``MemoryLayout`` for alias tracking.
+    The worklist uses a **context-sensitive visited state** key that
+    includes the call-context tuple (``node_id``, ``tags``, ``call_context``)
+    to distinguish analysis states reached via different call paths.
+
+    Parameters
+    ----------
+    max_call_depth:
+        Maximum call-context depth for context-sensitive traversal.
+        Calls deeper than this limit are skipped (default 5).
 
     Features
     --------
@@ -396,10 +452,17 @@ class CPGTaintEngine:
     * isinstance type-guard stripping on CFG_BRANCH_TRUE edges
     * Validating regex heuristic (anchored ^...$ patterns only)
     * Assign RHS propagation (alias, subscript, collection, f-string)
-    * Per-AST-kind propagation dispatch
+    * Per-AST-kind propagation dispatch (Call, Assign, BinaryOp,
+      GetSubscript, Return)
+    * Context-sensitive visited state with call-context tracking
     * Interprocedural summary cache per (func, call context)
     * Source tag provenance (``"from:source_name"``)
     * Per-node taint state queryable post-analysis via :meth:`get_node_taint`
+    * getattr dynamic dispatch detection
+    * Dict unpack (``**kwargs``) taint propagation
+    * Subscript read propagation (``x = tainted_list[i]``)
+    * F-string / %-format taint propagation
+    * Ansede-style JSON taint spec loading
     """
 
     def __init__(
@@ -409,6 +472,7 @@ class CPGTaintEngine:
         sources: Optional[Set[str]] = None,
         sinks: Optional[Dict[str, str]] = None,
         sanitizers: Optional[Set[str]] = None,
+        extra_taint_specs: Optional[Dict[str, Any]] = None,
         max_call_depth: int = 5,
     ) -> None:
         self._cpg = cpg
@@ -423,6 +487,8 @@ class CPGTaintEngine:
             self._sinks.update(sinks)
         if sanitizers:
             self._sanitizers.update(sanitizers)
+        if extra_taint_specs:
+            self.merge_taint_specs(extra_taint_specs)
 
         self._node_taint: Dict[int, TaintState] = {}
         self._summary_cache: Dict[Tuple[str, Tuple[str, ...]], TaintState] = {}
@@ -437,6 +503,27 @@ class CPGTaintEngine:
 
     def add_sanitizer(self, name: str) -> None:
         self._sanitizers.add(name)
+
+    def merge_taint_specs(self, specs: Dict[str, Any]) -> None:
+        """Merge Ansede-style taint specs into this engine."""
+        for lang_specs in specs.get("sources", {}).values():
+            for src in lang_specs:
+                name = src if isinstance(src, str) else src.get("name", "")
+                if name:
+                    self.add_source(name)
+        for lang_specs in specs.get("sinks", {}).values():
+            for sink in lang_specs:
+                if isinstance(sink, str):
+                    self.add_sink(sink, cwe="CWE-0")
+                else:
+                    name = sink.get("name", "")
+                    if name:
+                        self.add_sink(name, cwe=sink.get("cwe", "CWE-0"))
+        for lang_specs in specs.get("sanitizers", {}).values():
+            for san in lang_specs:
+                name = san if isinstance(san, str) else san.get("name", "")
+                if name:
+                    self.add_sanitizer(name)
 
     @property
     def sources(self) -> FrozenSet[str]:
@@ -471,16 +558,23 @@ class CPGTaintEngine:
         }
 
         for seed_node, seed_tag in seeds:
-            visited: Set[Tuple[int, Tuple[str, ...]]] = set()
-            worklist: deque[Tuple[PDGNode, TaintState, List[PDGNode], MemoryLayout]] = deque()
+            # (node_id, tags, call_context) → context-sensitive visited state
+            visited: Set[Tuple[int, Tuple[str, ...], Tuple[int, ...]]] = set()
+            worklist: deque[
+                Tuple[
+                    PDGNode, TaintState, List[PDGNode],
+                    MemoryLayout, Tuple[int, ...],
+                ]
+            ] = deque()
             initial_state = _USER_CONTROLLED.add_tag(seed_tag)
-            worklist.append((seed_node, initial_state, [], MemoryLayout()))
+            worklist.append((seed_node, initial_state, [], MemoryLayout(), ()))
 
             while worklist:
-                node, tstate, path, mem = worklist.popleft()
-                state_key: Tuple[int, Tuple[str, ...]] = (
+                node, tstate, path, mem, call_context = worklist.popleft()
+                state_key: Tuple[int, Tuple[str, ...], Tuple[int, ...]] = (
                     node.node_id,
                     tuple(sorted(tstate.tags)),
+                    call_context,
                 )
                 if state_key in visited:
                     continue
@@ -509,17 +603,36 @@ class CPGTaintEngine:
                     continue
 
                 for succ in self._cpg.successors(node, kinds=traversal_kinds):
+                    # DATA edge with label → mark variable tainted in MemoryLayout
+                    for e in self._cpg._cpg_edges_out.get(node.node_id, ()):
+                        if (
+                            e.target is succ
+                            and e.kind == CPGEdgeKind.DATA
+                            and e.label
+                        ):
+                            mem.mark_tainted(e.label, tstate)
+
                     next_state = self._propagate(tstate, node, succ, mem)
                     if next_state is None or not next_state.is_tainted():
                         continue
                     new_mem = mem
                     new_ctx_path = path
+                    new_call_context = call_context
                     if self._is_call_edge(node, succ):
                         next_state, new_mem = self._interprocedural_transfer(
                             next_state, node, succ, mem
                         )
                         new_ctx_path = path + [succ]
-                    worklist.append((succ, next_state, new_ctx_path, new_mem))
+                        new_call_context = call_context + (succ.node_id,)
+                        if len(new_call_context) > self._max_call_depth:
+                            continue
+                    elif self._is_return_edge(node, succ):
+                        # Pop call context — restore caller's MemoryLayout
+                        if call_context:
+                            new_call_context = call_context[:-1]
+                    worklist.append(
+                        (succ, next_state, new_ctx_path, new_mem, new_call_context)
+                    )
 
         return findings
 
@@ -696,6 +809,8 @@ class CPGTaintEngine:
             return self._propagate_assign(ast_node, tstate, mem)
         if isinstance(ast_node, py_ast.BinaryOp):
             return self._propagate_binary_op(ast_node, tstate, mem)
+        if isinstance(ast_node, py_ast.GetSubscript):
+            return self._propagate_subscript(ast_node, tstate, mem)
         if isinstance(ast_node, py_ast.Return):
             return tstate
 
@@ -726,15 +841,23 @@ class CPGTaintEngine:
         if call_name in ("int", "float", "bool", "str"):
             return tstate.sanitize(call_name)
 
+        if call_name == "getattr":
+            return self._handle_getattr(call_node, tstate, mem)
+
+        if self._has_tainted_dict_unpack(call_node, mem):
+            return tstate
+
         if call_name and call_name.split(".")[-1] in _DUNDER_PROPAGATE:
             return tstate
 
         if call_name and call_name.startswith("<lambda"):
             return tstate
 
-        cached = self._summary_cache.get((call_name or "", ()))
-        if cached is not None:
-            return cached if cached.is_tainted() else None
+        if call_name:
+            cache_key = (call_name, tuple(sorted(tstate.tags)))
+            cached = self._summary_cache.get(cache_key)
+            if cached is not None:
+                return cached if cached.is_tainted() else None
 
         return tstate
 
@@ -763,9 +886,19 @@ class CPGTaintEngine:
                 mem.alias(var_name, rhs_name)
             return tstate
 
+        if self._looks_like_subscript(rhs):
+            base_name = self._first_local_name(rhs)
+            if base_name and mem.is_tainted(base_name):
+                mem.mark_tainted(var_name, tstate)
+                return tstate
+
         if isinstance(rhs, py_ast.BinaryOp):
-            op_type = type(getattr(rhs, "op", None)).__name__ if hasattr(rhs, "op") else ""
-            if op_type == "Mod":
+            op_type = (
+                type(getattr(rhs, "op", None)).__name__
+                if hasattr(rhs, "op")
+                else ""
+            )
+            if op_type == "Mod" or self._contains_tainted_local(rhs, mem):
                 mem.mark_tainted(var_name, tstate)
                 return tstate
 
@@ -777,9 +910,19 @@ class CPGTaintEngine:
             elts = getattr(rhs, "elts", None) or getattr(rhs, "elements", None)
             if elts:
                 for elt in elts:
-                    if isinstance(elt, py_ast.Local) and mem.is_tainted(getattr(elt, "name", "")):
+                    if isinstance(elt, py_ast.Local) and mem.is_tainted(
+                        getattr(elt, "name", "")
+                    ):
                         mem.mark_tainted(var_name, tstate)
                         return tstate
+
+        if rhs_type == "Dict" and self._contains_tainted_local(rhs, mem):
+            mem.mark_tainted(var_name, tstate)
+            return tstate
+
+        if self._looks_like_fstring(rhs) and self._contains_tainted_local(rhs, mem):
+            mem.mark_tainted(var_name, tstate)
+            return tstate
 
         return tstate
 
@@ -793,11 +936,148 @@ class CPGTaintEngine:
     ) -> Optional[TaintState]:
         left = getattr(binop_node, "left", None)
         right = getattr(binop_node, "right", None)
-        if left and isinstance(left, py_ast.Local) and mem.is_tainted(getattr(left, "name", "")):
+        if (
+            left
+            and isinstance(left, py_ast.Local)
+            and mem.is_tainted(getattr(left, "name", ""))
+        ):
             return tstate
-        if right and isinstance(right, py_ast.Local) and mem.is_tainted(getattr(right, "name", "")):
+        if (
+            right
+            and isinstance(right, py_ast.Local)
+            and mem.is_tainted(getattr(right, "name", ""))
+        ):
             return tstate
         return tstate
+
+    def _propagate_subscript(
+        self,
+        sub_node: py_ast.GetSubscript,
+        tstate: TaintState,
+        mem: MemoryLayout,
+    ) -> Optional[TaintState]:
+        """Propagate taint through a subscript read (``items[i]``).
+
+        If the subscripted container or the index expression is tainted,
+        the read result carries the taint.
+        """
+        container = getattr(sub_node, "expr", None) or getattr(sub_node, "value", None)
+        if isinstance(container, py_ast.Local) and mem.is_tainted(
+            getattr(container, "name", "") or ""
+        ):
+            return tstate
+        subscript = getattr(sub_node, "subscript", None)
+        if isinstance(subscript, py_ast.Local) and mem.is_tainted(
+            getattr(subscript, "name", "") or ""
+        ):
+            return tstate
+        return tstate
+
+    # ── Structural propagation helpers ──────────────────────────────────
+
+    @staticmethod
+    def _iter_ast_children(node: Any) -> List[Any]:
+        if node is None or isinstance(node, py_ast.leafTypes):
+            return []
+        children = getattr(node, "children", None)
+        if children is None:
+            return []
+        result: List[Any] = []
+        for child in children():
+            if isinstance(child, (list, tuple)):
+                result.extend(c for c in child if c is not None)
+            elif child is not None:
+                result.append(child)
+        return result
+
+    @classmethod
+    def _first_local_name(cls, node: Any) -> str:
+        if isinstance(node, py_ast.Local):
+            return getattr(node, "name", "") or ""
+        for child in cls._iter_ast_children(node):
+            name = cls._first_local_name(child)
+            if name:
+                return name
+        return ""
+
+    @classmethod
+    def _contains_tainted_local(cls, node: Any, mem: MemoryLayout) -> bool:
+        if isinstance(node, py_ast.Local):
+            return mem.is_tainted(getattr(node, "name", "") or "")
+        return any(
+            cls._contains_tainted_local(child, mem)
+            for child in cls._iter_ast_children(node)
+        )
+
+    @staticmethod
+    def _looks_like_subscript(node: Any) -> bool:
+        node_type = type(node).__name__.lower()
+        return node_type in {"subscript", "getitem"} or "subscript" in node_type
+
+    @classmethod
+    def _looks_like_fstring(cls, node: Any) -> bool:
+        node_type = type(node).__name__
+        if node_type in {"JoinedStr", "FormattedValue"}:
+            return True
+        text = ""
+        if hasattr(node, "toStr"):
+            try:
+                text = node.toStr()
+            except Exception:
+                text = ""
+        return text.startswith(("f'", 'f"', "F'", 'F"'))
+
+    @staticmethod
+    def _literal_string(node: Any) -> Optional[str]:
+        value = CPGTaintEngine._extract_constant_value(node)
+        if value is not None:
+            return value
+        if hasattr(node, "toStr"):
+            try:
+                text = node.toStr()
+            except Exception:
+                return None
+            if len(text) >= 2 and text[0] in "'\"" and text[-1] == text[0]:
+                return text[1:-1]
+            return text
+        return None
+
+    def _handle_getattr(
+        self,
+        call_node: py_ast.Call,
+        tstate: TaintState,
+        mem: MemoryLayout,
+    ) -> Optional[TaintState]:
+        args = getattr(call_node, "args", None) or []
+        if len(args) >= 2:
+            method_name = self._literal_string(args[1])
+            if method_name:
+                for sink_name in self._sinks:
+                    if sink_name == method_name or sink_name.endswith(
+                        "." + method_name
+                    ):
+                        return tstate
+            if isinstance(args[1], py_ast.Local) and mem.is_tainted(
+                getattr(args[1], "name", "") or ""
+            ):
+                return tstate
+        return tstate
+
+    def _has_tainted_dict_unpack(
+        self, call_node: py_ast.Call, mem: MemoryLayout
+    ) -> bool:
+        kargs = getattr(call_node, "kargs", None)
+        if isinstance(kargs, py_ast.Local) and mem.is_tainted(
+            getattr(kargs, "name", "") or ""
+        ):
+            return True
+        for keyword in getattr(call_node, "keywords", None) or []:
+            key = getattr(keyword, "arg", None)
+            value = getattr(keyword, "value", None)
+            if key is None and isinstance(value, py_ast.Local):
+                if mem.is_tainted(getattr(value, "name", "") or ""):
+                    return True
+        return False
 
     # ── Interprocedural Taint ───────────────────────────────────────────
 
@@ -808,6 +1088,13 @@ class CPGTaintEngine:
                 return True
         return False
 
+    def _is_return_edge(self, src: PDGNode, dst: PDGNode) -> bool:
+        self._cpg._ensure_built()
+        for e in self._cpg._cpg_edges_out.get(src.node_id, ()):
+            if e.target is dst and e.kind == CPGEdgeKind.RETURN_EDGE:
+                return True
+        return False
+
     def _interprocedural_transfer(
         self,
         tstate: TaintState,
@@ -815,7 +1102,9 @@ class CPGTaintEngine:
         dst: PDGNode,
         mem: MemoryLayout,
     ) -> Tuple[TaintState, MemoryLayout]:
-        cache_key = (str(dst.node_id), tuple(sorted(tstate.tags)))
+        dst_meta = self._cpg.node_meta(dst)
+        func_name = dst_meta.get("func_name", str(dst.node_id))
+        cache_key = (func_name, tuple(sorted(tstate.tags)))
         cached = self._summary_cache.get(cache_key)
         if cached is not None:
             return cached, mem
@@ -932,7 +1221,9 @@ class CPGTaintEngine:
                 rules.append({
                     "id": f.cwe,
                     "shortDescription": {"text": f.cwe},
-                    "defaultConfiguration": {"level": _severity_to_sarif_level(f.severity)},
+                    "defaultConfiguration": {
+                        "level": _severity_to_sarif_level(f.severity)
+                    },
                 })
         cwe_to_idx = {cwe: i for i, cwe in enumerate(sorted(seen_cwes))}
 

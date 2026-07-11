@@ -43,6 +43,7 @@ from .taint import (
 )
 from .build import build_cpg, build_cpg_with_callgraph, build_cpg_from_directory
 from .dump import to_dot, to_dot_file
+from .rules import load_taint_specs
 
 __all__ = [
     "CodePropertyGraph",
@@ -59,4 +60,5 @@ __all__ = [
     "build_cpg_from_directory",
     "to_dot",
     "to_dot_file",
+    "load_taint_specs",
 ]

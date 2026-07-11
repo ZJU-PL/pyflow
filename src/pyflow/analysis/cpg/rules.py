@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set
 
 from pyflow.analysis.cpg.taint import CPGTaintEngine
 
@@ -85,6 +85,24 @@ def load_rules(
                 engine.add_sink(call_name, cwe=cwe)
             if m.get("taint_sanitizer"):
                 engine.add_sanitizer(call_name)
+    return engine
+
+
+def load_taint_specs(
+    engine: CPGTaintEngine,
+    path: str | Path,
+) -> CPGTaintEngine:
+    """Load an Ansede-style taint specification JSON file.
+
+    The supported shape is:
+    ``{"sources": {"python": [...]}, "sinks": {...}, "sanitizers": {...}}``.
+    Entries may be strings or objects containing at least ``name``; sink objects
+    may also contain ``cwe``.
+    """
+    spec_path = Path(path)
+    with open(spec_path, encoding="utf-8") as f:
+        specs: Dict[str, Any] = json.load(f)
+    engine.merge_taint_specs(specs)
     return engine
 
 

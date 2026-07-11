@@ -236,6 +236,7 @@ class CodePropertyGraph:
         "_ast_parent",
         "_cfg_forward_map",
         "_cfg_node_to_pdg",
+        "_node_meta",
     )
 
     def __init__(self) -> None:
@@ -249,6 +250,7 @@ class CodePropertyGraph:
         self._ast_parent: Dict[int, int] = {}  # id(ast_child) → id(ast_parent)
         self._cfg_forward_map: Dict[Tuple[int, str], List[PDGNode]] = {}
         self._cfg_node_to_pdg: Dict[int, List[PDGNode]] = {}
+        self._node_meta: Dict[int, Dict[str, Any]] = {}
 
     # ── Construction ─────────────────────────────────────────────────────
 
@@ -297,6 +299,7 @@ class CodePropertyGraph:
         self._ast_parent.clear()
         self._cfg_forward_map.clear()
         self._cfg_node_to_pdg.clear()
+        self._node_meta.clear()
 
         # Collect all PDG nodes and their AST ids.
         pdg_ast_ids: Dict[str, Set[int]] = {}
@@ -308,6 +311,7 @@ class CodePropertyGraph:
             pdg_ast_ids[fname] = ids
 
         for fname, pdg in self._pdgs.items():
+            self._build_node_metadata(fname, pdg)
             self._build_pdg_edges(pdg)
             self._build_ast_edges(pdg, pdg_ast_ids[fname])
             self._build_cfg_edges(fname, pdg)
@@ -335,6 +339,47 @@ class CodePropertyGraph:
         self._cpg_edges_out[source.node_id].add(edge)
         self._cpg_edges_in[target.node_id].add(edge)
         return edge
+
+    def _meta_for(self, node: PDGNode) -> Dict[str, Any]:
+        return self._node_meta.setdefault(node.node_id, {})
+
+    def _append_meta_entry(
+        self, node: PDGNode, key: str, entry: Dict[str, Any]
+    ) -> None:
+        values = self._meta_for(node).setdefault(key, [])
+        if entry not in values:
+            values.append(entry)
+
+    def _build_node_metadata(self, fname: str, pdg: ProgramDependenceGraph) -> None:
+        """Populate Ansede-style node metadata without mutating ``PDGNode``."""
+        for node in pdg.nodes:
+            ast_node = node.ast_node
+            meta = self._meta_for(node)
+            meta.setdefault(
+                "node_type",
+                _safe_type_name(ast_node) if ast_node is not None else node.kind,
+            )
+            meta.setdefault("lineno", getattr(ast_node, "lineno", 0) or 0)
+            meta.setdefault(
+                "col",
+                getattr(ast_node, "col", getattr(ast_node, "col_offset", 0)) or 0,
+            )
+            meta.setdefault(
+                "value", self._ast_value(ast_node) or node.label or node.kind
+            )
+            meta.setdefault("func_name", fname)
+            meta.setdefault("kind", node.kind)
+
+    @staticmethod
+    def _ast_value(ast_node: Any) -> str:
+        if ast_node is None:
+            return ""
+        if hasattr(ast_node, "toStr"):
+            try:
+                return ast_node.toStr()
+            except Exception:
+                pass
+        return str(ast_node)
 
     # ── PDG edge pass-through ────────────────────────────────────────────
 
@@ -367,6 +412,15 @@ class CodePropertyGraph:
                     versioned = ssa_versions.get(label, label)
                     if versioned != label:
                         label = versioned
+                    source_entry = {"var": label.rsplit("_", 1)[0], "name": label}
+                    target_entry = {"var": label.rsplit("_", 1)[0], "name": label}
+                    if "_" in label.rsplit(".", 1)[-1]:
+                        suffix = label.rsplit("_", 1)[-1]
+                        if suffix.isdigit():
+                            source_entry["version"] = int(suffix)
+                            target_entry["version"] = int(suffix)
+                    self._append_meta_entry(pe.source, "ssa_defs", source_entry)
+                    self._append_meta_entry(pe.target, "ssa_uses", target_entry)
                 self._add_edge(pe.source, pe.target, kind, label)
 
     # ── AST structure edges ──────────────────────────────────────────────
@@ -509,10 +563,49 @@ class CodePropertyGraph:
             callee_exit = (
                 next((n for n in callee_pdg.exit_nodes), None) or callee_entry
             )
-            if caller_exit is not None and callee_entry is not None:
-                self._add_edge(caller_exit, callee_entry, CPGEdgeKind.CALL, callee_name)
-            if callee_exit is not None and caller_exit is not None:
-                self._add_edge(callee_exit, caller_exit, CPGEdgeKind.RETURN_EDGE, caller_name)
+            call_site = (
+                self._find_call_site_node(caller_pdg, callee_name) or caller_exit
+            )
+            if call_site is not None and callee_entry is not None:
+                self._add_edge(call_site, callee_entry, CPGEdgeKind.CALL, callee_name)
+            if callee_exit is not None and call_site is not None:
+                self._add_edge(
+                    callee_exit, call_site, CPGEdgeKind.RETURN_EDGE, caller_name
+                )
+
+    def _find_call_site_node(
+        self, caller_pdg: ProgramDependenceGraph, callee_name: str
+    ) -> Optional[PDGNode]:
+        callee_tail = callee_name.rsplit(".", 1)[-1]
+        for node in caller_pdg.nodes:
+            ast_node = node.ast_node
+            if ast_node is None:
+                continue
+            for call_name in self._walk_call_names(ast_node):
+                if (
+                    call_name == callee_name
+                    or call_name == callee_tail
+                    or call_name.endswith("." + callee_tail)
+                ):
+                    return node
+        return None
+
+    @classmethod
+    def _walk_call_names(cls, ast_node: Any) -> Iterator[str]:
+        if isinstance(ast_node, py_ast.Call):
+            call_name = cls._resolve_call_name(ast_node)
+            if call_name:
+                yield call_name
+        if isinstance(ast_node, py_ast.leafTypes):
+            return
+        if hasattr(ast_node, "children"):
+            for child in ast_node.children():
+                if isinstance(child, (list, tuple)):
+                    for item in child:
+                        if item is not None:
+                            yield from cls._walk_call_names(item)
+                elif child is not None:
+                    yield from cls._walk_call_names(child)
 
     # ── Guard / Phi / Lambda metadata ────────────────────────────────────
 
@@ -547,6 +640,9 @@ class CodePropertyGraph:
             for anchor in src_anchors:
                 if anchor.kind == "cond":
                     anchor.label = f"isinstance_guard:{guarded_var}"
+                    meta = self._meta_for(anchor)
+                    meta["isinstance_guard"] = True
+                    meta["guarded_var"] = guarded_var
                     break
 
     @staticmethod
@@ -597,6 +693,17 @@ class CodePropertyGraph:
                             var = s.split("=")[0]
                             if "_" in var:
                                 n.label = var
+                                base, _, suffix = var.rpartition("_")
+                                meta = self._meta_for(n)
+                                meta["node_type"] = "Phi"
+                                meta["phi_vars"] = [base or var]
+                                entry: Dict[str, Any] = {
+                                    "var": base or var,
+                                    "name": var,
+                                }
+                                if suffix.isdigit():
+                                    entry["version"] = int(suffix)
+                                self._append_meta_entry(n, "ssa_defs", entry)
 
     def _build_lambda_nodes(self, pdg: ProgramDependenceGraph) -> None:
         """Create synthetic PDG nodes for Lambda expressions discovered
@@ -615,6 +722,16 @@ class CodePropertyGraph:
             l_node = pdg.add_node(
                 "entry", cfg_node=node.cfg_node, label=lambda_label,
             )
+            self._node_meta[l_node.node_id] = {
+                "node_type": "Lambda",
+                "lineno": getattr(ast_node, "lineno", 0) or 0,
+                "col": getattr(ast_node, "col", getattr(ast_node, "col_offset", 0))
+                or 0,
+                "value": lambda_label,
+                "func_name": self._meta_for(node).get("func_name", ""),
+                "kind": l_node.kind,
+                "lambda_name": lambda_label,
+            }
             self._add_edge(node, l_node, CPGEdgeKind.AST_CHILD, "lambda_body")
             for child in self._walk_ast_names(body):
                 self._add_edge(l_node, node, CPGEdgeKind.DATA, child)
@@ -722,6 +839,11 @@ class CodePropertyGraph:
     def callees(self, node: PDGNode) -> Set[PDGNode]:
         """Return PDG nodes (in other functions) called from *node*."""
         return self.successors(node, kinds=_CALL_KINDS)
+
+    def node_meta(self, node: PDGNode) -> Dict[str, Any]:
+        """Return Ansede-style metadata for *node*."""
+        self._ensure_built()
+        return dict(self._node_meta.get(node.node_id, {}))
 
     # ── Unified queries ──────────────────────────────────────────────────
 
@@ -1047,6 +1169,7 @@ class CodePropertyGraph:
                     "kind": n.kind,
                     "label": n.label,
                     "func": getattr(pdg.cfg, "codeName", lambda: "")() or "",
+                    "meta": dict(self._node_meta.get(n.node_id, {})),
                 })
         edges: List[Dict[str, Any]] = []
         for e in self.all_edges():
