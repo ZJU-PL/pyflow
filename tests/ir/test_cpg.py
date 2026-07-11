@@ -895,6 +895,14 @@ class TestCPGConstruction(unittest.TestCase):
         self.assertIs(cpg.node_by_id(node.node_id), node)
         self.assertIsInstance(cpg.cfg_next(node.node_id), list)
 
+    def test_taint_engine_ansede_compatible_context_and_node_id(self):
+        cpg = self.build_cpg(simple_assignment)
+        cpg.build()
+        engine = CPGTaintEngine(cpg)
+        self.assertIsInstance(engine.find_taint_paths(call_context=(123,)), list)
+        node = next(cpg.nodes("test_func"))
+        self.assertEqual(engine.get_node_taint(node), engine.get_node_taint(node.node_id))
+
     def test_load_taint_specs_ansede_format(self):
         import json
         import tempfile
@@ -1178,13 +1186,14 @@ class TestCPGConstruction(unittest.TestCase):
             self.assertEqual(cpg.node_func_name(node), "my_func")
 
     def test_node_type_fallback_to_kind(self):
-        """When ast_node is None, node_type falls back to node.kind."""
+        """When ast_node is None, node_type prefers node.label over node.kind."""
         cpg = self.build_cpg(simple_assignment)
         cpg.build()
         for node in cpg.nodes("test_func"):
             ntype = cpg.node_type(node)
             if node.ast_node is None:
-                self.assertEqual(ntype, node.kind)
+                expected = node.label or node.kind
+                self.assertEqual(ntype, expected)
 
     # ── Statement-type metadata builders (Gap #2) ─────────────────────
 
@@ -1291,7 +1300,7 @@ class TestCPGConstruction(unittest.TestCase):
 
     def test_yield_from_source_ast_backfill(self):
         from pyflow.analysis.cpg.build import build_cpg
-        source = "def gen(xs):\n    yield from xs\n"
+        source = "def gen(xs):\n    yield xs\n    yield from xs\n"
         cpg = build_cpg(source, "test.py")
         cpg.build()
         metas = [
@@ -1299,6 +1308,7 @@ class TestCPGConstruction(unittest.TestCase):
             if cpg.node_meta(n).get("synthetic_ast")
         ]
         self.assertTrue(any(m.get("is_yield") for m in metas))
+        self.assertTrue(any(m.get("yield_kind") == "Yield" for m in metas))
         self.assertTrue(any(m.get("yield_kind") == "YieldFrom" for m in metas))
 
     def test_detect_framework_aliases(self):

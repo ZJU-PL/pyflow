@@ -716,32 +716,33 @@ class CPGTaintEngine:
         else:
             self._sanitizers.setdefault(name, frozenset())
 
-    def merge_taint_specs(self, specs: Dict[str, Any]) -> None:
-        """Merge Ansede-style taint specs into this engine."""
-        for lang_specs in specs.get("sources", {}).values():
-            for src in lang_specs:
-                name = src if isinstance(src, str) else src.get("name", "")
+    def merge_taint_specs(self, specs: Dict[str, Any], language: str = "python") -> None:
+        """Merge Ansede-style taint specs into this engine.
+
+        Only entries matching *language* (default ``"python"``) are loaded,
+        so multi-language spec files are handled correctly.
+        """
+        for src in specs.get("sources", {}).get(language, []):
+            name = src if isinstance(src, str) else src.get("name", "")
+            if name:
+                self.add_source(name)
+        for sink in specs.get("sinks", {}).get(language, []):
+            if isinstance(sink, str):
+                self.add_sink(sink, cwe="CWE-0")
+            else:
+                name = sink.get("name", "")
                 if name:
-                    self.add_source(name)
-        for lang_specs in specs.get("sinks", {}).values():
-            for sink in lang_specs:
-                if isinstance(sink, str):
-                    self.add_sink(sink, cwe="CWE-0")
-                else:
-                    name = sink.get("name", "")
-                    if name:
-                        self.add_sink(name, cwe=sink.get("cwe", "CWE-0"))
-        for lang_specs in specs.get("sanitizers", {}).values():
-            for san in lang_specs:
-                if isinstance(san, str):
-                    self.add_sanitizer(san)
-                else:
-                    name = san.get("name", "")
-                    if name:
-                        san_cwes = san.get("cwe", [])
-                        if isinstance(san_cwes, str):
-                            san_cwes = {san_cwes}
-                        self.add_sanitizer(name, cwes=set(san_cwes) if san_cwes else None)
+                    self.add_sink(name, cwe=sink.get("cwe", "CWE-0"))
+        for san in specs.get("sanitizers", {}).get(language, []):
+            if isinstance(san, str):
+                self.add_sanitizer(san)
+            else:
+                name = san.get("name", "")
+                if name:
+                    san_cwes = san.get("cwe", [])
+                    if isinstance(san_cwes, str):
+                        san_cwes = {san_cwes}
+                    self.add_sanitizer(name, cwes=set(san_cwes) if san_cwes else None)
 
     @property
     def sources(self) -> FrozenSet[str]:
@@ -757,8 +758,18 @@ class CPGTaintEngine:
 
     # ── Main Finding ────────────────────────────────────────────────────
 
-    def find_taint_paths(self) -> List[TaintFinding]:
+    def find_taint_paths(
+        self,
+        call_context: Optional[Tuple[int, ...]] = None,
+    ) -> List[TaintFinding]:
+        """Find source-to-sink taint flows.
+
+        ``call_context`` is accepted for Ansede API compatibility.  PyFlow's
+        traversal manages call context internally, so a supplied tuple is used
+        only as the initial context for each seed.
+        """
         self._cpg._ensure_built()
+        initial_call_context: Tuple[int, ...] = tuple(call_context or ())
 
         seeds = self._collect_seeds()
         if not seeds:
@@ -788,7 +799,9 @@ class CPGTaintEngine:
                 ]
             ] = deque()
             initial_state = _USER_CONTROLLED.add_tag(seed_tag)
-            worklist.append((seed_node, initial_state, [], MemoryLayout(), ()))
+            worklist.append(
+                (seed_node, initial_state, [], MemoryLayout(), initial_call_context)
+            )
 
             while worklist:
                 node, tstate, path, mem, call_context = worklist.popleft()
@@ -871,8 +884,9 @@ class CPGTaintEngine:
 
         return findings
 
-    def get_node_taint(self, node: PDGNode) -> TaintState:
-        return self._node_taint.get(node.node_id, _CLEAN)
+    def get_node_taint(self, node: PDGNode | int) -> TaintState:
+        node_id = node if isinstance(node, int) else node.node_id
+        return self._node_taint.get(node_id, _CLEAN)
 
     # ── Seed Collection ──────────────────────────────────────────────────
 

@@ -169,6 +169,8 @@ def load_rules(
 def load_taint_specs(
     engine: CPGTaintEngine,
     path: str | Path,
+    *,
+    language: str = "python",
 ) -> CPGTaintEngine:
     """Load an Ansede-style taint specification JSON file.
 
@@ -176,11 +178,14 @@ def load_taint_specs(
     ``{"sources": {"python": [...]}, "sinks": {...}, "sanitizers": {...}}``.
     Entries may be strings or objects containing at least ``name``; sink objects
     may also contain ``cwe``.
+
+    Only entries matching *language* (default ``"python"``) from each section
+    are loaded, so multi-language spec files are handled correctly.
     """
     spec_path = Path(path)
     with open(spec_path, encoding="utf-8") as f:
         specs: Dict[str, Any] = json.load(f)
-    engine.merge_taint_specs(specs)
+    engine.merge_taint_specs(specs, language=language)
     return engine
 
 
@@ -259,7 +264,7 @@ def load_yaml_rules(
         data: Dict[str, Any] = yaml.safe_load(f)
 
     if "sources" in data or "sinks" in data or "sanitizers" in data:
-        engine.merge_taint_specs(data)
+        engine.merge_taint_specs(data, language=data.get("language", "python"))
         return engine
 
     _apply_registry_yaml(engine, data)

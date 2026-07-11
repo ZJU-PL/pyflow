@@ -269,9 +269,11 @@ class CodePropertyGraph:
         self._call_graph: Any = None  # CallGraph instance (optional)
 
         # Lazily populated by build()
+        # Dict-of-dicts (key=CPGEdge, value=None) preserves insertion order
+        # for deterministic traversal while still dedup'ing via __hash__.
         self._built: bool = False
-        self._cpg_edges_out: MutableMapping[int, Set[CPGEdge]] = defaultdict(set)
-        self._cpg_edges_in: MutableMapping[int, Set[CPGEdge]] = defaultdict(set)
+        self._cpg_edges_out: MutableMapping[int, Dict[CPGEdge, None]] = defaultdict(dict)
+        self._cpg_edges_in: MutableMapping[int, Dict[CPGEdge, None]] = defaultdict(dict)
         self._ast_parent: Dict[int, int] = {}  # id(ast_child) → id(ast_parent)
         self._cfg_forward_map: Dict[Tuple[int, str], List[PDGNode]] = {}
         self._cfg_node_to_pdg: Dict[int, List[PDGNode]] = {}
@@ -310,6 +312,20 @@ class CodePropertyGraph:
     def functions(self) -> Tuple[str, ...]:
         """Sorted list of registered function names."""
         return tuple(sorted(self._pdgs.keys()))
+
+    @property
+    def funcs(self) -> Dict[str, int]:
+        """Map ``func_name -> PDG entry-node-id`` for O(1) entry lookup.
+
+        Used by the taint engine for lambda dispatch and getattr method
+        resolution (avoids linear scans via :meth:`node_by_id`).
+        """
+        self._ensure_built()
+        return {
+            name: pdg.entry.node_id
+            for name, pdg in self._pdgs.items()
+            if pdg.entry is not None
+        }
 
     # ── Build ────────────────────────────────────────────────────────────
 
@@ -373,8 +389,10 @@ class CodePropertyGraph:
         label: str = "",
     ) -> CPGEdge:
         edge = CPGEdge(source, target, kind, label)
-        self._cpg_edges_out[source.node_id].add(edge)
-        self._cpg_edges_in[target.node_id].add(edge)
+        # dict-key insertion dedupes via CPGEdge.__hash__/__eq__ while
+        # preserving the order edges were added.
+        self._cpg_edges_out[source.node_id][edge] = None
+        self._cpg_edges_in[target.node_id][edge] = None
         return edge
 
     def _meta_for(self, node: PDGNode) -> Dict[str, Any]:
@@ -392,10 +410,13 @@ class CodePropertyGraph:
         for node in pdg.nodes:
             ast_node = node.ast_node
             meta = self._meta_for(node)
-            meta.setdefault(
-                "node_type",
-                _safe_type_name(ast_node) if ast_node is not None else node.kind,
-            )
+            # For block-anchors without an AST node, node.label ("Merge", "Switch",
+            # "Yield") is more informative than node.kind ("block").
+            if ast_node is not None:
+                typed_name = _safe_type_name(ast_node)
+            else:
+                typed_name = node.label or node.kind
+            meta.setdefault("node_type", typed_name)
             meta.setdefault("lineno", getattr(ast_node, "lineno", 0) or 0)
             meta.setdefault(
                 "col",
@@ -489,6 +510,8 @@ class CodePropertyGraph:
                     py_ast.GlobalDecl,
                     py_ast.NonlocalDecl,
                     py_ast.TypeAlias,
+                    py_ast.TryExceptFinally,
+                    py_ast.Yield,
                     py_ast.YieldFrom,
                     py_ast.AsyncYield,
                     py_ast.Await,
@@ -513,6 +536,8 @@ class CodePropertyGraph:
         elif isinstance(ast_node, (py_ast.Yield, py_ast.YieldFrom, py_ast.AsyncYield)):
             meta["is_yield"] = True
             meta["yield_kind"] = node_type
+        elif isinstance(ast_node, py_ast.TryExceptFinally):
+            meta["is_try_stmt"] = True
         elif isinstance(ast_node, py_ast.Await):
             meta["is_await"] = True
         elif isinstance(ast_node, py_ast.Break):
