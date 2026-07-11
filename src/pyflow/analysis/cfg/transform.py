@@ -170,10 +170,15 @@ class CFGTransformer(TypeDispatcher):
 
     @dispatch(object)  # Catch-all for unrecognised node types
     def visitUnknown(self, node):
-        raise TemporaryLimitation(
-            "CFG transform encountered unsupported AST node type "
-            f"{type(node).__qualname__!r}."
+        import warnings
+
+        warnings.warn(
+            f"CFG transform skipping unsupported AST node type "
+            f"{type(node).__qualname__!r}.",
+            RuntimeWarning,
+            stacklevel=2,
         )
+        self.emit(node)
 
     def createSwitchAfter(self, condition, prev):
         switch = cfg.Switch(self.region, condition)
@@ -195,7 +200,7 @@ class CFGTransformer(TypeDispatcher):
 
         merges = []
 
-        switch.setExit("true", self.makeNewSuite())
+        switch.setExit("true", self.makeNewSuite(origin_ast=node))
         try:
             self(node.t)
         except NoNormalFlow:
@@ -204,7 +209,7 @@ class CFGTransformer(TypeDispatcher):
             if self.current is not None:
                 merges.append(self.current)
 
-        switch.setExit("false", self.makeNewSuite())
+        switch.setExit("false", self.makeNewSuite(origin_ast=node))
         try:
             self(node.f)
         except NoNormalFlow:
@@ -237,7 +242,7 @@ class CFGTransformer(TypeDispatcher):
         uid = 0
 
         for case in node.cases:
-            switch.setExit(uid, self.makeNewSuite())
+            switch.setExit(uid, self.makeNewSuite(origin_ast=node))
             uid += 1
 
             try:
@@ -274,7 +279,7 @@ class CFGTransformer(TypeDispatcher):
         self(node.condition.preamble)
 
         switch = self.createSwitchAfter(node.condition.conditional, self.current)
-        switch.setExit("true", self.makeNewSuite())
+        switch.setExit("true", self.makeNewSuite(origin_ast=node))
 
         self.pushHandler("continue", c)
         self.pushHandler("break", b)
@@ -293,7 +298,7 @@ class CFGTransformer(TypeDispatcher):
         switch.setExit("false", e)
 
         try:
-            e.setExit("normal", self.makeNewSuite())
+            e.setExit("normal", self.makeNewSuite(origin_ast=node))
             self(node.else_)
         except NoNormalFlow:
             pass
@@ -337,7 +342,7 @@ class CFGTransformer(TypeDispatcher):
 
         header.setExit("normal", self.makeNewSuite())
         switch = self.createSwitchAfter(node.iterator, self.current)
-        switch.setExit("true", self.makeNewSuite())
+        switch.setExit("true", self.makeNewSuite(origin_ast=node))
 
         if hasattr(node, "bodyPreamble") and node.bodyPreamble:
             self(node.bodyPreamble)
@@ -359,7 +364,7 @@ class CFGTransformer(TypeDispatcher):
         switch.setExit("false", exit_merge)
 
         try:
-            exit_merge.setExit("normal", self.makeNewSuite())
+            exit_merge.setExit("normal", self.makeNewSuite(origin_ast=node))
             self(node.else_)
         except NoNormalFlow:
             pass
@@ -376,7 +381,14 @@ class CFGTransformer(TypeDispatcher):
 
     @dispatch(ast.Suite)
     def visitSuite(self, node):
-        if self.current is None:
+        origin_tag = getattr(node, "_origin_tag", None)
+        if origin_tag is not None:
+            tagged = cfg.Suite(self.region, origin_ast=origin_tag)
+            self.attachStandardHandlers(tagged)
+            if self.current is not None:
+                self.attachCurrent(tagged)
+            self.current = tagged
+        elif self.current is None:
             self.current = self.makeNewSuite()
         node.visitChildren(self)
 
@@ -394,8 +406,8 @@ class CFGTransformer(TypeDispatcher):
         node.setExit("fail", self.handler("fail"))
         node.setExit("error", self.handler("error"))
 
-    def makeNewSuite(self):
-        self.current = cfg.Suite(self.region)
+    def makeNewSuite(self, origin_ast=None):
+        self.current = cfg.Suite(self.region, origin_ast=origin_ast)
         self.attachStandardHandlers(self.current)
         return self.current
 

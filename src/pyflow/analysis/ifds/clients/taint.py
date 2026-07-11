@@ -62,17 +62,17 @@ class TaintFinding:
 
 
 @dataclass(frozen=True)
-class SlotTaintFact:
-    """Taint on a canonical storage slot.
+class TaintFact:
+    """Taint on a canonical storage location.
 
     *access_path* refines the fact to a specific field chain.
-    ``()`` means the slot itself; ``("f",)`` means ``slot.f``;
-    ``("f", "g")`` means ``slot.f.g``.  Facts with shorter paths
+    ``()`` means the location itself; ``("f",)`` means ``location.f``;
+    ``("f", "g")`` means ``location.f.g``.  Facts with shorter paths
     are matched as prefixes: ``access_path=("f",)`` is considered
-    tainted when checking if ``slot.f.g`` may be tainted.
+    tainted when checking if ``location.f.g`` may be tainted.
     """
 
-    slot: object
+    location: object
     access_path: tuple[str, ...] = ()
 
 
@@ -96,15 +96,15 @@ class TaintAnalysisResult:
 
     def is_tainted(self, node: CFGNode, local: py_ast.Local) -> bool:
         return any(
-            self._ifds_result.is_reached(node, SlotTaintFact(slot))
-            for slot in self._problem.local_slots(node.procedure, local)
+            self._ifds_result.is_reached(node, TaintFact(location))
+            for location in self._problem.local_locations(node.procedure, local)
         )
 
     def tainted_locals_at(self, node: CFGNode):
         return frozenset(
             self._problem.describe_fact(fact)
             for fact in self._ifds_result.facts_at(node)
-            if isinstance(fact, SlotTaintFact)
+            if isinstance(fact, TaintFact)
         )
 
     @property
@@ -114,9 +114,9 @@ class TaintAnalysisResult:
     def explain_fact(self, node: CFGNode, fact: object):
         return self._ifds_result.explain_fact(node, fact)
 
-    def fact_for_local(self, node: CFGNode, local: py_ast.Local) -> SlotTaintFact | None:
-        for slot in self._problem.local_slots(node.procedure, local):
-            fact = SlotTaintFact(slot)
+    def fact_for_local(self, node: CFGNode, local: py_ast.Local) -> TaintFact | None:
+        for location in self._problem.local_locations(node.procedure, local):
+            fact = TaintFact(location)
             if self._ifds_result.is_reached(node, fact):
                 return fact
         return None
@@ -170,9 +170,9 @@ class InterproceduralTaintProblem(
         if operation is None:
             return self._identity_outputs(fact, ())
 
-        killed = self._killed_slots_for_node(node)
-        dynamic_setattr_slots = self._dynamic_setattr_slots(node.procedure, operation)
-        if dynamic_setattr_slots:
+        killed = self._killed_locations_for_node(node)
+        dynamic_setattr_locations = self._dynamic_setattr_locations(node.procedure, operation)
+        if dynamic_setattr_locations:
             outputs = set(self._identity_outputs(fact, killed))
             value = self._dynamic_setattr_value(operation)
             if value is not None and (
@@ -180,14 +180,14 @@ class InterproceduralTaintProblem(
                 or self._expr_is_tainted(node.procedure, value, fact)
             ):
                 outputs.update(
-                    self._make_slot_fact(slot) for slot in dynamic_setattr_slots
+                    self._make_location_fact(location) for location in dynamic_setattr_locations
                 )
             return tuple(outputs)
 
-        dynamic_subscript_slots = self._dynamic_subscript_write_slots(
+        dynamic_subscript_locations = self._dynamic_subscript_write_locations(
             node.procedure, operation
         )
-        if dynamic_subscript_slots:
+        if dynamic_subscript_locations:
             outputs = set(self._identity_outputs(fact, killed))
             value = self._dynamic_subscript_value(operation)
             if value is not None and (
@@ -196,30 +196,30 @@ class InterproceduralTaintProblem(
             ):
                 outputs.update(self._facts_for_modified_operation(operation))
                 outputs.update(
-                    self._make_slot_fact(slot) for slot in dynamic_subscript_slots
+                    self._make_location_fact(location) for location in dynamic_subscript_locations
                 )
             return tuple(outputs)
 
-        collection_slots, collection_values = self._collection_mutation(
+        collection_locations, collection_values = self._collection_mutation(
             node.procedure,
             operation,
             self.configuration.collection_mutator_names,
         )
-        if collection_slots:
+        if collection_locations:
             outputs = set(self._identity_outputs(fact, killed))
-            copy_slots, copy_source_slots = self._collection_copy_mutation(
+            copy_locations, copy_source_locations = self._collection_copy_mutation(
                 node.procedure,
                 operation,
                 self.configuration.collection_mutator_names,
             )
-            fact_slot = self._slot_from_fact(fact)
+            fact_location = self._location_from_fact(fact)
             if any(
                 self._direct_expression_fact(value, fact) is not None
                 or self._expr_is_tainted(node.procedure, value, fact)
                 for value in collection_values
-            ) or (fact_slot is not None and fact_slot in copy_source_slots):
-                outputs.update(self._make_slot_fact(slot) for slot in collection_slots)
-                outputs.update(self._make_slot_fact(slot) for slot in copy_slots)
+            ) or (fact_location is not None and fact_location in copy_source_locations):
+                outputs.update(self._make_location_fact(location) for location in collection_locations)
+                outputs.update(self._make_location_fact(location) for location in copy_locations)
             return tuple(outputs)
 
         if isinstance(operation, (py_ast.Assign, py_ast.UnpackSequence, py_ast.AnnAssign)):
@@ -252,14 +252,14 @@ class InterproceduralTaintProblem(
                 else:
                     outputs.update(self._facts_for_locals(node.procedure, targets))
             outputs.update(
-                self._make_slot_fact(slot)
-                for slot in self._aliased_dynamic_slots_for_assignment(
+                self._make_location_fact(location)
+                for location in self._aliased_dynamic_locations_for_assignment(
                     node.procedure,
                     operation,
                     fact,
                 )
             )
-            for slots, value in self._collection_constructor_writes(
+            for locations, value in self._collection_constructor_writes(
                 node.procedure,
                 operation,
             ):
@@ -267,7 +267,7 @@ class InterproceduralTaintProblem(
                     value,
                     fact,
                 ) is not None or self._expr_is_tainted(node.procedure, value, fact):
-                    outputs.update(self._make_slot_fact(slot) for slot in slots)
+                    outputs.update(self._make_location_fact(location) for location in locations)
             return tuple(outputs)
 
         if isinstance(operation, py_ast.Return):
@@ -278,7 +278,7 @@ class InterproceduralTaintProblem(
                     _procedure, _expr, result_index = direct_fact
                     path = self._access_path_from_fact(fact)
                     outputs.update(
-                        self._facts_for_return_slot(
+                        self._facts_for_return_location(
                             node.procedure, result_index, access_path=path,
                         )
                     )
@@ -287,7 +287,7 @@ class InterproceduralTaintProblem(
                 if self._expr_is_tainted(node.procedure, expr, fact):
                     path = self._access_path_for_expression(expr)
                     outputs.update(
-                        self._facts_for_return_slot(
+                        self._facts_for_return_location(
                             node.procedure, index, access_path=path,
                         )
                     )
@@ -384,7 +384,7 @@ class InterproceduralTaintProblem(
     def call_to_return_flow(self, call_node: CFGNode, return_site: CFGNode, fact: object):
         del return_site
         call_effect = self._call_effect(call_node)
-        killed = self._killed_slots_for_node(call_node)
+        killed = self._killed_locations_for_node(call_node, include_semantic=False)
         outputs = set(self._identity_outputs(fact, killed))
         model = self._call_model_for_node(call_node)
         if (
@@ -413,7 +413,7 @@ class InterproceduralTaintProblem(
         ):
             return None
 
-        outputs = set(self._identity_outputs(fact, self._killed_slots_for_node(node)))
+        outputs = set(self._identity_outputs(fact, self._killed_locations_for_node(node)))
         model = self._call_model_for_node(node)
         if fact == ZERO_TAINT:
             if model is not None and model.taint_source:
@@ -451,17 +451,17 @@ class InterproceduralTaintProblem(
         return tuple(outputs)
 
     def describe_fact(self, fact: object) -> str:
-        if isinstance(fact, SlotTaintFact):
-            return self.describe_slot(fact.slot)
+        if isinstance(fact, TaintFact):
+            return self.describe_location(fact.location)
         if isinstance(fact, ExpressionTaintFact):
             return self.describe_expression(fact.expression)
         return "<expr>"
 
-    def _make_slot_fact(self, slot: object) -> object:
-        return SlotTaintFact(slot)
+    def _make_location_fact(self, location: object) -> object:
+        return TaintFact(location)
 
-    def _make_slot_fact_with_path(self, slot: object, access_path: tuple[str, ...]) -> object:
-        return SlotTaintFact(slot, access_path=access_path)
+    def _make_location_fact_with_path(self, location: object, access_path: tuple[str, ...]) -> object:
+        return TaintFact(location, access_path=access_path)
 
     def _make_expression_fact(
         self,
@@ -471,9 +471,9 @@ class InterproceduralTaintProblem(
     ) -> object:
         return ExpressionTaintFact(procedure, expression, result_index)
 
-    def _slot_from_fact(self, fact: object) -> object | None:
-        if isinstance(fact, SlotTaintFact):
-            return fact.slot
+    def _location_from_fact(self, fact: object) -> object | None:
+        if isinstance(fact, TaintFact):
+            return fact.location
         return None
 
     def _expression_fact_result(
@@ -486,7 +486,7 @@ class InterproceduralTaintProblem(
     def _identity_outputs(self, fact: object, killed: Sequence[object]):
         if fact == ZERO_TAINT:
             return (ZERO_TAINT,)
-        if isinstance(fact, SlotTaintFact) and any(fact.slot == target for target in killed):
+        if isinstance(fact, TaintFact) and any(fact.location == target for target in killed):
             return ()
         return (fact,)
 
@@ -552,7 +552,7 @@ class InterproceduralTaintProblem(
                 self._matching_locals_in_expression(
                     node.procedure,
                     actual,
-                    lambda slot: result.is_reached(node, SlotTaintFact(slot)),
+                    lambda location: result.is_reached(node, TaintFact(location)),
                 ),
                 key=lambda local: local.name or "",
             )
@@ -641,7 +641,7 @@ class InterproceduralTaintProblem(
                 return
             if isinstance(current, py_ast.Local):
                 if current.name is not None and any(
-                    predicate(slot) for slot in self._slots_for_local(procedure, current)
+                    predicate(location) for location in self._locations_for_local(procedure, current)
                 ):
                     found.add(current)
                 return

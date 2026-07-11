@@ -1,10 +1,7 @@
 from __future__ import annotations
 
-from pyflow.analysis.ifds.clients._client_common import (
-    DynamicAttributeSlot,
-    DynamicSubscriptSlot,
-    build_entry_seeds,
-)
+from pyflow.analysis.ifds.clients._client_common import build_entry_seeds
+from pyflow.analysis.ifds.heap import HeapAbstraction, HeapSelector
 
 
 def test_build_entry_seeds_single_node():
@@ -27,41 +24,47 @@ def test_build_entry_seeds_multiple_nodes():
     assert seeds[n2] == frozenset({"Z"})
 
 
-def test_dynamic_attribute_slot_creation():
-    slot = DynamicAttributeSlot("obj", "attr")
-    assert slot.base == "obj"
-    assert slot.attribute == "attr"
+def test_dynamic_attribute_location_creation():
+    heap = HeapAbstraction(lambda _procedure, _local: ())
+    location = heap.dynamic_attribute_location("obj", "attr")
+    assert location.root.label == "'obj'"
+    assert location.selectors == (HeapSelector.field("attr"),)
 
 
-def test_dynamic_attribute_slot_equality():
-    a = DynamicAttributeSlot("x", "y")
-    b = DynamicAttributeSlot("x", "y")
-    c = DynamicAttributeSlot("x", "z")
+def test_dynamic_attribute_location_equality():
+    heap = HeapAbstraction(lambda _procedure, _local: ())
+    a = heap.dynamic_attribute_location("x", "y")
+    b = heap.dynamic_attribute_location("x", "y")
+    c = heap.dynamic_attribute_location("x", "z")
     assert a == b
     assert a != c
     assert hash(a) == hash(b)
 
 
-def test_dynamic_subscript_slot_creation():
-    slot = DynamicSubscriptSlot("base", "[*]")
-    assert slot.base == "base"
-    assert slot.subscript == "[*]"
+def test_dynamic_subscript_location_creation():
+    heap = HeapAbstraction(lambda _procedure, _local: ())
+    location = heap.dynamic_subscript_location("base", "[*]")
+    assert location.root.label == "'base'"
+    assert location.selectors == (HeapSelector.unknown_element(),)
 
 
-def test_dynamic_subscript_slot_equality():
-    a = DynamicSubscriptSlot("x", "[0]")
-    b = DynamicSubscriptSlot("x", "[0]")
-    c = DynamicSubscriptSlot("x", "[1]")
+def test_dynamic_subscript_location_equality():
+    heap = HeapAbstraction(lambda _procedure, _local: ())
+    a = heap.dynamic_subscript_location("x", "[0]")
+    b = heap.dynamic_subscript_location("x", "[0]")
+    c = heap.dynamic_subscript_location("x", "[1]")
     assert a == b
     assert a != c
     assert hash(a) == hash(b)
 
 
 def test_dynamic_attribute_wildcard():
-    slot = DynamicAttributeSlot("obj", "*")
-    assert slot.attribute == "*"
+    heap = HeapAbstraction(lambda _procedure, _local: ())
+    location = heap.dynamic_attribute_location("obj", "*")
+    assert location.selectors == (HeapSelector.unknown_field(),)
 
 
 def test_dynamic_subscript_wildcard():
-    slot = DynamicSubscriptSlot("obj", "[*]")
-    assert slot.subscript == "[*]"
+    heap = HeapAbstraction(lambda _procedure, _local: ())
+    location = heap.dynamic_subscript_location("obj", "[*]")
+    assert location.selectors == (HeapSelector.unknown_element(),)

@@ -119,13 +119,13 @@ class InterproceduralFlowPathProblem(
                 return f"{name}()"
         return "<call>"
 
-    def _make_slot_fact(self, slot: object) -> str:
+    def _make_location_fact(self, location: object) -> str:
         return ZERO_COLLECTOR
 
     def _make_expression_fact(self, procedure, expression, result_index=0) -> str:
         return ZERO_COLLECTOR
 
-    def _slot_from_fact(self, fact: str) -> object | None:
+    def _location_from_fact(self, fact: str) -> object | None:
         return None
 
     def _expression_fact_result(self, fact: str):

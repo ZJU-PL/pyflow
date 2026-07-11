@@ -371,6 +371,7 @@ class CodePropertyGraph:
             self._build_try_metadata(fname, pdg)
             self._build_loop_metadata(fname, pdg)
             self._build_statement_metadata(fname, pdg)
+            self._build_origin_ast_metadata(pdg)
 
         if self._call_graph is not None:
             self._build_call_edges()
@@ -1312,6 +1313,43 @@ class CodePropertyGraph:
             if ast_node is None:
                 continue
             self._annotate_statement_meta(node)
+
+    def _build_origin_ast_metadata(
+        self, pdg: ProgramDependenceGraph
+    ) -> None:
+        """Annotate PDG nodes with structural context from Suite.origin_ast.
+
+        The CFGTransformer lowers structured AST nodes (For, While, Switch,
+        TypeSwitch) into flat Suite blocks.  The ``origin_ast`` field on each
+        Suite lets us recover that structure and tag PDG nodes with metadata
+        such as ``is_loop_body`` or ``is_switch_branch``.
+        """
+        for node in pdg.nodes:
+            cfg_node = getattr(node, "cfg_node", None)
+            if cfg_node is None:
+                continue
+            if not isinstance(cfg_node, cfg_graph.Suite):
+                continue
+            origin = getattr(cfg_node, "origin_ast", None)
+            if origin is None:
+                continue
+            meta = self._meta_for(node)
+            if isinstance(origin, (py_ast.For, py_ast.While)):
+                meta["is_loop_body"] = True
+                meta["loop_kind"] = (
+                    "for" if isinstance(origin, py_ast.For) else "while"
+                )
+            elif isinstance(origin, py_ast.Switch):
+                meta["is_switch_branch"] = True
+            elif isinstance(origin, py_ast.TypeSwitch):
+                meta["is_type_switch_branch"] = True
+            elif isinstance(origin, str):
+                if origin in ("With", "AsyncWith"):
+                    meta["is_with_body"] = True
+                elif origin == "AugAssign":
+                    meta["is_augassign"] = True
+                elif origin == "Match":
+                    meta["is_match"] = True
 
     # ── Navigation ───────────────────────────────────────────────────────
 

@@ -394,6 +394,8 @@ class PDGConstructor:
             if node.ast_node is None:
                 continue
             defs, uses = _collect_local_defs_uses(node.ast_node, root_code=root_code)
+            defs = {d for d in defs if isinstance(d, py_ast.Local)}
+            uses = {u for u in uses if isinstance(u, py_ast.Local)}
             node_uses[node] = uses
             for d in defs:
                 var_to_defs.setdefault(key_for_local(d), []).append(node)

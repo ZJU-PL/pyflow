@@ -330,6 +330,10 @@ class ASTConverter:
             for node in python_nodes:
                 converted = self._convert_node(node)
                 if converted is not None:
+                    if isinstance(node, python_ast.AugAssign):
+                        suite = pyflow_ast.Suite([converted])
+                        suite._origin_tag = "AugAssign"
+                        converted = suite
                     blocks.append(converted)
             return pyflow_ast.Suite(blocks)
         finally:
@@ -1204,7 +1208,9 @@ class ASTConverter:
         5. Call __exit__ on the context manager (guaranteed via try-finally)
         """
         body = self.convert_python_ast_to_pyflow(node.body)
-        return self._wrap_context_manager_items(node.items, body, is_async=False)
+        result = self._wrap_context_manager_items(node.items, body, is_async=False)
+        result._origin_tag = "With"
+        return result
 
     def _binary_op_name(self, op: python_ast.AST) -> Optional[str]:
         op_map = {
@@ -1335,43 +1341,48 @@ class ASTConverter:
                 "interpreter_unknown_augassign",
                 [pyflow_ast.Existing(Object(type(node.op).__name__)), rhs],
             )
-            return self._convert_store(node.target, tagged_rhs)
+            result = self._convert_store(node.target, tagged_rhs)
+        else:
+            op = pyflow_ast.Existing(Object(op_name))
 
-        op = pyflow_ast.Existing(Object(op_name))
+            # Load current value from target.
+            if isinstance(node.target, python_ast.Name):
+                cur = self._name_expr(node.target.id)
+                new_val = pyflow_ast.Call(op, [cur, rhs], [], None, None)
+                result = self._name_store(node.target.id, new_val)
 
-        # Load current value from target.
-        if isinstance(node.target, python_ast.Name):
-            cur = self._name_expr(node.target.id)
-            new_val = pyflow_ast.Call(op, [cur, rhs], [], None, None)
-            return self._name_store(node.target.id, new_val)
+            elif isinstance(node.target, python_ast.Attribute):
+                obj = self._convert_expression_safe(node.target.value)
+                name = pyflow_ast.Existing(Object(node.target.attr))
+                cur = pyflow_ast.GetAttr(obj, name)
+                new_val = pyflow_ast.Call(op, [cur, rhs], [], None, None)
+                result = pyflow_ast.SetAttr(new_val, obj, name)
 
-        if isinstance(node.target, python_ast.Attribute):
-            obj = self._convert_expression_safe(node.target.value)
-            name = pyflow_ast.Existing(Object(node.target.attr))
-            cur = pyflow_ast.GetAttr(obj, name)
-            new_val = pyflow_ast.Call(op, [cur, rhs], [], None, None)
-            return pyflow_ast.SetAttr(new_val, obj, name)
-
-        if isinstance(node.target, python_ast.Subscript):
-            obj = self._convert_expression_safe(node.target.value)
-            sub = self._convert_subscript_index(node.target.slice)
-            cur = pyflow_ast.Call(
-                pyflow_ast.Existing(Object("interpreter_getitem")),
-                [obj, sub],
-                [],
-                None,
-                None,
-            )
-            new_val = pyflow_ast.Call(op, [cur, rhs], [], None, None)
-            return pyflow_ast.Discard(
-                pyflow_ast.Call(
-                    pyflow_ast.Existing(Object("interpreter_setitem")),
-                    [obj, sub, new_val],
+            elif isinstance(node.target, python_ast.Subscript):
+                obj = self._convert_expression_safe(node.target.value)
+                sub = self._convert_subscript_index(node.target.slice)
+                cur = pyflow_ast.Call(
+                    pyflow_ast.Existing(Object("interpreter_getitem")),
+                    [obj, sub],
                     [],
                     None,
                     None,
                 )
-            )
+                new_val = pyflow_ast.Call(op, [cur, rhs], [], None, None)
+                result = pyflow_ast.Discard(
+                    pyflow_ast.Call(
+                        pyflow_ast.Existing(Object("interpreter_setitem")),
+                        [obj, sub, new_val],
+                        [],
+                        None,
+                        None,
+                    )
+                )
+            else:
+                result = self._unsupported_stmt(
+                    node, f"unsupported AugAssign target {type(node.target).__name__}"
+                )
+        return result
 
         # Fallback for other targets.
         return self._convert_store(node.target, rhs)
@@ -1416,7 +1427,9 @@ class ASTConverter:
         5. Call __aexit__ on the context manager (guaranteed via try-finally)
         """
         body = self.convert_python_ast_to_pyflow(node.body)
-        return self._wrap_context_manager_items(node.items, body, is_async=True)
+        result = self._wrap_context_manager_items(node.items, body, is_async=True)
+        result._origin_tag = "AsyncWith"
+        return result
 
     def _ensure_suite(self, node_or_suite: PythonASTNode) -> pyflow_ast.Suite:
         """Ensure we have a Suite, wrapping a single statement when needed."""
@@ -1609,6 +1622,7 @@ class ASTConverter:
                 )
 
         suite.append(result)
+        suite._origin_tag = "Match"
         return suite
 
     def _convert_pattern_with_bindings(self, pattern, subject: PythonASTNode, bindings: List[PythonASTNode]) -> PythonASTNode:

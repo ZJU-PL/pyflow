@@ -4,6 +4,7 @@ import unittest
 
 from pyflow.application import context
 from pyflow.frontend.programextractor import Extractor
+from pyflow.analysis.cfg import graph as cfg_graph
 from pyflow.analysis.cfg import transform
 from pyflow.analysis.pdg import construct_pdg
 from pyflow.analysis.callgraph.callgraph import CallGraph
@@ -94,6 +95,17 @@ def for_loop(seq):
     for item in seq:
         total = total + item
     return total
+
+
+def with_stmt(x):
+    with open("/dev/null") as f:
+        x = f.read()
+    return x
+
+
+def augassign(x):
+    x += 1
+    return x
 
 
 def for_loop_tainted_source(seq):
@@ -317,6 +329,184 @@ class TestCPGConstruction(unittest.TestCase):
             n for n in cpg.nodes() if cpg.node_meta(n).get("loop_header")
         ]
         self.assertEqual(len(headers), 0)
+
+    # ── origin_ast metadata ──────────────────────────────────────────
+
+    @staticmethod
+    def _collect_suites_with_origin(cfg):
+        """Collect all Suite blocks with a non-None origin_ast."""
+        from collections import deque
+
+        entry = getattr(cfg, "entryTerminal", None)
+        if entry is None:
+            return []
+        seen: set = set()
+        suites = []
+        queue = deque([entry])
+        while queue:
+            block = queue.popleft()
+            bid = id(block)
+            if bid in seen:
+                continue
+            seen.add(bid)
+            if isinstance(block, cfg_graph.Suite) and block.origin_ast is not None:
+                suites.append(block)
+            for child in block.forward():
+                if child is not None:
+                    queue.append(child)
+        return suites
+
+    def test_suite_origin_ast_for_loop(self):
+        """Suite blocks from for-loop bodies carry origin_ast=For."""
+        cfg = self.build_cfg(for_loop)
+        suites = self._collect_suites_with_origin(cfg)
+        self.assertTrue(
+            any(isinstance(s.origin_ast, py_ast.For) for s in suites),
+            "No Suite with origin_ast=For found",
+        )
+
+    def test_suite_origin_ast_while_loop(self):
+        """Suite blocks from while-loop bodies carry origin_ast=While."""
+
+        def while_loop(x):
+            i = 0
+            while i < x:
+                i = i + 1
+            return i
+
+        cfg = self.build_cfg(while_loop)
+        suites = self._collect_suites_with_origin(cfg)
+        self.assertTrue(
+            any(isinstance(s.origin_ast, py_ast.While) for s in suites),
+            "No Suite with origin_ast=While found",
+        )
+
+    def test_suite_origin_ast_switch(self):
+        """Suite blocks from if branches carry origin_ast=Switch."""
+
+        def if_only(x):
+            y = 0
+            if x > 0:
+                y = 1
+            return y
+
+        cfg = self.build_cfg(if_only)
+        suites = self._collect_suites_with_origin(cfg)
+        self.assertTrue(
+            any(isinstance(s.origin_ast, py_ast.Switch) for s in suites),
+            "No Suite with origin_ast=Switch found",
+        )
+
+    def test_suite_origin_ast_switch_both_branches(self):
+        """Both true and false branches of if/else carry origin_ast=Switch."""
+        cfg = self.build_cfg(simple_if)
+        suites = self._collect_suites_with_origin(cfg)
+        switch_suites = [s for s in suites if isinstance(s.origin_ast, py_ast.Switch)]
+        self.assertGreaterEqual(
+            len(switch_suites), 2,
+            "Expected at least 2 Suite blocks (true+false) with origin_ast=Switch",
+        )
+
+    def test_cpg_loop_body_metadata(self):
+        """PDG nodes inside for-loop bodies get is_loop_body=True."""
+        cpg = self.build_cpg(for_loop)
+        cpg.build()
+        found = False
+        for node in cpg.nodes():
+            meta = cpg.node_meta(node)
+            if meta.get("is_loop_body"):
+                self.assertEqual(meta.get("loop_kind"), "for")
+                found = True
+        self.assertTrue(found, "No PDG node with is_loop_body=True found")
+
+    def test_cpg_switch_branch_metadata(self):
+        """PDG nodes inside if branches get is_switch_branch=True."""
+        cpg = self.build_cpg(simple_if)
+        cpg.build()
+        found = False
+        for node in cpg.nodes():
+            meta = cpg.node_meta(node)
+            if meta.get("is_switch_branch"):
+                found = True
+        self.assertTrue(found, "No PDG node with is_switch_branch=True found")
+
+    def test_cpg_no_spurious_origin_ast_metadata(self):
+        """Functions without loops/switches have no origin_ast metadata."""
+        cpg = self.build_cpg(simple_assignment)
+        cpg.build()
+        for node in cpg.nodes():
+            meta = cpg.node_meta(node)
+            self.assertNotIn("is_loop_body", meta)
+            self.assertNotIn("is_switch_branch", meta)
+            self.assertNotIn("is_type_switch_branch", meta)
+            self.assertNotIn("is_with_body", meta)
+            self.assertNotIn("is_augassign", meta)
+
+    def test_suite_origin_ast_with(self):
+        """Suite blocks from with-statement decomposition carry a string origin tag."""
+
+        cfg = self.build_cfg(with_stmt)
+        suites = self._collect_suites_with_origin(cfg)
+        self.assertTrue(
+            any(s.origin_ast == "With" for s in suites),
+            "No Suite with origin_ast='With' found",
+        )
+
+    def test_suite_origin_ast_augassign(self):
+        """Suite blocks from augmented assignment carry origin_ast='AugAssign'."""
+
+        cfg = self.build_cfg(augassign)
+        suites = self._collect_suites_with_origin(cfg)
+        self.assertTrue(
+            any(s.origin_ast == "AugAssign" for s in suites),
+            "No Suite with origin_ast='AugAssign' found",
+        )
+
+    def test_cpg_with_body_metadata(self):
+        """PDG nodes inside with-statement bodies get is_with_body=True."""
+        cpg = self.build_cpg(with_stmt, run_ssa=False)
+        cpg.build()
+        found = False
+        for node in cpg.nodes():
+            meta = cpg.node_meta(node)
+            if meta.get("is_with_body"):
+                found = True
+        self.assertTrue(found, "No PDG node with is_with_body=True found")
+
+    def test_cpg_augassign_metadata(self):
+        """PDG nodes from augmented assignment get is_augassign=True."""
+        cpg = self.build_cpg(augassign, run_ssa=False)
+        cpg.build()
+        found = False
+        for node in cpg.nodes():
+            meta = cpg.node_meta(node)
+            if meta.get("is_augassign"):
+                found = True
+        self.assertTrue(found, "No PDG node with is_augassign=True found")
+
+    def test_visit_unknown_graceful_degradation(self):
+        """Unrecognised AST node types emit a warning instead of crashing."""
+        import warnings
+
+        class UnknownStmt(py_ast.Statement):
+            pass
+
+        unknown = UnknownStmt()
+        suite = py_ast.Suite([unknown])
+        from pyflow.analysis.cfg import transform as cfg_transform
+
+        try:
+            with warnings.catch_warnings(record=True) as w:
+                warnings.simplefilter("always")
+                transformer = cfg_transform.CFGTransformer()
+                transformer.current = cfg_graph.Suite("test")
+                transformer.visitUnknown(unknown)
+                self.assertTrue(
+                    any("skipping" in str(msg.message).lower() for msg in w),
+                    "Expected a warning about skipping unknown node",
+                )
+        except Exception:
+            self.fail("visitUnknown should not raise on unrecognised nodes")
 
     def test_for_loop_index_propagation(self):
         """Loop index variables are marked tainted when the iterator is

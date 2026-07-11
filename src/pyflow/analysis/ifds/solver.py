@@ -239,7 +239,7 @@ class IFDSResult(Generic[NodeT, FactT]):
         First attempts exact match via :meth:`is_reached`.  If that fails,
         iterates all facts at *node* and checks whether any stored fact has
         an ``access_path`` that is a prefix of *fact*'s ``access_path``
-        (with the same base identity — ``slot`` for slot facts, or
+        (with the same base identity — ``location`` for location facts, or
         ``expression`` + ``procedure`` for expression facts).
 
         Supports field-sensitive queries: a stored fact with
@@ -260,7 +260,7 @@ def _fact_prefix_match(stored: object, query: object) -> bool:
     """True when *stored* implies *query* via access-path prefix.
 
     Returns True when the two facts share the same base identity
-    (``slot`` for slot facts, or ``expression`` + ``procedure`` for
+    (``location`` for location facts, or ``expression`` + ``procedure`` for
     expression facts) and *stored*'s ``access_path`` is a prefix of
     *query*'s.
 
@@ -269,10 +269,15 @@ def _fact_prefix_match(stored: object, query: object) -> bool:
     """
     if stored == query:
         return True
-    # Slot-based facts (SlotTaintFact, SlotNullFact, ResourceStateFact)
-    s_slot = getattr(stored, "slot", None)
-    q_slot = getattr(query, "slot", None)
-    if s_slot is not None and q_slot is not None and s_slot == q_slot:
+    # Heap-location facts (TaintFact, NullFact, ResourceStateFact)
+    s_location = getattr(stored, "location", None)
+    q_location = getattr(query, "location", None)
+    if s_location is not None and q_location is not None:
+        if hasattr(s_location, "is_prefix_of"):
+            if not s_location.is_prefix_of(q_location):
+                return False
+        elif s_location != q_location:
+            return False
         return _paths_prefix_match(stored, query)
     # Expression-based facts (ExpressionTaintFact, ExpressionNullFact, …)
     s_expr = getattr(stored, "expression", None)

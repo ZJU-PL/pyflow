@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
 from typing import Generic, Iterable, Sequence, TypeVar
 
 from pyflow.application.errors import TemporaryLimitation
@@ -11,6 +10,7 @@ from pyflow.analysis.cfg import graph as cfg_graph
 from pyflow.language.python import ast as py_ast
 
 from ..cfg_adapter import CFGNode, CFGSupergraphAdapter, CallEffect, GuardEffect, assigned_locals
+from ..heap import HeapAbstraction, HeapLocation
 from ..transfers import actual_argument_expressions, collect_locals, resolve_call_name
 from ._call_model import CallModelRegistry
 
@@ -25,24 +25,8 @@ def build_entry_seeds(entry_nodes: Sequence[CFGNode], zero_fact: object):
     return {node: frozenset({zero_fact}) for node in entry_nodes}
 
 
-@dataclass(frozen=True)
-class DynamicAttributeSlot:
-    """Synthetic field slot for reflection through getattr/setattr."""
-
-    base: object
-    attribute: str
-
-
-@dataclass(frozen=True)
-class DynamicSubscriptSlot:
-    """Synthetic element slot for subscript reads/writes."""
-
-    base: object
-    subscript: str
-
-
 class AnnotatedFactProblemBase(Generic[FactT], ABC):
-    """Reusable slot/call/annotation helpers for IFDS clients."""
+    """Reusable location/call/annotation helpers for IFDS clients."""
 
     analysis_name = "IFDS analysis"
 
@@ -54,52 +38,49 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
     ) -> None:
         self.adapter = adapter
         self.call_models = call_models or CallModelRegistry()
-        self._slot_overrides: dict[tuple, tuple[object, ...]] = {}
+        self._storage_overrides: dict[tuple, tuple[object, ...]] = {}
         self._site_counter: int = 0
         self._allocation_sites: dict[tuple, int] = {}
-        self._site_slots: dict[int, tuple[object, ...]] = {}
+        self._site_storage: dict[int, tuple[object, ...]] = {}
+        self.heap = HeapAbstraction(
+            self._locations_for_local_raw,
+            storage_overrides=self._storage_overrides,
+            allocation_sites=self._allocation_sites,
+            site_storage=self._site_storage,
+            next_site=self._site_counter,
+        )
         self._require_complete_annotations()
+
+    def _heap(self) -> HeapAbstraction:
+        heap = getattr(self, "heap", None)
+        if heap is None:
+            heap = HeapAbstraction(
+                self._locations_for_local_raw,
+                storage_overrides=getattr(self, "_storage_overrides", None),
+                allocation_sites=getattr(self, "_allocation_sites", None),
+                site_storage=getattr(self, "_site_storage", None),
+                next_site=getattr(self, "_site_counter", 0),
+            )
+            self.heap = heap
+            self._storage_overrides = heap.storage_overrides
+            self._allocation_sites = heap.allocation_sites
+            self._site_storage = heap.site_storage
+        self._site_counter = heap.next_site
+        return heap
 
     def _alias_locals(
         self, procedure: cfg_graph.Code, target: object, source: object
     ) -> None:
-        """Make *target* share slot identity and allocation site with *source*.
-
-        After this call, ``_slots_for_local(procedure, target)`` returns the
-        same objects as ``_slots_for_local(procedure, source)``, so facts
-        created for *source* are also visible through *target*.  The
-        allocation site is also shared, so ``x = Foo(); y = x`` gives *y*
-        the same abstract cell as *x*, while ``z = Foo()`` gets a distinct
-        cell.
-        """
-        if not isinstance(target, py_ast.Local) or target.name is None:
-            return
-        if not isinstance(source, py_ast.Local) or source.name is None:
-            return
-        source_slots = self._slots_for_local(procedure, source)
-        if not source_slots:
-            return
-        self._slot_overrides[(id(procedure), id(target))] = source_slots
-        source_site = self._allocation_sites.get((id(procedure), id(source)))
-        if source_site is not None:
-            self._allocation_sites[(id(procedure), id(target))] = source_site
+        """Make *target* share location identity and allocation site with *source*."""
+        heap = self._heap()
+        heap.alias_locals(procedure, target, source)
+        self._site_counter = heap.next_site
 
     def _unalias_locals(self, procedure: cfg_graph.Code, local: object) -> None:
-        """Break any slot alias for *local*, restoring its own identity.
-
-        Called on strong updates (assignment, delete) so that overwriting
-        one variable does not clear facts for variables it was aliased to.
-        Also assigns a fresh allocation site so the variable no longer
-        shares abstract state with its previous alias source.
-        """
-        if not isinstance(local, py_ast.Local) or local.name is None:
-            return
-        self._slot_overrides.pop((id(procedure), id(local)), None)
-        raw = self._slots_for_local_raw(procedure, local)
-        site = self._site_counter
-        self._site_counter += 1
-        self._allocation_sites[(id(procedure), id(local))] = site
-        self._site_slots[site] = raw
+        """Break any location alias for *local*, restoring its own identity."""
+        heap = self._heap()
+        heap.unalias_local(procedure, local)
+        self._site_counter = heap.next_site
 
     def _update_aliases_for_assignment(
         self,
@@ -111,36 +92,42 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
 
         Strong updates break any existing aliases and assign fresh
         allocation sites on *targets*.  When *expr* is a plain local
-        reference the targets are aliased to it, sharing both slots and
+        reference the targets are aliased to it, sharing both locations and
         allocation site.
         """
-        for target in targets:
-            self._unalias_locals(procedure, target)
-        if isinstance(expr, py_ast.Local) and expr.name is not None:
-            for target in targets:
-                self._alias_locals(procedure, target, expr)
+        heap = self._heap()
+        if self._is_allocation_expression(expr):
+            heap.bind_allocation_targets(
+                procedure,
+                targets,
+                expr,
+                label=self._allocation_label(expr),
+                type_hint=self._allocation_type_hint(expr),
+            )
+        elif heap.policy.bind_call_results and self._is_call_expression(expr):
+            heap.bind_call_result_targets(
+                procedure,
+                targets,
+                expr,
+                label=self._call_result_label(expr),
+            )
+        else:
+            heap.update_assignment_aliases(procedure, targets, expr)
+        self._site_counter = heap.next_site
 
-    def _slots_for_local(self, procedure: cfg_graph.Code, local: object) -> tuple[object, ...]:
-        override = self._slot_overrides.get((id(procedure), id(local)))
-        if override is not None:
-            return override
-        site = self._allocation_sites.get((id(procedure), id(local)))
-        if site is not None:
-            return self._site_slots[site]
-        raw = self._slots_for_local_raw(procedure, local)
-        site = self._site_counter
-        self._site_counter += 1
-        self._allocation_sites[(id(procedure), id(local))] = site
-        self._site_slots[site] = raw
-        return raw
+    def _locations_for_local(self, procedure: cfg_graph.Code, local: object) -> tuple[object, ...]:
+        heap = self._heap()
+        locations = heap.locations_for_local(procedure, local)
+        self._site_counter = heap.next_site
+        return locations
 
-    def _slots_for_local_raw(self, procedure: cfg_graph.Code, local: object) -> tuple[object, ...]:
+    def _locations_for_local_raw(self, procedure: cfg_graph.Code, local: object) -> tuple[object, ...]:
         del procedure
         refs = getattr(getattr(local, "annotation", None), "references", None)
-        return self._annotation_slots(refs)
+        return self._annotation_locations(refs)
 
     @abstractmethod
-    def _make_slot_fact(self, slot: object) -> FactT:
+    def _make_location_fact(self, location: object) -> FactT:
         raise NotImplementedError
 
     @abstractmethod
@@ -153,7 +140,7 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def _slot_from_fact(self, fact: FactT) -> object | None:
+    def _location_from_fact(self, fact: FactT) -> object | None:
         raise NotImplementedError
 
     def _access_path_from_fact(self, fact: FactT) -> tuple[str, ...]:
@@ -161,31 +148,13 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
 
     @staticmethod
     def _fact_prefix_matches(stored: object, query: object) -> bool:
-        """True when *stored* implies *query* via access-path prefix.
+        """True when *stored* implies *query* via access-path prefix."""
+        return HeapAbstraction.access_path_prefix_matches(stored, query)
 
-        ``stored`` is the known fact (from reached set or current flow).
-        ``query`` is the fact being checked against.  When *stored* has
-        ``access_path=()`` it means the whole object is affected, so ANY
-        sub-path matches.  When *stored* has a specific path like
-        ``("f",)`` only that exact path and its descendants match —
-        the base object and sibling fields do NOT.
-        """
-        if stored == query:
-            return True
-        s_slot = getattr(stored, "slot", None)
-        q_slot = getattr(query, "slot", None)
-        if s_slot is None or q_slot is None or s_slot != q_slot:
-            return False
-        s_path = getattr(stored, "access_path", ())
-        q_path = getattr(query, "access_path", ())
-        if s_path == q_path:
-            return True
-        return len(s_path) <= len(q_path) and q_path[: len(s_path)] == s_path
-
-    def _make_slot_fact_with_path(
-        self, slot: object, access_path: tuple[str, ...]
+    def _make_location_fact_with_path(
+        self, location: object, access_path: tuple[str, ...]
     ) -> FactT:
-        return self._make_slot_fact(slot)
+        return self._make_location_fact(location)
 
     @abstractmethod
     def _expression_fact_result(
@@ -193,11 +162,11 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
     ) -> tuple[cfg_graph.Code, py_ast.PythonASTNode, int] | None:
         raise NotImplementedError
 
-    def local_slots(
+    def local_locations(
         self, procedure: cfg_graph.Code, local: py_ast.Local
     ) -> tuple[object, ...]:
         return tuple(
-            self._slot_from_fact(fact)
+            self._location_from_fact(fact)
             for fact in self._facts_for_locals(procedure, (local,))
         )
 
@@ -213,17 +182,43 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
             return effect
         return None
 
-    def _killed_slots_for_node(self, node: CFGNode) -> tuple[object, ...]:
+    def _killed_locations_for_node(
+        self,
+        node: CFGNode,
+        *,
+        include_semantic: bool = True,
+    ) -> tuple[object, ...]:
         effect = self.adapter.effect_of(node)
         operation = getattr(effect, "operation", self.adapter.operation_of(node))
-        dynamic_kills = self._dynamic_delete_slots(node.procedure, operation)
+        semantic_kills = (
+            self._killed_locations_for_operation(node.procedure, operation)
+            if include_semantic
+            else ()
+        )
+        dynamic_kills = self._dynamic_delete_locations(node.procedure, operation)
         strong_update_slots = getattr(effect, "strong_update_slots", None)
         if strong_update_slots:
-            return tuple(dict.fromkeys((*strong_update_slots, *dynamic_kills)))
+            return tuple(
+                dict.fromkeys(
+                    (
+                        *self._canonical_locations(strong_update_slots),
+                        *semantic_kills,
+                        *dynamic_kills,
+                    )
+                )
+            )
         kill_slots = getattr(effect, "kill_slots", None)
         if kill_slots:
-            return tuple(dict.fromkeys((*kill_slots, *dynamic_kills)))
-        return dynamic_kills
+            return tuple(
+                dict.fromkeys(
+                    (
+                        *self._canonical_locations(kill_slots),
+                        *semantic_kills,
+                        *dynamic_kills,
+                    )
+                )
+            )
+        return tuple(dict.fromkeys((*semantic_kills, *dynamic_kills)))
 
     def _call_model_for_node(self, node: CFGNode):
         return self.call_models.model_for_name(self._call_name(node))
@@ -251,8 +246,8 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
         for local in locals_:
             if not isinstance(local, py_ast.Local) or local.name is None:
                 continue
-            slots = self._slots_for_local(procedure, local)
-            facts.update(self._make_slot_fact(slot) for slot in slots)
+            locations = self._locations_for_local(procedure, local)
+            facts.update(self._make_location_fact(location) for location in locations)
         return facts
 
     def _facts_for_locals_with_path(
@@ -265,10 +260,10 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
         for local in locals_:
             if not isinstance(local, py_ast.Local) or local.name is None:
                 continue
-            slots = self._slots_for_local(procedure, local)
+            locations = self._locations_for_local(procedure, local)
             facts.update(
-                self._make_slot_fact_with_path(slot, access_path)
-                for slot in slots
+                self._make_location_fact_with_path(location, access_path)
+                for location in locations
             )
         return facts
 
@@ -291,7 +286,7 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
             return set()
         return self._facts_for_locals(procedure, (locals_[result_index],))
 
-    def _facts_for_return_slot(
+    def _facts_for_return_location(
         self, procedure: cfg_graph.Code, index: int,
         access_path: tuple[str, ...] = (),
     ) -> set[FactT]:
@@ -316,20 +311,20 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
                 procedure, current.expr, extend_paths=True,
             )
             return tuple(
-                self._make_slot_fact_with_path(
-                    self._slot_from_fact(f),
+                self._make_location_fact_with_path(
+                    self._location_from_fact(f),
                     (*self._access_path_from_fact(f), attr),
                 )
                 for f in base
-                if self._slot_from_fact(f) is not None
+                if self._location_from_fact(f) is not None
             )
         if isinstance(current, (py_ast.DirectCall, py_ast.Call, py_ast.MethodCall)):
             dynamic_facts = tuple(
-                self._make_slot_fact(slot)
-                for slot in (
-                    *self._dynamic_getattr_slots(procedure, current),
-                    *self._dynamic_subscript_read_slots(procedure, current),
-                    *self._collection_access_slots(
+                self._make_location_fact(location)
+                for location in (
+                    *self._dynamic_getattr_locations(procedure, current),
+                    *self._dynamic_subscript_read_locations(procedure, current),
+                    *self._collection_access_locations(
                         procedure,
                         current,
                         self._collection_accessor_names(),
@@ -338,8 +333,8 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
             )
             return (*dynamic_facts, self._make_expression_fact(procedure, current))
         return tuple(
-            self._make_slot_fact(slot)
-            for slot in self._slots_read_by_node(procedure, current)
+            self._make_location_fact(location)
+            for location in self._locations_read_by_node(procedure, current)
         )
 
     def _facts_for_nested_call_result(
@@ -389,7 +384,7 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
                 operation, call_expression, return_index
             )
             if target_index is not None:
-                return self._facts_for_return_slot(procedure, target_index)
+                return self._facts_for_return_location(procedure, target_index)
 
         if isinstance(
             operation,
@@ -420,11 +415,11 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
         return {self._make_expression_fact(procedure, call_expression, return_index)}
 
     def _return_fact_index(self, procedure: cfg_graph.Code, fact: FactT) -> int | None:
-        slot = self._slot_from_fact(fact)
-        if slot is None:
+        location = self._location_from_fact(fact)
+        if location is None:
             return None
         for index, local in enumerate(procedure.code.codeparameters.returnparams):
-            if any(candidate == slot for candidate in self._slots_for_local(procedure, local)):
+            if any(candidate == location for candidate in self._locations_for_local(procedure, local)):
                 return index
         return None
 
@@ -443,24 +438,24 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
                 return index
         return None
 
-    def _killed_slots_for_operation(
+    def _killed_locations_for_operation(
         self, procedure: cfg_graph.Code, operation: object
     ) -> tuple[object, ...]:
         if operation is None:
             return ()
         if isinstance(operation, (py_ast.Assign, py_ast.UnpackSequence, py_ast.AnnAssign)):
             return tuple(
-                slot
+                location
                 for fact in self._facts_for_locals(procedure, assigned_locals(operation))
-                for slot in (self._slot_from_fact(fact),)
-                if slot is not None
+                for location in (self._location_from_fact(fact),)
+                if location is not None
             )
         if isinstance(operation, py_ast.Delete):
             return tuple(
-                slot
+                location
                 for fact in self._facts_for_locals(procedure, (operation.lcl,))
-                for slot in (self._slot_from_fact(fact),)
-                if slot is not None
+                for location in (self._location_from_fact(fact),)
+                if location is not None
             )
         if isinstance(operation, py_ast.InputBlock):
             locals_ = []
@@ -469,24 +464,24 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
                 if isinstance(lcl, py_ast.Local):
                     locals_.append(lcl)
             return tuple(
-                slot
+                location
                 for fact in self._facts_for_locals(procedure, locals_)
-                for slot in (self._slot_from_fact(fact),)
-                if slot is not None
+                for location in (self._location_from_fact(fact),)
+                if location is not None
             )
         if isinstance(
             operation,
             (py_ast.SetGlobal, py_ast.DeleteGlobal, py_ast.SetCellDeref),
         ):
             return tuple(
-                slot
+                location
                 for fact in self._facts_for_modified_operation(operation)
-                for slot in (self._slot_from_fact(fact),)
-                if slot is not None
+                for location in (self._location_from_fact(fact),)
+                if location is not None
             )
         return ()
 
-    def _killed_slots_for_call_expression(
+    def _killed_locations_for_call_expression(
         self,
         procedure: cfg_graph.Code,
         operation: object,
@@ -500,17 +495,17 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
             and operation.expr is call_expression
         ):
             return tuple(
-                slot
+                location
                 for fact in self._facts_for_locals(procedure, assigned_locals(operation))
-                for slot in (self._slot_from_fact(fact),)
-                if slot is not None
+                for location in (self._location_from_fact(fact),)
+                if location is not None
             )
         if isinstance(operation, py_ast.AnnAssign) and operation.value is call_expression:
             return tuple(
-                slot
+                location
                 for fact in self._facts_for_locals(procedure, assigned_locals(operation))
-                for slot in (self._slot_from_fact(fact),)
-                if slot is not None
+                for location in (self._location_from_fact(fact),)
+                if location is not None
             )
 
         if (
@@ -518,14 +513,14 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
             and operation.value is call_expression
         ):
             return tuple(
-                slot
+                location
                 for fact in self._facts_for_modified_operation(operation)
-                for slot in (self._slot_from_fact(fact),)
-                if slot is not None
+                for location in (self._location_from_fact(fact),)
+                if location is not None
             )
 
         for child in self._nested_operations(operation):
-            child_kills = self._killed_slots_for_call_expression(
+            child_kills = self._killed_locations_for_call_expression(
                 procedure, child, call_expression
             )
             if child_kills:
@@ -565,19 +560,19 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
     def _facts_for_modified_operation(
         self, operation: object, access_path: tuple[str, ...] = (),
     ) -> set[FactT]:
-        slots = self._annotation_slots(
+        locations = self._annotation_locations(
             getattr(getattr(operation, "annotation", None), "opModifies", None)
         )
         if not access_path:
-            return {self._make_slot_fact(slot) for slot in slots}
+            return {self._make_location_fact(location) for location in locations}
         return {
-            self._make_slot_fact_with_path(slot, access_path)
-            for slot in slots
+            self._make_location_fact_with_path(location, access_path)
+            for location in locations
         }
 
-    def _dynamic_getattr_slots(
+    def _dynamic_getattr_locations(
         self, procedure: cfg_graph.Code, expr: object
-    ) -> tuple[DynamicAttributeSlot, ...]:
+    ) -> tuple[HeapLocation, ...]:
         call = self._dynamic_attribute_call(expr, {"getattr", "builtins.getattr"})
         if call is None:
             return ()
@@ -588,11 +583,11 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
         attributes = (DYNAMIC_ATTRIBUTE_WILDCARD,)
         if attribute is not None:
             attributes = (attribute, DYNAMIC_ATTRIBUTE_WILDCARD)
-        return self._dynamic_attribute_slots(procedure, actuals[0], attributes)
+        return self._dynamic_attribute_locations(procedure, actuals[0], attributes)
 
-    def _dynamic_setattr_slots(
+    def _dynamic_setattr_locations(
         self, procedure: cfg_graph.Code, operation: object
-    ) -> tuple[DynamicAttributeSlot, ...]:
+    ) -> tuple[HeapLocation, ...]:
         call = self._dynamic_attribute_call(operation, {"setattr", "builtins.setattr"})
         if call is None:
             return ()
@@ -603,28 +598,22 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
         attributes = (attribute,)
         if attribute != DYNAMIC_ATTRIBUTE_WILDCARD:
             attributes = (attribute, DYNAMIC_ATTRIBUTE_WILDCARD)
-        return self._dynamic_attribute_slots(procedure, actuals[0], attributes)
+        return self._dynamic_attribute_locations(procedure, actuals[0], attributes)
 
-    def _dynamic_attribute_slots(
+    def _dynamic_attribute_locations(
         self,
         procedure: cfg_graph.Code,
         base_expr: object,
         attributes: tuple[str, ...],
-    ) -> tuple[DynamicAttributeSlot, ...]:
-        slots: list[DynamicAttributeSlot] = []
-        seen: set[DynamicAttributeSlot] = set()
-        for base in self._slots_read_by_node(procedure, base_expr):
-            for attribute in attributes:
-                slot = DynamicAttributeSlot(base, attribute)
-                if slot in seen:
-                    continue
-                seen.add(slot)
-                slots.append(slot)
-        return tuple(slots)
+    ) -> tuple[HeapLocation, ...]:
+        return self._heap().dynamic_attribute_locations(
+            self._locations_read_by_node(procedure, base_expr),
+            attributes,
+        )
 
-    def _dynamic_subscript_read_slots(
+    def _dynamic_subscript_read_locations(
         self, procedure: cfg_graph.Code, expr: object
-    ) -> tuple[DynamicSubscriptSlot, ...]:
+    ) -> tuple[HeapLocation, ...]:
         if isinstance(expr, py_ast.GetSubscript):
             container = expr.expr
             key = expr.subscript
@@ -637,28 +626,28 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
                 return ()
             container = actuals[0]
             key = actuals[1]
-        return self._dynamic_subscript_slots_for_key(procedure, container, key)
+        return self._dynamic_subscript_locations_for_key(procedure, container, key)
 
-    def _dynamic_subscript_write_slots(
+    def _dynamic_subscript_write_locations(
         self, procedure: cfg_graph.Code, operation: object
-    ) -> tuple[DynamicSubscriptSlot, ...]:
+    ) -> tuple[HeapLocation, ...]:
         target = self._dynamic_subscript_write_target(operation)
         if target is None:
             return ()
         container, key, _value = target
-        return self._dynamic_subscript_slots_for_key(procedure, container, key)
+        return self._dynamic_subscript_locations_for_key(procedure, container, key)
 
-    def _dynamic_subscript_slots_for_key(
+    def _dynamic_subscript_locations_for_key(
         self,
         procedure: cfg_graph.Code,
         container: object,
         key: object,
-    ) -> tuple[DynamicSubscriptSlot, ...]:
+    ) -> tuple[HeapLocation, ...]:
         subscript = self._constant_subscript(key)
         subscripts = (DYNAMIC_SUBSCRIPT_WILDCARD,)
         if subscript is not None:
             subscripts = (subscript, DYNAMIC_SUBSCRIPT_WILDCARD)
-        return self._dynamic_subscript_slots(procedure, container, subscripts)
+        return self._dynamic_subscript_locations(procedure, container, subscripts)
 
     def _dynamic_subscript_value(self, operation: object) -> object | None:
         target = self._dynamic_subscript_write_target(operation)
@@ -666,24 +655,24 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
             return None
         return target[2]
 
-    def _dynamic_delete_slots(
+    def _dynamic_delete_locations(
         self,
         procedure: cfg_graph.Code,
         operation: object,
     ) -> tuple[object, ...]:
-        slots = [
-            *self._dynamic_subscript_delete_slots(procedure, operation),
-            *self._dynamic_attribute_delete_slots(procedure, operation),
+        locations = [
+            *self._dynamic_subscript_delete_locations(procedure, operation),
+            *self._dynamic_attribute_delete_locations(procedure, operation),
         ]
-        return tuple(dict.fromkeys(slots))
+        return tuple(dict.fromkeys(locations))
 
-    def _dynamic_subscript_delete_slots(
+    def _dynamic_subscript_delete_locations(
         self,
         procedure: cfg_graph.Code,
         operation: object,
-    ) -> tuple[DynamicSubscriptSlot, ...]:
+    ) -> tuple[HeapLocation, ...]:
         if isinstance(operation, py_ast.DeleteSubscript):
-            return self._dynamic_subscript_slots_for_key(
+            return self._dynamic_subscript_locations_for_key(
                 procedure,
                 operation.expr,
                 operation.subscript,
@@ -694,20 +683,20 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
         actuals = actual_argument_expressions(call)
         if len(actuals) < 2:
             return ()
-        return self._dynamic_subscript_slots_for_key(procedure, actuals[0], actuals[1])
+        return self._dynamic_subscript_locations_for_key(procedure, actuals[0], actuals[1])
 
-    def _dynamic_attribute_delete_slots(
+    def _dynamic_attribute_delete_locations(
         self,
         procedure: cfg_graph.Code,
         operation: object,
-    ) -> tuple[DynamicAttributeSlot, ...]:
+    ) -> tuple[HeapLocation, ...]:
         if not isinstance(operation, py_ast.DeleteAttr):
             return ()
         attribute = self._constant_string(operation.name) or DYNAMIC_ATTRIBUTE_WILDCARD
         attributes = (attribute,)
         if attribute != DYNAMIC_ATTRIBUTE_WILDCARD:
             attributes = (attribute, DYNAMIC_ATTRIBUTE_WILDCARD)
-        return self._dynamic_attribute_slots(procedure, operation.expr, attributes)
+        return self._dynamic_attribute_locations(procedure, operation.expr, attributes)
 
     def _dynamic_subscript_write_target(
         self, operation: object
@@ -722,29 +711,23 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
             return None
         return actuals[0], actuals[1], actuals[2]
 
-    def _dynamic_subscript_slots(
+    def _dynamic_subscript_locations(
         self,
         procedure: cfg_graph.Code,
         base_expr: object,
         subscripts: tuple[str, ...],
-    ) -> tuple[DynamicSubscriptSlot, ...]:
-        slots: list[DynamicSubscriptSlot] = []
-        seen: set[DynamicSubscriptSlot] = set()
-        for base in self._slots_read_by_node(procedure, base_expr):
-            for subscript in subscripts:
-                slot = DynamicSubscriptSlot(base, subscript)
-                if slot in seen:
-                    continue
-                seen.add(slot)
-                slots.append(slot)
-        return tuple(slots)
+    ) -> tuple[HeapLocation, ...]:
+        return self._heap().dynamic_subscript_locations(
+            self._locations_read_by_node(procedure, base_expr),
+            subscripts,
+        )
 
     def _collection_mutation(
         self,
         procedure: cfg_graph.Code,
         operation: object,
         mutator_names: frozenset[str],
-    ) -> tuple[tuple[DynamicSubscriptSlot, ...], tuple[object, ...]]:
+    ) -> tuple[tuple[HeapLocation, ...], tuple[object, ...]]:
         call = self._call_from_expression_or_statement(operation)
         if call is None or resolve_call_name(call) not in mutator_names:
             return (), ()
@@ -759,19 +742,19 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
             container = actuals[0]
             values = actuals[1:]
 
-        slots = self._dynamic_subscript_slots(
+        locations = self._dynamic_subscript_locations(
             procedure,
             container,
             (DYNAMIC_SUBSCRIPT_WILDCARD,),
         )
-        return slots, tuple(values)
+        return locations, tuple(values)
 
     def _collection_copy_mutation(
         self,
         procedure: cfg_graph.Code,
         operation: object,
         mutator_names: frozenset[str],
-    ) -> tuple[tuple[DynamicSubscriptSlot, ...], tuple[DynamicSubscriptSlot, ...]]:
+    ) -> tuple[tuple[HeapLocation, ...], tuple[HeapLocation, ...]]:
         call = self._call_from_expression_or_statement(operation)
         call_name = resolve_call_name(call) if call is not None else None
         if call is None or call_name not in mutator_names:
@@ -789,27 +772,27 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
             container = actuals[0]
             sources = actuals[1:]
 
-        destination_slots = self._dynamic_subscript_slots(
+        destination_locations = self._dynamic_subscript_locations(
             procedure,
             container,
             (DYNAMIC_SUBSCRIPT_WILDCARD,),
         )
-        source_slots = tuple(
-            slot
+        source_locations = tuple(
+            location
             for source in sources
-            for slot in self._dynamic_subscript_slots(
+            for location in self._dynamic_subscript_locations(
                 procedure,
                 source,
                 (DYNAMIC_SUBSCRIPT_WILDCARD,),
             )
         )
-        return destination_slots, tuple(dict.fromkeys(source_slots))
+        return destination_locations, tuple(dict.fromkeys(source_locations))
 
     def _collection_constructor_writes(
         self,
         procedure: cfg_graph.Code,
         operation: object,
-    ) -> tuple[tuple[tuple[DynamicSubscriptSlot, ...], object], ...]:
+    ) -> tuple[tuple[tuple[HeapLocation, ...], object], ...]:
         expr = None
         if isinstance(operation, (py_ast.Assign, py_ast.UnpackSequence)):
             expr = operation.expr
@@ -818,21 +801,21 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
         if expr is None:
             return ()
 
-        target_slots = tuple(
-            slot
+        target_locations = tuple(
+            location
             for target in assigned_locals(operation)
-            for slot in self._slots_for_local(procedure, target)
+            for location in self._locations_for_local(procedure, target)
         )
-        if not target_slots:
+        if not target_locations:
             return ()
 
-        writes: list[tuple[tuple[DynamicSubscriptSlot, ...], object]] = []
+        writes: list[tuple[tuple[HeapLocation, ...], object]] = []
         if isinstance(expr, py_ast.BuildTuple):
             for index, value in enumerate(expr.args):
                 writes.append(
                     (
-                        self._collection_constructor_slots(
-                            target_slots,
+                        self._collection_constructor_locations(
+                            target_locations,
                             (f"[{index!r}]", DYNAMIC_SUBSCRIPT_WILDCARD),
                         ),
                         value,
@@ -842,8 +825,8 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
             for value in expr.args:
                 writes.append(
                     (
-                        self._collection_constructor_slots(
-                            target_slots,
+                        self._collection_constructor_locations(
+                            target_locations,
                             (DYNAMIC_SUBSCRIPT_WILDCARD,),
                         ),
                         value,
@@ -858,29 +841,20 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
                     subscripts = (subscript, DYNAMIC_SUBSCRIPT_WILDCARD)
                 writes.append(
                     (
-                        self._collection_constructor_slots(target_slots, subscripts),
+                        self._collection_constructor_locations(target_locations, subscripts),
                         value,
                     )
                 )
         return tuple(writes)
 
-    def _collection_constructor_slots(
+    def _collection_constructor_locations(
         self,
         bases: tuple[object, ...],
         subscripts: tuple[str, ...],
-    ) -> tuple[DynamicSubscriptSlot, ...]:
-        slots: list[DynamicSubscriptSlot] = []
-        seen: set[DynamicSubscriptSlot] = set()
-        for base in bases:
-            for subscript in subscripts:
-                slot = DynamicSubscriptSlot(base, subscript)
-                if slot in seen:
-                    continue
-                seen.add(slot)
-                slots.append(slot)
-        return tuple(slots)
+    ) -> tuple[HeapLocation, ...]:
+        return self._heap().dynamic_subscript_locations(bases, subscripts)
 
-    def _aliased_dynamic_slots_for_assignment(
+    def _aliased_dynamic_locations_for_assignment(
         self,
         procedure: cfg_graph.Code,
         operation: object,
@@ -893,35 +867,30 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
         else:
             return ()
 
-        source_slot = self._slot_from_fact(fact)
-        if not isinstance(source_slot, (DynamicAttributeSlot, DynamicSubscriptSlot)):
+        source_location = self._location_from_fact(fact)
+        if not isinstance(source_location, HeapLocation) or not source_location.is_nested():
             return ()
 
-        expr_bases = self._slots_read_by_node(procedure, expr)
-        if not any(base == source_slot.base for base in expr_bases):
+        expr_bases = self._locations_read_by_node(procedure, expr)
+        if not any(base == source_location.root_location() for base in expr_bases):
             return ()
 
         target_bases = tuple(
-            slot
+            location
             for target in assigned_locals(operation)
-            for slot in self._slots_for_local(procedure, target)
+            for location in self._locations_for_local(procedure, target)
         )
-        if isinstance(source_slot, DynamicAttributeSlot):
-            return tuple(
-                DynamicAttributeSlot(base, source_slot.attribute)
-                for base in target_bases
-            )
         return tuple(
-            DynamicSubscriptSlot(base, source_slot.subscript)
+            self._heap().extend_location(base, source_location.selectors)
             for base in target_bases
         )
 
-    def _collection_copy_result_slots_for_assignment(
+    def _collection_copy_result_locations_for_assignment(
         self,
         procedure: cfg_graph.Code,
         operation: object,
         fact: FactT,
-    ) -> tuple[DynamicSubscriptSlot, ...]:
+    ) -> tuple[HeapLocation, ...]:
         if isinstance(operation, (py_ast.Assign, py_ast.UnpackSequence)):
             expr = operation.expr
         elif isinstance(operation, py_ast.AnnAssign):
@@ -929,32 +898,36 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
         else:
             return ()
 
-        source_slot = self._slot_from_fact(fact)
-        if not isinstance(source_slot, DynamicSubscriptSlot):
+        source_location = self._location_from_fact(fact)
+        if not (
+            isinstance(source_location, HeapLocation)
+            and source_location.selectors
+            and source_location.selectors[-1].kind == "element"
+        ):
             return ()
 
         source_exprs = self._collection_copy_result_sources(expr)
         if not source_exprs:
             return ()
-        source_slots = tuple(
-            slot
+        source_locations = tuple(
+            location
             for source_expr in source_exprs
-            for slot in self._dynamic_subscript_slots(
+            for location in self._dynamic_subscript_locations(
                 procedure,
                 source_expr,
                 (DYNAMIC_SUBSCRIPT_WILDCARD,),
             )
         )
-        if not any(source_slot == candidate for candidate in source_slots):
+        if not any(source_location == candidate for candidate in source_locations):
             return ()
 
         target_bases = tuple(
-            slot
+            location
             for target in assigned_locals(operation)
-            for slot in self._slots_for_local(procedure, target)
+            for location in self._locations_for_local(procedure, target)
         )
         return tuple(
-            DynamicSubscriptSlot(base, DYNAMIC_SUBSCRIPT_WILDCARD)
+            self._heap().dynamic_subscript_location(base, DYNAMIC_SUBSCRIPT_WILDCARD)
             for base in target_bases
         )
 
@@ -974,12 +947,12 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
         configuration = getattr(self, "configuration", None)
         return getattr(configuration, "collection_accessor_names", frozenset())
 
-    def _collection_access_slots(
+    def _collection_access_locations(
         self,
         procedure: cfg_graph.Code,
         expr: object,
         accessor_names: frozenset[str],
-    ) -> tuple[DynamicSubscriptSlot, ...]:
+    ) -> tuple[HeapLocation, ...]:
         call = self._call_from_expression_or_statement(expr)
         if call is None or resolve_call_name(call) not in accessor_names:
             return ()
@@ -1002,7 +975,7 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
         subscripts = (DYNAMIC_SUBSCRIPT_WILDCARD,)
         if subscript is not None:
             subscripts = (subscript, DYNAMIC_SUBSCRIPT_WILDCARD)
-        return self._dynamic_subscript_slots(procedure, container, subscripts)
+        return self._dynamic_subscript_locations(procedure, container, subscripts)
 
     def _dynamic_setattr_value(self, operation: object) -> object | None:
         call = self._dynamic_attribute_call(operation, {"setattr", "builtins.setattr"})
@@ -1047,40 +1020,40 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
         value = getattr(expr.object, "pyobj", None)
         return f"[{value!r}]"
 
-    def _slots_read_by_node(
+    def _locations_read_by_node(
         self, procedure: cfg_graph.Code, node: object
     ) -> tuple[object, ...]:
         if isinstance(node, py_ast.Local):
-            return self._slots_for_local(procedure, node)
+            return self._locations_for_local(procedure, node)
         if isinstance(node, (py_ast.GetGlobal, py_ast.GetCellDeref)):
-            return self._annotation_slots(getattr(node.annotation, "opReads", None))
+            return self._annotation_locations(getattr(node.annotation, "opReads", None))
         annotation = getattr(node, "annotation", None)
-        slots = list(self._annotation_slots(getattr(annotation, "opReads", None)))
-        slots.extend(self._dynamic_getattr_slots(procedure, node))
-        slots.extend(self._dynamic_subscript_read_slots(procedure, node))
-        return tuple(dict.fromkeys(slots))
+        locations = list(self._annotation_locations(getattr(annotation, "opReads", None)))
+        locations.extend(self._dynamic_getattr_locations(procedure, node))
+        locations.extend(self._dynamic_subscript_read_locations(procedure, node))
+        return tuple(dict.fromkeys(locations))
 
-    def _annotation_slots(self, annotation) -> tuple[object, ...]:
+    def _annotation_locations(self, annotation) -> tuple[object, ...]:
         if annotation is None:
             return ()
         merged = getattr(annotation, "merged", None)
         if merged is None:
             # Some pipelines may store a plain annotationSet/tuple here rather
             # than a ContextualAnnotation. In that case, treat the entire
-            # iterable as the slot list (not just annotation[0]).
+            # iterable as the location list (not just annotation[0]).
             if isinstance(annotation, (str, bytes)):
                 return ()
             if isinstance(annotation, (list, tuple, set, frozenset)):
                 merged = tuple(annotation)
             else:
                 return ()
-        return tuple(self._canonical_slot(slot) for slot in merged)
+        return tuple(self._canonical_locations(merged))
 
-    def _canonical_slot(self, slot: object) -> object:
-        get_forward = getattr(slot, "getForward", None)
-        if callable(get_forward):
-            return get_forward()
-        return slot
+    def _canonical_location(self, location: object) -> object:
+        return self._heap().location_for_raw(location)
+
+    def _canonical_locations(self, locations: Iterable[object]) -> tuple[HeapLocation, ...]:
+        return tuple(self._heap().location_for_raw(location) for location in locations)
 
     def _call_name(self, node: CFGNode) -> str | None:
         call = self.adapter.call_expression_of(node)
@@ -1098,15 +1071,55 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
             return resolve_call_name(expr)
         return None
 
-    def describe_slot(self, slot: object) -> str:
-        if isinstance(slot, DynamicAttributeSlot):
-            return f"{self.describe_slot(slot.base)}.{slot.attribute}"
-        if isinstance(slot, DynamicSubscriptSlot):
-            return f"{self.describe_slot(slot.base)}{slot.subscript}"
-        label = getattr(slot, "label", None)
+    def _is_allocation_expression(self, expr: object) -> bool:
+        return isinstance(
+            expr,
+            (
+                py_ast.BuildTuple,
+                py_ast.BuildList,
+                py_ast.BuildSet,
+                py_ast.BuildMap,
+            ),
+        )
+
+    def _is_call_expression(self, expr: object) -> bool:
+        return isinstance(expr, (py_ast.DirectCall, py_ast.Call, py_ast.MethodCall))
+
+    def _allocation_label(self, expr: object) -> str:
+        if isinstance(expr, py_ast.BuildTuple):
+            return "tuple literal"
+        if isinstance(expr, py_ast.BuildList):
+            return "list literal"
+        if isinstance(expr, py_ast.BuildSet):
+            return "set literal"
+        if isinstance(expr, py_ast.BuildMap):
+            return "dict literal"
+        return f"allocation:{type(expr).__name__}"
+
+    def _allocation_type_hint(self, expr: object) -> str | None:
+        if isinstance(expr, py_ast.BuildTuple):
+            return "tuple"
+        if isinstance(expr, py_ast.BuildList):
+            return "list"
+        if isinstance(expr, py_ast.BuildSet):
+            return "set"
+        if isinstance(expr, py_ast.BuildMap):
+            return "dict"
+        return None
+
+    def _call_result_label(self, expr: object) -> str:
+        call_name = self._call_name_from_expression(expr)
+        if call_name is not None:
+            return f"{call_name}()"
+        return f"call:{type(expr).__name__}"
+
+    def describe_location(self, location: object) -> str:
+        if isinstance(location, HeapLocation):
+            return self._heap().display_label_for_location(location)
+        label = getattr(location, "label", None)
         if isinstance(label, str):
             return label
-        slot_name = getattr(slot, "slotName", None)
+        slot_name = getattr(location, "slotName", None)
         if slot_name is not None:
             if hasattr(slot_name, "isLocal") and slot_name.isLocal():
                 local = getattr(slot_name, "local", None)
@@ -1118,7 +1131,7 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
                 name = self._object_name(obj)
                 if name is not None:
                     return name
-        return repr(slot)
+        return repr(location)
 
     def describe_expression(self, expr: object) -> str:
         call_name = self._call_name_from_expression(expr)

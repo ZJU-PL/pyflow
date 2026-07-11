@@ -177,7 +177,12 @@ class OpFlow(TypeDispatcher):
         node.visitChildren(self)
         # Exception handling can have normal flow
 
-    @dispatch(ast.ExceptionHandler, ast.Suite)
+    @dispatch(ast.Switch, ast.TypeSwitch)
+    def visitSwitch(self, node):
+        node.visitChildren(self)
+        # Conditional branches can have normal flow
+
+    @dispatch(ast.ExceptionHandler, ast.Suite, ast.Condition)
     def visitCompound(self, node):
         node.visitChildren(self)
 

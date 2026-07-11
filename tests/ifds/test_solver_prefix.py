@@ -10,7 +10,7 @@ from pyflow.analysis.ifds import (
     IFDSResult,
     IFDSSolver,
     IdentityFlow,
-    SlotTaintFact,
+    TaintFact,
     Supergraph,
     ZERO,
     ZeroFact,
@@ -54,8 +54,8 @@ class _PathFact:
 
 
 @dataclass(frozen=True)
-class _SlotFact:
-    slot: object
+class _LocationFact:
+    location: object
     access_path: tuple[str, ...]
 
 
@@ -66,24 +66,24 @@ class _ExprFact:
     access_path: tuple[str, ...]
 
 
-def test_fact_prefix_match_slot_different():
-    """Different slots: no match."""
-    f1 = _SlotFact(slot="a", access_path=("f",))
-    f2 = _SlotFact(slot="b", access_path=("f", "g"))
+def test_fact_prefix_match_location_different():
+    """Different locations: no match."""
+    f1 = _LocationFact(location="a", access_path=("f",))
+    f2 = _LocationFact(location="b", access_path=("f", "g"))
     assert not _fact_prefix_match(f1, f2)
 
 
-def test_fact_prefix_match_slot_same_prefix():
-    """Same slot, stored path is prefix of query path: match."""
-    f1 = _SlotFact(slot="a", access_path=("f",))
-    f2 = _SlotFact(slot="a", access_path=("f", "g"))
+def test_fact_prefix_match_location_same_prefix():
+    """Same location, stored path is prefix of query path: match."""
+    f1 = _LocationFact(location="a", access_path=("f",))
+    f2 = _LocationFact(location="a", access_path=("f", "g"))
     assert _fact_prefix_match(f1, f2)
 
 
-def test_fact_prefix_match_slot_same_exact():
-    """Same slot, same access_path: match."""
-    f1 = _SlotFact(slot="a", access_path=("f", "g"))
-    f2 = _SlotFact(slot="a", access_path=("f", "g"))
+def test_fact_prefix_match_location_same_exact():
+    """Same location, same access_path: match."""
+    f1 = _LocationFact(location="a", access_path=("f", "g"))
+    f2 = _LocationFact(location="a", access_path=("f", "g"))
     assert _fact_prefix_match(f1, f2)
 
 
@@ -116,8 +116,8 @@ def test_fact_prefix_match_expr_same_exact():
 
 
 def test_fact_prefix_match_cross_kinds():
-    """Slot fact does not match expression fact even if paths align."""
-    f1 = _SlotFact(slot="a", access_path=("f",))
+    """Location fact does not match expression fact even if paths align."""
+    f1 = _LocationFact(location="a", access_path=("f",))
     f2 = _ExprFact(expression="a", procedure="p", access_path=("f", "g"))
     assert not _fact_prefix_match(f1, f2)
 
@@ -130,10 +130,10 @@ def test_is_reached_prefix_exact_match():
     graph.add_normal_edge("main.entry", "main.body")
     graph.add_normal_edge("main.body", "main.exit")
 
-    slot = "my_obj"
-    fact_a = SlotTaintFact(slot=slot, access_path=("f",))
+    location = "my_obj"
+    fact_a = TaintFact(location=location, access_path=("f",))
 
-    class _TestProblem(IFDSProblem[str, str, SlotTaintFact]):
+    class _TestProblem(IFDSProblem[str, str, TaintFact]):
         def __init__(self, supergraph):
             self._supergraph = supergraph
 
@@ -169,11 +169,11 @@ def test_is_reached_prefix_with_prefix_path():
     graph.add_normal_edge("main.entry", "main.body")
     graph.add_normal_edge("main.body", "main.exit")
 
-    slot = "my_obj"
-    fact_stored = SlotTaintFact(slot=slot, access_path=("f",))
-    fact_query = SlotTaintFact(slot=slot, access_path=("f", "g"))
+    location = "my_obj"
+    fact_stored = TaintFact(location=location, access_path=("f",))
+    fact_query = TaintFact(location=location, access_path=("f", "g"))
 
-    class _TestProblem(IFDSProblem[str, str, SlotTaintFact]):
+    class _TestProblem(IFDSProblem[str, str, TaintFact]):
         def __init__(self, supergraph):
             self._supergraph = supergraph
 
@@ -201,18 +201,18 @@ def test_is_reached_prefix_with_prefix_path():
     assert result.is_reached_prefix("main.exit", fact_query)
 
 
-def test_is_reached_prefix_wrong_slot():
-    """is_reached_prefix returns False when slot doesn't match."""
+def test_is_reached_prefix_wrong_location():
+    """is_reached_prefix returns False when location doesn't match."""
     graph = Supergraph[str, str]()
     graph.add_procedure("main", "main.entry", ["main.exit"])
     graph.add_node("main", "main.body")
     graph.add_normal_edge("main.entry", "main.body")
     graph.add_normal_edge("main.body", "main.exit")
 
-    fact_stored = SlotTaintFact(slot="a", access_path=("f",))
-    fact_query = SlotTaintFact(slot="b", access_path=("f", "g"))
+    fact_stored = TaintFact(location="a", access_path=("f",))
+    fact_query = TaintFact(location="b", access_path=("f", "g"))
 
-    class _TestProblem(IFDSProblem[str, str, SlotTaintFact]):
+    class _TestProblem(IFDSProblem[str, str, TaintFact]):
         def __init__(self, supergraph):
             self._supergraph = supergraph
 
@@ -248,11 +248,11 @@ def test_is_reached_prefix_not_reversed():
     graph.add_normal_edge("main.entry", "main.body")
     graph.add_normal_edge("main.body", "main.exit")
 
-    slot = "my_obj"
-    fact_stored = SlotTaintFact(slot=slot, access_path=("f", "g"))
-    fact_query = SlotTaintFact(slot=slot, access_path=("f",))
+    location = "my_obj"
+    fact_stored = TaintFact(location=location, access_path=("f", "g"))
+    fact_query = TaintFact(location=location, access_path=("f",))
 
-    class _TestProblem(IFDSProblem[str, str, SlotTaintFact]):
+    class _TestProblem(IFDSProblem[str, str, TaintFact]):
         def __init__(self, supergraph):
             self._supergraph = supergraph
 
@@ -288,9 +288,9 @@ def test_is_reached_prefix_nothing_stored():
     graph.add_normal_edge("main.entry", "main.body")
     graph.add_normal_edge("main.body", "main.exit")
 
-    fact_query = SlotTaintFact(slot="a", access_path=("f",))
+    fact_query = TaintFact(location="a", access_path=("f",))
 
-    class _TestProblem(IFDSProblem[str, str, SlotTaintFact]):
+    class _TestProblem(IFDSProblem[str, str, TaintFact]):
         def __init__(self, supergraph):
             self._supergraph = supergraph
 

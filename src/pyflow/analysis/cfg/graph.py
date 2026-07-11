@@ -629,17 +629,19 @@ class Suite(SingleEntryBlock):
         ops: List of AST operations in this block
     """
 
-    __slots__ = "ops"
+    __slots__ = ("ops", "origin_ast")
     exitNames = ("normal", "fail", "error")
 
-    def __init__(self, region):
+    def __init__(self, region, origin_ast=None):
         """Initialize a suite block.
 
         Args:
             region: Code region this block belongs to
+            origin_ast: The py_ast node that produced this block (e.g. For, While, Switch).
         """
         SingleEntryBlock.__init__(self, region)
         self.ops = []
+        self.origin_ast = origin_ast
 
     def simplify(self):
         """Simplify this suite block.

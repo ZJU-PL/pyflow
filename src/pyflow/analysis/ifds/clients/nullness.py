@@ -31,10 +31,10 @@ class NullnessConfiguration:
 
 
 @dataclass(frozen=True)
-class SlotNullFact:
-    """A storage slot that may hold ``None``, optionally scoped to a field chain."""
+class NullFact:
+    """A storage location that may hold ``None``, optionally scoped to a field chain."""
 
-    slot: object
+    location: object
     access_path: tuple[str, ...] = ()
 
 
@@ -67,15 +67,15 @@ class NullnessAnalysisResult:
 
     def may_be_null(self, node: CFGNode, local: py_ast.Local) -> bool:
         return any(
-            self._ifds_result.is_reached(node, SlotNullFact(slot))
-            for slot in self._problem.local_slots(node.procedure, local)
+            self._ifds_result.is_reached(node, NullFact(location))
+            for location in self._problem.local_locations(node.procedure, local)
         )
 
     def nullable_locals_at(self, node: CFGNode):
         return frozenset(
             self._problem.describe_fact(fact)
             for fact in self._ifds_result.facts_at(node)
-            if isinstance(fact, SlotNullFact)
+            if isinstance(fact, NullFact)
         )
 
     @property
@@ -139,9 +139,9 @@ class InterproceduralNullnessProblem(
         if operation is None:
             return self._identity_outputs(fact, ())
 
-        killed = self._killed_slots_for_node(node)
-        dynamic_setattr_slots = self._dynamic_setattr_slots(node.procedure, operation)
-        if dynamic_setattr_slots:
+        killed = self._killed_locations_for_node(node)
+        dynamic_setattr_locations = self._dynamic_setattr_locations(node.procedure, operation)
+        if dynamic_setattr_locations:
             outputs = set(self._identity_outputs(fact, killed))
             value = self._dynamic_setattr_value(operation)
             if value is not None and (
@@ -149,14 +149,14 @@ class InterproceduralNullnessProblem(
                 or self._expr_is_nullable(node.procedure, value, fact)
             ):
                 outputs.update(
-                    self._make_slot_fact(slot) for slot in dynamic_setattr_slots
+                    self._make_location_fact(location) for location in dynamic_setattr_locations
                 )
             return tuple(outputs)
 
-        dynamic_subscript_slots = self._dynamic_subscript_write_slots(
+        dynamic_subscript_locations = self._dynamic_subscript_write_locations(
             node.procedure, operation
         )
-        if dynamic_subscript_slots:
+        if dynamic_subscript_locations:
             outputs = set(self._identity_outputs(fact, killed))
             value = self._dynamic_subscript_value(operation)
             if value is not None and (
@@ -165,30 +165,30 @@ class InterproceduralNullnessProblem(
             ):
                 outputs.update(self._facts_for_modified_operation(operation))
                 outputs.update(
-                    self._make_slot_fact(slot) for slot in dynamic_subscript_slots
+                    self._make_location_fact(location) for location in dynamic_subscript_locations
                 )
             return tuple(outputs)
 
-        collection_slots, collection_values = self._collection_mutation(
+        collection_locations, collection_values = self._collection_mutation(
             node.procedure,
             operation,
             self.configuration.collection_mutator_names,
         )
-        if collection_slots:
+        if collection_locations:
             outputs = set(self._identity_outputs(fact, killed))
-            copy_slots, copy_source_slots = self._collection_copy_mutation(
+            copy_locations, copy_source_locations = self._collection_copy_mutation(
                 node.procedure,
                 operation,
                 self.configuration.collection_mutator_names,
             )
-            fact_slot = self._slot_from_fact(fact)
+            fact_location = self._location_from_fact(fact)
             if any(
                 self._direct_expression_fact(value, fact) is not None
                 or self._expr_is_nullable(node.procedure, value, fact)
                 for value in collection_values
-            ) or (fact_slot is not None and fact_slot in copy_source_slots):
-                outputs.update(self._make_slot_fact(slot) for slot in collection_slots)
-                outputs.update(self._make_slot_fact(slot) for slot in copy_slots)
+            ) or (fact_location is not None and fact_location in copy_source_locations):
+                outputs.update(self._make_location_fact(location) for location in collection_locations)
+                outputs.update(self._make_location_fact(location) for location in copy_locations)
             return tuple(outputs)
 
         if isinstance(operation, (py_ast.Assign, py_ast.UnpackSequence, py_ast.AnnAssign)):
@@ -227,19 +227,19 @@ class InterproceduralNullnessProblem(
                     )
                 )
             outputs.update(
-                self._make_slot_fact(slot)
-                for slot in self._aliased_dynamic_slots_for_assignment(
+                self._make_location_fact(location)
+                for location in self._aliased_dynamic_locations_for_assignment(
                     node.procedure,
                     operation,
                     fact,
                 )
             )
-            for slots, value in constructor_writes:
+            for locations, value in constructor_writes:
                 if self._direct_expression_fact(
                     value,
                     fact,
                 ) is not None or self._expr_is_nullable(node.procedure, value, fact):
-                    outputs.update(self._make_slot_fact(slot) for slot in slots)
+                    outputs.update(self._make_location_fact(location) for location in locations)
             return tuple(outputs)
 
         if isinstance(operation, py_ast.Return):
@@ -250,7 +250,7 @@ class InterproceduralNullnessProblem(
                     _procedure, _expr, result_index = direct_fact
                     path = self._access_path_from_fact(fact)
                     outputs.update(
-                        self._facts_for_return_slot(
+                        self._facts_for_return_location(
                             node.procedure, result_index, access_path=path,
                         )
                     )
@@ -259,7 +259,7 @@ class InterproceduralNullnessProblem(
                 if self._expr_is_nullable(node.procedure, expr, fact):
                     path = self._access_path_for_expression(expr)
                     outputs.update(
-                        self._facts_for_return_slot(
+                        self._facts_for_return_location(
                             node.procedure, index, access_path=path,
                         )
                     )
@@ -355,7 +355,7 @@ class InterproceduralNullnessProblem(
 
     def call_to_return_flow(self, call_node: CFGNode, return_site: CFGNode, fact: object):
         del return_site
-        killed = self._killed_slots_for_node(call_node)
+        killed = self._killed_locations_for_node(call_node, include_semantic=False)
         return self._identity_outputs(fact, killed)
 
     def _local_call_outputs(self, node: CFGNode, fact: object):
@@ -363,7 +363,7 @@ class InterproceduralNullnessProblem(
         if call_effect is None or call_effect.callees:
             return None
 
-        outputs = set(self._identity_outputs(fact, self._killed_slots_for_node(node)))
+        outputs = set(self._identity_outputs(fact, self._killed_locations_for_node(node)))
         model = self._call_model_for_node(node)
         if (
             fact == ZERO_NULLNESS
@@ -407,17 +407,17 @@ class InterproceduralNullnessProblem(
         return tuple(findings)
 
     def describe_fact(self, fact: object) -> str:
-        if isinstance(fact, SlotNullFact):
-            return self.describe_slot(fact.slot)
+        if isinstance(fact, NullFact):
+            return self.describe_location(fact.location)
         if isinstance(fact, ExpressionNullFact):
             return self.describe_expression(fact.expression)
         return "<expr>"
 
-    def _make_slot_fact(self, slot: object) -> object:
-        return SlotNullFact(slot)
+    def _make_location_fact(self, location: object) -> object:
+        return NullFact(location)
 
-    def _make_slot_fact_with_path(self, slot: object, access_path: tuple[str, ...]) -> object:
-        return SlotNullFact(slot, access_path=access_path)
+    def _make_location_fact_with_path(self, location: object, access_path: tuple[str, ...]) -> object:
+        return NullFact(location, access_path=access_path)
 
     def _make_expression_fact(
         self,
@@ -427,9 +427,9 @@ class InterproceduralNullnessProblem(
     ) -> object:
         return ExpressionNullFact(procedure, expression, result_index)
 
-    def _slot_from_fact(self, fact: object) -> object | None:
-        if isinstance(fact, SlotNullFact):
-            return fact.slot
+    def _location_from_fact(self, fact: object) -> object | None:
+        if isinstance(fact, NullFact):
+            return fact.location
         return None
 
     def _expression_fact_result(
@@ -442,7 +442,7 @@ class InterproceduralNullnessProblem(
     def _identity_outputs(self, fact: object, killed: Sequence[object]):
         if fact == ZERO_NULLNESS:
             return (ZERO_NULLNESS,)
-        if isinstance(fact, SlotNullFact) and any(fact.slot == target for target in killed):
+        if isinstance(fact, NullFact) and any(fact.location == target for target in killed):
             return ()
         return (fact,)
 
@@ -504,17 +504,17 @@ class InterproceduralNullnessProblem(
         if target_expr is None:
             return None
 
-        slots = tuple(
-            slot
+        locations = tuple(
+            location
             for candidate in self._facts_for_expression_node(node.procedure, target_expr)
-            for slot in (self._slot_from_fact(candidate),)
-            if slot is not None
+            for location in (self._location_from_fact(candidate),)
+            if location is not None
         )
-        if not slots:
+        if not locations:
             return None
 
         branch_means_null = true_means_null if exit_name == "true" else not true_means_null
-        target_facts = {SlotNullFact(slot) for slot in slots}
+        target_facts = {NullFact(location) for location in locations}
         if branch_means_null:
             outputs = set()
             if fact == ZERO_NULLNESS:
