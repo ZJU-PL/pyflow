@@ -154,6 +154,31 @@ class CPGStats:
     edge_kinds: Dict[str, int] = field(default_factory=dict)
 
 
+@dataclass(frozen=True)
+class CPGNodeView:
+    """Ansede-compatible read-only view over a PDG-backed CPG node."""
+
+    node_id: int
+    node_type: str
+    lineno: int
+    col: int = 0
+    value: str = ""
+    ast_node: Any = None
+    func_name: str = ""
+    meta: Dict[str, Any] = field(default_factory=dict)
+
+    def as_dict(self) -> Dict[str, Any]:
+        return {
+            "node_id": self.node_id,
+            "node_type": self.node_type,
+            "lineno": self.lineno,
+            "col": self.col,
+            "value": self.value,
+            "func_name": self.func_name,
+            "meta": dict(self.meta),
+        }
+
+
 # ── Internal helpers ─────────────────────────────────────────────────────────
 
 
@@ -312,6 +337,7 @@ class CodePropertyGraph:
 
         for fname, pdg in self._pdgs.items():
             self._build_node_metadata(fname, pdg)
+            self._build_source_statement_nodes(fname, pdg, pdg_ast_ids[fname])
             self._build_pdg_edges(pdg)
             self._build_ast_edges(pdg, pdg_ast_ids[fname])
             self._build_cfg_edges(fname, pdg)
@@ -328,6 +354,7 @@ class CodePropertyGraph:
             self._build_assert_metadata(fname, pdg)
             self._build_try_metadata(fname, pdg)
             self._build_loop_metadata(fname, pdg)
+            self._build_statement_metadata(fname, pdg)
 
         if self._call_graph is not None:
             self._build_call_edges()
@@ -379,6 +406,134 @@ class CodePropertyGraph:
             )
             meta.setdefault("func_name", fname)
             meta.setdefault("kind", node.kind)
+
+    def _build_source_statement_nodes(
+        self,
+        fname: str,
+        pdg: ProgramDependenceGraph,
+        pdg_ast_ids: Set[int],
+    ) -> None:
+        """Backfill source statements lost during CFG/PDG lowering.
+
+        The primary CPG model is still PDG-backed. This pass only adds explicit
+        synthetic nodes for source AST constructs that are meaningful query
+        targets but are commonly consumed by lowering, such as ``ClassDef`` or
+        ``break``/``continue``.
+        """
+        code = getattr(pdg.cfg, "code", None)
+        root = getattr(code, "ast", None)
+        if root is None:
+            return
+
+        for ast_node in self._iter_source_statement_nodes(root):
+            if not self._needs_synthetic_statement_node(ast_node):
+                continue
+            if pdg.get_node_for_ast(ast_node) is not None:
+                continue
+
+            label = self._ast_value(ast_node) or _safe_type_name(ast_node)
+            node = pdg.add_node("stmt", ast_node=ast_node, label=label)
+            pdg_ast_ids.add(id(ast_node))
+
+            meta = self._meta_for(node)
+            meta.setdefault("node_type", _safe_type_name(ast_node))
+            meta.setdefault("lineno", getattr(ast_node, "lineno", 0) or 0)
+            meta.setdefault(
+                "col",
+                getattr(ast_node, "col", getattr(ast_node, "col_offset", 0)) or 0,
+            )
+            meta.setdefault("value", label)
+            meta.setdefault("func_name", fname)
+            meta.setdefault("kind", node.kind)
+            meta["synthetic_ast"] = True
+            self._annotate_statement_meta(node)
+            if pdg.entry is not None:
+                self._add_edge(
+                    pdg.entry,
+                    node,
+                    CPGEdgeKind.AST_CHILD,
+                    f"synthetic:{_safe_type_name(ast_node)}",
+                )
+
+    @staticmethod
+    def _iter_source_statement_nodes(root: Any) -> Iterator[Any]:
+        seen: Set[int] = set()
+
+        def walk(node: Any) -> Iterator[Any]:
+            if node is None:
+                return
+            nid = id(node)
+            if nid in seen:
+                return
+            seen.add(nid)
+            if isinstance(node, py_ast.leafTypes):
+                return
+            yield node
+            if isinstance(node, py_ast.FunctionDef):
+                return
+            for child in _iter_ast_children(node):
+                yield from walk(child)
+
+        yield from walk(root)
+
+    @staticmethod
+    def _needs_synthetic_statement_node(ast_node: Any) -> bool:
+        node_type = _safe_type_name(ast_node)
+        return (
+            isinstance(
+                ast_node,
+                (
+                    py_ast.ClassDef,
+                    py_ast.Break,
+                    py_ast.Continue,
+                    py_ast.GlobalDecl,
+                    py_ast.NonlocalDecl,
+                    py_ast.TypeAlias,
+                    py_ast.YieldFrom,
+                    py_ast.AsyncYield,
+                    py_ast.Await,
+                ),
+            )
+            or node_type in {"With", "AsyncWith", "Pass"}
+        )
+
+    def _annotate_statement_meta(self, node: PDGNode) -> None:
+        ast_node = node.ast_node
+        if ast_node is None:
+            return
+        meta = self._meta_for(node)
+        node_type = type(ast_node).__name__
+
+        if isinstance(ast_node, py_ast.ClassDef):
+            meta["is_class_def"] = True
+            meta["class_name"] = getattr(ast_node, "name", "")
+        elif node_type in {"With", "AsyncWith"}:
+            meta["is_with"] = True
+            meta["is_async_with"] = node_type == "AsyncWith"
+        elif isinstance(ast_node, (py_ast.Yield, py_ast.YieldFrom, py_ast.AsyncYield)):
+            meta["is_yield"] = True
+            meta["yield_kind"] = node_type
+        elif isinstance(ast_node, py_ast.Await):
+            meta["is_await"] = True
+        elif isinstance(ast_node, py_ast.Break):
+            meta["is_break"] = True
+        elif isinstance(ast_node, py_ast.Continue):
+            meta["is_continue"] = True
+        elif isinstance(ast_node, py_ast.GlobalDecl):
+            meta["is_global_decl"] = True
+            meta["declared_name"] = self._ast_value(getattr(ast_node, "name", None))
+        elif isinstance(ast_node, py_ast.NonlocalDecl):
+            meta["is_nonlocal_decl"] = True
+            meta["declared_name"] = self._ast_value(getattr(ast_node, "name", None))
+        elif isinstance(ast_node, py_ast.TypeAlias):
+            meta["is_type_alias"] = True
+            meta["alias_name"] = getattr(ast_node, "name", "")
+        elif node_type == "Pass":
+            meta["is_pass"] = True
+
+        cfg_node = getattr(node, "cfg_node", None)
+        if isinstance(cfg_node, cfg_graph.Yield):
+            meta["cfg_yield"] = True
 
     @staticmethod
     def _ast_value(ast_node: Any) -> str:
@@ -1119,6 +1274,20 @@ class CodePropertyGraph:
                     stmt.body, result
                 )
 
+    def _build_statement_metadata(
+        self, fname: str, pdg: ProgramDependenceGraph
+    ) -> None:
+        """Best-effort metadata for AST kinds Ansede models explicitly.
+
+        PyFlow lowers some stdlib AST constructs before the CPG layer sees
+        them, so these annotations are intentionally opportunistic.
+        """
+        for node in pdg.nodes:
+            ast_node = node.ast_node
+            if ast_node is None:
+                continue
+            self._annotate_statement_meta(node)
+
     # ── Navigation ───────────────────────────────────────────────────────
 
     def successors(
@@ -1185,6 +1354,21 @@ class CodePropertyGraph:
             kset = _CFG_KINDS
         return self.successors(node, kinds=kset)
 
+    def node_by_id(self, node_id: int) -> Optional[PDGNode]:
+        """Return a node by ID, or ``None`` when it is not present."""
+        self._ensure_built()
+        for node in self.nodes():
+            if node.node_id == node_id:
+                return node
+        return None
+
+    def cfg_next(self, node_id: int) -> List[PDGNode]:
+        """Ansede-compatible node-id based CFG successor helper."""
+        node = self.node_by_id(node_id)
+        if node is None:
+            return []
+        return list(self.cfg_successors(node))
+
     def callers(self, func_name: str) -> Set[PDGNode]:
         """Return PDG nodes (from other functions) that ``CALL`` this function."""
         self._ensure_built()
@@ -1250,6 +1434,20 @@ class CodePropertyGraph:
             "func": meta.get("func_name", ""),
             "meta": meta,
         }
+
+    def node_view(self, node: PDGNode) -> CPGNodeView:
+        """Return an Ansede-compatible node view for *node*."""
+        meta = self.node_meta(node)
+        return CPGNodeView(
+            node_id=node.node_id,
+            node_type=meta.get("node_type", node.kind),
+            lineno=meta.get("lineno", 0),
+            col=meta.get("col", 0),
+            value=meta.get("value", node.label or node.kind),
+            ast_node=node.ast_node,
+            func_name=meta.get("func_name", ""),
+            meta=meta,
+        )
 
     # ── Unified queries ──────────────────────────────────────────────────
 

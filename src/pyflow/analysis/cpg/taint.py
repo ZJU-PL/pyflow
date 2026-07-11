@@ -202,6 +202,132 @@ class MemoryLayout:
 
 
 @dataclass
+class RuleMetadata:
+    """Rule metadata used to enrich JSON and SARIF exports."""
+
+    rule_id: str
+    name: str
+    short_description: str
+    help_text: str = ""
+    help_uri: str = ""
+    precision: str = "medium"
+    tags: Tuple[str, ...] = field(default_factory=tuple)
+
+    def to_sarif_rule(self, severity: str) -> Dict[str, Any]:
+        props: Dict[str, Any] = {
+            "precision": self.precision,
+            "tags": list(self.tags),
+        }
+        return {
+            "id": self.rule_id,
+            "name": self.name[:80],
+            "shortDescription": {"text": self.short_description},
+            "fullDescription": {"text": self.short_description},
+            "helpUri": self.help_uri,
+            "help": {"text": self.help_text or self.short_description},
+            "defaultConfiguration": {
+                "level": _severity_to_sarif_level(severity)
+            },
+            "properties": props,
+        }
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "rule_id": self.rule_id,
+            "name": self.name,
+            "short_description": self.short_description,
+            "help_text": self.help_text,
+            "help_uri": self.help_uri,
+            "precision": self.precision,
+            "tags": list(self.tags),
+        }
+
+
+_CWE_RULE_METADATA: Dict[str, RuleMetadata] = {
+    "CWE-22": RuleMetadata(
+        "CWE-22", "Path traversal",
+        "Tainted input reaches a filesystem path sink.",
+        "Validate and canonicalize paths, then enforce an allowlisted root.",
+        "https://cwe.mitre.org/data/definitions/22.html",
+        "medium", ("security", "path-traversal"),
+    ),
+    "CWE-78": RuleMetadata(
+        "CWE-78", "OS command injection",
+        "Tainted input reaches a command execution sink.",
+        "Avoid shell execution or pass validated arguments without shell parsing.",
+        "https://cwe.mitre.org/data/definitions/78.html",
+        "high", ("security", "command-injection"),
+    ),
+    "CWE-79": RuleMetadata(
+        "CWE-79", "Cross-site scripting",
+        "Tainted input reaches an HTML/template rendering sink.",
+        "Escape output for the target context and avoid rendering raw templates.",
+        "https://cwe.mitre.org/data/definitions/79.html",
+        "medium", ("security", "xss"),
+    ),
+    "CWE-89": RuleMetadata(
+        "CWE-89", "SQL injection",
+        "Tainted input reaches a SQL execution sink.",
+        "Use parameterized queries or a query builder that binds parameters.",
+        "https://cwe.mitre.org/data/definitions/89.html",
+        "high", ("security", "sql-injection"),
+    ),
+    "CWE-95": RuleMetadata(
+        "CWE-95", "Code injection",
+        "Tainted input reaches dynamic code execution.",
+        "Remove eval/exec usage or strictly validate inputs before interpretation.",
+        "https://cwe.mitre.org/data/definitions/95.html",
+        "high", ("security", "code-injection"),
+    ),
+    "CWE-502": RuleMetadata(
+        "CWE-502", "Unsafe deserialization",
+        "Tainted input reaches a deserialization sink.",
+        "Use safe formats and never deserialize attacker-controlled payloads.",
+        "https://cwe.mitre.org/data/definitions/502.html",
+        "medium", ("security", "deserialization"),
+    ),
+    "CWE-918": RuleMetadata(
+        "CWE-918", "Server-side request forgery",
+        "Tainted input reaches an outbound request sink.",
+        "Allowlist destinations and block internal network ranges.",
+        "https://cwe.mitre.org/data/definitions/918.html",
+        "medium", ("security", "ssrf"),
+    ),
+}
+
+
+def _metadata_for_cwe(cwe: str) -> RuleMetadata:
+    if cwe in _CWE_RULE_METADATA:
+        return _CWE_RULE_METADATA[cwe]
+    return RuleMetadata(
+        cwe or "CPG-TAINT",
+        cwe or "CPG taint flow",
+        f"Tainted data reaches a sink ({cwe or 'unknown rule'}).",
+        "Review the source-to-sink flow and add validation or sanitization.",
+        f"https://cwe.mitre.org/data/definitions/{cwe.split('-', 1)[1]}.html"
+        if cwe.startswith("CWE-") and cwe.split("-", 1)[1].isdigit()
+        else "",
+        "medium",
+        ("security", "taint"),
+    )
+
+
+@dataclass
+class TaintPath:
+    """Ansede-compatible source-to-sink path DTO."""
+
+    source_node_id: int
+    sink_node_id: int
+    source_label: str
+    sink_label: str
+    source_lineno: int
+    sink_lineno: int
+    tags: FrozenSet[str]
+    sanitizers: FrozenSet[str]
+    path: List[Tuple[int, int, str]] = field(default_factory=list)
+
+
+@dataclass
 class TaintFinding:
     """A discovered taint flow from source to sink."""
 
@@ -214,6 +340,7 @@ class TaintFinding:
     path_nodes: List[PDGNode] = field(default_factory=list)
     tags: FrozenSet[str] = field(default_factory=frozenset)
     sanitizers: FrozenSet[str] = field(default_factory=frozenset)
+    rule_id: str = ""
 
     @property
     def source_line(self) -> int:
@@ -258,9 +385,19 @@ class TaintFinding:
         """Key for deduplication: (cwe, source_line, sink_line)."""
         return (self.cwe, self.source_line, self.sink_line)
 
+    @property
+    def effective_rule_id(self) -> str:
+        return self.rule_id or self.cwe or "CPG-TAINT"
+
+    @property
+    def rule_metadata(self) -> RuleMetadata:
+        return _metadata_for_cwe(self.effective_rule_id)
+
     def to_dict(self) -> Dict[str, Any]:
         """Serialize to a JSON-compatible dict."""
+        rule = self.rule_metadata
         return {
+            "rule_id": self.effective_rule_id,
             "cwe": self.cwe,
             "severity": self.severity,
             "source_label": self.source_label,
@@ -271,6 +408,7 @@ class TaintFinding:
             "confidence": round(self.confidence, 2),
             "tags": sorted(self.tags),
             "sanitizers": sorted(self.sanitizers),
+            "rule": rule.to_dict(),
             "path_preview": [
                 {
                     "kind": n.kind,
@@ -281,7 +419,33 @@ class TaintFinding:
             ],
         }
 
-    def to_sarif(self, *, rule_index: int = 0) -> Dict[str, Any]:
+    def to_taint_path(self) -> TaintPath:
+        """Return an Ansede-compatible path object."""
+        return TaintPath(
+            source_node_id=getattr(self.source_node, "node_id", -1),
+            sink_node_id=getattr(self.sink_node, "node_id", -1),
+            source_label=self.source_label,
+            sink_label=self.sink_label,
+            source_lineno=self.source_line,
+            sink_lineno=self.sink_line,
+            tags=self.tags,
+            sanitizers=self.sanitizers,
+            path=[
+                (
+                    getattr(n, "node_id", -1),
+                    getattr(getattr(n, "ast_node", None), "lineno", 0) or 0,
+                    (getattr(n, "label", "") or "")[:120],
+                )
+                for n in self.path_nodes
+            ],
+        )
+
+    def to_sarif(
+        self,
+        *,
+        rule_index: int = 0,
+        artifact_uri: str = "",
+    ) -> Dict[str, Any]:
         """Export as a SARIF result object.
 
         Parameters
@@ -289,8 +453,14 @@ class TaintFinding:
         rule_index:
             Zero-based index into the SARIF ``rules`` array.
         """
-        return {
-            "ruleId": self.cwe,
+        physical_location = {
+            "artifactLocation": {"uri": artifact_uri},
+            "region": {
+                "startLine": self.source_line,
+            },
+        }
+        result: Dict[str, Any] = {
+            "ruleId": self.effective_rule_id,
             "ruleIndex": rule_index,
             "level": _severity_to_sarif_level(self.severity),
             "message": {
@@ -301,15 +471,11 @@ class TaintFinding:
             },
             "locations": [
                 {
-                    "physicalLocation": {
-                        "artifactLocation": {"uri": ""},
-                        "region": {
-                            "startLine": self.source_line,
-                        },
-                    }
+                    "physicalLocation": physical_location,
                 }
             ],
             "properties": {
+                "cwe": self.cwe,
                 "source_label": self.source_label,
                 "sink_label": self.sink_label,
                 "sink_line": self.sink_line,
@@ -317,8 +483,40 @@ class TaintFinding:
                 "confidence": round(self.confidence, 2),
                 "tags": sorted(self.tags),
                 "sanitizers": sorted(self.sanitizers),
+                "precision": self.rule_metadata.precision,
+                "rule": self.rule_metadata.to_dict(),
             },
         }
+        if self.path_nodes:
+            result["codeFlows"] = [
+                {
+                    "threadFlows": [
+                        {
+                            "locations": [
+                                {
+                                    "location": {
+                                        "physicalLocation": {
+                                            "artifactLocation": {
+                                                "uri": artifact_uri
+                                            },
+                                            "region": {
+                                                "startLine": getattr(
+                                                    n.ast_node, "lineno", 0
+                                                ) or 0
+                                            },
+                                        },
+                                        "message": {
+                                            "text": (n.label or n.kind)[:120]
+                                        },
+                                    }
+                                }
+                                for n in self.path_nodes
+                            ]
+                        }
+                    ]
+                }
+            ]
+        return result
 
 
 def _severity_to_sarif_level(severity: str) -> str:
@@ -1492,19 +1690,13 @@ class CPGTaintEngine:
 
         Returns a JSON-serializable dict.
         """
-        rules: List[Dict[str, Any]] = []
-        seen_cwes: Set[str] = set()
+        rules_by_id: Dict[str, Dict[str, Any]] = {}
         for f in findings:
-            if f.cwe not in seen_cwes:
-                seen_cwes.add(f.cwe)
-                rules.append({
-                    "id": f.cwe,
-                    "shortDescription": {"text": f.cwe},
-                    "defaultConfiguration": {
-                        "level": _severity_to_sarif_level(f.severity)
-                    },
-                })
-        cwe_to_idx = {cwe: i for i, cwe in enumerate(sorted(seen_cwes))}
+            rule_id = f.effective_rule_id
+            if rule_id not in rules_by_id:
+                rules_by_id[rule_id] = f.rule_metadata.to_sarif_rule(f.severity)
+        rules = sorted(rules_by_id.values(), key=lambda r: r["id"])
+        rule_to_idx = {rule["id"]: i for i, rule in enumerate(rules)}
 
         return {
             "version": "2.1.0",
@@ -1517,14 +1709,17 @@ class CPGTaintEngine:
                     "tool": {
                         "driver": {
                             "name": tool_name,
-                            "rules": sorted(rules, key=lambda r: r["id"]),
+                            "rules": rules,
                         }
                     },
                     "artifacts": [
                         {"location": {"uri": artifact_uri}}
                     ] if artifact_uri else [],
                     "results": [
-                        f.to_sarif(rule_index=cwe_to_idx.get(f.cwe, 0))
+                        f.to_sarif(
+                            rule_index=rule_to_idx.get(f.effective_rule_id, 0),
+                            artifact_uri=artifact_uri,
+                        )
                         for f in findings
                     ],
                 }

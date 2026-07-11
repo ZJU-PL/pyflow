@@ -14,6 +14,7 @@ from pyflow.analysis.cpg.taint import (
     CPGTaintEngine,
     MemoryLayout,
     TaintFinding,
+    TaintPath,
     TaintState,
 )
 from pyflow.language.python import ast as py_ast
@@ -842,6 +843,9 @@ class TestCPGConstruction(unittest.TestCase):
         doc = CPGTaintEngine.to_sarif([finding], tool_name="test")
         self.assertEqual(doc["version"], "2.1.0")
         self.assertEqual(len(doc["runs"][0]["results"]), 1)
+        rule = doc["runs"][0]["tool"]["driver"]["rules"][0]
+        self.assertEqual(rule["id"], "CWE-78")
+        self.assertIn("precision", rule["properties"])
         json.dumps(doc)
 
     def test_to_json_serializes(self):
@@ -852,7 +856,22 @@ class TestCPGConstruction(unittest.TestCase):
         s = CPGTaintEngine.to_json([finding])
         self.assertIn("CWE-78", s)
         import json
-        json.loads(s)
+        payload = json.loads(s)
+        self.assertEqual(payload[0]["rule_id"], "CWE-78")
+        self.assertIn("rule", payload[0])
+
+    def test_taint_finding_to_ansede_taint_path(self):
+        cpg = self.build_cpg(simple_assignment)
+        cpg.build()
+        node = next(cpg.nodes("test_func"))
+        finding = TaintFinding(
+            cwe="CWE-78", severity="high", source_label="src",
+            sink_label="snk", source_node=node, sink_node=node,
+            path_nodes=[node],
+        )
+        path = finding.to_taint_path()
+        self.assertIsInstance(path, TaintPath)
+        self.assertEqual(path.source_node_id, node.node_id)
 
     def test_node_meta_exposes_ansede_style_fields(self):
         cpg = self.build_cpg(simple_assignment)
@@ -865,6 +884,16 @@ class TestCPGConstruction(unittest.TestCase):
         self.assertIn("value", meta)
         self.assertEqual(meta["func_name"], "test_func")
         self.assertIn("meta", cpg.to_dict()["nodes"][0])
+
+    def test_node_view_and_cfg_next_by_id(self):
+        cpg = self.build_cpg(simple_assignment)
+        cpg.build()
+        node = next(cpg.nodes("test_func"))
+        view = cpg.node_view(node)
+        self.assertEqual(view.node_id, node.node_id)
+        self.assertIn("node_type", view.as_dict())
+        self.assertIs(cpg.node_by_id(node.node_id), node)
+        self.assertIsInstance(cpg.cfg_next(node.node_id), list)
 
     def test_load_taint_specs_ansede_format(self):
         import json
@@ -1224,6 +1253,87 @@ class TestCPGConstruction(unittest.TestCase):
         if assert_nodes:
             meta = cpg.node_meta(assert_nodes[0])
             self.assertTrue(meta.get("is_assert"))
+
+    def test_additional_statement_metadata_best_effort(self):
+        from pyflow.analysis.cpg.build import build_cpg
+        source = (
+            "def f(xs):\n"
+            "    class C:\n"
+            "        value = 1\n"
+            "    for x in xs:\n"
+            "        if x:\n"
+            "            break\n"
+            "        else:\n"
+            "            continue\n"
+            "    return C\n"
+        )
+        cpg = build_cpg(source, "test.py")
+        cpg.build()
+        synthetic = [
+            n for n in cpg.nodes()
+            if cpg.node_meta(n).get("synthetic_ast")
+        ]
+        metas = [cpg.node_meta(n) for n in synthetic]
+        self.assertTrue(any(m.get("is_class_def") for m in metas))
+        self.assertTrue(any(m.get("is_break") for m in metas))
+        self.assertTrue(any(m.get("is_continue") for m in metas))
+        self.assertTrue(any(m.get("class_name") == "C" for m in metas))
+
+        synthetic_ids = {n.node_id for n in synthetic}
+        ast_edges = list(cpg.all_edges(kinds={CPGEdgeKind.AST_CHILD}))
+        self.assertTrue(
+            any(
+                e.target.node_id in synthetic_ids
+                and e.label.startswith("synthetic:")
+                for e in ast_edges
+            )
+        )
+
+    def test_yield_from_source_ast_backfill(self):
+        from pyflow.analysis.cpg.build import build_cpg
+        source = "def gen(xs):\n    yield from xs\n"
+        cpg = build_cpg(source, "test.py")
+        cpg.build()
+        metas = [
+            cpg.node_meta(n) for n in cpg.nodes()
+            if cpg.node_meta(n).get("synthetic_ast")
+        ]
+        self.assertTrue(any(m.get("is_yield") for m in metas))
+        self.assertTrue(any(m.get("yield_kind") == "YieldFrom" for m in metas))
+
+    def test_detect_framework_aliases(self):
+        from pyflow.analysis.cpg.rules import detect_frameworks
+        detected = detect_frameworks(
+            "import requests\nimport subprocess\nrequests.get(url)\n"
+        )
+        self.assertIn("requests", detected)
+        self.assertIn("injection", detected)
+
+    def test_cpg_store_incremental_helpers(self):
+        import tempfile
+        from pathlib import Path
+        from pyflow.analysis.cpg.persist import CPGStore
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            dep = root / "dep.py"
+            app = root / "app.py"
+            dep.write_text("def value():\n    return 1\n", encoding="utf-8")
+            app.write_text("import dep\nprint(dep.value())\n", encoding="utf-8")
+            store = CPGStore(root / "cache.db")
+            try:
+                self.assertTrue(store.file_changed(dep))
+                store.update_hash(dep)
+                self.assertFalse(store.file_changed(dep))
+                dep.write_text("def value():\n    return 2\n", encoding="utf-8")
+                self.assertTrue(store.file_changed(dep))
+                affected = store.affected_files([dep], candidate_paths=[dep, app])
+                self.assertIn(str(dep), affected)
+                self.assertIn(str(app), affected)
+                store.invalidate(dep)
+                self.assertTrue(store.file_changed(dep))
+            finally:
+                store.close()
 
     # ── AnnAssign taint propagation (Gap #2) ─────────────────────────
 

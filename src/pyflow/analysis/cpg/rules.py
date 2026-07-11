@@ -39,9 +39,78 @@ _FRAMEWORK_FILES: Dict[str, str] = {
     "sql": "sql.json",
 }
 
+_FRAMEWORK_ALIASES: Dict[str, str] = {
+    "requests_lib": "requests",
+    "subprocess_lib": "injection",
+    "deserialization_py": "injection",
+    "template_engines_py": "injection",
+    "xml_parsers": "injection",
+    "yaml_load": "injection",
+    "pymongo": "nosql",
+    "redis_py": "nosql",
+    "boto3_aws": "cloud",
+    "cloud_security": "cloud",
+    "second_order_sql": "sql",
+    "django_rest": "django",
+}
+
+_DETECTION_MARKERS: Dict[str, Dict[str, List[str]]] = {
+    "django": {
+        "imports": ["from django", "import django", "django.db", "django.http"],
+        "patterns": ["RawSQL(", ".extra(", ".raw("],
+    },
+    "flask": {
+        "imports": ["from flask", "import flask"],
+        "patterns": ["Flask(", "@app.route", "@blueprint.route", "request.args"],
+    },
+    "fastapi": {
+        "imports": ["from fastapi", "import fastapi"],
+        "patterns": ["FastAPI(", "APIRouter(", "Depends(", "Request("],
+    },
+    "sqlalchemy": {
+        "imports": ["from sqlalchemy", "import sqlalchemy"],
+        "patterns": ["create_engine(", "session.execute(", "text("],
+    },
+    "requests": {
+        "imports": ["import requests", "from requests", "import httpx"],
+        "patterns": ["requests.get(", "requests.post(", "httpx.get("],
+    },
+    "injection": {
+        "imports": [
+            "import subprocess", "from subprocess", "import pickle",
+            "import yaml", "import marshal", "import jsonpickle",
+        ],
+        "patterns": [
+            "os.system(", "subprocess.run(", "eval(", "exec(",
+            "pickle.loads(", "yaml.load(", "jsonpickle.decode(",
+            "ElementTree.fromstring(",
+        ],
+    },
+    "network": {
+        "imports": ["import urllib", "from urllib", "import socket"],
+        "patterns": ["urlopen(", "socket.connect("],
+    },
+    "nosql": {
+        "imports": ["import pymongo", "from pymongo", "import redis", "from redis"],
+        "patterns": ["MongoClient(", ".find(", "Redis("],
+    },
+    "cloud": {
+        "imports": ["import boto3", "from boto3", "google.cloud"],
+        "patterns": ["boto3.client(", "boto3.resource("],
+    },
+    "sql": {
+        "imports": ["import sqlite3", "import psycopg2", "import pymysql"],
+        "patterns": ["cursor.execute(", "executemany(", "executescript("],
+    },
+}
+
+
+def _canonical_framework(name: str) -> str:
+    return _FRAMEWORK_ALIASES.get(name, name)
+
 
 def _load_pack(framework: str) -> Optional[dict]:
-    filename = _FRAMEWORK_FILES.get(framework)
+    filename = _FRAMEWORK_FILES.get(_canonical_framework(framework))
     if filename is None:
         return None
     path = _RULES_DIR / filename
@@ -65,7 +134,7 @@ def load_rules(
     """
     names = frameworks if frameworks else list(_FRAMEWORK_FILES.keys())
     for fw in names:
-        data = _load_pack(fw)
+        data = _load_pack(_canonical_framework(fw))
         if data is None:
             continue
         models: List[dict] = data.get("models", [])
@@ -122,18 +191,22 @@ def detect_frameworks(source: str) -> List[str]:
     """
     detected: Set[str] = set()
     source_lower = source.lower()
-    for fw in _FRAMEWORK_FILES:
+    for fw in set(_FRAMEWORK_FILES) | set(_DETECTION_MARKERS) | set(_FRAMEWORK_ALIASES):
         data = _load_pack(fw)
-        if data is None:
-            continue
-        detection = data.get("detection", {})
+        detection = dict(_DETECTION_MARKERS.get(_canonical_framework(fw), {}))
+        if data is not None:
+            pack_detection = data.get("detection", {})
+            detection.setdefault("imports", [])
+            detection.setdefault("patterns", [])
+            detection["imports"].extend(pack_detection.get("imports", []))
+            detection["patterns"].extend(pack_detection.get("patterns", []))
         for imp in detection.get("imports", []):
             if imp.lower() in source_lower:
-                detected.add(fw)
+                detected.add(_canonical_framework(fw))
                 break
         for pat in detection.get("patterns", []):
             if pat.lower() in source_lower:
-                detected.add(fw)
+                detected.add(_canonical_framework(fw))
                 break
     if not detected:
         detected.add("stdlib")

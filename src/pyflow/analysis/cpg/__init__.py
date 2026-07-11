@@ -32,6 +32,7 @@ from .graph import (
     CodePropertyGraph,
     CPGEdge,
     CPGEdgeKind,
+    CPGNodeView,
     CPGStats,
 )
 from .taint import (
@@ -39,6 +40,7 @@ from .taint import (
     MemoryCell,
     MemoryLayout,
     TaintFinding,
+    TaintPath,
     TaintState,
 )
 from .build import build_cpg, build_cpg_with_callgraph, build_cpg_from_directory
@@ -61,11 +63,13 @@ __all__ = [
     "CodePropertyGraph",
     "CPGEdge",
     "CPGEdgeKind",
+    "CPGNodeView",
     "CPGStats",
     "CPGTaintEngine",
     "MemoryCell",
     "MemoryLayout",
     "TaintFinding",
+    "TaintPath",
     "TaintState",
     "build_cpg",
     "build_cpg_with_callgraph",

@@ -17,12 +17,18 @@ Usage::
 from __future__ import annotations
 
 import json
+import hashlib
+import re
 import sqlite3
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 
 
 _SCHEMA_VERSION = 1
+_IMPORT_RE = re.compile(
+    r"^\s*(?:from\s+([A-Za-z_][\w.]*)\s+import\s+|import\s+([A-Za-z_][\w.]*))",
+    re.MULTILINE,
+)
 
 
 _CREATE_TABLES = """
@@ -106,9 +112,101 @@ class CPGStore:
             "INSERT OR IGNORE INTO files (path, sha256) VALUES (?, ?)",
             (file_path, sha256),
         )
+        if sha256:
+            cur.execute(
+                "UPDATE files SET sha256 = ?, scanned_at = datetime('now') "
+                "WHERE path = ?",
+                (sha256, file_path),
+            )
         cur.execute("SELECT id FROM files WHERE path = ?", (file_path,))
         row = cur.fetchone()
         return row["id"] if row else 0
+
+    @staticmethod
+    def _sha256_file(file_path: str | Path) -> str:
+        h = hashlib.sha256()
+        with open(file_path, "rb") as f:
+            for chunk in iter(lambda: f.read(1024 * 1024), b""):
+                h.update(chunk)
+        return h.hexdigest()
+
+    def file_changed(self, file_path: str | Path) -> bool:
+        """Return True when *file_path* is new, missing from cache, or changed."""
+        path = str(file_path)
+        try:
+            current = self._sha256_file(path)
+        except OSError:
+            return True
+        cur = self._conn.cursor()
+        cur.execute("SELECT sha256 FROM files WHERE path = ?", (path,))
+        row = cur.fetchone()
+        return row is None or row["sha256"] != current
+
+    def update_hash(self, file_path: str | Path) -> str:
+        """Persist the current content hash for *file_path* and return it."""
+        path = str(file_path)
+        sha256 = self._sha256_file(path)
+        self._ensure_file(path, sha256)
+        self._conn.commit()
+        return sha256
+
+    def invalidate(self, file_path: str | Path) -> None:
+        """Remove cached data for *file_path*."""
+        path = str(file_path)
+        cur = self._conn.cursor()
+        cur.execute("SELECT id FROM files WHERE path = ?", (path,))
+        row = cur.fetchone()
+        if row is None:
+            return
+        file_id = row["id"]
+        cur.execute("DELETE FROM cpg_nodes WHERE file_id = ?", (file_id,))
+        cur.execute("DELETE FROM cpg_edges WHERE file_id = ?", (file_id,))
+        cur.execute("DELETE FROM taint_findings WHERE file_id = ?", (file_id,))
+        cur.execute("UPDATE files SET sha256 = '' WHERE id = ?", (file_id,))
+        self._conn.commit()
+
+    @staticmethod
+    def _module_names_for_path(path: Path) -> Set[str]:
+        names = {path.stem}
+        parts = [p for p in path.with_suffix("").parts if p not in {"", "."}]
+        if parts:
+            names.add(".".join(parts))
+        return names
+
+    @staticmethod
+    def _imports_module(source: str, module_names: Set[str]) -> bool:
+        for match in _IMPORT_RE.finditer(source):
+            imported = match.group(1) or match.group(2) or ""
+            imported_root = imported.split(".", 1)[0]
+            for module in module_names:
+                if imported == module or imported_root == module.split(".", 1)[0]:
+                    return True
+        return False
+
+    def affected_files(
+        self,
+        changed_paths: List[str | Path],
+        *,
+        candidate_paths: Optional[List[str | Path]] = None,
+    ) -> List[str]:
+        """Return changed files plus candidates that import changed modules."""
+        changed = {str(Path(p)) for p in changed_paths}
+        modules: Set[str] = set()
+        for p in changed_paths:
+            modules.update(self._module_names_for_path(Path(p)))
+        affected = set(changed)
+        for candidate in candidate_paths or []:
+            cpath = Path(candidate)
+            cstr = str(cpath)
+            if cstr in affected:
+                continue
+            try:
+                source = cpath.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            if self._imports_module(source, modules):
+                affected.add(cstr)
+        return sorted(affected)
 
     def save_cpg(
         self,
