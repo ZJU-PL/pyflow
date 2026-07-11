@@ -318,6 +318,10 @@ class CodePropertyGraph:
             self._build_guard_metadata(pdg)
             self._build_phi_metadata(pdg)
             self._build_lambda_nodes(pdg)
+            self._build_scope_edges(fname, pdg)
+            self._build_import_edges(fname, pdg)
+            self._build_collection_metadata(fname, pdg)
+            self._build_async_metadata(fname, pdg)
 
         if self._call_graph is not None:
             self._build_call_edges()
@@ -759,6 +763,178 @@ class CodePropertyGraph:
                         CodePropertyGraph._walk_ast_names(child)
                     )
         return names
+
+    def _build_scope_edges(self, fname: str, pdg: ProgramDependenceGraph) -> None:
+        """Create cross-scope DATA edges for ``global`` and ``nonlocal``
+        declarations, linking the declaration node to prior definitions
+        of the same variable name in enclosing/module scopes.
+        """
+        for node in pdg.nodes:
+            ast_node = node.ast_node
+            if ast_node is None:
+                continue
+            var_name = ""
+            scope_kind = ""
+            if isinstance(ast_node, py_ast.GlobalDecl):
+                scope_kind = "global"
+                local = getattr(ast_node, "name", None)
+                var_name = getattr(local, "name", "") or str(local or "")
+            elif isinstance(ast_node, py_ast.NonlocalDecl):
+                scope_kind = "nonlocal"
+                local = getattr(ast_node, "name", None)
+                var_name = getattr(local, "name", "") or str(local or "")
+            else:
+                continue
+            if not var_name:
+                continue
+            meta = self._meta_for(node)
+            meta["scope_decl"] = scope_kind
+            meta["scope_var"] = var_name
+            for other_fname, other_pdg in self._pdgs.items():
+                if other_fname == fname and scope_kind != "global":
+                    continue
+                for other_node in other_pdg.nodes:
+                    if other_node is node:
+                        continue
+                    for pe in other_node.edges_out:
+                        if pe.kind == "data" and pe.label == var_name:
+                            self._add_edge(
+                                other_node,
+                                node,
+                                CPGEdgeKind.DATA,
+                                label=f"{scope_kind}:{var_name}",
+                            )
+
+    def _build_import_edges(self, fname: str, pdg: ProgramDependenceGraph) -> None:
+        """Create DATA edges from import statement nodes to downstream
+        use sites that reference the imported name.
+
+        In the pyflow AST, both ``import X`` and ``from X import Y``
+        produce an ``Import`` expression node (distinguished by the
+        ``fromlist`` field).  The imported name is stored in
+        ``Import.name``; from-imports have a non-empty ``fromlist``.
+        """
+        for node in pdg.nodes:
+            ast_node = node.ast_node
+            if ast_node is None:
+                continue
+            import_name = ""
+            fromlist: Any = None
+            if isinstance(ast_node, py_ast.Import):
+                import_name = getattr(ast_node, "name", "") or ""
+                fromlist = getattr(ast_node, "fromlist", None)
+            else:
+                continue
+            if not import_name:
+                continue
+            local_name = import_name.split(".")[0] if import_name else ""
+            meta = self._meta_for(node)
+            meta["import_name"] = import_name
+            meta["import_local"] = local_name
+            meta["import_is_from"] = bool(fromlist)
+            if fromlist:
+                imported_names: List[str] = []
+                if isinstance(fromlist, (list, tuple)):
+                    for item in fromlist:
+                        n = getattr(item, "name", None) or str(item or "")
+                        if n:
+                            imported_names.append(n)
+                meta["import_from_names"] = imported_names
+            for other_node in pdg.nodes:
+                if other_node is node:
+                    continue
+                for pe in other_node.edges_in:
+                    if (
+                        pe.kind == "data"
+                        and pe.label == local_name
+                        and pe.source is not node
+                    ):
+                        self._add_edge(
+                            node,
+                            other_node,
+                            CPGEdgeKind.DATA,
+                            label=f"import:{local_name}",
+                        )
+
+    def _build_collection_metadata(
+        self, fname: str, pdg: ProgramDependenceGraph
+    ) -> None:
+        """Annotate assignment nodes whose RHS is a collection literal
+        (``BuildList``, ``BuildTuple``, ``BuildSet``, ``BuildMap``) with
+        the names of elements, enabling the taint engine to propagate
+        taint from elements into the collection.
+        """
+        for node in pdg.nodes:
+            ast_node = node.ast_node
+            if ast_node is None:
+                continue
+            if not isinstance(ast_node, py_ast.Assign):
+                continue
+            rhs = getattr(ast_node, "expr", None)
+            if rhs is None:
+                continue
+            element_names: List[str] = []
+            if isinstance(rhs, py_ast.BuildList):
+                element_names = self._extract_local_names_from_args(rhs)
+            elif isinstance(rhs, py_ast.BuildTuple):
+                element_names = self._extract_local_names_from_args(rhs)
+            elif isinstance(rhs, py_ast.BuildSet):
+                element_names = self._extract_local_names_from_args(rhs)
+            elif isinstance(rhs, py_ast.BuildMap):
+                element_names = self._extract_local_names_from_args(rhs)
+            else:
+                continue
+            if element_names:
+                meta = self._meta_for(node)
+                meta["collection_of"] = element_names
+                meta["collection_type"] = type(rhs).__name__
+
+    @staticmethod
+    def _extract_local_names_from_args(expr: Any) -> List[str]:
+        names: List[str] = []
+        args = getattr(expr, "args", None)
+        if args is None:
+            return names
+        if isinstance(args, (list, tuple)):
+            for arg in args:
+                if isinstance(arg, py_ast.Local):
+                    n = getattr(arg, "name", "")
+                    if n:
+                        names.append(n)
+        return names
+
+    def _build_async_metadata(
+        self, fname: str, pdg: ProgramDependenceGraph
+    ) -> None:
+        """Mark nodes containing ``await`` expressions and nodes that
+        represent lowered async constructs (``interpreter_aiter``,
+        ``interpreter_aenter``, ``interpreter_aexit`` calls).
+        """
+        for node in pdg.nodes:
+            ast_node = node.ast_node
+            if ast_node is None:
+                continue
+            if isinstance(ast_node, py_ast.Await):
+                meta = self._meta_for(node)
+                meta["async_await"] = True
+                inner = getattr(ast_node, "expr", None)
+                if isinstance(inner, py_ast.Local):
+                    n = getattr(inner, "name", "")
+                    if n:
+                        meta["await_expr_var"] = n
+                continue
+            for child in _iter_ast_children(ast_node):
+                if isinstance(child, py_ast.Await):
+                    meta = self._meta_for(node)
+                    meta["async_await"] = True
+                    break
+            call_name = self._resolve_call_name(ast_node) if isinstance(
+                ast_node, py_ast.Call
+            ) else None
+            if call_name and call_name.startswith("interpreter_a"):
+                meta = self._meta_for(node)
+                meta["async_lowered"] = True
+                meta["async_lowered_kind"] = call_name
 
     # ── Navigation ───────────────────────────────────────────────────────
 

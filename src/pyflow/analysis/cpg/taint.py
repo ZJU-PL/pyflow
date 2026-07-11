@@ -395,24 +395,29 @@ _DEFAULT_SINKS: Dict[str, str] = {
     "df.query": "CWE-89",
 }
 
-_DEFAULT_SANITIZERS: Set[str] = {
-    "html.escape",
-    "markupsafe.escape",
-    "bleach.clean",
-    "escape",
-    "urllib.parse.quote",
-    "quote",
-    "quote_plus",
-    "int",
-    "float",
-    "bool",
-    "uuid.UUID",
-    "re.match",
-    "re.fullmatch",
-    "re.search",
-    "parameterized",
-    "sqlalchemy.text",
-    "flask_wtf.csrf",
+#: Sanitizer name → set of CWEs it mitigates.
+#: An **empty** frozenset means the sanitizer is *universal* — it strips
+#: all taint tags regardless of the eventual sink's CWE.
+#: A *non-empty* frozenset means the sanitizer only mitigates taint for
+#: those specific CWEs; for other CWE sinks, the taint is still live.
+_DEFAULT_SANITIZERS: Dict[str, FrozenSet[str]] = {
+    "html.escape": frozenset({"CWE-79"}),
+    "markupsafe.escape": frozenset({"CWE-79"}),
+    "bleach.clean": frozenset({"CWE-79"}),
+    "escape": frozenset({"CWE-79"}),
+    "urllib.parse.quote": frozenset({"CWE-89", "CWE-918"}),
+    "quote": frozenset({"CWE-918"}),
+    "quote_plus": frozenset({"CWE-918"}),
+    "int": frozenset({"CWE-89", "CWE-78"}),
+    "float": frozenset({"CWE-89"}),
+    "bool": frozenset({"CWE-89"}),
+    "uuid.UUID": frozenset({"CWE-89"}),
+    "re.match": frozenset({"CWE-89", "CWE-78", "CWE-22"}),
+    "re.fullmatch": frozenset({"CWE-89", "CWE-78", "CWE-22"}),
+    "re.search": frozenset({"CWE-89"}),
+    "parameterized": frozenset({"CWE-89"}),
+    "sqlalchemy.text": frozenset({"CWE-89"}),
+    "flask_wtf.csrf": frozenset({"CWE-352"}),
 }
 
 # SQL sink methods that support parameterized queries via a second argument
@@ -478,7 +483,7 @@ class CPGTaintEngine:
         self._cpg = cpg
         self._sources: Set[str] = set(_DEFAULT_SOURCES)
         self._sinks: Dict[str, str] = dict(_DEFAULT_SINKS)
-        self._sanitizers: Set[str] = set(_DEFAULT_SANITIZERS)
+        self._sanitizers: Dict[str, FrozenSet[str]] = dict(_DEFAULT_SANITIZERS)
         self._max_call_depth: int = max_call_depth
 
         if sources:
@@ -486,7 +491,8 @@ class CPGTaintEngine:
         if sinks:
             self._sinks.update(sinks)
         if sanitizers:
-            self._sanitizers.update(sanitizers)
+            for san in sanitizers:
+                self.add_sanitizer(san)
         if extra_taint_specs:
             self.merge_taint_specs(extra_taint_specs)
 
@@ -501,8 +507,11 @@ class CPGTaintEngine:
     def add_sink(self, name: str, cwe: str = "") -> None:
         self._sinks[name] = cwe or name
 
-    def add_sanitizer(self, name: str) -> None:
-        self._sanitizers.add(name)
+    def add_sanitizer(self, name: str, cwes: Optional[Set[str]] = None) -> None:
+        if cwes is not None:
+            self._sanitizers[name] = frozenset(cwes)
+        else:
+            self._sanitizers.setdefault(name, frozenset())
 
     def merge_taint_specs(self, specs: Dict[str, Any]) -> None:
         """Merge Ansede-style taint specs into this engine."""
@@ -521,9 +530,15 @@ class CPGTaintEngine:
                         self.add_sink(name, cwe=sink.get("cwe", "CWE-0"))
         for lang_specs in specs.get("sanitizers", {}).values():
             for san in lang_specs:
-                name = san if isinstance(san, str) else san.get("name", "")
-                if name:
-                    self.add_sanitizer(name)
+                if isinstance(san, str):
+                    self.add_sanitizer(san)
+                else:
+                    name = san.get("name", "")
+                    if name:
+                        san_cwes = san.get("cwe", [])
+                        if isinstance(san_cwes, str):
+                            san_cwes = {san_cwes}
+                        self.add_sanitizer(name, cwes=set(san_cwes) if san_cwes else None)
 
     @property
     def sources(self) -> FrozenSet[str]:
@@ -534,8 +549,8 @@ class CPGTaintEngine:
         return dict(self._sinks)
 
     @property
-    def sanitizers(self) -> FrozenSet[str]:
-        return frozenset(self._sanitizers)
+    def sanitizers(self) -> Dict[str, FrozenSet[str]]:
+        return dict(self._sanitizers)
 
     # ── Main Finding ────────────────────────────────────────────────────
 
@@ -815,9 +830,9 @@ class CPGTaintEngine:
             return tstate
 
         label = dst_node.label or ""
-        for san in self._sanitizers:
+        for san, san_cwes in self._sanitizers.items():
             if san in label:
-                return tstate.sanitize(san)
+                return self._apply_sanitizer(tstate, san, san_cwes)
 
         return tstate
 
@@ -828,15 +843,24 @@ class CPGTaintEngine:
         call_node: py_ast.Call,
         tstate: TaintState,
         mem: MemoryLayout,
+        *,
+        pending_sink_cwe: str = "",
     ) -> Optional[TaintState]:
         call_name = self._extract_call_name(call_node)
 
         if call_name and call_name in self._sanitizers:
             if call_name in ("re.match", "re.fullmatch", "re.search"):
                 if self._is_validating_regex(call_node):
-                    return tstate.sanitize(call_name)
+                    return self._apply_sanitizer(
+                        tstate,
+                        call_name,
+                        self._sanitizers[call_name],
+                        pending_sink_cwe,
+                    )
                 return tstate
-            return tstate.sanitize(call_name)
+            return self._apply_sanitizer(
+                tstate, call_name, self._sanitizers[call_name], pending_sink_cwe
+            )
 
         if call_name in ("int", "float", "bool", "str"):
             return tstate.sanitize(call_name)
@@ -851,7 +875,7 @@ class CPGTaintEngine:
             return tstate
 
         if call_name and call_name.startswith("<lambda"):
-            return tstate
+            return self._handle_lambda_call(call_name, tstate, mem)
 
         if call_name:
             cache_key = (call_name, tuple(sorted(tstate.tags)))
@@ -860,6 +884,45 @@ class CPGTaintEngine:
                 return cached if cached.is_tainted() else None
 
         return tstate
+
+    def _apply_sanitizer(
+        self,
+        tstate: TaintState,
+        sanitizer_name: str,
+        sanitizer_cwes: FrozenSet[str],
+        pending_sink_cwe: str = "",
+    ) -> TaintState:
+        if not sanitizer_cwes:
+            return tstate.sanitize(sanitizer_name)
+        if not pending_sink_cwe or pending_sink_cwe in sanitizer_cwes:
+            return tstate.sanitize(sanitizer_name)
+        return tstate
+
+    def _handle_lambda_call(
+        self,
+        lambda_name: str,
+        tstate: TaintState,
+        mem: MemoryLayout,
+    ) -> Optional[TaintState]:
+        lambda_entry = self._find_lambda_entry(lambda_name)
+        if lambda_entry is None:
+            return tstate
+        lambda_meta = self._cpg.node_meta(lambda_entry)
+        if not lambda_meta.get("lambda_name"):
+            return tstate
+        cache_key = (lambda_name, tuple(sorted(tstate.tags)))
+        cached = self._summary_cache.get(cache_key)
+        if cached is not None:
+            return cached if cached.is_tainted() else None
+        self._summary_cache[cache_key] = tstate
+        return tstate
+
+    def _find_lambda_entry(self, lambda_name: str) -> Optional[PDGNode]:
+        for node in self._cpg.nodes():
+            meta = self._cpg.node_meta(node)
+            if meta.get("lambda_name") == lambda_name:
+                return node
+        return None
 
     # ── Assign Propagation ──────────────────────────────────────────────
 
