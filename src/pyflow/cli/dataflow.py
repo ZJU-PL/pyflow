@@ -100,6 +100,11 @@ def add_dataflow_parser(subparsers):
         help="Dependency handling strategy",
     )
     parser.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
+    parser.add_argument(
+        "--shadow-scan",
+        action="store_true",
+        help="Run lightweight regex pattern scan alongside IFDS for failure attribution",
+    )
     return parser
 
 
@@ -195,6 +200,14 @@ def _format_text(report: dict) -> str:
         lines.append(
             f"  sink={finding['sink_name']} procedure={finding['procedure']} args=[{args}]"
         )
+    shadow = report.get("shadow_scan")
+    if shadow:
+        lines.append(f"Shadow Scan: {len(shadow)} match(es)")
+        for m in shadow:
+            lines.append(
+                f"  {m['cwe']} [{m['severity']}] line {m['line']}: "
+                f"{m['label']}  |  {m['snippet']}"
+            )
     return "\n".join(lines)
 
 
@@ -252,7 +265,8 @@ def run_dataflow_analysis(input_path, args):
         )
         return 1
 
-    session, taint_result = run_taint_analysis(
+    shadow_scan_flag = getattr(args, "shadow_scan", False)
+    session, taint_result, shadow_matches = run_taint_analysis(
         files,
         function=args.function,
         source_names=sources,
@@ -267,12 +281,25 @@ def run_dataflow_analysis(input_path, args):
         ),
         verbose=getattr(args, "verbose", False),
         dependency_strategy=getattr(args, "dependency_strategy", "auto"),
+        shadow_scan=shadow_scan_flag,
     )
     report = _taint_report_from_result(
         args.function,
         taint_result,
         diagnostics=getattr(session, "diagnostics", ()),
     )
+    if shadow_scan_flag and shadow_matches:
+        report["shadow_scan"] = [
+            {
+                "cwe": m.cwe,
+                "severity": m.severity,
+                "label": m.label,
+                "line": m.line,
+                "snippet": m.snippet,
+            }
+            for m in shadow_matches
+        ]
+
     if args.format == "json":
         print(json.dumps(report, indent=2, sort_keys=True))
     else:

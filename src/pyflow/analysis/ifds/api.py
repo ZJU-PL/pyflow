@@ -276,8 +276,15 @@ def run_taint_analysis(
     dependency_strategy: str = "auto",
     search_paths: Sequence[str] | None = None,
     include_exceptional_edges: bool = True,
-) -> tuple[AnalysisSession, TaintAnalysisResult]:
-    """Load files, resolve a function, and run the shipped taint analysis."""
+    shadow_scan: bool = False,
+) -> tuple[AnalysisSession, TaintAnalysisResult, list | None]:
+    """Load files, resolve a function, and run the shipped taint analysis.
+
+    When *shadow_scan* is ``True``, returns a third element: a list of
+    :class:`~pyflow.analysis.ifds.shadow_scan.ShadowMatch` from a
+    lightweight regex-only scan run alongside the IFDS analysis.  This
+    provides an independent signal for failure attribution.
+    """
     session = load_analysis_session(
         python_files,
         verbose=verbose,
@@ -308,7 +315,17 @@ def run_taint_analysis(
         ),
         entry_nodes=_entry_nodes_from_program(session, fallback_function=function),
     )
-    return session, result
+
+    if not shadow_scan:
+        return session, result, None
+
+    from .shadow_scan import run_shadow_scan as _run_shadow_scan
+
+    shadow_matches: list = []
+    for f in python_files:
+        code = Path(f).read_text(encoding="utf-8")
+        shadow_matches.extend(_run_shadow_scan(code))
+    return session, result, shadow_matches
 
 
 def run_nullness_analysis(

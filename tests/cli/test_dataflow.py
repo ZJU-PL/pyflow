@@ -105,7 +105,7 @@ def main():
                 )
             ),
         )
-        return session, fake_result
+        return session, fake_result, None
 
     monkeypatch.setattr(dataflow_cli, "run_taint_analysis", fake_run_taint_analysis)
 
@@ -155,7 +155,7 @@ def main():
                 )
             ),
         )
-        return session, fake_result
+        return session, fake_result, None
 
     monkeypatch.setattr(dataflow_cli, "run_taint_analysis", fake_run_taint_analysis)
 
@@ -177,7 +177,7 @@ def test_dataflow_cli_forwards_dynamic_model_options(monkeypatch, tmp_path, caps
     def fake_run_taint_analysis(*_args, **kwargs):
         captured.update(kwargs)
         session = SimpleNamespace(compiler=object(), diagnostics=())
-        return session, fake_result
+        return session, fake_result, None
 
     monkeypatch.setattr(dataflow_cli, "run_taint_analysis", fake_run_taint_analysis)
 
@@ -215,7 +215,7 @@ def test_dataflow_cli_emits_session_diagnostics(
                 )
             ),
         )
-        return session, fake_result
+        return session, fake_result, None
 
     monkeypatch.setattr(dataflow_cli, "run_taint_analysis", fake_run_taint_analysis)
 

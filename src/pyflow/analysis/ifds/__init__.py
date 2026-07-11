@@ -37,6 +37,7 @@ from .solver import (
     IFDSSolver,
     PathEdge,
     SolverLimitExceeded,
+    verify_call_chain,
 )
 from .solver import PropagationTrace, SolverStatistics
 from .supergraph import Supergraph, SupergraphError
@@ -88,6 +89,14 @@ from .transfers import (
     formal_parameters,
     identity_unless_killed,
     resolve_call_name,
+)
+from .shadow_scan import (
+    DiffEntry,
+    ShadowMatch,
+    ShadowScanReport,
+    diff_scans,
+    generate_shadow_report,
+    run_shadow_scan,
 )
 
 __all__ = [
@@ -142,10 +151,13 @@ __all__ = [
     "TypestateFinding",
     "ResourceStateFact",
     "SlotTaintFact",
+    "ShadowMatch",
+    "ShadowScanReport",
     "ZERO",
     "ZeroFact",
     "actual_argument_expressions",
     "ValueTransition",
+    "verify_call_chain",
     "actual_parameters",
     "annotation_invokes_cfg_resolver",
     "analyze_nullness",
@@ -156,12 +168,16 @@ __all__ = [
     "build_supergraph_from_cfgs",
     "collect_locals",
     "composite_cfg_resolver",
+    "diff_scans",
+    "DiffEntry",
     "direct_call_cfg_resolver",
     "extract_call_expression",
     "formal_parameters",
+    "generate_shadow_report",
     "identity_unless_killed",
     "iter_call_expressions",
     "iter_call_expressions_in_eval_order",
     "named_call_cfg_resolver",
     "resolve_call_name",
+    "run_shadow_scan",
 ]

@@ -43,7 +43,7 @@ def test_run_taint_analysis_api_on_source_file(tmp_path):
     target = tmp_path / "sample.py"
     target.write_text(PROGRAM)
 
-    session, result = run_taint_analysis(
+    session, result, _ = run_taint_analysis(
         [target],
         function="main",
         source_names=["source"],
@@ -81,7 +81,7 @@ def main():
 """
     )
 
-    _session, result = run_taint_analysis(
+    _session, result, _ = run_taint_analysis(
         [target],
         function="main",
         source_names=["source"],
@@ -158,7 +158,7 @@ def test_run_taint_analysis_forwards_dynamic_model_configuration(monkeypatch):
 
     monkeypatch.setattr(ifds_api, "analyze_taint", fake_analyze_taint)
 
-    _session, result = run_taint_analysis(
+    _session, result, _ = run_taint_analysis(
         ["sample.py"],
         function="main",
         source_names=["source"],
@@ -264,7 +264,7 @@ def test_run_taint_analysis_api_on_repo_backed_multi_file_snippet():
     snippet_dir = Path(__file__).parent / "snippets" / "multi_file_taint"
     python_files = sorted(snippet_dir.glob("*.py"))
 
-    session, result = run_taint_analysis(
+    session, result, _ = run_taint_analysis(
         python_files,
         function="main",
         source_names=["source"],
@@ -322,7 +322,7 @@ def main():
 """
     )
 
-    _session, result = run_taint_analysis(
+    _session, result, _ = run_taint_analysis(
         [target],
         function="main",
         source_names=["source"],
@@ -351,7 +351,7 @@ def main():
 """
     )
 
-    session, result = run_taint_analysis(
+    session, result, _ = run_taint_analysis(
         [target],
         function="main",
         source_names=["source"],
@@ -384,7 +384,7 @@ def main():
 """
     )
 
-    _session, result = run_taint_analysis(
+    _session, result, _ = run_taint_analysis(
         [target],
         function="main",
         source_names=["source"],
@@ -422,7 +422,7 @@ def main():
 """
     )
 
-    _session, result = run_taint_analysis(
+    _session, result, _ = run_taint_analysis(
         [target],
         function="main",
         source_names=["source"],
@@ -451,7 +451,7 @@ def main():
 """
     )
 
-    _session, result = run_taint_analysis(
+    _session, result, _ = run_taint_analysis(
         [target],
         function="main",
         source_names=["source"],
@@ -482,7 +482,7 @@ def main():
 """
     )
 
-    _session, result = run_taint_analysis(
+    _session, result, _ = run_taint_analysis(
         [target],
         function="main",
         source_names=["source"],
@@ -513,7 +513,7 @@ def main():
 """
     )
 
-    _session, result = run_taint_analysis(
+    _session, result, _ = run_taint_analysis(
         [target],
         function="main",
         source_names=["source"],
@@ -543,7 +543,7 @@ def main():
 """
     )
 
-    _session, result = run_taint_analysis(
+    _session, result, _ = run_taint_analysis(
         [target],
         function="main",
         source_names=["source"],
@@ -571,7 +571,7 @@ def main():
 """
     )
 
-    _session, result = run_taint_analysis(
+    _session, result, _ = run_taint_analysis(
         [target],
         function="main",
         source_names=["source"],
