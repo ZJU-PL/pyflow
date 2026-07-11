@@ -34,6 +34,10 @@ from .solver import (
 )
 from .solver import PropagationTrace, SolverStatistics
 from .supergraph import Supergraph, SupergraphError
+from .backward_solver import (
+    BackwardIFDSProblem,
+    BackwardIFDSSolver,
+)
 from .clients.nullness import (
     ExpressionNullFact,
     InterproceduralNullnessAnalysis,
@@ -72,6 +76,8 @@ from .transfers import (
 )
 
 __all__ = [
+    "BackwardIFDSProblem",
+    "BackwardIFDSSolver",
     "ComposedEdgeFunction",
     "ConstantEdgeFunction",
     "CFGNode",

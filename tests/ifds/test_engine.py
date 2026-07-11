@@ -586,3 +586,195 @@ def test_ide_honors_max_propagation_limit():
         assert "max_propagated_path_edges=1" in str(exc)
     else:
         raise AssertionError("Expected SolverLimitExceeded")
+
+
+class DiamondIFDSProblem(IFDSProblem[str, str, str]):
+    def __init__(self, supergraph: Supergraph[str, str]) -> None:
+        self._supergraph = supergraph
+
+    @property
+    def supergraph(self) -> Supergraph[str, str]:
+        return self._supergraph
+
+    @property
+    def zero_fact(self) -> str:
+        return ZERO
+
+    def initial_seeds(self):
+        return {"entry": frozenset({ZERO})}
+
+    def normal_flow(self, node: str, successor: str, fact: str):
+        if node == "entry" and successor == "split" and fact == ZERO:
+            return (ZERO,)
+        if node == "split" and successor == "left" and fact == ZERO:
+            return (ZERO, "left_fact")
+        if node == "split" and successor == "right" and fact == ZERO:
+            return (ZERO, "right_fact")
+        if fact in {ZERO, "left_fact", "right_fact"}:
+            return (fact,)
+        return ()
+
+
+def build_diamond_supergraph() -> Supergraph[str, str]:
+    graph = Supergraph[str, str]()
+    graph.add_procedure("main", "entry", ["exit"])
+    for node in ("split", "left", "right", "merge"):
+        graph.add_node("main", node)
+    graph.add_normal_edge("entry", "split")
+    graph.add_normal_edge("split", "left")
+    graph.add_normal_edge("split", "right")
+    graph.add_normal_edge("left", "merge")
+    graph.add_normal_edge("right", "merge")
+    graph.add_normal_edge("merge", "exit")
+    return graph
+
+
+def test_ifds_merges_facts_from_diamond_branches():
+    result = IFDSSolver().solve(DiamondIFDSProblem(build_diamond_supergraph()))
+
+    assert result.is_reached("left", ZERO)
+    assert result.is_reached("left", "left_fact")
+    assert result.is_reached("right", ZERO)
+    assert result.is_reached("right", "right_fact")
+    assert result.is_reached("merge", ZERO)
+    assert result.is_reached("merge", "left_fact")
+    assert result.is_reached("merge", "right_fact")
+    assert result.is_reached("exit", "left_fact")
+    assert result.is_reached("exit", "right_fact")
+
+
+class MutualRecursionIFDSProblem(IFDSProblem[str, str, str]):
+    def __init__(self, supergraph: Supergraph[str, str]) -> None:
+        self._supergraph = supergraph
+
+    @property
+    def supergraph(self) -> Supergraph[str, str]:
+        return self._supergraph
+
+    @property
+    def zero_fact(self) -> str:
+        return ZERO
+
+    def initial_seeds(self):
+        return {"odd.entry": frozenset({ZERO})}
+
+    def normal_flow(self, node: str, successor: str, fact: str):
+        if fact in {ZERO, "active"}:
+            return (fact,)
+        return ()
+
+    def call_flow(self, call_node: str, callee: str, fact: str):
+        if fact == ZERO:
+            return (ZERO,)
+        if fact == "active":
+            return ("active",)
+        return ()
+
+    def return_flow(self, call_node, callee, exit_node, return_site, call_fact, exit_fact):
+        if call_fact == "active" and exit_fact == "active":
+            return ("active",)
+        if call_fact == ZERO and exit_fact == ZERO:
+            return (ZERO,)
+        return ()
+
+    def call_to_return_flow(self, call_node: str, return_site: str, fact: str):
+        if call_node == "odd.call" and fact == ZERO:
+            return (ZERO, "active")
+        if call_node == "even.call" and fact == ZERO:
+            return (ZERO, "active")
+        return ()
+
+
+def build_mutual_recursion_supergraph() -> Supergraph[str, str]:
+    graph = Supergraph[str, str]()
+    graph.add_procedure("odd", "odd.entry", ["odd.exit"])
+    graph.add_node("odd", "odd.call")
+    graph.add_node("odd", "odd.after")
+    graph.add_normal_edge("odd.entry", "odd.call")
+    graph.add_normal_edge("odd.after", "odd.exit")
+
+    graph.add_procedure("even", "even.entry", ["even.exit"])
+    graph.add_node("even", "even.call")
+    graph.add_node("even", "even.after")
+    graph.add_normal_edge("even.entry", "even.call")
+    graph.add_normal_edge("even.after", "even.exit")
+
+    graph.add_call_edge("odd.call", "even", "odd.after")
+    graph.add_call_edge("even.call", "odd", "even.after")
+    return graph
+
+
+def test_ifds_terminates_on_mutual_recursion():
+    result = IFDSSolver().solve(MutualRecursionIFDSProblem(build_mutual_recursion_supergraph()))
+
+    assert result.is_reached("odd.after", "active")
+    assert result.is_reached("odd.exit", "active")
+    assert result.is_reached("even.after", "active")
+    assert result.is_reached("even.exit", "active")
+
+
+class AccumulatorEdge(EdgeFunction[frozenset[str]]):
+    def __init__(self, label: str) -> None:
+        self.label = label
+
+    def compute(self, value: frozenset[str]) -> frozenset[str]:
+        return value | frozenset({self.label})
+
+    def is_idempotent(self) -> bool:
+        return True
+
+    def __eq__(self, other):
+        return isinstance(other, AccumulatorEdge) and self.label == other.label
+
+    def __hash__(self):
+        return hash(self.label)
+
+
+class DiamondIDEProblem(IDEProblem[str, str, str, frozenset[str]]):
+    def __init__(self, supergraph: Supergraph[str, str]) -> None:
+        self._supergraph = supergraph
+
+    @property
+    def supergraph(self) -> Supergraph[str, str]:
+        return self._supergraph
+
+    @property
+    def zero_fact(self) -> str:
+        return ZERO
+
+    @property
+    def bottom_value(self) -> frozenset[str]:
+        return frozenset()
+
+    def join_values(self, left: frozenset[str], right: frozenset[str]) -> frozenset[str]:
+        return left | right
+
+    def initial_seed_values(self):
+        return {("entry", ZERO): frozenset()}
+
+    def normal_flow(self, node: str, successor: str, fact: str):
+        if node == "entry" and successor == "split" and fact == ZERO:
+            return (ValueTransition(ZERO, IdentityEdgeFunction()),)
+        if node == "split" and successor == "left" and fact == ZERO:
+            return (ValueTransition("tag", AccumulatorEdge("L")),)
+        if node == "split" and successor == "right" and fact == ZERO:
+            return (ValueTransition("tag", AccumulatorEdge("R")),)
+        if fact == ZERO:
+            return (ValueTransition(ZERO, IdentityEdgeFunction()),)
+        if fact == "tag":
+            return (ValueTransition("tag", IdentityEdgeFunction()),)
+        return ()
+
+    def call_to_return_flow(self, call_node: str, return_site: str, fact: str):
+        if fact == ZERO:
+            return (ValueTransition(ZERO, IdentityEdgeFunction()),)
+        return ()
+
+
+def test_ide_merges_values_from_diamond_branches():
+    result = IDESolver().solve(DiamondIDEProblem(build_diamond_supergraph()))
+
+    assert result.value_at("left", "tag") == frozenset({"L"})
+    assert result.value_at("right", "tag") == frozenset({"R"})
+    assert result.value_at("merge", "tag") == frozenset({"L", "R"})
+    assert result.value_at("exit", "tag") == frozenset({"L", "R"})
