@@ -32,6 +32,7 @@ Data Flow Analysis
 * :doc:`fsdf` - Flow-Sensitive Data Flow analysis
 * :doc:`ipa` - Inter-procedural Analysis
 * :doc:`cpa` - Constraint-based Analysis
+* :doc:`ifds-heap` - IFDS heap abstraction for field-sensitive dataflow clients
 
 Shape and Type Analysis
 -----------------------
@@ -164,6 +165,7 @@ Standard SARIF format for CI/CD integration:
     fsdf
     ipa
     cpa
+    ifds-heap
     shape
     storegraph
     numbering
