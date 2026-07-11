@@ -598,6 +598,45 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
         )
         return slots, tuple(values)
 
+    def _collection_copy_mutation(
+        self,
+        procedure: cfg_graph.Code,
+        operation: object,
+        mutator_names: frozenset[str],
+    ) -> tuple[tuple[DynamicSubscriptSlot, ...], tuple[DynamicSubscriptSlot, ...]]:
+        call = self._call_from_expression_or_statement(operation)
+        call_name = resolve_call_name(call) if call is not None else None
+        if call is None or call_name not in mutator_names:
+            return (), ()
+        if call_name not in {"extend", "update"}:
+            return (), ()
+
+        actuals = actual_argument_expressions(call)
+        if isinstance(call, py_ast.MethodCall):
+            container = call.expr
+            sources = actuals
+        else:
+            if len(actuals) < 2:
+                return (), ()
+            container = actuals[0]
+            sources = actuals[1:]
+
+        destination_slots = self._dynamic_subscript_slots(
+            procedure,
+            container,
+            (DYNAMIC_SUBSCRIPT_WILDCARD,),
+        )
+        source_slots = tuple(
+            slot
+            for source in sources
+            for slot in self._dynamic_subscript_slots(
+                procedure,
+                source,
+                (DYNAMIC_SUBSCRIPT_WILDCARD,),
+            )
+        )
+        return destination_slots, tuple(dict.fromkeys(source_slots))
+
     def _collection_constructor_writes(
         self,
         procedure: cfg_graph.Code,
@@ -708,6 +747,60 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
             DynamicSubscriptSlot(base, source_slot.subscript)
             for base in target_bases
         )
+
+    def _collection_copy_result_slots_for_assignment(
+        self,
+        procedure: cfg_graph.Code,
+        operation: object,
+        fact: FactT,
+    ) -> tuple[DynamicSubscriptSlot, ...]:
+        if isinstance(operation, (py_ast.Assign, py_ast.UnpackSequence)):
+            expr = operation.expr
+        elif isinstance(operation, py_ast.AnnAssign):
+            expr = operation.value
+        else:
+            return ()
+
+        source_slot = self._slot_from_fact(fact)
+        if not isinstance(source_slot, DynamicSubscriptSlot):
+            return ()
+
+        source_exprs = self._collection_copy_result_sources(expr)
+        if not source_exprs:
+            return ()
+        source_slots = tuple(
+            slot
+            for source_expr in source_exprs
+            for slot in self._dynamic_subscript_slots(
+                procedure,
+                source_expr,
+                (DYNAMIC_SUBSCRIPT_WILDCARD,),
+            )
+        )
+        if not any(source_slot == candidate for candidate in source_slots):
+            return ()
+
+        target_bases = tuple(
+            slot
+            for target in assigned_locals(operation)
+            for slot in self._slots_for_local(procedure, target)
+        )
+        return tuple(
+            DynamicSubscriptSlot(base, DYNAMIC_SUBSCRIPT_WILDCARD)
+            for base in target_bases
+        )
+
+    def _collection_copy_result_sources(self, expr: object) -> tuple[object, ...]:
+        call = self._call_from_expression_or_statement(expr)
+        if call is None:
+            return ()
+        call_name = resolve_call_name(call)
+        actuals = actual_argument_expressions(call)
+        if isinstance(call, py_ast.MethodCall) and call_name == "copy":
+            return (call.expr,)
+        if call_name in {"copy", "list", "tuple", "set", "dict"} and actuals:
+            return (actuals[0],)
+        return ()
 
     def _collection_accessor_names(self) -> frozenset[str]:
         configuration = getattr(self, "configuration", None)

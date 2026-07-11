@@ -377,6 +377,48 @@ def test_nullness_tracks_function_style_collection_mutator_to_subscript_read():
     assert result.findings[0].expression_label == "out"
 
 
+def test_nullness_tracks_collection_update_source_elements():
+    compiler = context.CompilerContext(None)
+
+    src_mapping = ast.Local("src_mapping")
+    dst_mapping = ast.Local("dst_mapping")
+    out = ast.Local("out")
+    key = ast.Existing(ast.program.Object("payload"))
+    attr = ast.Existing(ast.program.Object("attr"))
+    main_code, _ = make_code(
+        "main",
+        [dst_mapping],
+        [
+            ast.Assign(
+                ast.BuildMap([key, ast.Existing(ast.program.Object(None))]),
+                [src_mapping],
+            ),
+            ast.Discard(
+                ast.MethodCall(
+                    dst_mapping,
+                    ast.Local("update"),
+                    [src_mapping],
+                    [],
+                    None,
+                    None,
+                )
+            ),
+            ast.Assign(ast.GetSubscript(dst_mapping, key), [out]),
+            ast.Discard(ast.GetAttr(out, attr)),
+            ast.Return([]),
+        ],
+        return_name="main_ret",
+    )
+
+    cfg = build_cfg(compiler, main_code)
+    adapter = build_supergraph_from_cfgs([cfg])
+    result = analyze_nullness(adapter, entry_nodes=[adapter.supergraph.entry_of(cfg)])
+
+    assert len(result.findings) == 1
+    assert result.findings[0].kind == "attribute_access"
+    assert result.findings[0].expression_label == "out"
+
+
 def test_nullness_tracks_collection_accessor_to_subscript_slot():
     compiler = context.CompilerContext(None)
 

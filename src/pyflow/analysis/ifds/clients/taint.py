@@ -183,12 +183,19 @@ class InterproceduralTaintProblem(
         )
         if collection_slots:
             outputs = set(self._identity_outputs(fact, killed))
+            copy_slots, copy_source_slots = self._collection_copy_mutation(
+                node.procedure,
+                operation,
+                self.configuration.collection_mutator_names,
+            )
+            fact_slot = self._slot_from_fact(fact)
             if any(
                 self._direct_expression_fact(value, fact) is not None
                 or self._expr_is_tainted(node.procedure, value, fact)
                 for value in collection_values
-            ):
+            ) or (fact_slot is not None and fact_slot in copy_source_slots):
                 outputs.update(self._make_slot_fact(slot) for slot in collection_slots)
+                outputs.update(self._make_slot_fact(slot) for slot in copy_slots)
             return tuple(outputs)
 
         if isinstance(operation, (py_ast.Assign, py_ast.UnpackSequence, py_ast.AnnAssign)):

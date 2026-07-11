@@ -444,6 +444,52 @@ def test_typestate_tracks_function_style_collection_mutator_to_subscript_read():
     )
 
 
+def test_typestate_tracks_collection_extend_source_elements():
+    compiler = context.CompilerContext(None)
+
+    src_items = ast.Local("src_items")
+    dst_items = ast.Local("dst_items")
+    index = ast.Existing(ast.program.Object(0))
+    item_get = ast.GetSubscript(dst_items, index)
+    main_code, _ = make_code(
+        "main",
+        [dst_items],
+        [
+            ast.Assign(
+                ast.BuildList([ast.Call(ast.Local("open"), [], [], None, None)]),
+                [src_items],
+            ),
+            ast.Discard(
+                ast.MethodCall(
+                    dst_items,
+                    ast.Local("extend"),
+                    [src_items],
+                    [],
+                    None,
+                    None,
+                )
+            ),
+            ast.Discard(ast.Call(ast.Local("close"), [item_get], [], None, None)),
+            ast.Discard(ast.Call(ast.Local("read"), [item_get], [], None, None)),
+            ast.Return([]),
+        ],
+        return_name="main_ret",
+    )
+
+    cfg = build_cfg(compiler, main_code)
+    adapter = build_supergraph_from_cfgs([cfg])
+    result = analyze_typestate(
+        adapter,
+        TypestateConfiguration(),
+        entry_nodes=[adapter.supergraph.entry_of(cfg)],
+    )
+
+    assert any(
+        finding.kind == "use_after_close" and finding.resource_label == "dst_items[*]"
+        for finding in result.findings
+    )
+
+
 def test_typestate_tracks_collection_accessor_to_subscript_slot():
     compiler = context.CompilerContext(None)
 

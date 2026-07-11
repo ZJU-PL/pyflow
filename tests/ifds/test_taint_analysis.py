@@ -871,6 +871,61 @@ def test_interprocedural_taint_tracks_function_style_collection_mutator_to_subsc
     assert [local.name for local in result.findings[0].tainted_arguments] == ["out"]
 
 
+def test_interprocedural_taint_tracks_collection_extend_source_elements():
+    compiler = context.CompilerContext(None)
+
+    source_code, _ = make_code("source", [], [], return_name="source_ret")
+    sink_value = ast.Local("sink_value")
+    sink_code, _ = make_code("sink", [sink_value], [], return_name="sink_ret")
+
+    src_items = ast.Local("src_items")
+    dst_items = ast.Local("dst_items")
+    out = ast.Local("out")
+    index = ast.Existing(ast.program.Object(0))
+    main_code, _ = make_code(
+        "main",
+        [dst_items],
+        [
+            ast.Assign(
+                ast.BuildList([ast.DirectCall(source_code, None, [], [], None, None)]),
+                [src_items],
+            ),
+            ast.Discard(
+                ast.MethodCall(
+                    dst_items,
+                    ast.Local("extend"),
+                    [src_items],
+                    [],
+                    None,
+                    None,
+                )
+            ),
+            ast.Assign(ast.GetSubscript(dst_items, index), [out]),
+            ast.Discard(ast.DirectCall(sink_code, None, [out], [], None, None)),
+            ast.Return([]),
+        ],
+        return_name="main_ret",
+    )
+
+    cfgs = [
+        build_cfg(compiler, main_code),
+        build_cfg(compiler, source_code),
+        build_cfg(compiler, sink_code),
+    ]
+    adapter = build_supergraph_from_cfgs(cfgs)
+    result = analyze_taint(
+        adapter,
+        TaintConfiguration(
+            source_names=frozenset({"source"}),
+            sink_names=frozenset({"sink"}),
+        ),
+        entry_nodes=[adapter.supergraph.entry_of(cfgs[0])],
+    )
+
+    assert len(result.findings) == 1
+    assert [local.name for local in result.findings[0].tainted_arguments] == ["out"]
+
+
 def test_interprocedural_taint_tracks_collection_accessor_to_subscript_slot():
     compiler = context.CompilerContext(None)
 
