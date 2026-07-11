@@ -21,6 +21,7 @@ from .data_flow import DataFlowQueries, IpaFunctionSummary
 from .engine import GraphQueryEngine
 from .localization import LocalizationCandidate, LocalizationQueries, ProgramSlice
 from .test_generation import FunctionTestProfile, TestGenerationQueries, TestScenario
+from ._models import AliasInfo, PointsToInfo
 
 
 class SemanticQueryService:
@@ -221,3 +222,96 @@ class SemanticQueryService:
 
     def get_mock_requirements(self, function: Union[str, object]) -> List[str]:
         return self.test_generation_queries.get_mock_requirements(function)
+
+    # Heap / points-to queries
+    def get_heap_graph(self):
+        """Return the :class:`PointsToGraph` if the heap pass has run."""
+        return getattr(self.program, "heap_analysis", None)
+
+    def _require_heap_graph(self):
+        graph = self.get_heap_graph()
+        if graph is None:
+            raise RuntimeError(
+                "Heap analysis not available; ensure the 'heap' pass has been run."
+            )
+        return graph
+
+    def get_escaped_locations(self) -> List[str]:
+        """Return human-readable labels of all escaped heap locations."""
+        graph = self._require_heap_graph()
+        return sorted(entry.label for entry in graph.iter_entries() if entry.is_escaped)
+
+    def get_singleton_locations(self) -> List[str]:
+        """Return labels of all singleton (strong-update-eligible) locations."""
+        graph = self._require_heap_graph()
+        return sorted(
+            entry.label for entry in graph.iter_entries() if entry.is_singleton
+        )
+
+    def heap_never_escapes(self, variable: str) -> bool:
+        """Check whether a named variable's heap location has never escaped."""
+        graph = self._require_heap_graph()
+        for entry in graph.iter_entries():
+            if entry.label == variable:
+                return not entry.is_escaped
+        return True
+
+    def heap_aliased(self, var_a: str, var_b: str) -> bool:
+        """Check whether two named variables are must-aliases."""
+        graph = self._require_heap_graph()
+        loc_a = None
+        loc_b = None
+        for entry in graph.iter_entries():
+            if entry.label == var_a:
+                loc_a = entry.location
+            if entry.label == var_b:
+                loc_b = entry.location
+        if loc_a is None or loc_b is None:
+            return False
+        return graph.aliased(loc_a, loc_b)
+
+    def heap_single_reference(self, variable: str) -> bool:
+        """Check whether a variable's heap location has ≤ 1 reference."""
+        graph = self._require_heap_graph()
+        for entry in graph.iter_entries():
+            if entry.label == variable:
+                return entry.ref_count <= 1
+        return True
+
+    def get_aliases_for_variable(self, variable: str) -> AliasInfo:
+        """Return structured alias information for a named variable."""
+        graph = self.get_heap_graph()
+        info = AliasInfo(variable=variable)
+        if graph is None:
+            return info
+        for entry in graph.iter_entries():
+            if entry.label == variable:
+                info.aliases = {
+                    loc.root.label for loc in entry.aliases if loc.root.label
+                }
+                info.is_aliased = len(info.aliases) > 1
+                info.ref_count = entry.ref_count
+                info.is_escaped = entry.is_escaped
+                info.is_singleton = entry.is_singleton
+                info.strong_update_possible = entry.is_strong
+                break
+        return info
+
+    def get_points_to_for_variable(self, variable: str) -> PointsToInfo:
+        """Return structured points-to information for a named variable."""
+        graph = self.get_heap_graph()
+        info = PointsToInfo(variable=variable)
+        if graph is None:
+            return info
+        for entry in graph.iter_entries():
+            if entry.label == variable:
+                info.points_to = {
+                    loc.root.label for loc in entry.aliases if loc.root.label
+                }
+                info.ref_count = entry.ref_count
+                info.is_escaped = entry.is_escaped
+                info.is_singleton = entry.is_singleton
+                info.strong_update_possible = entry.is_strong
+                info.may_be_null = entry.is_escaped
+                break
+        return info

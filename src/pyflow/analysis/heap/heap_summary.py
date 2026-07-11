@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 from pyflow.language.python import ast as py_ast
 
-from .heap import HeapLocation, HeapObject, HeapWrite
+from .model import HeapLocation, HeapObject, HeapWrite
 from .heap_effects import HeapEffectBuilder
 
 

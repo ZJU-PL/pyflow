@@ -14,7 +14,8 @@ from pyflow.language.python import ast as py_ast
 
 from pyflow.analysis.ir_utils import actual_argument_expressions, assigned_locals, resolve_call_name
 
-from .heap import HeapAbstraction, HeapLocation, HeapObject, HeapWrite, UpdatePolicy
+from .abstraction import HeapAbstraction
+from .model import HeapLocation, HeapObject, HeapWrite, UpdatePolicy
 
 
 DYNAMIC_ATTRIBUTE_WILDCARD = "*"

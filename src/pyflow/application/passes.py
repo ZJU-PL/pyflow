@@ -109,6 +109,32 @@ class LifetimeAnalysisPass(AnalysisPass):
             return PassResult.from_exception(e)
 
 
+class HeapAnalysisPass(AnalysisPass):
+    """Heap alias, escape, and points-to analysis pass.
+
+    Extracts a :class:`PointsToGraph` from the heap abstraction that
+    optimization passes (load/store elimination, method devirtualization)
+    can consume for alias and escape queries.
+    """
+
+    def __init__(self, name: str = "heap", description: str | None = None):
+        super().__init__(
+            name,
+            description or "Heap alias, escape, and points-to analysis",
+        )
+
+    def run(self, compiler, program) -> PassResult:
+        try:
+            from pyflow.analysis.heap import HeapAnalysis
+
+            analysis = HeapAnalysis()
+            graph = analysis.analyze(compiler, program)
+            program.set_analysis_result(self.name, graph)
+            return PassResult(success=True, changed=False, data=graph)
+        except Exception as e:
+            return PassResult.from_exception(e)
+
+
 class MethodCallOptimizationPass(OptimizationPass):
     """Method call optimization pass."""
 
@@ -261,6 +287,7 @@ STANDARD_PASSES = {
     "ipa": IPAAnalysisPass,
     "cpa": CPAAnalysisPass,
     "lifetime": LifetimeAnalysisPass,
+    "heap": HeapAnalysisPass,
     "methodcall": MethodCallOptimizationPass,
     "simplify": SimplifyOptimizationPass,
     "clone": CloneOptimizationPass,
@@ -371,11 +398,15 @@ def register_standard_passes(pass_manager):
     cpa_pass.info.dependencies.add("ipa")
     lifetime_pass = pass_manager.passes["lifetime"]
     lifetime_pass.info.dependencies.add("cpa")
+    heap_pass = pass_manager.passes["heap"]
+    heap_pass.info.dependencies.add("cpa")
+    heap_pass.info.requirements.add("cpa")
 
     analysis_passes = {
         "ipa",
         "cpa",
         "lifetime",
+        "heap",
         "ipa_refresh",
         "cpa_path_sensitive",
         "lifetime_refresh",

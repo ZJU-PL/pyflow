@@ -6,9 +6,12 @@ and factory classes for translating Python IR operations into heap effects.
 
 Submodules
 ----------
-* :mod:`.heap` — Core model: HeapObject, HeapLocation, HeapPolicy, HeapAbstraction
+* :mod:`.model` — Data model: enums, HeapPolicy, HeapObject, HeapLocation, HeapSelector, HeapWrite
+* :mod:`.abstraction` — HeapAbstraction engine: canonicalization, alias tracking, update policies
 * :mod:`.heap_effects` — Translates IR operations into HeapEffect records
 * :mod:`.heap_summary` — Procedure-level heap summaries
+* :mod:`.points_to_graph` — Read-only PointsToGraph snapshot for optimization passes
+* :mod:`.heap_analysis` — Standalone HeapAnalysis engine and pass integration
 
 Examples
 --------
@@ -30,11 +33,10 @@ False
 {'policy': {...}, 'next_site': 0, 'cached_objects': 0, ...}
 """
 
-from .heap import (
+from .model import (
     AllocationSensitivity,
     ContainerSensitivity,
     FieldSensitivity,
-    HeapAbstraction,
     HeapEscapeState,
     HeapLocation,
     HeapObject,
@@ -45,6 +47,10 @@ from .heap import (
     HeapWrite,
     RawStorageProvider,
     UpdatePolicy,
+)
+
+from .abstraction import (
+    HeapAbstraction,
 )
 
 from .heap_effects import (
@@ -61,6 +67,15 @@ from .heap_summary import (
     HeapSummaryBuilder,
 )
 
+from .points_to_graph import (
+    PointsToEntry,
+    PointsToGraph,
+)
+
+from .heap_analysis import (
+    HeapAnalysis,
+)
+
 __all__ = [
     "AllocationSensitivity",
     "CALL_RETURN_COPY",
@@ -70,6 +85,7 @@ __all__ = [
     "ContainerSensitivity",
     "FieldSensitivity",
     "HeapAbstraction",
+    "HeapAnalysis",
     "HeapEffect",
     "HeapEffectBuilder",
     "HeapEscapeState",
@@ -82,6 +98,8 @@ __all__ = [
     "HeapSummary",
     "HeapSummaryBuilder",
     "HeapWrite",
+    "PointsToEntry",
+    "PointsToGraph",
     "RawStorageProvider",
     "UpdatePolicy",
 ]

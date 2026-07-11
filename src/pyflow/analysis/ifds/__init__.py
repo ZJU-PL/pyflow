@@ -13,11 +13,10 @@ from .cfg_adapter import (
     iter_call_expressions_in_eval_order,
     named_call_cfg_resolver,
 )
-from ..heap.heap import (
+from ..heap.model import (
     AllocationSensitivity,
     ContainerSensitivity,
     FieldSensitivity,
-    HeapAbstraction,
     HeapEscapeState,
     HeapLocation,
     HeapObject,
@@ -27,6 +26,9 @@ from ..heap.heap import (
     HeapSelector,
     HeapWrite,
     UpdatePolicy,
+)
+from ..heap.abstraction import (
+    HeapAbstraction,
 )
 from ..heap.heap_effects import (
     CALL_RETURN_COPY,

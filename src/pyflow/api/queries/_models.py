@@ -22,6 +22,10 @@ class AliasInfo:
     variable: str
     aliases: Set[str] = field(default_factory=set)
     is_aliased: bool = False
+    ref_count: int = 0
+    is_escaped: bool = False
+    is_singleton: bool = False
+    strong_update_possible: bool = False
 
 
 @dataclass
@@ -31,6 +35,10 @@ class PointsToInfo:
     variable: str
     points_to: Set[str] = field(default_factory=set)
     may_be_null: bool = True
+    ref_count: int = 0
+    is_escaped: bool = False
+    is_singleton: bool = False
+    strong_update_possible: bool = False
 
 
 @dataclass
