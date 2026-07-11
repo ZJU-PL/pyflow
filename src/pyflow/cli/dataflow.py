@@ -47,6 +47,29 @@ def add_dataflow_parser(subparsers):
         help="Function names treated as taint sanitizers",
     )
     parser.add_argument(
+        "--collection-mutators",
+        nargs="*",
+        default=None,
+        help=(
+            "Collection mutator names modeled as writing value arguments into "
+            "container wildcard elements"
+        ),
+    )
+    parser.add_argument(
+        "--collection-accessors",
+        nargs="*",
+        default=None,
+        help=(
+            "Collection accessor names modeled as reading keyed or wildcard "
+            "container elements"
+        ),
+    )
+    parser.add_argument(
+        "--conservative-unresolved-calls",
+        action="store_true",
+        help="Conservatively propagate taint through unresolved calls",
+    )
+    parser.add_argument(
         "--format",
         choices=["text", "json"],
         default="text",
@@ -180,6 +203,13 @@ def run_dataflow_analysis(input_path, args):
         source_names=args.sources,
         sink_names=args.sinks,
         sanitizer_names=args.sanitizers,
+        collection_mutator_names=getattr(args, "collection_mutators", None),
+        collection_accessor_names=getattr(args, "collection_accessors", None),
+        conservative_unresolved_call_side_effects=getattr(
+            args,
+            "conservative_unresolved_calls",
+            False,
+        ),
         verbose=getattr(args, "verbose", False),
         dependency_strategy=getattr(args, "dependency_strategy", "auto"),
     )

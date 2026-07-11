@@ -30,6 +30,10 @@ class TypestateConfiguration:
     use_names: FrozenSet[str] = frozenset({"read", "write", "send", "recv"})
     resource_arg_positions: FrozenSet[int] = frozenset({0})
     track_method_receiver: bool = True
+    collection_mutator_names: FrozenSet[str] = frozenset(
+        {"append", "add", "extend", "update"}
+    )
+    collection_accessor_names: FrozenSet[str] = frozenset({"get"})
 
 
 @dataclass(frozen=True)
@@ -131,6 +135,55 @@ class InterproceduralTypestateProblem(
             return self._identity_outputs(fact, ())
 
         killed = self._killed_slots_for_node(node)
+        dynamic_setattr_slots = self._dynamic_setattr_slots(node.procedure, operation)
+        if dynamic_setattr_slots:
+            outputs = set(self._identity_outputs(fact, killed))
+            value = self._dynamic_setattr_value(operation)
+            state = self._fact_state(fact)
+            if (
+                value is not None
+                and state is not None
+                and self._expr_has_state(node.procedure, value, fact)
+            ):
+                outputs.update(
+                    ResourceStateFact(slot, state) for slot in dynamic_setattr_slots
+                )
+            return tuple(outputs)
+
+        dynamic_subscript_slots = self._dynamic_subscript_write_slots(
+            node.procedure, operation
+        )
+        if dynamic_subscript_slots:
+            outputs = set(self._identity_outputs(fact, killed))
+            value = self._dynamic_subscript_value(operation)
+            state = self._fact_state(fact)
+            if (
+                value is not None
+                and state is not None
+                and self._expr_has_state(node.procedure, value, fact)
+            ):
+                outputs.update(self._facts_for_modified_operation(operation, state))
+                outputs.update(
+                    ResourceStateFact(slot, state) for slot in dynamic_subscript_slots
+                )
+            return tuple(outputs)
+
+        collection_slots, collection_values = self._collection_mutation(
+            node.procedure,
+            operation,
+            self.configuration.collection_mutator_names,
+        )
+        if collection_slots:
+            outputs = set(self._identity_outputs(fact, killed))
+            state = self._fact_state(fact)
+            if state is not None and any(
+                self._expr_has_state(node.procedure, value, fact)
+                for value in collection_values
+            ):
+                outputs.update(
+                    ResourceStateFact(slot, state) for slot in collection_slots
+                )
+            return tuple(outputs)
 
         if isinstance(operation, (py_ast.Assign, py_ast.UnpackSequence, py_ast.AnnAssign)):
             outputs = set(self._identity_outputs(fact, killed))
@@ -161,6 +214,22 @@ class InterproceduralTypestateProblem(
                             state,
                         )
                     )
+            state = self._fact_state(fact)
+            if state is not None:
+                outputs.update(
+                    ResourceStateFact(slot, state)
+                    for slot in self._aliased_dynamic_slots_for_assignment(
+                        node.procedure,
+                        operation,
+                        fact,
+                    )
+                )
+                for slots, value in self._collection_constructor_writes(
+                    node.procedure,
+                    operation,
+                ):
+                    if self._expr_has_state(node.procedure, value, fact):
+                        outputs.update(ResourceStateFact(slot, state) for slot in slots)
             return tuple(outputs)
 
         if isinstance(operation, py_ast.Return):
@@ -242,11 +311,21 @@ class InterproceduralTypestateProblem(
         return_index = self._return_fact_index(callee, exit_fact)
         state = self._fact_state(exit_fact)
         if return_index is not None and state is not None:
+            operation = (
+                call_effect.operation
+                if call_effect is not None
+                else self.adapter.operation_of(call_node)
+            )
+            call_expression = (
+                call_effect.call_expression
+                if call_effect is not None
+                else self.adapter.call_expression_of(call_node)
+            )
             outputs.update(
                 self._facts_for_nested_call_result(
                     call_node.procedure,
-                    call_effect.operation if call_effect is not None else self.adapter.operation_of(call_node),
-                    call_effect.call_expression if call_effect is not None else self.adapter.call_expression_of(call_node),
+                    operation,
+                    call_expression,
                     return_index,
                     state,
                     nested=False,
@@ -256,7 +335,9 @@ class InterproceduralTypestateProblem(
         formal = self._formal_for_fact(callee, exit_fact)
         call = call_effect.call_expression if call_effect is not None else None
         if formal is not None and state is not None and call is not None:
-            for actual, bound_formal in bind_call_arguments(call, callee.code.codeparameters):
+            for actual, bound_formal in bind_call_arguments(
+                call, callee.code.codeparameters
+            ):
                 if bound_formal is formal:
                     outputs.update(
                         self._facts_for_actual_slots(call_node.procedure, actual, state)
@@ -267,13 +348,21 @@ class InterproceduralTypestateProblem(
     def call_to_return_flow(self, call_node: CFGNode, return_site: CFGNode, fact: object):
         del return_site
         call_effect = self._call_effect(call_node)
-        operation = call_effect.operation if call_effect is not None else self.adapter.operation_of(call_node)
+        operation = (
+            call_effect.operation
+            if call_effect is not None
+            else self.adapter.operation_of(call_node)
+        )
         call_expression = call_effect.call_expression if call_effect is not None else None
         killed = self._killed_slots_for_node(call_node)
         outputs = set(self._identity_outputs(fact, killed))
         model = self._call_model_for_node(call_node)
 
-        if fact == ZERO_TYPESTATE and model is not None and STATE_OPEN in model.typestate_actions:
+        if (
+            fact == ZERO_TYPESTATE
+            and model is not None
+            and STATE_OPEN in model.typestate_actions
+        ):
             outputs.update(
                 self._facts_for_nested_call_result(
                     call_node.procedure,
@@ -298,7 +387,11 @@ class InterproceduralTypestateProblem(
         if not resource_slots:
             return tuple(outputs)
 
-        if model is not None and STATE_CLOSE in model.typestate_actions and state == STATE_OPEN:
+        if (
+            model is not None
+            and STATE_CLOSE in model.typestate_actions
+            and state == STATE_OPEN
+        ):
             if isinstance(fact, ResourceStateFact) and fact.slot in resource_slots:
                 outputs.discard(fact)
                 outputs.add(ResourceStateFact(fact.slot, STATE_CLOSED))
@@ -309,7 +402,9 @@ class InterproceduralTypestateProblem(
         findings: list[TypestateFinding] = []
         seen: set[tuple[CFGNode, str, str, str]] = set()
 
-        def record(node: CFGNode, kind: str, operation_name: str, resource_label: str) -> None:
+        def record(
+            node: CFGNode, kind: str, operation_name: str, resource_label: str
+        ) -> None:
             key = (node, kind, operation_name, resource_label)
             if key in seen:
                 return
@@ -329,12 +424,21 @@ class InterproceduralTypestateProblem(
             if call is None:
                 continue
             model = self._call_model_for_node(node)
-            call_name = (call_effect.call_name if call_effect is not None else self._call_name(node)) or "<call>"
+            call_name = (
+                call_effect.call_name
+                if call_effect is not None
+                else self._call_name(node)
+            ) or "<call>"
             slots = self._resource_slots_for_call(node.procedure, call, model=model)
             if model is not None and STATE_USE in model.typestate_actions:
                 for slot in slots:
                     if result.is_reached(node, ResourceStateFact(slot, STATE_CLOSED)):
-                        record(node, "use_after_close", call_name, self.describe_slot(slot))
+                        record(
+                            node,
+                            "use_after_close",
+                            call_name,
+                            self.describe_slot(slot),
+                        )
             if model is not None and STATE_CLOSE in model.typestate_actions:
                 for slot in slots:
                     if result.is_reached(node, ResourceStateFact(slot, STATE_CLOSED)):
@@ -386,7 +490,11 @@ class InterproceduralTypestateProblem(
             call_expression,
             model=model,
         )
-        if model is not None and STATE_CLOSE in model.typestate_actions and isinstance(fact, ResourceStateFact):
+        if (
+            model is not None
+            and STATE_CLOSE in model.typestate_actions
+            and isinstance(fact, ResourceStateFact)
+        ):
             if state == STATE_OPEN and fact.slot in resource_slots:
                 outputs.discard(fact)
                 outputs.add(ResourceStateFact(fact.slot, STATE_CLOSED))
@@ -470,7 +578,10 @@ class InterproceduralTypestateProblem(
     ) -> tuple[object, ...]:
         if operation is None or call_expression is None:
             return ()
-        if isinstance(operation, (py_ast.Assign, py_ast.UnpackSequence)) and operation.expr is call_expression:
+        if (
+            isinstance(operation, (py_ast.Assign, py_ast.UnpackSequence))
+            and operation.expr is call_expression
+        ):
             return tuple(
                 slot
                 for local in assigned_locals(operation)
@@ -482,7 +593,10 @@ class InterproceduralTypestateProblem(
                 for local in assigned_locals(operation)
                 for slot in self._slots_for_local(procedure, local)
             )
-        if isinstance(operation, (py_ast.SetGlobal, py_ast.SetCellDeref)) and operation.value is call_expression:
+        if (
+            isinstance(operation, (py_ast.SetGlobal, py_ast.SetCellDeref))
+            and operation.value is call_expression
+        ):
             return tuple(
                 slot
                 for fact in self._facts_for_modified_operation(operation, STATE_OPEN)
@@ -532,8 +646,12 @@ class InterproceduralTypestateProblem(
             return set()
         return self._facts_for_locals(procedure, (returnparams[index],), state)
 
-    def _facts_for_modified_operation(self, operation: object, state: str) -> set[object]:
-        slots = self._annotation_slots(getattr(getattr(operation, "annotation", None), "opModifies", None))
+    def _facts_for_modified_operation(
+        self, operation: object, state: str
+    ) -> set[object]:
+        slots = self._annotation_slots(
+            getattr(getattr(operation, "annotation", None), "opModifies", None)
+        )
         return {ResourceStateFact(slot, state) for slot in slots}
 
     def _facts_for_expression_node(
@@ -544,7 +662,19 @@ class InterproceduralTypestateProblem(
         if current is None or isinstance(current, py_ast.leafTypes):
             return ()
         if isinstance(current, (py_ast.DirectCall, py_ast.Call, py_ast.MethodCall)):
-            return (ExpressionResourceFact(procedure, current, state),)
+            dynamic_facts = tuple(
+                ResourceStateFact(slot, state)
+                for slot in (
+                    *self._dynamic_getattr_slots(procedure, current),
+                    *self._dynamic_subscript_read_slots(procedure, current),
+                    *self._collection_access_slots(
+                        procedure,
+                        current,
+                        self._collection_accessor_names(),
+                    ),
+                )
+            )
+            return (*dynamic_facts, ExpressionResourceFact(procedure, current, state))
         return tuple(
             ResourceStateFact(slot, state)
             for slot in self._slots_read_by_node(procedure, current)
@@ -563,9 +693,16 @@ class InterproceduralTypestateProblem(
         if operation is None or call_expression is None:
             return set()
 
-        if isinstance(operation, (py_ast.Assign, py_ast.UnpackSequence)) and operation.expr is call_expression:
+        if (
+            isinstance(operation, (py_ast.Assign, py_ast.UnpackSequence))
+            and operation.expr is call_expression
+        ):
             if not nested:
-                return {ExpressionResourceFact(procedure, call_expression, state, return_index)}
+                return {
+                    ExpressionResourceFact(
+                        procedure, call_expression, state, return_index
+                    )
+                }
             return self._facts_for_assigned_locals(
                 procedure,
                 assigned_locals(operation),
@@ -574,7 +711,11 @@ class InterproceduralTypestateProblem(
             )
         if isinstance(operation, py_ast.AnnAssign) and operation.value is call_expression:
             if not nested:
-                return {ExpressionResourceFact(procedure, call_expression, state, return_index)}
+                return {
+                    ExpressionResourceFact(
+                        procedure, call_expression, state, return_index
+                    )
+                }
             return self._facts_for_assigned_locals(
                 procedure,
                 assigned_locals(operation),
@@ -584,8 +725,14 @@ class InterproceduralTypestateProblem(
 
         if isinstance(operation, py_ast.Return):
             if not nested:
-                return {ExpressionResourceFact(procedure, call_expression, state, return_index)}
-            target_index = self._call_result_target_index(operation, call_expression, return_index)
+                return {
+                    ExpressionResourceFact(
+                        procedure, call_expression, state, return_index
+                    )
+                }
+            target_index = self._call_result_target_index(
+                operation, call_expression, return_index
+            )
             if target_index is not None:
                 return self._facts_for_return_slot(procedure, state, target_index)
 
@@ -601,7 +748,11 @@ class InterproceduralTypestateProblem(
             ),
         ) and getattr(operation, "value", None) is call_expression:
             if not nested:
-                return {ExpressionResourceFact(procedure, call_expression, state, return_index)}
+                return {
+                    ExpressionResourceFact(
+                        procedure, call_expression, state, return_index
+                    )
+                }
             return self._facts_for_modified_operation(operation, state)
 
         for child in self._nested_operations(operation):
@@ -670,13 +821,17 @@ class InterproceduralTypestateProblem(
         candidates = []
         if isinstance(params.selfparam, py_ast.Local):
             candidates.append(params.selfparam)
-        candidates.extend(param for param in params.posonlyparams if isinstance(param, py_ast.Local))
+        candidates.extend(
+            param for param in params.posonlyparams if isinstance(param, py_ast.Local)
+        )
         candidates.extend(param for param in params.params if isinstance(param, py_ast.Local))
         candidates.extend(
             param for param in (params.vparam, params.kparam) if isinstance(param, py_ast.Local)
         )
         for local in candidates:
-            if any(candidate == slot for candidate in self._slots_for_local(procedure, local)):
+            if any(
+                candidate == slot for candidate in self._slots_for_local(procedure, local)
+            ):
                 return local
         return None
 
@@ -685,7 +840,9 @@ class InterproceduralTypestateProblem(
     ) -> set[object]:
         return {
             ResourceStateFact(slot, state)
-            for slot in self._slots_read_by_node(procedure, expr)
+            for fact in self._facts_for_expression_node(procedure, expr, state)
+            for slot in (self._slot_from_fact(fact),)
+            if slot is not None
         }
 
     def _resource_slots_for_call(
@@ -699,7 +856,10 @@ class InterproceduralTypestateProblem(
         seen: set[object] = set()
 
         def extend_slots(expr: object) -> None:
-            for slot in self._slots_read_by_node(procedure, expr):
+            for fact in self._facts_for_expression_node(procedure, expr, STATE_OPEN):
+                slot = self._slot_from_fact(fact)
+                if slot is None:
+                    continue
                 if slot in seen:
                     continue
                 seen.add(slot)

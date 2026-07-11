@@ -5,7 +5,11 @@ from __future__ import annotations
 import pytest
 
 from pyflow.application import context
-from pyflow.analysis.ifds import analyze_nullness, build_supergraph_from_cfgs
+from pyflow.analysis.ifds import (
+    NullnessConfiguration,
+    analyze_nullness,
+    build_supergraph_from_cfgs,
+)
 from pyflow.language.python import ast
 
 from tests.ifds._support import build_cfg, make_code
@@ -100,6 +104,405 @@ def test_nullness_propagates_nullable_arguments_and_returns():
     )
 
     assert len(result.findings) == 1
+    assert result.findings[0].expression_label == "out"
+
+
+def test_nullness_tracks_constant_name_getattr_setattr_field_flow():
+    compiler = context.CompilerContext(None)
+
+    obj = ast.Local("obj")
+    out = ast.Local("out")
+    payload = ast.Existing(ast.program.Object("payload"))
+    attr = ast.Existing(ast.program.Object("attr"))
+    main_code, _ = make_code(
+        "main",
+        [obj],
+        [
+            ast.Discard(
+                ast.Call(
+                    ast.Local("setattr"),
+                    [obj, payload, ast.Existing(ast.program.Object(None))],
+                    [],
+                    None,
+                    None,
+                )
+            ),
+            ast.Assign(ast.Call(ast.Local("getattr"), [obj, payload], [], None, None), [out]),
+            ast.Discard(ast.GetAttr(out, attr)),
+            ast.Return([]),
+        ],
+        return_name="main_ret",
+    )
+
+    cfg = build_cfg(compiler, main_code)
+    adapter = build_supergraph_from_cfgs([cfg])
+    result = analyze_nullness(adapter, entry_nodes=[adapter.supergraph.entry_of(cfg)])
+
+    assert len(result.findings) == 1
+    assert result.findings[0].kind == "attribute_access"
+    assert result.findings[0].expression_label == "out"
+
+
+def test_nullness_tracks_unknown_name_setattr_to_constant_getattr():
+    compiler = context.CompilerContext(None)
+
+    obj = ast.Local("obj")
+    name = ast.Local("name")
+    out = ast.Local("out")
+    payload = ast.Existing(ast.program.Object("payload"))
+    attr = ast.Existing(ast.program.Object("attr"))
+    main_code, _ = make_code(
+        "main",
+        [obj, name],
+        [
+            ast.Discard(
+                ast.Call(
+                    ast.Local("setattr"),
+                    [obj, name, ast.Existing(ast.program.Object(None))],
+                    [],
+                    None,
+                    None,
+                )
+            ),
+            ast.Assign(ast.Call(ast.Local("getattr"), [obj, payload], [], None, None), [out]),
+            ast.Discard(ast.GetAttr(out, attr)),
+            ast.Return([]),
+        ],
+        return_name="main_ret",
+    )
+
+    cfg = build_cfg(compiler, main_code)
+    adapter = build_supergraph_from_cfgs([cfg])
+    result = analyze_nullness(adapter, entry_nodes=[adapter.supergraph.entry_of(cfg)])
+
+    assert len(result.findings) == 1
+    assert result.findings[0].kind == "attribute_access"
+    assert result.findings[0].expression_label == "out"
+
+
+def test_nullness_tracks_unknown_subscript_write_to_constant_read():
+    compiler = context.CompilerContext(None)
+
+    obj = ast.Local("obj")
+    key = ast.Local("key")
+    out = ast.Local("out")
+    payload = ast.Existing(ast.program.Object("payload"))
+    attr = ast.Existing(ast.program.Object("attr"))
+    main_code, _ = make_code(
+        "main",
+        [obj, key],
+        [
+            ast.SetSubscript(ast.Existing(ast.program.Object(None)), obj, key),
+            ast.Assign(ast.GetSubscript(obj, payload), [out]),
+            ast.Discard(ast.GetAttr(out, attr)),
+            ast.Return([]),
+        ],
+        return_name="main_ret",
+    )
+
+    cfg = build_cfg(compiler, main_code)
+    adapter = build_supergraph_from_cfgs([cfg])
+    result = analyze_nullness(adapter, entry_nodes=[adapter.supergraph.entry_of(cfg)])
+
+    assert len(result.findings) == 1
+    assert result.findings[0].kind == "attribute_access"
+    assert result.findings[0].expression_label == "out"
+
+
+def test_nullness_tracks_lowered_interpreter_subscript_helpers():
+    compiler = context.CompilerContext(None)
+
+    items = ast.Local("items")
+    out = ast.Local("out")
+    key = ast.Existing(ast.program.Object("payload"))
+    attr = ast.Existing(ast.program.Object("attr"))
+    main_code, _ = make_code(
+        "main",
+        [items],
+        [
+            ast.Discard(
+                ast.Call(
+                    ast.Existing(ast.program.Object("interpreter_setitem")),
+                    [items, key, ast.Existing(ast.program.Object(None))],
+                    [],
+                    None,
+                    None,
+                )
+            ),
+            ast.Assign(
+                ast.Call(
+                    ast.Existing(ast.program.Object("interpreter_getitem")),
+                    [items, key],
+                    [],
+                    None,
+                    None,
+                ),
+                [out],
+            ),
+            ast.Discard(ast.GetAttr(out, attr)),
+            ast.Return([]),
+        ],
+        return_name="main_ret",
+    )
+
+    cfg = build_cfg(compiler, main_code)
+    adapter = build_supergraph_from_cfgs([cfg])
+    result = analyze_nullness(adapter, entry_nodes=[adapter.supergraph.entry_of(cfg)])
+
+    assert len(result.findings) == 1
+    assert result.findings[0].kind == "attribute_access"
+    assert result.findings[0].expression_label == "out"
+
+
+def test_nullness_deletes_lowered_subscript_fact():
+    compiler = context.CompilerContext(None)
+
+    items = ast.Local("items")
+    out = ast.Local("out")
+    key = ast.Existing(ast.program.Object("payload"))
+    attr = ast.Existing(ast.program.Object("attr"))
+    getitem = ast.Call(
+        ast.Existing(ast.program.Object("interpreter_getitem")),
+        [items, key],
+        [],
+        None,
+        None,
+    )
+    main_code, _ = make_code(
+        "main",
+        [items],
+        [
+            ast.Discard(
+                ast.Call(
+                    ast.Existing(ast.program.Object("interpreter_setitem")),
+                    [items, key, ast.Existing(ast.program.Object(None))],
+                    [],
+                    None,
+                    None,
+                )
+            ),
+            ast.Discard(
+                ast.Call(
+                    ast.Existing(ast.program.Object("interpreter_delitem")),
+                    [items, key],
+                    [],
+                    None,
+                    None,
+                )
+            ),
+            ast.Assign(getitem, [out]),
+            ast.Discard(ast.GetAttr(out, attr)),
+            ast.Return([]),
+        ],
+        return_name="main_ret",
+    )
+
+    cfg = build_cfg(compiler, main_code)
+    adapter = build_supergraph_from_cfgs([cfg])
+    result = analyze_nullness(adapter, entry_nodes=[adapter.supergraph.entry_of(cfg)])
+
+    assert result.findings == ()
+
+
+def test_nullness_tracks_collection_mutator_to_subscript_read():
+    compiler = context.CompilerContext(None)
+
+    items = ast.Local("items")
+    out = ast.Local("out")
+    index = ast.Existing(ast.program.Object(0))
+    attr = ast.Existing(ast.program.Object("attr"))
+    main_code, _ = make_code(
+        "main",
+        [items],
+        [
+            ast.Discard(
+                ast.MethodCall(
+                    items,
+                    ast.Local("append"),
+                    [ast.Existing(ast.program.Object(None))],
+                    [],
+                    None,
+                    None,
+                )
+            ),
+            ast.Assign(ast.GetSubscript(items, index), [out]),
+            ast.Discard(ast.GetAttr(out, attr)),
+            ast.Return([]),
+        ],
+        return_name="main_ret",
+    )
+
+    cfg = build_cfg(compiler, main_code)
+    adapter = build_supergraph_from_cfgs([cfg])
+    result = analyze_nullness(adapter, entry_nodes=[adapter.supergraph.entry_of(cfg)])
+
+    assert len(result.findings) == 1
+    assert result.findings[0].kind == "attribute_access"
+    assert result.findings[0].expression_label == "out"
+
+
+def test_nullness_tracks_function_style_collection_mutator_to_subscript_read():
+    compiler = context.CompilerContext(None)
+
+    items = ast.Local("items")
+    out = ast.Local("out")
+    index = ast.Existing(ast.program.Object(0))
+    attr = ast.Existing(ast.program.Object("attr"))
+    main_code, _ = make_code(
+        "main",
+        [items],
+        [
+            ast.Discard(
+                ast.Call(
+                    ast.Local("append"),
+                    [items, ast.Existing(ast.program.Object(None))],
+                    [],
+                    None,
+                    None,
+                )
+            ),
+            ast.Assign(ast.GetSubscript(items, index), [out]),
+            ast.Discard(ast.GetAttr(out, attr)),
+            ast.Return([]),
+        ],
+        return_name="main_ret",
+    )
+
+    cfg = build_cfg(compiler, main_code)
+    adapter = build_supergraph_from_cfgs([cfg])
+    result = analyze_nullness(adapter, entry_nodes=[adapter.supergraph.entry_of(cfg)])
+
+    assert len(result.findings) == 1
+    assert result.findings[0].kind == "attribute_access"
+    assert result.findings[0].expression_label == "out"
+
+
+def test_nullness_tracks_collection_accessor_to_subscript_slot():
+    compiler = context.CompilerContext(None)
+
+    items = ast.Local("items")
+    out = ast.Local("out")
+    key = ast.Existing(ast.program.Object("payload"))
+    attr = ast.Existing(ast.program.Object("attr"))
+    main_code, _ = make_code(
+        "main",
+        [items],
+        [
+            ast.SetSubscript(ast.Existing(ast.program.Object(None)), items, key),
+            ast.Assign(ast.MethodCall(items, ast.Local("get"), [key], [], None, None), [out]),
+            ast.Discard(ast.GetAttr(out, attr)),
+            ast.Return([]),
+        ],
+        return_name="main_ret",
+    )
+
+    cfg = build_cfg(compiler, main_code)
+    adapter = build_supergraph_from_cfgs([cfg])
+    result = analyze_nullness(adapter, entry_nodes=[adapter.supergraph.entry_of(cfg)])
+
+    assert len(result.findings) == 1
+    assert result.findings[0].kind == "attribute_access"
+    assert result.findings[0].expression_label == "out"
+
+
+def test_nullness_tracks_dict_literal_value_to_collection_accessor():
+    compiler = context.CompilerContext(None)
+
+    mapping = ast.Local("mapping")
+    out = ast.Local("out")
+    key = ast.Existing(ast.program.Object("payload"))
+    attr = ast.Existing(ast.program.Object("attr"))
+    main_code, _ = make_code(
+        "main",
+        [],
+        [
+            ast.Assign(
+                ast.BuildMap([key, ast.Existing(ast.program.Object(None))]),
+                [mapping],
+            ),
+            ast.Assign(
+                ast.MethodCall(mapping, ast.Local("get"), [key], [], None, None),
+                [out],
+            ),
+            ast.Discard(ast.GetAttr(out, attr)),
+            ast.Return([]),
+        ],
+        return_name="main_ret",
+    )
+
+    cfg = build_cfg(compiler, main_code)
+    adapter = build_supergraph_from_cfgs([cfg])
+    result = analyze_nullness(adapter, entry_nodes=[adapter.supergraph.entry_of(cfg)])
+
+    assert len(result.findings) == 1
+    assert result.findings[0].kind == "attribute_access"
+    assert result.findings[0].expression_label == "out"
+
+
+def test_nullness_copies_dynamic_attribute_facts_to_alias():
+    compiler = context.CompilerContext(None)
+
+    obj = ast.Local("obj")
+    alias = ast.Local("alias")
+    out = ast.Local("out")
+    payload = ast.Existing(ast.program.Object("payload"))
+    attr = ast.Existing(ast.program.Object("attr"))
+    main_code, _ = make_code(
+        "main",
+        [obj],
+        [
+            ast.Discard(
+                ast.Call(
+                    ast.Local("setattr"),
+                    [obj, payload, ast.Existing(ast.program.Object(None))],
+                    [],
+                    None,
+                    None,
+                )
+            ),
+            ast.Assign(obj, [alias]),
+            ast.Assign(ast.Call(ast.Local("getattr"), [alias, payload], [], None, None), [out]),
+            ast.Discard(ast.GetAttr(out, attr)),
+            ast.Return([]),
+        ],
+        return_name="main_ret",
+    )
+
+    cfg = build_cfg(compiler, main_code)
+    adapter = build_supergraph_from_cfgs([cfg])
+    result = analyze_nullness(adapter, entry_nodes=[adapter.supergraph.entry_of(cfg)])
+
+    assert len(result.findings) == 1
+    assert result.findings[0].kind == "attribute_access"
+    assert result.findings[0].expression_label == "out"
+
+
+def test_nullness_models_nullable_return_from_unresolved_library_call():
+    compiler = context.CompilerContext(None)
+
+    out = ast.Local("out")
+    payload = ast.Existing(ast.program.Object("payload"))
+    main_code, _ = make_code(
+        "main",
+        [],
+        [
+            ast.Assign(ast.Call(ast.Local("maybe_none"), [], [], None, None), [out]),
+            ast.Discard(ast.GetAttr(out, payload)),
+            ast.Return([]),
+        ],
+        return_name="main_ret",
+    )
+
+    cfg = build_cfg(compiler, main_code)
+    adapter = build_supergraph_from_cfgs([cfg])
+    result = analyze_nullness(
+        adapter,
+        NullnessConfiguration(nullable_return_names=frozenset({"maybe_none"})),
+        entry_nodes=[adapter.supergraph.entry_of(cfg)],
+    )
+
+    assert len(result.findings) == 1
+    assert result.findings[0].kind == "attribute_access"
     assert result.findings[0].expression_label == "out"
 
 

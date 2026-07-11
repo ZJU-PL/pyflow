@@ -29,6 +29,11 @@ class TaintConfiguration:
     source_names: FrozenSet[str] = frozenset()
     sink_names: FrozenSet[str] = frozenset()
     sanitizer_names: FrozenSet[str] = frozenset()
+    collection_mutator_names: FrozenSet[str] = frozenset(
+        {"append", "add", "extend", "update"}
+    )
+    collection_accessor_names: FrozenSet[str] = frozenset({"get"})
+    conservative_unresolved_call_side_effects: bool = False
 
 
 @dataclass(frozen=True)
@@ -132,12 +137,59 @@ class InterproceduralTaintProblem(
 
     def normal_flow(self, node: CFGNode, successor: CFGNode, fact: object):
         del successor
+        unresolved_call_outputs = self._unresolved_call_outputs(node, fact)
+        if unresolved_call_outputs is not None:
+            return unresolved_call_outputs
+
         effect = self.adapter.effect_of(node)
         operation = getattr(effect, "operation", self.adapter.operation_of(node))
         if operation is None:
             return self._identity_outputs(fact, ())
 
         killed = self._killed_slots_for_node(node)
+        dynamic_setattr_slots = self._dynamic_setattr_slots(node.procedure, operation)
+        if dynamic_setattr_slots:
+            outputs = set(self._identity_outputs(fact, killed))
+            value = self._dynamic_setattr_value(operation)
+            if value is not None and (
+                self._direct_expression_fact(value, fact) is not None
+                or self._expr_is_tainted(node.procedure, value, fact)
+            ):
+                outputs.update(
+                    self._make_slot_fact(slot) for slot in dynamic_setattr_slots
+                )
+            return tuple(outputs)
+
+        dynamic_subscript_slots = self._dynamic_subscript_write_slots(
+            node.procedure, operation
+        )
+        if dynamic_subscript_slots:
+            outputs = set(self._identity_outputs(fact, killed))
+            value = self._dynamic_subscript_value(operation)
+            if value is not None and (
+                self._direct_expression_fact(value, fact) is not None
+                or self._expr_is_tainted(node.procedure, value, fact)
+            ):
+                outputs.update(self._facts_for_modified_operation(operation))
+                outputs.update(
+                    self._make_slot_fact(slot) for slot in dynamic_subscript_slots
+                )
+            return tuple(outputs)
+
+        collection_slots, collection_values = self._collection_mutation(
+            node.procedure,
+            operation,
+            self.configuration.collection_mutator_names,
+        )
+        if collection_slots:
+            outputs = set(self._identity_outputs(fact, killed))
+            if any(
+                self._direct_expression_fact(value, fact) is not None
+                or self._expr_is_tainted(node.procedure, value, fact)
+                for value in collection_values
+            ):
+                outputs.update(self._make_slot_fact(slot) for slot in collection_slots)
+            return tuple(outputs)
 
         if isinstance(operation, (py_ast.Assign, py_ast.UnpackSequence, py_ast.AnnAssign)):
             outputs = set(self._identity_outputs(fact, killed))
@@ -159,6 +211,23 @@ class InterproceduralTaintProblem(
                 return tuple(outputs)
             if expr is not None and self._expr_is_tainted(node.procedure, expr, fact):
                 outputs.update(self._facts_for_locals(node.procedure, targets))
+            outputs.update(
+                self._make_slot_fact(slot)
+                for slot in self._aliased_dynamic_slots_for_assignment(
+                    node.procedure,
+                    operation,
+                    fact,
+                )
+            )
+            for slots, value in self._collection_constructor_writes(
+                node.procedure,
+                operation,
+            ):
+                if self._direct_expression_fact(
+                    value,
+                    fact,
+                ) is not None or self._expr_is_tainted(node.procedure, value, fact):
+                    outputs.update(self._make_slot_fact(slot) for slot in slots)
             return tuple(outputs)
 
         if isinstance(operation, py_ast.Return):
@@ -276,6 +345,52 @@ class InterproceduralTaintProblem(
                     nested=False,
                 )
             )
+        return tuple(outputs)
+
+    def _unresolved_call_outputs(self, node: CFGNode, fact: object):
+        call_effect = self._call_effect(node)
+        if (
+            call_effect is None
+            or call_effect.callees
+            or not self.configuration.conservative_unresolved_call_side_effects
+        ):
+            return None
+
+        outputs = set(self._identity_outputs(fact, self._killed_slots_for_node(node)))
+        model = self._call_model_for_node(node)
+        if fact == ZERO_TAINT:
+            if model is not None and model.taint_source:
+                outputs.update(
+                    self._facts_for_nested_call_result(
+                        node.procedure,
+                        call_effect.operation,
+                        call_effect.call_expression,
+                        0,
+                        nested=False,
+                    )
+                )
+            return tuple(outputs)
+
+        if model is not None and model.taint_sanitizer:
+            return tuple(outputs)
+
+        if not any(
+            self._expr_is_tainted(node.procedure, actual, fact)
+            for actual in call_effect.actual_arguments
+        ):
+            return tuple(outputs)
+
+        for actual in call_effect.actual_arguments:
+            outputs.update(self._facts_for_expression_node(node.procedure, actual))
+        outputs.update(
+            self._facts_for_nested_call_result(
+                node.procedure,
+                call_effect.operation,
+                call_effect.call_expression,
+                0,
+                nested=False,
+            )
+        )
         return tuple(outputs)
 
     def describe_fact(self, fact: object) -> str:

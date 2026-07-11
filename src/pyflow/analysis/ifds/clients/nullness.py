@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Mapping, Sequence
+from typing import FrozenSet, Mapping, Sequence
 
 from pyflow.analysis.cfg import graph as cfg_graph
 from pyflow.language.python import ast as py_ast
 
+from ._call_model import CallModelRegistry
 from ._client_common import AnnotatedFactProblemBase, build_entry_seeds
 from ..cfg_adapter import CFGNode, CFGSupergraphAdapter, assigned_locals
 from ..problem import IFDSProblem
@@ -16,6 +17,17 @@ from ..transfers import actual_argument_expressions
 
 
 ZERO_NULLNESS = "ZERO_NULLNESS"
+
+
+@dataclass(frozen=True)
+class NullnessConfiguration:
+    """Name-based nullness models for calls whose bodies are not available."""
+
+    nullable_return_names: FrozenSet[str] = frozenset()
+    collection_mutator_names: FrozenSet[str] = frozenset(
+        {"append", "add", "extend", "update"}
+    )
+    collection_accessor_names: FrozenSet[str] = frozenset({"get"})
 
 
 @dataclass(frozen=True)
@@ -83,9 +95,16 @@ class InterproceduralNullnessProblem(
     def __init__(
         self,
         adapter: CFGSupergraphAdapter,
+        configuration: NullnessConfiguration | None = None,
         entry_nodes: Sequence[CFGNode] | None = None,
     ) -> None:
-        super().__init__(adapter)
+        self.configuration = configuration or NullnessConfiguration()
+        super().__init__(
+            adapter,
+            call_models=CallModelRegistry.from_nullness_configuration(
+                self.configuration
+            ),
+        )
         if entry_nodes is None:
             raise ValueError(
                 "IFDS nullness requires explicit entry_nodes; "
@@ -105,6 +124,10 @@ class InterproceduralNullnessProblem(
         return build_entry_seeds(self.entry_nodes, ZERO_NULLNESS)
 
     def normal_flow(self, node: CFGNode, successor: CFGNode, fact: object):
+        local_call_outputs = self._local_call_outputs(node, fact)
+        if local_call_outputs is not None:
+            return local_call_outputs
+
         condition_outputs = self._condition_outputs(node, successor, fact)
         if condition_outputs is not None:
             return condition_outputs
@@ -115,6 +138,49 @@ class InterproceduralNullnessProblem(
             return self._identity_outputs(fact, ())
 
         killed = self._killed_slots_for_node(node)
+        dynamic_setattr_slots = self._dynamic_setattr_slots(node.procedure, operation)
+        if dynamic_setattr_slots:
+            outputs = set(self._identity_outputs(fact, killed))
+            value = self._dynamic_setattr_value(operation)
+            if value is not None and (
+                self._direct_expression_fact(value, fact) is not None
+                or self._expr_is_nullable(node.procedure, value, fact)
+            ):
+                outputs.update(
+                    self._make_slot_fact(slot) for slot in dynamic_setattr_slots
+                )
+            return tuple(outputs)
+
+        dynamic_subscript_slots = self._dynamic_subscript_write_slots(
+            node.procedure, operation
+        )
+        if dynamic_subscript_slots:
+            outputs = set(self._identity_outputs(fact, killed))
+            value = self._dynamic_subscript_value(operation)
+            if value is not None and (
+                self._direct_expression_fact(value, fact) is not None
+                or self._expr_is_nullable(node.procedure, value, fact)
+            ):
+                outputs.update(self._facts_for_modified_operation(operation))
+                outputs.update(
+                    self._make_slot_fact(slot) for slot in dynamic_subscript_slots
+                )
+            return tuple(outputs)
+
+        collection_slots, collection_values = self._collection_mutation(
+            node.procedure,
+            operation,
+            self.configuration.collection_mutator_names,
+        )
+        if collection_slots:
+            outputs = set(self._identity_outputs(fact, killed))
+            if any(
+                self._direct_expression_fact(value, fact) is not None
+                or self._expr_is_nullable(node.procedure, value, fact)
+                for value in collection_values
+            ):
+                outputs.update(self._make_slot_fact(slot) for slot in collection_slots)
+            return tuple(outputs)
 
         if isinstance(operation, (py_ast.Assign, py_ast.UnpackSequence, py_ast.AnnAssign)):
             outputs = set(self._identity_outputs(fact, killed))
@@ -134,13 +200,35 @@ class InterproceduralNullnessProblem(
                     )
                 )
                 return tuple(outputs)
-            if expr is not None and self._expr_is_nullable(node.procedure, expr, fact):
+            constructor_writes = self._collection_constructor_writes(
+                node.procedure,
+                operation,
+            )
+            if (
+                expr is not None
+                and not constructor_writes
+                and self._expr_is_nullable(node.procedure, expr, fact)
+            ):
                 outputs.update(
                     self._facts_for_locals(
                         node.procedure,
                         targets,
                     )
                 )
+            outputs.update(
+                self._make_slot_fact(slot)
+                for slot in self._aliased_dynamic_slots_for_assignment(
+                    node.procedure,
+                    operation,
+                    fact,
+                )
+            )
+            for slots, value in constructor_writes:
+                if self._direct_expression_fact(
+                    value,
+                    fact,
+                ) is not None or self._expr_is_nullable(node.procedure, value, fact):
+                    outputs.update(self._make_slot_fact(slot) for slot in slots)
             return tuple(outputs)
 
         if isinstance(operation, py_ast.Return):
@@ -214,11 +302,22 @@ class InterproceduralNullnessProblem(
 
         return_index = self._return_fact_index(callee, exit_fact)
         if return_index is not None:
+            call_effect = self._call_effect(call_node)
+            operation = (
+                call_effect.operation
+                if call_effect is not None
+                else self.adapter.operation_of(call_node)
+            )
+            call_expression = (
+                call_effect.call_expression
+                if call_effect is not None
+                else self.adapter.call_expression_of(call_node)
+            )
             outputs.update(
                 self._facts_for_nested_call_result(
                     call_node.procedure,
-                    call_effect.operation if (call_effect := self._call_effect(call_node)) is not None else self.adapter.operation_of(call_node),
-                    call_effect.call_expression if call_effect is not None else self.adapter.call_expression_of(call_node),
+                    operation,
+                    call_expression,
                     return_index,
                     nested=False,
                 )
@@ -230,6 +329,29 @@ class InterproceduralNullnessProblem(
         del return_site
         killed = self._killed_slots_for_node(call_node)
         return self._identity_outputs(fact, killed)
+
+    def _local_call_outputs(self, node: CFGNode, fact: object):
+        call_effect = self._call_effect(node)
+        if call_effect is None or call_effect.callees:
+            return None
+
+        outputs = set(self._identity_outputs(fact, self._killed_slots_for_node(node)))
+        model = self._call_model_for_node(node)
+        if (
+            fact == ZERO_NULLNESS
+            and model is not None
+            and model.nullness_nullable_return
+        ):
+            outputs.update(
+                self._facts_for_nested_call_result(
+                    node.procedure,
+                    call_effect.operation,
+                    call_effect.call_expression,
+                    0,
+                    nested=False,
+                )
+            )
+        return tuple(outputs)
 
     def findings(self, result) -> tuple[NullnessFinding, ...]:
         findings: list[NullnessFinding] = []
@@ -468,11 +590,16 @@ class InterproceduralNullnessAnalysis:
     def __init__(
         self,
         adapter: CFGSupergraphAdapter,
+        configuration: NullnessConfiguration | None = None,
         *,
         entry_nodes: Sequence[CFGNode] | None = None,
         record_traces: bool = False,
     ) -> None:
-        self.problem = InterproceduralNullnessProblem(adapter, entry_nodes=entry_nodes)
+        self.problem = InterproceduralNullnessProblem(
+            adapter,
+            configuration=configuration,
+            entry_nodes=entry_nodes,
+        )
         self.record_traces = record_traces
 
     def solve(self) -> NullnessAnalysisResult:
@@ -482,6 +609,7 @@ class InterproceduralNullnessAnalysis:
 
 def analyze_nullness(
     adapter: CFGSupergraphAdapter,
+    configuration: NullnessConfiguration | None = None,
     *,
     entry_nodes: Sequence[CFGNode] | None = None,
     record_traces: bool = False,
@@ -489,6 +617,7 @@ def analyze_nullness(
     """Convenience entry point for interprocedural nullness analysis."""
     return InterproceduralNullnessAnalysis(
         adapter,
+        configuration=configuration,
         entry_nodes=entry_nodes,
         record_traces=record_traces,
     ).solve()

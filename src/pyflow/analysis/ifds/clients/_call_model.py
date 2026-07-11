@@ -102,6 +102,14 @@ class CallModelRegistry:
         )
         return cls(models)
 
+    @classmethod
+    def from_nullness_configuration(cls, configuration) -> "CallModelRegistry":
+        models = [
+            CallModel(name=name, nullness_nullable_return=True)
+            for name in configuration.nullable_return_names
+        ]
+        return cls(models)
+
     def merged(self, *others: "CallModelRegistry") -> "CallModelRegistry":
         models = list(self._models.values())
         for other in others:

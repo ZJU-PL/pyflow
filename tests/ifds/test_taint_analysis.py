@@ -202,6 +202,56 @@ def test_interprocedural_taint_handles_return_calls():
     assert [local.name for local in result.findings[0].tainted_arguments] == ["tainted"]
 
 
+def test_taint_conservatively_models_unresolved_call_side_effects_when_enabled():
+    compiler = context.CompilerContext(None)
+
+    source_code, _ = make_code("source", [], [], return_name="source_ret")
+    sink_value = ast.Local("sink_value")
+    sink_code, _ = make_code("sink", [sink_value], [], return_name="sink_ret")
+
+    tainted = ast.Local("tainted")
+    target = ast.Local("target")
+    main_code, _ = make_code(
+        "main",
+        [],
+        [
+            ast.Assign(ast.DirectCall(source_code, None, [], [], None, None), [tainted]),
+            ast.Assign(ast.Existing(ast.program.Object(0)), [target]),
+            ast.Discard(
+                ast.Call(
+                    ast.Local("dynamic_update"),
+                    [tainted, target],
+                    [],
+                    None,
+                    None,
+                )
+            ),
+            ast.Discard(ast.DirectCall(sink_code, None, [target], [], None, None)),
+            ast.Return([target]),
+        ],
+        return_name="main_ret",
+    )
+
+    cfgs = [
+        build_cfg(compiler, main_code),
+        build_cfg(compiler, source_code),
+        build_cfg(compiler, sink_code),
+    ]
+    adapter = build_supergraph_from_cfgs(cfgs)
+    result = analyze_taint(
+        adapter,
+        TaintConfiguration(
+            source_names=frozenset({"source"}),
+            sink_names=frozenset({"sink"}),
+            conservative_unresolved_call_side_effects=True,
+        ),
+        entry_nodes=[adapter.supergraph.entry_of(cfgs[0])],
+    )
+
+    assert len(result.findings) == 1
+    assert [local.name for local in result.findings[0].tainted_arguments] == ["target"]
+
+
 def test_interprocedural_taint_flows_through_if_branch_merge():
     compiler = context.CompilerContext(None)
 
@@ -558,6 +608,467 @@ def test_interprocedural_taint_tracks_attribute_global_and_cell_flows():
         label for finding in result.findings for label in finding.tainted_argument_labels
     )
     assert labels == ["SHARED", "captured", "obj.payload"]
+
+
+def test_interprocedural_taint_tracks_constant_name_getattr_setattr_field_flow():
+    compiler = context.CompilerContext(None)
+
+    source_code, _ = make_code("source", [], [], return_name="source_ret")
+    sink_value = ast.Local("sink_value")
+    sink_code, _ = make_code("sink", [sink_value], [], return_name="sink_ret")
+
+    obj = ast.Local("obj")
+    out = ast.Local("out")
+    payload_name = ast.Existing(ast.program.Object("payload"))
+    main_code, _ = make_code(
+        "main",
+        [obj],
+        [
+            ast.Discard(
+                ast.Call(
+                    ast.Local("setattr"),
+                    [
+                        obj,
+                        payload_name,
+                        ast.DirectCall(source_code, None, [], [], None, None),
+                    ],
+                    [],
+                    None,
+                    None,
+                )
+            ),
+            ast.Assign(
+                ast.Call(ast.Local("getattr"), [obj, payload_name], [], None, None),
+                [out],
+            ),
+            ast.Discard(ast.DirectCall(sink_code, None, [out], [], None, None)),
+            ast.Return([]),
+        ],
+        return_name="main_ret",
+    )
+
+    cfgs = [
+        build_cfg(compiler, main_code),
+        build_cfg(compiler, source_code),
+        build_cfg(compiler, sink_code),
+    ]
+    adapter = build_supergraph_from_cfgs(cfgs)
+    result = analyze_taint(
+        adapter,
+        TaintConfiguration(
+            source_names=frozenset({"source"}),
+            sink_names=frozenset({"sink"}),
+        ),
+        entry_nodes=[adapter.supergraph.entry_of(cfgs[0])],
+    )
+
+    assert len(result.findings) == 1
+    assert [local.name for local in result.findings[0].tainted_arguments] == ["out"]
+
+
+def test_interprocedural_taint_tracks_unknown_name_setattr_to_constant_getattr():
+    compiler = context.CompilerContext(None)
+
+    source_code, _ = make_code("source", [], [], return_name="source_ret")
+    sink_value = ast.Local("sink_value")
+    sink_code, _ = make_code("sink", [sink_value], [], return_name="sink_ret")
+
+    obj = ast.Local("obj")
+    name = ast.Local("name")
+    out = ast.Local("out")
+    payload_name = ast.Existing(ast.program.Object("payload"))
+    main_code, _ = make_code(
+        "main",
+        [obj, name],
+        [
+            ast.Discard(
+                ast.Call(
+                    ast.Local("setattr"),
+                    [
+                        obj,
+                        name,
+                        ast.DirectCall(source_code, None, [], [], None, None),
+                    ],
+                    [],
+                    None,
+                    None,
+                )
+            ),
+            ast.Assign(
+                ast.Call(ast.Local("getattr"), [obj, payload_name], [], None, None),
+                [out],
+            ),
+            ast.Discard(ast.DirectCall(sink_code, None, [out], [], None, None)),
+            ast.Return([]),
+        ],
+        return_name="main_ret",
+    )
+
+    cfgs = [
+        build_cfg(compiler, main_code),
+        build_cfg(compiler, source_code),
+        build_cfg(compiler, sink_code),
+    ]
+    adapter = build_supergraph_from_cfgs(cfgs)
+    result = analyze_taint(
+        adapter,
+        TaintConfiguration(
+            source_names=frozenset({"source"}),
+            sink_names=frozenset({"sink"}),
+        ),
+        entry_nodes=[adapter.supergraph.entry_of(cfgs[0])],
+    )
+
+    assert len(result.findings) == 1
+    assert [local.name for local in result.findings[0].tainted_arguments] == ["out"]
+
+
+def test_interprocedural_taint_tracks_unknown_subscript_write_to_constant_read():
+    compiler = context.CompilerContext(None)
+
+    source_code, _ = make_code("source", [], [], return_name="source_ret")
+    sink_value = ast.Local("sink_value")
+    sink_code, _ = make_code("sink", [sink_value], [], return_name="sink_ret")
+
+    obj = ast.Local("obj")
+    key = ast.Local("key")
+    out = ast.Local("out")
+    payload = ast.Existing(ast.program.Object("payload"))
+    main_code, _ = make_code(
+        "main",
+        [obj, key],
+        [
+            ast.SetSubscript(
+                ast.DirectCall(source_code, None, [], [], None, None),
+                obj,
+                key,
+            ),
+            ast.Assign(ast.GetSubscript(obj, payload), [out]),
+            ast.Discard(ast.DirectCall(sink_code, None, [out], [], None, None)),
+            ast.Return([]),
+        ],
+        return_name="main_ret",
+    )
+
+    cfgs = [
+        build_cfg(compiler, main_code),
+        build_cfg(compiler, source_code),
+        build_cfg(compiler, sink_code),
+    ]
+    adapter = build_supergraph_from_cfgs(cfgs)
+    result = analyze_taint(
+        adapter,
+        TaintConfiguration(
+            source_names=frozenset({"source"}),
+            sink_names=frozenset({"sink"}),
+        ),
+        entry_nodes=[adapter.supergraph.entry_of(cfgs[0])],
+    )
+
+    assert len(result.findings) == 1
+    assert [local.name for local in result.findings[0].tainted_arguments] == ["out"]
+
+
+def test_interprocedural_taint_tracks_collection_mutator_to_subscript_read():
+    compiler = context.CompilerContext(None)
+
+    source_code, _ = make_code("source", [], [], return_name="source_ret")
+    sink_value = ast.Local("sink_value")
+    sink_code, _ = make_code("sink", [sink_value], [], return_name="sink_ret")
+
+    items = ast.Local("items")
+    out = ast.Local("out")
+    index = ast.Existing(ast.program.Object(0))
+    main_code, _ = make_code(
+        "main",
+        [items],
+        [
+            ast.Discard(
+                ast.MethodCall(
+                    items,
+                    ast.Local("append"),
+                    [ast.DirectCall(source_code, None, [], [], None, None)],
+                    [],
+                    None,
+                    None,
+                )
+            ),
+            ast.Assign(ast.GetSubscript(items, index), [out]),
+            ast.Discard(ast.DirectCall(sink_code, None, [out], [], None, None)),
+            ast.Return([]),
+        ],
+        return_name="main_ret",
+    )
+
+    cfgs = [
+        build_cfg(compiler, main_code),
+        build_cfg(compiler, source_code),
+        build_cfg(compiler, sink_code),
+    ]
+    adapter = build_supergraph_from_cfgs(cfgs)
+    result = analyze_taint(
+        adapter,
+        TaintConfiguration(
+            source_names=frozenset({"source"}),
+            sink_names=frozenset({"sink"}),
+        ),
+        entry_nodes=[adapter.supergraph.entry_of(cfgs[0])],
+    )
+
+    assert len(result.findings) == 1
+    assert [local.name for local in result.findings[0].tainted_arguments] == ["out"]
+
+
+def test_interprocedural_taint_tracks_function_style_collection_mutator_to_subscript_read():
+    compiler = context.CompilerContext(None)
+
+    source_code, _ = make_code("source", [], [], return_name="source_ret")
+    sink_value = ast.Local("sink_value")
+    sink_code, _ = make_code("sink", [sink_value], [], return_name="sink_ret")
+
+    items = ast.Local("items")
+    out = ast.Local("out")
+    index = ast.Existing(ast.program.Object(0))
+    main_code, _ = make_code(
+        "main",
+        [items],
+        [
+            ast.Discard(
+                ast.Call(
+                    ast.Local("append"),
+                    [
+                        items,
+                        ast.DirectCall(source_code, None, [], [], None, None),
+                    ],
+                    [],
+                    None,
+                    None,
+                )
+            ),
+            ast.Assign(ast.GetSubscript(items, index), [out]),
+            ast.Discard(ast.DirectCall(sink_code, None, [out], [], None, None)),
+            ast.Return([]),
+        ],
+        return_name="main_ret",
+    )
+
+    cfgs = [
+        build_cfg(compiler, main_code),
+        build_cfg(compiler, source_code),
+        build_cfg(compiler, sink_code),
+    ]
+    adapter = build_supergraph_from_cfgs(cfgs)
+    result = analyze_taint(
+        adapter,
+        TaintConfiguration(
+            source_names=frozenset({"source"}),
+            sink_names=frozenset({"sink"}),
+        ),
+        entry_nodes=[adapter.supergraph.entry_of(cfgs[0])],
+    )
+
+    assert len(result.findings) == 1
+    assert [local.name for local in result.findings[0].tainted_arguments] == ["out"]
+
+
+def test_interprocedural_taint_tracks_collection_accessor_to_subscript_slot():
+    compiler = context.CompilerContext(None)
+
+    source_code, _ = make_code("source", [], [], return_name="source_ret")
+    sink_value = ast.Local("sink_value")
+    sink_code, _ = make_code("sink", [sink_value], [], return_name="sink_ret")
+
+    items = ast.Local("items")
+    out = ast.Local("out")
+    key = ast.Existing(ast.program.Object("payload"))
+    main_code, _ = make_code(
+        "main",
+        [items],
+        [
+            ast.SetSubscript(
+                ast.DirectCall(source_code, None, [], [], None, None),
+                items,
+                key,
+            ),
+            ast.Assign(ast.MethodCall(items, ast.Local("get"), [key], [], None, None), [out]),
+            ast.Discard(ast.DirectCall(sink_code, None, [out], [], None, None)),
+            ast.Return([]),
+        ],
+        return_name="main_ret",
+    )
+
+    cfgs = [
+        build_cfg(compiler, main_code),
+        build_cfg(compiler, source_code),
+        build_cfg(compiler, sink_code),
+    ]
+    adapter = build_supergraph_from_cfgs(cfgs)
+    result = analyze_taint(
+        adapter,
+        TaintConfiguration(
+            source_names=frozenset({"source"}),
+            sink_names=frozenset({"sink"}),
+        ),
+        entry_nodes=[adapter.supergraph.entry_of(cfgs[0])],
+    )
+
+    assert len(result.findings) == 1
+    assert [local.name for local in result.findings[0].tainted_arguments] == ["out"]
+
+
+def test_interprocedural_taint_tracks_list_literal_element_to_subscript_read():
+    compiler = context.CompilerContext(None)
+
+    source_code, _ = make_code("source", [], [], return_name="source_ret")
+    sink_value = ast.Local("sink_value")
+    sink_code, _ = make_code("sink", [sink_value], [], return_name="sink_ret")
+
+    items = ast.Local("items")
+    out = ast.Local("out")
+    index = ast.Existing(ast.program.Object(0))
+    main_code, _ = make_code(
+        "main",
+        [],
+        [
+            ast.Assign(
+                ast.BuildList([ast.DirectCall(source_code, None, [], [], None, None)]),
+                [items],
+            ),
+            ast.Assign(ast.GetSubscript(items, index), [out]),
+            ast.Discard(ast.DirectCall(sink_code, None, [out], [], None, None)),
+            ast.Return([]),
+        ],
+        return_name="main_ret",
+    )
+
+    cfgs = [
+        build_cfg(compiler, main_code),
+        build_cfg(compiler, source_code),
+        build_cfg(compiler, sink_code),
+    ]
+    adapter = build_supergraph_from_cfgs(cfgs)
+    result = analyze_taint(
+        adapter,
+        TaintConfiguration(
+            source_names=frozenset({"source"}),
+            sink_names=frozenset({"sink"}),
+        ),
+        entry_nodes=[adapter.supergraph.entry_of(cfgs[0])],
+    )
+
+    assert len(result.findings) == 1
+    assert [local.name for local in result.findings[0].tainted_arguments] == ["out"]
+
+
+def test_interprocedural_taint_copies_dynamic_subscript_facts_to_alias():
+    compiler = context.CompilerContext(None)
+
+    source_code, _ = make_code("source", [], [], return_name="source_ret")
+    sink_value = ast.Local("sink_value")
+    sink_code, _ = make_code("sink", [sink_value], [], return_name="sink_ret")
+
+    items = ast.Local("items")
+    alias = ast.Local("alias")
+    out = ast.Local("out")
+    index = ast.Existing(ast.program.Object(0))
+    main_code, _ = make_code(
+        "main",
+        [items],
+        [
+            ast.SetSubscript(
+                ast.DirectCall(source_code, None, [], [], None, None),
+                items,
+                index,
+            ),
+            ast.Assign(items, [alias]),
+            ast.Assign(ast.GetSubscript(alias, index), [out]),
+            ast.Discard(ast.DirectCall(sink_code, None, [out], [], None, None)),
+            ast.Return([]),
+        ],
+        return_name="main_ret",
+    )
+
+    cfgs = [
+        build_cfg(compiler, main_code),
+        build_cfg(compiler, source_code),
+        build_cfg(compiler, sink_code),
+    ]
+    adapter = build_supergraph_from_cfgs(cfgs)
+    result = analyze_taint(
+        adapter,
+        TaintConfiguration(
+            source_names=frozenset({"source"}),
+            sink_names=frozenset({"sink"}),
+        ),
+        entry_nodes=[adapter.supergraph.entry_of(cfgs[0])],
+    )
+
+    assert len(result.findings) == 1
+    assert [local.name for local in result.findings[0].tainted_arguments] == ["out"]
+
+
+def test_interprocedural_taint_deletes_lowered_subscript_fact():
+    compiler = context.CompilerContext(None)
+
+    source_code, _ = make_code("source", [], [], return_name="source_ret")
+    sink_value = ast.Local("sink_value")
+    sink_code, _ = make_code("sink", [sink_value], [], return_name="sink_ret")
+
+    items = ast.Local("items")
+    out = ast.Local("out")
+    key = ast.Existing(ast.program.Object("payload"))
+    getitem = ast.Call(
+        ast.Existing(ast.program.Object("interpreter_getitem")),
+        [items, key],
+        [],
+        None,
+        None,
+    )
+    main_code, _ = make_code(
+        "main",
+        [items],
+        [
+            ast.Discard(
+                ast.Call(
+                    ast.Existing(ast.program.Object("interpreter_setitem")),
+                    [items, key, ast.DirectCall(source_code, None, [], [], None, None)],
+                    [],
+                    None,
+                    None,
+                )
+            ),
+            ast.Discard(
+                ast.Call(
+                    ast.Existing(ast.program.Object("interpreter_delitem")),
+                    [items, key],
+                    [],
+                    None,
+                    None,
+                )
+            ),
+            ast.Assign(getitem, [out]),
+            ast.Discard(ast.DirectCall(sink_code, None, [out], [], None, None)),
+            ast.Return([]),
+        ],
+        return_name="main_ret",
+    )
+
+    cfgs = [
+        build_cfg(compiler, main_code),
+        build_cfg(compiler, source_code),
+        build_cfg(compiler, sink_code),
+    ]
+    adapter = build_supergraph_from_cfgs(cfgs)
+    result = analyze_taint(
+        adapter,
+        TaintConfiguration(
+            source_names=frozenset({"source"}),
+            sink_names=frozenset({"sink"}),
+        ),
+        entry_nodes=[adapter.supergraph.entry_of(cfgs[0])],
+    )
+
+    assert result.findings == ()
 
 
 def test_interprocedural_taint_strong_updates_locals_and_globals():

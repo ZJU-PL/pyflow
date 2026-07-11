@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
+import pyflow.analysis.ifds.api as ifds_api
 from pyflow.analysis.ifds.api import (
     load_analysis_session,
     run_nullness_analysis,
@@ -62,6 +63,36 @@ def test_run_taint_analysis_api_on_source_file(tmp_path):
     assert [local.name for local in result.findings[0].tainted_arguments] == ["b"]
 
 
+def test_run_taint_analysis_api_models_source_level_subscript_helpers(tmp_path):
+    target = tmp_path / "subscript_sample.py"
+    target.write_text(
+        """
+def source():
+    return 1
+
+def sink(x):
+    return x
+
+def main():
+    items = []
+    items[0] = source()
+    out = items[0]
+    sink(out)
+"""
+    )
+
+    _session, result = run_taint_analysis(
+        [target],
+        function="main",
+        source_names=["source"],
+        sink_names=["sink"],
+    )
+
+    assert len(result.findings) == 1
+    assert result.findings[0].sink_name == "sink"
+    assert [local.name for local in result.findings[0].tainted_arguments] == ["out"]
+
+
 def test_run_nullness_analysis_api_on_source_file(tmp_path):
     target = tmp_path / "nullness_sample.py"
     target.write_text(
@@ -103,6 +134,130 @@ def main():
 
     assert {code.codeName() for code in session.program.liveCode} >= {"main"}
     assert any(f.kind == "use_after_close" for f in result.findings)
+
+
+def test_run_taint_analysis_forwards_dynamic_model_configuration(monkeypatch):
+    captured = {}
+    expected_result = object()
+
+    monkeypatch.setattr(
+        ifds_api,
+        "load_analysis_session",
+        lambda *_args, **_kwargs: SimpleNamespace(adapter=object()),
+    )
+    monkeypatch.setattr(
+        ifds_api,
+        "_entry_nodes_from_program",
+        lambda *_args, **_kwargs: ("entry",),
+    )
+
+    def fake_analyze_taint(adapter, configuration, *, entry_nodes):
+        captured["configuration"] = configuration
+        captured["entry_nodes"] = entry_nodes
+        return expected_result
+
+    monkeypatch.setattr(ifds_api, "analyze_taint", fake_analyze_taint)
+
+    _session, result = run_taint_analysis(
+        ["sample.py"],
+        function="main",
+        source_names=["source"],
+        sink_names=["sink"],
+        sanitizer_names=["clean"],
+        collection_mutator_names=["append_safe"],
+        collection_accessor_names=["fetch"],
+        conservative_unresolved_call_side_effects=True,
+    )
+
+    assert result is expected_result
+    assert captured["entry_nodes"] == ("entry",)
+    configuration = captured["configuration"]
+    assert configuration.source_names == frozenset({"source"})
+    assert configuration.sink_names == frozenset({"sink"})
+    assert configuration.sanitizer_names == frozenset({"clean"})
+    assert configuration.collection_mutator_names == frozenset({"append_safe"})
+    assert configuration.collection_accessor_names == frozenset({"fetch"})
+    assert configuration.conservative_unresolved_call_side_effects is True
+
+
+def test_run_nullness_analysis_forwards_dynamic_model_configuration(monkeypatch):
+    captured = {}
+    expected_result = object()
+
+    monkeypatch.setattr(
+        ifds_api,
+        "load_analysis_session",
+        lambda *_args, **_kwargs: SimpleNamespace(adapter=object()),
+    )
+    monkeypatch.setattr(
+        ifds_api,
+        "_entry_nodes_from_program",
+        lambda *_args, **_kwargs: ("entry",),
+    )
+
+    def fake_analyze_nullness(adapter, configuration, *, entry_nodes):
+        captured["configuration"] = configuration
+        captured["entry_nodes"] = entry_nodes
+        return expected_result
+
+    monkeypatch.setattr(ifds_api, "analyze_nullness", fake_analyze_nullness)
+
+    _session, result = run_nullness_analysis(
+        ["sample.py"],
+        function="main",
+        nullable_return_names=["maybe_none"],
+        collection_mutator_names=["append_safe"],
+        collection_accessor_names=["fetch"],
+    )
+
+    assert result is expected_result
+    assert captured["entry_nodes"] == ("entry",)
+    configuration = captured["configuration"]
+    assert configuration.nullable_return_names == frozenset({"maybe_none"})
+    assert configuration.collection_mutator_names == frozenset({"append_safe"})
+    assert configuration.collection_accessor_names == frozenset({"fetch"})
+
+
+def test_run_typestate_analysis_forwards_dynamic_model_configuration(monkeypatch):
+    captured = {}
+    expected_result = object()
+
+    monkeypatch.setattr(
+        ifds_api,
+        "load_analysis_session",
+        lambda *_args, **_kwargs: SimpleNamespace(adapter=object()),
+    )
+    monkeypatch.setattr(
+        ifds_api,
+        "_entry_nodes_from_program",
+        lambda *_args, **_kwargs: ("entry",),
+    )
+
+    def fake_analyze_typestate(adapter, configuration, *, entry_nodes):
+        captured["configuration"] = configuration
+        captured["entry_nodes"] = entry_nodes
+        return expected_result
+
+    monkeypatch.setattr(ifds_api, "analyze_typestate", fake_analyze_typestate)
+
+    _session, result = run_typestate_analysis(
+        ["sample.py"],
+        function="main",
+        open_names=["open_file"],
+        close_names=["close_file"],
+        use_names=["read_file"],
+        collection_mutator_names=["append_safe"],
+        collection_accessor_names=["fetch"],
+    )
+
+    assert result is expected_result
+    assert captured["entry_nodes"] == ("entry",)
+    configuration = captured["configuration"]
+    assert configuration.open_names == frozenset({"open_file"})
+    assert configuration.close_names == frozenset({"close_file"})
+    assert configuration.use_names == frozenset({"read_file"})
+    assert configuration.collection_mutator_names == frozenset({"append_safe"})
+    assert configuration.collection_accessor_names == frozenset({"fetch"})
 
 
 def test_run_taint_analysis_api_on_repo_backed_multi_file_snippet():

@@ -44,6 +44,20 @@ class _DummyResult:
         return {}
 
 
+class _EmptyResult:
+    findings = ()
+    statistics = SimpleNamespace(
+        processed_path_edges=1,
+        propagated_path_edges=2,
+        normal_flow_steps=3,
+        call_flow_steps=4,
+        return_flow_steps=5,
+        call_to_return_steps=6,
+        incoming_records=7,
+        summary_updates=8,
+    )
+
+
 def _make_args(output_format: str) -> SimpleNamespace:
     return SimpleNamespace(
         function="main",
@@ -151,6 +165,35 @@ def main():
     assert exit_code == 1
     assert payload["diagnostics"] == []
     assert payload["findings"][0]["tainted_arguments"] == ["source()"]
+
+
+def test_dataflow_cli_forwards_dynamic_model_options(monkeypatch, tmp_path, capsys):
+    target = tmp_path / "sample.py"
+    target.write_text("def main():\n    return 0\n", encoding="utf-8")
+
+    captured = {}
+    fake_result = _EmptyResult()
+
+    def fake_run_taint_analysis(*_args, **kwargs):
+        captured.update(kwargs)
+        session = SimpleNamespace(compiler=object(), diagnostics=())
+        return session, fake_result
+
+    monkeypatch.setattr(dataflow_cli, "run_taint_analysis", fake_run_taint_analysis)
+
+    args = _make_args("json")
+    args.collection_mutators = ["append_safe"]
+    args.collection_accessors = ["fetch"]
+    args.conservative_unresolved_calls = True
+
+    exit_code = dataflow_cli.run_dataflow_analysis(target, args)
+    payload = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 0
+    assert payload["findings"] == []
+    assert captured["collection_mutator_names"] == ["append_safe"]
+    assert captured["collection_accessor_names"] == ["fetch"]
+    assert captured["conservative_unresolved_call_side_effects"] is True
 
 
 @pytest.mark.parametrize("output_format", ["text", "json"])

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from typing import Generic, Iterable, Sequence, TypeVar
 
 from pyflow.application.errors import TemporaryLimitation
@@ -10,16 +11,34 @@ from pyflow.analysis.cfg import graph as cfg_graph
 from pyflow.language.python import ast as py_ast
 
 from ..cfg_adapter import CFGNode, CFGSupergraphAdapter, CallEffect, GuardEffect, assigned_locals
-from ..transfers import collect_locals, resolve_call_name
+from ..transfers import actual_argument_expressions, collect_locals, resolve_call_name
 from ._call_model import CallModelRegistry
 
 
 FactT = TypeVar("FactT")
+DYNAMIC_ATTRIBUTE_WILDCARD = "*"
+DYNAMIC_SUBSCRIPT_WILDCARD = "[*]"
 
 
 def build_entry_seeds(entry_nodes: Sequence[CFGNode], zero_fact: object):
     """Build standard zero-fact seeds for entry-rooted IFDS analyses."""
     return {node: frozenset({zero_fact}) for node in entry_nodes}
+
+
+@dataclass(frozen=True)
+class DynamicAttributeSlot:
+    """Synthetic field slot for reflection through getattr/setattr."""
+
+    base: object
+    attribute: str
+
+
+@dataclass(frozen=True)
+class DynamicSubscriptSlot:
+    """Synthetic element slot for subscript reads/writes."""
+
+    base: object
+    subscript: str
 
 
 class AnnotatedFactProblemBase(Generic[FactT], ABC):
@@ -60,8 +79,13 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
     ) -> tuple[cfg_graph.Code, py_ast.PythonASTNode, int] | None:
         raise NotImplementedError
 
-    def local_slots(self, procedure: cfg_graph.Code, local: py_ast.Local) -> tuple[object, ...]:
-        return tuple(self._slot_from_fact(fact) for fact in self._facts_for_locals(procedure, (local,)))
+    def local_slots(
+        self, procedure: cfg_graph.Code, local: py_ast.Local
+    ) -> tuple[object, ...]:
+        return tuple(
+            self._slot_from_fact(fact)
+            for fact in self._facts_for_locals(procedure, (local,))
+        )
 
     def _call_effect(self, node: CFGNode) -> CallEffect | None:
         effect = self.adapter.effect_of(node)
@@ -77,13 +101,15 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
 
     def _killed_slots_for_node(self, node: CFGNode) -> tuple[object, ...]:
         effect = self.adapter.effect_of(node)
+        operation = getattr(effect, "operation", self.adapter.operation_of(node))
+        dynamic_kills = self._dynamic_delete_slots(node.procedure, operation)
         strong_update_slots = getattr(effect, "strong_update_slots", None)
         if strong_update_slots:
-            return tuple(strong_update_slots)
+            return tuple(dict.fromkeys((*strong_update_slots, *dynamic_kills)))
         kill_slots = getattr(effect, "kill_slots", None)
         if kill_slots:
-            return tuple(kill_slots)
-        return ()
+            return tuple(dict.fromkeys((*kill_slots, *dynamic_kills)))
+        return dynamic_kills
 
     def _call_model_for_node(self, node: CFGNode):
         return self.call_models.model_for_name(self._call_name(node))
@@ -104,7 +130,9 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
             return None
         return result
 
-    def _facts_for_locals(self, procedure: cfg_graph.Code, locals_: Iterable[object]) -> set[FactT]:
+    def _facts_for_locals(
+        self, procedure: cfg_graph.Code, locals_: Iterable[object]
+    ) -> set[FactT]:
         facts: set[FactT] = set()
         for local in locals_:
             if not isinstance(local, py_ast.Local) or local.name is None:
@@ -135,7 +163,19 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
         if current is None or isinstance(current, py_ast.leafTypes):
             return ()
         if isinstance(current, (py_ast.DirectCall, py_ast.Call, py_ast.MethodCall)):
-            return (self._make_expression_fact(procedure, current),)
+            dynamic_facts = tuple(
+                self._make_slot_fact(slot)
+                for slot in (
+                    *self._dynamic_getattr_slots(procedure, current),
+                    *self._dynamic_subscript_read_slots(procedure, current),
+                    *self._collection_access_slots(
+                        procedure,
+                        current,
+                        self._collection_accessor_names(),
+                    ),
+                )
+            )
+            return (*dynamic_facts, self._make_expression_fact(procedure, current))
         return tuple(
             self._make_slot_fact(slot)
             for slot in self._slots_read_by_node(procedure, current)
@@ -153,9 +193,16 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
         if operation is None or call_expression is None:
             return set()
 
-        if isinstance(operation, (py_ast.Assign, py_ast.UnpackSequence)) and operation.expr is call_expression:
+        if (
+            isinstance(operation, (py_ast.Assign, py_ast.UnpackSequence))
+            and operation.expr is call_expression
+        ):
             if not nested:
-                return {self._make_expression_fact(procedure, call_expression, return_index)}
+                return {
+                    self._make_expression_fact(
+                        procedure, call_expression, return_index
+                    )
+                }
             return self._facts_for_assigned_locals(
                 procedure,
                 assigned_locals(operation),
@@ -163,7 +210,11 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
             )
         if isinstance(operation, py_ast.AnnAssign) and operation.value is call_expression:
             if not nested:
-                return {self._make_expression_fact(procedure, call_expression, return_index)}
+                return {
+                    self._make_expression_fact(
+                        procedure, call_expression, return_index
+                    )
+                }
             return self._facts_for_assigned_locals(
                 procedure,
                 assigned_locals(operation),
@@ -283,7 +334,10 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
         if operation is None or call_expression is None:
             return ()
 
-        if isinstance(operation, (py_ast.Assign, py_ast.UnpackSequence)) and operation.expr is call_expression:
+        if (
+            isinstance(operation, (py_ast.Assign, py_ast.UnpackSequence))
+            and operation.expr is call_expression
+        ):
             return tuple(
                 slot
                 for fact in self._facts_for_locals(procedure, assigned_locals(operation))
@@ -298,7 +352,10 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
                 if slot is not None
             )
 
-        if isinstance(operation, (py_ast.SetGlobal, py_ast.SetCellDeref)) and operation.value is call_expression:
+        if (
+            isinstance(operation, (py_ast.SetGlobal, py_ast.SetCellDeref))
+            and operation.value is call_expression
+        ):
             return tuple(
                 slot
                 for fact in self._facts_for_modified_operation(operation)
@@ -345,8 +402,389 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
         return ()
 
     def _facts_for_modified_operation(self, operation: object) -> set[FactT]:
-        slots = self._annotation_slots(getattr(getattr(operation, "annotation", None), "opModifies", None))
+        slots = self._annotation_slots(
+            getattr(getattr(operation, "annotation", None), "opModifies", None)
+        )
         return {self._make_slot_fact(slot) for slot in slots}
+
+    def _dynamic_getattr_slots(
+        self, procedure: cfg_graph.Code, expr: object
+    ) -> tuple[DynamicAttributeSlot, ...]:
+        call = self._dynamic_attribute_call(expr, {"getattr", "builtins.getattr"})
+        if call is None:
+            return ()
+        actuals = actual_argument_expressions(call)
+        if len(actuals) < 2:
+            return ()
+        attribute = self._constant_string(actuals[1])
+        attributes = (DYNAMIC_ATTRIBUTE_WILDCARD,)
+        if attribute is not None:
+            attributes = (attribute, DYNAMIC_ATTRIBUTE_WILDCARD)
+        return self._dynamic_attribute_slots(procedure, actuals[0], attributes)
+
+    def _dynamic_setattr_slots(
+        self, procedure: cfg_graph.Code, operation: object
+    ) -> tuple[DynamicAttributeSlot, ...]:
+        call = self._dynamic_attribute_call(operation, {"setattr", "builtins.setattr"})
+        if call is None:
+            return ()
+        actuals = actual_argument_expressions(call)
+        if len(actuals) < 2:
+            return ()
+        attribute = self._constant_string(actuals[1]) or DYNAMIC_ATTRIBUTE_WILDCARD
+        attributes = (attribute,)
+        if attribute != DYNAMIC_ATTRIBUTE_WILDCARD:
+            attributes = (attribute, DYNAMIC_ATTRIBUTE_WILDCARD)
+        return self._dynamic_attribute_slots(procedure, actuals[0], attributes)
+
+    def _dynamic_attribute_slots(
+        self,
+        procedure: cfg_graph.Code,
+        base_expr: object,
+        attributes: tuple[str, ...],
+    ) -> tuple[DynamicAttributeSlot, ...]:
+        slots: list[DynamicAttributeSlot] = []
+        seen: set[DynamicAttributeSlot] = set()
+        for base in self._slots_read_by_node(procedure, base_expr):
+            for attribute in attributes:
+                slot = DynamicAttributeSlot(base, attribute)
+                if slot in seen:
+                    continue
+                seen.add(slot)
+                slots.append(slot)
+        return tuple(slots)
+
+    def _dynamic_subscript_read_slots(
+        self, procedure: cfg_graph.Code, expr: object
+    ) -> tuple[DynamicSubscriptSlot, ...]:
+        if isinstance(expr, py_ast.GetSubscript):
+            container = expr.expr
+            key = expr.subscript
+        else:
+            call = self._call_from_expression_or_statement(expr)
+            if call is None or resolve_call_name(call) != "interpreter_getitem":
+                return ()
+            actuals = actual_argument_expressions(call)
+            if len(actuals) < 2:
+                return ()
+            container = actuals[0]
+            key = actuals[1]
+        return self._dynamic_subscript_slots_for_key(procedure, container, key)
+
+    def _dynamic_subscript_write_slots(
+        self, procedure: cfg_graph.Code, operation: object
+    ) -> tuple[DynamicSubscriptSlot, ...]:
+        target = self._dynamic_subscript_write_target(operation)
+        if target is None:
+            return ()
+        container, key, _value = target
+        return self._dynamic_subscript_slots_for_key(procedure, container, key)
+
+    def _dynamic_subscript_slots_for_key(
+        self,
+        procedure: cfg_graph.Code,
+        container: object,
+        key: object,
+    ) -> tuple[DynamicSubscriptSlot, ...]:
+        subscript = self._constant_subscript(key)
+        subscripts = (DYNAMIC_SUBSCRIPT_WILDCARD,)
+        if subscript is not None:
+            subscripts = (subscript, DYNAMIC_SUBSCRIPT_WILDCARD)
+        return self._dynamic_subscript_slots(procedure, container, subscripts)
+
+    def _dynamic_subscript_value(self, operation: object) -> object | None:
+        target = self._dynamic_subscript_write_target(operation)
+        if target is None:
+            return None
+        return target[2]
+
+    def _dynamic_delete_slots(
+        self,
+        procedure: cfg_graph.Code,
+        operation: object,
+    ) -> tuple[object, ...]:
+        slots = [
+            *self._dynamic_subscript_delete_slots(procedure, operation),
+            *self._dynamic_attribute_delete_slots(procedure, operation),
+        ]
+        return tuple(dict.fromkeys(slots))
+
+    def _dynamic_subscript_delete_slots(
+        self,
+        procedure: cfg_graph.Code,
+        operation: object,
+    ) -> tuple[DynamicSubscriptSlot, ...]:
+        if isinstance(operation, py_ast.DeleteSubscript):
+            return self._dynamic_subscript_slots_for_key(
+                procedure,
+                operation.expr,
+                operation.subscript,
+            )
+        call = self._call_from_expression_or_statement(operation)
+        if call is None or resolve_call_name(call) != "interpreter_delitem":
+            return ()
+        actuals = actual_argument_expressions(call)
+        if len(actuals) < 2:
+            return ()
+        return self._dynamic_subscript_slots_for_key(procedure, actuals[0], actuals[1])
+
+    def _dynamic_attribute_delete_slots(
+        self,
+        procedure: cfg_graph.Code,
+        operation: object,
+    ) -> tuple[DynamicAttributeSlot, ...]:
+        if not isinstance(operation, py_ast.DeleteAttr):
+            return ()
+        attribute = self._constant_string(operation.name) or DYNAMIC_ATTRIBUTE_WILDCARD
+        attributes = (attribute,)
+        if attribute != DYNAMIC_ATTRIBUTE_WILDCARD:
+            attributes = (attribute, DYNAMIC_ATTRIBUTE_WILDCARD)
+        return self._dynamic_attribute_slots(procedure, operation.expr, attributes)
+
+    def _dynamic_subscript_write_target(
+        self, operation: object
+    ) -> tuple[object, object, object] | None:
+        if isinstance(operation, py_ast.SetSubscript):
+            return operation.expr, operation.subscript, operation.value
+        call = self._call_from_expression_or_statement(operation)
+        if call is None or resolve_call_name(call) != "interpreter_setitem":
+            return None
+        actuals = actual_argument_expressions(call)
+        if len(actuals) < 3:
+            return None
+        return actuals[0], actuals[1], actuals[2]
+
+    def _dynamic_subscript_slots(
+        self,
+        procedure: cfg_graph.Code,
+        base_expr: object,
+        subscripts: tuple[str, ...],
+    ) -> tuple[DynamicSubscriptSlot, ...]:
+        slots: list[DynamicSubscriptSlot] = []
+        seen: set[DynamicSubscriptSlot] = set()
+        for base in self._slots_read_by_node(procedure, base_expr):
+            for subscript in subscripts:
+                slot = DynamicSubscriptSlot(base, subscript)
+                if slot in seen:
+                    continue
+                seen.add(slot)
+                slots.append(slot)
+        return tuple(slots)
+
+    def _collection_mutation(
+        self,
+        procedure: cfg_graph.Code,
+        operation: object,
+        mutator_names: frozenset[str],
+    ) -> tuple[tuple[DynamicSubscriptSlot, ...], tuple[object, ...]]:
+        call = self._call_from_expression_or_statement(operation)
+        if call is None or resolve_call_name(call) not in mutator_names:
+            return (), ()
+
+        actuals = actual_argument_expressions(call)
+        if isinstance(call, py_ast.MethodCall):
+            container = call.expr
+            values = actuals
+        else:
+            if len(actuals) < 2:
+                return (), ()
+            container = actuals[0]
+            values = actuals[1:]
+
+        slots = self._dynamic_subscript_slots(
+            procedure,
+            container,
+            (DYNAMIC_SUBSCRIPT_WILDCARD,),
+        )
+        return slots, tuple(values)
+
+    def _collection_constructor_writes(
+        self,
+        procedure: cfg_graph.Code,
+        operation: object,
+    ) -> tuple[tuple[tuple[DynamicSubscriptSlot, ...], object], ...]:
+        expr = None
+        if isinstance(operation, (py_ast.Assign, py_ast.UnpackSequence)):
+            expr = operation.expr
+        elif isinstance(operation, py_ast.AnnAssign):
+            expr = operation.value
+        if expr is None:
+            return ()
+
+        target_slots = tuple(
+            slot
+            for target in assigned_locals(operation)
+            for slot in self._slots_for_local(procedure, target)
+        )
+        if not target_slots:
+            return ()
+
+        writes: list[tuple[tuple[DynamicSubscriptSlot, ...], object]] = []
+        if isinstance(expr, py_ast.BuildTuple):
+            for index, value in enumerate(expr.args):
+                writes.append(
+                    (
+                        self._collection_constructor_slots(
+                            target_slots,
+                            (f"[{index!r}]", DYNAMIC_SUBSCRIPT_WILDCARD),
+                        ),
+                        value,
+                    )
+                )
+        elif isinstance(expr, (py_ast.BuildList, py_ast.BuildSet)):
+            for value in expr.args:
+                writes.append(
+                    (
+                        self._collection_constructor_slots(
+                            target_slots,
+                            (DYNAMIC_SUBSCRIPT_WILDCARD,),
+                        ),
+                        value,
+                    )
+                )
+        elif isinstance(expr, py_ast.BuildMap):
+            pairs = zip(expr.args[0::2], expr.args[1::2])
+            for key, value in pairs:
+                subscript = self._constant_subscript(key)
+                subscripts = (DYNAMIC_SUBSCRIPT_WILDCARD,)
+                if subscript is not None:
+                    subscripts = (subscript, DYNAMIC_SUBSCRIPT_WILDCARD)
+                writes.append(
+                    (
+                        self._collection_constructor_slots(target_slots, subscripts),
+                        value,
+                    )
+                )
+        return tuple(writes)
+
+    def _collection_constructor_slots(
+        self,
+        bases: tuple[object, ...],
+        subscripts: tuple[str, ...],
+    ) -> tuple[DynamicSubscriptSlot, ...]:
+        slots: list[DynamicSubscriptSlot] = []
+        seen: set[DynamicSubscriptSlot] = set()
+        for base in bases:
+            for subscript in subscripts:
+                slot = DynamicSubscriptSlot(base, subscript)
+                if slot in seen:
+                    continue
+                seen.add(slot)
+                slots.append(slot)
+        return tuple(slots)
+
+    def _aliased_dynamic_slots_for_assignment(
+        self,
+        procedure: cfg_graph.Code,
+        operation: object,
+        fact: FactT,
+    ) -> tuple[object, ...]:
+        if isinstance(operation, (py_ast.Assign, py_ast.UnpackSequence)):
+            expr = operation.expr
+        elif isinstance(operation, py_ast.AnnAssign):
+            expr = operation.value
+        else:
+            return ()
+
+        source_slot = self._slot_from_fact(fact)
+        if not isinstance(source_slot, (DynamicAttributeSlot, DynamicSubscriptSlot)):
+            return ()
+
+        expr_bases = self._slots_read_by_node(procedure, expr)
+        if not any(base == source_slot.base for base in expr_bases):
+            return ()
+
+        target_bases = tuple(
+            slot
+            for target in assigned_locals(operation)
+            for slot in self._slots_for_local(procedure, target)
+        )
+        if isinstance(source_slot, DynamicAttributeSlot):
+            return tuple(
+                DynamicAttributeSlot(base, source_slot.attribute)
+                for base in target_bases
+            )
+        return tuple(
+            DynamicSubscriptSlot(base, source_slot.subscript)
+            for base in target_bases
+        )
+
+    def _collection_accessor_names(self) -> frozenset[str]:
+        configuration = getattr(self, "configuration", None)
+        return getattr(configuration, "collection_accessor_names", frozenset())
+
+    def _collection_access_slots(
+        self,
+        procedure: cfg_graph.Code,
+        expr: object,
+        accessor_names: frozenset[str],
+    ) -> tuple[DynamicSubscriptSlot, ...]:
+        call = self._call_from_expression_or_statement(expr)
+        if call is None or resolve_call_name(call) not in accessor_names:
+            return ()
+
+        actuals = actual_argument_expressions(call)
+        if isinstance(call, py_ast.MethodCall):
+            container = call.expr
+            key = actuals[0] if actuals else None
+        else:
+            if len(actuals) < 1:
+                return ()
+            container = actuals[0]
+            key = actuals[1] if len(actuals) > 1 else None
+
+        subscript = (
+            self._constant_subscript(key)
+            if key is not None
+            else None
+        )
+        subscripts = (DYNAMIC_SUBSCRIPT_WILDCARD,)
+        if subscript is not None:
+            subscripts = (subscript, DYNAMIC_SUBSCRIPT_WILDCARD)
+        return self._dynamic_subscript_slots(procedure, container, subscripts)
+
+    def _dynamic_setattr_value(self, operation: object) -> object | None:
+        call = self._dynamic_attribute_call(operation, {"setattr", "builtins.setattr"})
+        if call is None:
+            return None
+        actuals = actual_argument_expressions(call)
+        if len(actuals) < 3:
+            return None
+        return actuals[2]
+
+    def _dynamic_attribute_call(
+        self, expr: object, names: set[str]
+    ) -> py_ast.PythonASTNode | None:
+        candidate = self._call_from_expression_or_statement(expr)
+        if candidate is None:
+            return None
+        if resolve_call_name(candidate) not in names:
+            return None
+        return candidate
+
+    def _call_from_expression_or_statement(
+        self, expr: object
+    ) -> py_ast.PythonASTNode | None:
+        candidate = expr
+        if not isinstance(candidate, (py_ast.DirectCall, py_ast.Call, py_ast.MethodCall)):
+            wrapped = getattr(expr, "expr", None)
+            if isinstance(wrapped, (py_ast.DirectCall, py_ast.Call, py_ast.MethodCall)):
+                candidate = wrapped
+        if not isinstance(candidate, (py_ast.DirectCall, py_ast.Call, py_ast.MethodCall)):
+            return None
+        return candidate
+
+    def _constant_string(self, expr: object) -> str | None:
+        if not isinstance(expr, py_ast.Existing):
+            return None
+        value = getattr(expr.object, "pyobj", None)
+        return value if isinstance(value, str) else None
+
+    def _constant_subscript(self, expr: object) -> str | None:
+        if not isinstance(expr, py_ast.Existing):
+            return None
+        value = getattr(expr.object, "pyobj", None)
+        return f"[{value!r}]"
 
     def _slots_for_local(self, procedure: cfg_graph.Code, local: object) -> tuple[object, ...]:
         del procedure
@@ -361,7 +799,10 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
         if isinstance(node, (py_ast.GetGlobal, py_ast.GetCellDeref)):
             return self._annotation_slots(getattr(node.annotation, "opReads", None))
         annotation = getattr(node, "annotation", None)
-        return self._annotation_slots(getattr(annotation, "opReads", None))
+        slots = list(self._annotation_slots(getattr(annotation, "opReads", None)))
+        slots.extend(self._dynamic_getattr_slots(procedure, node))
+        slots.extend(self._dynamic_subscript_read_slots(procedure, node))
+        return tuple(dict.fromkeys(slots))
 
     def _annotation_slots(self, annotation) -> tuple[object, ...]:
         if annotation is None:
@@ -402,6 +843,10 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
         return None
 
     def describe_slot(self, slot: object) -> str:
+        if isinstance(slot, DynamicAttributeSlot):
+            return f"{self.describe_slot(slot.base)}.{slot.attribute}"
+        if isinstance(slot, DynamicSubscriptSlot):
+            return f"{self.describe_slot(slot.base)}{slot.subscript}"
         label = getattr(slot, "label", None)
         if isinstance(label, str):
             return label
@@ -424,11 +869,14 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
         if call_name is not None:
             return f"{call_name}()"
         if isinstance(expr, py_ast.GetAttr):
-            return f"{self.describe_expression(expr.expr)}.{self._path_component(expr.name)}"
+            base = self.describe_expression(expr.expr)
+            return f"{base}.{self._path_component(expr.name)}"
         if isinstance(expr, py_ast.Load):
-            return f"{self.describe_expression(expr.expr)}.{self._path_component(expr.name)}"
+            base = self.describe_expression(expr.expr)
+            return f"{base}.{self._path_component(expr.name)}"
         if isinstance(expr, py_ast.GetSubscript):
-            return f"{self.describe_expression(expr.expr)}{self._subscript_component(expr.subscript)}"
+            base = self.describe_expression(expr.expr)
+            return f"{base}{self._subscript_component(expr.subscript)}"
         if isinstance(expr, py_ast.GetGlobal):
             return self._global_name(expr.name) or "<global>"
         if isinstance(expr, py_ast.GetCellDeref):
@@ -496,18 +944,30 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
                 annotation = getattr(node, "annotation", None)
                 if annotation is None:
                     continue
-                if hasattr(annotation, "opReads") and getattr(annotation, "opReads", None) is None:
-                    problems.append(f"{code.codeName()}: {type(node).__name__} missing opReads")
+                if (
+                    hasattr(annotation, "opReads")
+                    and getattr(annotation, "opReads", None) is None
+                ):
+                    problems.append(
+                        f"{code.codeName()}: {type(node).__name__} missing opReads"
+                    )
                     break
-                if hasattr(annotation, "opModifies") and getattr(annotation, "opModifies", None) is None:
+                if (
+                    hasattr(annotation, "opModifies")
+                    and getattr(annotation, "opModifies", None) is None
+                ):
                     problems.append(
                         f"{code.codeName()}: {type(node).__name__} missing opModifies"
                     )
                     break
-                if hasattr(annotation, "references") and getattr(annotation, "references", None) is None:
+                if (
+                    hasattr(annotation, "references")
+                    and getattr(annotation, "references", None) is None
+                ):
                     name = getattr(node, "name", None)
+                    label = name if name is not None else "<anon>"
                     problems.append(
-                        f"{code.codeName()}: local {name if name is not None else '<anon>'} missing references"
+                        f"{code.codeName()}: local {label} missing references"
                     )
                     break
 

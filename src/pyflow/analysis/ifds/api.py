@@ -17,7 +17,11 @@ from pyflow.frontend.programextractor import Extractor, create_interface_from_pa
 from pyflow.util.application.console import Console
 
 from .cfg_adapter import CFGSupergraphAdapter, build_supergraph_from_cfgs
-from .clients.nullness import NullnessAnalysisResult, analyze_nullness
+from .clients.nullness import (
+    NullnessAnalysisResult,
+    NullnessConfiguration,
+    analyze_nullness,
+)
 from .clients.taint import TaintAnalysisResult, TaintConfiguration, analyze_taint
 from .clients.typestate import (
     TypestateAnalysisResult,
@@ -265,6 +269,9 @@ def run_taint_analysis(
     source_names: Iterable[str],
     sink_names: Iterable[str],
     sanitizer_names: Iterable[str] = (),
+    collection_mutator_names: Iterable[str] | None = None,
+    collection_accessor_names: Iterable[str] | None = None,
+    conservative_unresolved_call_side_effects: bool = False,
     verbose: bool = False,
     dependency_strategy: str = "auto",
     search_paths: Sequence[str] | None = None,
@@ -279,13 +286,25 @@ def run_taint_analysis(
         include_exceptional_edges=include_exceptional_edges,
         root_function=function,
     )
-    queries = session.program.get_queries(session.compiler)
     result = analyze_taint(
         session.adapter,
         TaintConfiguration(
             source_names=frozenset(source_names),
             sink_names=frozenset(sink_names),
             sanitizer_names=frozenset(sanitizer_names),
+            collection_mutator_names=(
+                frozenset(collection_mutator_names)
+                if collection_mutator_names is not None
+                else TaintConfiguration().collection_mutator_names
+            ),
+            collection_accessor_names=(
+                frozenset(collection_accessor_names)
+                if collection_accessor_names is not None
+                else TaintConfiguration().collection_accessor_names
+            ),
+            conservative_unresolved_call_side_effects=(
+                conservative_unresolved_call_side_effects
+            ),
         ),
         entry_nodes=_entry_nodes_from_program(session, fallback_function=function),
     )
@@ -296,6 +315,9 @@ def run_nullness_analysis(
     python_files: Sequence[str | Path],
     *,
     function: str,
+    nullable_return_names: Iterable[str] = (),
+    collection_mutator_names: Iterable[str] | None = None,
+    collection_accessor_names: Iterable[str] | None = None,
     verbose: bool = False,
     dependency_strategy: str = "auto",
     search_paths: Sequence[str] | None = None,
@@ -312,6 +334,19 @@ def run_nullness_analysis(
     )
     result = analyze_nullness(
         session.adapter,
+        NullnessConfiguration(
+            nullable_return_names=frozenset(nullable_return_names),
+            collection_mutator_names=(
+                frozenset(collection_mutator_names)
+                if collection_mutator_names is not None
+                else NullnessConfiguration().collection_mutator_names
+            ),
+            collection_accessor_names=(
+                frozenset(collection_accessor_names)
+                if collection_accessor_names is not None
+                else NullnessConfiguration().collection_accessor_names
+            ),
+        ),
         entry_nodes=_entry_nodes_from_program(session, fallback_function=function),
     )
     return session, result
@@ -324,6 +359,8 @@ def run_typestate_analysis(
     open_names: Iterable[str] = ("open",),
     close_names: Iterable[str] = ("close",),
     use_names: Iterable[str] = ("read", "write", "send", "recv"),
+    collection_mutator_names: Iterable[str] | None = None,
+    collection_accessor_names: Iterable[str] | None = None,
     verbose: bool = False,
     dependency_strategy: str = "auto",
     search_paths: Sequence[str] | None = None,
@@ -344,6 +381,16 @@ def run_typestate_analysis(
             open_names=frozenset(open_names),
             close_names=frozenset(close_names),
             use_names=frozenset(use_names),
+            collection_mutator_names=(
+                frozenset(collection_mutator_names)
+                if collection_mutator_names is not None
+                else TypestateConfiguration().collection_mutator_names
+            ),
+            collection_accessor_names=(
+                frozenset(collection_accessor_names)
+                if collection_accessor_names is not None
+                else TypestateConfiguration().collection_accessor_names
+            ),
         ),
         entry_nodes=_entry_nodes_from_program(session, fallback_function=function),
     )
