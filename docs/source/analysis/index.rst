@@ -32,19 +32,19 @@ Data Flow Analysis
 * :doc:`fsdf` - Flow-Sensitive Data Flow analysis
 * :doc:`ipa` - Inter-procedural Analysis
 * :doc:`cpa` - Constraint-based Analysis
-* :doc:`ifds-heap` - IFDS heap abstraction for field-sensitive dataflow clients
 
-Shape and Type Analysis
------------------------
+Heap, Shape, and Object Analysis
+--------------------------------
 
-* :doc:`shape` - Shape analysis for data structures
-* :doc:`storegraph` - Store graph analysis for object relationships
+* :doc:`heap` - Heap abstraction for IFDS clients (canonical locations, aliasing, update policy)
+* :doc:`storegraph` - Store graph analysis for object relationships (foundational data model for CPA/shape)
+* :doc:`shape` - Region-based shape analysis for data structures (reference counts, path info)
+* :doc:`lifetimeanalysis` - Variable lifetime analysis (read/modify tracking, post-shape pipeline)
 
 Specialized Analysis
 --------------------
 
 * :doc:`numbering` - Program point numbering
-* :doc:`lifetimeanalysis` - Variable lifetime analysis
 * :doc:`dump` - Analysis result dumping and visualization
 
 Analysis Configuration
@@ -165,9 +165,9 @@ Standard SARIF format for CI/CD integration:
     fsdf
     ipa
     cpa
-    ifds-heap
-    shape
+    heap
     storegraph
-    numbering
+    shape
     lifetimeanalysis
+    numbering
     dump

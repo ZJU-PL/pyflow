@@ -4,13 +4,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from pyflow.analysis.ifds.heap import (
+from pyflow.analysis.heap import (
     HeapAbstraction,
     HeapObjectKind,
     HeapPolicy,
     UpdatePolicy,
 )
-from pyflow.analysis.ifds.heap_effects import (
+from pyflow.analysis.heap.heap_effects import (
     CALL_RETURN_COPY,
     CALL_RETURN_FRESH,
     CALL_RETURN_SUMMARY,
@@ -132,3 +132,74 @@ def test_heap_effect_classifies_copy_returns_as_fresh_allocations():
     assert builder.call_return_kind(call) == CALL_RETURN_COPY
     assert len(effect.allocations) == 1
     assert effect.allocations[0].kind is HeapObjectKind.ALLOCATION
+
+
+def test_heap_effect_extracts_slice_write_locations():
+    container = py_ast.Local("lst")
+    value = py_ast.Local("value")
+    raw = {id(container): (RawStorage("container"),)}
+    heap = HeapAbstraction(lambda _procedure, local: raw.get(id(local), ()))
+    builder = HeapEffectBuilder(heap, heap.locations_for_local)
+    start = _existing(1)
+    stop = _existing(3)
+    step = _existing(1)
+
+    effect = builder.operation_effect(
+        None, py_ast.SetSlice(value, container, start, stop, step)
+    )
+
+    assert len(effect.writes) >= 1
+    write_locations = {w.location for w in effect.writes}
+    assert any(
+        "[*]" in heap.display_label_for_location(loc)
+        for loc in write_locations
+    )
+
+
+def test_heap_effect_extracts_slice_delete_locations():
+    container = py_ast.Local("lst")
+    raw = {id(container): (RawStorage("container"),)}
+    heap = HeapAbstraction(lambda _procedure, local: raw.get(id(local), ()))
+    builder = HeapEffectBuilder(heap, heap.locations_for_local)
+    start = _existing(1)
+    stop = _existing(3)
+    step = _existing(1)
+
+    effect = builder.operation_effect(
+        None, py_ast.DeleteSlice(container, start, stop, step)
+    )
+
+    assert len(effect.deletes) >= 1
+
+
+def test_heap_effect_extracts_getiter_read_locations():
+    iterable = py_ast.Local("items")
+    raw = {id(iterable): (RawStorage("items"),)}
+    heap = HeapAbstraction(lambda _procedure, local: raw.get(id(local), ()))
+    builder = HeapEffectBuilder(heap, heap.locations_for_local)
+
+    effect = builder.operation_effect(None, py_ast.GetIter(iterable))
+
+    assert len(effect.reads) == 1
+
+
+def test_heap_effect_yield_escapes_value():
+    value = py_ast.Local("value")
+    raw = {id(value): (RawStorage("value"),)}
+    heap = HeapAbstraction(lambda _procedure, local: raw.get(id(local), ()))
+    builder = HeapEffectBuilder(heap, heap.locations_for_local)
+
+    effect = builder.operation_effect(None, py_ast.Yield(value))
+
+    assert len(effect.escapes) == 1
+
+
+def test_heap_effect_yield_with_value_escapes():
+    value = py_ast.Local("value")
+    raw = {id(value): (RawStorage("value"),)}
+    heap = HeapAbstraction(lambda _procedure, local: raw.get(id(local), ()))
+    builder = HeapEffectBuilder(heap, heap.locations_for_local)
+
+    effect = builder.operation_effect(None, py_ast.Yield(value))
+
+    assert len(effect.escapes) == 1

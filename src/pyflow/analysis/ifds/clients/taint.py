@@ -11,7 +11,7 @@ from pyflow.language.python import ast as py_ast
 from ._call_model import CallModelRegistry
 from ._client_common import AnnotatedFactProblemBase, build_entry_seeds
 from ..cfg_adapter import CFGNode, CFGSupergraphAdapter, assigned_locals
-from ..heap import HeapLocation, HeapObjectKind
+from ...heap.heap import HeapLocation, HeapObjectKind
 from ..problem import IFDSProblem
 from ..solver import IFDSSolver
 from ..transfers import (

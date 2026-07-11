@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pyflow.analysis.ifds.clients._client_common import build_entry_seeds
-from pyflow.analysis.ifds.heap import HeapAbstraction, HeapSelector
+from pyflow.analysis.heap import HeapAbstraction, HeapSelector
 
 
 def test_build_entry_seeds_single_node():

@@ -4,9 +4,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from pyflow.analysis.ifds.heap import HeapAbstraction, HeapPolicy, UpdatePolicy
-from pyflow.analysis.ifds.heap_effects import HeapEffectBuilder
-from pyflow.analysis.ifds.heap_summary import HeapSummaryBuilder
+from pyflow.analysis.heap import (
+    HeapAbstraction,
+    HeapPolicy,
+    UpdatePolicy,
+)
+from pyflow.analysis.heap.heap_effects import HeapEffectBuilder
+from pyflow.analysis.heap.heap_summary import HeapSummaryBuilder
 from pyflow.language.python import ast as py_ast
 
 

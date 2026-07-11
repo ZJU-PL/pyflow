@@ -13,7 +13,7 @@ from .cfg_adapter import (
     iter_call_expressions_in_eval_order,
     named_call_cfg_resolver,
 )
-from .heap import (
+from ..heap.heap import (
     AllocationSensitivity,
     ContainerSensitivity,
     FieldSensitivity,
@@ -28,7 +28,7 @@ from .heap import (
     HeapWrite,
     UpdatePolicy,
 )
-from .heap_effects import (
+from ..heap.heap_effects import (
     CALL_RETURN_COPY,
     CALL_RETURN_FRESH,
     CALL_RETURN_OPAQUE,
@@ -36,7 +36,7 @@ from .heap_effects import (
     HeapEffect,
     HeapEffectBuilder,
 )
-from .heap_summary import (
+from ..heap.heap_summary import (
     HeapSummary,
     HeapSummaryBuilder,
 )

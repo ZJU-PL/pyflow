@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pyflow.analysis.ifds import IFDSResult, IFDSSolver, Supergraph, ZERO
 from pyflow.analysis.ifds.cfg_adapter import CallEffect, CallResultRoute, CFGNode
 from pyflow.analysis.ifds.clients._client_common import AnnotatedFactProblemBase
-from pyflow.analysis.ifds.heap import HeapObjectKind, HeapPolicy, UpdatePolicy
+from pyflow.analysis.heap import HeapObjectKind, HeapPolicy, UpdatePolicy
 from pyflow.analysis.ifds.problem import IFDSProblem
 from pyflow.language.python import ast as py_ast
 

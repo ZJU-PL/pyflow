@@ -9,9 +9,8 @@ from pyflow.application.errors import TemporaryLimitation
 from pyflow.analysis.cfg import graph as cfg_graph
 from pyflow.language.python import ast as py_ast
 
-from ..cfg_adapter import CFGNode, CFGSupergraphAdapter, CallEffect, GuardEffect, assigned_locals
-from ..heap import HeapAbstraction, HeapLocation
-from ..heap_effects import (
+from ...heap.heap import HeapAbstraction, HeapLocation
+from ...heap.heap_effects import (
     CALL_RETURN_COPY,
     CALL_RETURN_FRESH,
     CALL_RETURN_OPAQUE,
@@ -19,7 +18,8 @@ from ..heap_effects import (
     HeapEffect,
     HeapEffectBuilder,
 )
-from ..heap_summary import HeapSummary, HeapSummaryBuilder
+from ...heap.heap_summary import HeapSummary, HeapSummaryBuilder
+from ..cfg_adapter import CFGNode, CFGSupergraphAdapter, CallEffect, GuardEffect, assigned_locals
 from ..transfers import (
     actual_argument_expressions,
     bind_call_arguments,
@@ -244,7 +244,7 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
         dynamic_kills = self._dynamic_delete_locations(node.procedure, operation)
         strong_update_slots = getattr(effect, "strong_update_slots", None)
         if strong_update_slots:
-            return tuple(
+            kills = tuple(
                 dict.fromkeys(
                     (
                         *self._canonical_locations(strong_update_slots),
@@ -254,21 +254,43 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
                     )
                 )
             )
-        kill_slots = getattr(effect, "kill_slots", None)
-        if kill_slots:
-            return tuple(
-                dict.fromkeys(
-                    (
-                        *self._canonical_locations(kill_slots),
-                        *semantic_kills,
-                        *strong_dynamic_kills,
-                        *dynamic_kills,
+        else:
+            kill_slots = getattr(effect, "kill_slots", None)
+            if kill_slots:
+                kills = tuple(
+                    dict.fromkeys(
+                        (
+                            *self._canonical_locations(kill_slots),
+                            *semantic_kills,
+                            *strong_dynamic_kills,
+                            *dynamic_kills,
+                        )
                     )
                 )
-            )
-        return tuple(
-            dict.fromkeys((*semantic_kills, *strong_dynamic_kills, *dynamic_kills))
-        )
+            else:
+                kills = tuple(
+                    dict.fromkeys(
+                        (*semantic_kills, *strong_dynamic_kills, *dynamic_kills)
+                    )
+                )
+        return self._expand_kills_through_aliases(kills)
+
+    def _expand_kills_through_aliases(
+        self, kills: tuple[object, ...]
+    ) -> tuple[object, ...]:
+        heap = self._heap()
+        expanded: list[object] = list(kills)
+        seen: set[object] = set(kills)
+        for kill in kills:
+            if not isinstance(kill, HeapLocation):
+                continue
+            if kill.is_nested():
+                continue
+            for aliased in heap.aliased_locations(kill):
+                if aliased not in seen:
+                    seen.add(aliased)
+                    expanded.append(aliased)
+        return tuple(expanded)
 
     def _mark_escaped_values_for_operation(
         self,

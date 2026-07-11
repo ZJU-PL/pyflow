@@ -100,7 +100,7 @@ pytest tests/checker
 
 The repository is organized around a few major subsystems:
 
-- `src/pyflow/analysis`: core analysis engines such as call graph, CFG, IFDS, IPA, CPA, shape, and lifetime analysis.
+- `src/pyflow/analysis`: core analysis engines such as call graph, CFG, IFDS, heap, IPA, CPA, shape, and lifetime analysis.
 - `src/pyflow/application`: orchestration code including compiler context, pipeline execution, and the pass manager.
 - `src/pyflow/api`: query-facing interfaces and entrypoint construction.
 - `src/pyflow/checker`: pattern-based and semantic bug-finding layers plus output formatters.

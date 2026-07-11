@@ -109,6 +109,10 @@ class HeapPolicy:
         {"copy", "list", "tuple", "set", "dict"}
     )
     treat_capitalized_calls_as_fresh: bool = True
+    immutable_type_hints: frozenset[str] = frozenset(
+        {"int", "str", "float", "bool", "bytes", "tuple", "frozenset",
+         "complex", "NoneType", "ellipsis", "range", "slice"}
+    )
 
 
 @dataclass(frozen=True)
@@ -259,6 +263,14 @@ class HeapAbstraction:
         self._objects: dict[tuple[object, ...], HeapObject] = {}
         self._object_labels: dict[HeapObject, str] = {}
         self._escaped_objects: set[HeapObject] = set()
+        # Union-find equivalence classes for alias tracking.
+        # Maps allocation-site id → canonical parent site id.
+        self._equiv_parent: dict[int, int] = {}
+        # Maps canonical site id → set of all member site ids (including self).
+        self._equiv_members: dict[int, set[int]] = {}
+        # Per-site ref counts for strong-update gating.
+        # Maps canonical site id → count of distinct references (locals, params, etc.).
+        self._site_ref_counts: dict[int, int] = {}
         self.next_site = next_site
 
     def locations_for_local(
@@ -300,22 +312,148 @@ class HeapAbstraction:
         )
 
     def update_policy_for_location(self, location: HeapLocation) -> UpdatePolicy:
-        """Default IFDS update policy.
+        """Default IFDS update policy gated by equivalence-class reference counts.
 
-        Root locations model locals/globals/cells and can be strongly updated
-        when the caller has selected them as a strong-update target.  Nested
-        field/element locations default to weak updates because Python aliasing
-        can make another access path observe the old value.
+        Root locations (locals, globals, cells) can be strongly updated when
+        the equivalence class they belong to has a single reference (ref count
+        ≤ 1).  Nested field/element locations default to weak updates because
+        Python aliasing can make another access path observe the old value,
+        unless the root is fresh and has exactly one reference.
+
+        Immutable types skip the reference-count check entirely for root
+        locations: reassignment always produces a fresh bind, so strong
+        updates are always safe.
         """
-        if location.is_nested() and not self.policy.allow_strong_nested_fresh:
-            return UpdatePolicy.WEAK
         if location.root in self._escaped_objects:
             return UpdatePolicy.WEAK
+        if self._is_immutable_type(location.root):
+            return UpdatePolicy.STRONG if not location.is_nested() else UpdatePolicy.WEAK
         if not location.root.is_singleton():
             return UpdatePolicy.WEAK
         if not location.is_precise():
             return UpdatePolicy.WEAK
-        return UpdatePolicy.STRONG
+        site = self._root_allocation_site(location.root)
+        ref_count = self._equiv_class_ref_count(site) if site is not None else 0
+        if not location.is_nested():
+            return UpdatePolicy.STRONG if ref_count <= 1 else UpdatePolicy.WEAK
+        if self.policy.allow_strong_nested_fresh and ref_count <= 1:
+            return UpdatePolicy.STRONG
+        return UpdatePolicy.WEAK
+
+    def _is_immutable_type(self, root: HeapObject) -> bool:
+        if root.type_hint is not None and root.type_hint in self.policy.immutable_type_hints:
+            return True
+        return False
+
+    def _root_allocation_site(self, root: HeapObject) -> int | None:
+        """Get the allocation-site id for a HeapObject root, if one exists."""
+        alloc_site = root.allocation_site
+        if alloc_site is None:
+            return None
+        if isinstance(alloc_site, tuple):
+            site_key = alloc_site
+        else:
+            site_key = id(alloc_site)
+        for site, storage in self.site_storage.items():
+            candidate = self._objects.get(
+                (
+                    root.kind.value,
+                    root.key,
+                    root.label,
+                    root.type_hint,
+                    site_key,
+                    root.context,
+                    root.freshness.value,
+                    root.escape.value,
+                )
+            )
+            if candidate is root:
+                return site
+        return None
+
+    # ── alias equivalence-class tracking ────────────────────────────────
+
+    def _find(self, site: int) -> int:
+        """Union-find: find canonical root of an allocation site."""
+        parent = self._equiv_parent.get(site)
+        if parent is None:
+            self._equiv_parent[site] = site
+            self._equiv_members.setdefault(site, set()).add(site)
+            return site
+        if parent != site:
+            root = self._find(parent)
+            if root != parent:
+                self._equiv_parent[site] = root
+        return self._equiv_parent[site]
+
+    def _unify(self, site_a: int, site_b: int) -> int:
+        """Union-find: merge two equivalence classes. Returns the new canonical root."""
+        if site_a == site_b:
+            return site_a
+        root_a = self._find(site_a)
+        root_b = self._find(site_b)
+        if root_a == root_b:
+            return root_a
+        members_a = self._equiv_members.get(root_a, {root_a})
+        members_b = self._equiv_members.get(root_b, {root_b})
+        refs_a = self._site_ref_counts.get(root_a, 0)
+        refs_b = self._site_ref_counts.get(root_b, 0)
+        if len(members_a) >= len(members_b):
+            self._equiv_parent[root_b] = root_a
+            merged = members_a | members_b
+            self._equiv_members[root_a] = merged
+            self._equiv_members.pop(root_b, None)
+            self._site_ref_counts[root_a] = refs_a + refs_b
+            self._site_ref_counts.pop(root_b, None)
+            return root_a
+        self._equiv_parent[root_a] = root_b
+        merged = members_b | members_a
+        self._equiv_members[root_b] = merged
+        self._equiv_members.pop(root_a, None)
+        self._site_ref_counts[root_b] = refs_b + refs_a
+        self._site_ref_counts.pop(root_a, None)
+        return root_b
+
+    def _is_site_in_equiv_class(self, site: int, canonical_root: int) -> bool:
+        """Check whether *site* belongs to the equivalence class rooted at *canonical_root*."""
+        return self._find(site) == self._find(canonical_root)
+
+    def _equiv_class_sites(self, root_site: int) -> frozenset[int]:
+        """Return all allocation-site ids in the equivalence class of *root_site*."""
+        canonical = self._find(root_site)
+        return frozenset(self._equiv_members.get(canonical, {canonical}))
+
+    def _equiv_class_ref_count(self, root_site: int) -> int:
+        """Return the total reference count for the equivalence class of *root_site*."""
+        canonical = self._find(root_site)
+        return self._site_ref_counts.get(canonical, 0)
+
+    def _incr_site_ref(self, site: int) -> None:
+        canonical = self._find(site)
+        self._site_ref_counts[canonical] = self._site_ref_counts.get(canonical, 0) + 1
+
+    def _decr_site_ref(self, site: int) -> None:
+        canonical = self._find(site)
+        current = self._site_ref_counts.get(canonical, 0)
+        if current > 0:
+            self._site_ref_counts[canonical] = current - 1
+
+    def aliased_locations(self, location: HeapLocation) -> frozenset[HeapLocation]:
+        site = self._root_allocation_site(location.root)
+        if site is None or location.is_nested():
+            return frozenset({location})
+        equiv_sites = self._equiv_class_sites(site)
+        result: set[HeapLocation] = {location}
+        for member_site in equiv_sites:
+            if member_site == site:
+                continue
+            member_storage = self.site_storage.get(member_site)
+            if member_storage is None:
+                continue
+            for raw in member_storage:
+                member_loc = self.location_for_raw(raw)
+                result.add(member_loc)
+        return frozenset(result)
 
     def dynamic_attribute_location(self, base: object, attribute: str) -> HeapLocation:
         return self._append_selector(
@@ -387,14 +525,23 @@ class HeapAbstraction:
                 location = self.location_for_raw(raw)
                 self._object_labels[location.root] = target_name
         source_site = self.allocation_sites.get(source_key)
+        target_site = self.allocation_sites.get(target_key)
         if source_site is not None:
             self.allocation_sites[target_key] = source_site
+            if target_site is not None and target_site != source_site:
+                self._decr_site_ref(target_site)
+                self._unify(source_site, target_site)
+            else:
+                self._incr_site_ref(source_site)
 
     def unalias_local(self, procedure: object, local: object) -> None:
         """Break a local alias and allocate a fresh site for the local."""
         if not self._is_named_local(local):
             return
         key = self._local_key(procedure, local)
+        old_site = self.allocation_sites.get(key)
+        if old_site is not None:
+            self._decr_site_ref(old_site)
         self.storage_overrides.pop(key, None)
         raw = self._raw_storage_provider(procedure, local)
         self._assign_site(key, raw)
@@ -411,6 +558,9 @@ class HeapAbstraction:
         if not self._is_named_local(local):
             return
         key = self._local_key(procedure, local)
+        old_site = self.allocation_sites.get(key)
+        if old_site is not None:
+            self._decr_site_ref(old_site)
         storage = (obj,)
         if include_raw_fallback:
             storage = (*storage, *self._raw_storage_provider(procedure, local))
@@ -1062,3 +1212,4 @@ class HeapAbstraction:
         self.next_site += 1
         self.allocation_sites[key] = site
         self.site_storage[site] = storage
+        self._incr_site_ref(site)

@@ -12,9 +12,9 @@ from typing import Callable
 
 from pyflow.language.python import ast as py_ast
 
-from .cfg_adapter import assigned_locals
+from ..ifds.cfg_adapter import assigned_locals
 from .heap import HeapAbstraction, HeapLocation, HeapObject, HeapWrite, UpdatePolicy
-from .transfers import actual_argument_expressions, resolve_call_name
+from ..ifds.transfers import actual_argument_expressions, resolve_call_name
 
 
 DYNAMIC_ATTRIBUTE_WILDCARD = "*"
@@ -72,6 +72,7 @@ class HeapEffectBuilder:
             *self.static_attribute_read_locations(procedure, operation),
             *self.dynamic_getattr_locations(procedure, operation),
             *self.dynamic_subscript_read_locations(procedure, operation),
+            *self.getiter_read_locations(procedure, operation),
         ]
         writes = [
             self.heap.write_for_location(location)
@@ -79,11 +80,13 @@ class HeapEffectBuilder:
                 *self.static_attribute_write_locations(procedure, operation),
                 *self.dynamic_setattr_locations(procedure, operation),
                 *self.dynamic_subscript_write_locations(procedure, operation),
+                *self.dynamic_slice_write_locations(procedure, operation),
             )
         ]
         deletes = [
             *self.dynamic_subscript_delete_locations(procedure, operation),
             *self.dynamic_attribute_delete_locations(procedure, operation),
+            *self.dynamic_slice_delete_locations(procedure, operation),
         ]
 
         collection_locations, collection_values = self.collection_mutation(
@@ -104,6 +107,12 @@ class HeapEffectBuilder:
             return_exprs = tuple(operation.exprs)
             if self.heap.policy.escape_on_return:
                 escape_exprs.extend(return_exprs)
+
+        if isinstance(operation, (py_ast.Yield, py_ast.YieldFrom)):
+            yield_exprs = (
+                (operation.expr,) if operation.expr is not None else ()
+            )
+            escape_exprs.extend(yield_exprs)
 
         return HeapEffect(
             reads=tuple(dict.fromkeys(reads)),
@@ -523,6 +532,43 @@ class HeapEffectBuilder:
         if call_name is not None:
             return f"{call_name}()"
         return type(expr).__name__
+
+    def dynamic_slice_write_locations(
+        self,
+        procedure: object,
+        operation: object,
+    ) -> tuple[HeapLocation, ...]:
+        if not isinstance(operation, py_ast.SetSlice):
+            return ()
+        return self.dynamic_subscript_locations(
+            procedure,
+            operation.expr,
+            (DYNAMIC_SUBSCRIPT_WILDCARD,),
+        )
+
+    def dynamic_slice_delete_locations(
+        self,
+        procedure: object,
+        operation: object,
+    ) -> tuple[HeapLocation, ...]:
+        if not isinstance(operation, py_ast.DeleteSlice):
+            return ()
+        return self.dynamic_subscript_locations(
+            procedure,
+            operation.expr,
+            (DYNAMIC_SUBSCRIPT_WILDCARD,),
+        )
+
+    def getiter_read_locations(
+        self,
+        procedure: object,
+        operation: object,
+    ) -> tuple[HeapLocation, ...]:
+        if not isinstance(operation, py_ast.GetIter):
+            return ()
+        if operation.expr is None:
+            return ()
+        return self._locations_for_expressions(procedure, (operation.expr,))
 
     def _is_capitalized_call_name(self, call_name: str) -> bool:
         short_name = call_name.rsplit(".", 1)[-1]

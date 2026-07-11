@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from pyflow.analysis.ifds.heap import (
+from pyflow.analysis.heap import (
     AllocationSensitivity,
     ContainerSensitivity,
     FieldSensitivity,
@@ -335,4 +335,86 @@ def test_heap_abstraction_escaped_fresh_object_uses_weak_updates():
 
     assert heap.update_policy_for_location(field) is UpdatePolicy.STRONG
     heap.mark_escaped(field)
+    assert heap.update_policy_for_location(field) is UpdatePolicy.WEAK
+
+
+# ── Equivalence-class alias tracking and ref-count-gated updates ──
+
+
+def test_equivalence_class_alias_locals_unifies_sites():
+    x = py_ast.Local("x")
+    y = py_ast.Local("y")
+    raw = {id(x): (RawStorage("x"),), id(y): (RawStorage("y"),)}
+    heap = HeapAbstraction(lambda _procedure, local: raw[id(local)])
+
+    heap.alias_locals(None, y, x)
+    x_site = heap.allocation_sites[(id(None), id(x))]
+    y_site = heap.allocation_sites[(id(None), id(y))]
+
+    assert heap._find(x_site) == heap._find(y_site)
+
+
+def test_equivalence_class_unalias_local_breaks_unification():
+    x = py_ast.Local("x")
+    y = py_ast.Local("y")
+    raw = {id(x): (RawStorage("x"),), id(y): (RawStorage("y"),)}
+    heap = HeapAbstraction(lambda _procedure, local: raw[id(local)])
+
+    heap.alias_locals(None, y, x)
+    x_site = heap.allocation_sites[(id(None), id(x))]
+    heap.unalias_local(None, y)
+    y_site = heap.allocation_sites[(id(None), id(y))]
+
+    assert heap._find(x_site) != heap._find(y_site)
+
+
+def test_ref_count_gates_strong_update_on_singleton():
+    heap = HeapAbstraction(lambda _procedure, _local: (), policy=HeapPolicy())
+    local = py_ast.Local("a")
+    heap.bind_allocation_targets(None, (local,), object(), label="obj")
+
+    location = heap.locations_for_local(None, local)[0]
+    assert heap.update_policy_for_location(location) is UpdatePolicy.STRONG
+
+
+def test_ref_count_weak_update_when_aliased():
+    heap = HeapAbstraction(lambda _procedure, _local: (), policy=HeapPolicy())
+    a = py_ast.Local("a")
+    b = py_ast.Local("b")
+    heap.bind_allocation_targets(None, (a,), object(), label="obj")
+    heap.alias_locals(None, b, a)
+
+    location = heap.locations_for_local(None, a)[0]
+    assert heap.update_policy_for_location(location) is UpdatePolicy.WEAK
+
+
+def test_aliased_locations_returns_equiv_class_members():
+    x = py_ast.Local("x")
+    y = py_ast.Local("y")
+    raw = {id(x): (RawStorage("x"),), id(y): (RawStorage("y"),)}
+    heap = HeapAbstraction(lambda _procedure, local: raw[id(local)])
+
+    x_loc = heap.locations_for_local(None, x)[0]
+    heap.alias_locals(None, y, x)
+    y_loc = heap.locations_for_local(None, y)[0]
+
+    aliased = heap.aliased_locations(x_loc)
+    assert x_loc in aliased
+    assert y_loc in aliased
+
+
+def test_aliased_locations_excludes_nested():
+    heap = HeapAbstraction(lambda _procedure, _local: (), policy=HeapPolicy(allow_strong_nested_fresh=True))
+    obj = heap.allocation_object(None, object(), label="obj")
+    field = heap.dynamic_attribute_location(obj, "payload")
+
+    aliased = heap.aliased_locations(field)
+    assert aliased == frozenset({field})
+
+
+def test_nested_location_weak_by_default_even_with_ref_count_one():
+    heap = HeapAbstraction(lambda _procedure, _local: (), policy=HeapPolicy())
+    obj = heap.allocation_object(None, object(), label="obj")
+    field = heap.dynamic_attribute_location(obj, "payload")
+
     assert heap.update_policy_for_location(field) is UpdatePolicy.WEAK
