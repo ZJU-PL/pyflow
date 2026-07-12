@@ -94,6 +94,7 @@ class HeapTransferEngine:
         self.bind_parameters(code)
         try:
             self.analyze_node(code, getattr(code, "ast", None))
+            self._propagate_escapes_transitively()
         finally:
             self._active_codes.discard(code_id)
 
@@ -525,6 +526,70 @@ class HeapTransferEngine:
                 (summary.returns[index],),
             )
 
+    def _propagate_escapes_transitively(self) -> None:
+        """Propagate escape through container/closure values.
+
+        If container location C is marked escaped, and C's heap state
+        (values/contaminants) holds location V, then V's root should also
+        be marked escaped — the value is reachable from outside the
+        procedure via the escaped container.
+
+        This is a fixed-point iteration because nested containers may
+        transitively hold further values (e.g. outer -> inner -> value).
+        """
+        if not self.heap.policy.track_escapes:
+            return
+        changed = True
+        while changed:
+            changed = False
+            new_escaped: list[HeapLocation] = []
+            # Check all known location -> values mappings
+            for mapping in (self.state.values, self.state.contaminants):
+                for container_loc, value_locs in mapping.items():
+                    if container_loc not in self.state.escaped:
+                        # Also check whether the root object was directly
+                        # marked escaped in the heap abstraction.
+                        if container_loc.root not in self.heap._escaped_objects:
+                            continue
+                    for value_loc in value_locs:
+                        if (value_loc not in self.state.escaped
+                                and value_loc.root not in self.heap._escaped_objects):
+                            new_escaped.append(value_loc)
+            # Also propagate through return values: if a return slot (ret0)
+            # contains locations, those are also reachable from outside.
+            for ret_locs in self.state.returns.values():
+                for ret_loc in ret_locs:
+                    if (ret_loc not in self.state.escaped
+                            and ret_loc.root not in self.heap._escaped_objects):
+                        new_escaped.append(ret_loc)
+            # Also handle aliasing through storage_overrides: when two
+            # locals share storage (via alias_locals), escaping one should
+            # escape the other.  Walk storage_overrides to propagate
+            # escape across aliased locals.
+            for (_proc_id, _local_id), storage in list(
+                self.heap.storage_overrides.items()
+            ):
+                for raw in storage:
+                    loc = self.heap.location_for_raw(raw)
+                    if loc.root in self.heap._escaped_objects:
+                        # This local shares storage with an escaped root.
+                        # Derive the local's own root location and escape it.
+                        local_loc = self.heap.location_for_raw(raw)
+                        # We need the *local's* root, not the shared root.
+                        # Build from the stored location: the local's
+                        # actual root is what _raw_storage_for_local returns.
+                        # Use the raw object directly as the identity.
+                        local_root_loc = self.heap.location_for_raw(raw)
+                        if (local_root_loc not in self.state.escaped
+                                and local_root_loc.root not in self.heap._escaped_objects):
+                            new_escaped.append(local_root_loc)
+                        break  # one match per override is enough
+
+            if new_escaped:
+                self.heap.mark_all_escaped(tuple(new_escaped))
+                self.state.mark_escaped(tuple(new_escaped))
+                changed = True
+
     def _callee_summary(
         self,
         callee: py_ast.Code,
@@ -544,6 +609,7 @@ class HeapTransferEngine:
         try:
             self.bind_parameters(callee)
             self.analyze_node(callee, callee.ast)
+            self._propagate_escapes_transitively()
             summary_state = self.state
             return_locations = self._return_locations(callee)
             param_returns = self._compute_param_returns(callee, return_locations)
@@ -567,6 +633,10 @@ class HeapTransferEngine:
         self._apply_deletes(summary.deletes)
         self.state = self.state.join(summary.state)
         self.heap.mark_all_escaped(tuple(summary.state.escaped))
+        # Propagate transitively after merging summary state: the caller
+        # may now have new escaped containers holding values that should
+        # also be considered escaped.
+        self._propagate_escapes_transitively()
 
     def _record_summary_deletes(self, deletes: tuple[HeapLocation, ...]) -> None:
         if self._summary_delete_stack and deletes:
@@ -775,6 +845,11 @@ class HeapTransferEngine:
             else:
                 obj = self.heap.return_object(procedure, index, label=target.name)
                 self.heap.bind_local_to_object(procedure, target, obj)
+            # Mark the return parameter's locations as escaped — any value
+            # returned to the caller is visible from outside the procedure.
+            target_locations = self.heap.locations_for_local(procedure, target)
+            if target_locations:
+                self.heap.mark_all_escaped(tuple(target_locations))
         self.state.set_returns(procedure, returns)
 
     def _apply_writes(

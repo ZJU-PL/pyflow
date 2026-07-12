@@ -28,6 +28,7 @@ from .security import run_security_analysis, add_security_parser
 from .dataflow import run_dataflow_analysis, add_dataflow_parser
 from .cpg import run_cpg, add_cpg_parser
 from . import callgraph
+from .heap import run_heap_analysis, add_heap_parser
 
 
 def main():
@@ -67,6 +68,9 @@ def main():
     # CPG command
     add_cpg_parser(subparsers)
 
+    # Heap analysis command
+    add_heap_parser(subparsers)
+
     args = parser.parse_args()
 
     # Handle special commands that don't require input
@@ -96,6 +100,8 @@ def main():
         input_path = None
     elif args.command == "dataflow":
         input_path = Path(args.input_path)
+    elif args.command == "heap":
+        input_path = Path(args.input_path)
     else:
         input_path = None
 
@@ -119,6 +125,8 @@ def main():
         return run_dataflow_analysis(input_path, args)
     elif args.command == "cpg":
         return run_cpg(args)
+    elif args.command == "heap":
+        return run_heap_analysis(args.input_path, args)
     else:
         parser.print_help()
         return 1

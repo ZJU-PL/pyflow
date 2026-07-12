@@ -1050,9 +1050,55 @@ class HeapAbstraction:
         site = self.allocation_sites.get(key)
         if site is not None:
             return self.site_storage[site]
+        # Fallback: name-based lookup for the same variable. The IR may
+        # produce distinct Local nodes (different id()) for the same name
+        # (e.g. CodeParameters vs Assign.expr vs Call args). Try to find
+        # canonical storage before creating a new empty site.
+        canon = self._canonical_storage_for_name(procedure, local)
+        if canon is not None:
+            return canon
         raw = self._raw_storage_provider(procedure, local)
         self._assign_site(key, raw)
         return raw
+
+    def _name_matches_object(self, obj: object, name: str) -> bool:
+        """Check if *obj* has the given *name*, checking both ``.label`` and
+        the ``_object_labels`` override map (set by :meth:`alias_locals`)."""
+        if getattr(obj, "label", None) == name:
+            return True
+        return self._object_labels.get(obj) == name
+
+    def _canonical_storage_for_name(
+        self,
+        procedure: object,
+        local: object,
+    ) -> tuple[object, ...] | None:
+        """Look up storage by variable name across the same procedure.
+
+        Returns the canonical storage for the variable named by *local*
+        if found in either ``storage_overrides`` or ``allocation_sites``
+        under any ``Local`` id for this procedure.
+        """
+        name = getattr(local, "name", None)
+        if not name:
+            return None
+        proc_id = id(procedure)
+        for (p_id, _l_id), storage in self.storage_overrides.items():
+            if p_id != proc_id or not storage:
+                continue
+            root = storage[0]
+            if self._name_matches_object(root, name):
+                return storage
+        for (p_id, _l_id), site in self.allocation_sites.items():
+            if p_id != proc_id:
+                continue
+            storage = self.site_storage.get(site, ())
+            if not storage:
+                continue
+            root = storage[0]
+            if self._name_matches_object(root, name):
+                return tuple(storage)
+        return None
 
     def _assign_site(self, key: tuple[int, int], storage: tuple[object, ...]) -> None:
         site = self.next_site
