@@ -687,3 +687,138 @@ def test_heap_analysis_tracks_closure_allocation_and_cell_escape():
     cell_obj = heap.cell_object("x")
     cell_loc = heap.location_for_raw(cell_obj)
     assert graph.is_escaped(cell_loc)
+
+
+def test_local_delete_removes_binding():
+    x = py_ast.Local("x")
+    y = py_ast.Local("y")
+    code = _code(
+        "test",
+        py_ast.Suite(
+            [
+                py_ast.Assign(py_ast.BuildList([]), [x]),
+                py_ast.Assign(x, [y]),  # y aliases x
+                py_ast.Delete(x),  # removes binding for x
+            ]
+        ),
+    )
+    analysis = HeapAnalysis()
+    graph = analysis.analyze(None, code)
+    heap = analysis.heap
+    assert heap is not None
+
+    y_locations = heap.locations_for_local(code, y)
+    assert len(y_locations) == 1, "y should still have the old location"
+    x_locations = heap.locations_for_local(code, x)
+    assert len(x_locations) == 0, (
+        "x should have no locations after delete"
+    )
+
+
+def test_getslice_reads_container_not_aliased():
+    lst = py_ast.Local("lst")
+    result = py_ast.Local("result")
+    code = _code(
+        "test",
+        py_ast.Suite(
+            [
+                py_ast.Assign(py_ast.BuildList([_existing("a")]), [lst]),
+                py_ast.Assign(
+                    py_ast.GetSlice(lst, _existing(0), _existing(2), None),
+                    [result],
+                ),
+            ]
+        ),
+    )
+    analysis = HeapAnalysis()
+    graph = analysis.analyze(None, code)
+    heap = analysis.heap
+    assert heap is not None
+
+    lst_location = heap.locations_for_local(code, lst)[0]
+    result_locations = heap.locations_for_local(code, result)
+
+    # Slice result is unknown (GetSlice is not a Call), so result has no locations.
+    # The slice container is read as a heap effect (reads set), but the result
+    # target is unbound (conservative) — it must NOT alias the source container.
+    assert not result_locations, (
+        "GetSlice result should have no locations (unknown value)"
+    )
+    # Verify the container still has its allocation
+    assert lst_location is not None
+
+
+def test_param_return_preserves_alias_through_direct_call():
+    formal = py_ast.Local("formal")
+    callee_ret = py_ast.Local("callee_ret")
+    result = py_ast.Local("result")
+    arg = py_ast.Local("arg")
+    callee = _code(
+        "identity",
+        py_ast.Suite([py_ast.Return([formal])]),
+        params=(formal,),
+        returns=(callee_ret,),
+    )
+    caller = _code(
+        "caller",
+        py_ast.Suite(
+            [
+                py_ast.Assign(py_ast.BuildList([]), [arg]),
+                py_ast.Assign(
+                    py_ast.DirectCall(callee, None, [arg], [], None, None),
+                    [result],
+                ),
+            ]
+        ),
+    )
+
+    analysis = HeapAnalysis()
+    graph = analysis.analyze(None, caller)
+    heap = analysis.heap
+    assert heap is not None
+
+    arg_location = heap.locations_for_local(caller, arg)[0]
+    result_location = heap.locations_for_local(caller, result)[0]
+    assert graph.aliased(result_location, arg_location), (
+        "Call result from identity function should alias the argument"
+    )
+
+
+def test_param_escape_tracked_through_direct_call():
+    formal = py_ast.Local("formal")
+    callee_ret = py_ast.Local("callee_ret")
+    arg = py_ast.Local("arg")
+    # Callee: store formal in a global, making it escape
+    callee = _code(
+        "store_global",
+        py_ast.Suite(
+            [
+                py_ast.SetAttr(formal, py_ast.GetGlobal(_existing("payload")), _existing("x")),
+                py_ast.Return([formal]),
+            ]
+        ),
+        params=(formal,),
+        returns=(callee_ret,),
+    )
+    caller = _code(
+        "caller",
+        py_ast.Suite(
+            [
+                py_ast.Assign(py_ast.BuildList([]), [arg]),
+                py_ast.Assign(
+                    py_ast.DirectCall(callee, None, [arg], [], None, None),
+                    [py_ast.Local("result")],
+                ),
+            ]
+        ),
+    )
+
+    analysis = HeapAnalysis()
+    graph = analysis.analyze(None, caller)
+    heap = analysis.heap
+    assert heap is not None
+
+    arg_location = heap.locations_for_local(caller, arg)[0]
+    assert graph.is_escaped(arg_location), (
+        "Argument should be escaped after callee stores it in a global"
+    )
