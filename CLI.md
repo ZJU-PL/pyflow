@@ -8,7 +8,7 @@ This document matches the current `pyflow` command surface.
 - `callgraph`: Build a call graph from a single Python file
 - `ir`: Dump AST, CFG, SSA, CDG, or DDG forms for specific functions
 - `heap`: Run heap analysis commands
-- `taint`: Unified taint analysis (dispatches to any of four engines)
+- `security`: Unified security analysis (dispatches to any of four engines)
 
 ## Optimize
 
@@ -83,13 +83,13 @@ Key options:
 
 `--as-graph-output` is only supported with `--algorithm constraint`.
 
-## Taint
+## Security
 
 ```bash
-pyflow taint [OPTIONS] [TARGET ...]
+pyflow security [OPTIONS] [TARGET ...]
 ```
 
-Unified taint analysis frontend. Dispatches to one of four engines depending on
+Unified security analysis frontend. Dispatches to one of four engines depending on
 ``--engine``. ``TARGET`` may be one or more Python files or directories.
 
 ### Engine selection
@@ -123,5 +123,5 @@ Unified taint analysis frontend. Dispatches to one of four engines depending on
   ``cloud``, ``injection``, ``network``, ``nosql``, ``requests``, ``sql``)
 - ``--registry`` — activate all framework rule packs (only for ``--engine ifds``)
 
-The ``taint`` command exits with ``1`` when findings are reported and ``0``
+The ``security`` command exits with ``1`` when findings are reported and ``0``
 otherwise.

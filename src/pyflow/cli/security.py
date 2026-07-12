@@ -1,12 +1,12 @@
 """
-Unified taint analysis CLI — ``pyflow taint``.
+Unified security analysis CLI — ``pyflow security``.
 
 Dispatches to one of four engine backends:
 
 - ``ast-scanner`` — fast AST pattern matching (Bandit-style), no analysis pipeline
-- ``cpa`` — PyFlow pipeline + CPA-backed taint propagation on the AST
+- ``cpa`` — PyFlow pipeline + CPA-backed security checks on the AST
 - ``ifds`` — IFDS solver over CFG supergraphs (interprocedural, flow-sensitive)
-- ``cpg`` — CPG-based context-sensitive taint with heap-aware alias tracking
+- ``cpg`` — CPG-based context-sensitive security analysis with heap-aware alias tracking
 """
 
 from __future__ import annotations
@@ -29,13 +29,13 @@ from pyflow.checker.formatters import sarif as sarif_formatter
 # ── Parser ────────────────────────────────────────────────────────────────
 
 
-def add_taint_parser(subparsers):
-    """Add the unified ``pyflow taint`` subcommand parser."""
+def add_security_parser(subparsers):
+    """Add the unified ``pyflow security`` subcommand parser."""
     p = subparsers.add_parser(
-        "taint",
-        help="Run taint analysis on Python files",
+        "security",
+        help="Run security analysis on Python files",
         description=(
-            "Run taint analysis using one of four engines. "
+            "Run security analysis using one of four engines. "
             "Use --engine to choose: 'ast-scanner' (fast AST matching, default), "
             "'cpa' (CPA-backed analysis), 'ifds' (interprocedural dataflow, "
             "requires --function), or 'cpg' (CPG-based context-sensitive analysis)."
@@ -50,25 +50,31 @@ def add_taint_parser(subparsers):
         "--engine",
         choices=["ast-scanner", "cpa", "ifds", "cpg"],
         default="ast-scanner",
-        help="Taint analysis engine to use",
+        help="Security analysis engine to use",
     )
     p.add_argument(
         "--sources",
         nargs="+",
         default=[],
-        help="Taint source function names (repeatable, e.g. 'request.args' 'input')",
+        help=(
+            "Source function names for taint-style checks "
+            "(repeatable, e.g. 'request.args' 'input')"
+        ),
     )
     p.add_argument(
         "--sinks",
         nargs="+",
         default=[],
-        help="Taint sink function names (repeatable, e.g. 'eval' 'subprocess.run')",
+        help=(
+            "Sink function names for taint-style checks "
+            "(repeatable, e.g. 'eval' 'subprocess.run')"
+        ),
     )
     p.add_argument(
         "--sanitizers",
         nargs="+",
         default=[],
-        help="Taint sanitizer function names (repeatable)",
+        help="Sanitizer function names for taint-style checks (repeatable)",
     )
     # IFDS-specific
     p.add_argument(
@@ -151,7 +157,7 @@ def _run_cpa(
     exclude: str = "",
     recursive: bool = False,
 ) -> SemanticManager:
-    """Run the CPA-backed semantic taint analysis (was 'semantic')."""
+    """Run the CPA-backed semantic security analysis (was 'semantic')."""
     config = BugFinderConfig(
         verbose=getattr(args, "verbose", False),
         recursive=recursive,
@@ -169,7 +175,7 @@ def _run_cpa(
 
 
 def _run_ifds(targets: List[str], args) -> Dict[str, Any]:
-    """Run the IFDS-backed interprocedural taint analysis."""
+    """Run the IFDS-backed interprocedural security analysis."""
     from pyflow.analysis.ifds.api import run_taint_analysis
 
     files = _discover_python_files(targets, getattr(args, "recursive", False))
@@ -211,7 +217,7 @@ def _run_ifds(targets: List[str], args) -> Dict[str, Any]:
 
 
 def _run_cpg(targets: List[str], args) -> List[Dict[str, Any]]:
-    """Run the CPG-based context-sensitive taint analysis."""
+    """Run the CPG-based context-sensitive security analysis."""
     from pyflow.analysis.cpg.build import build_cpg, build_cpg_from_directory
     from pyflow.analysis.cpg.taint import CPGTaintEngine
     from pyflow.analysis.cpg.rules import load_rules, detect_frameworks
@@ -324,8 +330,8 @@ def _format_output_text(engine: str, result) -> str:
     if engine == "cpg":
         findings = result
         if not findings:
-            return "No taint findings."
-        lines = [f"\n{len(findings)} taint finding(s):\n"]
+            return "No security findings."
+        lines = [f"\n{len(findings)} security finding(s):\n"]
         for i, f in enumerate(findings, 1):
             conf = f.get("confidence", 0)
             bar = "█" * int(conf * 10) + "░" * (10 - int(conf * 10))
@@ -333,7 +339,10 @@ def _format_output_text(engine: str, result) -> str:
                 f"  [{i}] {f.get('cwe', '?')} [{f.get('severity', '?')}] "
                 f"confidence={conf:.0%} [{bar}]"
             )
-            lines.append(f"      source: {f.get('source_label', '?')} (line {f.get('source_line', 0)})")
+            lines.append(
+                f"      source: {f.get('source_label', '?')} "
+                f"(line {f.get('source_line', 0)})"
+            )
             lines.append(f"      sink:   {f.get('sink_label', '?')} (line {f.get('sink_line', 0)})")
             lines.append("")
         return "\n".join(lines)
@@ -432,7 +441,12 @@ def _result_to_sarif(engine: str, result, args) -> Dict[str, Any]:
                 "ruleId": rule_id,
                 "ruleIndex": seen_rules[rule_id],
                 "level": "error" if f.get("severity") in ("critical", "high") else "warning",
-                "message": {"text": f"Tainted data from {f.get('source_label', '?')} reaches {f.get('sink_label', '?')}"},
+                "message": {
+                    "text": (
+                        f"Tainted data from {f.get('source_label', '?')} "
+                        f"reaches {f.get('sink_label', '?')}"
+                    )
+                },
                 "locations": [{
                     "physicalLocation": {
                         "artifactLocation": {"uri": artifact_uri},
@@ -443,7 +457,14 @@ def _result_to_sarif(engine: str, result, args) -> Dict[str, Any]:
         return {
             "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
             "version": "2.1.0",
-            "runs": [{"tool": {"driver": {"name": "pyflow-taint-cpg", "rules": rules}}, "results": results_list}],
+            "runs": [
+                {
+                    "tool": {
+                        "driver": {"name": "pyflow-security-cpg", "rules": rules}
+                    },
+                    "results": results_list,
+                }
+            ],
         }
 
     # Default: generic SARIF wrapper
@@ -452,7 +473,7 @@ def _result_to_sarif(engine: str, result, args) -> Dict[str, Any]:
         "version": "2.1.0",
         "runs": [
             {
-                "tool": {"driver": {"name": f"pyflow-taint-{engine}"}},
+                "tool": {"driver": {"name": f"pyflow-security-{engine}"}},
                 "results": [],
             }
         ],
@@ -579,8 +600,8 @@ def _ifds_result_to_dict(function: str, taint_result) -> Dict[str, Any]:
 # ── Main entry point ──────────────────────────────────────────────────────
 
 
-def run_taint(args) -> int:
-    """Dispatch to the selected taint engine and output results."""
+def run_security(args) -> int:
+    """Dispatch to the selected security engine and output results."""
     # Set up logging
     level = (
         logging.DEBUG

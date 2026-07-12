@@ -24,7 +24,7 @@ _bootstrap_src_path()
 
 from .optimize import run_analysis, list_optimization_passes, add_optimize_parser
 from .ir import run_ir_dump, add_ir_parser
-from .taint import run_taint, add_taint_parser
+from .security import run_security, add_security_parser
 from . import callgraph
 from .heap import run_heap_analysis, add_heap_parser
 
@@ -56,8 +56,8 @@ def main():
     # Heap analysis command
     add_heap_parser(subparsers)
 
-    # Unified taint analysis command
-    add_taint_parser(subparsers)
+    # Unified security analysis command
+    add_security_parser(subparsers)
 
     args = parser.parse_args()
 
@@ -83,7 +83,7 @@ def main():
             print("Error: input_path is required for IR dumping", file=sys.stderr)
             sys.exit(1)
         input_path = Path(args.input_path)
-    elif args.command == "taint":
+    elif args.command == "security":
         input_path = None
     elif args.command == "heap":
         input_path = Path(args.input_path)
@@ -106,8 +106,8 @@ def main():
         return 0
     elif args.command == "heap":
         return run_heap_analysis(args.input_path, args)
-    elif args.command == "taint":
-        return run_taint(args)
+    elif args.command == "security":
+        return run_security(args)
     else:
         parser.print_help()
         return 1

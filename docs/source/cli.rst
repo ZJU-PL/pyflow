@@ -80,22 +80,30 @@ Security Commands
 **pyflow security**
 ~~~~~~~~~~~~~~~~~~~
 
-Run security analysis on Python code using the pattern-based checker (AST pattern matching).
+Run security analysis on Python code using one of the available engines.
 
 ::
 
   pyflow security input.py
   pyflow security package/ --recursive
   pyflow security src/ -v --exclude tests/
+  pyflow security input.py --engine ifds --function main --sources input --sinks eval
+  pyflow security input.py --engine cpg --framework flask
 
 Options:
+- ``--engine``: Analysis engine (``ast-scanner``, ``cpa``, ``ifds``, or ``cpg``)
+- ``--sources`` / ``--sinks`` / ``--sanitizers``: Function names for taint-style dataflow checks
+- ``--function``: Entry function for the IFDS engine
+- ``--framework``: Framework rule packs for the CPG engine
+- ``--format``: Output format (``text``, ``json``, or ``sarif``)
+- ``--output``: Output file path
 - ``-r, --recursive``: Scan directories recursively
 - ``-v, --verbose``: Verbose output
 - ``-d, --debug``: Debug output
 - ``--exclude``: Comma-separated list of paths to exclude
 
-The security command uses the pattern-based checker engine for fast AST pattern matching.
-For deep semantic analysis, use the semantic checker via the PyFlow API.
+The default ``ast-scanner`` engine is a fast pattern-based checker. The command
+can also dispatch to CPA, IFDS, and CPG-backed security engines.
 
 Dataflow Command
 ----------------

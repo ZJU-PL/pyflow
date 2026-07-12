@@ -42,7 +42,7 @@ def test_cli_reference_matches_current_commands() -> None:
         "`optimize`",
         "`callgraph`",
         "`ir`",
-        "`taint`",
+        "`security`",
         "--opt-passes PASS1 [PASS2 ...]",
         "--dump-cdg FUNCTION",
         "--dump-ddg FUNCTION",

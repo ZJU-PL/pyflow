@@ -115,8 +115,8 @@ The CPG can be built from the command line:
 
 .. code-block:: bash
 
-    # Build CPG from a Python file and run taint analysis
-    pyflow security input.py --cpg
+    # Build CPG from a Python file and run CPG-backed security analysis
+    pyflow security input.py --engine cpg
 
     # Export CPG as DOT for visualization
     pyflow ir input.py --dump-cpg

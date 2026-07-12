@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 import pyflow.analysis.ifds.api as ifds_api
-import pyflow.cli.taint as dataflow_cli
+import pyflow.cli.security as security_cli
 
 
 class _DummyCode:
@@ -76,7 +76,7 @@ def _make_args(output_format: str) -> SimpleNamespace:
 
 
 @pytest.mark.parametrize("output_format", ["text", "json"])
-def test_dataflow_cli_uses_single_taint_result_path(
+def test_security_cli_uses_single_taint_result_path(
     monkeypatch, tmp_path, capsys, output_format
 ):
     target = tmp_path / "sample.py"
@@ -114,7 +114,7 @@ def main():
 
     args = _make_args(output_format)
     args.targets = [target]
-    exit_code = dataflow_cli.run_taint(args)
+    exit_code = security_cli.run_security(args)
     out = capsys.readouterr().out
 
     assert exit_code == 1
@@ -130,7 +130,7 @@ def main():
         assert "sink=sink procedure=sinkproc args=[b]" in out
 
 
-def test_dataflow_cli_falls_back_to_tainted_argument_labels(
+def test_security_cli_falls_back_to_tainted_argument_labels(
     monkeypatch, tmp_path, capsys
 ):
     target = tmp_path / "sample.py"
@@ -166,7 +166,7 @@ def main():
 
     args = _make_args("json")
     args.targets = [target]
-    exit_code = dataflow_cli.run_taint(args)
+    exit_code = security_cli.run_security(args)
     payload = json.loads(capsys.readouterr().out)
 
     assert exit_code == 1
@@ -174,7 +174,7 @@ def main():
     assert payload["findings"][0]["tainted_arguments"] == ["source()"]
 
 
-def test_dataflow_cli_forwards_dynamic_model_options(monkeypatch, tmp_path, capsys):
+def test_security_cli_forwards_dynamic_model_options(monkeypatch, tmp_path, capsys):
     target = tmp_path / "sample.py"
     target.write_text("def main():\n    return 0\n", encoding="utf-8")
 
@@ -194,7 +194,7 @@ def test_dataflow_cli_forwards_dynamic_model_options(monkeypatch, tmp_path, caps
     args.conservative_unresolved_calls = True
 
     args.targets = [target]
-    exit_code = dataflow_cli.run_taint(args)
+    exit_code = security_cli.run_security(args)
     payload = json.loads(capsys.readouterr().out)
 
     assert exit_code == 0
@@ -205,7 +205,7 @@ def test_dataflow_cli_forwards_dynamic_model_options(monkeypatch, tmp_path, caps
 
 
 @pytest.mark.parametrize("output_format", ["text", "json"])
-def test_dataflow_cli_emits_session_diagnostics(
+def test_security_cli_emits_session_diagnostics(
     monkeypatch, tmp_path, capsys, output_format
 ):
     target = tmp_path / "sample.py"
@@ -229,7 +229,7 @@ def test_dataflow_cli_emits_session_diagnostics(
 
     args = _make_args(output_format)
     args.targets = [target]
-    exit_code = dataflow_cli.run_taint(args)
+    exit_code = security_cli.run_security(args)
     out = capsys.readouterr().out
 
     assert exit_code == 1

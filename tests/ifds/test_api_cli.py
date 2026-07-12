@@ -13,7 +13,7 @@ from pyflow.analysis.ifds.api import (
     run_taint_analysis,
     run_typestate_analysis,
 )
-from pyflow.cli.taint import run_taint
+from pyflow.cli.security import run_security
 
 
 PROGRAM = """
@@ -619,7 +619,7 @@ def f():
     assert {code.codeName() for code in session.program.liveCode} >= {"f"}
 
 
-def test_dataflow_cli_emits_json_report(tmp_path, capsys):
+def test_security_cli_emits_json_report(tmp_path, capsys):
     target = tmp_path / "sample.py"
     target.write_text(PROGRAM)
 
@@ -637,7 +637,7 @@ def test_dataflow_cli_emits_json_report(tmp_path, capsys):
         verbose=False,
     )
 
-    exit_code = run_taint(args)
+    exit_code = run_security(args)
     payload = json.loads(capsys.readouterr().out)
 
     assert exit_code == 1
@@ -646,7 +646,7 @@ def test_dataflow_cli_emits_json_report(tmp_path, capsys):
     assert payload["findings"][0]["tainted_arguments"] == ["b"]
 
 
-def test_dataflow_cli_reports_expression_only_taint_findings(tmp_path, capsys):
+def test_security_cli_reports_expression_only_taint_findings(tmp_path, capsys):
     target = tmp_path / "nested.py"
     target.write_text(
         """
@@ -675,7 +675,7 @@ def main():
         verbose=False,
     )
 
-    exit_code = run_taint(args)
+    exit_code = run_security(args)
     payload = json.loads(capsys.readouterr().out)
 
     assert exit_code == 1
