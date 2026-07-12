@@ -28,6 +28,7 @@ from .intrinsics import (
     COLLECTION_VALUE_MUTATOR_NAMES,
     DEFAULT_COLLECTION_MUTATOR_NAMES,
     DEFAULT_HEAP_INTRINSICS,
+    HeapIntrinsicModels,
 )
 from .model import HeapLocation, HeapObject, HeapWrite, UpdatePolicy
 
@@ -115,9 +116,12 @@ class HeapEffectBuilder:
         self,
         heap: HeapAbstraction,
         read_locations: LocationReader,
+        *,
+        intrinsics: HeapIntrinsicModels = DEFAULT_HEAP_INTRINSICS,
     ) -> None:
         self.heap = heap
         self.read_locations = read_locations
+        self.intrinsics = intrinsics
 
     def operation_effect(
         self,
@@ -136,6 +140,7 @@ class HeapEffectBuilder:
             *self.dynamic_getattr_locations(procedure, operation),
             *self.dynamic_subscript_read_locations(procedure, operation),
             *self.getiter_read_locations(procedure, operation),
+            *self.assert_read_locations(procedure, operation),
         ]
         writes = [
             self.heap.write_for_location(location)
@@ -185,6 +190,12 @@ class HeapEffectBuilder:
             )
             escape_exprs.extend(yield_exprs)
 
+        if isinstance(operation, py_ast.Raise):
+            escape_exprs.extend(self.raise_escape_expressions(operation))
+
+        if isinstance(operation, py_ast.Assert) and operation.message is not None:
+            escape_exprs.append(operation.message)
+
         return HeapEffect(
             reads=tuple(dict.fromkeys(reads)),
             writes=tuple(dict.fromkeys(writes)),
@@ -222,7 +233,7 @@ class HeapEffectBuilder:
             return CALL_RETURN_COPY
         if call_name in policy.fresh_return_names:
             return CALL_RETURN_FRESH
-        intrinsic_kind = DEFAULT_HEAP_INTRINSICS.return_kind(call_name)
+        intrinsic_kind = self.intrinsics.return_kind(call_name)
         if intrinsic_kind is not None:
             return intrinsic_kind
         if policy.treat_capitalized_calls_as_fresh and self._is_capitalized_call_name(
@@ -510,7 +521,7 @@ class HeapEffectBuilder:
     ) -> tuple[tuple[HeapLocation, ...], tuple[object, ...]]:
         call = self._call_from_expression_or_statement(operation)
         call_name = resolve_call_name(call) if call is not None else None
-        model = DEFAULT_HEAP_INTRINSICS.collection_mutator(call_name)
+        model = self.intrinsics.collection_mutator(call_name)
         if call is None or call_name not in mutator_names:
             return (), ()
         if model is not None and not model.writes_value:
@@ -550,7 +561,7 @@ class HeapEffectBuilder:
     ) -> tuple[HeapLocation, ...]:
         call = self._call_from_expression_or_statement(operation)
         call_name = resolve_call_name(call) if call is not None else None
-        model = DEFAULT_HEAP_INTRINSICS.collection_mutator(call_name)
+        model = self.intrinsics.collection_mutator(call_name)
         if call is None or call_name not in mutator_names:
             return ()
         if model is None or not model.deletes_value:
@@ -639,6 +650,8 @@ class HeapEffectBuilder:
             if kind not in {CALL_RETURN_FRESH, CALL_RETURN_COPY}:
                 return ()
             return (self.call_return_object(procedure, expr),)
+        if isinstance(expr, py_ast.Import):
+            return (self.import_object(expr),)
         if not isinstance(
             expr,
             (
@@ -724,6 +737,12 @@ class HeapEffectBuilder:
             return "dict literal"
         return type(expr).__name__
 
+    def import_object(self, expr: py_ast.Import) -> HeapObject:
+        module_name = expr.name
+        if getattr(expr, "level", 0):
+            module_name = "." * expr.level + module_name
+        return self.heap.module_object(module_name, label=expr.name)
+
     def _call_result_label(self, expr: object) -> str:
         call_name = resolve_call_name(expr)
         if call_name is not None:
@@ -766,6 +785,30 @@ class HeapEffectBuilder:
         if operation.expr is None:
             return ()
         return self._locations_for_expressions(procedure, (operation.expr,))
+
+    def assert_read_locations(
+        self,
+        procedure: object,
+        operation: object,
+    ) -> tuple[HeapLocation, ...]:
+        if not isinstance(operation, py_ast.Assert):
+            return ()
+        expressions = [operation.test]
+        if operation.message is not None:
+            expressions.append(operation.message)
+        return self._locations_for_expressions(procedure, tuple(expressions))
+
+    @staticmethod
+    def raise_escape_expressions(operation: py_ast.Raise) -> tuple[object, ...]:
+        return tuple(
+            expr
+            for expr in (
+                operation.exception,
+                operation.parameter,
+                operation.traceback,
+            )
+            if expr is not None
+        )
 
     def _is_capitalized_call_name(self, call_name: str) -> bool:
         short_name = call_name.rsplit(".", 1)[-1]

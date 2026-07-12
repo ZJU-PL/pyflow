@@ -8,6 +8,8 @@ or collection literals allocate fresh heap roots.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from pyflow.analysis.ir_utils import (
     actual_argument_expressions,
     assigned_locals,
@@ -20,13 +22,21 @@ from .heap_effects import (
     CALL_RETURN_FRESH,
     CALL_RETURN_OPAQUE,
     CALL_RETURN_SUMMARY,
-    DEFAULT_COLLECTION_MUTATOR_NAMES,
+    DEFAULT_HEAP_INTRINSICS,
     DYNAMIC_SUBSCRIPT_WILDCARD,
     HeapEffectBuilder,
 )
 from .heap_state import HeapState
+from .intrinsics import HeapIntrinsicModels
 from .model import HeapLocation, HeapObjectKind
 from .model import UpdatePolicy
+
+
+@dataclass(frozen=True)
+class _CallSummary:
+    state: HeapState
+    returns: tuple[HeapLocation, ...]
+    deletes: tuple[HeapLocation, ...] = ()
 
 
 class HeapTransferEngine:
@@ -36,16 +46,27 @@ class HeapTransferEngine:
         self,
         heap: HeapAbstraction,
         *,
-        collection_mutator_names: frozenset[str] = DEFAULT_COLLECTION_MUTATOR_NAMES,
+        intrinsics: HeapIntrinsicModels = DEFAULT_HEAP_INTRINSICS,
+        collection_mutator_names: frozenset[str] | None = None,
         max_loop_iterations: int = 8,
     ) -> None:
         self.heap = heap
-        self.collection_mutator_names = collection_mutator_names
+        self.intrinsics = intrinsics
+        self.collection_mutator_names = (
+            collection_mutator_names
+            if collection_mutator_names is not None
+            else intrinsics.collection_mutator_names()
+        )
         self.max_loop_iterations = max_loop_iterations
-        self.effect_builder = HeapEffectBuilder(heap, self.locations_for_expression)
+        self.effect_builder = HeapEffectBuilder(
+            heap,
+            self.locations_for_expression,
+            intrinsics=intrinsics,
+        )
         self._active_codes: set[int] = set()
-        self._summary_cache: dict[object, tuple[HeapState, tuple[HeapLocation, ...]]] = {}
+        self._summary_cache: dict[object, _CallSummary] = {}
         self._summary_in_progress: set[object] = set()
+        self._summary_delete_stack: list[list[HeapLocation]] = []
         self.state = HeapState()
 
     def analyze_program(self, program: object) -> None:
@@ -130,6 +151,7 @@ class HeapTransferEngine:
             collection_mutator_names=self.collection_mutator_names,
         )
         self._apply_writes(procedure, operation, effect.writes)
+        self._record_summary_deletes(effect.deletes)
         self._apply_deletes(effect.deletes)
         self.heap.mark_all_escaped(effect.escapes)
         self.state.mark_escaped(effect.escapes)
@@ -329,6 +351,16 @@ class HeapTransferEngine:
                 label=self.effect_builder._allocation_label(expr),
             )
             return
+        if isinstance(expr, py_ast.Import):
+            module = self.effect_builder.import_object(expr)
+            for target in targets:
+                self.heap.bind_local_to_object(
+                    procedure,
+                    target,
+                    module,
+                    include_raw_fallback=True,
+                )
+            return
         if isinstance(expr, (py_ast.Call, py_ast.DirectCall, py_ast.MethodCall)):
             self._bind_call_result_targets(procedure, targets, expr)
             return
@@ -363,24 +395,25 @@ class HeapTransferEngine:
         callee = call.code
         summary_key = self._summary_key(caller, callee, call)
         self._bind_callee_formals(caller, callee, call)
-        _summary_state, return_locations = self._callee_summary(callee, summary_key)
+        summary = self._callee_summary(callee, summary_key)
+        self._apply_callee_summary(summary)
         targets = assigned_locals(operation)
         if not targets:
             return
         for index, target in enumerate(targets):
-            if index >= len(return_locations):
+            if index >= len(summary.returns):
                 continue
             self.heap.bind_local_to_locations(
                 caller,
                 target,
-                (return_locations[index],),
+                (summary.returns[index],),
             )
 
     def _callee_summary(
         self,
         callee: py_ast.Code,
         summary_key: object,
-    ) -> tuple[HeapState, tuple[HeapLocation, ...]]:
+    ) -> _CallSummary:
         cached = self._summary_cache.get(summary_key)
         if cached is not None:
             return cached
@@ -390,15 +423,34 @@ class HeapTransferEngine:
         self._summary_in_progress.add(summary_key)
         caller_state = self.state
         self.state = HeapState()
-        self.bind_parameters(callee)
-        self.analyze_node(callee, callee.ast)
-        summary_state = self.state
-        return_locations = self._return_locations(callee)
-        self.state = caller_state.join(summary_state)
-        result = summary_state.copy(), return_locations
-        self._summary_cache[summary_key] = result
-        self._summary_in_progress.discard(summary_key)
-        return result
+        summary_deletes: list[HeapLocation] = []
+        self._summary_delete_stack.append(summary_deletes)
+        try:
+            self.bind_parameters(callee)
+            self.analyze_node(callee, callee.ast)
+            summary_state = self.state
+            return_locations = self._return_locations(callee)
+            result = _CallSummary(
+                state=summary_state.copy(),
+                returns=return_locations,
+                deletes=tuple(dict.fromkeys(summary_deletes)),
+            )
+            self._summary_cache[summary_key] = result
+            return result
+        finally:
+            self._summary_delete_stack.pop()
+            self.state = caller_state
+            self._summary_in_progress.discard(summary_key)
+
+    def _apply_callee_summary(self, summary: _CallSummary) -> None:
+        self._record_summary_deletes(summary.deletes)
+        self._apply_deletes(summary.deletes)
+        self.state = self.state.join(summary.state)
+        self.heap.mark_all_escaped(tuple(summary.state.escaped))
+
+    def _record_summary_deletes(self, deletes: tuple[HeapLocation, ...]) -> None:
+        if self._summary_delete_stack and deletes:
+            self._summary_delete_stack[-1].extend(deletes)
 
     def _summary_key(
         self,
@@ -407,7 +459,7 @@ class HeapTransferEngine:
         call: py_ast.DirectCall,
     ) -> tuple[object, ...]:
         actual_key = tuple(
-            tuple(location.root for location in self.locations_for_expression(caller, actual))
+            self.locations_for_expression(caller, actual)
             for actual in actual_argument_expressions(call)
         )
         return callee, actual_key
@@ -429,7 +481,7 @@ class HeapTransferEngine:
     def _conservative_return_summary(
         self,
         callee: py_ast.Code,
-    ) -> tuple[HeapState, tuple[HeapLocation, ...]]:
+    ) -> _CallSummary:
         state = HeapState()
         returns = self._return_locations(callee)
         if not returns:
@@ -442,7 +494,7 @@ class HeapTransferEngine:
                     else ()
                 )
             )
-        return state, returns
+        return _CallSummary(state=state, returns=returns)
 
     def _bind_callee_formals(
         self,

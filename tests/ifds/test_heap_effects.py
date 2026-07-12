@@ -5,7 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from pyflow.analysis.heap import (
+    CollectionMutatorModel,
     HeapAbstraction,
+    HeapIntrinsicModels,
     HeapObjectKind,
     HeapPolicy,
     UpdatePolicy,
@@ -202,6 +204,85 @@ def test_heap_effect_insert_escapes_inserted_value_not_index():
     assert all(location.root.label != "0" for location in effect.escapes)
 
 
+def test_heap_effect_models_deque_appendleft_as_collection_write():
+    container = py_ast.Local("items")
+    value = py_ast.Local("value")
+    raw = {
+        id(container): (RawStorage("items"),),
+        id(value): (RawStorage("value"),),
+    }
+    heap = HeapAbstraction(lambda _procedure, local: raw.get(id(local), ()))
+    builder = HeapEffectBuilder(heap, heap.locations_for_local)
+    operation = py_ast.Discard(
+        py_ast.MethodCall(container, _existing("appendleft"), [value], [], None, None)
+    )
+
+    effect = builder.operation_effect(
+        None,
+        operation,
+        collection_mutator_names=frozenset({"appendleft"}),
+    )
+
+    assert heap.locations_for_local(None, value)[0] in effect.escapes
+    assert any(
+        "[*]" in heap.display_label_for_location(w.location) for w in effect.writes
+    )
+
+
+def test_heap_effect_classifies_common_iterator_and_string_returns_as_fresh():
+    target = py_ast.Local("target")
+    source = py_ast.Local("source")
+    heap = HeapAbstraction(lambda _procedure, _local: ())
+    builder = HeapEffectBuilder(heap, heap.locations_for_local)
+
+    sorted_call = py_ast.Call(py_ast.Local("sorted"), [source], [], None, None)
+    split_call = py_ast.MethodCall(source, _existing("split"), [], [], None, None)
+
+    sorted_effect = builder.operation_effect(None, py_ast.Assign(sorted_call, [target]))
+    split_effect = builder.operation_effect(None, py_ast.Assign(split_call, [target]))
+
+    assert builder.call_return_kind(sorted_call) == CALL_RETURN_FRESH
+    assert builder.call_return_kind(split_call) == CALL_RETURN_FRESH
+    assert len(sorted_effect.allocations) == 1
+    assert len(split_effect.allocations) == 1
+
+
+def test_heap_effect_accepts_project_specific_intrinsic_models():
+    target = py_ast.Local("target")
+    source = py_ast.Local("source")
+    container = py_ast.Local("container")
+    value = py_ast.Local("value")
+    raw = {
+        id(container): (RawStorage("container"),),
+        id(value): (RawStorage("value"),),
+    }
+    intrinsics = HeapIntrinsicModels(
+        return_kinds={"numpy.array": CALL_RETURN_FRESH},
+        collection_mutators={"push": CollectionMutatorModel(writes_value=True)},
+    )
+    heap = HeapAbstraction(lambda _procedure, local: raw.get(id(local), ()))
+    builder = HeapEffectBuilder(
+        heap,
+        heap.locations_for_local,
+        intrinsics=intrinsics,
+    )
+    array_call = py_ast.Call(py_ast.Local("numpy.array"), [source], [], None, None)
+    push = py_ast.Discard(
+        py_ast.MethodCall(container, _existing("push"), [value], [], None, None)
+    )
+
+    array_effect = builder.operation_effect(None, py_ast.Assign(array_call, [target]))
+    push_effect = builder.operation_effect(
+        None,
+        push,
+        collection_mutator_names=intrinsics.collection_mutator_names(),
+    )
+
+    assert builder.call_return_kind(array_call) == CALL_RETURN_FRESH
+    assert len(array_effect.allocations) == 1
+    assert heap.locations_for_local(None, value)[0] in push_effect.escapes
+
+
 def test_heap_effect_extracts_global_read_write_and_delete_locations():
     value = py_ast.Local("value")
     name = _existing("CONFIG")
@@ -305,3 +386,61 @@ def test_heap_effect_yield_with_value_escapes():
     effect = builder.operation_effect(None, py_ast.Yield(value))
 
     assert len(effect.escapes) == 1
+
+
+def test_heap_effect_models_raise_exception_payloads_as_escaped():
+    exception = py_ast.Local("exception")
+    parameter = py_ast.Local("parameter")
+    traceback = py_ast.Local("traceback")
+    raw = {
+        id(exception): (RawStorage("exception"),),
+        id(parameter): (RawStorage("parameter"),),
+        id(traceback): (RawStorage("traceback"),),
+    }
+    heap = HeapAbstraction(lambda _procedure, local: raw.get(id(local), ()))
+    builder = HeapEffectBuilder(heap, heap.locations_for_local)
+
+    effect = builder.operation_effect(
+        None,
+        py_ast.Raise(exception, parameter, traceback),
+    )
+
+    assert set(effect.escapes) == {
+        heap.locations_for_local(None, exception)[0],
+        heap.locations_for_local(None, parameter)[0],
+        heap.locations_for_local(None, traceback)[0],
+    }
+
+
+def test_heap_effect_models_assert_reads_and_message_escape():
+    test_value = py_ast.Local("test_value")
+    message = py_ast.Local("message")
+    raw = {
+        id(test_value): (RawStorage("test_value"),),
+        id(message): (RawStorage("message"),),
+    }
+    heap = HeapAbstraction(lambda _procedure, local: raw.get(id(local), ()))
+    builder = HeapEffectBuilder(heap, heap.locations_for_local)
+
+    effect = builder.operation_effect(None, py_ast.Assert(test_value, message))
+
+    assert set(effect.reads) == {
+        heap.locations_for_local(None, test_value)[0],
+        heap.locations_for_local(None, message)[0],
+    }
+    assert effect.escapes == (heap.locations_for_local(None, message)[0],)
+
+
+def test_heap_effect_records_import_module_object_for_assignment():
+    target = py_ast.Local("module")
+    heap = HeapAbstraction(lambda _procedure, _local: ())
+    builder = HeapEffectBuilder(heap, heap.locations_for_local)
+
+    effect = builder.operation_effect(
+        None,
+        py_ast.Assign(py_ast.Import("json", [], 0), [target]),
+    )
+
+    assert len(effect.allocations) == 1
+    assert effect.allocations[0].kind is HeapObjectKind.GLOBAL
+    assert effect.allocations[0].type_hint == "module"

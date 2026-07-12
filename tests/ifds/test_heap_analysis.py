@@ -6,6 +6,8 @@ from pyflow.analysis.heap import (
     DEFAULT_HEAP_INTRINSICS,
     HeapAnalysis,
     HeapAbstraction,
+    HeapIntrinsicModels,
+    HeapObjectKind,
     HeapSelector,
 )
 from pyflow.language.python import ast as py_ast
@@ -124,6 +126,196 @@ def test_heap_analysis_instantiates_direct_call_formals_and_returns():
     assert graph.aliased(arg_location, formal_location)
     assert graph.aliased(result_location, arg_location)
     assert graph.aliased(return_location, arg_location)
+
+
+def test_heap_analysis_summary_cache_key_distinguishes_actual_selectors():
+    obj = py_ast.Local("obj")
+    formal = py_ast.Local("formal")
+    callee_ret = py_ast.Local("callee_ret")
+    result_a = py_ast.Local("result_a")
+    result_b = py_ast.Local("result_b")
+    callee = _code(
+        "identity",
+        py_ast.Suite([py_ast.Return([formal])]),
+        params=(formal,),
+        returns=(callee_ret,),
+    )
+    caller = _code(
+        "caller",
+        py_ast.Suite(
+            [
+                py_ast.Assign(py_ast.BuildList([]), [obj]),
+                py_ast.Assign(
+                    py_ast.DirectCall(
+                        callee,
+                        None,
+                        [py_ast.GetAttr(obj, _existing("a"))],
+                        [],
+                        None,
+                        None,
+                    ),
+                    [result_a],
+                ),
+                py_ast.Assign(
+                    py_ast.DirectCall(
+                        callee,
+                        None,
+                        [py_ast.GetAttr(obj, _existing("b"))],
+                        [],
+                        None,
+                        None,
+                    ),
+                    [result_b],
+                ),
+            ]
+        ),
+    )
+
+    analysis = HeapAnalysis()
+    graph = analysis.analyze(None, caller)
+    heap = analysis.heap
+    assert heap is not None
+
+    result_a_location = heap.locations_for_local(caller, result_a)[0]
+    result_b_location = heap.locations_for_local(caller, result_b)[0]
+
+    assert not graph.may_alias(result_a_location, result_b_location)
+
+
+def test_heap_analysis_uses_custom_intrinsic_models():
+    target = py_ast.Local("target")
+    source = py_ast.Local("source")
+    code = _code(
+        "main",
+        py_ast.Suite(
+            [
+                py_ast.Assign(
+                    py_ast.Call(py_ast.Local("numpy.array"), [source], [], None, None),
+                    [target],
+                )
+            ]
+        ),
+        params=(source,),
+    )
+    intrinsics = HeapIntrinsicModels(return_kinds={"numpy.array": "fresh"})
+
+    analysis = HeapAnalysis(intrinsics=intrinsics)
+    graph = analysis.analyze(None, code)
+    heap = analysis.heap
+    assert heap is not None
+
+    target_location = heap.locations_for_local(code, target)[0]
+
+    assert target_location.root.kind is HeapObjectKind.ALLOCATION
+    assert graph.get(target_location) is not None
+
+
+def test_heap_analysis_replays_cached_direct_call_summary_side_effects():
+    obj = py_ast.Local("obj")
+    value = py_ast.Local("value")
+    formal_obj = py_ast.Local("formal_obj")
+    formal_value = py_ast.Local("formal_value")
+    loaded = py_ast.Local("loaded")
+    callee = _code(
+        "store_payload",
+        py_ast.Suite(
+            [py_ast.SetAttr(formal_value, formal_obj, _existing("payload"))]
+        ),
+        params=(formal_obj, formal_value),
+    )
+    caller = _code(
+        "caller",
+        py_ast.Suite(
+            [
+                py_ast.Assign(py_ast.BuildList([]), [obj]),
+                py_ast.Discard(
+                    py_ast.DirectCall(callee, None, [obj, value], [], None, None)
+                ),
+                py_ast.DeleteAttr(obj, _existing("payload")),
+                py_ast.Discard(
+                    py_ast.DirectCall(callee, None, [obj, value], [], None, None)
+                ),
+                py_ast.Assign(py_ast.GetAttr(obj, _existing("payload")), [loaded]),
+            ]
+        ),
+        params=(value,),
+    )
+
+    analysis = HeapAnalysis()
+    graph = analysis.analyze(None, caller)
+    heap = analysis.heap
+    assert heap is not None
+
+    loaded_location = heap.locations_for_local(caller, loaded)[0]
+    value_location = heap.locations_for_local(caller, value)[0]
+
+    assert graph.aliased(loaded_location, value_location)
+
+
+def test_heap_analysis_replays_cached_direct_call_summary_deletes():
+    obj = py_ast.Local("obj")
+    first_value = py_ast.Local("first_value")
+    second_value = py_ast.Local("second_value")
+    formal_obj = py_ast.Local("formal_obj")
+    loaded = py_ast.Local("loaded")
+    callee = _code(
+        "delete_payload",
+        py_ast.Suite([py_ast.DeleteAttr(formal_obj, _existing("payload"))]),
+        params=(formal_obj,),
+    )
+    caller = _code(
+        "caller",
+        py_ast.Suite(
+            [
+                py_ast.Assign(py_ast.BuildList([]), [obj]),
+                py_ast.SetAttr(first_value, obj, _existing("payload")),
+                py_ast.Discard(
+                    py_ast.DirectCall(callee, None, [obj], [], None, None)
+                ),
+                py_ast.SetAttr(second_value, obj, _existing("payload")),
+                py_ast.Discard(
+                    py_ast.DirectCall(callee, None, [obj], [], None, None)
+                ),
+                py_ast.Assign(py_ast.GetAttr(obj, _existing("payload")), [loaded]),
+            ]
+        ),
+        params=(first_value, second_value),
+    )
+
+    analysis = HeapAnalysis()
+    graph = analysis.analyze(None, caller)
+    heap = analysis.heap
+    assert heap is not None
+
+    loaded_locations = heap.locations_for_local(caller, loaded)
+    first_value_location = heap.locations_for_local(caller, first_value)[0]
+    second_value_location = heap.locations_for_local(caller, second_value)[0]
+
+    assert first_value_location not in loaded_locations
+    assert second_value_location not in loaded_locations
+    assert not any(
+        graph.may_alias(location, second_value_location)
+        for location in loaded_locations
+    )
+
+
+def test_heap_analysis_binds_assigned_import_to_module_object():
+    module = py_ast.Local("json_module")
+    code = _code(
+        "main",
+        py_ast.Suite([py_ast.Assign(py_ast.Import("json", [], 0), [module])]),
+    )
+
+    analysis = HeapAnalysis()
+    graph = analysis.analyze(None, code)
+    heap = analysis.heap
+    assert heap is not None
+
+    module_location = heap.locations_for_local(code, module)[0]
+
+    assert module_location.root.kind is HeapObjectKind.GLOBAL
+    assert module_location.root.type_hint == "module"
+    assert graph.get(module_location) is not None
 
 
 def test_heap_analysis_tracks_instance_field_store_and_load_values():

@@ -12,6 +12,7 @@ from __future__ import annotations
 from .abstraction import (
     HeapAbstraction,
 )
+from .intrinsics import DEFAULT_HEAP_INTRINSICS, HeapIntrinsicModels
 from .model import (
     HeapLocation,
     HeapPolicy,
@@ -47,11 +48,13 @@ class HeapAnalysis:
         self,
         policy: HeapPolicy | None = None,
         raw_storage_provider: RawStorageProvider | None = None,
+        intrinsics: HeapIntrinsicModels = DEFAULT_HEAP_INTRINSICS,
     ) -> None:
         self._policy = policy or HeapPolicy()
         self._raw_storage_provider: RawStorageProvider = (
             raw_storage_provider or _empty_raw_storage
         )
+        self._intrinsics = intrinsics
         self._heap: HeapAbstraction | None = None
         self._graph: PointsToGraph | None = None
 
@@ -83,7 +86,9 @@ class HeapAnalysis:
             site_storage=site_storage or {},
             next_site=next_site,
         )
-        HeapTransferEngine(self._heap).analyze_program(program)
+        HeapTransferEngine(self._heap, intrinsics=self._intrinsics).analyze_program(
+            program
+        )
         graph = self._heap.to_points_to_graph()
         self._graph = graph
         return graph
@@ -102,6 +107,11 @@ class HeapAnalysis:
     def policy(self) -> HeapPolicy:
         """The :class:`HeapPolicy` used by this analysis."""
         return self._policy
+
+    @property
+    def intrinsics(self) -> HeapIntrinsicModels:
+        """The intrinsic call models used by this analysis."""
+        return self._intrinsics
 
     def reset(self) -> None:
         """Clear internal state so :meth:`analyze` can be called again."""
