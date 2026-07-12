@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Callable, Dict, Iterable, Sequence
+from typing import Callable, DefaultDict, Dict, Iterable, Mapping, Sequence
 
 from pyflow.analysis.cfg import dfs as cfg_dfs
 from pyflow.analysis.cfg import graph as cfg_graph
-from pyflow.analysis.ir_utils import actual_argument_expressions, assigned_locals, resolve_call_name
+from pyflow.analysis.ir_utils import (
+    actual_argument_expressions,
+    assigned_locals,
+    resolve_call_name,
+)
 from pyflow.language.python import ast as py_ast
 
 from .supergraph import Supergraph
@@ -53,7 +58,9 @@ class CallEffect:
     call_name: str | None
     callees: tuple[cfg_graph.Code, ...]
     actual_arguments: tuple[object, ...]
-    argument_bindings: tuple[tuple[cfg_graph.Code, tuple[tuple[object, py_ast.Local], ...]], ...]
+    argument_bindings: tuple[
+        tuple[cfg_graph.Code, tuple[tuple[object, py_ast.Local], ...]], ...
+    ]
     return_sites: tuple[CFGNode, ...]
     kill_slots: tuple[object, ...]
     result_route: CallResultRoute
@@ -174,7 +181,10 @@ def direct_call_cfg_resolver(
     call_expression: py_ast.PythonASTNode | None,
 ) -> tuple[cfg_graph.Code, ...]:
     """Resolve callees through ``ast.DirectCall.code``."""
-    if not isinstance(call_expression, py_ast.DirectCall) or call_expression.code is None:
+    if (
+        not isinstance(call_expression, py_ast.DirectCall)
+        or call_expression.code is None
+    ):
         return ()
     callee = adapter.cfg_by_ast_code.get(call_expression.code)
     if callee is None:
@@ -284,6 +294,95 @@ def composite_cfg_resolver(*resolvers: CallResolver) -> CallResolver:
         return tuple(merged)
 
     return resolve
+
+
+def constraint_callgraph_cfg_resolver(
+    call_site_edges: Mapping[object, Iterable[str]],
+) -> CallResolver:
+    """Resolve CFG callees from constraint callgraph call-site edges.
+
+    The constraint callgraph records source-level call sites by caller scope and
+    per-scope ordinal. PyFlow's converted IR currently does not preserve source
+    line/column on every call expression, so this resolver matches by caller
+    scope suffix and call ordinal during CFG-supergraph construction.
+    """
+    edges_by_scope_ordinal: DefaultDict[tuple[str, int], set[str]] = defaultdict(set)
+    known_scopes: set[str] = set()
+    for site, callees in call_site_edges.items():
+        scope = getattr(site, "caller_scope", None)
+        ordinal = getattr(site, "ordinal", None)
+        if not isinstance(scope, str) or not isinstance(ordinal, int):
+            continue
+        if ordinal < 0:
+            continue
+        known_scopes.add(scope)
+        edges_by_scope_ordinal[(scope, ordinal)].update(callees)
+
+    next_ordinal_by_procedure: DefaultDict[cfg_graph.Code, int] = defaultdict(int)
+
+    def resolve(
+        adapter: "CFGSupergraphAdapter",
+        node: CFGNode,
+        call_expression: py_ast.PythonASTNode | None,
+    ) -> tuple[cfg_graph.Code, ...]:
+        if call_expression is None:
+            return ()
+        call_name = resolve_call_name(call_expression)
+        if call_name is not None and call_name.startswith("interpreter__"):
+            return ()
+        code = getattr(node.procedure, "code", None)
+        code_name = code.codeName() if code is not None else None
+        if not code_name:
+            return ()
+
+        ordinal = next_ordinal_by_procedure[node.procedure]
+        next_ordinal_by_procedure[node.procedure] += 1
+        callee_names: set[str] = set()
+        for scope in _constraint_scope_candidates(code_name, known_scopes):
+            callee_names.update(edges_by_scope_ordinal.get((scope, ordinal), ()))
+        if not callee_names:
+            return ()
+        return _cfgs_for_constraint_callee_names(adapter, callee_names)
+
+    return resolve
+
+
+def _constraint_scope_candidates(
+    code_name: str, known_scopes: set[str]
+) -> tuple[str, ...]:
+    candidates = [code_name]
+    suffix = f".{code_name}"
+    candidates.extend(scope for scope in sorted(known_scopes) if scope.endswith(suffix))
+    return tuple(dict.fromkeys(candidates))
+
+
+def _cfgs_for_constraint_callee_names(
+    adapter: "CFGSupergraphAdapter",
+    callee_names: Iterable[str],
+) -> tuple[cfg_graph.Code, ...]:
+    resolved: list[cfg_graph.Code] = []
+    seen: set[cfg_graph.Code] = set()
+    for callee_name in sorted(set(callee_names)):
+        candidate_cfgs: list[cfg_graph.Code] = []
+        short_name = callee_name.rsplit(".", 1)[-1]
+        candidate_cfgs.extend(adapter.cfgs_by_name.get(callee_name, ()))
+        candidate_cfgs.extend(adapter.cfgs_by_name.get(short_name, ()))
+        for cfg in adapter.cfgs:
+            code = getattr(cfg, "code", None)
+            if code is None:
+                continue
+            code_name = code.codeName()
+            if (
+                code_name == callee_name
+                or code_name == short_name
+                or callee_name.endswith(f".{code_name}")
+            ):
+                candidate_cfgs.append(cfg)
+        for cfg in candidate_cfgs:
+            if cfg not in seen:
+                seen.add(cfg)
+                resolved.append(cfg)
+    return tuple(resolved)
 
 
 class CFGSupergraphAdapter:
@@ -402,7 +501,9 @@ class CFGSupergraphAdapter:
     ) -> tuple[object, ...]:
         if operation is None:
             return ()
-        if isinstance(operation, (py_ast.Assign, py_ast.UnpackSequence, py_ast.AnnAssign)):
+        if isinstance(
+            operation, (py_ast.Assign, py_ast.UnpackSequence, py_ast.AnnAssign)
+        ):
             return tuple(
                 slot
                 for local in assigned_locals(operation)
@@ -417,7 +518,9 @@ class CFGSupergraphAdapter:
                 if isinstance(lcl, py_ast.Local):
                     locals_.append(lcl)
             return tuple(
-                slot for local in locals_ for slot in self._slots_for_local(procedure, local)
+                slot
+                for local in locals_
+                for slot in self._slots_for_local(procedure, local)
             )
         if isinstance(
             operation,
@@ -439,7 +542,9 @@ class CFGSupergraphAdapter:
     ) -> tuple[object, ...]:
         if operation is None:
             return ()
-        if isinstance(operation, (py_ast.Assign, py_ast.UnpackSequence, py_ast.AnnAssign)):
+        if isinstance(
+            operation, (py_ast.Assign, py_ast.UnpackSequence, py_ast.AnnAssign)
+        ):
             return self._written_slots_for_operation(procedure, operation)
         if isinstance(operation, (py_ast.Delete, py_ast.InputBlock)):
             return self._written_slots_for_operation(procedure, operation)
@@ -455,19 +560,28 @@ class CFGSupergraphAdapter:
         call_expression = self.call_expression_of(node)
         if operation is None or call_expression is None:
             return ()
-        if isinstance(operation, (py_ast.Assign, py_ast.UnpackSequence)) and operation.expr is call_expression:
+        if (
+            isinstance(operation, (py_ast.Assign, py_ast.UnpackSequence))
+            and operation.expr is call_expression
+        ):
             return tuple(
                 slot
                 for local in assigned_locals(operation)
                 for slot in self._slots_for_local(node.procedure, local)
             )
-        if isinstance(operation, py_ast.AnnAssign) and operation.value is call_expression:
+        if (
+            isinstance(operation, py_ast.AnnAssign)
+            and operation.value is call_expression
+        ):
             return tuple(
                 slot
                 for local in assigned_locals(operation)
                 for slot in self._slots_for_local(node.procedure, local)
             )
-        if isinstance(operation, (py_ast.SetGlobal, py_ast.SetCellDeref)) and operation.value is call_expression:
+        if (
+            isinstance(operation, (py_ast.SetGlobal, py_ast.SetCellDeref))
+            and operation.value is call_expression
+        ):
             return self._modified_slots_for_operation(operation)
         return ()
 
@@ -476,12 +590,18 @@ class CFGSupergraphAdapter:
         call_expression = self.call_expression_of(node)
         if operation is None or call_expression is None:
             return CallResultRoute("expression")
-        if isinstance(operation, (py_ast.Assign, py_ast.UnpackSequence)) and operation.expr is call_expression:
+        if (
+            isinstance(operation, (py_ast.Assign, py_ast.UnpackSequence))
+            and operation.expr is call_expression
+        ):
             return CallResultRoute(
                 "assigned_locals",
                 assigned_locals=assigned_locals(operation),
             )
-        if isinstance(operation, py_ast.AnnAssign) and operation.value is call_expression:
+        if (
+            isinstance(operation, py_ast.AnnAssign)
+            and operation.value is call_expression
+        ):
             return CallResultRoute(
                 "assigned_locals",
                 assigned_locals=assigned_locals(operation),
@@ -490,17 +610,20 @@ class CFGSupergraphAdapter:
             for index, expr in enumerate(operation.exprs):
                 if expr is call_expression:
                     return CallResultRoute("return_slot", return_expression_index=index)
-        if isinstance(
-            operation,
-            (
-                py_ast.SetAttr,
-                py_ast.SetSubscript,
-                py_ast.SetSlice,
-                py_ast.SetGlobal,
-                py_ast.SetCellDeref,
-                py_ast.Store,
-            ),
-        ) and getattr(operation, "value", None) is call_expression:
+        if (
+            isinstance(
+                operation,
+                (
+                    py_ast.SetAttr,
+                    py_ast.SetSubscript,
+                    py_ast.SetSlice,
+                    py_ast.SetGlobal,
+                    py_ast.SetCellDeref,
+                    py_ast.Store,
+                ),
+            )
+            and getattr(operation, "value", None) is call_expression
+        ):
             return CallResultRoute(
                 "modified_slots",
                 modified_slots=self._modified_slots_for_operation(operation),
@@ -544,7 +667,9 @@ class CFGSupergraphAdapter:
             if call_expression is None:
                 return None
             callees = self.callees_of(node)
-            bindings: list[tuple[cfg_graph.Code, tuple[tuple[object, py_ast.Local], ...]]] = []
+            bindings: list[
+                tuple[cfg_graph.Code, tuple[tuple[object, py_ast.Local], ...]]
+            ] = []
             for callee in callees:
                 params = getattr(getattr(callee, "code", None), "codeparameters", None)
                 if params is None:
@@ -576,12 +701,14 @@ class CFGSupergraphAdapter:
                 node=node,
                 operation=operation,
                 expressions=tuple(operation.exprs),
-                return_slots_by_index=tuple(
-                    self._slots_for_local(node.procedure, local)
-                    for local in node.procedure.code.codeparameters.returnparams
-                )
-                if getattr(node.procedure, "code", None) is not None
-                else (),
+                return_slots_by_index=(
+                    tuple(
+                        self._slots_for_local(node.procedure, local)
+                        for local in node.procedure.code.codeparameters.returnparams
+                    )
+                    if getattr(node.procedure, "code", None) is not None
+                    else ()
+                ),
             )
 
         if operation is not None and isinstance(
@@ -605,7 +732,9 @@ class CFGSupergraphAdapter:
                 node=node,
                 operation=operation,
                 assigned_locals=assigned_locals(operation),
-                written_slots=self._written_slots_for_operation(node.procedure, operation),
+                written_slots=self._written_slots_for_operation(
+                    node.procedure, operation
+                ),
                 strong_update_slots=self._strong_update_slots_for_operation(
                     node.procedure, operation
                 ),
@@ -621,9 +750,13 @@ class CFGSupergraphAdapter:
                 elif exit_name == "false":
                     false_successors.append(successor)
             condition = (
-                operation.conditional if isinstance(operation, py_ast.Condition) else operation
+                operation.conditional
+                if isinstance(operation, py_ast.Condition)
+                else operation
             )
-            nullable_target, true_branch_means_null = self._guard_nullable_target(condition)
+            nullable_target, true_branch_means_null = self._guard_nullable_target(
+                condition
+            )
             return GuardEffect(
                 node=node,
                 operation=operation,
@@ -994,7 +1127,9 @@ class CFGSupergraphAdapter:
             nodes.extend(finally_exceptional.nodes)
         nodes.append(normal_out)
 
-        normal_target = finally_normal.entry if finally_normal is not None else normal_out
+        normal_target = (
+            finally_normal.entry if finally_normal is not None else normal_out
+        )
 
         for exit_node in body.normal_exits:
             self._record_local_edge(
@@ -1071,7 +1206,9 @@ class CFGSupergraphAdapter:
                 )
             for exit_name, successor in successor_items:
                 for source in exit_sources(exit_name):
-                    self._connect_local_successor(source, self.first_node_of_block(successor))
+                    self._connect_local_successor(
+                        source, self.first_node_of_block(successor)
+                    )
 
     def _exit_sources_for_block(
         self,

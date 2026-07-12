@@ -19,30 +19,59 @@ def _nullable(name: str) -> CallModel:
     return CallModel(name=name, nullness_nullable_return=True)
 
 
-def _typestate_open(name: str, *, resource_arg_positions=frozenset({0}), track_receiver=True) -> CallModel:
+def _typestate_open(
+    name: str,
+    *,
+    resource_arg_positions=frozenset({0}),
+    track_receiver=True,
+    protocol: str = "resource",
+    receiver_types=frozenset(),
+    module_prefixes=frozenset(),
+) -> CallModel:
     return CallModel(
         name=name,
         typestate_actions=frozenset({STATE_OPEN}),
+        typestate_action_protocols=frozenset({(STATE_OPEN, protocol)}),
         resource_arg_positions=resource_arg_positions,
         track_method_receiver=track_receiver,
+        receiver_types=receiver_types,
+        module_prefixes=module_prefixes,
     )
 
 
-def _typestate_close(name: str, *, resource_arg_positions=frozenset({0}), track_receiver=True) -> CallModel:
+def _typestate_close(
+    name: str,
+    *,
+    resource_arg_positions=frozenset({0}),
+    track_receiver=True,
+    protocol: str = "resource",
+    receiver_types=frozenset(),
+) -> CallModel:
     return CallModel(
         name=name,
         typestate_actions=frozenset({STATE_CLOSE}),
+        typestate_action_protocols=frozenset({(STATE_CLOSE, protocol)}),
         resource_arg_positions=resource_arg_positions,
         track_method_receiver=track_receiver,
+        receiver_types=receiver_types,
     )
 
 
-def _typestate_use(name: str, *, resource_arg_positions=frozenset({0}), track_receiver=True) -> CallModel:
+def _typestate_use(
+    name: str,
+    *,
+    resource_arg_positions=frozenset({0}),
+    track_receiver=True,
+    protocol: str = "resource",
+    receiver_types=frozenset(),
+) -> CallModel:
     return CallModel(
         name=name,
         typestate_actions=frozenset({STATE_USE}),
+        typestate_action_protocols=frozenset({(STATE_USE, protocol)}),
         resource_arg_positions=resource_arg_positions,
         track_method_receiver=track_receiver,
+        receiver_types=receiver_types,
     )
 
 
@@ -604,20 +633,78 @@ SOCKET_TYPESTATE_USE = CallModelRegistry([
 ])
 
 LOCK_TYPESTATE_OPEN = CallModelRegistry([
-    _typestate_open("threading.Lock", resource_arg_positions=frozenset()),
-    _typestate_open("threading.RLock", resource_arg_positions=frozenset()),
-    _typestate_open("threading.Semaphore", resource_arg_positions=frozenset()),
-    _typestate_open("threading.BoundedSemaphore", resource_arg_positions=frozenset()),
-    _typestate_open("multiprocessing.Lock", resource_arg_positions=frozenset()),
-    _typestate_open("asyncio.Lock", resource_arg_positions=frozenset()),
+    _typestate_open(
+        "threading.Lock",
+        resource_arg_positions=frozenset(),
+        protocol="lock",
+        module_prefixes=frozenset({"threading"}),
+    ),
+    _typestate_open(
+        "threading.RLock",
+        resource_arg_positions=frozenset(),
+        protocol="lock",
+        module_prefixes=frozenset({"threading"}),
+    ),
+    _typestate_open(
+        "threading.Semaphore",
+        resource_arg_positions=frozenset(),
+        protocol="lock",
+        module_prefixes=frozenset({"threading"}),
+    ),
+    _typestate_open(
+        "threading.BoundedSemaphore",
+        resource_arg_positions=frozenset(),
+        protocol="lock",
+        module_prefixes=frozenset({"threading"}),
+    ),
+    _typestate_open(
+        "multiprocessing.Lock",
+        resource_arg_positions=frozenset(),
+        protocol="lock",
+        module_prefixes=frozenset({"multiprocessing"}),
+    ),
+    _typestate_open(
+        "asyncio.Lock",
+        resource_arg_positions=frozenset(),
+        protocol="lock",
+        module_prefixes=frozenset({"asyncio"}),
+    ),
 ])
 
 LOCK_TYPESTATE_CLOSE = CallModelRegistry([
-    _typestate_close("release", resource_arg_positions=frozenset()),
+    _typestate_close(
+        "release",
+        resource_arg_positions=frozenset(),
+        protocol="lock",
+        receiver_types=frozenset(
+            {
+                "threading.Lock",
+                "threading.RLock",
+                "threading.Semaphore",
+                "threading.BoundedSemaphore",
+                "multiprocessing.Lock",
+                "asyncio.Lock",
+            }
+        ),
+    ),
 ])
 
 LOCK_TYPESTATE_USE = CallModelRegistry([
-    _typestate_use("acquire", resource_arg_positions=frozenset()),
+    _typestate_use(
+        "acquire",
+        resource_arg_positions=frozenset(),
+        protocol="lock",
+        receiver_types=frozenset(
+            {
+                "threading.Lock",
+                "threading.RLock",
+                "threading.Semaphore",
+                "threading.BoundedSemaphore",
+                "multiprocessing.Lock",
+                "asyncio.Lock",
+            }
+        ),
+    ),
 ])
 
 SQL_TYPESTATE_OPEN = CallModelRegistry([

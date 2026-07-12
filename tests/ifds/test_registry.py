@@ -51,6 +51,18 @@ class TestRegistryLoading:
         assert mapping["close"].typestate_actions == frozenset({"close"})
         assert mapping["read"].typestate_actions == frozenset({"use"})
 
+    def test_explicit_typestate_protocol_actions(self):
+        r = Registry()
+        r.activate("network")
+        mapping = r.active_models().as_mapping()
+        model = mapping["socket.socket"]
+        assert "socket.open" in model.typestate_actions
+        assert ("socket.open", "socket") in model.typestate_action_protocols
+        assert model.module_prefixes == frozenset({"socket"})
+        send_model = mapping["send"]
+        assert ("socket.use", "socket") in send_model.typestate_action_protocols
+        assert "socket.socket" in send_model.receiver_types
+
     def test_nullness_models(self):
         r = Registry()
         r.activate("stdlib")
@@ -105,11 +117,13 @@ class TestFrameworkDetection:
 
     def test_multiple_frameworks(self):
         r = Registry()
-        detected = r.detect([
-            "from flask import Flask",
-            "open('config.json')",
-            "import requests",
-        ])
+        detected = r.detect(
+            [
+                "from flask import Flask",
+                "open('config.json')",
+                "import requests",
+            ]
+        )
         assert "flask" in detected
         assert "stdlib" in detected
         assert "requests" in detected

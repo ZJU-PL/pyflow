@@ -204,6 +204,58 @@ def test_security_cli_forwards_dynamic_model_options(monkeypatch, tmp_path, caps
     assert captured["conservative_unresolved_call_side_effects"] is True
 
 
+def test_security_cli_forwards_typestate_protocol_options(
+    monkeypatch, tmp_path, capsys
+):
+    target = tmp_path / "sample.py"
+    target.write_text("def main():\n    return 0\n", encoding="utf-8")
+
+    captured = {}
+    fake_finding = SimpleNamespace(
+        kind="lock_leak",
+        operation_name="main",
+        resource_label="lock",
+        protocol="lock",
+        state="locked",
+        node=SimpleNamespace(
+            kind="exit",
+            procedure=SimpleNamespace(code=SimpleNamespace(name="main")),
+        ),
+    )
+    fake_result = SimpleNamespace(
+        findings=(fake_finding,),
+        statistics=SimpleNamespace(processed_path_edges=1),
+    )
+
+    def fake_run_typestate_analysis(*_args, **kwargs):
+        captured.update(kwargs)
+        session = SimpleNamespace(compiler=object(), diagnostics=())
+        return session, fake_result
+
+    monkeypatch.setattr(ifds_api, "run_typestate_analysis", fake_run_typestate_analysis)
+
+    args = _make_args("json")
+    args.analysis = "typestate"
+    args.typestate_protocol = ["python-builtins", "lock"]
+    args.registry = True
+    args.framework = ["network"]
+    args.collection_mutators = ["append_safe"]
+    args.collection_accessors = ["fetch"]
+
+    args.targets = [target]
+    exit_code = security_cli.run_security(args)
+    payload = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 1
+    assert payload["analysis"] == "typestate"
+    assert payload["findings"][0]["protocol"] == "lock"
+    assert captured["enabled_protocols"] == ["python-builtins", "lock"]
+    assert captured["registry"] is True
+    assert captured["registry_frameworks"] == ["network"]
+    assert captured["collection_mutator_names"] == ["append_safe"]
+    assert captured["collection_accessor_names"] == ["fetch"]
+
+
 @pytest.mark.parametrize("output_format", ["text", "json"])
 def test_security_cli_emits_session_diagnostics(
     monkeypatch, tmp_path, capsys, output_format

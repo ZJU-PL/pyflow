@@ -28,6 +28,7 @@ from .._call_model import (
     CallModel,
     CallModelRegistry,
 )
+from ..typestate_engine import typestate_action_for_protocol
 
 _log = logging.getLogger(__name__)
 
@@ -160,10 +161,12 @@ def _call_model_from_entry(entry: dict) -> CallModel | None:
         suggestion=_optional_str(entry.get("suggestion")),
         nullness_nullable_return=entry.get("nullness_nullable_return", False),
         typestate_actions=_parse_typestate(entry),
-        resource_arg_positions=_parse_int_set(
-            entry.get("resource_arg_positions"), [0]
-        ),
+        typestate_action_protocols=_parse_typestate_action_protocols(entry),
+        resource_arg_positions=_parse_int_set(entry.get("resource_arg_positions"), [0]),
         track_method_receiver=entry.get("track_method_receiver", True),
+        receiver_types=_parse_string_set(entry.get("receiver_types")),
+        callee_qualnames=_parse_string_set(entry.get("callee_qualnames")),
+        module_prefixes=_parse_string_set(entry.get("module_prefixes")),
     )
 
 
@@ -224,6 +227,11 @@ def _call_models_from_rule(rule: dict) -> tuple[CallModel, ...]:
 
 
 def _parse_typestate(entry: dict) -> FrozenSet[str]:
+    explicit_actions = {
+        action for action, _protocol in _parse_typestate_action_protocols(entry)
+    }
+    if explicit_actions:
+        return frozenset(explicit_actions)
     actions: set[str] = set()
     if entry.get("typestate_open"):
         actions.add(STATE_OPEN)
@@ -232,6 +240,23 @@ def _parse_typestate(entry: dict) -> FrozenSet[str]:
     if entry.get("typestate_use"):
         actions.add(STATE_USE)
     return frozenset(actions)
+
+
+def _parse_typestate_action_protocols(entry: dict) -> FrozenSet[tuple[str, str]]:
+    protocol = _optional_str(entry.get("typestate_protocol"))
+    raw_actions = (
+        entry.get("typestate_action")
+        if "typestate_action" in entry
+        else entry.get("typestate_actions")
+    )
+    if protocol is None or raw_actions is None:
+        return frozenset()
+    pairs: set[tuple[str, str]] = set()
+    for raw_action in _parse_string_set(raw_actions):
+        engine_action = typestate_action_for_protocol(protocol, raw_action)
+        if engine_action is not None:
+            pairs.add((engine_action, protocol))
+    return frozenset(pairs)
 
 
 @lru_cache(maxsize=1)

@@ -7,9 +7,12 @@ import textwrap
 import unittest
 import warnings
 
-from pyflow.analysis.callgraph.ast_based import extract_call_graph as extract_call_graph_legacy
+from pyflow.analysis.callgraph.ast_based import (
+    extract_call_graph as extract_call_graph_legacy,
+)
 from pyflow.analysis.callgraph.constraint_based import (
     extract_call_graph_constraint,
+    extract_call_site_edge_index_constraint,
     extract_value_flow_graph_constraint,
 )
 from pyflow.analysis.callgraph.constraint_based.engine import ConstraintCallGraphBuilder
@@ -51,6 +54,31 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
 
         self.assertNotIn("main.target", legacy.get("main.apply", set()))
         self.assertIn("main.target", improved.get("main.apply", set()))
+
+    def test_call_site_edge_index_preserves_direct_call_site_edges(self):
+        source = textwrap.dedent(
+            """
+            def target():
+                return 1
+
+            def apply(fn):
+                return fn()
+
+            apply(target)
+            """
+        )
+
+        index = extract_call_site_edge_index_constraint(source)
+
+        apply_sites = [
+            (site, callees)
+            for site, callees in index.items()
+            if site.caller_scope == "main.apply"
+        ]
+        self.assertEqual(len(apply_sites), 1)
+        site, callees = apply_sites[0]
+        self.assertEqual(site.ordinal, 0)
+        self.assertIn("main.target", callees)
 
     def test_dynamic_dispatch_tracks_runtime_receiver_types(self):
         source = textwrap.dedent(
@@ -767,7 +795,9 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
         run_edges = improved.get("main.run", set())
         self.assertIn("main.CallableDescriptor.__get__", run_edges)
         self.assertIn("main.CallableDescriptor.__call__", run_edges)
-        self.assertIn("main.helper", improved.get("main.CallableDescriptor.__call__", set()))
+        self.assertIn(
+            "main.helper", improved.get("main.CallableDescriptor.__call__", set())
+        )
 
     def test_container_comprehension_and_closure_capture(self):
         source = textwrap.dedent(
@@ -818,7 +848,9 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
         )
         improved = extract_call_graph_constraint(source).get()
         run_edges = improved.get("main.run", set())
-        lambda_edges = [edge for edge in run_edges if edge.startswith("main.run.<lambda")]
+        lambda_edges = [
+            edge for edge in run_edges if edge.startswith("main.run.<lambda")
+        ]
         self.assertTrue(lambda_edges, run_edges)
         for lambda_name in lambda_edges:
             self.assertIn("main.target", improved.get(lambda_name, set()))
@@ -1010,7 +1042,9 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
 
             with open(main_path, "r", encoding="utf-8") as handle:
                 source = handle.read()
-            improved = extract_call_graph_constraint(source, source_path=main_path).get()
+            improved = extract_call_graph_constraint(
+                source, source_path=main_path
+            ).get()
             self.assertIn("mod.target", improved.get("main.run", set()))
 
     def test_classmethod_assignments_update_class_fields(self):
@@ -1156,7 +1190,9 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             pkg_dir = os.path.join(temp_dir, "pkg")
             os.makedirs(pkg_dir, exist_ok=True)
-            with open(os.path.join(pkg_dir, "__init__.py"), "w", encoding="utf-8") as handle:
+            with open(
+                os.path.join(pkg_dir, "__init__.py"), "w", encoding="utf-8"
+            ) as handle:
                 handle.write("")
             with open(os.path.join(pkg_dir, "sub.py"), "w", encoding="utf-8") as handle:
                 handle.write("def target():\n    return 1\n")
@@ -1177,14 +1213,18 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
 
             with open(main_path, "r", encoding="utf-8") as handle:
                 source = handle.read()
-            improved = extract_call_graph_constraint(source, source_path=main_path).get()
+            improved = extract_call_graph_constraint(
+                source, source_path=main_path
+            ).get()
             self.assertIn("pkg.sub.target", improved.get("main.run", set()))
 
     def test_from_import_submodule_loads_transitive_body_edges(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             pkg_dir = os.path.join(temp_dir, "pkg")
             os.makedirs(pkg_dir, exist_ok=True)
-            with open(os.path.join(pkg_dir, "__init__.py"), "w", encoding="utf-8") as handle:
+            with open(
+                os.path.join(pkg_dir, "__init__.py"), "w", encoding="utf-8"
+            ) as handle:
                 handle.write("")
             with open(os.path.join(pkg_dir, "sub.py"), "w", encoding="utf-8") as handle:
                 handle.write(
@@ -1245,7 +1285,9 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
         improved = extract_call_graph_constraint(source).get()
         run_edges = improved.get("main.run", set())
         self.assertIn("main.b", run_edges)
-        self.assertFalse(any(edge.startswith("<dynamic>.main.run@") for edge in run_edges))
+        self.assertFalse(
+            any(edge.startswith("<dynamic>.main.run@") for edge in run_edges)
+        )
 
     def test_global_write_updates_following_calls(self):
         source = textwrap.dedent(
@@ -2059,9 +2101,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
 
     def test_callable_capping_preserves_all_bound_method_targets(self):
         class_defs = "\n".join(
-            f"class C{i}:\n"
-            f"    def f(self):\n"
-            f"        return {i}\n"
+            f"class C{i}:\n" f"    def f(self):\n" f"        return {i}\n"
             for i in range(140)
         )
         items = ", ".join(f"C{i}().f" for i in range(140))
@@ -2250,7 +2290,10 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
             warnings.simplefilter("always")
             improved = extract_call_graph_constraint(source).get()
         self.assertTrue(
-            any("Inconsistent MRO detected for main.F" in str(item.message) for item in caught),
+            any(
+                "Inconsistent MRO detected for main.F" in str(item.message)
+                for item in caught
+            ),
             caught,
         )
         run_edges = improved.get("main.run", set())
@@ -2276,8 +2319,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
             builder.build()
         self.assertTrue(
             any(
-                "fixpoint hit the iteration cap" in str(item.message)
-                for item in caught
+                "fixpoint hit the iteration cap" in str(item.message) for item in caught
             ),
             caught,
         )
@@ -2368,7 +2410,9 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
                 handle.write("{ invalid json")
 
             source = "def local_only():\n    return 1\n"
-            improved = extract_call_graph_constraint(source, source_path=main_path).get()
+            improved = extract_call_graph_constraint(
+                source, source_path=main_path
+            ).get()
             self.assertIn("main.local_only", improved)
 
     def test_unresolved_dynamic_calls_have_summary_nodes(self):
@@ -2420,7 +2464,9 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
         self.assertIn("main.alias", as_graph)
         self.assertIn("main.target", as_graph["main.alias"])
 
-    def test_allocation_site_sensitive_instances_reduce_cross_instance_field_pollution(self):
+    def test_allocation_site_sensitive_instances_reduce_cross_instance_field_pollution(
+        self,
+    ):
         source = textwrap.dedent(
             """
             class Box:

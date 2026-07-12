@@ -4,7 +4,15 @@ from __future__ import annotations
 
 from collections import defaultdict, deque
 from dataclasses import dataclass
-from typing import DefaultDict, Dict, FrozenSet, Generic, Hashable, TYPE_CHECKING, TypeVar
+from typing import (
+    DefaultDict,
+    Dict,
+    FrozenSet,
+    Generic,
+    Hashable,
+    TYPE_CHECKING,
+    TypeVar,
+)
 
 from .problem import (
     EdgeFunction,
@@ -107,6 +115,7 @@ class _IncomingRecord(Generic[NodeT, FactT]):
 class _IDEIncomingRecord(Generic[NodeT, FactT, ValueT]):
     caller_source_node: NodeT
     caller_source_fact: FactT
+    caller_source_context: Hashable | None
     call_node: NodeT
     call_fact: FactT
     return_site: NodeT
@@ -193,7 +202,9 @@ class IFDSResult(Generic[NodeT, FactT]):
         reached: Dict[NodeT, set[FactT]],
         path_edges: FrozenSet[PathEdge[NodeT, FactT]],
         statistics: SolverStatistics,
-        traces: Dict[PathEdge[NodeT, FactT], tuple[PropagationTrace[NodeT, FactT], ...]],
+        traces: Dict[
+            PathEdge[NodeT, FactT], tuple[PropagationTrace[NodeT, FactT], ...]
+        ],
         incoming: Dict[tuple[NodeT, FactT], tuple[_IncomingRecord[NodeT, FactT], ...]],
         end_summary: Dict[tuple[NodeT, FactT, NodeT], FrozenSet[FactT]],
     ) -> None:
@@ -413,18 +424,20 @@ class IDEResult(Generic[NodeT, FactT, ValueT]):
     def __init__(
         self,
         values: Dict[tuple[NodeT, FactT], ValueT],
+        values_by_context: Dict[tuple[NodeT, FactT], Dict[Hashable | None, ValueT]],
+        path_edge_values: Dict[PathEdge[NodeT, FactT], ValueT],
         reached: Dict[NodeT, set[FactT]],
         jump_functions: Dict[PathEdge[NodeT, FactT], EdgeFunction[ValueT]],
         statistics: SolverStatistics,
-        traces: Dict[PathEdge[NodeT, FactT], tuple[PropagationTrace[NodeT, FactT], ...]],
-        incoming: Dict[
-            tuple[NodeT, FactT], tuple[_IDEIncomingRecord[NodeT, FactT, ValueT], ...]
+        traces: Dict[
+            PathEdge[NodeT, FactT], tuple[PropagationTrace[NodeT, FactT], ...]
         ],
-        end_summary: Dict[
-            tuple[NodeT, FactT, NodeT, FactT], EdgeFunction[ValueT]
-        ],
+        incoming: Dict[tuple, tuple[_IDEIncomingRecord[NodeT, FactT, ValueT], ...]],
+        end_summary: Dict[tuple, EdgeFunction[ValueT]],
     ) -> None:
         self._values = values
+        self._values_by_context = values_by_context
+        self._path_edge_values = path_edge_values
         self._reached = reached
         self._jump_functions = jump_functions
         self.statistics = statistics
@@ -437,6 +450,22 @@ class IDEResult(Generic[NodeT, FactT, ValueT]):
 
     def value_at(self, node: NodeT, fact: FactT) -> ValueT:
         return self._values[(node, fact)]
+
+    def value_at_context(
+        self, node: NodeT, fact: FactT, context: Hashable | None
+    ) -> ValueT:
+        return self._values_by_context[(node, fact)][context]
+
+    def values_at_contexts(
+        self, node: NodeT, fact: FactT
+    ) -> Dict[Hashable | None, ValueT]:
+        return dict(self._values_by_context.get((node, fact), {}))
+
+    def value_for_path_edge(self, path_edge: PathEdge[NodeT, FactT]) -> ValueT:
+        return self._path_edge_values[path_edge]
+
+    def path_edge_values(self) -> Dict[PathEdge[NodeT, FactT], ValueT]:
+        return dict(self._path_edge_values)
 
     def jump_functions(self) -> Dict[PathEdge[NodeT, FactT], EdgeFunction[ValueT]]:
         return dict(self._jump_functions)
@@ -479,18 +508,18 @@ class IFDSSolver(Generic[ProcT, NodeT, FactT]):
         self.max_propagated_path_edges = max_propagated_path_edges
         self.max_call_string_depth = max_call_string_depth
 
-    def solve(self, problem: IFDSProblem[ProcT, NodeT, FactT]) -> IFDSResult[NodeT, FactT]:
+    def solve(
+        self, problem: IFDSProblem[ProcT, NodeT, FactT]
+    ) -> IFDSResult[NodeT, FactT]:
         supergraph = problem.supergraph
         use_context = self.max_call_string_depth is not None
         queue: deque[PathEdge[NodeT, FactT]] = deque()
         seen: set[PathEdge[NodeT, FactT]] = set()
         reached: DefaultDict[NodeT, set[FactT]] = defaultdict(set)
-        incoming: DefaultDict[
-            tuple, set[_IncomingRecord[NodeT, FactT]]
-        ] = defaultdict(set)
-        end_summary: DefaultDict[
-            tuple, set[FactT]
-        ] = defaultdict(set)
+        incoming: DefaultDict[tuple, set[_IncomingRecord[NodeT, FactT]]] = defaultdict(
+            set
+        )
+        end_summary: DefaultDict[tuple, set[FactT]] = defaultdict(set)
         bookkeeping = _SolverBookkeeping[NodeT, FactT](
             record_traces=self.record_traces,
             max_propagated_path_edges=self.max_propagated_path_edges,
@@ -578,7 +607,9 @@ class IFDSSolver(Generic[ProcT, NodeT, FactT]):
                     ):
                         start_fact = transition.fact
                         callee_ctx = _push_context(edge_ctx, node)
-                        incoming_key = _contextual_key(start, start_fact, ctx=callee_ctx)
+                        incoming_key = _contextual_key(
+                            start, start_fact, ctx=callee_ctx
+                        )
                         for return_site in supergraph.return_sites_of_call_at(node):
                             incoming_record = _IncomingRecord(
                                 source_node,
@@ -592,7 +623,10 @@ class IFDSSolver(Generic[ProcT, NodeT, FactT]):
                                 bookkeeping.increment("incoming_records")
                                 for exit_node in supergraph.exits_of(callee):
                                     summary_key = _contextual_key(
-                                        start, start_fact, exit_node, ctx=callee_ctx,
+                                        start,
+                                        start_fact,
+                                        exit_node,
+                                        ctx=callee_ctx,
                                     )
                                     for exit_fact in end_summary.get(summary_key, ()):
                                         bookkeeping.increment("return_flow_steps")
@@ -620,7 +654,11 @@ class IFDSSolver(Generic[ProcT, NodeT, FactT]):
 
                         propagate(
                             PathEdge(
-                                start, start_fact, start, start_fact, context=callee_ctx,
+                                start,
+                                start_fact,
+                                start,
+                                start_fact,
+                                context=callee_ctx,
                             ),
                             kind="call_flow",
                             predecessor=edge,
@@ -628,12 +666,16 @@ class IFDSSolver(Generic[ProcT, NodeT, FactT]):
                         )
 
             if supergraph.is_exit_node(node):
-                summary_key = _contextual_key(source_node, source_fact, node, ctx=edge_ctx)
+                summary_key = _contextual_key(
+                    source_node, source_fact, node, ctx=edge_ctx
+                )
                 if fact not in end_summary[summary_key]:
                     end_summary[summary_key].add(fact)
                     bookkeeping.increment("summary_updates")
                     callee = supergraph.procedure_of(node)
-                    caller_incoming_key = _contextual_key(source_node, source_fact, ctx=edge_ctx)
+                    caller_incoming_key = _contextual_key(
+                        source_node, source_fact, ctx=edge_ctx
+                    )
                     for incoming_record in incoming.get(caller_incoming_key, ()):
                         bookkeeping.increment("return_flow_steps")
                         for transition in _normalize_ifds_transitions(
@@ -705,18 +747,18 @@ class IDESolver(Generic[ProcT, NodeT, FactT, ValueT]):
         self.max_propagated_path_edges = max_propagated_path_edges
         self.max_call_string_depth = max_call_string_depth
 
-    def solve(self, problem: IDEProblem[ProcT, NodeT, FactT, ValueT]) -> IDEResult[NodeT, FactT, ValueT]:
+    def solve(
+        self, problem: IDEProblem[ProcT, NodeT, FactT, ValueT]
+    ) -> IDEResult[NodeT, FactT, ValueT]:
         supergraph = problem.supergraph
         use_context = self.max_call_string_depth is not None
         queue: deque[PathEdge[NodeT, FactT]] = deque()
         jump_functions: Dict[PathEdge[NodeT, FactT], EdgeFunction[ValueT]] = {}
         reached: DefaultDict[NodeT, set[FactT]] = defaultdict(set)
-        incoming: DefaultDict[
-            tuple, set[_IDEIncomingRecord[NodeT, FactT, ValueT]]
-        ] = defaultdict(set)
-        end_summary: Dict[
-            tuple, EdgeFunction[ValueT]
-        ] = {}
+        incoming: DefaultDict[tuple, set[_IDEIncomingRecord[NodeT, FactT, ValueT]]] = (
+            defaultdict(set)
+        )
+        end_summary: Dict[tuple, EdgeFunction[ValueT]] = {}
         bookkeeping = _SolverBookkeeping[NodeT, FactT](
             record_traces=self.record_traces,
             max_propagated_path_edges=self.max_propagated_path_edges,
@@ -747,6 +789,16 @@ class IDESolver(Generic[ProcT, NodeT, FactT, ValueT]):
             if ctx is None or not use_context:
                 return parts
             return (*parts, ctx)
+
+        def _pop_context(ctx: Hashable | None) -> Hashable | None:
+            if ctx is None or not use_context:
+                return None
+            if isinstance(ctx, CallContext):
+                return ctx.pop()
+            return ctx
+
+        def _source_key(node: NodeT, fact: FactT, ctx: Hashable | None) -> tuple:
+            return _contextual_key(node, fact, ctx=ctx)
 
         def propagate(
             path_edge: PathEdge[NodeT, FactT],
@@ -780,10 +832,17 @@ class IDESolver(Generic[ProcT, NodeT, FactT, ValueT]):
                 )
                 queue.append(path_edge)
 
+        seed_values_by_key: Dict[tuple, ValueT] = {}
         for seed, value in seed_values.items():
             node, fact = seed
-            _ = value
             ctx = _seed_context()
+            seed_key = _source_key(node, fact, ctx)
+            existing_seed_value = seed_values_by_key.get(seed_key)
+            seed_values_by_key[seed_key] = (
+                value
+                if existing_seed_value is None
+                else problem.join_values(existing_seed_value, value)
+            )
             propagate(
                 PathEdge(node, fact, node, fact, context=ctx),
                 identity,
@@ -803,7 +862,9 @@ class IDESolver(Generic[ProcT, NodeT, FactT, ValueT]):
             if supergraph.is_call_node(node):
                 for return_site in supergraph.call_to_return_successors(node):
                     bookkeeping.increment("call_to_return_steps")
-                    for transition in problem.call_to_return_flow(node, return_site, fact):
+                    for transition in problem.call_to_return_flow(
+                        node, return_site, fact
+                    ):
                         propagate(
                             PathEdge(
                                 source_node,
@@ -824,11 +885,14 @@ class IDESolver(Generic[ProcT, NodeT, FactT, ValueT]):
                     for transition in problem.call_flow(node, callee, fact):
                         call_jump = transition.edge_function.compose(current_jump)
                         callee_ctx = _push_context(edge_ctx, node)
-                        incoming_key = _contextual_key(start, transition.fact, ctx=callee_ctx)
+                        incoming_key = _contextual_key(
+                            start, transition.fact, ctx=callee_ctx
+                        )
                         for return_site in supergraph.return_sites_of_call_at(node):
                             incoming_record = _IDEIncomingRecord(
                                 source_node,
                                 source_fact,
+                                edge_ctx,
                                 node,
                                 fact,
                                 return_site,
@@ -840,7 +904,10 @@ class IDESolver(Generic[ProcT, NodeT, FactT, ValueT]):
                                 for exit_node in supergraph.exits_of(callee):
                                     for exit_fact in reached.get(exit_node, ()):
                                         summary_key = _contextual_key(
-                                            start, transition.fact, exit_node, exit_fact,
+                                            start,
+                                            transition.fact,
+                                            exit_node,
+                                            exit_fact,
                                             ctx=callee_ctx,
                                         )
                                         summary = end_summary.get(summary_key)
@@ -874,7 +941,10 @@ class IDESolver(Generic[ProcT, NodeT, FactT, ValueT]):
 
                         propagate(
                             PathEdge(
-                                start, transition.fact, start, transition.fact,
+                                start,
+                                transition.fact,
+                                start,
+                                transition.fact,
                                 context=callee_ctx,
                             ),
                             identity,
@@ -885,7 +955,11 @@ class IDESolver(Generic[ProcT, NodeT, FactT, ValueT]):
 
             if supergraph.is_exit_node(node):
                 summary_key = _contextual_key(
-                    source_node, source_fact, node, fact, ctx=edge_ctx,
+                    source_node,
+                    source_fact,
+                    node,
+                    fact,
+                    ctx=edge_ctx,
                 )
                 current_summary = end_summary.get(summary_key)
                 if current_summary is None:
@@ -901,7 +975,9 @@ class IDESolver(Generic[ProcT, NodeT, FactT, ValueT]):
                     callee = supergraph.procedure_of(node)
                     summary = end_summary[summary_key]
                     caller_incoming_key = _contextual_key(
-                        source_node, source_fact, ctx=edge_ctx,
+                        source_node,
+                        source_fact,
+                        ctx=edge_ctx,
                     )
                     for incoming_record in incoming.get(caller_incoming_key, ()):
                         bookkeeping.increment("return_flow_steps")
@@ -913,18 +989,16 @@ class IDESolver(Generic[ProcT, NodeT, FactT, ValueT]):
                             incoming_record.call_fact,
                             fact,
                         ):
-                            combined = (
-                                return_transition.edge_function.compose(summary).compose(
-                                    incoming_record.call_jump
-                                )
-                            )
+                            combined = return_transition.edge_function.compose(
+                                summary
+                            ).compose(incoming_record.call_jump)
                             propagate(
                                 PathEdge(
                                     incoming_record.caller_source_node,
                                     incoming_record.caller_source_fact,
                                     incoming_record.return_site,
                                     return_transition.fact,
-                                    context=edge_ctx,
+                                    context=_pop_context(edge_ctx),
                                 ),
                                 combined,
                                 kind="return_flow",
@@ -937,7 +1011,10 @@ class IDESolver(Generic[ProcT, NodeT, FactT, ValueT]):
                 for transition in problem.normal_flow(node, successor, fact):
                     propagate(
                         PathEdge(
-                            source_node, source_fact, successor, transition.fact,
+                            source_node,
+                            source_fact,
+                            successor,
+                            transition.fact,
                             context=edge_ctx,
                         ),
                         transition.edge_function.compose(current_jump),
@@ -947,14 +1024,25 @@ class IDESolver(Generic[ProcT, NodeT, FactT, ValueT]):
                     )
 
         values: Dict[tuple[NodeT, FactT], ValueT] = {}
-        source_values: Dict[tuple[NodeT, FactT], ValueT] = {}
+        values_by_context: DefaultDict[
+            tuple[NodeT, FactT], Dict[Hashable | None, ValueT]
+        ] = defaultdict(dict)
+        path_edge_values: Dict[PathEdge[NodeT, FactT], ValueT] = {}
+        source_values: Dict[tuple, ValueT] = {}
 
-        source_keys: set[tuple[NodeT, FactT]] = set(seed_values)
-        source_keys.update((edge.source_node, edge.source_fact) for edge in jump_functions)
+        source_keys: set[tuple] = set(seed_values_by_key)
+        source_keys.update(
+            _source_key(edge.source_node, edge.source_fact, edge.context)
+            for edge in jump_functions
+        )
         source_keys.update(incoming)
         for incoming_records in incoming.values():
             source_keys.update(
-                (record.caller_source_node, record.caller_source_fact)
+                _source_key(
+                    record.caller_source_node,
+                    record.caller_source_fact,
+                    record.caller_source_context,
+                )
                 for record in incoming_records
             )
 
@@ -962,11 +1050,12 @@ class IDESolver(Generic[ProcT, NodeT, FactT, ValueT]):
         while changed:
             changed = False
             for source_key in source_keys:
-                resolved = seed_values.get(source_key)
+                resolved = seed_values_by_key.get(source_key)
                 for incoming_record in incoming.get(source_key, ()):
-                    caller_key = (
+                    caller_key = _source_key(
                         incoming_record.caller_source_node,
                         incoming_record.caller_source_fact,
+                        incoming_record.caller_source_context,
                     )
                     caller_value = source_values.get(caller_key)
                     if caller_value is None:
@@ -985,23 +1074,39 @@ class IDESolver(Generic[ProcT, NodeT, FactT, ValueT]):
                     changed = True
 
         for path_edge, jump in jump_functions.items():
-            source_key = (path_edge.source_node, path_edge.source_fact)
+            source_key = _source_key(
+                path_edge.source_node,
+                path_edge.source_fact,
+                path_edge.context,
+            )
             seed_value = source_values.get(source_key)
             if seed_value is None:
                 continue
             value = jump(seed_value)
+            path_edge_values[path_edge] = value
             key = (path_edge.node, path_edge.fact)
             if key in values:
                 values[key] = problem.join_values(values[key], value)
             else:
                 values[key] = value
+            current_context_value = values_by_context[key].get(path_edge.context)
+            if current_context_value is None:
+                values_by_context[key][path_edge.context] = value
+            else:
+                values_by_context[key][path_edge.context] = problem.join_values(
+                    current_context_value,
+                    value,
+                )
 
         for node, facts in reached.items():
             for fact in facts:
                 values.setdefault((node, fact), problem.bottom_value)
+                values_by_context.setdefault((node, fact), {})
 
         return IDEResult(
             values,
+            {key: dict(value) for key, value in values_by_context.items()},
+            path_edge_values,
             dict(reached),
             jump_functions,
             bookkeeping.statistics(),

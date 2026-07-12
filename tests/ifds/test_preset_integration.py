@@ -11,6 +11,9 @@ from pyflow.analysis.ifds import (
     build_supergraph_from_cfgs,
 )
 from pyflow.analysis.ifds.clients.library_presets import (
+    LOCK_TYPESTATE_CLOSE,
+    LOCK_TYPESTATE_OPEN,
+    LOCK_TYPESTATE_USE,
     NULLNESS_PRESETS,
     TAINT_PRESETS,
     TAINT_SANITIZER_PRESETS,
@@ -219,3 +222,72 @@ def test_preset_typestate_detects_use_after_close():
     result = analyze_typestate(adapter, config, entry_nodes=[adapter.supergraph.entry_of(cfg)])
 
     assert any(f.kind == "use_after_close" for f in result.findings)
+
+
+def test_preset_lock_detects_release_without_acquire():
+    compiler = context.CompilerContext(None)
+
+    lock = ast.Local("lock")
+    main_code, _ = make_code(
+        "main",
+        [],
+        [
+            ast.Assign(
+                ast.Call(ast.Local("threading.Lock"), [], [], None, None), [lock]
+            ),
+            ast.Discard(
+                ast.MethodCall(lock, ast.Local("release"), [], [], None, None)
+            ),
+            ast.Return([]),
+        ],
+        return_name="main_ret",
+    )
+
+    cfg = build_cfg(compiler, main_code)
+    adapter = build_supergraph_from_cfgs([cfg])
+
+    config = TypestateConfiguration(
+        enabled_protocols=frozenset({"lock"}),
+        open_names=LOCK_TYPESTATE_OPEN.as_mapping().keys(),
+        close_names=LOCK_TYPESTATE_CLOSE.as_mapping().keys(),
+        use_names=LOCK_TYPESTATE_USE.as_mapping().keys(),
+    )
+    result = analyze_typestate(adapter, config, entry_nodes=[adapter.supergraph.entry_of(cfg)])
+
+    assert any(f.kind == "release_without_acquire" for f in result.findings)
+
+
+def test_preset_lock_context_manager_releases_lock():
+    compiler = context.CompilerContext(None)
+
+    lock = ast.Local("lock")
+    main_code, _ = make_code(
+        "main",
+        [],
+        [
+            ast.Assign(
+                ast.Call(ast.Local("threading.Lock"), [], [], None, None), [lock]
+            ),
+            ast.Discard(
+                ast.MethodCall(lock, ast.Local("__enter__"), [], [], None, None)
+            ),
+            ast.Discard(
+                ast.MethodCall(lock, ast.Local("__exit__"), [], [], None, None)
+            ),
+            ast.Return([]),
+        ],
+        return_name="main_ret",
+    )
+
+    cfg = build_cfg(compiler, main_code)
+    adapter = build_supergraph_from_cfgs([cfg])
+
+    config = TypestateConfiguration(
+        enabled_protocols=frozenset({"lock"}),
+        open_names=LOCK_TYPESTATE_OPEN.as_mapping().keys(),
+        close_names=LOCK_TYPESTATE_CLOSE.as_mapping().keys(),
+        use_names=LOCK_TYPESTATE_USE.as_mapping().keys(),
+    )
+    result = analyze_typestate(adapter, config, entry_nodes=[adapter.supergraph.entry_of(cfg)])
+
+    assert not any(f.kind == "lock_leak" for f in result.findings)

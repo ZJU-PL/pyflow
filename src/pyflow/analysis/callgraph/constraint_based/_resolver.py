@@ -92,7 +92,9 @@ class _ResolverMixin:
         strings = {value.name for value in resolved if value.kind == STRING_KIND}
         if strings or lookup_env is self.module_bindings.get(module_name, {}):
             return strings
-        fallback = self._eval_expr_static(expr, self.module_bindings.get(module_name, {}))
+        fallback = self._eval_expr_static(
+            expr, self.module_bindings.get(module_name, {})
+        )
         return {value.name for value in fallback if value.kind == STRING_KIND}
 
     def _expr_qualname(self, expr: ast.AST) -> Optional[str]:
@@ -134,7 +136,9 @@ class _ResolverMixin:
 
         if isinstance(expr, ast.BinOp) and isinstance(expr.op, ast.BitOr):
             out: Set[AbstractValue] = set()
-            out.update(self._resolve_type_expression_values(expr.left, module_name, env))
+            out.update(
+                self._resolve_type_expression_values(expr.left, module_name, env)
+            )
             out.update(
                 self._resolve_type_expression_values(expr.right, module_name, env)
             )
@@ -187,7 +191,9 @@ class _ResolverMixin:
         if resolved:
             return resolved
         if lookup_env is not self.module_bindings.get(module_name, {}):
-            return self._eval_expr_static(expr, self.module_bindings.get(module_name, {}))
+            return self._eval_expr_static(
+                expr, self.module_bindings.get(module_name, {})
+            )
         return set()
 
     def _type_guard_refinement(
@@ -310,7 +316,9 @@ class _ResolverMixin:
         registrations.append((function_name, set(dispatch_types)))
         self._active_singledispatch_changed = True
 
-    def _singledispatch_registration_types(self, function_name: str) -> Set[AbstractValue]:
+    def _singledispatch_registration_types(
+        self, function_name: str
+    ) -> Set[AbstractValue]:
         function_info = self.functions.get(function_name)
         if function_info is None or not function_info.params:
             return set()
@@ -324,11 +332,15 @@ class _ResolverMixin:
         self, value: AbstractValue, type_values: Set[AbstractValue]
     ) -> bool:
         allowed_classes = {item.name for item in type_values if item.kind == CLASS_KIND}
-        allowed_strings = {item.name for item in type_values if item.kind == STRING_KIND}
+        allowed_strings = {
+            item.name for item in type_values if item.kind == STRING_KIND
+        }
         allow_none = any(item.kind == NONE_KIND for item in type_values)
 
         protocol_classes = [
-            class_name for class_name in allowed_classes if self._is_protocol_class(class_name)
+            class_name
+            for class_name in allowed_classes
+            if self._is_protocol_class(class_name)
         ]
 
         if value.kind == UNKNOWN_KIND:
@@ -381,7 +393,10 @@ class _ResolverMixin:
             "typing.Protocol",
             "typing_extensions.Protocol",
         }
-        return any(base in protocol_markers or self._is_protocol_class(base) for base in class_info.bases)
+        return any(
+            base in protocol_markers or self._is_protocol_class(base)
+            for base in class_info.bases
+        )
 
     def _protocol_required_attrs(self, class_name: str) -> Set[str]:
         out: Set[str] = set()
@@ -404,7 +419,9 @@ class _ResolverMixin:
         required_attrs = self._protocol_required_attrs(protocol_name)
         if not required_attrs:
             return False
-        return all(self._resolve_attribute({value}, attr_name) for attr_name in required_attrs)
+        return all(
+            self._resolve_attribute({value}, attr_name) for attr_name in required_attrs
+        )
 
     def _super_receiver_value(
         self,
@@ -422,7 +439,9 @@ class _ResolverMixin:
                 if idx + 1 >= len(order):
                     continue
                 next_base = order[idx + 1]
-                out.add(make_instance(next_base, parse_instance_name(obj_value.name)[1]))
+                out.add(
+                    make_instance(next_base, parse_instance_name(obj_value.name)[1])
+                )
             elif obj_value.kind == CLASS_KIND:
                 order = self._class_lookup_order(obj_value.name)
                 if start_class not in order:
@@ -508,7 +527,9 @@ class _ResolverMixin:
     ) -> Set[AbstractValue]:
         out: Set[AbstractValue] = set()
         source_map = (
-            self.coroutine_sources if expected_kind == COROUTINE_KIND else self.generator_sources
+            self.coroutine_sources
+            if expected_kind == COROUTINE_KIND
+            else self.generator_sources
         )
         caller_scope_key = (
             caller_scope.name,
@@ -549,6 +570,12 @@ class _ResolverMixin:
             self._normalize_context_for_scope(caller_scope.name, caller_context),
         )
         callees.add(callee_name)
+        self._record_callsite_callee(
+            caller_scope,
+            caller_context,
+            call_node,
+            callee_name,
+        )
         if callee_name not in self.scopes:
             out.add(UNKNOWN_VALUE)
             return out
@@ -600,6 +627,12 @@ class _ResolverMixin:
             self._normalize_context_for_scope(caller_scope.name, caller_context),
         )
         callees.add(callee_name)
+        self._record_callsite_callee(
+            caller_scope,
+            caller_context,
+            call_node,
+            callee_name,
+        )
         raw_context = self._derive_callee_context(
             caller_scope.name, caller_context, call_node
         )
@@ -612,7 +645,10 @@ class _ResolverMixin:
             )
             if not has_bound_closure:
                 candidate_contexts = []
-                for (scope_key, context_key), context_inputs in self.scope_inputs.items():
+                for (
+                    scope_key,
+                    context_key,
+                ), context_inputs in self.scope_inputs.items():
                     if scope_key != callee_name:
                         continue
                     if any(
@@ -792,7 +828,9 @@ class _ResolverMixin:
         missing_keys = self.container_maybe_missing_keys.get(container_name, set())
         if not key_names:
             return bool(missing_keys)
-        return "*" in missing_keys or any(key_name in missing_keys for key_name in key_names)
+        return "*" in missing_keys or any(
+            key_name in missing_keys for key_name in key_names
+        )
 
     def _mark_attribute_maybe_missing(
         self,
@@ -828,7 +866,9 @@ class _ResolverMixin:
     ) -> None:
         for target_value in target_values:
             if target_value.kind == INSTANCE_KIND:
-                missing_fields = self.instance_maybe_missing_fields.get(target_value.name)
+                missing_fields = self.instance_maybe_missing_fields.get(
+                    target_value.name
+                )
                 if not missing_fields:
                     continue
                 for attr_name in attr_names:
@@ -848,10 +888,16 @@ class _ResolverMixin:
         for target_value in target_values:
             if target_value.kind == INSTANCE_KIND:
                 instance_name = target_value.name
-                if attr_name in self.instance_maybe_missing_fields.get(instance_name, set()):
+                if attr_name in self.instance_maybe_missing_fields.get(
+                    instance_name, set()
+                ):
                     return True
-                for klass in self._class_lookup_order(instance_class_name(target_value)):
-                    if attr_name in self.instance_maybe_missing_fields.get(klass, set()):
+                for klass in self._class_lookup_order(
+                    instance_class_name(target_value)
+                ):
+                    if attr_name in self.instance_maybe_missing_fields.get(
+                        klass, set()
+                    ):
                         return True
                     if attr_name in self.class_maybe_missing_fields.get(klass, set()):
                         return True
@@ -930,7 +976,10 @@ class _ResolverMixin:
                 dependent_scope_key,
                 {
                     **{param: set() for param in dependent_scope.params},
-                    **{closure_var: set() for closure_var in dependent_scope.closure_vars},
+                    **{
+                        closure_var: set()
+                        for closure_var in dependent_scope.closure_vars
+                    },
                 },
             )
             current = param_inputs.setdefault(name, set())
@@ -1034,6 +1083,25 @@ class _ResolverMixin:
                 target_values = {make_func(f"<builtin>.{maybe_builtin}")}
 
         out: Set[AbstractValue] = set()
+
+        def add_direct_callee(callee_name: str) -> None:
+            callees.add(callee_name)
+            self._record_callsite_callee(
+                caller_scope,
+                caller_context,
+                call_node,
+                callee_name,
+            )
+
+        def discard_direct_callee(callee_name: str) -> None:
+            callees.discard(callee_name)
+            self._discard_callsite_callee(
+                caller_scope,
+                caller_context,
+                call_node,
+                callee_name,
+            )
+
         unresolved_dynamic = not target_values
         unresolved_reasons: Set[str] = set()
         resolved_callable = False
@@ -1099,7 +1167,7 @@ class _ResolverMixin:
             if target.kind == FUNC_KIND:
                 resolved_callable = True
                 callee_name = target.name
-                callees.add(callee_name)
+                add_direct_callee(callee_name)
                 if callee_name in {"<builtin>.setattr", "<builtin>.delattr"}:
                     if len(arg_values) >= 2:
                         attr_names = self._string_constants(arg_values[1])
@@ -1108,7 +1176,9 @@ class _ResolverMixin:
                                 arg_values[0], attr_names, set(arg_values[2])
                             )
                         elif callee_name == "<builtin>.delattr":
-                            self._mark_attribute_maybe_missing(arg_values[0], attr_names)
+                            self._mark_attribute_maybe_missing(
+                                arg_values[0], attr_names
+                            )
                     out.add(NONE_VALUE)
                 elif callee_name in {
                     "<builtin>.hasattr",
@@ -1202,7 +1272,7 @@ class _ResolverMixin:
                             self._register_imported_module_chain(module_name)
                     out.update(imported_modules or {UNKNOWN_VALUE})
                 elif callee_name in self.singledispatch_functions:
-                    callees.discard(callee_name)
+                    discard_direct_callee(callee_name)
                     matched_targets: Set[AbstractValue] = set()
                     first_arg_values = arg_values[0] if arg_values else set()
                     registrations = self.singledispatch_registrations.get(
@@ -1295,7 +1365,11 @@ class _ResolverMixin:
                                 PARTIAL_KIND,
                             }:
                                 callback_values.add(callback)
-                    if callee_name in {"<builtin>.filter", "<builtin>.map"} and not callback_values and arg_values:
+                    if (
+                        callee_name in {"<builtin>.filter", "<builtin>.map"}
+                        and not callback_values
+                        and arg_values
+                    ):
                         callback_values = set(arg_values[0])
                     if callback_values:
                         callback_results = self._invoke_callback_values(
@@ -1312,7 +1386,7 @@ class _ResolverMixin:
                     if not out:
                         out.add(UNKNOWN_VALUE)
                 elif callee_name == "<**PyDict**>.update":
-                    callees.discard(callee_name)
+                    discard_direct_callee(callee_name)
                     # Update dict container contents when receiver and source
                     # dictionary literals are available in the environment.
                     if isinstance(call_node.func, ast.Attribute) and isinstance(
@@ -1337,19 +1411,27 @@ class _ResolverMixin:
                             for source_dict in source_dicts:
                                 changed = self._merge_value_set(
                                     self.container_elements[receiver_dict],
-                                    set(self.container_elements.get(source_dict, set())),
+                                    set(
+                                        self.container_elements.get(source_dict, set())
+                                    ),
                                     preserve_callables=True,
                                 )
                                 if changed:
-                                    self._note_container_state_changed(receiver_dict, "*")
+                                    self._note_container_state_changed(
+                                        receiver_dict, "*"
+                                    )
                                 self._register_container_read(source_dict)
                                 source_key_map = self.container_key_values.get(
                                     source_dict, {}
                                 )
                                 for key_name, key_values in source_key_map.items():
-                                    self._register_container_read(source_dict, {key_name})
+                                    self._register_container_read(
+                                        source_dict, {key_name}
+                                    )
                                     if self._merge_value_set(
-                                        self.container_key_values[receiver_dict][key_name],
+                                        self.container_key_values[receiver_dict][
+                                            key_name
+                                        ],
                                         set(key_values),
                                         preserve_callables=True,
                                     ):
@@ -1393,7 +1475,9 @@ class _ResolverMixin:
                                     maybe_missing = True
                             maybe_missing = (
                                 maybe_missing
-                                or self._container_key_maybe_missing(receiver.name, key_names)
+                                or self._container_key_maybe_missing(
+                                    receiver.name, key_names
+                                )
                             )
                         else:
                             if key_map and len(key_map) <= 8:
@@ -1422,8 +1506,12 @@ class _ResolverMixin:
                             callees,
                             input_changed_scope_contexts,
                         )
-                    key_names = self._string_constants(arg_values[0]) if arg_values else set()
-                    default_values = arg_values[1] if len(arg_values) >= 2 else {UNKNOWN_VALUE}
+                    key_names = (
+                        self._string_constants(arg_values[0]) if arg_values else set()
+                    )
+                    default_values = (
+                        arg_values[1] if len(arg_values) >= 2 else {UNKNOWN_VALUE}
+                    )
                     matched_values: Set[AbstractValue] = set()
                     maybe_missing = False
                     for receiver in receiver_values:
@@ -1439,7 +1527,9 @@ class _ResolverMixin:
                                 else:
                                     maybe_missing = True
                                     if self._merge_value_set(
-                                        self.container_key_values[receiver.name][key_name],
+                                        self.container_key_values[receiver.name][
+                                            key_name
+                                        ],
                                         set(default_values),
                                         preserve_callables=True,
                                     ):
@@ -1451,14 +1541,20 @@ class _ResolverMixin:
                                         set(default_values),
                                         preserve_callables=True,
                                     ):
-                                        self._note_container_state_changed(receiver.name, "*")
+                                        self._note_container_state_changed(
+                                            receiver.name, "*"
+                                        )
                             maybe_missing = (
                                 maybe_missing
-                                or self._container_key_maybe_missing(receiver.name, key_names)
+                                or self._container_key_maybe_missing(
+                                    receiver.name, key_names
+                                )
                             )
                         else:
                             self._register_container_read(receiver.name)
-                            matched_values.update(self.container_elements.get(receiver.name, set()))
+                            matched_values.update(
+                                self.container_elements.get(receiver.name, set())
+                            )
                             maybe_missing = True
                     if matched_values:
                         out.update(matched_values)
@@ -1475,7 +1571,9 @@ class _ResolverMixin:
                             callees,
                             input_changed_scope_contexts,
                         )
-                    key_names = self._string_constants(arg_values[0]) if arg_values else set()
+                    key_names = (
+                        self._string_constants(arg_values[0]) if arg_values else set()
+                    )
                     default_values = arg_values[1] if len(arg_values) >= 2 else set()
                     popped_values: Set[AbstractValue] = set()
                     maybe_missing = False
@@ -1493,7 +1591,9 @@ class _ResolverMixin:
                                     maybe_missing = True
                             maybe_missing = (
                                 maybe_missing
-                                or self._container_key_maybe_missing(receiver.name, key_names)
+                                or self._container_key_maybe_missing(
+                                    receiver.name, key_names
+                                )
                             )
                         else:
                             if key_map and len(key_map) <= 8:
@@ -1585,7 +1685,7 @@ class _ResolverMixin:
                         break
 
                 if use_default_constructor and new_name is not None:
-                    callees.add(new_name)
+                    add_direct_callee(new_name)
                     callee_context = self._normalize_context_for_scope(
                         new_name, raw_context
                     )
@@ -1600,10 +1700,17 @@ class _ResolverMixin:
                         )
                         if changed:
                             input_changed_scope_contexts.add((new_name, callee_context))
-                        if (new_name, callee_context) not in self._analyzed_scope_contexts:
+                        if (
+                            new_name,
+                            callee_context,
+                        ) not in self._analyzed_scope_contexts:
                             input_changed_scope_contexts.add((new_name, callee_context))
-                        self._add_call_dependency(new_name, callee_context, caller_scope_key)
-                        new_returns = set(self.scope_returns[(new_name, callee_context)])
+                        self._add_call_dependency(
+                            new_name, callee_context, caller_scope_key
+                        )
+                        new_returns = set(
+                            self.scope_returns[(new_name, callee_context)]
+                        )
                         if new_returns:
                             constructed_values = set(new_returns)
                             matching_receivers = {
@@ -1628,7 +1735,7 @@ class _ResolverMixin:
                     constructed_values.add(instance_value)
                 out.update(constructed_values)
                 if use_default_constructor and init_name is not None and init_receivers:
-                    callees.add(init_name)
+                    add_direct_callee(init_name)
                     implicit_values = [init_receivers] + arg_values
                     callee_context = self._normalize_context_for_scope(
                         init_name, raw_context
@@ -1661,7 +1768,7 @@ class _ResolverMixin:
             elif target.kind == BOUND_METHOD_KIND:
                 resolved_callable = True
                 method_name, receiver_instance = parse_bound_method(target)
-                callees.add(method_name)
+                add_direct_callee(method_name)
                 receiver_class, receiver_alloc = parse_instance_name(receiver_instance)
                 implicit_values = [
                     {make_instance(receiver_class, receiver_alloc)}
@@ -1706,7 +1813,7 @@ class _ResolverMixin:
             elif target.kind == BOUND_CLASS_METHOD_KIND:
                 resolved_callable = True
                 method_name, receiver_class = parse_bound_class_method(target)
-                callees.add(method_name)
+                add_direct_callee(method_name)
                 implicit_values = [{make_class(receiver_class)}] + arg_values
                 callee_context = self._derive_callee_context(
                     caller_scope.name, caller_context, call_node
@@ -1757,7 +1864,7 @@ class _ResolverMixin:
                     if not call_name:
                         continue
                     called = True
-                    callees.add(call_name)
+                    add_direct_callee(call_name)
                     implicit_values = [{target}] + arg_values
                     callee_context = self._derive_callee_context(
                         caller_scope.name, caller_context, call_node
@@ -1798,7 +1905,9 @@ class _ResolverMixin:
                         if target_class_name not in self._invalid_mro_classes:
                             break
                         continue
-                    self._add_call_dependency(call_name, callee_context, caller_scope_key)
+                    self._add_call_dependency(
+                        call_name, callee_context, caller_scope_key
+                    )
                     out.update(self.scope_returns[(call_name, callee_context)])
                     self._apply_callee_side_effects(call_name, callee_context, env)
                     resolved_callable = True
@@ -1837,7 +1946,7 @@ class _ResolverMixin:
         ):
             reasons = unresolved_reasons or {"unresolved"}
             for reason in sorted(reasons):
-                callees.add(
+                add_direct_callee(
                     self._dynamic_summary_node_with_reason(
                         caller_scope, call_node, reason
                     )
@@ -1878,17 +1987,23 @@ class _ResolverMixin:
                     scope.module, scope.param_annotations.get(param_name), values
                 )
                 current = param_inputs.setdefault(param_name, set())
-                changed = self._merge_value_set(
-                    current, filtered_values, preserve_callables=True
-                ) or changed
+                changed = (
+                    self._merge_value_set(
+                        current, filtered_values, preserve_callables=True
+                    )
+                    or changed
+                )
             elif scope.vararg:
                 filtered_values = self._filter_values_by_annotation(
                     scope.module, scope.param_annotations.get(scope.vararg), values
                 )
                 current = param_inputs.setdefault(scope.vararg, set())
-                changed = self._merge_value_set(
-                    current, filtered_values, preserve_callables=True
-                ) or changed
+                changed = (
+                    self._merge_value_set(
+                        current, filtered_values, preserve_callables=True
+                    )
+                    or changed
+                )
 
         if star_arg_values:
             pooled_star_values: Set[AbstractValue] = set()
@@ -1903,9 +2018,12 @@ class _ResolverMixin:
                         pooled_star_values,
                     )
                     current = param_inputs.setdefault(param_name, set())
-                    changed = self._merge_value_set(
-                        current, filtered_values, preserve_callables=True
-                    ) or changed
+                    changed = (
+                        self._merge_value_set(
+                            current, filtered_values, preserve_callables=True
+                        )
+                        or changed
+                    )
                 if scope.vararg:
                     filtered_values = self._filter_values_by_annotation(
                         scope.module,
@@ -1913,9 +2031,12 @@ class _ResolverMixin:
                         pooled_star_values,
                     )
                     current = param_inputs.setdefault(scope.vararg, set())
-                    changed = self._merge_value_set(
-                        current, filtered_values, preserve_callables=True
-                    ) or changed
+                    changed = (
+                        self._merge_value_set(
+                            current, filtered_values, preserve_callables=True
+                        )
+                        or changed
+                    )
 
         for kw_name, kw_values in kwarg_values.items():
             if kw_name in pos_or_kw_set or kw_name in kwonly_set:
@@ -1923,9 +2044,12 @@ class _ResolverMixin:
                     scope.module, scope.param_annotations.get(kw_name), kw_values
                 )
                 current = param_inputs.setdefault(kw_name, set())
-                changed = self._merge_value_set(
-                    current, filtered_values, preserve_callables=True
-                ) or changed
+                changed = (
+                    self._merge_value_set(
+                        current, filtered_values, preserve_callables=True
+                    )
+                    or changed
+                )
             elif kw_name in posonly_set:
                 # Positional-only parameters cannot be bound by keyword.
                 continue
@@ -1934,18 +2058,24 @@ class _ResolverMixin:
                     scope.module, scope.param_annotations.get(scope.kwarg), kw_values
                 )
                 current = param_inputs.setdefault(scope.kwarg, set())
-                changed = self._merge_value_set(
-                    current, filtered_values, preserve_callables=True
-                ) or changed
+                changed = (
+                    self._merge_value_set(
+                        current, filtered_values, preserve_callables=True
+                    )
+                    or changed
+                )
 
         if dynamic_kwarg_values and scope.kwarg:
             filtered_values = self._filter_values_by_annotation(
-                scope.module, scope.param_annotations.get(scope.kwarg), dynamic_kwarg_values
+                scope.module,
+                scope.param_annotations.get(scope.kwarg),
+                dynamic_kwarg_values,
             )
             current = param_inputs.setdefault(scope.kwarg, set())
-            changed = self._merge_value_set(
-                current, filtered_values, preserve_callables=True
-            ) or changed
+            changed = (
+                self._merge_value_set(current, filtered_values, preserve_callables=True)
+                or changed
+            )
 
         return changed
 
@@ -1985,9 +2115,10 @@ class _ResolverMixin:
             if name not in scope.closure_vars:
                 continue
             current = param_inputs.setdefault(name, set())
-            changed = self._merge_value_set(
-                current, set(values), preserve_callables=True
-            ) or changed
+            changed = (
+                self._merge_value_set(current, set(values), preserve_callables=True)
+                or changed
+            )
         return changed
 
     def _assign_target(
@@ -2314,15 +2445,21 @@ class _ResolverMixin:
                         )
                         changed = key_changed or changed
                         if key_changed:
-                            self._note_container_state_changed(base_value.name, key_name)
+                            self._note_container_state_changed(
+                                base_value.name, key_name
+                            )
                     else:
                         replacement = self._cap_values(
                             set(values), preserve_callables=True
                         )
                         if keyed_current != replacement:
-                            self.container_key_values[base_value.name][key_name] = replacement
+                            self.container_key_values[base_value.name][
+                                key_name
+                            ] = replacement
                             changed = True
-                            self._note_container_state_changed(base_value.name, key_name)
+                            self._note_container_state_changed(
+                                base_value.name, key_name
+                            )
             if key_names:
                 self._clear_container_key_maybe_missing(base_values, key_names)
             return changed
@@ -2619,7 +2756,9 @@ class _ResolverMixin:
                     if nested_module in self.modules:
                         out.add(make_module(nested_module))
                 elif base_value.kind == CLASS_KIND:
-                    out.update(self.class_fields.get(base_value.name, {}).get(expr.attr, set()))
+                    out.update(
+                        self.class_fields.get(base_value.name, {}).get(expr.attr, set())
+                    )
                     nested_class = f"{base_value.name}.{expr.attr}"
                     if nested_class in self.classes:
                         out.add(make_class(nested_class))
@@ -2729,7 +2868,8 @@ class _ResolverMixin:
         changed = False
         for name, values in source.items():
             current = target.setdefault(name, set())
-            changed = self._merge_value_set(
-                current, set(values), preserve_callables=True
-            ) or changed
+            changed = (
+                self._merge_value_set(current, set(values), preserve_callables=True)
+                or changed
+            )
         return changed

@@ -93,6 +93,43 @@ def main():
     assert [local.name for local in result.findings[0].tainted_arguments] == ["out"]
 
 
+def test_load_analysis_session_uses_constraint_callsite_edges_for_higher_order_calls(
+    tmp_path,
+):
+    target = tmp_path / "higher_order.py"
+    target.write_text(
+        """
+def target():
+    return 1
+
+def apply(fn):
+    return fn()
+
+def main():
+    return apply(target)
+"""
+    )
+
+    session = load_analysis_session([target], root_function="main")
+    apply_cfg = next(
+        cfg
+        for cfg in session.adapter.cfgs
+        if getattr(cfg, "code", None) is not None and cfg.code.codeName() == "apply"
+    )
+    apply_call_nodes = [
+        node
+        for node in session.adapter.supergraph.nodes()
+        if node.procedure is apply_cfg
+        and session.adapter.call_expression_of(node) is not None
+    ]
+
+    assert len(apply_call_nodes) == 1
+    assert [
+        callee.code.codeName()
+        for callee in session.adapter.callees_of(apply_call_nodes[0])
+    ] == ["target"]
+
+
 def test_run_nullness_analysis_api_on_source_file(tmp_path):
     target = tmp_path / "nullness_sample.py"
     target.write_text(
@@ -246,6 +283,7 @@ def test_run_typestate_analysis_forwards_dynamic_model_configuration(monkeypatch
         open_names=["open_file"],
         close_names=["close_file"],
         use_names=["read_file"],
+        enabled_protocols=["resource", "python-builtins"],
         collection_mutator_names=["append_safe"],
         collection_accessor_names=["fetch"],
     )
@@ -256,8 +294,59 @@ def test_run_typestate_analysis_forwards_dynamic_model_configuration(monkeypatch
     assert configuration.open_names == frozenset({"open_file"})
     assert configuration.close_names == frozenset({"close_file"})
     assert configuration.use_names == frozenset({"read_file"})
+    assert configuration.enabled_protocols == frozenset(
+        {"resource", "file", "socket", "lock", "transaction"}
+    )
     assert configuration.collection_mutator_names == frozenset({"append_safe"})
     assert configuration.collection_accessor_names == frozenset({"fetch"})
+
+
+def test_run_typestate_analysis_forwards_registry_models(monkeypatch):
+    captured = {}
+    expected_result = object()
+
+    monkeypatch.setattr(
+        ifds_api,
+        "load_analysis_session",
+        lambda *_args, **_kwargs: SimpleNamespace(adapter=object()),
+    )
+    monkeypatch.setattr(
+        ifds_api,
+        "_entry_nodes_from_program",
+        lambda *_args, **_kwargs: ("entry",),
+    )
+
+    class FakeRegistry:
+        detected_frameworks = frozenset({"network"})
+
+        def activate(self, *frameworks):
+            captured["frameworks"] = frameworks
+
+        def active_models(self):
+            return "registry-models"
+
+    monkeypatch.setattr(
+        ifds_api, "load_registry", lambda: FakeRegistry(), raising=False
+    )
+
+    def fake_analyze_typestate(adapter, configuration, *, entry_nodes):
+        captured["configuration"] = configuration
+        captured["entry_nodes"] = entry_nodes
+        return expected_result
+
+    monkeypatch.setattr(ifds_api, "analyze_typestate", fake_analyze_typestate)
+
+    _session, result = run_typestate_analysis(
+        ["sample.py"],
+        function="main",
+        enabled_protocols=["socket"],
+        registry_frameworks=["network"],
+    )
+
+    assert result is expected_result
+    assert captured["frameworks"] == ("network",)
+    assert captured["configuration"].enabled_protocols == frozenset({"socket"})
+    assert captured["configuration"].call_models == "registry-models"
 
 
 def test_run_taint_analysis_api_on_repo_backed_multi_file_snippet():
@@ -285,7 +374,9 @@ def test_run_taint_analysis_api_on_repo_backed_multi_file_snippet():
     assert [local.name for local in result.findings[0].tainted_arguments] == ["b"]
 
 
-def test_load_analysis_session_with_root_function_drops_unrelated_module_roots(tmp_path):
+def test_load_analysis_session_with_root_function_drops_unrelated_module_roots(
+    tmp_path,
+):
     main = tmp_path / "main.py"
     dead = tmp_path / "dead.py"
     main.write_text(
@@ -392,7 +483,10 @@ def main():
     )
 
     findings = sorted(
-        ([local.name for local in finding.tainted_arguments], finding.tainted_argument_labels)
+        (
+            [local.name for local in finding.tainted_arguments],
+            finding.tainted_argument_labels,
+        )
         for finding in result.findings
     )
     assert findings == [

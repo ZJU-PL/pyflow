@@ -53,6 +53,12 @@ def add_security_parser(subparsers):
         help="Security analysis engine to use",
     )
     p.add_argument(
+        "--analysis",
+        choices=["taint", "typestate"],
+        default="taint",
+        help="IFDS analysis to run when --engine ifds is selected",
+    )
+    p.add_argument(
         "--sources",
         nargs="+",
         default=[],
@@ -88,8 +94,17 @@ def add_security_parser(subparsers):
         default=[],
         metavar="FRAMEWORK",
         choices=[
-            "django", "flask", "fastapi", "sqlalchemy", "stdlib",
-            "cloud", "injection", "network", "nosql", "requests", "sql",
+            "django",
+            "flask",
+            "fastapi",
+            "sqlalchemy",
+            "stdlib",
+            "cloud",
+            "injection",
+            "network",
+            "nosql",
+            "requests",
+            "sql",
         ],
         help="Framework rule pack(s) for CPG engine (repeatable; auto-detect if omitted)",
     )
@@ -98,9 +113,21 @@ def add_security_parser(subparsers):
         action="store_true",
         help="Activate all framework rule packs (only for --engine ifds)",
     )
+    p.add_argument(
+        "--typestate-protocol",
+        action="append",
+        default=[],
+        metavar="PROTOCOLS",
+        help=(
+            "Typestate protocols for --analysis typestate. May be repeated "
+            "or comma-separated; supports resource, python-builtins, file, "
+            "socket, lock, transaction."
+        ),
+    )
     # Common flags
     p.add_argument(
-        "--recursive", "-r",
+        "--recursive",
+        "-r",
         action="store_true",
         help="Scan directories recursively",
     )
@@ -115,7 +142,8 @@ def add_security_parser(subparsers):
         help="Output format",
     )
     p.add_argument(
-        "--output", "-o",
+        "--output",
+        "-o",
         type=Path,
         help="Output file (default: stdout)",
     )
@@ -178,12 +206,43 @@ def _run_cpa(
 
 def _run_ifds(targets: List[str], args) -> Dict[str, Any]:
     """Run the IFDS-backed interprocedural security analysis."""
-    from pyflow.analysis.ifds.api import run_taint_analysis
+    from pyflow.analysis.ifds.api import run_taint_analysis, run_typestate_analysis
 
     files = _discover_python_files(targets, getattr(args, "recursive", False))
     if not files:
         print("No Python files found to analyze", file=sys.stderr)
-        return {"function": args.function or "<unknown>", "findings": [], "diagnostics": []}
+        return {
+            "function": args.function or "<unknown>",
+            "findings": [],
+            "diagnostics": [],
+        }
+
+    if getattr(args, "analysis", "taint") == "typestate":
+        try:
+            _session, typestate_result = run_typestate_analysis(
+                files,
+                function=args.function or "",
+                enabled_protocols=_parse_typestate_protocols(args),
+                registry=getattr(args, "registry", False),
+                registry_frameworks=getattr(args, "framework", ()) or (),
+                collection_mutator_names=getattr(args, "collection_mutators", None),
+                collection_accessor_names=getattr(args, "collection_accessors", None),
+                dependency_strategy=getattr(args, "dependency_strategy", "auto"),
+                verbose=getattr(args, "verbose", False),
+            )
+        except Exception as e:
+            print(f"IFDS analysis failed: {e}", file=sys.stderr)
+            return {
+                "function": args.function or "<unknown>",
+                "analysis": "typestate",
+                "findings": [],
+                "diagnostics": [str(e)],
+            }
+        result = _typestate_result_to_dict(
+            args.function or "<unknown>", typestate_result
+        )
+        result["diagnostics"] = list(getattr(_session, "diagnostics", ()))
+        return result
 
     sources, sinks, sanitizers = _merge_taint_specs(args)
 
@@ -192,7 +251,11 @@ def _run_ifds(targets: List[str], args) -> Dict[str, Any]:
             "No sources or sinks specified. Use --sources/--sinks flags or --registry.",
             file=sys.stderr,
         )
-        return {"function": args.function or "<unknown>", "findings": [], "diagnostics": []}
+        return {
+            "function": args.function or "<unknown>",
+            "findings": [],
+            "diagnostics": [],
+        }
 
     try:
         _session, taint_result, _shadow_matches = run_taint_analysis(
@@ -211,7 +274,11 @@ def _run_ifds(targets: List[str], args) -> Dict[str, Any]:
         )
     except Exception as e:
         print(f"IFDS analysis failed: {e}", file=sys.stderr)
-        return {"function": args.function or "<unknown>", "findings": [], "diagnostics": [str(e)]}
+        return {
+            "function": args.function or "<unknown>",
+            "findings": [],
+            "diagnostics": [str(e)],
+        }
 
     result = _ifds_result_to_dict(args.function or "<unknown>", taint_result)
     result["diagnostics"] = list(getattr(_session, "diagnostics", ()))
@@ -282,10 +349,10 @@ def _format_output_text(engine: str, result) -> str:
             return "No issues found."
         lines = [f"Found {len(issues)} issue(s):\n"]
         for iss in issues:
+            lines.append(f"  [{iss.test_id}] {iss.text}")
             lines.append(
-                f"  [{iss.test_id}] {iss.text}"
+                f"       Severity: {iss.severity}  Confidence: {iss.confidence}"
             )
-            lines.append(f"       Severity: {iss.severity}  Confidence: {iss.confidence}")
             lines.append(f"       File: {iss.fname}:{iss.lineno}")
             lines.append("")
         return "\n".join(lines)
@@ -296,10 +363,10 @@ def _format_output_text(engine: str, result) -> str:
             return "No issues found."
         lines = [f"Found {len(issues)} issue(s):\n"]
         for iss in issues:
+            lines.append(f"  [{iss.test_id}] {iss.text}")
             lines.append(
-                f"  [{iss.test_id}] {iss.text}"
+                f"       Severity: {iss.severity}  Confidence: {iss.confidence}"
             )
-            lines.append(f"       Severity: {iss.severity}  Confidence: {iss.confidence}")
             lines.append(f"       File: {iss.fname}:{iss.lineno}")
             lines.append("")
         return "\n".join(lines)
@@ -321,6 +388,15 @@ def _format_output_text(engine: str, result) -> str:
             for diagnostic in diags:
                 lines.append(f"  {diagnostic}")
         for finding in report.get("findings", []):
+            if "kind" in finding:
+                lines.append(
+                    f"  typestate={finding.get('kind', '?')} "
+                    f"protocol={finding.get('protocol', '?')} "
+                    f"state={finding.get('state', '?')} "
+                    f"resource={finding.get('resource_label', '?')} "
+                    f"operation={finding.get('operation_name', '?')}"
+                )
+                continue
             args_str = ", ".join(finding.get("tainted_arguments", [])) or "<none>"
             lines.append(
                 f"  sink={finding.get('sink_name', '?')} "
@@ -345,7 +421,9 @@ def _format_output_text(engine: str, result) -> str:
                 f"      source: {f.get('source_label', '?')} "
                 f"(line {f.get('source_line', 0)})"
             )
-            lines.append(f"      sink:   {f.get('sink_label', '?')} (line {f.get('sink_line', 0)})")
+            lines.append(
+                f"      sink:   {f.get('sink_label', '?')} (line {f.get('sink_line', 0)})"
+            )
             lines.append("")
         return "\n".join(lines)
 
@@ -422,10 +500,13 @@ def _result_to_sarif(engine: str, result, args) -> Dict[str, Any]:
     """Convert engine results to SARIF v2.1.0 format."""
     if engine == "cpg":
         from pyflow.analysis.cpg.taint import CPGTaintEngine
+
         findings = result
         artifact_uri = (
-            str(args.targets[0]) if getattr(args, "targets", None) else ""
-        ) if hasattr(CPGTaintEngine, "deduplicate") else ""
+            (str(args.targets[0]) if getattr(args, "targets", None) else "")
+            if hasattr(CPGTaintEngine, "deduplicate")
+            else ""
+        )
         # Build minimal SARIF from CPG findings
         rules: List[Dict[str, Any]] = []
         results_list: List[Dict[str, Any]] = []
@@ -434,36 +515,46 @@ def _result_to_sarif(engine: str, result, args) -> Dict[str, Any]:
             rule_id = f.get("rule_id", f.get("cwe", "CPG-TAINT"))
             if rule_id not in seen_rules:
                 seen_rules[rule_id] = len(rules)
-                rules.append({
-                    "id": rule_id,
-                    "name": f.get("rule", {}).get("name", rule_id),
-                    "shortDescription": {"text": f.get("rule", {}).get("short_description", "")},
-                })
-            results_list.append({
-                "ruleId": rule_id,
-                "ruleIndex": seen_rules[rule_id],
-                "level": "error" if f.get("severity") in ("critical", "high") else "warning",
-                "message": {
-                    "text": (
-                        f"Tainted data from {f.get('source_label', '?')} "
-                        f"reaches {f.get('sink_label', '?')}"
-                    )
-                },
-                "locations": [{
-                    "physicalLocation": {
-                        "artifactLocation": {"uri": artifact_uri},
-                        "region": {"startLine": f.get("source_line", 0)},
+                rules.append(
+                    {
+                        "id": rule_id,
+                        "name": f.get("rule", {}).get("name", rule_id),
+                        "shortDescription": {
+                            "text": f.get("rule", {}).get("short_description", "")
+                        },
                     }
-                }],
-            })
+                )
+            results_list.append(
+                {
+                    "ruleId": rule_id,
+                    "ruleIndex": seen_rules[rule_id],
+                    "level": (
+                        "error"
+                        if f.get("severity") in ("critical", "high")
+                        else "warning"
+                    ),
+                    "message": {
+                        "text": (
+                            f"Tainted data from {f.get('source_label', '?')} "
+                            f"reaches {f.get('sink_label', '?')}"
+                        )
+                    },
+                    "locations": [
+                        {
+                            "physicalLocation": {
+                                "artifactLocation": {"uri": artifact_uri},
+                                "region": {"startLine": f.get("source_line", 0)},
+                            }
+                        }
+                    ],
+                }
+            )
         return {
             "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
             "version": "2.1.0",
             "runs": [
                 {
-                    "tool": {
-                        "driver": {"name": "pyflow-security-cpg", "rules": rules}
-                    },
+                    "tool": {"driver": {"name": "pyflow-security-cpg", "rules": rules}},
                     "results": results_list,
                 }
             ],
@@ -491,9 +582,7 @@ def _parse_exclude_tuple(exclude: str) -> tuple:
     return tuple(p.strip() for p in exclude.split(",") if p.strip())
 
 
-def _discover_python_files(
-    targets: Sequence[str], recursive: bool
-) -> list[Path]:
+def _discover_python_files(targets: Sequence[str], recursive: bool) -> list[Path]:
     files: list[Path] = []
     for t in targets:
         path = Path(t)
@@ -517,6 +606,7 @@ def _merge_taint_specs(args) -> tuple[list[str], list[str], list[str]]:
 
     try:
         from pyflow.analysis.ifds.clients.registry import load_registry
+
         registry = load_registry()
         registry.activate_all()
         models = registry.active_models()
@@ -531,7 +621,24 @@ def _merge_taint_specs(args) -> tuple[list[str], list[str], list[str]]:
     except ImportError:
         pass
 
-    return list(dict.fromkeys(sources)), list(dict.fromkeys(sinks)), list(dict.fromkeys(sanitizers))
+    return (
+        list(dict.fromkeys(sources)),
+        list(dict.fromkeys(sinks)),
+        list(dict.fromkeys(sanitizers)),
+    )
+
+
+def _parse_typestate_protocols(args) -> list[str]:
+    raw = getattr(args, "typestate_protocol", None) or []
+    protocols: list[str] = []
+    for item in raw:
+        for part in str(item).split(","):
+            name = part.strip()
+            if name:
+                protocols.append(name)
+    if not protocols:
+        protocols.append("resource")
+    return list(dict.fromkeys(protocols))
 
 
 def _code_name(code) -> str:
@@ -594,6 +701,40 @@ def _ifds_result_to_dict(function: str, taint_result) -> Dict[str, Any]:
 
     return {
         "function": function,
+        "analysis": "taint",
+        "findings": findings,
+        "statistics": statistics,
+    }
+
+
+def _typestate_result_to_dict(function: str, typestate_result) -> Dict[str, Any]:
+    """Convert an IFDS TypestateAnalysisResult to a JSON-compatible dict."""
+    from dataclasses import asdict, is_dataclass
+
+    findings = [
+        {
+            "kind": finding.kind,
+            "operation_name": finding.operation_name,
+            "resource_label": finding.resource_label,
+            "protocol": finding.protocol,
+            "state": finding.state,
+            "procedure": _code_name(finding.node.procedure.code),
+            "block_kind": finding.node.kind,
+        }
+        for finding in typestate_result.findings
+    ]
+
+    statistics = {}
+    if is_dataclass(typestate_result.statistics):
+        statistics = asdict(typestate_result.statistics)
+    elif hasattr(typestate_result.statistics, "__dict__"):
+        statistics = dict(vars(typestate_result.statistics))
+    else:
+        statistics = dict(typestate_result.statistics)
+
+    return {
+        "function": function,
+        "analysis": "typestate",
         "findings": findings,
         "statistics": statistics,
     }
@@ -608,9 +749,7 @@ def run_security(args) -> int:
     level = (
         logging.DEBUG
         if getattr(args, "debug", False)
-        else logging.INFO
-        if getattr(args, "verbose", False)
-        else logging.WARNING
+        else logging.INFO if getattr(args, "verbose", False) else logging.WARNING
     )
     logging.basicConfig(level=level, format="%(levelname)s: %(message)s")
 

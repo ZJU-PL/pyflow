@@ -13,15 +13,28 @@ from typing import Iterable, Sequence
 from pyflow.application.context import CompilerContext
 from pyflow.application.pipeline import Pipeline
 from pyflow.application.program import Program
-from pyflow.frontend.programextractor import Extractor, create_interface_from_paths, extractProgram
+from pyflow.frontend.programextractor import (
+    Extractor,
+    create_interface_from_paths,
+    extractProgram,
+)
 from pyflow.util.application.console import Console
 
-from .cfg_adapter import CFGSupergraphAdapter, build_supergraph_from_cfgs
+from .cfg_adapter import (
+    CFGSupergraphAdapter,
+    build_supergraph_from_cfgs,
+    composite_cfg_resolver,
+    constraint_callgraph_cfg_resolver,
+    direct_call_cfg_resolver,
+    annotation_invokes_cfg_resolver,
+    named_call_cfg_resolver,
+)
 from .clients.nullness import (
     NullnessAnalysisResult,
     NullnessConfiguration,
     analyze_nullness,
 )
+from .clients.registry import load_registry
 from .clients.taint import TaintAnalysisResult, TaintConfiguration, analyze_taint
 from .clients.typestate import (
     TypestateAnalysisResult,
@@ -159,7 +172,10 @@ def _restrict_program_entry_points(
         if not _is_synthetic_module_code(code):
             entry_points.append(ep)
             continue
-        if target_source is not None and _source_filename_from_code(code) == target_source:
+        if (
+            target_source is not None
+            and _source_filename_from_code(code) == target_source
+        ):
             entry_points.append(ep)
             target_module_present = True
 
@@ -207,6 +223,46 @@ def _resolve_requested_entry_code(program: Program, queries, function_name: str)
     return queries.context.resolve_function(function_name)
 
 
+def _constraint_call_resolver_for_files(files: Sequence[Path], root_file: str | None):
+    if not files:
+        return None
+    selected = files[0]
+    if root_file is not None:
+        root_real = os.path.realpath(root_file)
+        for candidate in files:
+            if os.path.realpath(candidate) == root_real:
+                selected = candidate
+                break
+    try:
+        source = selected.read_text(encoding="utf-8")
+    except OSError:
+        return None
+
+    try:
+        from pyflow.analysis.callgraph.constraint_based import (
+            extract_call_site_edge_index_constraint,
+        )
+
+        call_site_edges = extract_call_site_edge_index_constraint(
+            source,
+            source_path=str(selected),
+            context_sensitive=True,
+            context_depth=1,
+            allow_fixture_graph_loading=False,
+        )
+    except Exception:
+        return None
+
+    if not call_site_edges:
+        return None
+    return composite_cfg_resolver(
+        constraint_callgraph_cfg_resolver(call_site_edges),
+        direct_call_cfg_resolver,
+        annotation_invokes_cfg_resolver,
+        named_call_cfg_resolver,
+    )
+
+
 def load_analysis_session(
     python_files: Sequence[str | Path],
     *,
@@ -218,15 +274,20 @@ def load_analysis_session(
 ) -> AnalysisSession:
     """Load source files into a PyFlow program and build CFGs for all live code."""
     files = [Path(path) for path in python_files]
-    compiler = CompilerContext(Console(out=None if verbose else io.StringIO(), verbose=verbose))
+    compiler = CompilerContext(
+        Console(out=None if verbose else io.StringIO(), verbose=verbose)
+    )
     program = Program()
 
     args = _path_args(verbose, dependency_strategy, search_paths)
     stdout = nullcontext() if verbose else redirect_stdout(io.StringIO())
     preserved_codes = ()
+    target_source: str | None = None
     with stdout:
         program.interface, all_source_code = create_interface_from_paths(files, args)
-        compiler.extractor = Extractor(compiler, verbose=verbose, source_code=all_source_code)
+        compiler.extractor = Extractor(
+            compiler, verbose=verbose, source_code=all_source_code
+        )
         extractProgram(compiler, program)
         if root_function is not None:
             queries = program.get_queries(compiler)
@@ -251,8 +312,11 @@ def load_analysis_session(
             ),
             supplemental_live_codes=preserved_codes,
         )
+    call_resolver = _constraint_call_resolver_for_files(files, target_source)
     adapter = build_supergraph_from_cfgs(
-        prepared.cfgs, include_exceptional_edges=include_exceptional_edges
+        prepared.cfgs,
+        include_exceptional_edges=include_exceptional_edges,
+        call_resolver=call_resolver,
     )
     return AnalysisSession(
         compiler,
@@ -376,6 +440,9 @@ def run_typestate_analysis(
     open_names: Iterable[str] = ("open",),
     close_names: Iterable[str] = ("close",),
     use_names: Iterable[str] = ("read", "write", "send", "recv"),
+    enabled_protocols: Iterable[str] = ("resource",),
+    registry: bool = False,
+    registry_frameworks: Iterable[str] = (),
     collection_mutator_names: Iterable[str] | None = None,
     collection_accessor_names: Iterable[str] | None = None,
     verbose: bool = False,
@@ -384,8 +451,9 @@ def run_typestate_analysis(
     include_exceptional_edges: bool = True,
 ) -> tuple[AnalysisSession, TypestateAnalysisResult]:
     """Load files, resolve a function, and run the shipped typestate analysis."""
+    files = [Path(path) for path in python_files]
     session = load_analysis_session(
-        python_files,
+        files,
         verbose=verbose,
         dependency_strategy=dependency_strategy,
         search_paths=search_paths,
@@ -398,6 +466,12 @@ def run_typestate_analysis(
             open_names=frozenset(open_names),
             close_names=frozenset(close_names),
             use_names=frozenset(use_names),
+            enabled_protocols=_normalize_typestate_protocols(enabled_protocols),
+            call_models=_typestate_registry_models(
+                files,
+                enabled=registry,
+                frameworks=registry_frameworks,
+            ),
             collection_mutator_names=(
                 frozenset(collection_mutator_names)
                 if collection_mutator_names is not None
@@ -412,3 +486,36 @@ def run_typestate_analysis(
         entry_nodes=_entry_nodes_from_program(session, fallback_function=function),
     )
     return session, result
+
+
+def _typestate_registry_models(
+    files: Sequence[Path],
+    *,
+    enabled: bool,
+    frameworks: Iterable[str],
+):
+    frameworks = tuple(frameworks)
+    if not enabled and not frameworks:
+        return None
+
+    registry = load_registry()
+    if frameworks:
+        registry.activate(*frameworks)
+    elif enabled:
+        for path in files:
+            try:
+                registry.detect(path.read_text(encoding="utf-8").splitlines())
+            except OSError:
+                continue
+        if not registry.detected_frameworks:
+            registry.activate_all()
+    return registry.active_models()
+
+
+def _normalize_typestate_protocols(protocols: Iterable[str]) -> frozenset[str]:
+    names = frozenset(protocols)
+    if "python-builtins" not in names:
+        return names
+    return (names - {"python-builtins"}) | frozenset(
+        {"file", "socket", "lock", "transaction"}
+    )

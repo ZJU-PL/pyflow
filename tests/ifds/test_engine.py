@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from pyflow.analysis.ifds import (
+    CallContext,
     EdgeFunction,
     FactTransition,
     IDEProblem,
@@ -173,9 +174,17 @@ class SplitCallIDEProblem(IDEProblem[str, str, str, frozenset[str]]):
         return {("main.entry", ZERO): frozenset()}
 
     def normal_flow(self, node: str, successor: str, fact: str):
-        if node == "main.entry" and successor in {"main.call1", "main.call2"} and fact == ZERO:
+        if (
+            node == "main.entry"
+            and successor in {"main.call1", "main.call2"}
+            and fact == ZERO
+        ):
             return (ValueTransition("d", IdentityEdgeFunction()),)
-        if node in {"main.ret1", "main.ret2"} and successor == "main.exit" and fact == "d":
+        if (
+            node in {"main.ret1", "main.ret2"}
+            and successor == "main.exit"
+            and fact == "d"
+        ):
             return (ValueTransition("d", IdentityEdgeFunction()),)
         if node == "callee.entry" and successor == "callee.exit" and fact == "p":
             return (ValueTransition("p", AddLabels(frozenset({"summary"}))),)
@@ -345,7 +354,11 @@ class RecursiveSourceValueIDEProblem(IDEProblem[str, str, str, frozenset[str]]):
         call_fact: str,
         exit_fact: str,
     ):
-        if callee == "rec" and exit_node == "rec.exit" and return_site in {"main.ret", "rec.ret"}:
+        if (
+            callee == "rec"
+            and exit_node == "rec.exit"
+            and return_site in {"main.ret", "rec.ret"}
+        ):
             if call_fact == ZERO and exit_fact == ZERO:
                 return (ValueTransition(ZERO, IdentityEdgeFunction()),)
             if call_fact == "d" and exit_fact == "d":
@@ -476,6 +489,40 @@ def test_ide_preserves_per_callsite_values_via_jump_functions():
     assert result.value_at("main.exit", "d") == frozenset({"one", "two", "summary"})
     edge = PathEdge("callee.entry", "p", "callee.exit", "p")
     assert result.traces_for(edge)
+
+
+def test_ide_exposes_context_sensitive_values():
+    result = IDESolver(max_call_string_depth=3).solve(
+        SplitCallIDEProblem(build_split_call_supergraph())
+    )
+
+    call1_context = CallContext(max_depth=3).push("main.call1")
+    call2_context = CallContext(max_depth=3).push("main.call2")
+    root_context = CallContext(max_depth=3)
+
+    assert result.value_at("callee.entry", "p") == frozenset({"one", "two"})
+    assert result.value_at_context("callee.entry", "p", call1_context) == frozenset(
+        {"one"}
+    )
+    assert result.value_at_context("callee.entry", "p", call2_context) == frozenset(
+        {"two"}
+    )
+    assert result.values_at_contexts("callee.entry", "p") == {
+        call1_context: frozenset({"one"}),
+        call2_context: frozenset({"two"}),
+    }
+    assert result.value_at_context("main.ret1", "d", root_context) == frozenset(
+        {"one", "summary"}
+    )
+    assert result.value_for_path_edge(
+        PathEdge(
+            "callee.entry",
+            "p",
+            "callee.entry",
+            "p",
+            context=call1_context,
+        )
+    ) == frozenset({"one"})
 
 
 def test_solvers_do_not_record_traces_unless_requested():
@@ -670,7 +717,9 @@ class MutualRecursionIFDSProblem(IFDSProblem[str, str, str]):
             return ("active",)
         return ()
 
-    def return_flow(self, call_node, callee, exit_node, return_site, call_fact, exit_fact):
+    def return_flow(
+        self, call_node, callee, exit_node, return_site, call_fact, exit_fact
+    ):
         if call_fact == "active" and exit_fact == "active":
             return ("active",)
         if call_fact == ZERO and exit_fact == ZERO:
@@ -705,7 +754,9 @@ def build_mutual_recursion_supergraph() -> Supergraph[str, str]:
 
 
 def test_ifds_terminates_on_mutual_recursion():
-    result = IFDSSolver().solve(MutualRecursionIFDSProblem(build_mutual_recursion_supergraph()))
+    result = IFDSSolver().solve(
+        MutualRecursionIFDSProblem(build_mutual_recursion_supergraph())
+    )
 
     assert result.is_reached("odd.after", "active")
     assert result.is_reached("odd.exit", "active")
@@ -746,7 +797,9 @@ class DiamondIDEProblem(IDEProblem[str, str, str, frozenset[str]]):
     def bottom_value(self) -> frozenset[str]:
         return frozenset()
 
-    def join_values(self, left: frozenset[str], right: frozenset[str]) -> frozenset[str]:
+    def join_values(
+        self, left: frozenset[str], right: frozenset[str]
+    ) -> frozenset[str]:
         return left | right
 
     def initial_seed_values(self):

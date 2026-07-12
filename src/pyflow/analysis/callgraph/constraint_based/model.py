@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from typing import (
     DefaultDict,
     Dict,
+    FrozenSet,
     List,
     Literal,
     Mapping,
@@ -178,6 +179,20 @@ class ScopeResult:
     changed_container_keys: Set[Tuple[str, str]]
     nonlocal_binding_changed: bool
     singledispatch_changed: bool
+
+
+@dataclass(frozen=True)
+class ConstraintCallSite:
+    """Source-level call site with context and stable per-scope ordinal."""
+
+    caller_scope: str
+    caller_context: ContextKey
+    line: int
+    column: int
+    ordinal: int
+
+
+CallSiteEdgeIndex: TypeAlias = Mapping[ConstraintCallSite, FrozenSet[str]]
 
 
 def make_value(kind: str, name: str) -> AbstractValue:
