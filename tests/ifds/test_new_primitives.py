@@ -18,7 +18,7 @@ from pyflow.analysis.ifds import (
     ZeroFact,
 )
 from pyflow.analysis.ifds.problem import IFDSProblem
-from pyflow.analysis.ifds.solver import IFDSSolver
+from pyflow.analysis.ifds.solver import IDESolver, IFDSSolver
 
 
 class TestZeroFact:
@@ -111,6 +111,14 @@ class TestCallContext:
         ctx = ctx.push("b")
         assert len(ctx.call_sites) == 1
         assert ctx.call_sites == ("b",)
+
+    def test_rejects_zero_max_depth(self):
+        try:
+            CallContext(max_depth=0)
+        except ValueError as exc:
+            assert "max_depth must be >= 1" in str(exc)
+        else:
+            raise AssertionError("Expected ValueError")
 
     def test_pop(self):
         ctx = CallContext()
@@ -246,3 +254,21 @@ class TestContextInsensitiveSolver:
         result = solver.solve(Linear())
         assert result.is_reached("main.body", "x")
         assert result.is_reached("main.exit", "x")
+
+
+def test_ifds_solver_rejects_invalid_call_string_depth():
+    try:
+        IFDSSolver(max_call_string_depth=0)
+    except ValueError as exc:
+        assert "max_call_string_depth must be >= 1" in str(exc)
+    else:
+        raise AssertionError("Expected ValueError")
+
+
+def test_ide_solver_rejects_invalid_call_string_depth():
+    try:
+        IDESolver(max_call_string_depth=False)
+    except TypeError as exc:
+        assert "max_call_string_depth must be an integer or None" in str(exc)
+    else:
+        raise AssertionError("Expected TypeError")

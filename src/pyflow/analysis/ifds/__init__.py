@@ -67,9 +67,10 @@ from .solver import (
     IFDSSolver,
     PathEdge,
     SolverLimitExceeded,
-    verify_call_chain,
 )
 from .solver import PropagationTrace, SolverStatistics
+from .diagnostics import IFDSDiagnostic
+from .queries import is_reached_prefix, verify_call_chain
 from .supergraph import Supergraph, SupergraphError
 from .backward_solver import (
     BackwardIFDSProblem,
@@ -165,6 +166,7 @@ __all__ = [
     "ExpressionResourceFact",
     "ExpressionTaintFact",
     "FactTransition",
+    "IFDSDiagnostic",
     "GenFlow",
     "IDEProblem",
     "IDEResult",
@@ -247,6 +249,7 @@ __all__ = [
     "HeapSummaryBuilder",
     "HeapWrite",
     "identity_unless_killed",
+    "is_reached_prefix",
     "iter_call_expressions",
     "iter_call_expressions_in_eval_order",
     "named_call_cfg_resolver",

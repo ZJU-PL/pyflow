@@ -15,7 +15,7 @@ from pyflow.analysis.ifds import (
     ZERO,
     ZeroFact,
 )
-from pyflow.analysis.ifds.solver import (
+from pyflow.analysis.ifds.queries import (
     _fact_prefix_match,
     _paths_prefix_match,
 )

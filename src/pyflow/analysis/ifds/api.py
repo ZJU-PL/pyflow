@@ -41,6 +41,7 @@ from .clients.typestate import (
     TypestateConfiguration,
     analyze_typestate,
 )
+from .diagnostics import IFDSDiagnostic
 from .preparation import prepare_program_for_ifds
 
 
@@ -51,7 +52,12 @@ class AnalysisSession:
     compiler: CompilerContext
     program: Program
     adapter: CFGSupergraphAdapter
-    diagnostics: tuple[str, ...] = ()
+    diagnostics: tuple[IFDSDiagnostic, ...] = ()
+
+    @property
+    def diagnostic_messages(self) -> tuple[str, ...]:
+        """Human-readable diagnostic messages for compatibility and display."""
+        return tuple(str(diagnostic) for diagnostic in self.diagnostics)
 
 
 def _path_args(verbose: bool, dependency_strategy: str, search_paths):

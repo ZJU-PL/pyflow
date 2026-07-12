@@ -81,7 +81,6 @@ Equivalent direct commands commonly used in CI:
 - `pytest`
 - `pytest -m integration tests/integration`
 - `pytest --cov=pyflow --cov-report=xml --cov-report=term`
-- `black src/ tests/`
 - `flake8 src/ tests/`
 - `mypy src/`
 

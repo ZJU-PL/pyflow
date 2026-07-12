@@ -8,6 +8,7 @@ from typing import Callable, Sequence
 from pyflow.application.errors import TemporaryLimitation
 
 from .annotation_fallback import ensure_ifds_annotations_complete
+from .diagnostics import IFDSDiagnostic
 
 
 @dataclass(frozen=True)
@@ -15,7 +16,7 @@ class PreparedIFDSArtifacts:
     """Recovered CFG set and any non-fatal diagnostics produced while preparing it."""
 
     cfgs: tuple[object, ...]
-    diagnostics: tuple[str, ...] = ()
+    diagnostics: tuple[IFDSDiagnostic, ...] = ()
 
 
 def prepare_program_for_ifds(
@@ -31,7 +32,7 @@ def prepare_program_for_ifds(
     """Prepare a program for IFDS analysis, recovering from non-fatal pipeline failures."""
 
     del compiler
-    diagnostics: list[str] = []
+    diagnostics: list[IFDSDiagnostic] = []
     pre_pipeline_live_codes = tuple(getattr(program, "liveCode", ()))
 
     if run_pipeline is not None:
@@ -39,8 +40,16 @@ def prepare_program_for_ifds(
             run_pipeline()
         except Exception as exc:
             diagnostics.append(
-                "IFDS session fell back to best-effort mode after "
-                f"{pipeline_label} failure: {exc}"
+                IFDSDiagnostic(
+                    severity="warning",
+                    phase="pipeline",
+                    message=(
+                        "IFDS session fell back to best-effort mode after "
+                        f"{pipeline_label} failure: {exc}"
+                    ),
+                    exception_type=type(exc).__name__,
+                    subject=pipeline_label,
+                )
             )
             if pre_pipeline_live_codes:
                 program.liveCode.update(pre_pipeline_live_codes)
@@ -56,7 +65,13 @@ def prepare_program_for_ifds(
             cfgs.append(get_cfg(code))
         except Exception as exc:
             diagnostics.append(
-                f"Skipped IFDS CFG for {describe_code(code)}: {exc}"
+                IFDSDiagnostic(
+                    severity="warning",
+                    phase="cfg",
+                    message=f"Skipped IFDS CFG for {describe_code(code)}: {exc}",
+                    exception_type=type(exc).__name__,
+                    subject=describe_code(code),
+                )
             )
 
     if not cfgs:

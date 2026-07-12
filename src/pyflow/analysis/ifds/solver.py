@@ -50,6 +50,12 @@ class CallContext:
     call_sites: tuple[Hashable, ...] = ()
     max_depth: int = 3
 
+    def __post_init__(self) -> None:
+        if not isinstance(self.max_depth, int) or isinstance(self.max_depth, bool):
+            raise TypeError("max_depth must be an integer")
+        if self.max_depth < 1:
+            raise ValueError("max_depth must be >= 1")
+
     def push(self, call_site: Hashable) -> "CallContext":
         sites = self.call_sites + (call_site,)
         if len(sites) > self.max_depth:
@@ -194,6 +200,15 @@ def _normalize_ifds_transitions(outputs) -> tuple[FactTransition[FactT], ...]:
     return tuple(normalized)
 
 
+def _validate_max_call_string_depth(depth: int | None) -> None:
+    if depth is None:
+        return
+    if not isinstance(depth, int) or isinstance(depth, bool):
+        raise TypeError("max_call_string_depth must be an integer or None")
+    if depth < 1:
+        raise ValueError("max_call_string_depth must be >= 1")
+
+
 class IFDSResult(Generic[NodeT, FactT]):
     """Reachability result for an IFDS problem."""
 
@@ -245,177 +260,10 @@ class IFDSResult(Generic[NodeT, FactT]):
     # ── access-path-aware queries ──────────────────────────────────────
 
     def is_reached_prefix(self, node: NodeT, fact: FactT) -> bool:
-        """Check if *fact* or any prefix-matched stored fact reaches *node*.
+        """Check if *fact* or a prefix-matched stored fact reaches *node*."""
+        from .queries import is_reached_prefix
 
-        First attempts exact match via :meth:`is_reached`.  If that fails,
-        iterates all facts at *node* and checks whether any stored fact has
-        an ``access_path`` that is a prefix of *fact*'s ``access_path``
-        (with the same base identity — ``location`` for location facts, or
-        ``expression`` + ``procedure`` for expression facts).
-
-        Supports field-sensitive queries: a stored fact with
-        ``access_path=("f",)`` matches a query for ``("f", "g")``.
-        """
-        if self.is_reached(node, fact):
-            return True
-        for stored in self._reached.get(node, ()):
-            if _fact_prefix_match(stored, fact):
-                return True
-        return False
-
-
-# ── prefix-match helpers (access-path-aware fact comparison) ──────────
-
-
-def _fact_prefix_match(stored: object, query: object) -> bool:
-    """True when *stored* implies *query* via access-path prefix.
-
-    Returns True when the two facts share the same base identity
-    (``location`` for location facts, or ``expression`` + ``procedure`` for
-    expression facts) and *stored*'s ``access_path`` is a prefix of
-    *query*'s.
-
-    An empty ``access_path`` on *stored* means "the whole object" and
-    matches any query on the same base identity.
-    """
-    if stored == query:
-        return True
-    # Heap-location facts (TaintFact, NullFact, ResourceStateFact)
-    s_location = getattr(stored, "location", None)
-    q_location = getattr(query, "location", None)
-    if s_location is not None and q_location is not None:
-        if hasattr(s_location, "is_prefix_of"):
-            if not s_location.is_prefix_of(q_location):
-                return False
-        elif s_location != q_location:
-            return False
-        return _paths_prefix_match(stored, query)
-    # Expression-based facts (ExpressionTaintFact, ExpressionNullFact, …)
-    s_expr = getattr(stored, "expression", None)
-    q_expr = getattr(query, "expression", None)
-    s_proc = getattr(stored, "procedure", None)
-    q_proc = getattr(query, "procedure", None)
-    if (
-        s_expr is not None
-        and q_expr is not None
-        and s_expr == q_expr
-        and s_proc is not None
-        and q_proc is not None
-        and s_proc == q_proc
-    ):
-        return _paths_prefix_match(stored, query)
-    return False
-
-
-def _paths_prefix_match(stored: object, query: object) -> bool:
-    """True when *stored*'s ``access_path`` is a prefix of *query*'s."""
-    s_path: tuple[str, ...] = getattr(stored, "access_path", ())
-    q_path: tuple[str, ...] = getattr(query, "access_path", ())
-    if s_path == q_path:
-        return True
-    return len(s_path) <= len(q_path) and q_path[: len(s_path)] == s_path
-
-
-# ── demand-driven backward call-chain verification ────────────────────
-
-
-def verify_call_chain(
-    result: IFDSResult,
-    supergraph: Supergraph,
-    sink_node: NodeT,
-    sink_fact: FactT,
-    *,
-    source_node: NodeT | None = None,
-    source_fact: FactT | None = None,
-    max_depth: int = 12,
-) -> tuple[bool, tuple[NodeT, ...]]:
-    """Demand-driven backward verification of an interprocedural taint chain.
-
-    BFS upward from *sink_node* through the IFDS incoming-call records
-    to verify that a taint flow genuinely connects source to sink through
-    the interprocedural supergraph.  Uses the *already-computed* IFDS
-    result — no solver re-run required.
-
-    If *source_node* (and optionally *source_fact*) are given, the search
-    stops when that specific source is found.  Otherwise the search
-    reports whether any path reaches a procedure entry that has no
-    further incoming records (a "root" source).
-
-    Returns ``(is_reachable, chain)`` where *chain* is the node sequence
-    from source (or root) to sink, inclusive.
-    """
-    # Walk upward from sink → entries via incoming records → call sites
-    visited: set[NodeT] = set()
-    parent: dict[NodeT, NodeT | None] = {}
-    chain_start: NodeT | None = None
-
-    _queue: deque[NodeT] = deque([sink_node])
-    visited.add(sink_node)
-    parent[sink_node] = None
-
-    depth = 0
-    while _queue and depth < max_depth:
-        next_queue: deque[NodeT] = deque()
-        for current in _queue:
-            proc = supergraph.procedure_of(current)
-            if proc is None:
-                continue
-            entry = supergraph.entry_of(proc)
-            # Look at all facts that reached this procedure's entry
-            for fact in result.facts_at(entry):
-                for record in result.incoming_records(entry, fact):
-                    call_site: NodeT = record.call_node
-                    if call_site not in visited:
-                        visited.add(call_site)
-                        parent[call_site] = current
-                        next_queue.append(call_site)
-                        # Check source match
-                        if source_node is not None and call_site == source_node:
-                            chain_start = call_site
-                            break
-                if chain_start is not None:
-                    break
-            if chain_start is not None:
-                break
-        if chain_start is not None:
-            break
-        _queue = next_queue
-        depth += 1
-
-    # If no explicit source given, pick any leaf (no further incoming)
-    if source_node is None and chain_start is None:
-        for node in visited:
-            proc = supergraph.procedure_of(node)
-            if proc is None:
-                continue
-            entry = supergraph.entry_of(proc)
-            has_incoming = False
-            for fact in result.facts_at(entry):
-                if result.incoming_records(entry, fact):
-                    has_incoming = True
-                    break
-            if not has_incoming:
-                chain_start = node
-                break
-
-    if chain_start is None:
-        return (False, ())
-
-    # Reconstruct chain from chain_start → sink_node
-    chain: list[NodeT] = []
-    current: NodeT | None = sink_node
-    while current is not None:
-        chain.append(current)
-        next_node = parent.get(current)
-        if next_node == chain_start:
-            chain.append(chain_start)
-            break
-        current = next_node
-    chain.reverse()
-    # The chain should start at chain_start
-    if chain and chain[0] != chain_start:
-        chain.insert(0, chain_start)
-    return (True, tuple(chain))
+        return is_reached_prefix(self, node, fact)
 
 
 class IDEResult(Generic[NodeT, FactT, ValueT]):
@@ -504,6 +352,7 @@ class IFDSSolver(Generic[ProcT, NodeT, FactT]):
         max_propagated_path_edges: int | None = None,
         max_call_string_depth: int | None = None,
     ) -> None:
+        _validate_max_call_string_depth(max_call_string_depth)
         self.record_traces = record_traces
         self.max_propagated_path_edges = max_propagated_path_edges
         self.max_call_string_depth = max_call_string_depth
@@ -743,6 +592,7 @@ class IDESolver(Generic[ProcT, NodeT, FactT, ValueT]):
         max_propagated_path_edges: int | None = None,
         max_call_string_depth: int | None = None,
     ) -> None:
+        _validate_max_call_string_depth(max_call_string_depth)
         self.record_traces = record_traces
         self.max_propagated_path_edges = max_propagated_path_edges
         self.max_call_string_depth = max_call_string_depth

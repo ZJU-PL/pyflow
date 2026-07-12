@@ -8,6 +8,7 @@ from types import SimpleNamespace
 
 import pyflow.analysis.ifds.api as ifds_api
 from pyflow.analysis.ifds.api import (
+    IFDSDiagnostic,
     load_analysis_session,
     run_nullness_analysis,
     run_taint_analysis,
@@ -695,6 +696,11 @@ def f(a, b, xs):
 
     assert {code.codeName() for code in session.program.liveCode} >= {"f"}
     assert any("best-effort mode" in diagnostic for diagnostic in session.diagnostics)
+    assert all(
+        isinstance(diagnostic, IFDSDiagnostic) for diagnostic in session.diagnostics
+    )
+    assert any(diagnostic.phase == "pipeline" for diagnostic in session.diagnostics)
+    assert any("best-effort mode" in message for message in session.diagnostic_messages)
 
 
 def test_load_analysis_session_handles_annotated_assignments(tmp_path):
