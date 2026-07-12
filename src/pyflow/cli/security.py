@@ -163,6 +163,8 @@ def _run_cpa(
         recursive=recursive,
         exclude=_parse_exclude_tuple(exclude),
         taint_engine=getattr(args, "taint_engine", "ast"),
+        sources=tuple(getattr(args, "sources", ()) or ()),
+        sinks=tuple(getattr(args, "sinks", ()) or ()),
     )
     manager = SemanticManager(
         config=config,
