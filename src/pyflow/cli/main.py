@@ -24,9 +24,7 @@ _bootstrap_src_path()
 
 from .optimize import run_analysis, list_optimization_passes, add_optimize_parser
 from .ir import run_ir_dump, add_ir_parser
-from .security import run_security_analysis, add_security_parser
-from .dataflow import run_dataflow_analysis, add_dataflow_parser
-from .cpg import run_cpg, add_cpg_parser
+from .taint import run_taint, add_taint_parser
 from . import callgraph
 from .heap import run_heap_analysis, add_heap_parser
 
@@ -34,11 +32,7 @@ from .heap import run_heap_analysis, add_heap_parser
 def main():
     """Main entry point for the PyFlow CLI.
 
-    Parses command-line arguments and dispatches to appropriate sub-commands
-    for optimization, call graph analysis, IR dumping, and security analysis.
-
-    Returns:
-        int: Exit code (0 for success, non-zero for error).
+    Parses command-line arguments and dispatches to appropriate sub-commands.
     """
     parser = argparse.ArgumentParser(
         description="PyFlow - A static compiler for Python", prog="pyflow"
@@ -50,26 +44,20 @@ def main():
         dest="command", help="Available commands", required=True
     )
 
-    # Optimization command - use the modular parser
+    # Optimization command
     add_optimize_parser(subparsers)
 
-    # Call graph command - use the modular parser
+    # Call graph command
     callgraph.add_callgraph_parser(subparsers)
 
-    # IR dumping command - use the modular parser
+    # IR dumping command
     add_ir_parser(subparsers)
-
-    # Security analysis command - use the modular parser
-    add_security_parser(subparsers)
-
-    # IFDS/IDE-backed dataflow command
-    add_dataflow_parser(subparsers)
-
-    # CPG command
-    add_cpg_parser(subparsers)
 
     # Heap analysis command
     add_heap_parser(subparsers)
+
+    # Unified taint analysis command
+    add_taint_parser(subparsers)
 
     args = parser.parse_args()
 
@@ -95,11 +83,8 @@ def main():
             print("Error: input_path is required for IR dumping", file=sys.stderr)
             sys.exit(1)
         input_path = Path(args.input_path)
-    elif args.command == "security":
-        # Security command handles its own targets
+    elif args.command == "taint":
         input_path = None
-    elif args.command == "dataflow":
-        input_path = Path(args.input_path)
     elif args.command == "heap":
         input_path = Path(args.input_path)
     else:
@@ -119,14 +104,10 @@ def main():
     elif args.command == "ir":
         run_ir_dump(input_path, args)
         return 0
-    elif args.command == "security":
-        return run_security_analysis(args.targets, args)
-    elif args.command == "dataflow":
-        return run_dataflow_analysis(input_path, args)
-    elif args.command == "cpg":
-        return run_cpg(args)
     elif args.command == "heap":
         return run_heap_analysis(args.input_path, args)
+    elif args.command == "taint":
+        return run_taint(args)
     else:
         parser.print_help()
         return 1

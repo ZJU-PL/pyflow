@@ -13,7 +13,7 @@ from pyflow.analysis.ifds.api import (
     run_taint_analysis,
     run_typestate_analysis,
 )
-from pyflow.cli.dataflow import run_dataflow_analysis
+from pyflow.cli.taint import run_taint
 
 
 PROGRAM = """
@@ -626,6 +626,8 @@ def test_dataflow_cli_emits_json_report(tmp_path, capsys):
     args = SimpleNamespace(
         function="main",
         analysis="taint",
+        engine="ifds",
+        targets=[target],
         sources=["source"],
         sinks=["sink"],
         sanitizers=["sanitize"],
@@ -635,7 +637,7 @@ def test_dataflow_cli_emits_json_report(tmp_path, capsys):
         verbose=False,
     )
 
-    exit_code = run_dataflow_analysis(target, args)
+    exit_code = run_taint(args)
     payload = json.loads(capsys.readouterr().out)
 
     assert exit_code == 1
@@ -662,6 +664,8 @@ def main():
     args = SimpleNamespace(
         function="main",
         analysis="taint",
+        engine="ifds",
+        targets=[target],
         sources=["source"],
         sinks=["sink"],
         sanitizers=[],
@@ -671,7 +675,7 @@ def main():
         verbose=False,
     )
 
-    exit_code = run_dataflow_analysis(target, args)
+    exit_code = run_taint(args)
     payload = json.loads(capsys.readouterr().out)
 
     assert exit_code == 1

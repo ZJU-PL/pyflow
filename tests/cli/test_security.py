@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
-import pyflow.cli.security as security_cli
+import pyflow.cli.taint as security_cli
 from pyflow.checker.formatters import json as json_formatter
 from pyflow.checker.formatters import text as text_formatter
 from pyflow.checker.pattern.core import constants as b_constants
@@ -90,14 +90,15 @@ def test_security_cli_threads_pattern_excludes_into_discover_files(
         verbose=False,
         debug=False,
         exclude=" foo.py , bar.py ",
-        engine="pattern",
+        engine="ast-scanner",
         taint_engine="ast",
         micro_bench=None,
         format="text",
         output=None,
+        targets=["sample.py"],
     )
 
-    exit_code = security_cli.run_security_analysis(["sample.py"], args)
+    exit_code = security_cli.run_taint(args)
 
     assert exit_code == 0
     assert captured["targets"] == ["sample.py"]
@@ -136,14 +137,15 @@ def test_security_cli_threads_semantic_excludes_into_config(monkeypatch):
         verbose=False,
         debug=False,
         exclude=" foo.py , bar.py ",
-        engine="semantic",
-        taint_engine="both",
+        engine="cpa",
+        taint_engine="ast",
         micro_bench=None,
         format="text",
         output=None,
+        targets=["sample.py"],
     )
 
-    exit_code = security_cli.run_security_analysis(["sample.py"], args)
+    exit_code = security_cli.run_taint(args)
 
     assert exit_code == 0
     assert captured["targets"] == ["sample.py"]

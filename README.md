@@ -71,11 +71,17 @@ pyflow callgraph input.py
 # Generate a PyCG-backed call graph
 pyflow callgraph input.py --algorithm pycg
 
-# Run security checks
-pyflow security input.py
+# Run taint analysis (fast AST scan)
+pyflow taint input.py
 
-# Run IFDS/IDE-style dataflow analyses
-pyflow dataflow input.py --help
+# Run taint analysis with CPA-backed engine
+pyflow taint input.py --engine cpa
+
+# Run IFDS-backed interprocedural taint analysis
+pyflow taint input.py --engine ifds --function main --sources input --sinks eval
+
+# Run CPG-based context-sensitive taint analysis
+pyflow taint input.py --engine cpg --framework flask
 ```
 
 See [CLI.md](CLI.md) for the command reference and `docs/` for broader project
@@ -104,7 +110,7 @@ The repository is organized around a few major subsystems:
 - `src/pyflow/application`: orchestration code including compiler context, pipeline execution, and the pass manager.
 - `src/pyflow/api`: query-facing interfaces and entrypoint construction.
 - `src/pyflow/checker`: pattern-based and semantic bug-finding layers plus output formatters.
-- `src/pyflow/cli`: command-line entrypoints for optimization, call graph, IR, security, and dataflow commands.
+- `src/pyflow/cli`: command-line entrypoints for optimization, call graph, IR, heap analysis, and unified taint analysis.
 - `src/pyflow/frontend`: source-driven extraction, dependency resolution, object loading, and stub handling.
 - `src/pyflow/language`: Python IR/AST support and module-handling utilities.
 - `src/pyflow/optimization`: optimization and simplification passes.
