@@ -170,8 +170,9 @@ class PointsToGraph:
         """Return ``True`` if *a* and *b* belong to the same alias class.
 
         Two locations are aliased when their roots share an equivalence
-        class (union-find canonical root is the same).  This is must-alias
-        for known roots and conservative for unknown roots.
+        class (union-find canonical root is the same) and their selector
+        paths are identical.  This is must-alias for known roots and
+        conservative for unknown roots.
         """
         if a == b:
             return True
@@ -179,16 +180,16 @@ class PointsToGraph:
         entry_b = self.get(b)
         if entry_a is None or entry_b is None:
             return a == b
-        # Check if the equivalence classes overlap.
-        # Since each location belongs to exactly one equivalence class
-        # and aliases includes self, intersection means same class.
-        return not entry_a.aliases.isdisjoint(entry_b.aliases)
+        if entry_a.aliases.isdisjoint(entry_b.aliases):
+            return False
+        return a.selectors == b.selectors
 
     def may_alias(self, a: "HeapLocation", b: "HeapLocation") -> bool:
         """Return ``True`` if *a* and *b* **may** refer to the same storage.
 
-        This is conservative: returns ``True`` unless both locations are
-        known to be distinct (different, non-overlapping equivalence classes).
+        This is conservative: returns ``True`` for overlapping root
+        equivalence classes when selector paths may overlap, including
+        wildcard/summary selectors.
         """
         if self.aliased(a, b):
             return True
@@ -196,7 +197,74 @@ class PointsToGraph:
         entry_b = self.get(b)
         if entry_a is None or entry_b is None:
             return True  # unknown → may alias
-        return False  # distinct classes → must not alias
+        if entry_a.aliases.isdisjoint(entry_b.aliases):
+            return False
+        return self._selectors_may_overlap(a.selectors, b.selectors)
+
+    def may_alias_path(self, a: "HeapLocation", b: "HeapLocation") -> bool:
+        """Return whether two full access paths may overlap."""
+        return self.may_alias(a, b)
+
+    def label_for(self, location: "HeapLocation") -> str:
+        """Return a stable display label for a root or nested location."""
+        entry = self.get(location)
+        if entry is None:
+            label = location.root.label
+        else:
+            label = entry.label
+        for selector in location.selectors:
+            kind = getattr(selector, "kind", None)
+            value = getattr(selector, "value", None)
+            precise = getattr(selector, "precise", True)
+            if kind == "field":
+                label = f"{label}.*" if not precise else f"{label}.{value}"
+            elif kind in {"element", "index"}:
+                label = f"{label}[*]" if not precise else f"{label}[{value}]"
+            elif kind == "key":
+                label = f"{label}[{value!r}]"
+            elif kind == "slice":
+                label = f"{label}[slice]"
+            elif kind == "summary":
+                label = f"{label}.*"
+        return label
+
+    def locations_by_label(self) -> dict[str, "frozenset[HeapLocation]"]:
+        """Return root locations grouped by display and root labels."""
+        grouped: dict[str, set[HeapLocation]] = {}
+        for entry in self.entries.values():
+            grouped.setdefault(entry.label, set()).add(entry.location)
+            root_label = entry.location.root.label
+            if root_label:
+                grouped.setdefault(root_label, set()).add(entry.location)
+        return {
+            label: frozenset(locations)
+            for label, locations in grouped.items()
+        }
+
+    def alias_evidence(
+        self,
+        a: "HeapLocation",
+        b: "HeapLocation",
+    ) -> dict[str, object]:
+        """Explain the graph evidence behind an alias query."""
+        entry_a = self.get(a)
+        entry_b = self.get(b)
+        same_alias_class = False
+        selector_overlap = False
+        if entry_a is not None and entry_b is not None:
+            same_alias_class = not entry_a.aliases.isdisjoint(entry_b.aliases)
+            selector_overlap = self._selectors_may_overlap(a.selectors, b.selectors)
+        return {
+            "a": self.label_for(a),
+            "b": self.label_for(b),
+            "known_a": entry_a is not None,
+            "known_b": entry_b is not None,
+            "same_alias_class": same_alias_class,
+            "same_path": a.selectors == b.selectors,
+            "selector_overlap": selector_overlap,
+            "aliased": self.aliased(a, b),
+            "may_alias": self.may_alias(a, b),
+        }
 
     def escaped_locations(self) -> "frozenset[HeapLocation]":
         """Return all root locations that have been marked escaped."""
@@ -234,3 +302,31 @@ class PointsToGraph:
             "singleton_count": len(self.singleton_locations()),
             "entries": [entry.to_dict() for entry in self.entries.values()],
         }
+
+    @staticmethod
+    def _selectors_may_overlap(a: tuple[object, ...], b: tuple[object, ...]) -> bool:
+        if a == b:
+            return True
+        min_len = min(len(a), len(b))
+        for index in range(min_len):
+            if not PointsToGraph._selector_may_overlap(a[index], b[index]):
+                return False
+        return True
+
+    @staticmethod
+    def _selector_may_overlap(a: object, b: object) -> bool:
+        if a == b:
+            return True
+        precise_a = getattr(a, "precise", True)
+        precise_b = getattr(b, "precise", True)
+        if not precise_a or not precise_b:
+            return True
+        kind_a = getattr(a, "kind", None)
+        kind_b = getattr(b, "kind", None)
+        if kind_a == "summary" or kind_b == "summary":
+            return True
+        if kind_a == "slice" and kind_b in {"element", "index", "key", "slice"}:
+            return True
+        if kind_b == "slice" and kind_a in {"element", "index", "key", "slice"}:
+            return True
+        return False

@@ -134,6 +134,108 @@ def test_heap_effect_classifies_copy_returns_as_fresh_allocations():
     assert effect.allocations[0].kind is HeapObjectKind.ALLOCATION
 
 
+def test_heap_effect_classifies_qualified_copy_returns_as_fresh_allocations():
+    target = py_ast.Local("target")
+    source = py_ast.Local("source")
+    call = py_ast.Call(py_ast.Local("copy.deepcopy"), [source], [], None, None)
+    heap = HeapAbstraction(lambda _procedure, _local: ())
+    builder = HeapEffectBuilder(heap, heap.locations_for_local)
+
+    effect = builder.operation_effect(None, py_ast.Assign(call, [target]))
+
+    assert builder.call_return_kind(call) == CALL_RETURN_COPY
+    assert len(effect.allocations) == 1
+    assert effect.allocations[0].kind is HeapObjectKind.ALLOCATION
+
+
+def test_heap_effect_models_pop_as_collection_delete_not_value_escape():
+    container = py_ast.Local("items")
+    key = _existing("payload")
+    raw = {id(container): (RawStorage("items"),)}
+    heap = HeapAbstraction(lambda _procedure, local: raw.get(id(local), ()))
+    builder = HeapEffectBuilder(heap, heap.locations_for_local)
+    operation = py_ast.Discard(
+        py_ast.MethodCall(container, _existing("pop"), [key], [], None, None)
+    )
+
+    effect = builder.operation_effect(
+        None,
+        operation,
+        collection_mutator_names=frozenset({"pop"}),
+    )
+
+    assert effect.escapes == ()
+    assert heap.dynamic_subscript_location(
+        heap.locations_for_local(None, container)[0],
+        "['payload']",
+    ) in effect.deletes
+
+
+def test_heap_effect_insert_escapes_inserted_value_not_index():
+    container = py_ast.Local("items")
+    value = py_ast.Local("value")
+    index = _existing(0)
+    raw = {
+        id(container): (RawStorage("items"),),
+        id(value): (RawStorage("value"),),
+    }
+    heap = HeapAbstraction(lambda _procedure, local: raw.get(id(local), ()))
+    builder = HeapEffectBuilder(heap, heap.locations_for_local)
+    operation = py_ast.Discard(
+        py_ast.MethodCall(
+            container,
+            _existing("insert"),
+            [index, value],
+            [],
+            None,
+            None,
+        )
+    )
+
+    effect = builder.operation_effect(
+        None,
+        operation,
+        collection_mutator_names=frozenset({"insert"}),
+    )
+
+    assert heap.locations_for_local(None, value)[0] in effect.escapes
+    assert all(location.root.label != "0" for location in effect.escapes)
+
+
+def test_heap_effect_extracts_global_read_write_and_delete_locations():
+    value = py_ast.Local("value")
+    name = _existing("CONFIG")
+    raw = {id(value): (RawStorage("value"),)}
+    heap = HeapAbstraction(lambda _procedure, local: raw.get(id(local), ()))
+    builder = HeapEffectBuilder(heap, heap.locations_for_local)
+
+    read = builder.operation_effect(None, py_ast.GetGlobal(name))
+    write = builder.operation_effect(None, py_ast.SetGlobal(name, value))
+    delete = builder.operation_effect(None, py_ast.DeleteGlobal(name))
+    global_location = heap.location_for_raw(heap.global_object("CONFIG"))
+
+    assert read.reads == (global_location,)
+    assert write.writes[0].location == global_location
+    assert heap.locations_for_local(None, value)[0] in write.escapes
+    assert delete.deletes == (global_location,)
+
+
+def test_heap_effect_extracts_cell_read_and_write_locations():
+    value = py_ast.Local("value")
+    cell = py_ast.Cell("closed")
+    raw = {id(value): (RawStorage("value"),)}
+    heap = HeapAbstraction(lambda _procedure, local: raw.get(id(local), ()))
+    builder = HeapEffectBuilder(heap, heap.locations_for_local)
+
+    read = builder.operation_effect(None, py_ast.GetCellDeref(cell))
+    write = builder.operation_effect(None, py_ast.SetCellDeref(value, cell))
+    cell_location = heap.location_for_raw(heap.cell_object("closed"))
+
+    assert read.reads == (cell_location,)
+    assert write.writes[0].location == cell_location
+    assert heap.locations_for_local(None, value)[0] in write.escapes
+
+
 def test_heap_effect_extracts_slice_write_locations():
     container = py_ast.Local("lst")
     value = py_ast.Local("value")

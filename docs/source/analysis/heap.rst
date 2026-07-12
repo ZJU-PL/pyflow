@@ -74,6 +74,46 @@ and container sensitivity are controlled by ``HeapPolicy``::
     )
     heap = HeapAbstraction(raw_storage_provider, policy=policy)
 
+Standalone Transfer Engine
+--------------------------
+
+``HeapAnalysis`` uses a standalone transfer engine over the code objects
+available on a program.  The engine is **flow-sensitive** and
+**path-insensitive**: it respects statement order, but it does not maintain
+separate path conditions.  This keeps the heap pass lightweight and independent
+from the older storegraph/lifetime pipeline.
+
+The transfer engine owns a ``HeapState`` value map layered on top of
+``HeapAbstraction``:
+
+* local assignment binds roots and aliases
+* precise field and literal-key writes record values for later reads
+* strong writes replace known values; weak writes join old and new values
+* wildcard writes such as ``obj[k] = value`` contaminate overlapping exact
+  paths instead of flattening unrelated fields or keys
+* reads from an exact path return exact values plus any overlapping wildcard
+  contamination
+* direct calls bind actuals to formals and route return locations back to
+  assignment targets when a concrete ``Code`` object is available
+
+Compound control flow is joined path-insensitively:
+
+* ``Switch``/if-like nodes analyze each branch from the incoming state and join
+  the resulting states
+* loops iterate the body to a bounded fixed point and join the entry state with
+  body effects, so zero-iteration and one-or-more-iteration outcomes are both
+  represented
+* ``try``/``except``/``finally`` joins possible body and handler states before
+  applying ``finally``
+* direct-call summaries are cached by callee and coarse actual root bindings;
+  recursive call cycles fall back to conservative return roots
+
+This improves recall for common Python heap flows such as ``obj.x = v`` followed
+by ``return obj.x`` and improves precision for unrelated fields or literal
+dictionary keys such as ``d["a"]`` versus ``d["b"]``.  It intentionally remains
+path-insensitive: facts from different branches are joined in one state rather
+than guarded by branch predicates.
+
 Update Policy
 -------------
 
@@ -101,18 +141,22 @@ singleton classes allow strong updates; aliased classes force weak updates.
 Calls and Constructors
 ----------------------
 
-Direct call assignments are materialized through fixed return models:
+Direct call assignments are materialized through fixed return models and a
+heap-owned intrinsic table:
 
 * configured fresh-return names and capitalized constructor-style calls produce
   fresh allocation roots
 * configured summary-return names produce weak summary roots
-* configured copy-return names such as ``list`` and ``dict`` produce fresh copy
-  roots
+* configured copy-return names and built-ins such as ``list``, ``dict``,
+  ``copy.copy``, ``copy.deepcopy``, and ``dataclasses.replace`` produce fresh
+  copy roots
 * other direct call results remain opaque call-result roots
 
-For constructor-style fresh calls, the callee ``self`` formal is bound to the
-caller result object.  Writes through ``self.field`` are therefore projected
-onto the caller's allocated object.
+Collection mutators are also modeled in the heap package.  Value-writing
+mutators such as ``append``, ``insert``, ``extend``, ``update``, and
+``setdefault`` write wildcard element paths and escape inserted values.
+Delete-style mutators such as ``pop`` and ``clear`` remove exact or overlapping
+paths without treating removed keys as stored values.
 
 Heap Effects and Summaries
 --------------------------
@@ -131,5 +175,6 @@ Known Limits
 
 The abstraction is primarily consumed by IFDS clients and is not a complete
 Python heap analysis.  It does not fully model descriptors, metaclasses,
-reflection, monkey-patching, native library behavior, or path-sensitive shape
-refinement.  For those concerns, see :doc:`shape` and :doc:`storegraph`.
+reflection, monkey-patching, native library behavior, path-sensitive branches,
+or path-sensitive shape refinement.  For those concerns, see :doc:`shape` and
+:doc:`storegraph`.

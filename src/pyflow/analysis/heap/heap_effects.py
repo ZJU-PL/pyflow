@@ -12,19 +12,29 @@ from typing import Callable
 
 from pyflow.language.python import ast as py_ast
 
-from pyflow.analysis.ir_utils import actual_argument_expressions, assigned_locals, resolve_call_name
+from pyflow.analysis.ir_utils import (
+    actual_argument_expressions,
+    assigned_locals,
+    resolve_call_name,
+)
 
 from .abstraction import HeapAbstraction
+from .intrinsics import (
+    CALL_RETURN_COPY,
+    CALL_RETURN_FRESH,
+    CALL_RETURN_OPAQUE,
+    CALL_RETURN_SUMMARY,
+    COLLECTION_DELETE_MUTATOR_NAMES,
+    COLLECTION_VALUE_MUTATOR_NAMES,
+    DEFAULT_COLLECTION_MUTATOR_NAMES,
+    DEFAULT_HEAP_INTRINSICS,
+)
 from .model import HeapLocation, HeapObject, HeapWrite, UpdatePolicy
 
 
 DYNAMIC_ATTRIBUTE_WILDCARD = "*"
 DYNAMIC_SUBSCRIPT_WILDCARD = "[*]"
 LocationReader = Callable[[object, object], tuple[object, ...]]
-CALL_RETURN_FRESH = "fresh"
-CALL_RETURN_COPY = "copy"
-CALL_RETURN_SUMMARY = "summary"
-CALL_RETURN_OPAQUE = "opaque"
 
 
 @dataclass(frozen=True)
@@ -120,6 +130,8 @@ class HeapEffectBuilder:
             return HeapEffect()
 
         reads = [
+            *self.global_read_locations(procedure, operation),
+            *self.cell_read_locations(procedure, operation),
             *self.static_attribute_read_locations(procedure, operation),
             *self.dynamic_getattr_locations(procedure, operation),
             *self.dynamic_subscript_read_locations(procedure, operation),
@@ -128,6 +140,8 @@ class HeapEffectBuilder:
         writes = [
             self.heap.write_for_location(location)
             for location in (
+                *self.global_write_locations(procedure, operation),
+                *self.cell_write_locations(procedure, operation),
                 *self.static_attribute_write_locations(procedure, operation),
                 *self.dynamic_setattr_locations(procedure, operation),
                 *self.dynamic_subscript_write_locations(procedure, operation),
@@ -135,9 +149,15 @@ class HeapEffectBuilder:
             )
         ]
         deletes = [
+            *self.global_delete_locations(procedure, operation),
             *self.dynamic_subscript_delete_locations(procedure, operation),
             *self.dynamic_attribute_delete_locations(procedure, operation),
             *self.dynamic_slice_delete_locations(procedure, operation),
+            *self.collection_delete_locations(
+                procedure,
+                operation,
+                collection_mutator_names,
+            ),
         ]
 
         collection_locations, collection_values = self.collection_mutation(
@@ -202,6 +222,9 @@ class HeapEffectBuilder:
             return CALL_RETURN_COPY
         if call_name in policy.fresh_return_names:
             return CALL_RETURN_FRESH
+        intrinsic_kind = DEFAULT_HEAP_INTRINSICS.return_kind(call_name)
+        if intrinsic_kind is not None:
+            return intrinsic_kind
         if policy.treat_capitalized_calls_as_fresh and self._is_capitalized_call_name(
             call_name
         ):
@@ -309,6 +332,69 @@ class HeapEffectBuilder:
         return self.heap.dynamic_attribute_locations(
             self.read_locations(procedure, base_expr),
             attributes,
+        )
+
+    def global_read_locations(
+        self,
+        procedure: object,
+        expr: object,
+    ) -> tuple[HeapLocation, ...]:
+        if not isinstance(expr, py_ast.GetGlobal):
+            return ()
+        return (self.global_location(procedure, expr.name),)
+
+    def global_write_locations(
+        self,
+        procedure: object,
+        operation: object,
+    ) -> tuple[HeapLocation, ...]:
+        if not isinstance(operation, py_ast.SetGlobal):
+            return ()
+        return (self.global_location(procedure, operation.name),)
+
+    def global_delete_locations(
+        self,
+        procedure: object,
+        operation: object,
+    ) -> tuple[HeapLocation, ...]:
+        if not isinstance(operation, py_ast.DeleteGlobal):
+            return ()
+        return (self.global_location(procedure, operation.name),)
+
+    def global_location(
+        self,
+        procedure: object,
+        name: object,
+    ) -> HeapLocation:
+        module = getattr(procedure, "module", None)
+        return self.heap.location_for_raw(
+            self.heap.global_object(
+                self._path_component(name),
+                module=module,
+            )
+        )
+
+    def cell_read_locations(
+        self,
+        procedure: object,
+        expr: object,
+    ) -> tuple[HeapLocation, ...]:
+        if not isinstance(expr, (py_ast.GetCell, py_ast.GetCellDeref)):
+            return ()
+        return (self.cell_location(expr.cell),)
+
+    def cell_write_locations(
+        self,
+        procedure: object,
+        operation: object,
+    ) -> tuple[HeapLocation, ...]:
+        if not isinstance(operation, py_ast.SetCellDeref):
+            return ()
+        return (self.cell_location(operation.cell),)
+
+    def cell_location(self, cell: object) -> HeapLocation:
+        return self.heap.location_for_raw(
+            self.heap.cell_object(getattr(cell, "name", cell))
         )
 
     def dynamic_subscript_read_locations(
@@ -423,18 +509,31 @@ class HeapEffectBuilder:
         mutator_names: frozenset[str],
     ) -> tuple[tuple[HeapLocation, ...], tuple[object, ...]]:
         call = self._call_from_expression_or_statement(operation)
-        if call is None or resolve_call_name(call) not in mutator_names:
+        call_name = resolve_call_name(call) if call is not None else None
+        model = DEFAULT_HEAP_INTRINSICS.collection_mutator(call_name)
+        if call is None or call_name not in mutator_names:
+            return (), ()
+        if model is not None and not model.writes_value:
             return (), ()
 
         actuals = actual_argument_expressions(call)
         if isinstance(call, py_ast.MethodCall):
             container = call.expr
-            values = actuals
+            values = (
+                model.value_args(actuals)
+                if model is not None
+                else self._collection_mutation_values(call_name, actuals)
+            )
         else:
             if len(actuals) < 2:
                 return (), ()
             container = actuals[0]
-            values = actuals[1:]
+            remaining = actuals[1:]
+            values = (
+                model.value_args(remaining)
+                if model is not None
+                else self._collection_mutation_values(call_name, remaining)
+            )
 
         locations = self.dynamic_subscript_locations(
             procedure,
@@ -442,6 +541,53 @@ class HeapEffectBuilder:
             (DYNAMIC_SUBSCRIPT_WILDCARD,),
         )
         return locations, tuple(values)
+
+    def collection_delete_locations(
+        self,
+        procedure: object,
+        operation: object,
+        mutator_names: frozenset[str],
+    ) -> tuple[HeapLocation, ...]:
+        call = self._call_from_expression_or_statement(operation)
+        call_name = resolve_call_name(call) if call is not None else None
+        model = DEFAULT_HEAP_INTRINSICS.collection_mutator(call_name)
+        if call is None or call_name not in mutator_names:
+            return ()
+        if model is None or not model.deletes_value:
+            return ()
+
+        actuals = actual_argument_expressions(call)
+        if isinstance(call, py_ast.MethodCall):
+            container = call.expr
+            args = actuals
+        else:
+            if len(actuals) < 1:
+                return ()
+            container = actuals[0]
+            args = actuals[1:]
+
+        if model.key_arg_index is not None and model.key_arg_index < len(args):
+            return self.dynamic_subscript_locations_for_key(
+                procedure,
+                container,
+                args[model.key_arg_index],
+            )
+        return self.dynamic_subscript_locations(
+            procedure,
+            container,
+            (DYNAMIC_SUBSCRIPT_WILDCARD,),
+        )
+
+    @staticmethod
+    def _collection_mutation_values(
+        call_name: str | None,
+        actuals: tuple[object, ...],
+    ) -> tuple[object, ...]:
+        if call_name == "insert":
+            return actuals[1:2]
+        if call_name == "setdefault":
+            return actuals[1:2]
+        return actuals
 
     def _locations_for_expressions(
         self,

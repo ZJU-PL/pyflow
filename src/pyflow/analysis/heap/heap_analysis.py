@@ -19,6 +19,7 @@ from .model import (
     RawStorageProvider,
 )
 from .points_to_graph import PointsToGraph
+from .transfer import HeapTransferEngine
 
 
 class HeapAnalysis:
@@ -82,6 +83,7 @@ class HeapAnalysis:
             site_storage=site_storage or {},
             next_site=next_site,
         )
+        HeapTransferEngine(self._heap).analyze_program(program)
         graph = self._heap.to_points_to_graph()
         self._graph = graph
         return graph

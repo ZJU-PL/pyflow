@@ -225,6 +225,36 @@ def test_to_dict():
     assert "entries" in d
 
 
+def test_locations_by_label_and_label_for_nested_location():
+    heap = _heap()
+    x = py_ast.Local("x")
+    heap.bind_allocation_targets(None, (x,), object(), label="obj")
+    graph = heap.to_points_to_graph()
+    root = heap.locations_for_local(None, x)[0]
+    nested = root.field("payload")
+
+    assert graph.locations_by_label()["obj"] == frozenset({root})
+    assert graph.locations_by_label()["x"] == frozenset({root})
+    assert graph.label_for(nested) == "x.payload"
+
+
+def test_alias_evidence_explains_selector_overlap():
+    heap = _heap()
+    x = py_ast.Local("x")
+    heap.bind_allocation_targets(None, (x,), object(), label="obj")
+    root = heap.locations_for_local(None, x)[0]
+    exact = heap.dynamic_subscript_location(root, "['payload']")
+    wildcard = heap.dynamic_subscript_location(root, "[*]")
+    graph = heap.to_points_to_graph()
+
+    evidence = graph.alias_evidence(exact, wildcard)
+
+    assert evidence["same_alias_class"]
+    assert evidence["selector_overlap"]
+    assert not evidence["aliased"]
+    assert evidence["may_alias"]
+
+
 def test_entry_to_dict():
     graph = _build_graph_with_two_objects()
     for entry in graph.iter_entries():

@@ -12,6 +12,8 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Callable
 
+from .intrinsics import CALL_RETURN_COPY, DEFAULT_HEAP_INTRINSICS
+
 
 RawStorageProvider = Callable[[object, object], tuple[object, ...]]
 
@@ -106,7 +108,9 @@ class HeapPolicy:
     fresh_return_names: frozenset[str] = frozenset()
     summary_return_names: frozenset[str] = frozenset()
     copy_return_names: frozenset[str] = frozenset(
-        {"copy", "list", "tuple", "set", "dict"}
+        name
+        for name, kind in DEFAULT_HEAP_INTRINSICS.return_kinds.items()
+        if kind == CALL_RETURN_COPY
     )
     treat_capitalized_calls_as_fresh: bool = True
     immutable_type_hints: frozenset[str] = frozenset(
@@ -184,6 +188,7 @@ class HeapPolicy:
 
     @classmethod
     def from_dict(cls, data: dict) -> "HeapPolicy":
+        defaults = cls()
         return cls(
             allocation_sensitivity=AllocationSensitivity(data["allocation_sensitivity"]),
             field_sensitivity=FieldSensitivity(data["field_sensitivity"]),
@@ -197,11 +202,21 @@ class HeapPolicy:
             track_escapes=data.get("track_escapes", True),
             escape_on_unresolved_call=data.get("escape_on_unresolved_call", True),
             escape_on_return=data.get("escape_on_return", True),
-            fresh_return_names=frozenset(data.get("fresh_return_names", ())),
-            summary_return_names=frozenset(data.get("summary_return_names", ())),
-            copy_return_names=frozenset(data.get("copy_return_names", ())),
-            treat_capitalized_calls_as_fresh=data.get("treat_capitalized_calls_as_fresh", True),
-            immutable_type_hints=frozenset(data.get("immutable_type_hints", ())),
+            fresh_return_names=frozenset(
+                data.get("fresh_return_names", defaults.fresh_return_names)
+            ),
+            summary_return_names=frozenset(
+                data.get("summary_return_names", defaults.summary_return_names)
+            ),
+            copy_return_names=frozenset(
+                data.get("copy_return_names", defaults.copy_return_names)
+            ),
+            treat_capitalized_calls_as_fresh=data.get(
+                "treat_capitalized_calls_as_fresh", True
+            ),
+            immutable_type_hints=frozenset(
+                data.get("immutable_type_hints", defaults.immutable_type_hints)
+            ),
         )
 
     def validate(self) -> None:
