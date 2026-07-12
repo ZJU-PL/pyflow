@@ -51,6 +51,42 @@ class HeapState:
             result.extend(self.read(location))
         return tuple(dict.fromkeys(result))
 
+    def read_contained(
+        self,
+        container: HeapLocation,
+    ) -> tuple[HeapLocation, ...]:
+        """Read all element values stored under a container root.
+
+        Unlike :meth:`read`, which returns values for an exact location plus
+        overlapping contaminants, this method also collects values from precise
+        sub-element writes (e.g. ``container[0]`` when querying ``container[*]``).
+        This is used for for-loop variable binding where we need all element
+        values regardless of write precision.
+        """
+        result: list[HeapLocation] = []
+        seen: set[HeapLocation] = set()
+        root_id = id(container.root)
+        # Direct wildcard lookup
+        for val in self.read(container, fallback=()):
+            if val not in seen:
+                seen.add(val)
+                result.append(val)
+        # Precise sub-element values under the same root
+        for loc, values in self.values.items():
+            if id(loc.root) == root_id and loc.selectors:
+                for val in values:
+                    if val not in seen:
+                        seen.add(val)
+                        result.append(val)
+        # Contaminant sub-element values under the same root
+        for loc, values in self.contaminants.items():
+            if id(loc.root) == root_id and loc.selectors:
+                for val in values:
+                    if val not in seen:
+                        seen.add(val)
+                        result.append(val)
+        return tuple(result)
+
     def write(
         self,
         location: HeapLocation,

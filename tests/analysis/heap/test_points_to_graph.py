@@ -94,6 +94,22 @@ def test_points_to_for_nested_location_returns_root_aliases():
     assert root in aliased
 
 
+def test_may_alias_accounts_for_nested_selector_overlap():
+    heap = HeapAbstraction(lambda _procedure, _local: ())
+    obj = heap.allocation_object(None, object(), label="obj")
+    root = heap.location_for_raw(obj)
+    exact = heap.dynamic_subscript_location(root, "['payload']")
+    other = heap.dynamic_subscript_location(root, "['other']")
+    wildcard = heap.dynamic_subscript_location(root, "[*]")
+    graph = heap.to_points_to_graph()
+
+    assert graph.may_alias(exact, wildcard)
+    assert graph.may_alias(wildcard, other)
+    assert not graph.may_alias(exact, other)
+    assert not graph.aliased(exact, wildcard)
+    assert wildcard.selectors == (HeapSelector.unknown_element(),)
+
+
 def test_never_escapes_for_fresh_object():
     heap = _heap()
     x = py_ast.Local("x")

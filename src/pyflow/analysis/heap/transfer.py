@@ -106,6 +106,8 @@ class HeapTransferEngine:
         if isinstance(node, py_ast.Suite):
             for block in node.blocks:
                 self.analyze_node(procedure, block)
+                if isinstance(block, (py_ast.Break, py_ast.Continue)):
+                    break
             return
         if isinstance(node, py_ast.Switch):
             self._analyze_switch(procedure, node)
@@ -119,9 +121,14 @@ class HeapTransferEngine:
         if isinstance(node, py_ast.TryExceptFinally):
             self._analyze_try_except_finally(procedure, node)
             return
+        if isinstance(node, py_ast.TypeSwitch):
+            self._analyze_type_switch(procedure, node)
+            return
         if isinstance(node, py_ast.Condition):
             self.analyze_node(procedure, node.preamble)
             return
+        if isinstance(node, (py_ast.Break, py_ast.Continue)):
+            return  # No heap effects; Suite traversal stops at these.
         if isinstance(node, py_ast.PythonASTNode):
             self.apply_operation(procedure, node)
 
@@ -325,7 +332,30 @@ class HeapTransferEngine:
                 break
             current = next_state
         self.state = current
+        self._bind_for_index(procedure, node)
         self.analyze_node(procedure, node.else_)
+
+    def _bind_for_index(self, procedure: object, node: py_ast.For) -> None:
+        if not isinstance(node.index, py_ast.Local):
+            return
+        iter_locations = self.locations_for_expression(procedure, node.iterator)
+        if not iter_locations:
+            return
+        element_locations: list[HeapLocation] = []
+        seen: set[HeapLocation] = set()
+        for loc in iter_locations:
+            wildcard_loc = self.heap.dynamic_subscript_location(
+                loc, DYNAMIC_SUBSCRIPT_WILDCARD
+            )
+            for val in self.state.read_contained(wildcard_loc):
+                if val not in seen:
+                    seen.add(val)
+                    element_locations.append(val)
+        if element_locations:
+            self.heap.bind_local_to_locations(
+                procedure, node.index, tuple(element_locations),
+                include_raw_fallback=True,
+            )
 
     def _analyze_try_except_finally(
         self,
@@ -334,8 +364,12 @@ class HeapTransferEngine:
     ) -> None:
         base = self.state.copy()
         states = [self._state_after(procedure, node.body, base)]
+        # Exception handlers see try body heap mutations (path-insensitive
+        # overapproximation: the handler could be entered after any mutation
+        # within the try body).
+        body_state = states[0]
         for handler in getattr(node, "handlers", ()):
-            handler_state = base.copy()
+            handler_state = body_state.copy()
             self.state = handler_state
             self.analyze_node(procedure, getattr(handler, "preamble", None))
             self.analyze_node(procedure, getattr(handler, "body", None))
@@ -351,6 +385,35 @@ class HeapTransferEngine:
             joined = joined.join(state)
         self.state = joined
         self.analyze_node(procedure, getattr(node, "finally_", None))
+
+    def _analyze_type_switch(
+        self,
+        procedure: object,
+        node: py_ast.TypeSwitch,
+    ) -> None:
+        base = self.state.copy()
+        conditional_locs = ()
+        cond_ref = getattr(node, "conditional", None)
+        if cond_ref is not None:
+            conditional_locs = self.locations_for_expression(procedure, cond_ref)
+        states: list[HeapState] = []
+        for case in getattr(node, "cases", ()):
+            case_state = base.copy()
+            self.state = case_state
+            if conditional_locs and case.expr is not None:
+                self.heap.bind_local_to_locations(
+                    procedure,
+                    case.expr,
+                    conditional_locs,
+                    include_raw_fallback=True,
+                )
+            self.analyze_node(procedure, case.body)
+            states.append(self.state)
+        if states:
+            joined = states[0]
+            for s in states[1:]:
+                joined = joined.join(s)
+            self.state = joined
 
     def _state_after(
         self,
