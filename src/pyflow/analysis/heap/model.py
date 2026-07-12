@@ -196,7 +196,7 @@ class HeapPolicy:
     @classmethod
     def from_dict(cls, data: dict) -> "HeapPolicy":
         defaults = cls()
-        return cls(
+        policy = cls(
             allocation_sensitivity=AllocationSensitivity(data["allocation_sensitivity"]),
             field_sensitivity=FieldSensitivity(data["field_sensitivity"]),
             container_sensitivity=ContainerSensitivity(data["container_sensitivity"]),
@@ -225,6 +225,8 @@ class HeapPolicy:
                 data.get("immutable_type_hints", defaults.immutable_type_hints)
             ),
         )
+        policy.validate()
+        return policy
 
     def validate(self) -> None:
         """Raise ValueError if the policy contains incompatible settings."""

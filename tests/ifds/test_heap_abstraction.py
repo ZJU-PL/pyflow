@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pytest
 from dataclasses import dataclass
 
 from pyflow.analysis.heap import (
@@ -418,3 +419,32 @@ def test_nested_location_weak_by_default_even_with_ref_count_one():
     field = heap.dynamic_attribute_location(obj, "payload")
 
     assert heap.update_policy_for_location(field) is UpdatePolicy.WEAK
+
+
+# ── Gap 5: HeapPolicy.from_dict validates the result ──────────────────
+
+
+def test_heap_policy_from_dict_validates_config():
+    """from_dict() must reject invalid configurations."""
+    valid = {"allocation_sensitivity": "site", "field_sensitivity": "named_fields",
+             "container_sensitivity": "literal_keys"}
+    HeapPolicy.from_dict(valid)  # should not raise
+
+    invalid = {"allocation_sensitivity": "site", "field_sensitivity": "bounded_path",
+               "container_sensitivity": "literal_keys",
+               "max_selector_depth": None}
+    with pytest.raises(ValueError, match="BOUNDED_PATH"):
+        HeapPolicy.from_dict(invalid)
+
+
+# ── Gap 6: PointsToGraph supports __contains__ ─────────────────────────
+
+
+def test_points_to_graph_supports_contains():
+    heap = HeapAbstraction(lambda _procedure, _local: ())
+    obj = heap.allocation_object(None, object(), label="obj")
+    loc = heap.location_for_raw(obj)
+    graph = heap.to_points_to_graph()
+
+    assert loc in graph
+    assert HeapLocation(heap.external_object("unknown")) not in graph

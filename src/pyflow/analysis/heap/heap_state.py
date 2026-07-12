@@ -39,6 +39,9 @@ class HeapState:
             return tuple(dict.fromkeys(result))
         return fallback if fallback is not None else (location,)
 
+    def __contains__(self, location: HeapLocation) -> bool:
+        return location in self.values or location in self.contaminants
+
     def read_many(
         self,
         locations: tuple[HeapLocation, ...],
@@ -54,12 +57,18 @@ class HeapState:
         values: tuple[HeapLocation, ...],
         policy: UpdatePolicy,
     ) -> None:
-        if not values:
-            return
         target = self.values if location.is_precise() else self.contaminants
         if policy is UpdatePolicy.STRONG:
-            target[location] = tuple(dict.fromkeys(values))
+            if values:
+                target[location] = tuple(dict.fromkeys(values))
+            else:
+                # Strong write of a non-heap value (e.g., None, a constant,
+                # an unmodeled expression) clears the location — the previous
+                # binding at this exact path is no longer reachable.
+                target.pop(location, None)
             return
+        if not values:
+            return  # Weak update with nothing to add is a no-op.
         target[location] = tuple(
             dict.fromkeys((*target.get(location, ()), *values))
         )

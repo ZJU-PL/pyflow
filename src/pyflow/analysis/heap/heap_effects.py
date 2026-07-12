@@ -194,6 +194,12 @@ class HeapEffectBuilder:
             )
             escape_exprs.extend(yield_exprs)
 
+        if isinstance(operation, py_ast.Await) and operation.expr is not None:
+            reads.extend(
+                self._locations_for_expressions(procedure, (operation.expr,))
+            )
+            escape_exprs.append(operation.expr)
+
         if isinstance(operation, py_ast.Raise):
             escape_exprs.extend(self.raise_escape_expressions(operation))
 

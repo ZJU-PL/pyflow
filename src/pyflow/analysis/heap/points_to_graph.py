@@ -93,6 +93,9 @@ class PointsToGraph:
 
     # ── query methods ──────────────────────────────────────────────────
 
+    def __contains__(self, location: "HeapLocation") -> bool:
+        return location.root_location() in self.entries
+
     def get(self, location: "HeapLocation") -> "PointsToEntry | None":
         """Look up the metadata for a root location.
 

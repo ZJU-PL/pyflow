@@ -444,3 +444,19 @@ def test_heap_effect_records_import_module_object_for_assignment():
     assert len(effect.allocations) == 1
     assert effect.allocations[0].kind is HeapObjectKind.GLOBAL
     assert effect.allocations[0].type_hint == "module"
+
+
+# ── Gap 4: Await reads and escapes its expression ──────────────────────
+
+
+def test_heap_effect_await_escapes_expression():
+    value = py_ast.Local("value")
+    raw = {id(value): (RawStorage("value"),)}
+    heap = HeapAbstraction(lambda _procedure, local: raw.get(id(local), ()))
+    builder = HeapEffectBuilder(heap, heap.locations_for_local)
+
+    effect = builder.operation_effect(None, py_ast.Await(value))
+
+    location = heap.locations_for_local(None, value)[0]
+    assert location in effect.escapes
+    assert location in effect.reads
