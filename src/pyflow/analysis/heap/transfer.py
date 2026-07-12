@@ -201,7 +201,7 @@ class HeapTransferEngine:
             location = self.effect_builder.global_location(procedure, expression.name)
             return self.state.read(location)
         if isinstance(expression, (py_ast.GetCell, py_ast.GetCellDeref)):
-            location = self.effect_builder.cell_location(expression.cell)
+            location = self.effect_builder.cell_location(expression.cell, procedure)
             return self.state.read(location)
         if isinstance(expression, py_ast.GetAttr):
             attribute = self.effect_builder._path_component(expression.name)
@@ -584,6 +584,32 @@ class HeapTransferEngine:
                                 and local_root_loc.root not in self.heap._escaped_objects):
                             new_escaped.append(local_root_loc)
                         break  # one match per override is enough
+
+            # Propagate from escaped cells to their referenced variables.
+            # A cell captures a local/parameter (e.g. for closures).  When the
+            # cell object is marked escaped (because the containing closure is
+            # returned or otherwise escapes), the underlying variable's storage
+            # must also be marked escaped: the variable is reachable from outside
+            # through the escaped closure's cell reference.
+            for escaped_obj in list(self.heap._escaped_objects):
+                if escaped_obj.kind is not HeapObjectKind.CELL:
+                    continue
+                cell_name = escaped_obj.label  # e.g. "x"
+                # Search storage_overrides for a local/parameter whose root
+                # HeapObject has a matching name (via label or _object_labels).
+                for (_proc_id, _local_id), storage in list(
+                    self.heap.storage_overrides.items()
+                ):
+                    if not storage:
+                        continue
+                    root = storage[0]
+                    if not self.heap._name_matches_object(root, cell_name):
+                        continue
+                    loc = self.heap.location_for_raw(root)
+                    if (loc not in self.state.escaped
+                            and loc.root not in self.heap._escaped_objects):
+                        new_escaped.append(loc)
+                    break
 
             if new_escaped:
                 self.heap.mark_all_escaped(tuple(new_escaped))

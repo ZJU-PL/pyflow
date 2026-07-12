@@ -418,7 +418,7 @@ class HeapEffectBuilder:
             return ()
         return (self.cell_location(operation.cell),)
 
-    def cell_location(self, cell: object) -> HeapLocation:
+    def cell_location(self, cell: object, procedure: object = None) -> HeapLocation:
         return self.heap.location_for_raw(
             self.heap.cell_object(getattr(cell, "name", cell))
         )
@@ -887,7 +887,7 @@ class HeapEffectBuilder:
                 for raw in self.read_locations(procedure, default)
             )
         for cell in getattr(expr, "cells", ()):
-            locations.append(self.cell_location(cell))
+            locations.append(self.cell_location(cell, procedure))
         return tuple(dict.fromkeys(locations))
 
     def make_function_escape_locations(
@@ -900,7 +900,7 @@ class HeapEffectBuilder:
             return ()
         return tuple(
             dict.fromkeys(
-                self.cell_location(cell)
+                self.cell_location(cell, procedure)
                 for cell in getattr(expr, "cells", ())
             )
         )

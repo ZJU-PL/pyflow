@@ -314,7 +314,8 @@ class HeapAbstraction:
         if isinstance(target_name, str):
             for raw in source_storage:
                 location = self.location_for_raw(raw)
-                self._object_labels[location.root] = target_name
+                if location.root not in self._object_labels:
+                    self._object_labels[location.root] = target_name
         source_site = self.allocation_sites.get(source_key)
         target_site = self.allocation_sites.get(target_key)
         if source_site is not None:
@@ -336,6 +337,30 @@ class HeapAbstraction:
         self.storage_overrides.pop(key, None)
         raw = self._raw_storage_provider(procedure, local)
         self._assign_site(key, raw)
+
+    def _sync_name_bindings(
+        self,
+        procedure: object,
+        name: str,
+        storage: tuple[object, ...],
+        except_key: tuple[int, int],
+    ) -> None:
+        """Update all storage_overrides entries for the same variable name to
+        point to the current *storage*, keeping the local alias class consistent
+        across distinct ``Local`` node identities that share a variable name."""
+        proc_id = id(procedure)
+        for (p_id, l_id), old_storage in list(self.storage_overrides.items()):
+            if p_id != proc_id or (p_id, l_id) == except_key:
+                continue
+            if not old_storage:
+                continue
+            root = old_storage[0]
+            if self._name_matches_object(root, name):
+                self.storage_overrides[(p_id, l_id)] = storage
+                old_site = self.allocation_sites.get((p_id, l_id))
+                if old_site is not None:
+                    self._decr_site_ref(old_site)
+                self.allocation_sites.pop((p_id, l_id), None)
 
     def bind_local_to_object(
         self,
@@ -360,6 +385,8 @@ class HeapAbstraction:
         if isinstance(name, str) and obj not in self._object_labels:
             self._object_labels[obj] = name
         self._assign_site(key, storage)
+        if isinstance(name, str):
+            self._sync_name_bindings(procedure, name, storage, except_key=key)
 
     def bind_local_to_locations(
         self,
@@ -388,6 +415,8 @@ class HeapAbstraction:
                 if location.root not in self._object_labels:
                     self._object_labels[location.root] = name
         self._assign_site(key, storage)
+        if isinstance(name, str):
+            self._sync_name_bindings(procedure, name, storage, except_key=key)
 
     def bind_parameter(
         self,
@@ -1078,26 +1107,31 @@ class HeapAbstraction:
         Returns the canonical storage for the variable named by *local*
         if found in either ``storage_overrides`` or ``allocation_sites``
         under any ``Local`` id for this procedure.
+
+        Search in reverse insertion order so that the most recent
+        assignment to the variable takes precedence over earlier ones.
         """
         name = getattr(local, "name", None)
         if not name:
             return None
         proc_id = id(procedure)
-        for (p_id, _l_id), storage in self.storage_overrides.items():
+        # Search storage_overrides in reverse: most recent binding wins.
+        for (p_id, _l_id), storage in reversed(list(self.storage_overrides.items())):
             if p_id != proc_id or not storage:
                 continue
             root = storage[0]
             if self._name_matches_object(root, name):
                 return storage
-        for (p_id, _l_id), site in self.allocation_sites.items():
+        # Search allocation_sites in reverse for the same reason.
+        for (p_id, _l_id), site in reversed(list(self.allocation_sites.items())):
             if p_id != proc_id:
                 continue
-            storage = self.site_storage.get(site, ())
-            if not storage:
+            stored = self.site_storage.get(site, ())
+            if not stored:
                 continue
-            root = storage[0]
+            root = stored[0]
             if self._name_matches_object(root, name):
-                return tuple(storage)
+                return tuple(stored)
         return None
 
     def _assign_site(self, key: tuple[int, int], storage: tuple[object, ...]) -> None:
