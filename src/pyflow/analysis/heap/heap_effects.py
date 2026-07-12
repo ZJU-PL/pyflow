@@ -188,11 +188,9 @@ class HeapEffectBuilder:
             if self.heap.policy.escape_on_return:
                 escape_exprs.extend(return_exprs)
 
-        if isinstance(operation, (py_ast.Yield, py_ast.YieldFrom)):
-            yield_exprs = (
-                (operation.expr,) if operation.expr is not None else ()
-            )
-            escape_exprs.extend(yield_exprs)
+        yield_expr = self._yield_expression(operation)
+        if yield_expr is not None:
+            escape_exprs.append(yield_expr)
 
         if isinstance(operation, py_ast.Await) and operation.expr is not None:
             reads.extend(
@@ -235,6 +233,16 @@ class HeapEffectBuilder:
             reads=self._locations_for_expressions(procedure, tuple(escaped_exprs)),
             escapes=self._locations_for_expressions(procedure, tuple(escaped_exprs)),
         )
+
+    @staticmethod
+    def _yield_expression(operation: object) -> object | None:
+        """Return the yielded value for a yield operation or discarded yield expression."""
+        candidate = operation
+        if isinstance(operation, py_ast.Discard):
+            candidate = operation.expr
+        if isinstance(candidate, (py_ast.Yield, py_ast.YieldFrom, py_ast.AsyncYield)):
+            return candidate.expr
+        return None
 
     def call_return_kind(self, call_expression: object) -> str:
         """Classify a call return according to the fixed heap policy."""

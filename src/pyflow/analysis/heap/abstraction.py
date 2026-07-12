@@ -61,6 +61,7 @@ class HeapAbstraction:
         self._raw_locations: dict[int, HeapLocation] = {}
         self._objects: dict[tuple[object, ...], HeapObject] = {}
         self._object_labels: dict[HeapObject, str] = {}
+        self._local_names: dict[tuple[int, int], str] = {}
         self._escaped_objects: set[HeapObject] = set()
         self._equiv_parent: dict[int, int] = {}
         self._equiv_members: dict[int, set[int]] = {}
@@ -309,8 +310,13 @@ class HeapAbstraction:
             return
         target_key = self._local_key(procedure, target)
         source_key = self._local_key(procedure, source)
-        self.storage_overrides[target_key] = source_storage
         target_name = getattr(target, "name", None)
+        source_name = getattr(source, "name", None)
+        if isinstance(target_name, str):
+            self._local_names[target_key] = target_name
+        if isinstance(source_name, str):
+            self._local_names[source_key] = source_name
+        self.storage_overrides[target_key] = source_storage
         if isinstance(target_name, str):
             for raw in source_storage:
                 location = self.location_for_raw(raw)
@@ -331,6 +337,9 @@ class HeapAbstraction:
         if not self._is_named_local(local):
             return
         key = self._local_key(procedure, local)
+        name = getattr(local, "name", None)
+        if isinstance(name, str):
+            self._local_names[key] = name
         old_site = self.allocation_sites.get(key)
         if old_site is not None:
             self._decr_site_ref(old_site)
@@ -352,15 +361,15 @@ class HeapAbstraction:
         for (p_id, l_id), old_storage in list(self.storage_overrides.items()):
             if p_id != proc_id or (p_id, l_id) == except_key:
                 continue
+            if self._local_names.get((p_id, l_id)) != name:
+                continue
             if not old_storage:
                 continue
-            root = old_storage[0]
-            if self._name_matches_object(root, name):
-                self.storage_overrides[(p_id, l_id)] = storage
-                old_site = self.allocation_sites.get((p_id, l_id))
-                if old_site is not None:
-                    self._decr_site_ref(old_site)
-                self.allocation_sites.pop((p_id, l_id), None)
+            self.storage_overrides[(p_id, l_id)] = storage
+            old_site = self.allocation_sites.get((p_id, l_id))
+            if old_site is not None:
+                self._decr_site_ref(old_site)
+            self.allocation_sites.pop((p_id, l_id), None)
 
     def bind_local_to_object(
         self,
@@ -374,6 +383,9 @@ class HeapAbstraction:
         if not self._is_named_local(local):
             return
         key = self._local_key(procedure, local)
+        name = getattr(local, "name", None)
+        if isinstance(name, str):
+            self._local_names[key] = name
         old_site = self.allocation_sites.get(key)
         if old_site is not None:
             self._decr_site_ref(old_site)
@@ -381,7 +393,6 @@ class HeapAbstraction:
         if include_raw_fallback:
             storage = (*storage, *self._raw_storage_provider(procedure, local))
         self.storage_overrides[key] = storage
-        name = getattr(local, "name", None)
         if isinstance(name, str) and obj not in self._object_labels:
             self._object_labels[obj] = name
         self._assign_site(key, storage)
@@ -407,8 +418,10 @@ class HeapAbstraction:
         if not storage:
             return
         key = self._local_key(procedure, local)
-        self.storage_overrides[key] = storage
         name = getattr(local, "name", None)
+        if isinstance(name, str):
+            self._local_names[key] = name
+        self.storage_overrides[key] = storage
         if isinstance(name, str):
             for raw in storage:
                 location = self.location_for_raw(raw)
@@ -1073,6 +1086,9 @@ class HeapAbstraction:
         local: object,
     ) -> tuple[object, ...]:
         key = self._local_key(procedure, local)
+        name = getattr(local, "name", None)
+        if isinstance(name, str):
+            self._local_names[key] = name
         override = self.storage_overrides.get(key)
         if override is not None:
             return override
@@ -1115,6 +1131,19 @@ class HeapAbstraction:
         if not name:
             return None
         proc_id = id(procedure)
+        # Prefer explicit key->name metadata. This distinguishes separate
+        # locals that alias a value from distinct IR nodes for the same local.
+        for key, storage in reversed(list(self.storage_overrides.items())):
+            p_id, _l_id = key
+            if p_id == proc_id and storage and self._local_names.get(key) == name:
+                return storage
+        for key, site in reversed(list(self.allocation_sites.items())):
+            p_id, _l_id = key
+            if p_id != proc_id or self._local_names.get(key) != name:
+                continue
+            stored = self.site_storage.get(site, ())
+            if stored:
+                return tuple(stored)
         # Search storage_overrides in reverse: most recent binding wins.
         for (p_id, _l_id), storage in reversed(list(self.storage_overrides.items())):
             if p_id != proc_id or not storage:

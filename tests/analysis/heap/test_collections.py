@@ -288,3 +288,31 @@ def test_setdefault_writes_value():
     value_location = heap.locations_for_local(code, value)[0]
 
     assert value_location in loaded_locations
+
+
+def test_storing_value_in_local_container_does_not_escape_value():
+    """A heap edge is not an escape until the container becomes reachable
+    from outside the procedure."""
+    value = py_ast.Local("value")
+    container = py_ast.Local("container")
+    code = _code(
+        "main",
+        py_ast.Suite(
+            [
+                py_ast.Assign(py_ast.BuildList([]), [container]),
+                py_ast.SetSubscript(value, container, _existing(0)),
+            ]
+        ),
+        params=(value,),
+    )
+
+    analysis = HeapAnalysis()
+    graph = analysis.analyze(None, code)
+    heap = analysis.heap
+    assert heap is not None
+
+    value_location = heap.locations_for_local(code, value)[0]
+    container_location = heap.locations_for_local(code, container)[0]
+
+    assert not graph.is_escaped(value_location)
+    assert not graph.is_escaped(container_location)

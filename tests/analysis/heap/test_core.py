@@ -111,6 +111,55 @@ def test_instantiates_direct_call_formals_and_returns():
     assert graph.aliased(return_location, arg_location)
 
 
+def test_rebound_callee_formal_is_not_treated_as_param_return_or_escape():
+    actual = py_ast.Local("actual")
+    formal = py_ast.Local("formal")
+    callee_ret = py_ast.Local("callee_ret")
+    result = py_ast.Local("result")
+    caller_ret = py_ast.Local("caller_ret")
+    callee = _code(
+        "rebind_formal",
+        py_ast.Suite(
+            [
+                py_ast.Assign(py_ast.BuildList([]), [formal]),
+                py_ast.Return([formal]),
+            ]
+        ),
+        params=(formal,),
+        returns=(callee_ret,),
+    )
+    caller = _code(
+        "caller",
+        py_ast.Suite(
+            [
+                py_ast.Assign(py_ast.BuildMap([]), [actual]),
+                py_ast.Assign(
+                    py_ast.DirectCall(callee, None, [actual], [], None, None),
+                    [result],
+                ),
+                py_ast.Return([result]),
+            ]
+        ),
+        returns=(caller_ret,),
+    )
+
+    analysis = HeapAnalysis()
+    graph = analysis.analyze(None, caller)
+    heap = analysis.heap
+    assert heap is not None
+
+    actual_location = heap.locations_for_local(caller, actual)[0]
+    result_location = heap.locations_for_local(caller, result)[0]
+    formal_location = heap.locations_for_local(callee, formal)[0]
+    return_location = heap.locations_for_local(callee, callee_ret)[0]
+
+    assert not graph.is_escaped(actual_location)
+    assert graph.is_escaped(result_location)
+    assert not graph.aliased(result_location, actual_location)
+    assert graph.aliased(result_location, formal_location)
+    assert graph.aliased(return_location, formal_location)
+
+
 def test_summary_cache_key_distinguishes_actual_selectors():
     obj = py_ast.Local("obj")
     formal = py_ast.Local("formal")

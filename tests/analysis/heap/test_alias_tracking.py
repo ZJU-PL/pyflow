@@ -174,6 +174,23 @@ class TestLocationAliasing:
         p._alias_locals(None, z, y)
         assert _labels(p._locations_for_local(None, z)) == ("xs",)
 
+    def test_name_sync_does_not_retarget_distinct_alias_local(self):
+        x_first = py_ast.Local("x")
+        x_second = py_ast.Local("x")
+        old_alias = py_ast.Local("old_alias")
+        p = _problem()
+        xs = Location("xs")
+        fresh_xs = Location("fresh_xs")
+        p.set_raw_storage(old_alias, Location("old_alias_storage"))
+
+        p._heap().bind_local_to_locations(None, x_first, (xs,))
+        p._alias_locals(None, old_alias, x_first)
+        p._heap().bind_local_to_locations(None, x_second, (fresh_xs,))
+
+        assert _labels(p._locations_for_local(None, old_alias)) == ("xs",)
+        assert _labels(p._locations_for_local(None, x_first)) == ("fresh_xs",)
+        assert _labels(p._locations_for_local(None, x_second)) == ("fresh_xs",)
+
     def test_null_source_does_not_alias(self):
         y = py_ast.Local("y")
         sg = Supergraph[str, str]()

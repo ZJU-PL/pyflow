@@ -138,6 +138,88 @@ def test_tracks_closure_allocation_and_cell_escape():
     assert graph.is_escaped(cell_loc)
 
 
+def test_discarded_yield_escapes_value():
+    value = py_ast.Local("value")
+    code = _code(
+        "generator",
+        py_ast.Suite([py_ast.Discard(py_ast.Yield(value))]),
+        params=(value,),
+    )
+
+    analysis = HeapAnalysis()
+    graph = analysis.analyze(None, code)
+    heap = analysis.heap
+    assert heap is not None
+
+    value_location = heap.locations_for_local(code, value)[0]
+    assert graph.is_escaped(value_location)
+
+
+def test_returned_function_escapes_default_values():
+    default_value = py_ast.Local("default_value")
+    fn = py_ast.Local("fn")
+    ret = py_ast.Local("ret")
+    inner_code = _code("inner", py_ast.Suite([]))
+    code = _code(
+        "outer",
+        py_ast.Suite(
+            [
+                py_ast.Assign(py_ast.BuildList([]), [default_value]),
+                py_ast.Assign(
+                    py_ast.MakeFunction([default_value], [], inner_code),
+                    [fn],
+                ),
+                py_ast.Return([fn]),
+            ]
+        ),
+        returns=(ret,),
+    )
+
+    analysis = HeapAnalysis()
+    graph = analysis.analyze(None, code)
+    heap = analysis.heap
+    assert heap is not None
+
+    default_location = heap.locations_for_local(code, default_value)[0]
+    fn_location = heap.locations_for_local(code, fn)[0]
+    ret_location = heap.locations_for_local(code, ret)[0]
+
+    assert graph.is_escaped(fn_location)
+    assert graph.is_escaped(default_location)
+    assert graph.aliased(ret_location, fn_location)
+
+
+def test_single_return_expression_preserves_all_possible_locations():
+    a = py_ast.Local("a")
+    b = py_ast.Local("b")
+    merged = py_ast.Local("merged")
+    ret = py_ast.Local("ret")
+    code = _code(
+        "main",
+        py_ast.Suite(
+            [
+                py_ast.Assign(py_ast.ShortCircutOr([a, b]), [merged]),
+                py_ast.Return([merged]),
+            ]
+        ),
+        params=(a, b),
+        returns=(ret,),
+    )
+
+    analysis = HeapAnalysis()
+    graph = analysis.analyze(None, code)
+    heap = analysis.heap
+    assert heap is not None
+
+    ret_locations = heap.locations_for_local(code, ret)
+    a_location = heap.locations_for_local(code, a)[0]
+    b_location = heap.locations_for_local(code, b)[0]
+
+    assert a_location in ret_locations
+    assert b_location in ret_locations
+    assert any(graph.may_alias(loc, b_location) for loc in ret_locations)
+
+
 def test_local_delete_removes_binding():
     x = py_ast.Local("x")
     y = py_ast.Local("y")

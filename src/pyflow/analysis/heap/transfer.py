@@ -172,13 +172,49 @@ class HeapTransferEngine:
         self._apply_writes(procedure, operation, effect.writes)
         self._record_summary_deletes(effect.deletes)
         self._apply_deletes(effect.deletes)
-        self.heap.mark_all_escaped(effect.escapes)
-        self.state.mark_escaped(effect.escapes)
+        immediate_escapes = self._immediate_escape_locations(operation, effect)
+        self.heap.mark_all_escaped(immediate_escapes)
+        self.state.mark_escaped(immediate_escapes)
         if isinstance(operation, py_ast.Return):
-            self._materialize_return_values(procedure, effect.returns)
+            self._materialize_return_values(procedure, operation, effect.returns)
         self._apply_call_transfer(procedure, operation)
         self._handle_local_delete(procedure, operation)
         self._materialize_collection_literal_values(procedure, operation)
+        self._materialize_function_default_values(procedure, operation)
+
+    @staticmethod
+    def _immediate_escape_locations(
+        operation: object,
+        effect: object,
+    ) -> tuple[HeapLocation, ...]:
+        """Return effect escapes that are externally reachable immediately.
+
+        Stores into fields, subscripts, cells, or collection mutators create
+        heap reachability edges. The stored values escape only if the
+        destination root is, or later becomes, escaped; the fixed-point escape
+        propagation handles that through ``HeapState``.
+        """
+        escapes = getattr(effect, "escapes", ())
+        writes = getattr(effect, "writes", ())
+        if not writes or not escapes:
+            return escapes
+        if isinstance(operation, py_ast.SetGlobal):
+            return escapes
+        if isinstance(
+            operation,
+            (
+                py_ast.SetAttr,
+                py_ast.SetSubscript,
+                py_ast.SetSlice,
+                py_ast.SetCellDeref,
+                py_ast.Store,
+            ),
+        ):
+            return ()
+        call = HeapTransferEngine._call_expression(operation)
+        if call is not None:
+            return ()
+        return escapes
 
     def locations_for_expression(
         self,
@@ -634,12 +670,19 @@ class HeapTransferEngine:
         self._summary_delete_stack.append(summary_deletes)
         try:
             self.bind_parameters(callee)
+            initial_formal_locations = self._callee_formal_locations(callee)
             self.analyze_node(callee, callee.ast)
             self._propagate_escapes_transitively()
             summary_state = self.state
             return_locations = self._return_locations(callee)
-            param_returns = self._compute_param_returns(callee, return_locations)
-            param_escapes = self._compute_param_escapes(callee, summary_state)
+            param_returns = self._compute_param_returns(
+                return_locations,
+                initial_formal_locations,
+            )
+            param_escapes = self._compute_param_escapes(
+                summary_state,
+                initial_formal_locations,
+            )
             result = _CallSummary(
                 state=summary_state.copy(),
                 returns=return_locations,
@@ -689,7 +732,7 @@ class HeapTransferEngine:
             if isinstance(target, py_ast.Local):
                 target_locations = self.heap.locations_for_local(callee, target)
                 if target_locations:
-                    locations.append(target_locations[0])
+                    locations.extend(target_locations)
                     continue
             locations.append(HeapLocation(self.heap.return_object(callee, index)))
         return tuple(locations)
@@ -740,14 +783,13 @@ class HeapTransferEngine:
 
     def _compute_param_returns(
         self,
-        callee: py_ast.Code,
         return_locations: tuple[HeapLocation, ...],
+        formal_locations: dict[int, tuple[HeapLocation, ...]],
     ) -> dict[int, int]:
         """Return a dict mapping return_index -> formal_param_index when a
         return directly carries a formal parameter's location."""
         if not return_locations:
             return {}
-        formal_locations = self._callee_formal_locations(callee)
         if not formal_locations:
             return {}
         param_returns: dict[int, int] = {}
@@ -760,13 +802,12 @@ class HeapTransferEngine:
 
     def _compute_param_escapes(
         self,
-        callee: py_ast.Code,
         summary_state: HeapState,
+        formal_locations: dict[int, tuple[HeapLocation, ...]],
     ) -> frozenset[int]:
         """Return the set of formal parameter indices whose locations escape."""
         if not summary_state.escaped:
             return frozenset()
-        formal_locations = self._callee_formal_locations(callee)
         if not formal_locations:
             return frozenset()
         escaped: set[int] = set()
@@ -855,6 +896,7 @@ class HeapTransferEngine:
     def _materialize_return_values(
         self,
         procedure: object,
+        operation: py_ast.Return,
         returns: tuple[HeapLocation, ...],
     ) -> None:
         code_parameters = getattr(procedure, "codeparameters", None)
@@ -866,8 +908,14 @@ class HeapTransferEngine:
             if isinstance(param, py_ast.Local)
         )
         for index, target in enumerate(returnparams):
-            if index < len(returns):
-                self.heap.bind_local_to_locations(procedure, target, (returns[index],))
+            bind_locations = self._return_bind_locations(
+                operation,
+                returns,
+                index,
+                len(returnparams),
+            )
+            if bind_locations:
+                self.heap.bind_local_to_locations(procedure, target, bind_locations)
             else:
                 obj = self.heap.return_object(procedure, index, label=target.name)
                 self.heap.bind_local_to_object(procedure, target, obj)
@@ -877,6 +925,22 @@ class HeapTransferEngine:
             if target_locations:
                 self.heap.mark_all_escaped(tuple(target_locations))
         self.state.set_returns(procedure, returns)
+
+    @staticmethod
+    def _return_bind_locations(
+        operation: py_ast.Return,
+        returns: tuple[HeapLocation, ...],
+        index: int,
+        returnparam_count: int,
+    ) -> tuple[HeapLocation, ...]:
+        if (
+            returnparam_count == 1
+            and len(getattr(operation, "exprs", ())) == 1
+        ):
+            return returns
+        if index < len(returns):
+            return (returns[index],)
+        return ()
 
     def _apply_writes(
         self,
@@ -979,19 +1043,46 @@ class HeapTransferEngine:
             for location in self.heap.locations_for_local(procedure, target)
         )
         value_exprs = self._collection_literal_values(expr)
-        value_locations = tuple(
-            value_location
-            for value in value_exprs
-            for value_location in self.locations_for_expression(procedure, value)
-        )
         for location in target_locations:
             if location.root.kind is HeapObjectKind.ALLOCATION:
-                self.heap.mark_all_escaped(value_locations)
-                # Also write the literal element values into the container's
-                # heap state so subsequent reads (e.g. ``lst[0]``) can find them.
+                # Write literal element values into the container's heap state
+                # so subsequent reads and transitive escape propagation can
+                # find them when the container itself escapes.
                 self._write_collection_literal_elements(
                     procedure, location, expr, value_exprs
                 )
+
+    def _materialize_function_default_values(
+        self,
+        procedure: object,
+        operation: object,
+    ) -> None:
+        expr = self._assigned_expression(operation)
+        if not isinstance(expr, py_ast.MakeFunction):
+            return
+        targets = assigned_locals(operation)
+        target_locations = tuple(
+            location
+            for target in targets
+            for location in self.heap.locations_for_local(procedure, target)
+        )
+        default_locations = tuple(
+            location
+            for default in getattr(expr, "defaults", ())
+            for location in self.locations_for_expression(procedure, default)
+        )
+        if not default_locations:
+            return
+        for location in target_locations:
+            defaults_location = self.heap.dynamic_attribute_location(
+                location,
+                "__defaults__",
+            )
+            self.state.write(
+                defaults_location,
+                tuple(dict.fromkeys(default_locations)),
+                UpdatePolicy.STRONG,
+            )
 
     def _write_collection_literal_elements(
         self,
