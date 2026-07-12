@@ -1058,3 +1058,50 @@ def test_heap_analysis_setdefault_writes_value():
     value_location = heap.locations_for_local(code, value)[0]
 
     assert value_location in loaded_locations
+
+
+# ── Gap 7: STRONG write with constant clears previous binding ──────────
+
+
+def test_heap_analysis_strong_write_constant_clears_nested_field():
+    """STRONG write of a non-heap value (constant) to a nested field on a
+    fresh singleton root must clear the previous binding so that the old
+    value is no longer reachable via that field."""
+    from pyflow.analysis.heap import HeapPolicy
+
+    obj = py_ast.Local("obj")
+    old_value = py_ast.Local("old_value")
+    loaded = py_ast.Local("loaded")
+    code = _code(
+        "main",
+        py_ast.Suite(
+            [
+                py_ast.Assign(py_ast.BuildList([]), [obj]),
+                py_ast.SetAttr(old_value, obj, _existing("field")),
+                # STRONG write of a constant (no heap locations) should
+                # clear the previous binding.
+                py_ast.SetAttr(_existing(None), obj, _existing("field")),
+                py_ast.Assign(
+                    py_ast.GetAttr(obj, _existing("field")),
+                    [loaded],
+                ),
+            ]
+        ),
+        params=(old_value,),
+    )
+
+    analysis = HeapAnalysis(
+        policy=HeapPolicy(allow_strong_nested_fresh=True)
+    )
+    graph = analysis.analyze(None, code)
+    heap = analysis.heap
+    assert heap is not None
+
+    loaded_locations = heap.locations_for_local(code, loaded)
+    old_location = heap.locations_for_local(code, old_value)[0]
+
+    # The old value should no longer be reachable through the field
+    # after the STRONG constant write cleared the binding.
+    assert old_location not in loaded_locations, (
+        "Constant STRONG write should clear the previous binding"
+    )

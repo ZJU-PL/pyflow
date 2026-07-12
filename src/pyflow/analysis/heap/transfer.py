@@ -723,8 +723,9 @@ class HeapTransferEngine:
         value = self._stored_value_expression(operation)
         if value is not None:
             value_locations = self.locations_for_expression(procedure, value)
-            if not value_locations:
-                return
+            # Don't return early when value_locations is empty: write()
+            # handles STRONG+empty (pop to clear the binding) and
+            # WEAK+empty (no-op) correctly.
         else:
             # No direct stored-value expression.  Check whether this operation
             # wraps a collection mutator call (e.g. ``list.append(x)``) whose
