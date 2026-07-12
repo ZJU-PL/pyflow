@@ -139,9 +139,11 @@ class HeapEffectBuilder:
             *self.static_attribute_read_locations(procedure, operation),
             *self.dynamic_getattr_locations(procedure, operation),
             *self.dynamic_subscript_read_locations(procedure, operation),
+            *self.getslice_read_locations(procedure, operation),
             *self.getiter_read_locations(procedure, operation),
             *self.assert_read_locations(procedure, operation),
             *self.make_function_read_locations(procedure, operation),
+            *self.delete_read_locations(procedure, operation),
         ]
         writes = [
             self.heap.write_for_location(location)
@@ -164,6 +166,7 @@ class HeapEffectBuilder:
                 operation,
                 collection_mutator_names,
             ),
+            *self.delete_locations(procedure, operation),
         ]
 
         collection_locations, collection_values = self.collection_mutation(
@@ -433,6 +436,30 @@ class HeapEffectBuilder:
             key = actuals[1]
         return self.dynamic_subscript_locations_for_key(procedure, container, key)
 
+    def getslice_read_locations(
+        self,
+        procedure: object,
+        operation: object,
+    ) -> tuple[HeapLocation, ...]:
+        """Return read locations for a slice-read expression."""
+        expr: object | None = None
+        if isinstance(operation, py_ast.GetSlice):
+            expr = operation
+        else:
+            wrapped = getattr(operation, "expr", None)
+            if isinstance(wrapped, py_ast.GetSlice):
+                expr = wrapped
+        if expr is None:
+            return ()
+        expressions: list[object] = [expr.expr]
+        if expr.start is not None:
+            expressions.append(expr.start)
+        if expr.stop is not None:
+            expressions.append(expr.stop)
+        if expr.step is not None:
+            expressions.append(expr.step)
+        return self._locations_for_expressions(procedure, tuple(expressions))
+
     def dynamic_subscript_write_locations(
         self,
         procedure: object,
@@ -493,6 +520,26 @@ class HeapEffectBuilder:
         if attribute != DYNAMIC_ATTRIBUTE_WILDCARD:
             attributes = (attribute, DYNAMIC_ATTRIBUTE_WILDCARD)
         return self.dynamic_attribute_locations(procedure, operation.expr, attributes)
+
+    def delete_read_locations(
+        self,
+        procedure: object,
+        operation: object,
+    ) -> tuple[HeapLocation, ...]:
+        """Return read locations for a local variable delete operation."""
+        if not isinstance(operation, py_ast.Delete):
+            return ()
+        return self._locations_for_expressions(procedure, (operation.lcl,))
+
+    def delete_locations(
+        self,
+        procedure: object,
+        operation: object,
+    ) -> tuple[HeapLocation, ...]:
+        """Return the root heap location(s) invalidated by a local variable delete."""
+        if not isinstance(operation, py_ast.Delete):
+            return ()
+        return self._locations_for_expressions(procedure, (operation.lcl,))
 
     def dynamic_subscript_write_target(
         self,

@@ -8,7 +8,7 @@ or collection literals allocate fresh heap roots.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from pyflow.analysis.ir_utils import (
     actual_argument_expressions,
@@ -37,6 +37,16 @@ class _CallSummary:
     state: HeapState
     returns: tuple[HeapLocation, ...]
     deletes: tuple[HeapLocation, ...] = ()
+
+    # Maps return index -> formal parameter index when the callee directly
+    # returns a formal parameter without modification (e.g., "def id(x): return x").
+    # The caller can use this to bind the actual argument's location directly.
+    param_returns: dict[int, int] = field(default_factory=dict)
+
+    # Set of formal parameter indices whose locations escape the callee.
+    # Callers can use this to precisely mark actual arguments as escaped
+    # without relying solely on the merged escaped set in summary.state.
+    param_escapes: frozenset[int] = field(default_factory=frozenset)
 
 
 class HeapTransferEngine:
@@ -158,6 +168,7 @@ class HeapTransferEngine:
         if isinstance(operation, py_ast.Return):
             self._materialize_return_values(procedure, effect.returns)
         self._apply_call_transfer(procedure, operation)
+        self._handle_local_delete(procedure, operation)
         self._materialize_collection_literal_values(procedure, operation)
 
     def locations_for_expression(
@@ -417,12 +428,33 @@ class HeapTransferEngine:
         self._bind_callee_formals(caller, callee, call)
         summary = self._callee_summary(callee, summary_key)
         self._apply_callee_summary(summary)
+        if summary.param_escapes:
+            actuals = actual_argument_expressions(call)
+            for param_idx in summary.param_escapes:
+                if param_idx < len(actuals):
+                    actual_locations = self.locations_for_expression(
+                        caller, actuals[param_idx]
+                    )
+                    if actual_locations:
+                        self.heap.mark_all_escaped(tuple(actual_locations))
         targets = assigned_locals(operation)
         if not targets:
             return
+        actuals = actual_argument_expressions(call)
         for index, target in enumerate(targets):
             if index >= len(summary.returns):
                 continue
+            if index in summary.param_returns:
+                param_idx = summary.param_returns[index]
+                if param_idx < len(actuals):
+                    actual_locations = self.locations_for_expression(
+                        caller, actuals[param_idx]
+                    )
+                    if actual_locations:
+                        self.heap.bind_local_to_locations(
+                            caller, target, actual_locations
+                        )
+                        continue
             self.heap.bind_local_to_locations(
                 caller,
                 target,
@@ -450,10 +482,14 @@ class HeapTransferEngine:
             self.analyze_node(callee, callee.ast)
             summary_state = self.state
             return_locations = self._return_locations(callee)
+            param_returns = self._compute_param_returns(callee, return_locations)
+            param_escapes = self._compute_param_escapes(callee, summary_state)
             result = _CallSummary(
                 state=summary_state.copy(),
                 returns=return_locations,
                 deletes=tuple(dict.fromkeys(summary_deletes)),
+                param_returns=param_returns,
+                param_escapes=param_escapes,
             )
             self._summary_cache[summary_key] = result
             return result
@@ -497,6 +533,89 @@ class HeapTransferEngine:
                     continue
             locations.append(HeapLocation(self.heap.return_object(callee, index)))
         return tuple(locations)
+
+    def _callee_formal_locations(
+        self,
+        callee: py_ast.Code,
+    ) -> dict[int, tuple[HeapLocation, ...]]:
+        """Return a dict mapping formal param index -> its heap locations."""
+        code_parameters = getattr(callee, "codeparameters", None)
+        if code_parameters is None:
+            return {}
+        formals: list[py_ast.Local] = []
+        selfparam = getattr(code_parameters, "selfparam", None)
+        if isinstance(selfparam, py_ast.Local):
+            formals.append(selfparam)
+        formals.extend(
+            param
+            for param in getattr(code_parameters, "posonlyparams", ())
+            if isinstance(param, py_ast.Local)
+        )
+        formals.extend(
+            param
+            for param in getattr(code_parameters, "params", ())
+            if isinstance(param, py_ast.Local)
+        )
+        vparam = getattr(code_parameters, "vparam", None)
+        kparam = getattr(code_parameters, "kparam", None)
+        if isinstance(vparam, py_ast.Local):
+            formals.append(vparam)
+        if isinstance(kparam, py_ast.Local):
+            formals.append(kparam)
+        # Deduplicate while preserving order
+        seen: set[int] = set()
+        unique_formals: list[py_ast.Local] = []
+        for f in formals:
+            fid = id(f)
+            if fid not in seen:
+                seen.add(fid)
+                unique_formals.append(f)
+
+        formal_locations: dict[int, tuple[HeapLocation, ...]] = {}
+        for idx, formal in enumerate(unique_formals):
+            locs = self.heap.locations_for_local(callee, formal)
+            if locs:
+                formal_locations[idx] = locs
+        return formal_locations
+
+    def _compute_param_returns(
+        self,
+        callee: py_ast.Code,
+        return_locations: tuple[HeapLocation, ...],
+    ) -> dict[int, int]:
+        """Return a dict mapping return_index -> formal_param_index when a
+        return directly carries a formal parameter's location."""
+        if not return_locations:
+            return {}
+        formal_locations = self._callee_formal_locations(callee)
+        if not formal_locations:
+            return {}
+        param_returns: dict[int, int] = {}
+        for ret_idx, ret_loc in enumerate(return_locations):
+            for formal_idx, formal_locs in formal_locations.items():
+                if ret_loc in formal_locs:
+                    param_returns[ret_idx] = formal_idx
+                    break
+        return param_returns
+
+    def _compute_param_escapes(
+        self,
+        callee: py_ast.Code,
+        summary_state: HeapState,
+    ) -> frozenset[int]:
+        """Return the set of formal parameter indices whose locations escape."""
+        if not summary_state.escaped:
+            return frozenset()
+        formal_locations = self._callee_formal_locations(callee)
+        if not formal_locations:
+            return frozenset()
+        escaped: set[int] = set()
+        for idx, locs in formal_locations.items():
+            for loc in locs:
+                if loc in summary_state.escaped:
+                    escaped.add(idx)
+                    break
+        return frozenset(escaped)
 
     def _conservative_return_summary(
         self,
@@ -620,6 +739,16 @@ class HeapTransferEngine:
     def _apply_deletes(self, deletes: tuple[HeapLocation, ...]) -> None:
         for deleted in deletes:
             self.state.delete(deleted)
+
+    def _handle_local_delete(
+        self,
+        procedure: object,
+        operation: object,
+    ) -> None:
+        """Handle ``del x`` — break aliasing and remove the local's heap state."""
+        if not isinstance(operation, py_ast.Delete):
+            return
+        self.heap.unalias_local(procedure, operation.lcl)
 
     def _materialize_collection_literal_values(
         self,
