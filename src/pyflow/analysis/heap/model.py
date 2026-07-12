@@ -115,7 +115,14 @@ class HeapPolicy:
     treat_capitalized_calls_as_fresh: bool = True
     immutable_type_hints: frozenset[str] = frozenset(
         {"int", "str", "float", "bool", "bytes", "tuple", "frozenset",
-         "complex", "NoneType", "ellipsis", "range", "slice"}
+         "complex", "NoneType", "ellipsis", "range", "slice",
+         "datetime.datetime", "datetime.date", "datetime.time", "datetime.timedelta",
+         "pathlib.PurePath", "pathlib.PurePosixPath", "pathlib.PureWindowsPath",
+         "decimal.Decimal", "fractions.Fraction",
+         "enum.Enum",
+         "ipaddress.IPv4Address", "ipaddress.IPv6Address",
+         "uuid.UUID",
+         "re.Pattern"}
     )
 
     # ── factory presets ──────────────────────────────────────────────

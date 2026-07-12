@@ -206,7 +206,27 @@ class HeapTransferEngine:
                     self.effect_builder.call_return_object(procedure, expression)
                 ),
             )
+        if isinstance(expression, py_ast.MakeFunction):
+            return (
+                HeapLocation(
+                    self.heap.allocation_object(
+                        procedure, expression, label="function"
+                    )
+                ),
+            )
+        if isinstance(expression, (py_ast.ShortCircutAnd, py_ast.ShortCircutOr)):
+            return self._merge_expression_locations(procedure, *expression.terms)
+        if isinstance(expression, py_ast.NamedExpr):
+            return self.locations_for_expression(procedure, expression.value)
         return ()
+
+    def _merge_expression_locations(self, procedure, *expressions):
+        """Return the deduplicated union of heap locations from multiple expressions."""
+        locations: list[HeapLocation] = []
+        for expr in expressions:
+            if expr is not None:
+                locations.extend(self.locations_for_expression(procedure, expr))
+        return tuple(dict.fromkeys(locations))
 
     @classmethod
     def iter_code_objects(cls, root: object):
@@ -342,7 +362,7 @@ class HeapTransferEngine:
         expr = self._assigned_expression(operation)
         if isinstance(
             expr,
-            (py_ast.BuildTuple, py_ast.BuildList, py_ast.BuildSet, py_ast.BuildMap),
+            (py_ast.BuildTuple, py_ast.BuildList, py_ast.BuildSet, py_ast.BuildMap, py_ast.MakeFunction),
         ):
             self.heap.bind_allocation_targets(
                 procedure,

@@ -578,3 +578,112 @@ def test_heap_analysis_recursive_direct_call_terminates_conservatively():
 
     assert result_location.root.kind.value == "return"
     assert graph.get(result_location) is not None
+
+
+def test_binary_op_result_creates_fresh_binding():
+    """BinaryOp creates a new object — result must NOT alias operands."""
+    x = py_ast.Local("x")
+    y = py_ast.Local("y")
+    z = py_ast.Local("z")
+    code = _code(
+        "test",
+        py_ast.Suite([
+            py_ast.Assign(py_ast.BuildList([]), [x]),
+            py_ast.Assign(x, [y]),
+            py_ast.Assign(py_ast.BinaryOp(x, "+", y), [z]),
+        ]),
+    )
+    analysis = HeapAnalysis()
+    graph = analysis.analyze(None, code)
+    heap = analysis.heap
+
+    x_loc = heap.locations_for_local(code, x)[0]
+    # BinaryOp result is a fresh unknown — z has no tracked heap location,
+    # so it cannot alias with any operand
+    z_locs = heap.locations_for_local(code, z)
+    assert len(z_locs) == 0
+
+
+def test_unary_op_result_creates_fresh_binding():
+    x = py_ast.Local("x")
+    z = py_ast.Local("z")
+    code = _code(
+        "test",
+        py_ast.Suite([
+            py_ast.Assign(py_ast.BuildList([]), [x]),
+            py_ast.Assign(py_ast.UnaryPrefixOp("-", x), [z]),
+        ]),
+    )
+    analysis = HeapAnalysis()
+    graph = analysis.analyze(None, code)
+    heap = analysis.heap
+
+    # Unary op creates a new value — z has no tracked heap location
+    z_locs = heap.locations_for_local(code, z)
+    assert len(z_locs) == 0
+
+
+def test_named_expr_result_flows_value_locations():
+    x = py_ast.Local("x")
+    z = py_ast.Local("z")
+    code = _code(
+        "test",
+        py_ast.Suite([
+            py_ast.Assign(py_ast.BuildList([]), [x]),
+            py_ast.Assign(py_ast.NamedExpr(z, x), [z]),
+        ]),
+    )
+    analysis = HeapAnalysis()
+    graph = analysis.analyze(None, code)
+    heap = analysis.heap
+
+    x_loc = heap.locations_for_local(code, x)[0]
+    z_loc = heap.locations_for_local(code, z)[0]
+
+    assert graph.may_alias(z_loc, x_loc)
+
+
+def test_heap_analysis_tracks_closure_allocation_and_cell_escape():
+    x = py_ast.Local("x")
+    inner = py_ast.Local("inner")
+    inner_code = py_ast.Code(
+        "inner",
+        py_ast.CodeParameters(
+            selfparam=None,
+            posonlyparams=[],
+            posonlynames=[],
+            params=[],
+            paramnames=[],
+            defaults=[],
+            vparam=None,
+            kparam=None,
+            returnparams=[],
+            type_params=None,
+        ),
+        py_ast.Suite([]),
+    )
+    code = _code(
+        "outer",
+        py_ast.Suite(
+            [
+                py_ast.Assign(py_ast.BuildList([]), [x]),
+                py_ast.Assign(
+                    py_ast.MakeFunction([], [py_ast.Cell("x")], inner_code),
+                    [inner],
+                ),
+            ]
+        ),
+    )
+
+    analysis = HeapAnalysis()
+    graph = analysis.analyze(None, code)
+    heap = analysis.heap
+    assert heap is not None
+
+    inner_location = heap.locations_for_local(code, inner)[0]
+    assert inner_location.root.kind is HeapObjectKind.ALLOCATION
+    assert inner_location.root.label == "function"
+
+    cell_obj = heap.cell_object("x")
+    cell_loc = heap.location_for_raw(cell_obj)
+    assert graph.is_escaped(cell_loc)

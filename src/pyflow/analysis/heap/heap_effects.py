@@ -141,6 +141,7 @@ class HeapEffectBuilder:
             *self.dynamic_subscript_read_locations(procedure, operation),
             *self.getiter_read_locations(procedure, operation),
             *self.assert_read_locations(procedure, operation),
+            *self.make_function_read_locations(procedure, operation),
         ]
         writes = [
             self.heap.write_for_location(location)
@@ -196,11 +197,16 @@ class HeapEffectBuilder:
         if isinstance(operation, py_ast.Assert) and operation.message is not None:
             escape_exprs.append(operation.message)
 
+        make_fn_escapes = self.make_function_escape_locations(procedure, operation)
+
         return HeapEffect(
             reads=tuple(dict.fromkeys(reads)),
             writes=tuple(dict.fromkeys(writes)),
             deletes=tuple(dict.fromkeys(deletes)),
-            escapes=self._locations_for_expressions(procedure, tuple(escape_exprs)),
+            escapes=tuple(dict.fromkeys(
+                (*self._locations_for_expressions(procedure, tuple(escape_exprs)),
+                 *make_fn_escapes)
+            )),
             returns=self._locations_for_expressions(procedure, return_exprs),
             allocations=self._allocation_objects_for_operation(procedure, operation),
         )
@@ -659,6 +665,7 @@ class HeapEffectBuilder:
                 py_ast.BuildList,
                 py_ast.BuildSet,
                 py_ast.BuildMap,
+                py_ast.MakeFunction,
             ),
         ):
             return ()
@@ -735,6 +742,8 @@ class HeapEffectBuilder:
             return "set literal"
         if isinstance(expr, py_ast.BuildMap):
             return "dict literal"
+        if isinstance(expr, py_ast.MakeFunction):
+            return "function"
         return type(expr).__name__
 
     def import_object(self, expr: py_ast.Import) -> HeapObject:
@@ -809,6 +818,47 @@ class HeapEffectBuilder:
             )
             if expr is not None
         )
+
+    def make_function_read_locations(
+        self,
+        procedure: object,
+        operation: object,
+    ) -> tuple[HeapLocation, ...]:
+        expr = self._assigned_expression(operation)
+        if not isinstance(expr, py_ast.MakeFunction):
+            return ()
+        locations: list[HeapLocation] = []
+        for default in getattr(expr, "defaults", ()):
+            locations.extend(
+                self.heap.location_for_raw(raw)
+                for raw in self.read_locations(procedure, default)
+            )
+        for cell in getattr(expr, "cells", ()):
+            locations.append(self.cell_location(cell))
+        return tuple(dict.fromkeys(locations))
+
+    def make_function_escape_locations(
+        self,
+        procedure: object,
+        operation: object,
+    ) -> tuple[HeapLocation, ...]:
+        expr = self._assigned_expression(operation)
+        if not isinstance(expr, py_ast.MakeFunction):
+            return ()
+        return tuple(
+            dict.fromkeys(
+                self.cell_location(cell)
+                for cell in getattr(expr, "cells", ())
+            )
+        )
+
+    @staticmethod
+    def _assigned_expression(operation: object) -> object | None:
+        if isinstance(operation, (py_ast.Assign, py_ast.UnpackSequence)):
+            return operation.expr
+        if isinstance(operation, py_ast.AnnAssign):
+            return operation.value
+        return operation
 
     def _is_capitalized_call_name(self, call_name: str) -> bool:
         short_name = call_name.rsplit(".", 1)[-1]
