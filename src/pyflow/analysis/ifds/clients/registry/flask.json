@@ -1,4 +1,5 @@
 {
+  "schema_version": 1,
   "framework": "flask",
   "version": "1.0",
   "description": "Flask framework taint sources, sinks, sanitizers, and nullness models",

@@ -1,4 +1,5 @@
 {
+  "schema_version": 1,
   "framework": "concurrency",
   "version": "1.0",
   "description": "Concurrency primitives typestate — locks, subprocesses, temp files, sockets",

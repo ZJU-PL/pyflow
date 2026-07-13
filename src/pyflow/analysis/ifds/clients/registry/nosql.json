@@ -1,4 +1,5 @@
 {
+  "schema_version": 1,
   "framework": "nosql",
   "version": "1.0",
   "description": "NoSQL sinks — MongoDB, Redis, Elasticsearch, Cassandra, CouchDB",

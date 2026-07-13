@@ -1,4 +1,5 @@
 {
+  "schema_version": 1,
     "framework": "network",
     "version": "1.0",
     "description": "Network sinks — socket, ftp, smtp, dns, ssrf, ldap, webhooks",

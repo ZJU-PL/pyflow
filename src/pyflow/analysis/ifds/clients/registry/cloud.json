@@ -1,4 +1,5 @@
 {
+  "schema_version": 1,
   "framework": "cloud",
   "version": "1.0",
   "description": "Cloud storage and service sinks — AWS, GCP, Azure",

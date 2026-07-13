@@ -1,4 +1,5 @@
 {
+  "schema_version": 1,
   "framework": "stdlib",
   "version": "1.0",
   "description": "Python standard library taint sources, sinks, sanitizers, nullness, and typestate models",

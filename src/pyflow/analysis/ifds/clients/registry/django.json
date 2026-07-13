@@ -1,4 +1,5 @@
 {
+  "schema_version": 1,
   "framework": "django",
   "version": "1.0",
   "description": "Django framework taint sources, sinks, sanitizers, and nullness models",

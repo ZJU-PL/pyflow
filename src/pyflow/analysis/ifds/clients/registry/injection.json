@@ -1,4 +1,5 @@
 {
+  "schema_version": 1,
   "framework": "injection",
   "version": "1.0",
   "description": "SSTI, XSS, command injection sinks and markup/command sanitizers",

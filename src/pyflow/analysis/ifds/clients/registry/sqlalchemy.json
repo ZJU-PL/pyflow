@@ -1,4 +1,5 @@
 {
+  "schema_version": 1,
   "framework": "sqlalchemy",
   "version": "1.0",
   "description": "SQLAlchemy ORM taint sinks, typestate models, and nullness",

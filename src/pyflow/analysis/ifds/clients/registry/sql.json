@@ -1,4 +1,5 @@
 {
+  "schema_version": 1,
   "framework": "sql",
   "version": "1.0",
   "description": "Raw SQL sinks — sqlite3, psycopg2, MySQLdb, pymysql",

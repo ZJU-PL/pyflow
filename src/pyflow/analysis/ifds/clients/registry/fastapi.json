@@ -1,4 +1,5 @@
 {
+  "schema_version": 1,
   "framework": "fastapi",
   "version": "1.0",
   "description": "FastAPI framework taint sources and sinks",

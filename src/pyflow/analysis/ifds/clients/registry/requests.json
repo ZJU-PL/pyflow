@@ -1,4 +1,5 @@
 {
+  "schema_version": 1,
   "framework": "requests",
   "version": "1.0",
   "description": "Requests and httpx library taint sources and sinks",
