@@ -95,9 +95,10 @@ def test_named_expr_result_flows_value_locations():
     assert graph.may_alias(z_loc, x_loc)
 
 
-def test_tracks_closure_allocation_and_cell_escape():
+def test_tracks_closure_allocation_without_forcing_local_cell_escape():
     x = py_ast.Local("x")
     inner = py_ast.Local("inner")
+    cell = py_ast.Cell("x")
     inner_code = py_ast.Code(
         "inner",
         py_ast.CodeParameters(
@@ -120,7 +121,7 @@ def test_tracks_closure_allocation_and_cell_escape():
             [
                 py_ast.Assign(py_ast.BuildList([]), [x]),
                 py_ast.Assign(
-                    py_ast.MakeFunction([], [py_ast.Cell("x")], inner_code),
+                    py_ast.MakeFunction([], [cell], inner_code),
                     [inner],
                 ),
             ]
@@ -136,8 +137,50 @@ def test_tracks_closure_allocation_and_cell_escape():
     assert inner_location.root.kind is HeapObjectKind.ALLOCATION
     assert inner_location.root.label == "function"
 
-    cell_obj = heap.cell_object("x")
+    cell_obj = heap.cell_object(cell)
     cell_loc = heap.location_for_raw(cell_obj)
+    assert not graph.is_escaped(cell_loc)
+
+
+def test_returned_closure_transitively_escapes_captured_cell():
+    inner = py_ast.Local("inner")
+    returned = py_ast.Local("returned")
+    cell = py_ast.Cell("x")
+    inner_code = py_ast.Code(
+        "inner",
+        py_ast.CodeParameters(
+            selfparam=None,
+            posonlyparams=[],
+            posonlynames=[],
+            params=[],
+            paramnames=[],
+            defaults=[],
+            vparam=None,
+            kparam=None,
+            returnparams=[],
+            type_params=None,
+        ),
+        py_ast.Suite([]),
+    )
+    code = _code(
+        "outer",
+        py_ast.Suite(
+            [
+                py_ast.Assign(
+                    py_ast.MakeFunction([], [cell], inner_code),
+                    [inner],
+                ),
+                py_ast.Return([inner]),
+            ]
+        ),
+        returns=(returned,),
+    )
+
+    analysis = HeapAnalysis()
+    graph = analysis.analyze(None, code)
+    heap = analysis.heap
+    assert heap is not None
+    cell_loc = heap.location_for_raw(heap.cell_object(cell))
     assert graph.is_escaped(cell_loc)
 
 

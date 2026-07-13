@@ -272,6 +272,7 @@ def test_two_returning_switch_branches_make_following_code_unreachable():
 def test_type_alias_and_function_definition_populate_global_bindings():
     value = py_ast.Local("value")
     alias_loaded = py_ast.Local("alias_loaded")
+    alias_value_loaded = py_ast.Local("alias_value_loaded")
     function_loaded = py_ast.Local("function_loaded")
     inner = _code("inner", py_ast.Suite([]))
     code = _code(
@@ -280,6 +281,10 @@ def test_type_alias_and_function_definition_populate_global_bindings():
             [
                 py_ast.TypeAlias("Alias", [], value),
                 py_ast.Assign(py_ast.GetGlobal(_existing("Alias")), [alias_loaded]),
+                py_ast.Assign(
+                    py_ast.GetAttr(alias_loaded, _existing("__value__")),
+                    [alias_value_loaded],
+                ),
                 py_ast.FunctionDef("defined", inner, [], None),
                 py_ast.Assign(
                     py_ast.GetGlobal(_existing("defined")),
@@ -296,7 +301,7 @@ def test_type_alias_and_function_definition_populate_global_bindings():
     assert heap is not None
 
     assert heap.locations_for_local(code, value)[0] in heap.locations_for_local(
-        code, alias_loaded
+        code, alias_value_loaded
     )
     assert heap.locations_for_local(code, function_loaded)[0].root.label == (
         "function defined"
@@ -396,6 +401,7 @@ def test_class_name_is_bound_after_class_body_executes():
     original = py_ast.Local("original")
     seen_in_body = py_ast.Local("seen_in_body")
     class_value = py_ast.Local("class_value")
+    seen_loaded = py_ast.Local("seen_loaded")
     code = _code(
         "module",
         py_ast.Suite(
@@ -421,6 +427,10 @@ def test_class_name_is_bound_after_class_body_executes():
                     py_ast.GetGlobal(_existing("Defined")),
                     [class_value],
                 ),
+                py_ast.Assign(
+                    py_ast.GetAttr(class_value, _existing("seen_in_body")),
+                    [seen_loaded],
+                ),
             ]
         ),
     )
@@ -430,8 +440,8 @@ def test_class_name_is_bound_after_class_body_executes():
     heap = analysis.heap
     assert heap is not None
 
-    seen_locations = heap.locations_for_local(code, seen_in_body)
-    assert seen_locations == heap.locations_for_local(code, original)
+    seen_locations = heap.locations_for_local(code, seen_loaded)
+    assert heap.locations_for_local(code, original)[0] in seen_locations
     assert any(
         location.root.label == "class Defined"
         for location in heap.locations_for_local(code, class_value)

@@ -229,7 +229,7 @@ def test_heap_effect_models_deque_appendleft_as_collection_write():
     )
 
 
-def test_heap_effect_classifies_common_iterator_and_string_returns_as_fresh():
+def test_heap_effect_classifies_sorted_as_copy_and_string_returns_as_fresh():
     target = py_ast.Local("target")
     source = py_ast.Local("source")
     heap = HeapAbstraction(lambda _procedure, _local: ())
@@ -241,7 +241,7 @@ def test_heap_effect_classifies_common_iterator_and_string_returns_as_fresh():
     sorted_effect = builder.operation_effect(None, py_ast.Assign(sorted_call, [target]))
     split_effect = builder.operation_effect(None, py_ast.Assign(split_call, [target]))
 
-    assert builder.call_return_kind(sorted_call) == CALL_RETURN_FRESH
+    assert builder.call_return_kind(sorted_call) == CALL_RETURN_COPY
     assert builder.call_return_kind(split_call) == CALL_RETURN_FRESH
     assert len(sorted_effect.allocations) == 1
     assert len(split_effect.allocations) == 1
@@ -310,7 +310,7 @@ def test_heap_effect_extracts_cell_read_and_write_locations():
 
     read = builder.operation_effect(None, py_ast.GetCellDeref(cell))
     write = builder.operation_effect(None, py_ast.SetCellDeref(value, cell))
-    cell_location = heap.location_for_raw(heap.cell_object("closed"))
+    cell_location = heap.location_for_raw(heap.cell_object(cell))
 
     assert read.reads == (cell_location,)
     assert write.writes[0].location == cell_location

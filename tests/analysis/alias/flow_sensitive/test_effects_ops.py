@@ -39,7 +39,7 @@ def _dummy_code(name="test"):
     )
 
 
-def test_make_function_escapes_captured_cells():
+def test_make_function_reads_but_does_not_immediately_escape_captured_cells():
     x_raw = RawStorage("x")
     x = py_ast.Local("x")
     raw = {id(x): (x_raw,)}
@@ -48,15 +48,16 @@ def test_make_function_escapes_captured_cells():
         policy=HeapPolicy(escape_on_return=True),
     )
     builder = HeapEffectBuilder(heap, heap.locations_for_local)
+    cell = py_ast.Cell("x")
 
     effect = builder.operation_effect(
         None,
-        py_ast.MakeFunction([], [py_ast.Cell("x")], _dummy_code()),
+        py_ast.MakeFunction([], [cell], _dummy_code()),
     )
 
-    cell_loc = builder.cell_location(py_ast.Cell("x"))
+    cell_loc = builder.cell_location(cell)
     assert cell_loc in effect.reads
-    assert cell_loc in effect.escapes
+    assert cell_loc not in effect.escapes
 
 
 def test_make_function_reads_defaults():
@@ -70,17 +71,18 @@ def test_make_function_reads_defaults():
         policy=HeapPolicy(escape_on_return=True),
     )
     builder = HeapEffectBuilder(heap, heap.locations_for_local)
+    cell = py_ast.Cell("x")
 
     effect = builder.operation_effect(
         None,
-        py_ast.MakeFunction([default], [py_ast.Cell("x")], _dummy_code()),
+        py_ast.MakeFunction([default], [cell], _dummy_code()),
     )
 
     default_loc = heap.location_for_raw(default_raw)
-    cell_loc = builder.cell_location(py_ast.Cell("x"))
+    cell_loc = builder.cell_location(cell)
     assert default_loc in effect.reads
     assert cell_loc in effect.reads
-    assert cell_loc in effect.escapes
+    assert cell_loc not in effect.escapes
 
 
 def test_make_function_creates_allocation():

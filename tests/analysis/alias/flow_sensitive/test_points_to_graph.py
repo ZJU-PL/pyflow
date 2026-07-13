@@ -218,7 +218,7 @@ def test_escaped_locations_singleton_locations():
     heap.mark_escaped(heap.locations_for_local(None, x)[0])
     graph = heap.to_points_to_graph()
     assert len(graph.escaped_locations()) == 1
-    assert len(graph.singleton_locations()) == 1
+    assert len(graph.singleton_locations()) == 2
 
 
 def test_graph_len_and_bool():
@@ -290,7 +290,8 @@ def test_never_escapes_for_unknown_location():
     unknown = HeapLocation(
         HeapObject(HeapObjectKind.UNKNOWN, "unknown", "unknown")
     )
-    assert graph.never_escapes(unknown)
+    assert not graph.never_escapes(unknown)
+    assert graph.is_escaped(unknown)
 
 
 def test_single_reference_for_unknown_location():
@@ -300,7 +301,8 @@ def test_single_reference_for_unknown_location():
     unknown = HeapLocation(
         HeapObject(HeapObjectKind.UNKNOWN, "unknown", "unknown")
     )
-    assert graph.single_reference(unknown)
+    assert not graph.single_reference(unknown)
+    assert graph.reference_count(unknown) > 1
 
 
 def test_points_to_for_unknown_location_returns_self():
