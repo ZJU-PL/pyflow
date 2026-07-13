@@ -133,28 +133,28 @@ class HeapAbstraction:
 
         Root locations (locals, globals, cells) can be strongly updated when
         the equivalence class they belong to has a single reference (ref count
-        ≤ 1).  Nested field/element locations default to weak updates because
-        Python aliasing can make another access path observe the old value,
-        unless the root is fresh and has exactly one reference.
+        ≤ 1).  A precise nested field/element of a singleton abstract object
+        can be strongly updated regardless of how many access paths reach that
+        object: the concrete write overwrites the same field for all aliases.
+        Operation-level transfer separately downgrades writes through multiple
+        possible receiver roots.
 
         Immutable types skip the reference-count check entirely for root
         locations: reassignment always produces a fresh bind, so strong
         updates are always safe.
         """
-        if location.root in self._escaped_objects:
-            return UpdatePolicy.WEAK
         if self._is_immutable_type(location.root):
             return UpdatePolicy.STRONG if not location.is_nested() else UpdatePolicy.WEAK
         if not location.root.is_singleton():
             return UpdatePolicy.WEAK
         if not location.is_precise():
             return UpdatePolicy.WEAK
-        ref_count = self.reference_count_for_root(location.root)
-        if not location.is_nested():
-            return UpdatePolicy.STRONG if ref_count <= 1 else UpdatePolicy.WEAK
-        if self.policy.allow_strong_nested_fresh and ref_count <= 1:
+        if location.is_nested() and self.policy.allow_strong_nested_fresh:
             return UpdatePolicy.STRONG
-        return UpdatePolicy.WEAK
+        if location.is_nested():
+            return UpdatePolicy.WEAK
+        ref_count = self.reference_count_for_root(location.root)
+        return UpdatePolicy.STRONG if ref_count <= 1 else UpdatePolicy.WEAK
 
     def snapshot_environment(self) -> HeapEnvironment:
         """Capture all path-dependent binding and escape metadata."""
@@ -505,6 +505,31 @@ class HeapAbstraction:
         self.storage_overrides.pop(key, None)
         raw = self._raw_storage_provider(procedure, local)
         self._assign_site(key, raw)
+
+    def clear_local_binding(self, procedure: object, local: object) -> None:
+        """Record that *local* currently contains no heap-relevant value."""
+        if not self._is_named_local(local):
+            return
+        key = self._local_key(procedure, local)
+        name = getattr(local, "name", None)
+        if isinstance(name, str):
+            self._local_names[key] = name
+        old_site = self.allocation_sites.pop(key, None)
+        if old_site is not None:
+            self._decr_site_ref(old_site)
+        self.storage_overrides[key] = ()
+        if isinstance(name, str):
+            proc_id = id(procedure)
+            for other_key in list(self.storage_overrides):
+                if (
+                    other_key != key
+                    and other_key[0] == proc_id
+                    and self._local_names.get(other_key) == name
+                ):
+                    self.storage_overrides[other_key] = ()
+                    other_site = self.allocation_sites.pop(other_key, None)
+                    if other_site is not None:
+                        self._decr_site_ref(other_site)
 
     def _sync_name_bindings(
         self,
@@ -875,14 +900,29 @@ class HeapAbstraction:
         label: str | None = None,
         type_hint: str | None = None,
     ) -> HeapObject:
-        display = label or str(name)
+        cell_name = getattr(name, "name", name)
+        display = label or str(cell_name)
+        has_identity = hasattr(name, "name")
+        key = (
+            "cell-object",
+            id(name),
+            cell_name,
+        ) if has_identity else ("cell-name", cell_name)
         return self._object(
             HeapObjectKind.CELL,
-            ("cell", name),
+            key,
             display,
             type_hint=type_hint,
-            freshness=HeapObjectFreshness.FRESH,
-            escape=HeapEscapeState.UNKNOWN,
+            freshness=(
+                HeapObjectFreshness.FRESH
+                if has_identity
+                else HeapObjectFreshness.SUMMARY
+            ),
+            escape=(
+                HeapEscapeState.LOCAL
+                if has_identity
+                else HeapEscapeState.UNKNOWN
+            ),
         )
 
     def module_object(
@@ -991,17 +1031,28 @@ class HeapAbstraction:
             if location in entries:
                 continue
             ref_count = self.reference_count_for_root(obj)
+            escaped = (
+                obj in self._escaped_objects
+                or obj.escape
+                in {
+                    HeapEscapeState.ESCAPED,
+                    HeapEscapeState.EXTERNAL,
+                    HeapEscapeState.UNKNOWN,
+                }
+            )
             entries[location] = PointsToEntry(
                 location=location,
                 label=self.display_label_for_location(location),
                 aliases=self.aliased_locations(location),
                 ref_count=ref_count,
-                is_escaped=obj in self._escaped_objects,
-                is_singleton=obj.is_singleton()
-                and obj not in self._escaped_objects,
+                is_escaped=escaped,
+                is_singleton=obj.is_singleton(),
                 update_policy=self.update_policy_for_location(location),
             )
-        return PointsToGraph(entries=entries)
+        return PointsToGraph(
+            entries=entries,
+            allow_strong_nested_fresh=self.policy.allow_strong_nested_fresh,
+        )
 
     def to_dict(self) -> dict:
         """Serialize the full heap state for inspection and debugging.
@@ -1122,7 +1173,11 @@ class HeapAbstraction:
         if isinstance(site, tuple) and site and site[0] == "call_return":
             return (kind, *site)
         if self.policy.allocation_sensitivity is AllocationSensitivity.SITE:
-            return kind, id(site)
+            return (
+                (kind, id(site), tuple(context))
+                if context
+                else (kind, id(site))
+            )
         if self.policy.allocation_sensitivity is AllocationSensitivity.PROCEDURE:
             return kind, id(procedure), id(site)
         return kind, id(procedure), id(site), self._context_key(context)

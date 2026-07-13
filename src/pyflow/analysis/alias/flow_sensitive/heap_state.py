@@ -26,6 +26,7 @@ class HeapState:
     return_slots: dict[
         object, tuple[tuple[HeapLocation, ...], ...]
     ] = field(default_factory=dict)
+    yields: dict[object, tuple[HeapLocation, ...]] = field(default_factory=dict)
     raised: dict[object, tuple[HeapLocation, ...]] = field(default_factory=dict)
 
     def read(
@@ -150,6 +151,15 @@ class HeapState:
             dict.fromkeys((*self.raised.get(procedure, ()), *locations))
         )
 
+    def set_yields(
+        self,
+        procedure: object,
+        locations: tuple[HeapLocation, ...],
+    ) -> None:
+        self.yields[procedure] = tuple(
+            dict.fromkeys((*self.yields.get(procedure, ()), *locations))
+        )
+
     def set_return_slots(
         self,
         procedure: object,
@@ -194,6 +204,10 @@ class HeapState:
                     )
                     for index in range(count)
                 )
+            for procedure, values in source.yields.items():
+                joined.yields[procedure] = tuple(
+                    dict.fromkeys((*joined.yields.get(procedure, ()), *values))
+                )
             for procedure, values in source.raised.items():
                 joined.raised[procedure] = tuple(
                     dict.fromkeys((*joined.raised.get(procedure, ()), *values))
@@ -207,6 +221,7 @@ class HeapState:
         copied.escaped = set(self.escaped)
         copied.returns = dict(self.returns)
         copied.return_slots = dict(self.return_slots)
+        copied.yields = dict(self.yields)
         copied.raised = dict(self.raised)
         return copied
 
@@ -217,6 +232,7 @@ class HeapState:
             and self.escaped == other.escaped
             and self.returns == other.returns
             and self.return_slots == other.return_slots
+            and self.yields == other.yields
             and self.raised == other.raised
         )
 
