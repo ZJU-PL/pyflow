@@ -11,14 +11,12 @@ from pyflow.analysis.ifds import (
     IDESolver,
     IdentityEdgeFunction,
     IFDSProblem,
-    IFDSResult,
     IFDSSolver,
     PathEdge,
     Supergraph,
     ValueTransition,
     ZERO,
 )
-
 
 Z = ZERO
 TAINT = "taint"
@@ -74,7 +72,13 @@ class SharedCalleeProblem(IFDSProblem[str, str, str]):
         return ()
 
     def return_flow(
-        self, call_node, callee, exit_node, return_site, call_fact, exit_fact,
+        self,
+        call_node,
+        callee,
+        exit_node,
+        return_site,
+        call_fact,
+        exit_fact,
     ):
         if exit_fact == "tainted_arg":
             return (TAINT,)
@@ -122,7 +126,13 @@ class SameFactFromTwoCallSitesProblem(IFDSProblem[str, str, str]):
         return (fact,)
 
     def return_flow(
-        self, call_node, callee, exit_node, return_site, call_fact, exit_fact,
+        self,
+        call_node,
+        callee,
+        exit_node,
+        return_site,
+        call_fact,
+        exit_fact,
     ):
         return (exit_fact,)
 
@@ -161,7 +171,13 @@ class ThreeDeepCallChainProblem(IFDSProblem[str, str, str]):
         return (fact,)
 
     def return_flow(
-        self, call_node, callee, exit_node, return_site, call_fact, exit_fact,
+        self,
+        call_node,
+        callee,
+        exit_node,
+        return_site,
+        call_fact,
+        exit_fact,
     ):
         return (exit_fact,)
 
@@ -211,9 +227,17 @@ class SplitCallIDEProblem(IDEProblem[str, str, str, frozenset[str]]):
         return {("main.entry", Z): frozenset()}
 
     def normal_flow(self, node, successor, fact):
-        if node == "main.entry" and successor in {"main.call1", "main.call2"} and fact is Z:
+        if (
+            node == "main.entry"
+            and successor in {"main.call1", "main.call2"}
+            and fact is Z
+        ):
             return (ValueTransition("d", IdentityEdgeFunction()),)
-        if node in {"main.ret1", "main.ret2"} and successor == "main.exit" and fact == "d":
+        if (
+            node in {"main.ret1", "main.ret2"}
+            and successor == "main.exit"
+            and fact == "d"
+        ):
             return (ValueTransition("d", IdentityEdgeFunction()),)
         if node == "callee.entry" and successor == "callee.exit" and fact == "p":
             return (ValueTransition("p", _AccumLabel(frozenset({"summary"}))),)
@@ -229,7 +253,13 @@ class SplitCallIDEProblem(IDEProblem[str, str, str, frozenset[str]]):
         return ()
 
     def return_flow(
-        self, call_node, callee, exit_node, return_site, call_fact, exit_fact,
+        self,
+        call_node,
+        callee,
+        exit_node,
+        return_site,
+        call_fact,
+        exit_fact,
     ):
         if (
             callee == "callee"
@@ -286,7 +316,13 @@ class RecursiveContextProblem(IFDSProblem[str, str, str]):
         return ()
 
     def return_flow(
-        self, call_node, callee, exit_node, return_site, call_fact, exit_fact,
+        self,
+        call_node,
+        callee,
+        exit_node,
+        return_site,
+        call_fact,
+        exit_fact,
     ):
         return (exit_fact,) if exit_fact != "depth_0" else (Z,)
 
@@ -446,7 +482,8 @@ class TestContextSensitive:
         assert sens.is_reached("shared.sink", "clean_arg")
 
         sink_edges = [
-            e for e in sens.path_edges()
+            e
+            for e in sens.path_edges()
             if e.node == "shared.sink" and e.fact == "tainted_arg"
         ]
         assert len(sink_edges) >= 1
@@ -460,7 +497,9 @@ class TestContextSensitive:
         result = IFDSSolver(max_call_string_depth=3).solve(problem)
 
         edges = list(result.path_edges())
-        sink_edges = [e for e in edges if e.node == "shared.sink" and e.fact == "tainted_arg"]
+        sink_edges = [
+            e for e in edges if e.node == "shared.sink" and e.fact == "tainted_arg"
+        ]
         assert len(sink_edges) > 0
         for e in sink_edges:
             assert e.context is not None
@@ -471,7 +510,6 @@ class TestContextSensitive:
         problem = RecursiveContextProblem(sg)
         result = IFDSSolver(max_call_string_depth=5).solve(problem)
         assert result.is_reached("recurse.sink", "depth_3")
-
 
     def test_same_fact_isolated_by_context(self):
         """Same fact from two call sites -> distinct path edges with context."""
@@ -489,18 +527,16 @@ class TestContextSensitive:
             for e in insens.path_edges()
             if e.node == "leak.sink" and e.fact == "secret"
         ]
-        assert len(insens_edges) == 1, (
-            "Context-insensitive should merge same (node,fact) into one path edge"
-        )
+        assert (
+            len(insens_edges) == 1
+        ), "Context-insensitive should merge same (node,fact) into one path edge"
 
         sens_edges = [
-            e
-            for e in sens.path_edges()
-            if e.node == "leak.sink" and e.fact == "secret"
+            e for e in sens.path_edges() if e.node == "leak.sink" and e.fact == "secret"
         ]
-        assert len(sens_edges) == 2, (
-            "Context-sensitive should have distinct path edges per call site"
-        )
+        assert (
+            len(sens_edges) == 2
+        ), "Context-sensitive should have distinct path edges per call site"
         contexts = {e.context for e in sens_edges}
         assert len(contexts) == 2
         for ctx in contexts:
@@ -525,9 +561,9 @@ class TestContextSensitive:
         ]
         for e in shallow_edges:
             assert isinstance(e.context, CallContext)
-            assert len(e.context.call_sites) == 1, (
-                f"max_depth=1 should truncate to 1 call site, got {len(e.context.call_sites)}"
-            )
+            assert (
+                len(e.context.call_sites) == 1
+            ), f"max_depth=1 should truncate to 1 call site, got {len(e.context.call_sites)}"
             assert e.context.max_depth == 1
 
         deep_edges = [
@@ -537,9 +573,26 @@ class TestContextSensitive:
         ]
         for e in deep_edges:
             assert isinstance(e.context, CallContext)
-            assert len(e.context.call_sites) == 2, (
-                f"max_depth=3 should preserve 2 call sites, got {len(e.context.call_sites)}"
-            )
+            assert (
+                len(e.context.call_sites) == 2
+            ), f"max_depth=3 should preserve 2 call sites, got {len(e.context.call_sites)}"
+
+    def test_return_restores_exact_caller_context_after_truncation(self):
+        problem = ThreeDeepCallChainProblem(_make_three_deep_supergraph())
+        result = IFDSSolver(max_call_string_depth=1).solve(problem)
+
+        mid_return_contexts = {
+            edge.context
+            for edge in result.path_edges()
+            if edge.node == "mid.call_ret" and edge.fact == "payload"
+        }
+        main_return_contexts = {
+            edge.context
+            for edge in result.path_edges()
+            if edge.node == "main.call_ret" and edge.fact == "payload"
+        }
+        assert mid_return_contexts == {CallContext(max_depth=1).push("main.call")}
+        assert main_return_contexts == {CallContext(max_depth=1)}
 
     def test_context_insensitive_has_fewer_path_edges(self):
         """Context-insensitive solver should merge facts -> fewer unique path edges."""
@@ -549,9 +602,9 @@ class TestContextSensitive:
         insens = IFDSSolver().solve(problem)
         sens = IFDSSolver(max_call_string_depth=3).solve(problem)
 
-        assert len(sens.path_edges()) > len(insens.path_edges()), (
-            "Context sensitivity should produce more unique path edges"
-        )
+        assert len(sens.path_edges()) > len(
+            insens.path_edges()
+        ), "Context sensitivity should produce more unique path edges"
 
     def test_recursive_context_merged_at_limit(self):
         """Recursive calls beyond max_depth should have bounded contexts."""
@@ -562,9 +615,9 @@ class TestContextSensitive:
 
         for e in bounded.path_edges():
             if e.context is not None and isinstance(e.context, CallContext):
-                assert len(e.context.call_sites) <= 2, (
-                    "Contexts should never exceed max_call_string_depth=2"
-                )
+                assert (
+                    len(e.context.call_sites) <= 2
+                ), "Contexts should never exceed max_call_string_depth=2"
 
 
 class TestCallContextOperations:
@@ -605,20 +658,26 @@ class TestIDESensitivity:
         call2_ctx = CallContext(max_depth=3).push("main.call2")
 
         assert result.value_at("callee.entry", "p") == frozenset({"one", "two"})
-        assert result.value_at_context("callee.entry", "p", call1_ctx) == frozenset({"one"})
-        assert result.value_at_context("callee.entry", "p", call2_ctx) == frozenset({"two"})
+        assert result.value_at_context("callee.entry", "p", call1_ctx) == frozenset(
+            {"one"}
+        )
+        assert result.value_at_context("callee.entry", "p", call2_ctx) == frozenset(
+            {"two"}
+        )
 
     def test_ide_contextual_value_at_return_site(self):
         sg = _make_split_call_supergraph()
         problem = SplitCallIDEProblem(sg)
         result = IDESolver(max_call_string_depth=3).solve(problem)
 
-        call1_ctx = CallContext(max_depth=3).push("main.call1")
-        call2_ctx = CallContext(max_depth=3).push("main.call2")
         root_ctx = CallContext(max_depth=3)
 
-        assert result.value_at_context("main.ret1", "d", root_ctx) == frozenset({"one", "summary"})
-        assert result.value_at_context("main.ret2", "d", root_ctx) == frozenset({"two", "summary"})
+        assert result.value_at_context("main.ret1", "d", root_ctx) == frozenset(
+            {"one", "summary"}
+        )
+        assert result.value_at_context("main.ret2", "d", root_ctx) == frozenset(
+            {"two", "summary"}
+        )
 
 
 class TestPathEdgeWithContext:

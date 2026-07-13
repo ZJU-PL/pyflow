@@ -43,13 +43,25 @@ def test_typed_exception_routes_only_to_first_matching_handler():
                         ast.Suite([]),
                         ast.Local("TypeError"),
                         None,
-                        ast.Suite([ast.Assign(ast.Existing(ast.program.Object(1)), [handled_type])]),
+                        ast.Suite(
+                            [
+                                ast.Assign(
+                                    ast.Existing(ast.program.Object(1)), [handled_type]
+                                )
+                            ]
+                        ),
                     ),
                     ast.ExceptionHandler(
                         ast.Suite([]),
                         ast.Local("ValueError"),
                         None,
-                        ast.Suite([ast.Assign(ast.Existing(ast.program.Object(1)), [handled_value])]),
+                        ast.Suite(
+                            [
+                                ast.Assign(
+                                    ast.Existing(ast.program.Object(1)), [handled_value]
+                                )
+                            ]
+                        ),
                     ),
                 ],
                 None,
@@ -73,8 +85,7 @@ def test_typed_exception_routes_only_to_first_matching_handler():
 
     assert any("1" in scope for scope in successor_scopes)
     assert not any(
-        scope[:4] == ("0", "try", "handler", "0")
-        for scope in successor_scopes
+        scope[:4] == ("0", "try", "handler", "0") for scope in successor_scopes
     )
 
 
@@ -82,13 +93,11 @@ def test_context_manager_calls_are_classified_semantically(tmp_path):
     from pyflow.analysis.ifds.api import load_analysis_session
 
     target = tmp_path / "ctx.py"
-    target.write_text(
-        """
+    target.write_text("""
 def main():
     with open('x') as handle:
         handle.read()
-"""
-    )
+""")
     session = load_analysis_session([target], root_function="main")
     roles = {
         effect.semantic_role
@@ -104,19 +113,23 @@ def test_async_and_generator_procedure_semantics_are_retained(tmp_path):
     from pyflow.analysis.ifds.api import load_analysis_session
 
     target = tmp_path / "async_gen.py"
-    target.write_text(
-        """
+    target.write_text("""
 async def async_value(value):
     return value
 
 async def async_main(value):
     return await async_value(value)
 
+async def async_protocols(manager, values):
+    async with manager as resource:
+        await resource.read()
+    async for value in values:
+        await async_value(value)
+
 def generate(values):
     for value in values:
         yield value
-"""
-    )
+""")
     session = load_analysis_session([target])
     semantics = {
         cfg.code.codeName(): session.adapter.procedure_semantics(cfg)
@@ -125,6 +138,21 @@ def generate(values):
 
     assert semantics["async_main"].is_async
     assert semantics["generate"].is_generator
+
+    suspension_kinds = {
+        effect.kind
+        for node in session.adapter.supergraph.ordered_nodes()
+        for effect in session.adapter.suspension_effects_of(node)
+    }
+    assert {"await", "yield"} <= suspension_kinds
+
+    roles = {
+        effect.semantic_role
+        for node in session.adapter.supergraph.ordered_nodes()
+        for effect in (session.adapter.effect_of(node),)
+        if isinstance(effect, CallEffect) and effect.semantic_role
+    }
+    assert {"async_context_enter", "async_context_exit", "async_iter"} <= roles
 
 
 def test_return_inside_try_runs_finally_before_procedure_exit():
@@ -140,9 +168,7 @@ def test_return_inside_try_runs_finally_before_procedure_exit():
                 [],
                 None,
                 None,
-                ast.Suite(
-                    [ast.Assign(ast.Existing(ast.program.Object(1)), [cleanup])]
-                ),
+                ast.Suite([ast.Assign(ast.Existing(ast.program.Object(1)), [cleanup])]),
             ),
             ast.Assign(ast.Existing(ast.program.Object(2)), [unreachable]),
         ],
