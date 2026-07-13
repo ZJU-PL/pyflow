@@ -83,6 +83,11 @@ available on a program.  The engine is **flow-sensitive** and
 separate path conditions.  This keeps the heap pass lightweight and independent
 from the older storegraph/lifetime pipeline.
 
+The complete flow value contains both heap field/container contents and the
+local binding environment.  Consequently, assignments made on one branch are
+not visible while analyzing a sibling branch, and the join retains all roots a
+local may reference afterward.
+
 The transfer engine owns a ``HeapState`` value map layered on top of
 ``HeapAbstraction``:
 
@@ -94,7 +99,11 @@ The transfer engine owns a ``HeapState`` value map layered on top of
 * reads from an exact path return exact values plus any overlapping wildcard
   contamination
 * direct calls bind actuals to formals and route return locations back to
-  assignment targets when a concrete ``Code`` object is available
+  assignment targets when a concrete ``Code`` object is available; multiple
+  result positions remain separate across control-flow joins
+* collection literals retain element/key-to-value edges even when they are
+  nested directly in a return or another expression
+* function values retain default and closure-cell reachability
 
 Compound control flow is joined path-insensitively:
 
@@ -103,8 +112,13 @@ Compound control flow is joined path-insensitively:
 * loops iterate the body to a bounded fixed point and join the entry state with
   body effects, so zero-iteration and one-or-more-iteration outcomes are both
   represented
-* ``try``/``except``/``finally`` joins possible body and handler states before
-  applying ``finally``
+* ``try``/``except``/``finally`` joins handler inputs from operation prefixes
+  that may throw, then joins possible body and handler states before applying
+  ``finally``; ``return``, ``raise``, ``break``, and ``continue`` are modeled as
+  explicit exits, so unreachable following statements are not analyzed
+* short-circuit expressions join the states where evaluation stops with states
+  where later terms execute, preserving conditional calls and named-expression
+  assignments
 * direct-call summaries are cached by callee and coarse actual root bindings;
   recursive call cycles fall back to conservative return roots
 
@@ -113,6 +127,24 @@ by ``return obj.x`` and improves precision for unrelated fields or literal
 dictionary keys such as ``d["a"]`` versus ``d["b"]``.  It intentionally remains
 path-insensitive: facts from different branches are joined in one state rather
 than guarded by branch predicates.
+
+Soundness Scope
+---------------
+
+The intended soundness contract is a may-analysis over bounded, closed-world
+Python IR.  Within that contract, the transfer engine conservatively handles
+ordinary assignments and deletes, fields/cells/globals, literal and dynamic
+container accesses, unpacking and phi nodes, synchronous and asynchronous
+expression forms, definitions, exceptions/finally, and resolved direct calls.
+Unconstrained parameters share an external summary root so distinct parameters
+are allowed to alias.
+
+The contract deliberately excludes unresolved or reflective call targets,
+recursive call cycles, and loops that do not converge within the configured
+iteration bound.  Native code, descriptors/metaclasses, monkey-patching, and
+other mutations not represented in the IR likewise require an explicit model.
+For those features the result should be treated as a useful conservative model,
+not as a proof of whole-Python soundness.
 
 Update Policy
 -------------
@@ -124,7 +156,8 @@ Nested field and element writes are strong only when
 
 Escapes are tracked for:
 
-* values stored into object fields, containers, globals, or cells
+* values reachable through object fields, containers, globals, cells,
+  function defaults, or closures once their owning root escapes
 * values returned from procedures
 * values passed to unresolved calls
 

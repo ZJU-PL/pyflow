@@ -195,6 +195,10 @@ available on a program.  The engine is <strong>flow-sensitive</strong> and
 <strong>path-insensitive</strong>: it respects statement order, but it does not maintain
 separate path conditions.  This keeps the heap pass lightweight and independent
 from the older storegraph/lifetime pipeline.</p>
+<p>The complete flow value contains both heap field/container contents and the
+local binding environment.  Consequently, assignments made on one branch are
+not visible while analyzing a sibling branch, and the join retains all roots a
+local may reference afterward.</p>
 <p>The transfer engine owns a <code class="docutils literal notranslate"><span class="pre">HeapState</span></code> value map layered on top of
 <code class="docutils literal notranslate"><span class="pre">HeapAbstraction</span></code>:</p>
 <ul class="simple">
@@ -206,7 +210,11 @@ paths instead of flattening unrelated fields or keys</p></li>
 <li><p>reads from an exact path return exact values plus any overlapping wildcard
 contamination</p></li>
 <li><p>direct calls bind actuals to formals and route return locations back to
-assignment targets when a concrete <code class="docutils literal notranslate"><span class="pre">Code</span></code> object is available</p></li>
+assignment targets when a concrete <code class="docutils literal notranslate"><span class="pre">Code</span></code> object is available; multiple
+result positions remain separate across control-flow joins</p></li>
+<li><p>collection literals retain element/key-to-value edges even when they are
+nested directly in a return or another expression</p></li>
+<li><p>function values retain default and closure-cell reachability</p></li>
 </ul>
 <p>Compound control flow is joined path-insensitively:</p>
 <ul class="simple">
@@ -215,8 +223,13 @@ the resulting states</p></li>
 <li><p>loops iterate the body to a bounded fixed point and join the entry state with
 body effects, so zero-iteration and one-or-more-iteration outcomes are both
 represented</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">try</span></code>/<code class="docutils literal notranslate"><span class="pre">except</span></code>/<code class="docutils literal notranslate"><span class="pre">finally</span></code> joins possible body and handler states before
-applying <code class="docutils literal notranslate"><span class="pre">finally</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">try</span></code>/<code class="docutils literal notranslate"><span class="pre">except</span></code>/<code class="docutils literal notranslate"><span class="pre">finally</span></code> joins handler inputs from operation prefixes
+that may throw, then joins possible body and handler states before applying
+<code class="docutils literal notranslate"><span class="pre">finally</span></code>; <code class="docutils literal notranslate"><span class="pre">return</span></code>, <code class="docutils literal notranslate"><span class="pre">raise</span></code>, <code class="docutils literal notranslate"><span class="pre">break</span></code>, and <code class="docutils literal notranslate"><span class="pre">continue</span></code> are modeled as
+explicit exits, so unreachable following statements are not analyzed</p></li>
+<li><p>short-circuit expressions join the states where evaluation stops with states
+where later terms execute, preserving conditional calls and named-expression
+assignments</p></li>
 <li><p>direct-call summaries are cached by callee and coarse actual root bindings;
 recursive call cycles fall back to conservative return roots</p></li>
 </ul>
@@ -226,6 +239,22 @@ dictionary keys such as <code class="docutils literal notranslate"><span class="
 path-insensitive: facts from different branches are joined in one state rather
 than guarded by branch predicates.</p>
 </section>
+<section id="soundness-scope">
+<h2>Soundness Scope<a class="headerlink" href="#soundness-scope" title="Link to this heading"></a></h2>
+<p>The intended soundness contract is a may-analysis over bounded, closed-world
+Python IR.  Within that contract, the transfer engine conservatively handles
+ordinary assignments and deletes, fields/cells/globals, literal and dynamic
+container accesses, unpacking and phi nodes, synchronous and asynchronous
+expression forms, definitions, exceptions/finally, and resolved direct calls.
+Unconstrained parameters share an external summary root so distinct parameters
+are allowed to alias.</p>
+<p>The contract deliberately excludes unresolved or reflective call targets,
+recursive call cycles, and loops that do not converge within the configured
+iteration bound.  Native code, descriptors/metaclasses, monkey-patching, and
+other mutations not represented in the IR likewise require an explicit model.
+For those features the result should be treated as a useful conservative model,
+not as a proof of whole-Python soundness.</p>
+</section>
 <section id="update-policy">
 <h2>Update Policy<a class="headerlink" href="#update-policy" title="Link to this heading"></a></h2>
 <p>Writes are represented as <code class="docutils literal notranslate"><span class="pre">HeapWrite(location,</span> <span class="pre">policy)</span></code>.  A write is strong
@@ -234,7 +263,8 @@ Nested field and element writes are strong only when
 <code class="docutils literal notranslate"><span class="pre">allow_strong_nested_fresh</span></code> is enabled.</p>
 <p>Escapes are tracked for:</p>
 <ul class="simple">
-<li><p>values stored into object fields, containers, globals, or cells</p></li>
+<li><p>values reachable through object fields, containers, globals, cells,
+function defaults, or closures once their owning root escapes</p></li>
 <li><p>values returned from procedures</p></li>
 <li><p>values passed to unresolved calls</p></li>
 </ul>
