@@ -35,6 +35,7 @@ dependencies = [
     "asciitree",
     "graphviz",
     "networkx",
+    "packaging",
     "rstr",
     "typing_inspect>=0.9.0"
 ]
