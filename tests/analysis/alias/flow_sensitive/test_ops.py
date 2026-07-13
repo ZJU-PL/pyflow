@@ -32,8 +32,8 @@ def _code(name: str, body: py_ast.Suite, *, params=(), returns=()):
     )
 
 
-def test_binary_op_result_creates_fresh_binding():
-    """BinaryOp creates a new object — result must NOT alias operands."""
+def test_binary_op_result_conservatively_includes_overloaded_operands():
+    """An overloaded binary operator may return either operand."""
     x = py_ast.Local("x")
     y = py_ast.Local("y")
     z = py_ast.Local("z")
@@ -51,10 +51,11 @@ def test_binary_op_result_creates_fresh_binding():
 
     x_loc = heap.locations_for_local(code, x)[0]
     z_locs = heap.locations_for_local(code, z)
-    assert len(z_locs) == 0
+    assert x_loc in z_locs
+    assert any(graph.may_alias(location, x_loc) for location in z_locs)
 
 
-def test_unary_op_result_creates_fresh_binding():
+def test_unary_op_result_conservatively_includes_overloaded_operand():
     x = py_ast.Local("x")
     z = py_ast.Local("z")
     code = _code(
@@ -68,8 +69,10 @@ def test_unary_op_result_creates_fresh_binding():
     graph = analysis.analyze(None, code)
     heap = analysis.heap
 
+    x_loc = heap.locations_for_local(code, x)[0]
     z_locs = heap.locations_for_local(code, z)
-    assert len(z_locs) == 0
+    assert x_loc in z_locs
+    assert any(graph.may_alias(location, x_loc) for location in z_locs)
 
 
 def test_named_expr_result_flows_value_locations():
@@ -246,7 +249,7 @@ def test_local_delete_removes_binding():
     )
 
 
-def test_getslice_reads_container_not_aliased():
+def test_getslice_conservatively_allows_custom_getitem_to_return_container():
     lst = py_ast.Local("lst")
     result = py_ast.Local("result")
     code = _code(
@@ -269,7 +272,5 @@ def test_getslice_reads_container_not_aliased():
     lst_location = heap.locations_for_local(code, lst)[0]
     result_locations = heap.locations_for_local(code, result)
 
-    assert not result_locations, (
-        "GetSlice result should have no locations (unknown value)"
-    )
-    assert lst_location is not None
+    assert lst_location in result_locations
+    assert any(graph.may_alias(location, lst_location) for location in result_locations)

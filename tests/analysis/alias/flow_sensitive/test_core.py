@@ -369,13 +369,14 @@ def test_keeps_distinct_instance_fields_separate():
             [
                 py_ast.Assign(py_ast.BuildList([]), [a]),
                 py_ast.Assign(py_ast.BuildList([]), [b]),
+                py_ast.Assign(py_ast.BuildList([]), [va]),
+                py_ast.Assign(py_ast.BuildList([]), [vb]),
                 py_ast.SetAttr(va, a, _existing("payload")),
                 py_ast.SetAttr(vb, b, _existing("payload")),
                 py_ast.Assign(py_ast.GetAttr(a, _existing("payload")), [loaded_a]),
                 py_ast.Assign(py_ast.GetAttr(b, _existing("payload")), [loaded_b]),
             ]
         ),
-        params=(va, vb),
     )
 
     analysis = HeapAnalysis()
@@ -472,6 +473,439 @@ def test_param_return_preserves_alias_through_direct_call():
     assert graph.aliased(result_location, arg_location), (
         "Call result from identity function should alias the argument"
     )
+
+
+def test_direct_call_keyword_arguments_bind_by_name():
+    first = py_ast.Local("first")
+    second = py_ast.Local("second")
+    callee_ret = py_ast.Local("callee_ret")
+    callee = _code(
+        "choose_first",
+        py_ast.Suite([py_ast.Return([first])]),
+        params=(first, second),
+        returns=(callee_ret,),
+    )
+    left = py_ast.Local("left")
+    right = py_ast.Local("right")
+    result = py_ast.Local("result")
+    caller = _code(
+        "caller",
+        py_ast.Suite(
+            [
+                py_ast.Assign(py_ast.BuildList([]), [left]),
+                py_ast.Assign(py_ast.BuildList([]), [right]),
+                py_ast.Assign(
+                    py_ast.DirectCall(
+                        callee,
+                        None,
+                        [],
+                        [("second", right), ("first", left)],
+                        None,
+                        None,
+                    ),
+                    [result],
+                ),
+            ]
+        ),
+    )
+
+    analysis = HeapAnalysis()
+    graph = analysis.analyze(None, caller)
+    heap = analysis.heap
+    assert heap is not None
+
+    result_location = heap.locations_for_local(caller, result)[0]
+    left_location = heap.locations_for_local(caller, left)[0]
+    right_location = heap.locations_for_local(caller, right)[0]
+    assert graph.aliased(result_location, left_location)
+    assert not graph.may_alias(result_location, right_location)
+
+
+def test_direct_call_evaluates_keywords_in_source_order():
+    first = py_ast.Local("first")
+    second = py_ast.Local("second")
+    callee_ret = py_ast.Local("callee_ret")
+    callee = _code(
+        "first_value",
+        py_ast.Suite([py_ast.Return([first])]),
+        params=(first, second),
+        returns=(callee_ret,),
+    )
+    original = py_ast.Local("original")
+    replacement = py_ast.Local("replacement")
+    selected = py_ast.Local("selected")
+    result = py_ast.Local("result")
+    caller = _code(
+        "caller",
+        py_ast.Suite(
+            [
+                py_ast.Assign(py_ast.BuildList([]), [original]),
+                py_ast.Assign(py_ast.BuildList([]), [replacement]),
+                py_ast.Assign(original, [selected]),
+                py_ast.Assign(
+                    py_ast.DirectCall(
+                        callee,
+                        None,
+                        [],
+                        [
+                            ("second", py_ast.NamedExpr(selected, replacement)),
+                            ("first", selected),
+                        ],
+                        None,
+                        None,
+                    ),
+                    [result],
+                ),
+            ]
+        ),
+    )
+
+    analysis = HeapAnalysis()
+    graph = analysis.analyze(None, caller)
+    heap = analysis.heap
+    assert heap is not None
+
+    assert graph.aliased(
+        heap.locations_for_local(caller, result)[0],
+        heap.locations_for_local(caller, replacement)[0],
+    )
+
+
+def test_direct_call_preserves_returns_from_multiple_control_flow_exits():
+    cond = py_ast.Local("cond")
+    left = py_ast.Local("left")
+    right = py_ast.Local("right")
+    callee_ret = py_ast.Local("callee_ret")
+    callee = _code(
+        "choose",
+        py_ast.Suite(
+            [
+                py_ast.Switch(
+                    py_ast.Condition(py_ast.Suite([]), cond),
+                    py_ast.Suite([py_ast.Return([left])]),
+                    py_ast.Suite([]),
+                ),
+                py_ast.Return([right]),
+            ]
+        ),
+        params=(cond, left, right),
+        returns=(callee_ret,),
+    )
+    actual_cond = py_ast.Local("actual_cond")
+    actual_left = py_ast.Local("actual_left")
+    actual_right = py_ast.Local("actual_right")
+    result = py_ast.Local("result")
+    caller = _code(
+        "caller",
+        py_ast.Suite(
+            [
+                py_ast.Assign(py_ast.BuildList([]), [actual_left]),
+                py_ast.Assign(py_ast.BuildList([]), [actual_right]),
+                py_ast.Assign(
+                    py_ast.DirectCall(
+                        callee,
+                        None,
+                        [actual_cond, actual_left, actual_right],
+                        [],
+                        None,
+                        None,
+                    ),
+                    [result],
+                ),
+            ]
+        ),
+        params=(actual_cond,),
+    )
+
+    analysis = HeapAnalysis()
+    graph = analysis.analyze(None, caller)
+    heap = analysis.heap
+    assert heap is not None
+
+    result_locations = heap.locations_for_local(caller, result)
+    left_location = heap.locations_for_local(caller, actual_left)[0]
+    right_location = heap.locations_for_local(caller, actual_right)[0]
+    assert left_location in result_locations
+    assert right_location in result_locations
+    assert any(graph.may_alias(loc, left_location) for loc in result_locations)
+    assert any(graph.may_alias(loc, right_location) for loc in result_locations)
+
+
+def test_direct_call_preserves_early_return_when_other_path_falls_through():
+    cond = py_ast.Local("cond")
+    payload = py_ast.Local("payload")
+    callee_ret = py_ast.Local("callee_ret")
+    callee = _code(
+        "maybe_return",
+        py_ast.Suite(
+            [
+                py_ast.Switch(
+                    py_ast.Condition(py_ast.Suite([]), cond),
+                    py_ast.Suite([py_ast.Return([payload])]),
+                    py_ast.Suite([]),
+                )
+            ]
+        ),
+        params=(cond, payload),
+        returns=(callee_ret,),
+    )
+    actual_cond = py_ast.Local("actual_cond")
+    actual_payload = py_ast.Local("actual_payload")
+    result = py_ast.Local("result")
+    caller = _code(
+        "caller",
+        py_ast.Suite(
+            [
+                py_ast.Assign(py_ast.BuildList([]), [actual_payload]),
+                py_ast.Assign(
+                    py_ast.DirectCall(
+                        callee,
+                        None,
+                        [actual_cond, actual_payload],
+                        [],
+                        None,
+                        None,
+                    ),
+                    [result],
+                ),
+            ]
+        ),
+        params=(actual_cond,),
+    )
+
+    analysis = HeapAnalysis()
+    graph = analysis.analyze(None, caller)
+    heap = analysis.heap
+    assert heap is not None
+
+    assert graph.aliased(
+        heap.locations_for_local(caller, result)[0],
+        heap.locations_for_local(caller, actual_payload)[0],
+    )
+
+
+def test_direct_call_preserves_multi_result_positions_across_branches():
+    cond = py_ast.Local("cond")
+    first_left = py_ast.Local("first_left")
+    second_left = py_ast.Local("second_left")
+    first_right = py_ast.Local("first_right")
+    second_right = py_ast.Local("second_right")
+    callee_first = py_ast.Local("callee_first")
+    callee_second = py_ast.Local("callee_second")
+    callee = _code(
+        "choose_pair",
+        py_ast.Suite(
+            [
+                py_ast.Switch(
+                    py_ast.Condition(py_ast.Suite([]), cond),
+                    py_ast.Suite([py_ast.Return([first_left, second_left])]),
+                    py_ast.Suite([py_ast.Return([first_right, second_right])]),
+                )
+            ]
+        ),
+        params=(cond, first_left, second_left, first_right, second_right),
+        returns=(callee_first, callee_second),
+    )
+
+    actual_cond = py_ast.Local("actual_cond")
+    actual_first_left = py_ast.Local("actual_first_left")
+    actual_second_left = py_ast.Local("actual_second_left")
+    actual_first_right = py_ast.Local("actual_first_right")
+    actual_second_right = py_ast.Local("actual_second_right")
+    result_first = py_ast.Local("result_first")
+    result_second = py_ast.Local("result_second")
+    caller = _code(
+        "caller",
+        py_ast.Suite(
+            [
+                py_ast.Assign(py_ast.BuildList([]), [actual_first_left]),
+                py_ast.Assign(py_ast.BuildList([]), [actual_second_left]),
+                py_ast.Assign(py_ast.BuildList([]), [actual_first_right]),
+                py_ast.Assign(py_ast.BuildList([]), [actual_second_right]),
+                py_ast.Assign(
+                    py_ast.DirectCall(
+                        callee,
+                        None,
+                        [
+                            actual_cond,
+                            actual_first_left,
+                            actual_second_left,
+                            actual_first_right,
+                            actual_second_right,
+                        ],
+                        [],
+                        None,
+                        None,
+                    ),
+                    [result_first, result_second],
+                ),
+            ]
+        ),
+        params=(actual_cond,),
+    )
+
+    analysis = HeapAnalysis()
+    graph = analysis.analyze(None, caller)
+    heap = analysis.heap
+    assert heap is not None
+
+    first_locations = heap.locations_for_local(caller, result_first)
+    second_locations = heap.locations_for_local(caller, result_second)
+    expected_first = {
+        *heap.locations_for_local(caller, actual_first_left),
+        *heap.locations_for_local(caller, actual_first_right),
+    }
+    expected_second = {
+        *heap.locations_for_local(caller, actual_second_left),
+        *heap.locations_for_local(caller, actual_second_right),
+    }
+
+    assert set(first_locations) == expected_first
+    assert set(second_locations) == expected_second
+    assert not any(
+        graph.may_alias(first, second)
+        for first in first_locations
+        for second in second_locations
+    )
+
+
+def test_direct_call_binds_self_argument_to_self_parameter():
+    self_param = py_ast.Local("self")
+    callee_ret = py_ast.Local("callee_ret")
+    callee = py_ast.Code(
+        "identity_method",
+        py_ast.CodeParameters(
+            selfparam=self_param,
+            posonlyparams=[],
+            posonlynames=[],
+            params=[],
+            paramnames=[],
+            defaults=[],
+            vparam=None,
+            kparam=None,
+            returnparams=[callee_ret],
+            type_params=None,
+        ),
+        py_ast.Suite([py_ast.Return([self_param])]),
+    )
+    receiver = py_ast.Local("receiver")
+    result = py_ast.Local("result")
+    caller = _code(
+        "caller",
+        py_ast.Suite(
+            [
+                py_ast.Assign(py_ast.BuildList([]), [receiver]),
+                py_ast.Assign(
+                    py_ast.DirectCall(
+                        callee,
+                        receiver,
+                        [],
+                        [],
+                        None,
+                        None,
+                    ),
+                    [result],
+                ),
+            ]
+        ),
+    )
+
+    analysis = HeapAnalysis()
+    graph = analysis.analyze(None, caller)
+    heap = analysis.heap
+    assert heap is not None
+
+    assert graph.aliased(
+        heap.locations_for_local(caller, receiver)[0],
+        heap.locations_for_local(caller, result)[0],
+    )
+
+
+def test_default_object_is_shared_across_resolved_calls():
+    formal = py_ast.Local("formal")
+    callee_ret = py_ast.Local("callee_ret")
+    default = py_ast.BuildList([])
+    callee = py_ast.Code(
+        "with_default",
+        py_ast.CodeParameters(
+            selfparam=None,
+            posonlyparams=[],
+            posonlynames=[],
+            params=[formal],
+            paramnames=["formal"],
+            defaults=[default],
+            vparam=None,
+            kparam=None,
+            returnparams=[callee_ret],
+            type_params=None,
+        ),
+        py_ast.Suite([py_ast.Return([formal])]),
+    )
+    first = py_ast.Local("first")
+    second = py_ast.Local("second")
+    caller = _code(
+        "caller",
+        py_ast.Suite(
+            [
+                py_ast.Assign(
+                    py_ast.DirectCall(callee, None, [], [], None, None),
+                    [first],
+                ),
+                py_ast.Assign(
+                    py_ast.DirectCall(callee, None, [], [], None, None),
+                    [second],
+                ),
+            ]
+        ),
+    )
+
+    analysis = HeapAnalysis()
+    graph = analysis.analyze(None, caller)
+    heap = analysis.heap
+    assert heap is not None
+
+    assert graph.aliased(
+        heap.locations_for_local(caller, first)[0],
+        heap.locations_for_local(caller, second)[0],
+    )
+
+
+def test_resolved_call_nested_in_collection_uses_callee_summary():
+    formal = py_ast.Local("formal")
+    callee_ret = py_ast.Local("callee_ret")
+    callee = _code(
+        "identity",
+        py_ast.Suite([py_ast.Return([formal])]),
+        params=(formal,),
+        returns=(callee_ret,),
+    )
+    actual = py_ast.Local("actual")
+    container = py_ast.Local("container")
+    loaded = py_ast.Local("loaded")
+    nested_call = py_ast.DirectCall(callee, None, [actual], [], None, None)
+    caller = _code(
+        "caller",
+        py_ast.Suite(
+            [
+                py_ast.Assign(py_ast.BuildList([]), [actual]),
+                py_ast.Assign(py_ast.BuildList([nested_call]), [container]),
+                py_ast.Assign(
+                    py_ast.GetSubscript(container, _existing(0)),
+                    [loaded],
+                ),
+            ]
+        ),
+    )
+
+    analysis = HeapAnalysis()
+    graph = analysis.analyze(None, caller)
+    heap = analysis.heap
+    assert heap is not None
+
+    actual_location = heap.locations_for_local(caller, actual)[0]
+    loaded_locations = heap.locations_for_local(caller, loaded)
+    assert actual_location in loaded_locations
+    assert any(graph.may_alias(location, actual_location) for location in loaded_locations)
 
 
 def test_param_escape_tracked_through_direct_call():
