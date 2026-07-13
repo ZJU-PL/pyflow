@@ -84,6 +84,72 @@ def test_test_scenarios_do_not_break_on_cfg_cycles():
     assert all(s.path_description for s in scenarios)
 
 
+def test_function_test_profile_prefers_source_complexity(tmp_path):
+    source = """
+def f(x):
+    if x > 0:
+        return 1
+    elif x == 0:
+        return 0
+    return -1
+"""
+    source_path = tmp_path / "sample.py"
+    source_path.write_text(source, encoding="utf-8")
+
+    entry = DummyBlock(1)
+    tail = DummyBlock(2)
+    entry.next = tail
+
+    cfg = SimpleNamespace(entryTerminal=entry)
+    code = DummyCode("f", str(source_path), 2)
+    context = QueryContext(
+        compiler=object(),
+        program=SimpleNamespace(liveCode=[code], interface=None),
+    )
+    queries = _TestGenerationQueries(
+        context=context,
+        graph_engine=None,
+        call_graph_queries=SimpleNamespace(
+            get_callees=lambda _: [],
+            get_callers=lambda _: [],
+        ),
+        control_flow_queries=SimpleNamespace(get_cfg=lambda _: cfg),
+        data_flow_queries=SimpleNamespace(get_ipa_function_summaries=lambda *_: []),
+    )
+
+    profile = queries.get_function_test_profile("f")
+    assert profile.complexity == 3
+
+
+def test_function_test_profile_falls_back_to_cfg_complexity():
+    entry = DummyBlock(1)
+    left = DummyBlock(2)
+    right = DummyBlock(3)
+    entry.next = {"left": left, "right": right}
+    left.next = {}
+    right.next = {}
+
+    cfg = SimpleNamespace(entryTerminal=entry)
+    code = DummyCode("f", "/path/does/not/exist.py", 1)
+    context = QueryContext(
+        compiler=object(),
+        program=SimpleNamespace(liveCode=[code], interface=None),
+    )
+    queries = _TestGenerationQueries(
+        context=context,
+        graph_engine=None,
+        call_graph_queries=SimpleNamespace(
+            get_callees=lambda _: [],
+            get_callers=lambda _: [],
+        ),
+        control_flow_queries=SimpleNamespace(get_cfg=lambda _: cfg),
+        data_flow_queries=SimpleNamespace(get_ipa_function_summaries=lambda *_: []),
+    )
+
+    profile = queries.get_function_test_profile("f")
+    assert profile.complexity == 2
+
+
 def test_callgraph_uses_disambiguated_node_ids():
     src = DummyCode("foo", "/tmp/a.py", 10)
     dst = DummyCode("foo", "/tmp/b.py", 22)

@@ -68,7 +68,7 @@ pyflow = "pyflow.cli.main:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-pyflow = ["lib/**/*", "stubs/**/*"]
+pyflow = ["lib/**/*", "stubs/**/*", "analysis/pointer/_pythonstan/stubs/**/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
