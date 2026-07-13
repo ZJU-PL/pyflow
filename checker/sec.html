@@ -98,6 +98,12 @@
 <li class="toctree-l3"><a class="reference internal" href="#security-guard-detection">Security Guard Detection</a></li>
 </ul>
 </li>
+<li class="toctree-l2"><a class="reference internal" href="#local-supply-chain-analysis">Local Supply-Chain Analysis</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#sbom-generation">SBOM Generation</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#distribution-auditing">Distribution Auditing</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#output">Output</a></li>
+</ul>
+</li>
 <li class="toctree-l2"><a class="reference internal" href="#configuration-and-testing">Configuration and Testing</a></li>
 </ul>
 </li>
@@ -383,6 +389,42 @@ Object-Oriented Safety
 <li><p><code class="docutils literal notranslate"><span class="pre">is_guarded(issue,</span> <span class="pre">guards)</span></code> — Check whether an issue’s line is protected by a recognized guard.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">apply_guard_aware_demotion(issue,</span> <span class="pre">guards)</span></code> — Demote severity when a finding is structurally guarded.</p></li>
 </ul>
+</section>
+</section>
+<section id="local-supply-chain-analysis">
+<h2>Local Supply-Chain Analysis<a class="headerlink" href="#local-supply-chain-analysis" title="Link to this heading"></a></h2>
+<p><strong>supply_chain.py</strong>: Local-only supply-chain analysis for Python packages.</p>
+<section id="sbom-generation">
+<h3>SBOM Generation<a class="headerlink" href="#sbom-generation" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">scan_targets(targets,</span> <span class="pre">recursive,</span> <span class="pre">exclude)</span></code> — Scan local paths for
+package metadata and produce <code class="docutils literal notranslate"><span class="pre">SupplyChainScan</span></code> containing components and
+findings</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">build_cyclonedx_document(scan)</span></code> — Build a CycloneDX 1.3 JSON document
+from a scan result</p></li>
+<li><p>Scans <code class="docutils literal notranslate"><span class="pre">METADATA</span></code> (PEP 566), <code class="docutils literal notranslate"><span class="pre">pyproject.toml</span></code>, <code class="docutils literal notranslate"><span class="pre">poetry.lock</span></code>, and
+<code class="docutils literal notranslate"><span class="pre">requirements.txt</span></code> files for dependency metadata</p></li>
+</ul>
+</section>
+<section id="distribution-auditing">
+<h3>Distribution Auditing<a class="headerlink" href="#distribution-auditing" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">RECORD</span></code> integrity verification: validates file existence, hash
+consistency, and detects unlisted files in <code class="docutils literal notranslate"><span class="pre">.dist-info</span></code> directories</p></li>
+<li><p>Archive safety: detects absolute paths, parent-directory traversal
+(<code class="docutils literal notranslate"><span class="pre">../</span></code>), and oversized members in zip, tar, and wheel files</p></li>
+<li><p>Remote requirement detection: flags <code class="docutils literal notranslate"><span class="pre">requirements.txt</span></code> entries using
+remote URLs</p></li>
+</ul>
+</section>
+<section id="output">
+<h3>Output<a class="headerlink" href="#output" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">format_findings_text(scan)</span></code> — Human-readable text output for findings</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">build_cyclonedx_document(scan)</span></code> — CycloneDX JSON for SBOM</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">SupplyChainFinding.to_dict()</span></code> — Structured dict for JSON serialization</p></li>
+</ul>
+<p>All operations work offline from local files.</p>
 </section>
 </section>
 <section id="configuration-and-testing">

@@ -276,6 +276,41 @@ Security Guard Detection
 - ``is_guarded(issue, guards)`` — Check whether an issue's line is protected by a recognized guard.
 - ``apply_guard_aware_demotion(issue, guards)`` — Demote severity when a finding is structurally guarded.
 
+Local Supply-Chain Analysis
+----------------------------
+
+**supply_chain.py**: Local-only supply-chain analysis for Python packages.
+
+SBOM Generation
+~~~~~~~~~~~~~~~
+
+- ``scan_targets(targets, recursive, exclude)`` — Scan local paths for
+  package metadata and produce ``SupplyChainScan`` containing components and
+  findings
+- ``build_cyclonedx_document(scan)`` — Build a CycloneDX 1.3 JSON document
+  from a scan result
+- Scans ``METADATA`` (PEP 566), ``pyproject.toml``, ``poetry.lock``, and
+  ``requirements.txt`` files for dependency metadata
+
+Distribution Auditing
+~~~~~~~~~~~~~~~~~~~~~
+
+- ``RECORD`` integrity verification: validates file existence, hash
+  consistency, and detects unlisted files in ``.dist-info`` directories
+- Archive safety: detects absolute paths, parent-directory traversal
+  (``../``), and oversized members in zip, tar, and wheel files
+- Remote requirement detection: flags ``requirements.txt`` entries using
+  remote URLs
+
+Output
+~~~~~~
+
+- ``format_findings_text(scan)`` — Human-readable text output for findings
+- ``build_cyclonedx_document(scan)`` — CycloneDX JSON for SBOM
+- ``SupplyChainFinding.to_dict()`` — Structured dict for JSON serialization
+
+All operations work offline from local files.
+
 Configuration and Testing
 -------------------------
 

@@ -79,6 +79,10 @@
 <li class="toctree-l3"><a class="reference internal" href="#pyflow-security"><strong>pyflow security</strong></a></li>
 </ul>
 </li>
+<li class="toctree-l2"><a class="reference internal" href="#supply-chain-command">Supply Chain Command</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#pyflow-supply-chain"><strong>pyflow supply-chain</strong></a></li>
+</ul>
+</li>
 <li class="toctree-l2"><a class="reference internal" href="#heap-command">Heap Command</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="#pyflow-heap"><strong>pyflow heap</strong></a></li>
 </ul>
@@ -220,6 +224,41 @@ reference used by the repository today, also see <code class="docutils literal n
 - <code class="docutils literal notranslate"><span class="pre">--exclude</span></code>: Comma-separated list of paths to exclude</p>
 <p>The default <code class="docutils literal notranslate"><span class="pre">ast-scanner</span></code> engine is a fast pattern-based checker. The command
 can also dispatch to CPA, IFDS, and CPG-backed security engines.</p>
+</section>
+</section>
+<section id="supply-chain-command">
+<h2>Supply Chain Command<a class="headerlink" href="#supply-chain-command" title="Link to this heading"></a></h2>
+<section id="pyflow-supply-chain">
+<h3><strong>pyflow supply-chain</strong><a class="headerlink" href="#pyflow-supply-chain" title="Link to this heading"></a></h3>
+<p>Local supply-chain analysis for Python packages. Works on local files and
+archives — no package index queries. Generates CycloneDX SBOMs and audits
+distribution metadata for structural issues.</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">pyflow</span> <span class="n">supply</span><span class="o">-</span><span class="n">chain</span> <span class="n">sbom</span> <span class="n">package</span><span class="o">/</span>
+<span class="n">pyflow</span> <span class="n">supply</span><span class="o">-</span><span class="n">chain</span> <span class="n">sbom</span> <span class="n">package</span><span class="o">/*.</span><span class="n">whl</span>
+<span class="n">pyflow</span> <span class="n">supply</span><span class="o">-</span><span class="n">chain</span> <span class="n">audit</span> <span class="n">path</span><span class="o">/</span><span class="n">to</span><span class="o">/</span><span class="n">dist</span><span class="o">-</span><span class="n">info</span><span class="o">/</span>
+<span class="n">pyflow</span> <span class="n">supply</span><span class="o">-</span><span class="n">chain</span> <span class="n">audit</span> <span class="o">.</span> <span class="o">--</span><span class="n">recursive</span> <span class="o">--</span><span class="n">exclude</span> <span class="o">.</span><span class="n">venv</span>
+</pre></div>
+</div>
+<p>Subcommands:</p>
+<dl class="simple">
+<dt><code class="docutils literal notranslate"><span class="pre">sbom</span></code></dt><dd><p>Generate a CycloneDX 1.3 SBOM JSON document from local package metadata
+(METADATA, RECORD, pyproject.toml, poetry.lock, requirements.txt).</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">audit</span></code></dt><dd><p>Report structural anomalies in archives (zip/traversal, absolute paths,
+oversized members) and distribution metadata (missing RECORD, hash
+mismatches, unlisted files).</p>
+</dd>
+</dl>
+<p>Common options:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">--recursive,</span> <span class="pre">-r</span></code>: Scan directories recursively</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--exclude</span></code>: Comma-separated list of paths to exclude</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--output,</span> <span class="pre">-o</span></code>: Output file (default: stdout)</p></li>
+</ul>
+<p>Audit format:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">--format</span> <span class="pre">text</span></code> (default) or <code class="docutils literal notranslate"><span class="pre">--format</span> <span class="pre">json</span></code></p></li>
+</ul>
 </section>
 </section>
 <section id="heap-command">
