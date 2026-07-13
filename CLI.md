@@ -97,6 +97,32 @@ Key options:
 - `--verbose`, `-v`: Include per-entry details (selector path, update policy,
   points-to sets)
 
+## Supply Chain
+
+```bash
+pyflow supply-chain <sbom|audit> [TARGETS ...]
+```
+
+Local-only supply-chain analysis for Python packages. Works offline — no
+package index queries. Scans package metadata (METADATA, RECORD,
+pyproject.toml, poetry.lock, requirements.txt), archives (wheel, zip, tar),
+and distribution metadata for structural issues.
+
+### Commands
+
+- \`sbom\`: Generate a CycloneDX 1.3 SBOM document from local metadata
+- \`audit\`: Report structural anomalies in archives and distribution metadata
+
+### Common options
+
+- \`--recursive\`, \`-r\`: Scan directories recursively
+- \`--exclude PATH1,PATH2,...\`: Comma-separated paths to exclude
+- \`--output\`, \`-o FILE\`: Output file (default: stdout)
+
+### Audit-specific options
+
+- \`--format\`: \`text\` (default) or \`json\`
+
 ## Security
 
 ```bash

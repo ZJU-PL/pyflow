@@ -105,6 +105,44 @@ Options:
 The default ``ast-scanner`` engine is a fast pattern-based checker. The command
 can also dispatch to CPA, IFDS, and CPG-backed security engines.
 
+Supply Chain Command
+--------------------
+
+**pyflow supply-chain**
+~~~~~~~~~~~~~~~~~~~~~~~
+
+Local supply-chain analysis for Python packages. Works on local files and
+archives — no package index queries. Generates CycloneDX SBOMs and audits
+distribution metadata for structural issues.
+
+::
+
+  pyflow supply-chain sbom package/
+  pyflow supply-chain sbom package/*.whl
+  pyflow supply-chain audit path/to/dist-info/
+  pyflow supply-chain audit . --recursive --exclude .venv
+
+Subcommands:
+
+``sbom``
+  Generate a CycloneDX 1.3 SBOM JSON document from local package metadata
+  (METADATA, RECORD, pyproject.toml, poetry.lock, requirements.txt).
+
+``audit``
+  Report structural anomalies in archives (zip/traversal, absolute paths,
+  oversized members) and distribution metadata (missing RECORD, hash
+  mismatches, unlisted files).
+
+Common options:
+
+- ``--recursive, -r``: Scan directories recursively
+- ``--exclude``: Comma-separated list of paths to exclude
+- ``--output, -o``: Output file (default: stdout)
+
+Audit format:
+
+- ``--format text`` (default) or ``--format json``
+
 Heap Command
 ------------
 
