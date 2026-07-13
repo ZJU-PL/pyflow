@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+import warnings
 
 from pyflow.application import context
 from pyflow.frontend.programextractor import Extractor
@@ -311,7 +312,18 @@ class TestCPGConstruction(unittest.TestCase):
                 i = i + 1
             return i
 
-        cpg = self.build_cpg(while_loop, run_ssa=True)
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always", RuntimeWarning)
+            cpg = self.build_cpg(while_loop, run_ssa=True)
+        self.assertFalse(
+            any("DDG-backed data dependence" in str(w.message) for w in caught)
+        )
+        self.assertTrue(
+            all(
+                pdg.data_dependence_mode == "hybrid"
+                for pdg in cpg.pdgs.values()
+            )
+        )
         cpg.build()
         found_header = False
         for node in cpg.nodes():
@@ -1430,7 +1442,18 @@ class TestCPGConstruction(unittest.TestCase):
     def test_raise_metadata(self):
         from pyflow.analysis.cpg.build import build_cpg
         source = "def f():\n    raise ValueError('bad')\n"
-        cpg = build_cpg(source, "test.py")
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always", RuntimeWarning)
+            cpg = build_cpg(source, "test.py")
+        self.assertFalse(
+            any("DDG-backed data dependence" in str(w.message) for w in caught)
+        )
+        self.assertTrue(
+            all(
+                pdg.data_dependence_mode == "hybrid"
+                for pdg in cpg.pdgs.values()
+            )
+        )
         cpg.build()
         raise_nodes = [
             n for n in cpg.nodes()

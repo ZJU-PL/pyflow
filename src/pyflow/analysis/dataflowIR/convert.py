@@ -298,7 +298,8 @@ class DeferedEntryPoint(AbstractState):
             return self.dataflow.getExisting(slot)
         else:
             # Fields from killed object cannot come from beyond the entry point.
-            killed = self.code.annotation.killed.merged
+            annotation = getattr(self.code, "annotation", None)
+            killed = getattr(getattr(annotation, "killed", None), "merged", ())
             if slot.object in killed:
                 return self.dataflow.null
             else:
@@ -351,6 +352,11 @@ class CodeToDataflow(TypeDispatcher):
         self.current = State(hyperblock, self.dataflow.entryPredicate, self.entryState)
 
         self.returns = []
+
+        # Structured source ASTs can reach this converter before CFG lowering
+        # has eliminated loop control statements.  Keep their exits local to
+        # the innermost loop while building a conservative loop summary.
+        self.loopControls = []
 
         self.allModified = set()
 
@@ -548,8 +554,33 @@ class CodeToDataflow(TypeDispatcher):
     @dispatch(ast.Return)
     def processReturn(self, node):
         for dst, src in zip(self.code.codeparameters.returnparams, node.exprs):
-            self.set(dst, self.get(src))
+            if isinstance(src, (ast.Local, ast.Existing)):
+                self.set(dst, self.get(src))
+            else:
+                # Source-loaded ASTs may retain expressions directly in a
+                # return instead of first assigning them to a temporary.
+                self.handleOp(src, [dst])
         self.returns.append(self.popState())
+
+    @dispatch(ast.Raise)
+    def processRaise(self, node):
+        # Preserve the exception expression's reads, then terminate the normal
+        # path.  Exception routing remains the responsibility of the enclosing
+        # TryExceptFinally fallback until exception-aware lowering is added.
+        self.genericOp(node)
+        self.popState()
+
+    @dispatch(ast.Break)
+    def processBreak(self, node):
+        if not self.loopControls:
+            raise UnsupportedDataflowConstructError("Break outside a loop")
+        self.loopControls[-1]["break"].append(self.popState())
+
+    @dispatch(ast.Continue)
+    def processContinue(self, node):
+        if not self.loopControls:
+            raise UnsupportedDataflowConstructError("Continue outside a loop")
+        self.loopControls[-1]["continue"].append(self.popState())
 
     @dispatch(ast.TypeSwitch)
     def processTypeSwitch(self, node):
@@ -604,7 +635,88 @@ class CodeToDataflow(TypeDispatcher):
 
         self.mergeStates([true_exit, false_exit])
 
-    @dispatch(ast.While, ast.For, ast.TryExceptFinally)
+    def _branch_on_expression(self, owner, expression, labels):
+        """Create predicated states for a structured control-flow header."""
+        g = graph.GenericOp(self.hyperblock(), owner)
+        g.setPredicate(self.pred())
+        for read in _iter_slot_reads(expression):
+            self.localRead(g, read)
+
+        predicates = []
+        for label in labels:
+            predicate = graph.PredicateNode(self.hyperblock(), label)
+            predicates.append(predicate.addDefn(g))
+        return g, self.branch(predicates)
+
+    def _finish_loop(self, normal_states, break_states, else_suite):
+        """Merge a conservative loop summary and apply the loop ``else``."""
+        self.mergeStates(normal_states)
+        if self.current is not None:
+            self(else_suite)
+        else_exit = self.popState() if self.current is not None else None
+        self.mergeStates([else_exit, *break_states])
+
+    @dispatch(ast.While)
+    def processWhile(self, node):
+        """Lower zero iterations plus one representative loop iteration.
+
+        Dataflow IR is acyclic, so this summarizes rather than materializes a
+        CFG back-edge.  The merged exit conservatively includes values from the
+        zero-iteration path and from one body execution.
+        """
+        self(node.condition.preamble)
+        if self.current is None:
+            return
+
+        _op, (body_state, zero_state) = self._branch_on_expression(
+            node, node.condition.conditional, ("body", "exit")
+        )
+        controls = {"break": [], "continue": []}
+        self.loopControls.append(controls)
+
+        self.setState(body_state)
+        self(node.body)
+        body_exit = self.popState() if self.current is not None else None
+
+        self.loopControls.pop()
+        normal_states = [zero_state, body_exit, *controls["continue"]]
+        self._finish_loop(normal_states, controls["break"], node.else_)
+
+    @dispatch(ast.For)
+    def processFor(self, node):
+        """Lower a source-level ``for`` using a conservative loop summary."""
+        self(node.loopPreamble)
+        if self.current is None:
+            return
+
+        op, (body_state, zero_state) = self._branch_on_expression(
+            node, node.iterator, ("body", "exit")
+        )
+        controls = {"break": [], "continue": []}
+        self.loopControls.append(controls)
+
+        self.setState(body_state)
+        if isinstance(node.index, ast.Local):
+            target = self.localTarget(node.index)
+            self.set(node.index, target)
+            op.addLocalModify(node.index, target)
+        self(node.bodyPreamble)
+        if self.current is not None:
+            self(node.body)
+        body_exit = self.popState() if self.current is not None else None
+
+        self.loopControls.pop()
+        normal_states = [zero_state, body_exit, *controls["continue"]]
+        self._finish_loop(normal_states, controls["break"], node.else_)
+
+    @dispatch(ast.FunctionDef, ast.ClassDef)
+    def processNestedDefinition(self, node):
+        # Nested code objects are converted independently by the CPG builder.
+        # Do not traverse their bodies as part of the enclosing code object's
+        # intraprocedural dataflow graph.
+        return None
+
+    @dispatch(ast.TryExceptFinally)
     def processUnsupportedStructuredControl(self, node):
         raise UnsupportedDataflowConstructError(
             "dataflowIR conversion does not yet lower "
@@ -617,7 +729,10 @@ class CodeToDataflow(TypeDispatcher):
 
     @dispatch(ast.Suite)
     def processOK(self, node):
-        node.visitChildren(self)
+        for block in node.blocks:
+            if self.current is None:
+                break
+            self(block)
 
     def handleExit(self):
         returns = list(self.returns)
