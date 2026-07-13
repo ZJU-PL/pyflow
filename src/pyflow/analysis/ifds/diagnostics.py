@@ -19,6 +19,9 @@ class IFDSDiagnostic:
     message: str
     exception_type: str | None = None
     subject: str | None = None
+    code: str = "IFDS000"
+    recoverable: bool = True
+    affects_completeness: bool = False
 
     def __str__(self) -> str:
         return self.message

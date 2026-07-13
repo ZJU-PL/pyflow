@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import Enum
 from typing import Callable, Sequence
 
 from pyflow.application.errors import TemporaryLimitation
@@ -19,6 +20,13 @@ class PreparedIFDSArtifacts:
     diagnostics: tuple[IFDSDiagnostic, ...] = ()
 
 
+class PreparationMode(str, Enum):
+    """Failure policy for frontend and CFG preparation."""
+
+    STRICT = "strict"
+    BEST_EFFORT = "best_effort"
+
+
 def prepare_program_for_ifds(
     compiler,
     program,
@@ -28,6 +36,7 @@ def prepare_program_for_ifds(
     run_pipeline: Callable[[], None] | None = None,
     supplemental_live_codes: Sequence[object] = (),
     pipeline_label: str = "IPA/CPA",
+    mode: PreparationMode = PreparationMode.BEST_EFFORT,
 ) -> PreparedIFDSArtifacts:
     """Prepare a program for IFDS analysis, recovering from non-fatal pipeline failures."""
 
@@ -39,6 +48,8 @@ def prepare_program_for_ifds(
         try:
             run_pipeline()
         except Exception as exc:
+            if mode is PreparationMode.STRICT:
+                raise
             diagnostics.append(
                 IFDSDiagnostic(
                     severity="warning",
@@ -49,6 +60,8 @@ def prepare_program_for_ifds(
                     ),
                     exception_type=type(exc).__name__,
                     subject=pipeline_label,
+                    code="IFDS101",
+                    affects_completeness=True,
                 )
             )
             if pre_pipeline_live_codes:
@@ -64,6 +77,8 @@ def prepare_program_for_ifds(
         try:
             cfgs.append(get_cfg(code))
         except Exception as exc:
+            if mode is PreparationMode.STRICT:
+                raise
             diagnostics.append(
                 IFDSDiagnostic(
                     severity="warning",
@@ -71,6 +86,8 @@ def prepare_program_for_ifds(
                     message=f"Skipped IFDS CFG for {describe_code(code)}: {exc}",
                     exception_type=type(exc).__name__,
                     subject=describe_code(code),
+                    code="IFDS102",
+                    affects_completeness=True,
                 )
             )
 
