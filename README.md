@@ -1,7 +1,7 @@
 
-# PyFlow: Static Analysis and Optimization for Python
+# PyFlow: Static Analysis for Python
 
-PyFlow is a static analysis and optimization framework for Python. It combines
+PyFlow is a program analysis framework for Python. It combines
 program analysis infrastructure, experimental optimization passes, and security
 checking in a single research-oriented toolkit.
 
@@ -12,7 +12,7 @@ evolving.
 If you use pyflow in your research or work, please cite the following:
 ~~~~
 @misc{pyflow2025,
-  title = {pyflow: A Program Analysis and Optimization Framework for Python},
+  title = {pyflow: A Program Analysis Framework for Python},
   author = {ZJU Programming Languages and Automated Reasoning Group},
   year = {2025},
   url = {https://github.com/ZJU-PL/pyflow},
