@@ -91,6 +91,9 @@ class PointsToGraph:
     entries: "dict[HeapLocation, PointsToEntry]" = field(default_factory=dict)
     """Root location → metadata mapping."""
 
+    allow_strong_nested_fresh: bool = False
+    """Whether exact paths below singleton roots admit strong updates."""
+
     # ── query methods ──────────────────────────────────────────────────
 
     def __contains__(self, location: "HeapLocation") -> bool:
@@ -121,20 +124,18 @@ class PointsToGraph:
     def never_escapes(self, location: "HeapLocation") -> bool:
         """Return ``True`` if *location*'s root has **not** been marked escaped.
 
-        Returns ``True`` (i.e. "has never escaped") for unknown locations to
-        avoid spurious conservative results — callers tracking escape should
-        ensure the location exists in the graph first.
+        Unknown locations cannot prove non-escape and therefore return False.
         """
         entry = self.get(location)
         if entry is None:
-            return True  # unknown → assume local
+            return False
         return not entry.is_escaped
 
     def is_escaped(self, location: "HeapLocation") -> bool:
         """Return ``True`` if *location*'s root has been marked escaped."""
         entry = self.get(location)
         if entry is None:
-            return False
+            return True
         return entry.is_escaped
 
     def single_reference(self, location: "HeapLocation") -> bool:
@@ -145,28 +146,30 @@ class PointsToGraph:
         """
         entry = self.get(location)
         if entry is None:
-            return True
+            return False
         return entry.ref_count <= 1
 
     def reference_count(self, location: "HeapLocation") -> int:
         """Return the total reference count for *location*'s equivalence class."""
         entry = self.get(location)
         if entry is None:
-            return 0
+            return 2
         return entry.ref_count
 
     def strong_update_possible(self, location: "HeapLocation") -> bool:
         """Return ``True`` if writes to *location* can use strong updates.
 
-        Equivalent to ``is_singleton and not is_escaped`` for root
-        locations and ``allow_strong_nested_fresh and single_reference``
-        for nested locations (policy-dependent).
+        Nested locations use the graph's fixed heap policy and root
+        cardinality; escape and the number of aliases do not change the fact
+        that a precise write overwrites a field of one concrete object.
         """
         from .model import UpdatePolicy
 
         entry = self.get(location)
         if entry is None:
             return False
+        if location.is_nested():
+            return self.allow_strong_nested_fresh and entry.is_singleton
         return entry.update_policy is UpdatePolicy.STRONG
 
     def aliased(self, a: "HeapLocation", b: "HeapLocation") -> bool:
@@ -212,23 +215,36 @@ class PointsToGraph:
 
         kind_a = getattr(a, "kind", None)
         kind_b = getattr(b, "kind", None)
-        if kind_a in {HeapObjectKind.SUMMARY, HeapObjectKind.UNKNOWN}:
+        if kind_a in {
+            HeapObjectKind.SUMMARY,
+            HeapObjectKind.UNKNOWN,
+            HeapObjectKind.CALL_RESULT,
+            HeapObjectKind.RETURN,
+        }:
             return True
-        if kind_b in {HeapObjectKind.SUMMARY, HeapObjectKind.UNKNOWN}:
+        if kind_b in {
+            HeapObjectKind.SUMMARY,
+            HeapObjectKind.UNKNOWN,
+            HeapObjectKind.CALL_RESULT,
+            HeapObjectKind.RETURN,
+        }:
             return True
-        if kind_a is not HeapObjectKind.PARAMETER:
-            return False
-        if kind_b is not HeapObjectKind.PARAMETER:
-            return False
-        key_a = getattr(a, "key", ())
-        key_b = getattr(b, "key", ())
-        return (
-            isinstance(key_a, tuple)
-            and isinstance(key_b, tuple)
-            and len(key_a) >= 3
-            and len(key_b) >= 3
-            and key_a[1] == key_b[1]
-        )
+        value_kinds = {
+            HeapObjectKind.LOCAL,
+            HeapObjectKind.PARAMETER,
+            HeapObjectKind.RETURN,
+            HeapObjectKind.ALLOCATION,
+            HeapObjectKind.CALL_RESULT,
+            HeapObjectKind.EXTERNAL,
+            HeapObjectKind.SUMMARY,
+            HeapObjectKind.UNKNOWN,
+            HeapObjectKind.STORAGE,
+        }
+        if kind_a is HeapObjectKind.PARAMETER:
+            return kind_b in value_kinds
+        if kind_b is HeapObjectKind.PARAMETER:
+            return kind_a in value_kinds
+        return False
 
     def may_alias_path(self, a: "HeapLocation", b: "HeapLocation") -> bool:
         """Return whether two full access paths may overlap."""
