@@ -63,10 +63,12 @@ class PointerSolver:
         self.processor = processor
         self.ir_translator = ir_translator
         self.context_selector = context_selector
+        self.class_hierarchy = class_hierarchy
         self.builtin_manager = builtin_manager
         self.variable_factory = variable_factory or VariableFactory()
         self._unknown_tracker = UnknownTracker()
         self._debug_monitor = debug_monitor
+        self.state.class_hierarchy = class_hierarchy
         
         # Initialize builtin handler with state
         if self.builtin_manager:
@@ -530,7 +532,7 @@ class PointerSolver:
         for constraint in self.ir_translator.translate_class(ir_cls):
             self.add_constraint(ctx_scope, cls_context, constraint)
         
-        for inner_var in self.ir_translator.used_variables:
+        for inner_var in self.ir_translator.get_class_used_variables(ir_cls):
             ctx_field = self.state.get_field(scope, context, obj, attr(inner_var.name))
             ctx_inner_var = self.state.get_variable(ctx_scope, cls_context, inner_var)
             self.state._add_var_points_flow(ctx_inner_var, ctx_field)

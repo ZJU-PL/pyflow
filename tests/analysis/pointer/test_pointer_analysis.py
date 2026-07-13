@@ -4,8 +4,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from pyflow.analysis.pointer import PointerAnalysis
 from pyflow.analysis.pointer._pythonstan.world.pipeline import Pipeline
 from pyflow.analysis.pointer._pythonstan.world.namespace import NamespaceManager
@@ -72,10 +70,44 @@ y = b.m()
         assert pts_y
         assert any("AllocKind.OBJECT" in obj for obj in pts_y)
 
+    def test_multiple_inheritance_uses_mro_first_method(self) -> None:
+        source = """
+class A:
+    def m(self):
+        return object()
+
+class B:
+    def m(self):
+        return []
+
+class C(A, B):
+    pass
+
+c = C()
+y = c.m()
+"""
+        result = PointerAnalysis(source, k=1).run()
+        pts_y = result.points_to("y")
+
+        assert pts_y
+        assert any("AllocKind.OBJECT" in obj for obj in pts_y)
+        assert all("AllocKind.LIST" not in obj for obj in pts_y)
+
     def test_dict_constructor_keyword_value_flows_to_subscript_load(self) -> None:
         source = '''
 v = object()
 d = dict(a=v)
+y = d["a"]
+'''
+        result = PointerAnalysis(source, k=1).run()
+
+        assert result.points_to("y") == result.points_to("v")
+
+    def test_dict_constructor_unpack_flows_to_subscript_load(self) -> None:
+        source = '''
+v = object()
+base = {"a": v}
+d = dict(**base)
 y = d["a"]
 '''
         result = PointerAnalysis(source, k=1).run()

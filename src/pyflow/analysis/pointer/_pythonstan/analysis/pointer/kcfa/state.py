@@ -120,6 +120,7 @@ class PointerAnalysisState:
         self._static_constraints: List[Tuple['Scope', 'AbstractContext', 'Constraint']] = []
         self._internal_scope = {}
         self.obj_scope = {}
+        self.class_hierarchy = None
         
         # Debug monitoring
         self._debug_monitor = debug_monitor
@@ -190,6 +191,12 @@ class PointerAnalysisState:
 
         field_access = self._field_accesses.get((obj, field), None)
         return field_access
+
+    def _base_class_variable(self, base: Any) -> Optional['Variable']:
+        """Return the variable that holds a simple class base, if resolvable."""
+        if hasattr(base, "id"):
+            return self._variable_factory.make_variable(base.id, VariableKind.GLOBAL)
+        return None
     
     def get_field(self, scope: 'Scope', context: 'AbstractContext', obj: 'AbstractObject', field: 'Field') -> 'Ctx[FieldAccess]':
         """Get field access for object field.
@@ -257,13 +264,68 @@ class PointerAnalysisState:
                 scope = obj.container_scope
 
                 if len(bases) > 0:
-                    # TODO here can use the class hierarchy manager to get the base class and the index of the base class.
+                    resolved_base_objs = []
+                    for base in bases:
+                        base_var = self._base_class_variable(base)
+                        if base_var is None:
+                            continue
+                        base_ctx_var = self.get_variable(scope, scope.context, base_var)
+                        resolved_base_objs.extend(
+                            base_obj for base_obj in self.get_points_to(base_ctx_var)
+                            if isinstance(base_obj, ClassObject)
+                        )
+
+                    if resolved_base_objs:
+                        mro_bases = resolved_base_objs
+                        if self.class_hierarchy is not None:
+                            if not self.class_hierarchy.has_class(obj):
+                                self.class_hierarchy.add_class(obj, resolved_base_objs)
+                            else:
+                                self.class_hierarchy.update_bases(obj, resolved_base_objs)
+                            try:
+                                mro_bases = [
+                                    cls_obj for cls_obj in self.class_hierarchy.get_mro(obj)
+                                    if cls_obj != obj
+                                ]
+                            except Exception:
+                                mro_bases = resolved_base_objs
+
+                        fallback_field_access = None
+                        for base_obj in mro_bases:
+                            base_internal_scope = self.get_internal_scope(base_obj)
+                            if not base_internal_scope:
+                                continue
+                            base_field_access = self.get_field(base_internal_scope, base_obj.context, base_obj, field)
+                            if fallback_field_access is None:
+                                fallback_field_access = base_field_access
+                            if self.get_points_to(base_field_access).is_empty():
+                                continue
+                            self._add_points_flow_edge(
+                                PointerFlowEdge(
+                                    NormalNode(base_field_access),
+                                    NormalNode(cfield),
+                                    PointerFlowKind.INHERIT,
+                                )
+                            )
+                            return cfield
+                        if fallback_field_access is not None:
+                            self._add_points_flow_edge(
+                                PointerFlowEdge(
+                                    NormalNode(fallback_field_access),
+                                    NormalNode(cfield),
+                                    PointerFlowKind.INHERIT,
+                                )
+                            )
+                            return cfield
+
                     selector = SelectorNode()
                     inherit_edge = PointerFlowEdge(selector, NormalNode(cfield), PointerFlowKind.INHERIT)
                     self._add_points_flow_edge(inherit_edge)
 
                     for idx, base in enumerate(bases):
-                        base_var = self._variable_factory.make_variable(base.id, VariableKind.GLOBAL)
+                        base_var = self._base_class_variable(base)
+                        if base_var is None:
+                            continue
                         # Contextualize the base variable for constraint indexing
                         base_ctx_var = self.get_variable(scope, scope.context, base_var)
                         inherit_constraint = InheritanceConstraint(base=base_var, field=field, target=selector, index=idx)
@@ -480,10 +542,12 @@ class PointerAnalysisState:
             owner_scope = scope.parent
             owner_context = scope.parent.context
         elif var_kind == VariableKind.CELL:
-            from .object import FunctionObject
+            from .object import FunctionObject, GeneratorObject, CoroutineObject
             # For closure-captured variables, first try to resolve from the
             # function object's captured cell vars before falling back.
             func_obj = getattr(scope, "obj", None)
+            if isinstance(func_obj, (GeneratorObject, CoroutineObject)):
+                func_obj = func_obj.func_obj
             if isinstance(func_obj, FunctionObject):
                 captured = self._heap.get_cell_vars(func_obj).get(var.name)
                 if captured is not None:

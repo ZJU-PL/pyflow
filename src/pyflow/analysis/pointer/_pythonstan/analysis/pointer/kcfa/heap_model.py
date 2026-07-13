@@ -194,11 +194,11 @@ class HeapModel:
                     return (func_obj,)
                 # For module-level temporaries
                 return (scope.module if scope.module else scope,)
-            return (context, scope.module)
+            return (context, scope)
         
         if var.kind == VariableKind.GLOBAL:
             return (scope.module,)
-        return (context, scope.module)
+        return (context, scope)
 
     def get_all_variables(self, scope: 'Scope', context: 'AbstractContext') -> Set['Ctx[Variable]']:
         ctx_key = (scope, )

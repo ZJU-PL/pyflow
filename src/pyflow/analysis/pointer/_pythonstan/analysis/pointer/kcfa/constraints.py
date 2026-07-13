@@ -366,7 +366,7 @@ class CallConstraint(Constraint):
     
     callee: 'Variable'
     args: Tuple['Variable', ...]
-    kwargs: FrozenSet[Tuple[str, 'Variable']]
+    kwargs: FrozenSet[Tuple[Optional[str], 'Variable']]
     target: Optional['Variable']
     call_site: 'CallSite'
     

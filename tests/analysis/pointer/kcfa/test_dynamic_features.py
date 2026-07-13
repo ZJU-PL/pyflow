@@ -1,62 +1,130 @@
-"""Tests for dynamic Python features.
+"""Executable coverage for dynamic Python features handled by KCFA."""
 
-Most advanced dynamic features are documented limitations or future work.
+from pyflow.analysis.pointer import PointerAnalysis
+
+
+class TestDynamicFeatureSupport:
+    def test_closure_return_flows_from_inner_function(self):
+        source = """
+def outer():
+    x = object()
+    def inner():
+        return x
+    return inner
+
+f = outer()
+y = f()
 """
+        result = PointerAnalysis(source, k=1).run()
 
-import pytest
+        assert result.points_to("y")
+        assert any("AllocKind.OBJECT" in obj for obj in result.points_to("y"))
 
+    def test_identity_decorator_preserves_function_return(self):
+        source = """
+def deco(fn):
+    return fn
 
-# ============================================================================
-# Documented Limitations
-# ============================================================================
+@deco
+def f():
+    return object()
 
-class TestDynamicFeatureLimitations:
-    """Documentation of known limitations."""
-    
-    def test_closures_future_work(self):
-        """Document that closures are future work."""
-        pytest.skip("Closures - future enhancement")
-    
-    def test_decorators_future_work(self):
-        """Document that decorators are future work."""
-        pytest.skip("Decorators - future enhancement")
-    
-    def test_properties_not_supported(self):
-        """Document that @property is not supported."""
-        pytest.skip("Property descriptors not supported - would require descriptor protocol")
-    
-    def test_descriptors_not_supported(self):
-        """Document descriptor protocol limitation."""
-        pytest.skip("Descriptor protocol (__get__, __set__) not supported")
-    
-    def test_metaclasses_limited_support(self):
-        """Document metaclass limitation."""
-        pytest.skip("Metaclasses have limited support - basic registration only")
-    
-    def test_exec_eval_unsound(self):
-        """Document exec/eval limitation."""
-        pytest.skip("exec/eval make analysis potentially unsound - should emit warning")
-    
-    def test_generators_not_supported(self):
-        """Document generator/coroutine limitation."""
-        pytest.skip("Generators and coroutines not supported")
-    
-    def test_async_await_not_supported(self):
-        """Document async/await limitation."""
-        pytest.skip("Async/await not supported - future work")
-    
-    def test_dynamic_imports_not_supported(self):
-        """Document dynamic import limitation."""
-        pytest.skip("Dynamic imports not supported - static imports only")
+y = f()
+"""
+        result = PointerAnalysis(source, k=1).run()
 
+        assert result.points_to("y")
+        assert any("AllocKind.OBJECT" in obj for obj in result.points_to("y"))
 
-# NOTE: Advanced Python features like closures, decorators, properties,
-# descriptors, metaclasses, generators, and async/await are explicitly
-# marked as limitations or future enhancements in the design document.
-#
-# The current implementation focuses on core pointer analysis features:
-# - Copy propagation
-# - Field-sensitive analysis
-# - Function/method calls
-# - Class instantiation
-# - Basic inheritance (MRO)
+    def test_descriptor_getter_contributes_attribute_value(self):
+        source = """
+class D:
+    def __get__(self, obj, typ):
+        return object()
+
+class A:
+    d = D()
+
+a = A()
+y = a.d
+"""
+        result = PointerAnalysis(source, k=1).run()
+
+        assert result.points_to("y")
+        assert any("AllocKind.OBJECT" in obj for obj in result.points_to("y"))
+
+    def test_metaclass_class_instantiation_remains_an_instance(self):
+        source = """
+class M(type):
+    pass
+
+class A(metaclass=M):
+    pass
+
+y = A()
+"""
+        result = PointerAnalysis(source, k=1).run()
+
+        assert result.points_to("y")
+        assert any("AllocKind.INSTANCE" in obj for obj in result.points_to("y"))
+
+    def test_generator_next_reads_yielded_value(self):
+        source = """
+def gen():
+    x = object()
+    yield x
+
+g = gen()
+y = next(g)
+"""
+        result = PointerAnalysis(source, k=1).run()
+
+        assert result.points_to("g")
+        assert any("AllocKind.GENERATOR" in obj for obj in result.points_to("g"))
+        assert result.points_to("y")
+        assert any("AllocKind.OBJECT" in obj for obj in result.points_to("y"))
+
+    def test_async_call_allocates_coroutine_object(self):
+        source = """
+async def f():
+    return object()
+
+c = f()
+"""
+        result = PointerAnalysis(source, k=1).run()
+
+        assert result.points_to("c")
+        assert any("AllocKind.COROUTINE" in obj for obj in result.points_to("c"))
+
+    def test_super_method_return_flows_to_override(self):
+        source = """
+class A:
+    def m(self):
+        return object()
+
+class B(A):
+    def m(self):
+        return super().m()
+
+b = B()
+y = b.m()
+"""
+        result = PointerAnalysis(source, k=1).run()
+
+        assert result.points_to("y")
+        assert any("AllocKind.OBJECT" in obj for obj in result.points_to("y"))
+
+    def test_exec_eval_remain_conservative_static_limitations(self):
+        result = PointerAnalysis('exec("x = object()")\ny = x\n', k=1).run()
+
+        assert result.points_to("y") == set()
+
+    def test_dynamic_import_remains_conservative_static_limitation(self):
+        source = """
+name = "math"
+m = __import__(name)
+y = m
+"""
+        result = PointerAnalysis(source, k=1).run()
+
+        assert result.points_to("y") == set()

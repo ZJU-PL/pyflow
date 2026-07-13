@@ -60,6 +60,7 @@ class IRTranslator:
         self._scope_constraints: Dict[IRScope, List['Constraint']] = {}
         self._import_depth = 0  # Track import depth for recursion limit
         self._local_vars: Dict[IRScope, Set[str]] = defaultdict(set)
+        self._class_used_variables: Dict[IRClass, List['Variable']] = {}
         
         from pyflow.analysis.pointer._pythonstan.world import World
         if not hasattr(World, "scope_manager"):
@@ -116,6 +117,7 @@ class IRTranslator:
             return self._scope_constraints[cls_stmt]
         
         constraints = []
+        old_used_variables = getattr(self, "used_variables", [])
         self.used_variables = []
         irs = self.scope_manager.get_ir(cls_stmt, "ir")
 
@@ -126,9 +128,14 @@ class IRTranslator:
                 constraints.extend(self._process_stmt(stmt))
             self._current_scope = old_scope
 
+            self._class_used_variables[cls_stmt] = list(self.used_variables)
+            self.used_variables = old_used_variables
             self._scope_constraints[cls_stmt] = constraints
         
         return constraints
+
+    def get_class_used_variables(self, cls_stmt: IRClass) -> List['Variable']:
+        return self._class_used_variables.get(cls_stmt, [])
     
     def _make_variable(self, name: str) -> 'Variable':
         if self._current_scope is None:
@@ -544,13 +551,14 @@ class IRTranslator:
         
         call_site_scope = self._get_current_scope_label()
         call_site = CallSite(statement=stmt, scope_name=call_site_scope)
-        keyword_vars = {kw_name: self._make_variable(kw_val) 
-                        for kw_name, kw_val in stmt.get_keywords() 
-                        if kw_name is not None}
+        keyword_vars = tuple(
+            (kw_name, self._make_variable(kw_val))
+            for kw_name, kw_val in stmt.get_keywords()
+        )
         constraints.append(CallConstraint(
             callee=callee_var,
             args=arg_vars,
-            kwargs=frozenset(keyword_vars.items()),
+            kwargs=frozenset(keyword_vars),
             target=target_var,
             call_site=call_site
         ))
@@ -806,6 +814,8 @@ class IRTranslator:
         """Translate function definition: allocate function object."""
         constraints = []
         self._local_vars.setdefault(stmt, set()).update(stmt.get_arg_names())
+        if isinstance(self._current_scope, IRClass):
+            self._local_vars.setdefault(self._current_scope, set()).add(stmt.name)
         
         if isinstance(self._current_scope, IRClass) and (not stmt.is_static_method):
             func_alloc = AllocSite.from_ir_node(stmt, AllocKind.METHOD)
@@ -934,6 +944,8 @@ class IRTranslator:
     def _translate_class_def(self, ir_cls: IRClass) -> Tuple[Variable, List['Constraint']]:
         """Translate class definition: allocate class object and bind methods."""
         constraints = []
+        if isinstance(self._current_scope, IRClass):
+            self._local_vars.setdefault(self._current_scope, set()).add(ir_cls.name)
         
         class_alloc = AllocSite.from_ir_node(ir_cls, AllocKind.CLASS)
         class_var = self._make_variable(ir_cls.name)
