@@ -32,8 +32,11 @@ classifiers = [
 ]
 requires-python = ">=3.10"
 dependencies = [
+    "asciitree",
     "graphviz",
     "networkx",
+    "rstr",
+    "typing_inspect>=0.9.0"
 ]
 
 [project.optional-dependencies]
@@ -44,7 +47,7 @@ dev = [
     "black",
     "flake8",
     "mypy",
-    "tomli; python_version < '3.11'",
+    "tomli; python_version < '3.11'"
 ]
 # a3-python is a standalone third-party package at third-party/a3_python/.
 # Install it separately: pip install -e third-party/a3_python
