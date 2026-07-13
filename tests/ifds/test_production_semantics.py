@@ -77,7 +77,7 @@ def test_typed_exception_routes_only_to_first_matching_handler():
     raise_node = next(
         node
         for node in adapter.supergraph.ordered_nodes_of(cfg)
-        if isinstance(adapter.operation_of(node), ast.Raise)
+        if isinstance(adapter.operation_of(node), ast.Raise) and node.kind != "call"
     )
     successor_scopes = {
         node.scope for node in adapter.supergraph.ordered_normal_successors(raise_node)
@@ -87,6 +87,61 @@ def test_typed_exception_routes_only_to_first_matching_handler():
     assert not any(
         scope[:4] == ("0", "try", "handler", "0") for scope in successor_scopes
     )
+
+
+def test_typed_exception_uses_builtin_subclass_and_first_match_semantics():
+    compiler = context.CompilerContext(None)
+    broad = ast.Local("broad")
+    narrow = ast.Local("narrow")
+    main_code, _ = make_code(
+        "main",
+        [],
+        [
+            ast.TryExceptFinally(
+                ast.Suite(
+                    [
+                        ast.Raise(
+                            ast.Call(ast.Local("ValueError"), [], [], None, None),
+                            None,
+                            None,
+                        )
+                    ]
+                ),
+                [
+                    ast.ExceptionHandler(
+                        ast.Suite([]),
+                        ast.Local("Exception"),
+                        None,
+                        ast.Suite(
+                            [ast.Assign(ast.Existing(ast.program.Object(1)), [broad])]
+                        ),
+                    ),
+                    ast.ExceptionHandler(
+                        ast.Suite([]),
+                        ast.Local("ValueError"),
+                        None,
+                        ast.Suite(
+                            [ast.Assign(ast.Existing(ast.program.Object(1)), [narrow])]
+                        ),
+                    ),
+                ],
+                None,
+                None,
+                None,
+            ),
+            ast.Return([]),
+        ],
+    )
+    cfg = build_cfg(compiler, main_code)
+    adapter = build_supergraph_from_cfgs([cfg])
+    raise_node = next(
+        node
+        for node in adapter.supergraph.ordered_nodes_of(cfg)
+        if isinstance(adapter.operation_of(node), ast.Raise) and node.kind != "call"
+    )
+    successors = adapter.supergraph.ordered_normal_successors(raise_node)
+
+    assert {node.scope[:4] for node in successors} == {("0", "try", "handler", "0")}
 
 
 def test_context_manager_calls_are_classified_semantically(tmp_path):

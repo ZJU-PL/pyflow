@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import builtins
 from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Callable, DefaultDict, Dict, Iterable, Mapping, Sequence
@@ -1438,8 +1439,18 @@ class CFGSupergraphAdapter:
 
     @staticmethod
     def _exception_name_matches(raised: str, handled: str) -> bool:
+        raised_leaf = raised.rsplit(".", 1)[-1]
+        handled_leaf = handled.rsplit(".", 1)[-1]
+        if raised == handled or raised_leaf == handled_leaf:
+            return True
+        raised_type = getattr(builtins, raised_leaf, None)
+        handled_type = getattr(builtins, handled_leaf, None)
         return (
-            raised == handled or raised.rsplit(".", 1)[-1] == handled.rsplit(".", 1)[-1]
+            isinstance(raised_type, type)
+            and isinstance(handled_type, type)
+            and issubclass(raised_type, BaseException)
+            and issubclass(handled_type, BaseException)
+            and issubclass(raised_type, handled_type)
         )
 
     @classmethod
