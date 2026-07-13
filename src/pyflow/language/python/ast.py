@@ -505,7 +505,10 @@ class NonlocalDecl(Statement):
 
 class AnnAssign(Statement):
     """Annotated assignment: x: int = 5 or just x: int."""
-    __fields__ = "target:Local annotation:Expression value:Expression?"
+    # ``annotation`` is reserved by PythonASTNode for per-node analysis
+    # metadata.  Keep the source expression under a distinct field so it is
+    # not overwritten during node construction.
+    __fields__ = "target:Local annotation_expr:Expression value:Expression?"
 
 
 class TypeAlias(Statement):
