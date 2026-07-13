@@ -16,6 +16,7 @@ how PyFlow works under the hood.
     algorithms
     design-decisions
     analysis-comparison
+    best-practices
 
 .. toctree::
     :hidden:
@@ -24,3 +25,4 @@ how PyFlow works under the hood.
     algorithms
     design-decisions
     analysis-comparison
+    best-practices

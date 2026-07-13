@@ -18,6 +18,7 @@ If you are new to PyFlow, start with the :ref:`tutorials`.
     :caption: Getting Started
 
     tutorials/index
+    overview
 
 .. toctree::
     :maxdepth: 2
@@ -45,6 +46,7 @@ If you are new to PyFlow, start with the :ref:`tutorials`.
     api
     analysis/index
     optimization/index
+    lang/index
     checker/sec
 
 ================================================================================

@@ -54,6 +54,8 @@ Specialized Analysis
 
 * :doc:`numbering` - Program point numbering
 * :doc:`dump` - Analysis result dumping and visualization
+* :doc:`stats` - Statistics collection and LaTeX report generation
+* :doc:`incremental` - Incremental analysis caching with BLAKE2b + SQLite
 
 Analysis Configuration
 ======================
@@ -180,3 +182,5 @@ Standard SARIF format for CI/CD integration:
     typeinfo
     numbering
     dump
+    stats
+    incremental
