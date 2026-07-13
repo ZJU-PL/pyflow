@@ -47,9 +47,9 @@ def main() -> int:
 
     problem = BenchmarkProblem(args.nodes, args.facts)
     started = time.perf_counter()
-    result = IFDSSolver(
-        options=SolverOptions(max_seconds=args.max_seconds)
-    ).solve(problem)
+    result = IFDSSolver(options=SolverOptions(max_seconds=args.max_seconds)).solve(
+        problem
+    )
     elapsed = time.perf_counter() - started
     payload = {
         "nodes": args.nodes,
