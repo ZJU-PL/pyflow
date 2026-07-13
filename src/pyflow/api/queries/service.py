@@ -7,6 +7,9 @@ wrapping the various query classes for convenient access.
 
 from typing import Any, Dict, List, Optional, Union
 
+from pyflow.analysis.typeinfo import TypeFact, TypeInfoService
+from pyflow.analysis.typeinfo.typesystem import ProperType
+
 from .call_graph import CallGraphQueries
 from .capabilities import (
     DEFAULT_MODE,
@@ -37,6 +40,7 @@ class SemanticQueryService:
         compiler,
         program,
         server_mode: Optional[MCPServerMode] = None,
+        type_info_service: Optional[TypeInfoService] = None,
     ):
         self.context = QueryContext(compiler, program)
         self.graph_engine = GraphQueryEngine(self.context)
@@ -61,6 +65,7 @@ class SemanticQueryService:
         self.compiler = compiler
         self.program = program
         self.server_mode = server_mode or DEFAULT_MODE
+        self.type_info_service = type_info_service
 
     def capabilities(self) -> Dict[str, CapabilityInfo]:
         """Return supported query capabilities and notes for tooling."""
@@ -68,6 +73,10 @@ class SemanticQueryService:
         capabilities["_server_mode"] = {
             "available": True,
             "note": get_server_mode_description(self.server_mode),
+        }
+        capabilities["type_info"] = {
+            "available": self.type_info_service is not None,
+            "note": "Project-aware type information service.",
         }
         return capabilities
 
@@ -80,6 +89,19 @@ class SemanticQueryService:
 
     def _reset_graph_cache(self):
         self.graph_engine.reset_cache()
+
+    # Type information queries
+    def get_symbol_type(self, module_name: str, name: str) -> Optional[ProperType]:
+        """Return the resolved type for a module-level symbol, if available."""
+        if self.type_info_service is None:
+            return None
+        return self.type_info_service.type_of(module_name, name)
+
+    def get_type_fact(self, module_name: str, name: str) -> Optional[TypeFact]:
+        """Return the full collected type fact for a module-level symbol."""
+        if self.type_info_service is None:
+            return None
+        return self.type_info_service.fact_of(module_name, name)
 
     # Control flow queries
     def get_cfg(self, function: Union[str, object]):
