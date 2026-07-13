@@ -8,6 +8,7 @@ decorator detection, and focused AST visitors.
 
 from .annotation import Annotation
 from . import astpprint
+from .complexity import mccabe_complexity
 from .decorators import extract_decorator_name, has_decorator
 from .visitors import (
     AssertVisitor,
@@ -29,4 +30,5 @@ __all__ = [
     "extract_decorator_name",
     "get_return_info",
     "has_decorator",
+    "mccabe_complexity",
 ]
