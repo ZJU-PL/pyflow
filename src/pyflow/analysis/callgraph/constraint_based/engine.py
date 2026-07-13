@@ -27,6 +27,8 @@ from typing import (
 )
 
 from ..callgraph import CallGraph
+from pyflow.analysis.typeinfo.stub_loader import StubResolver
+from pyflow.frontend.project_resolution import ProjectContext
 from .model import (
     AbstractValue,
     AnalysisOptions,
@@ -42,9 +44,7 @@ from .model import (
     ScopeInfo,
     SolverStats,
     UNKNOWN_VALUE,
-    copy_env,
     make_container,
-    make_func,
 )
 from ._loader import _LoaderMixin
 from ._collector import _CollectorMixin
@@ -90,6 +90,8 @@ class ConstraintCallGraphBuilder(
             if self.entry_path
             else os.getcwd()
         )
+        self.project_context = ProjectContext(self.project_root)
+        self.stub_resolver = StubResolver(self.project_context)
         self.entry_module_import_name = (
             self._infer_entry_module_import_name(self.entry_path)
             if self.entry_path
@@ -204,29 +206,18 @@ class ConstraintCallGraphBuilder(
     def _infer_project_root(self, entry_path: str) -> str:
         """Pick an import root above any package directories containing the entry."""
         current = os.path.dirname(entry_path)
-        root = current
         while os.path.isfile(os.path.join(current, "__init__.py")):
-            root = os.path.dirname(current)
-            if root == current:
+            parent = os.path.dirname(current)
+            if parent == current:
                 break
-            current = root
-        return root
+            current = parent
+        return current
 
     def _infer_entry_module_import_name(self, entry_path: str) -> str:
         """Infer the import-qualified module name for the entry file."""
-        try:
-            relative_path = os.path.relpath(entry_path, self.project_root)
-        except ValueError:
-            return "main"
-        if relative_path.startswith(".."):
-            return "main"
-        module_name, ext = os.path.splitext(relative_path)
-        if ext != ".py":
-            return "main"
-        normalized = module_name.replace(os.sep, ".")
-        if normalized.endswith(".__init__"):
-            normalized = normalized[: -len(".__init__")]
-        return normalized or "main"
+        return self.project_context.module_name_from_path(
+            entry_path, allow_absolute_fallback=False
+        )
 
     def build(self) -> CallGraph:
         """Execute the full analysis pipeline and return the call graph."""

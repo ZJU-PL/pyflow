@@ -21,14 +21,12 @@ from pyflow.analysis.callgraph.constraint_based.model import AnalysisOptions
 
 class TestConstraintBasedPrecisionRecall(unittest.TestCase):
     def test_assignment_without_call_reduces_false_positive(self):
-        source = textwrap.dedent(
-            """
+        source = textwrap.dedent("""
             def foo():
                 return 1
 
             alias = foo
-            """
-        )
+            """)
 
         legacy = extract_call_graph_legacy(source).get()
         improved = extract_call_graph_constraint(source).get()
@@ -37,8 +35,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
         self.assertNotIn("main.foo", improved.get("main", set()))
 
     def test_higher_order_parameter_call_improves_recall(self):
-        source = textwrap.dedent(
-            """
+        source = textwrap.dedent("""
             def target():
                 return 1
 
@@ -46,8 +43,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
                 return fn()
 
             apply(target)
-            """
-        )
+            """)
 
         legacy = extract_call_graph_legacy(source).get()
         improved = extract_call_graph_constraint(source).get()
@@ -56,8 +52,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
         self.assertIn("main.target", improved.get("main.apply", set()))
 
     def test_call_site_edge_index_preserves_direct_call_site_edges(self):
-        source = textwrap.dedent(
-            """
+        source = textwrap.dedent("""
             def target():
                 return 1
 
@@ -65,8 +60,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
                 return fn()
 
             apply(target)
-            """
-        )
+            """)
 
         index = extract_call_site_edge_index_constraint(source)
 
@@ -81,8 +75,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
         self.assertIn("main.target", callees)
 
     def test_dynamic_dispatch_tracks_runtime_receiver_types(self):
-        source = textwrap.dedent(
-            """
+        source = textwrap.dedent("""
             class Base:
                 def f(self):
                     return 1
@@ -100,8 +93,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
 
             run(Base())
             run(Child())
-            """
-        )
+            """)
 
         legacy = extract_call_graph_legacy(source).get()
         improved = extract_call_graph_constraint(source).get()
@@ -112,8 +104,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
         self.assertNotIn("main.Other.f", improved.get("main.run", set()))
 
     def test_parameter_annotation_filters_incompatible_runtime_receiver_types(self):
-        source = textwrap.dedent(
-            """
+        source = textwrap.dedent("""
             class A:
                 def f(self):
                     return 1
@@ -127,8 +118,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
 
             call_a(A())
             call_a(B())
-            """
-        )
+            """)
 
         improved = extract_call_graph_constraint(source).get()
         call_edges = improved.get("main.call_a", set())
@@ -136,8 +126,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
         self.assertNotIn("main.B.f", call_edges)
 
     def test_protocol_annotation_prunes_by_structural_membership(self):
-        source = textwrap.dedent(
-            """
+        source = textwrap.dedent("""
             from typing import Protocol
 
             class SupportsF(Protocol):
@@ -157,8 +146,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
 
             run(A())
             run(B())
-            """
-        )
+            """)
 
         improved = extract_call_graph_constraint(source).get()
         run_edges = improved.get("main.run", set())
@@ -166,8 +154,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
         self.assertNotIn("main.B.g", run_edges)
 
     def test_typing_cast_refines_receiver_type(self):
-        source = textwrap.dedent(
-            """
+        source = textwrap.dedent("""
             from typing import cast
 
             class A:
@@ -184,8 +171,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
 
             run(A())
             run(B())
-            """
-        )
+            """)
 
         improved = extract_call_graph_constraint(source).get()
         run_edges = improved.get("main.run", set())
@@ -193,16 +179,14 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
         self.assertNotIn("main.B.f", run_edges)
 
     def test_import_alias_attribute_call_resolution(self):
-        source = textwrap.dedent(
-            """
+        source = textwrap.dedent("""
             import math as m
 
             def run():
                 return m.sqrt(4)
 
             run()
-            """
-        )
+            """)
 
         legacy = extract_call_graph_legacy(source).get()
         improved = extract_call_graph_constraint(source).get()
@@ -211,8 +195,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
         self.assertIn("math.sqrt", improved.get("main.run", set()))
 
     def test_getattr_constant_name_resolution(self):
-        source = textwrap.dedent(
-            """
+        source = textwrap.dedent("""
             class Handler:
                 def handle(self):
                     return 42
@@ -221,15 +204,13 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
                 return getattr(obj, "handle")()
 
             invoke(Handler())
-            """
-        )
+            """)
 
         improved = extract_call_graph_constraint(source).get()
         self.assertIn("main.Handler.handle", improved.get("main.invoke", set()))
 
     def test_reflective_setattr_and_dynamic_string_getattr_resolution(self):
-        source = textwrap.dedent(
-            """
+        source = textwrap.dedent("""
             def target():
                 return 1
 
@@ -245,15 +226,13 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
             instance = Box()
             install(instance, "ndle")
             run(instance)
-            """
-        )
+            """)
 
         improved = extract_call_graph_constraint(source).get()
         self.assertIn("main.target", improved.get("main.run", set()))
 
     def test_getattr_default_value_is_used_when_attribute_is_missing(self):
-        source = textwrap.dedent(
-            """
+        source = textwrap.dedent("""
             def fallback():
                 return 1
 
@@ -264,15 +243,13 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
                 return getattr(box, "missing", fallback)()
 
             run(Box())
-            """
-        )
+            """)
 
         improved = extract_call_graph_constraint(source).get()
         self.assertIn("main.fallback", improved.get("main.run", set()))
 
     def test_context_sensitive_mode_reduces_cross_callsite_pollution(self):
-        source = textwrap.dedent(
-            """
+        source = textwrap.dedent("""
             def identity(fn):
                 return fn
 
@@ -288,8 +265,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
 
             call_through(only_here)
             identity(leak_from_other_site)
-            """
-        )
+            """)
 
         context_insensitive = extract_call_graph_constraint(
             source, context_sensitive=False
@@ -307,8 +283,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
         self.assertNotIn("main.leak_from_other_site", sensitive_edges)
 
     def test_isinstance_guard_refines_union_annotated_parameter(self):
-        source = textwrap.dedent(
-            """
+        source = textwrap.dedent("""
             class A:
                 def f(self):
                     return 1
@@ -324,8 +299,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
 
             select(A())
             select(B())
-            """
-        )
+            """)
 
         improved = extract_call_graph_constraint(source).get()
         select_edges = improved.get("main.select", set())
@@ -333,8 +307,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
         self.assertNotIn("main.B.f", select_edges)
 
     def test_typeguard_function_refines_positive_branch(self):
-        source = textwrap.dedent(
-            """
+        source = textwrap.dedent("""
             from typing import TypeGuard
 
             class A:
@@ -355,8 +328,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
 
             run(A())
             run(B())
-            """
-        )
+            """)
 
         improved = extract_call_graph_constraint(source).get()
         run_edges = improved.get("main.run", set())
@@ -364,8 +336,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
         self.assertNotIn("main.B.f", run_edges)
 
     def test_hasattr_guard_refines_receiver_set(self):
-        source = textwrap.dedent(
-            """
+        source = textwrap.dedent("""
             class A:
                 def f(self):
                     return 1
@@ -380,8 +351,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
 
             run(A())
             run(B())
-            """
-        )
+            """)
 
         improved = extract_call_graph_constraint(source).get()
         run_edges = improved.get("main.run", set())
@@ -389,8 +359,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
         self.assertNotIn("main.B.f", run_edges)
 
     def test_callable_guard_refines_callable_values(self):
-        source = textwrap.dedent(
-            """
+        source = textwrap.dedent("""
             class A:
                 def __call__(self):
                     return 1
@@ -405,8 +374,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
 
             run(A())
             run(B())
-            """
-        )
+            """)
 
         improved = extract_call_graph_constraint(source).get()
         run_edges = improved.get("main.run", set())
@@ -414,8 +382,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
         self.assertNotIn("main.B.__call__", run_edges)
 
     def test_partial_wrapper_preserves_underlying_call_target(self):
-        source = textwrap.dedent(
-            """
+        source = textwrap.dedent("""
             from functools import partial
 
             def target():
@@ -426,15 +393,13 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
                 return fn()
 
             run()
-            """
-        )
+            """)
 
         improved = extract_call_graph_constraint(source).get()
         self.assertIn("main.target", improved.get("main.run", set()))
 
     def test_filter_and_sorted_key_callbacks_are_invoked(self):
-        source = textwrap.dedent(
-            """
+        source = textwrap.dedent("""
             def pred():
                 return True
 
@@ -446,8 +411,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
                 sorted(xs, key=key)
 
             run([1, 2])
-            """
-        )
+            """)
 
         improved = extract_call_graph_constraint(source).get()
         run_edges = improved.get("main.run", set())
@@ -455,8 +419,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
         self.assertIn("main.key", run_edges)
 
     def test_reduce_callback_is_invoked(self):
-        source = textwrap.dedent(
-            """
+        source = textwrap.dedent("""
             from functools import reduce
 
             def combine():
@@ -466,15 +429,13 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
                 return reduce(combine, xs)
 
             run([1, 2])
-            """
-        )
+            """)
 
         improved = extract_call_graph_constraint(source).get()
         self.assertIn("main.combine", improved.get("main.run", set()))
 
     def test_singledispatch_decorator_and_register_dispatch_by_runtime_type(self):
-        source = textwrap.dedent(
-            """
+        source = textwrap.dedent("""
             from functools import singledispatch
 
             def base_impl():
@@ -502,8 +463,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
                 render(B())
 
             run()
-            """
-        )
+            """)
 
         improved = extract_call_graph_constraint(source).get()
         run_edges = improved.get("main.run", set())
@@ -513,8 +473,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
         self.assertIn("main.base_impl", improved.get("main.render", set()))
 
     def test_singledispatch_register_call_expression_records_implementation(self):
-        source = textwrap.dedent(
-            """
+        source = textwrap.dedent("""
             from functools import singledispatch
 
             def base_impl():
@@ -539,8 +498,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
                 return render(A())
 
             run()
-            """
-        )
+            """)
 
         improved = extract_call_graph_constraint(source).get()
         run_edges = improved.get("main.run", set())
@@ -548,8 +506,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
         self.assertNotIn("main.render", run_edges)
 
     def test_registry_style_nested_register_call_records_callback(self):
-        source = textwrap.dedent(
-            """
+        source = textwrap.dedent("""
             class App:
                 pass
 
@@ -564,15 +521,13 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
                 return app["home"]()
 
             run()
-            """
-        )
+            """)
 
         improved = extract_call_graph_constraint(source).get()
         self.assertIn("main.handler", improved.get("main.run", set()))
 
     def test_dict_get_dispatch_recovers_keyed_target(self):
-        source = textwrap.dedent(
-            """
+        source = textwrap.dedent("""
             def a():
                 return 1
 
@@ -584,16 +539,14 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
                 return table.get(k, b)()
 
             run("a")
-            """
-        )
+            """)
 
         improved = extract_call_graph_constraint(source).get()
         run_edges = improved.get("main.run", set())
         self.assertIn("main.a", run_edges)
 
     def test_registry_style_decorator_records_callback(self):
-        source = textwrap.dedent(
-            """
+        source = textwrap.dedent("""
             class App:
                 pass
 
@@ -607,15 +560,13 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
                 return app["home"]()
 
             run()
-            """
-        )
+            """)
 
         improved = extract_call_graph_constraint(source).get()
         self.assertIn("main.handler", improved.get("main.run", set()))
 
     def test_dict_setdefault_preserves_inserted_dispatch_target(self):
-        source = textwrap.dedent(
-            """
+        source = textwrap.dedent("""
             def target():
                 return 1
 
@@ -625,15 +576,13 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
                 return fn()
 
             run()
-            """
-        )
+            """)
 
         improved = extract_call_graph_constraint(source).get()
         self.assertIn("main.target", improved.get("main.run", set()))
 
     def test_dict_pop_returns_removed_dispatch_target(self):
-        source = textwrap.dedent(
-            """
+        source = textwrap.dedent("""
             def target():
                 return 1
 
@@ -646,8 +595,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
                 return fn()
 
             run()
-            """
-        )
+            """)
 
         improved = extract_call_graph_constraint(source).get()
         run_edges = improved.get("main.run", set())
@@ -655,8 +603,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
         self.assertNotIn("main.other", run_edges)
 
     def test_dict_update_keeps_existing_and_incoming_dispatch_targets(self):
-        source = textwrap.dedent(
-            """
+        source = textwrap.dedent("""
             def a():
                 return 1
 
@@ -671,8 +618,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
 
             run(True)
             run(False)
-            """
-        )
+            """)
 
         improved = extract_call_graph_constraint(
             source, allow_fixture_graph_loading=False
@@ -682,8 +628,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
         self.assertIn("main.b", run_edges)
 
     def test_dict_get_includes_default_when_key_may_be_missing(self):
-        source = textwrap.dedent(
-            """
+        source = textwrap.dedent("""
             def a():
                 return 1
 
@@ -699,8 +644,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
 
             run(True)
             run(False)
-            """
-        )
+            """)
 
         improved = extract_call_graph_constraint(
             source, allow_fixture_graph_loading=False
@@ -710,8 +654,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
         self.assertIn("main.b", run_edges)
 
     def test_match_class_pattern_refines_subject_and_capture(self):
-        source = textwrap.dedent(
-            """
+        source = textwrap.dedent("""
             class A:
                 def f(self):
                     return 1
@@ -729,8 +672,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
 
             run(A())
             run(B())
-            """
-        )
+            """)
 
         improved = extract_call_graph_constraint(source).get()
         run_edges = improved.get("main.run", set())
@@ -738,8 +680,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
         self.assertNotIn("main.B.f", run_edges)
 
     def test_c3_mro_prefers_c3_linearized_method(self):
-        source = textwrap.dedent(
-            """
+        source = textwrap.dedent("""
             class A:
                 def f(self):
                     return 1
@@ -758,8 +699,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
                 return x.f()
 
             run(D())
-            """
-        )
+            """)
 
         improved = extract_call_graph_constraint(source).get()
         run_edges = improved.get("main.run", set())
@@ -767,8 +707,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
         self.assertNotIn("main.A.f", run_edges)
 
     def test_descriptor_and_callable_object_modeling(self):
-        source = textwrap.dedent(
-            """
+        source = textwrap.dedent("""
             class CallableDescriptor:
                 def __get__(self, obj, owner):
                     return self
@@ -788,8 +727,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
                 return b.fn()
 
             run(Box())
-            """
-        )
+            """)
 
         improved = extract_call_graph_constraint(source).get()
         run_edges = improved.get("main.run", set())
@@ -800,8 +738,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
         )
 
     def test_container_comprehension_and_closure_capture(self):
-        source = textwrap.dedent(
-            """
+        source = textwrap.dedent("""
             def f1():
                 return 1
 
@@ -820,8 +757,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
                 return wrapped()
 
             run()
-            """
-        )
+            """)
 
         improved = extract_call_graph_constraint(
             source, context_sensitive=True, context_depth=1
@@ -834,8 +770,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
         self.assertIn("main.f1", improved.get("main.make_inner.inner", set()))
 
     def test_lambda_functions_are_modeled_as_concrete_call_targets(self):
-        source = textwrap.dedent(
-            """
+        source = textwrap.dedent("""
             def target():
                 return 1
 
@@ -844,8 +779,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
                 return fn()
 
             run()
-            """
-        )
+            """)
         improved = extract_call_graph_constraint(source).get()
         run_edges = improved.get("main.run", set())
         lambda_edges = [
@@ -871,8 +805,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
         )
 
     def test_class_attribute_lookup_uses_inherited_staticmethod(self):
-        source = textwrap.dedent(
-            """
+        source = textwrap.dedent("""
             class Base:
                 @staticmethod
                 def f():
@@ -885,15 +818,13 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
                 return Child.f()
 
             run()
-            """
-        )
+            """)
 
         improved = extract_call_graph_constraint(source).get()
         self.assertIn("main.Base.f", improved.get("main.run", set()))
 
     def test_explicit_super_type_and_obj_uses_runtime_mro(self):
-        source = textwrap.dedent(
-            """
+        source = textwrap.dedent("""
             def base_fn():
                 return 1
 
@@ -916,8 +847,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
                 return Child().f()
 
             run()
-            """
-        )
+            """)
 
         improved = extract_call_graph_constraint(source).get()
         child_edges = improved.get("main.Child.f", set())
@@ -925,8 +855,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
         self.assertNotIn("main.Base.f", child_edges)
 
     def test_zero_arg_super_in_classmethod_uses_runtime_cls_mro(self):
-        source = textwrap.dedent(
-            """
+        source = textwrap.dedent("""
             def base_fn():
                 return 1
 
@@ -952,8 +881,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
                 return GrandChild.factory()
 
             run()
-            """
-        )
+            """)
 
         improved = extract_call_graph_constraint(source).get()
         factory_edges = improved.get("main.GrandChild.factory", set())
@@ -961,8 +889,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
         self.assertNotIn("main.Base.factory", factory_edges)
 
     def test_star_args_are_propagated_to_callee_parameters(self):
-        source = textwrap.dedent(
-            """
+        source = textwrap.dedent("""
             def target():
                 return 1
 
@@ -971,15 +898,13 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
 
             args = [target]
             apply(*args)
-            """
-        )
+            """)
 
         improved = extract_call_graph_constraint(source).get()
         self.assertIn("main.target", improved.get("main.apply", set()))
 
     def test_star_kwargs_are_propagated_to_callee_parameters(self):
-        source = textwrap.dedent(
-            """
+        source = textwrap.dedent("""
             def target():
                 return 1
 
@@ -988,15 +913,13 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
 
             kwargs = {"fn": target}
             apply(**kwargs)
-            """
-        )
+            """)
 
         improved = extract_call_graph_constraint(source).get()
         self.assertIn("main.target", improved.get("main.apply", set()))
 
     def test_container_allocation_is_stable_across_iterations(self):
-        source = textwrap.dedent(
-            """
+        source = textwrap.dedent("""
             def target():
                 return 1
 
@@ -1005,8 +928,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
 
             args = [target]
             apply(args[0])
-            """
-        )
+            """)
 
         builder = ConstraintCallGraphBuilder(source)
         graph = builder.build().get()
@@ -1018,27 +940,19 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
             mod_path = os.path.join(temp_dir, "mod.py")
             main_path = os.path.join(temp_dir, "main.py")
             with open(mod_path, "w", encoding="utf-8") as handle:
-                handle.write(
-                    textwrap.dedent(
-                        """
+                handle.write(textwrap.dedent("""
                         def target():
                             return 1
-                        """
-                    )
-                )
+                        """))
             with open(main_path, "w", encoding="utf-8") as handle:
-                handle.write(
-                    textwrap.dedent(
-                        """
+                handle.write(textwrap.dedent("""
                         from mod import *
 
                         def run():
                             return target()
 
                         run()
-                        """
-                    )
-                )
+                        """))
 
             with open(main_path, "r", encoding="utf-8") as handle:
                 source = handle.read()
@@ -1048,8 +962,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
             self.assertIn("mod.target", improved.get("main.run", set()))
 
     def test_classmethod_assignments_update_class_fields(self):
-        source = textwrap.dedent(
-            """
+        source = textwrap.dedent("""
             def handler():
                 return 1
 
@@ -1061,15 +974,13 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
             def run():
                 C.setup()
                 return C.fn()
-            """
-        )
+            """)
 
         improved = extract_call_graph_constraint(source).get()
         self.assertIn("main.handler", improved.get("main.run", set()))
 
     def test_instance_classmethod_binds_runtime_class(self):
-        source = textwrap.dedent(
-            """
+        source = textwrap.dedent("""
             def base_fn():
                 return 1
 
@@ -1092,16 +1003,14 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
 
             def run():
                 return Child().make()
-            """
-        )
+            """)
 
         improved = extract_call_graph_constraint(source).get()
         self.assertIn("main.Base.make", improved.get("main.run", set()))
         self.assertIn("main.Child.factory", improved.get("main.Base.make", set()))
 
     def test_async_await_and_async_with_are_analyzed(self):
-        source = textwrap.dedent(
-            """
+        source = textwrap.dedent("""
             class Ctx:
                 async def __aenter__(self):
                     return self
@@ -1115,15 +1024,13 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
             async def run(ctx):
                 async with ctx:
                     return await leaf()
-            """
-        )
+            """)
 
         improved = extract_call_graph_constraint(source).get()
         self.assertIn("main.leaf", improved.get("main.run", set()))
 
     def test_async_call_without_await_does_not_execute_body_returns(self):
-        source = textwrap.dedent(
-            """
+        source = textwrap.dedent("""
             def target():
                 return 1
 
@@ -1135,8 +1042,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
                 return fn()
 
             run()
-            """
-        )
+            """)
 
         improved = extract_call_graph_constraint(
             source, allow_fixture_graph_loading=False
@@ -1146,8 +1052,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
         self.assertNotIn("main.target", run_edges)
 
     def test_generator_call_without_iteration_does_not_expose_yields(self):
-        source = textwrap.dedent(
-            """
+        source = textwrap.dedent("""
             def target():
                 return 1
 
@@ -1159,8 +1064,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
                 return fn()
 
             run()
-            """
-        )
+            """)
 
         improved = extract_call_graph_constraint(
             source, allow_fixture_graph_loading=False
@@ -1170,8 +1074,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
         self.assertNotIn("main.target", run_edges)
 
     def test_match_case_bodies_are_analyzed(self):
-        source = textwrap.dedent(
-            """
+        source = textwrap.dedent("""
             def hit():
                 return 1
 
@@ -1181,8 +1084,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
                         return hit()
                     case _:
                         return 0
-            """
-        )
+            """)
         improved = extract_call_graph_constraint(source).get()
         self.assertIn("main.hit", improved.get("main.run", set()))
 
@@ -1198,18 +1100,14 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
                 handle.write("def target():\n    return 1\n")
             main_path = os.path.join(temp_dir, "main.py")
             with open(main_path, "w", encoding="utf-8") as handle:
-                handle.write(
-                    textwrap.dedent(
-                        """
+                handle.write(textwrap.dedent("""
                         import pkg.sub
 
                         def run():
                             return pkg.sub.target()
 
                         run()
-                        """
-                    )
-                )
+                        """))
 
             with open(main_path, "r", encoding="utf-8") as handle:
                 source = handle.read()
@@ -1227,32 +1125,24 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
             ) as handle:
                 handle.write("")
             with open(os.path.join(pkg_dir, "sub.py"), "w", encoding="utf-8") as handle:
-                handle.write(
-                    textwrap.dedent(
-                        """
+                handle.write(textwrap.dedent("""
                         def sink():
                             return 1
 
                         def target():
                             return sink()
-                        """
-                    )
-                )
+                        """))
 
             main_path = os.path.join(temp_dir, "main.py")
             with open(main_path, "w", encoding="utf-8") as handle:
-                handle.write(
-                    textwrap.dedent(
-                        """
+                handle.write(textwrap.dedent("""
                         from pkg import sub
 
                         def run():
                             return sub.target()
 
                         run()
-                        """
-                    )
-                )
+                        """))
 
             with open(main_path, "r", encoding="utf-8") as handle:
                 source = handle.read()
@@ -1265,9 +1155,109 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
         self.assertIn("pkg.sub.target", improved.get("main.run", set()))
         self.assertIn("pkg.sub.sink", improved.get("pkg.sub.target", set()))
 
+    def test_constraint_loader_uses_adjacent_pyi_for_external_imports(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            lib_py = os.path.join(temp_dir, "lib.py")
+            lib_pyi = os.path.join(temp_dir, "lib.pyi")
+            entry = os.path.join(temp_dir, "app.py")
+
+            with open(lib_py, "w", encoding="utf-8") as handle:
+                handle.write("class Client:\n    pass\n")
+            with open(lib_pyi, "w", encoding="utf-8") as handle:
+                handle.write(
+                    "class Client:\n"
+                    "    def ping(self) -> None: ...\n"
+                )
+            source = textwrap.dedent("""
+                from lib import Client
+
+                def run():
+                    client = Client()
+                    return client.ping()
+
+                run()
+                """)
+            with open(entry, "w", encoding="utf-8") as handle:
+                handle.write(source)
+
+            graph = ConstraintCallGraphBuilder(
+                source,
+                entry_path=entry,
+                options=AnalysisOptions(allow_fixture_graph_loading=False),
+            ).build().get()
+
+        self.assertIn("lib.Client.ping", graph.get("main.run", set()))
+
+    def test_stub_return_annotation_propagates_instance_methods(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            lib_py = os.path.join(temp_dir, "lib.py")
+            lib_pyi = os.path.join(temp_dir, "lib.pyi")
+            entry = os.path.join(temp_dir, "app.py")
+
+            with open(lib_py, "w", encoding="utf-8") as handle:
+                handle.write("")
+            with open(lib_pyi, "w", encoding="utf-8") as handle:
+                handle.write(
+                    "class Client:\n"
+                    "    def ping(self) -> None: ...\n"
+                    "def make_client() -> Client: ...\n"
+                )
+            source = textwrap.dedent("""
+                from lib import make_client
+
+                def run():
+                    client = make_client()
+                    return client.ping()
+
+                run()
+                """)
+            with open(entry, "w", encoding="utf-8") as handle:
+                handle.write(source)
+
+            graph = ConstraintCallGraphBuilder(
+                source,
+                entry_path=entry,
+                options=AnalysisOptions(allow_fixture_graph_loading=False),
+            ).build().get()
+
+        self.assertIn("lib.make_client", graph.get("main.run", set()))
+        self.assertIn("lib.Client.ping", graph.get("main.run", set()))
+
+    def test_stub_annotated_variable_exports_instance_value(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            lib_py = os.path.join(temp_dir, "lib.py")
+            lib_pyi = os.path.join(temp_dir, "lib.pyi")
+            entry = os.path.join(temp_dir, "app.py")
+
+            with open(lib_py, "w", encoding="utf-8") as handle:
+                handle.write("")
+            with open(lib_pyi, "w", encoding="utf-8") as handle:
+                handle.write(
+                    "class Client:\n"
+                    "    def ping(self) -> None: ...\n"
+                    "client: Client\n"
+                )
+            source = textwrap.dedent("""
+                from lib import client
+
+                def run():
+                    return client.ping()
+
+                run()
+                """)
+            with open(entry, "w", encoding="utf-8") as handle:
+                handle.write(source)
+
+            graph = ConstraintCallGraphBuilder(
+                source,
+                entry_path=entry,
+                options=AnalysisOptions(allow_fixture_graph_loading=False),
+            ).build().get()
+
+        self.assertIn("lib.Client.ping", graph.get("main.run", set()))
+
     def test_tuple_destructuring_assignment_uses_iterable_members(self):
-        source = textwrap.dedent(
-            """
+        source = textwrap.dedent("""
             def a():
                 return 1
 
@@ -1280,8 +1270,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
                 return fn()
 
             run()
-            """
-        )
+            """)
         improved = extract_call_graph_constraint(source).get()
         run_edges = improved.get("main.run", set())
         self.assertIn("main.b", run_edges)
@@ -1290,8 +1279,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
         )
 
     def test_global_write_updates_following_calls(self):
-        source = textwrap.dedent(
-            """
+        source = textwrap.dedent("""
             def a():
                 return 1
 
@@ -1309,14 +1297,12 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
                 return f()
 
             run()
-            """
-        )
+            """)
         improved = extract_call_graph_constraint(source).get()
         self.assertIn("main.b", improved.get("main.run", set()))
 
     def test_nonlocal_write_updates_outer_scope_variable(self):
-        source = textwrap.dedent(
-            """
+        source = textwrap.dedent("""
             def a():
                 return 1
 
@@ -1334,16 +1320,14 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
                 return fn()
 
             outer()
-            """
-        )
+            """)
         improved = extract_call_graph_constraint(source).get()
         outer_edges = improved.get("main.outer", set())
         self.assertIn("main.outer.switch", outer_edges)
         self.assertIn("main.b", outer_edges)
 
     def test_function_decorator_is_recorded_as_definition_time_call(self):
-        source = textwrap.dedent(
-            """
+        source = textwrap.dedent("""
             def deco(fn):
                 return fn
 
@@ -1355,22 +1339,19 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
                 return target()
 
             run()
-            """
-        )
+            """)
         improved = extract_call_graph_constraint(source).get()
         self.assertIn("main.deco", improved.get("main", set()))
         self.assertIn("main.target", improved.get("main.run", set()))
 
     def test_class_body_is_analyzed_for_definition_time_calls(self):
-        source = textwrap.dedent(
-            """
+        source = textwrap.dedent("""
             def target():
                 return 1
 
             class C:
                 target()
-            """
-        )
+            """)
 
         improved = extract_call_graph_constraint(
             source, allow_fixture_graph_loading=False
@@ -1378,8 +1359,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
         self.assertIn("main.target", improved.get("main.C", set()))
 
     def test_class_body_bindings_publish_class_attributes(self):
-        source = textwrap.dedent(
-            """
+        source = textwrap.dedent("""
             def target():
                 return 1
 
@@ -1390,8 +1370,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
                 return C.f()
 
             run()
-            """
-        )
+            """)
 
         improved = extract_call_graph_constraint(
             source, allow_fixture_graph_loading=False
@@ -1410,16 +1389,14 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
                 handle.write("def target():\n    return 1\n")
 
             entry_path = os.path.join(pkg_dir, "main.py")
-            source = textwrap.dedent(
-                """
+            source = textwrap.dedent("""
                 from .helpers import target
 
                 def run():
                     return target()
 
                 run()
-                """
-            )
+                """)
             with open(entry_path, "w", encoding="utf-8") as handle:
                 handle.write(source)
 
@@ -1432,8 +1409,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
         self.assertIn("pkg.helpers.target", improved.get("main.run", set()))
 
     def test_class_instantiation_records_new_calls(self):
-        source = textwrap.dedent(
-            """
+        source = textwrap.dedent("""
             class C:
                 def __new__(cls):
                     return super().__new__(cls)
@@ -1442,8 +1418,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
                 return C()
 
             run()
-            """
-        )
+            """)
 
         improved = extract_call_graph_constraint(
             source, allow_fixture_graph_loading=False
@@ -1451,8 +1426,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
         self.assertIn("main.C.__new__", improved.get("main.run", set()))
 
     def test_class_definition_invokes_init_subclass_hook(self):
-        source = textwrap.dedent(
-            """
+        source = textwrap.dedent("""
             def target():
                 return 1
 
@@ -1462,8 +1436,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
 
             class Child(Base):
                 pass
-            """
-        )
+            """)
 
         improved = extract_call_graph_constraint(
             source, allow_fixture_graph_loading=False
@@ -1473,8 +1446,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
         self.assertIn("main.target", improved.get("main.Base.__init_subclass__", set()))
 
     def test_class_instantiation_routes_through_metaclass_call(self):
-        source = textwrap.dedent(
-            """
+        source = textwrap.dedent("""
             def target():
                 return 1
 
@@ -1490,8 +1462,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
                 return fn()
 
             run()
-            """
-        )
+            """)
 
         improved = extract_call_graph_constraint(
             source, allow_fixture_graph_loading=False
@@ -1501,8 +1472,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
         self.assertIn("main.target", run_edges)
 
     def test_definition_time_defaults_and_annotations_are_analyzed(self):
-        source = textwrap.dedent(
-            """
+        source = textwrap.dedent("""
             def target():
                 return 1
 
@@ -1511,8 +1481,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
 
             def f(x: anno() = target()):
                 return x
-            """
-        )
+            """)
 
         improved = extract_call_graph_constraint(
             source, allow_fixture_graph_loading=False
@@ -1522,8 +1491,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
         self.assertIn("main.anno", main_edges)
 
     def test_definition_time_class_base_expression_is_analyzed(self):
-        source = textwrap.dedent(
-            """
+        source = textwrap.dedent("""
             class Base:
                 def f(self):
                     return 1
@@ -1538,8 +1506,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
                 return x.f()
 
             run(Child())
-            """
-        )
+            """)
 
         improved = extract_call_graph_constraint(
             source, allow_fixture_graph_loading=False
@@ -1554,19 +1521,14 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
             with open(os.path.join(pkg_dir, "__init__.py"), "w", encoding="utf-8"):
                 pass
             with open(os.path.join(pkg_dir, "sub.py"), "w", encoding="utf-8") as handle:
-                handle.write(
-                    textwrap.dedent(
-                        """
+                handle.write(textwrap.dedent("""
                         class Base:
                             def f(self):
                                 return 1
-                        """
-                    )
-                )
+                        """))
 
             main_path = os.path.join(temp_dir, "main.py")
-            source = textwrap.dedent(
-                """
+            source = textwrap.dedent("""
                 import pkg.sub
 
                 class Child(pkg.sub.Base):
@@ -1576,8 +1538,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
                     return x.f()
 
                 run(Child())
-                """
-            )
+                """)
             with open(main_path, "w", encoding="utf-8") as handle:
                 handle.write(source)
 
@@ -1596,9 +1557,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
             with open(os.path.join(pkg_dir, "__init__.py"), "w", encoding="utf-8"):
                 pass
             with open(os.path.join(pkg_dir, "sub.py"), "w", encoding="utf-8") as handle:
-                handle.write(
-                    textwrap.dedent(
-                        """
+                handle.write(textwrap.dedent("""
                         class A:
                             def f(self):
                                 return 1
@@ -1606,13 +1565,10 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
                         class B:
                             def f(self):
                                 return 2
-                        """
-                    )
-                )
+                        """))
 
             main_path = os.path.join(temp_dir, "main.py")
-            source = textwrap.dedent(
-                """
+            source = textwrap.dedent("""
                 import pkg.sub
 
                 def run(x: pkg.sub.A):
@@ -1620,8 +1576,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
 
                 run(pkg.sub.A())
                 run(pkg.sub.B())
-                """
-            )
+                """)
             with open(main_path, "w", encoding="utf-8") as handle:
                 handle.write(source)
 
@@ -1636,8 +1591,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
         self.assertNotIn("pkg.sub.B.f", run_edges)
 
     def test_try_else_only_executes_on_non_exception_path(self):
-        source = textwrap.dedent(
-            """
+        source = textwrap.dedent("""
             def handler():
                 return 1
 
@@ -1653,16 +1607,14 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
                     orelse()
 
             run()
-            """
-        )
+            """)
         improved = extract_call_graph_constraint(source).get()
         run_edges = improved.get("main.run", set())
         self.assertIn("main.handler", run_edges)
         self.assertNotIn("main.orelse", run_edges)
 
     def test_exception_handler_name_is_refined_to_exception_instance(self):
-        source = textwrap.dedent(
-            """
+        source = textwrap.dedent("""
             def helper():
                 return 1
 
@@ -1677,16 +1629,14 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
                     return err.handle()
 
             run()
-            """
-        )
+            """)
         improved = extract_call_graph_constraint(source).get()
         run_edges = improved.get("main.run", set())
         self.assertIn("main.MyErr.handle", run_edges)
         self.assertIn("main.helper", improved.get("main.MyErr.handle", set()))
 
     def test_exception_handler_tuple_refines_name_to_each_exception_type(self):
-        source = textwrap.dedent(
-            """
+        source = textwrap.dedent("""
             def a_helper():
                 return 1
 
@@ -1710,16 +1660,14 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
                     return err.handle()
 
             run(True)
-            """
-        )
+            """)
         improved = extract_call_graph_constraint(source).get()
         run_edges = improved.get("main.run", set())
         self.assertIn("main.AErr.handle", run_edges)
         self.assertIn("main.BErr.handle", run_edges)
 
     def test_for_loop_target_uses_iterable_member_values(self):
-        source = textwrap.dedent(
-            """
+        source = textwrap.dedent("""
             def target():
                 return 1
 
@@ -1728,14 +1676,12 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
                     fn()
 
             run()
-            """
-        )
+            """)
         improved = extract_call_graph_constraint(source).get()
         self.assertIn("main.target", improved.get("main.run", set()))
 
     def test_break_preserves_loop_body_assignments_to_post_loop_call(self):
-        source = textwrap.dedent(
-            """
+        source = textwrap.dedent("""
             def target():
                 return 1
 
@@ -1747,8 +1693,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
                 return fn()
 
             run([1])
-            """
-        )
+            """)
 
         improved = extract_call_graph_constraint(source).get()
         run_edges = improved.get("main.run", set())
@@ -1759,8 +1704,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
         )
 
     def test_try_handler_sees_assignments_before_raise(self):
-        source = textwrap.dedent(
-            """
+        source = textwrap.dedent("""
             def target():
                 return 1
 
@@ -1773,8 +1717,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
                     return fn()
 
             run()
-            """
-        )
+            """)
 
         improved = extract_call_graph_constraint(source).get()
         run_edges = improved.get("main.run", set())
@@ -1785,8 +1728,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
         )
 
     def test_nonlocal_write_updates_escaped_sibling_closure(self):
-        source = textwrap.dedent(
-            """
+        source = textwrap.dedent("""
             def a():
                 return 1
 
@@ -1808,8 +1750,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
             setter, reader = make()
             setter()
             reader()
-            """
-        )
+            """)
 
         improved = extract_call_graph_constraint(
             source, context_sensitive=True, context_depth=1
@@ -1826,29 +1767,23 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
             with open(
                 os.path.join(pkg_dir, "helper.py"), "w", encoding="utf-8"
             ) as handle:
-                handle.write(
-                    textwrap.dedent(
-                        """
+                handle.write(textwrap.dedent("""
                         def sink():
                             return 1
 
                         def target():
                             return sink()
-                        """
-                    )
-                )
+                        """))
 
             entry_path = os.path.join(pkg_dir, "main.py")
-            source = textwrap.dedent(
-                """
+            source = textwrap.dedent("""
                 import pkg.helper
 
                 def run():
                     return pkg.helper.target()
 
                 run()
-                """
-            )
+                """)
             with open(entry_path, "w", encoding="utf-8") as handle:
                 handle.write(source)
 
@@ -1864,8 +1799,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
         self.assertIn("pkg.helper.sink", graph.get("pkg.helper.target", set()))
 
     def test_conditional_delattr_remains_conservative_and_converges(self):
-        source = textwrap.dedent(
-            """
+        source = textwrap.dedent("""
             def target():
                 return 1
 
@@ -1880,8 +1814,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
 
             run(Box(), True)
             run(Box(), False)
-            """
-        )
+            """)
 
         builder = ConstraintCallGraphBuilder(
             source,
@@ -1898,8 +1831,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
         self.assertIn("main.target", run_edges)
 
     def test_delattr_with_getattr_default_includes_fallback(self):
-        source = textwrap.dedent(
-            """
+        source = textwrap.dedent("""
             def target():
                 return 1
 
@@ -1917,8 +1849,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
 
             run(Box(), True)
             run(Box(), False)
-            """
-        )
+            """)
 
         improved = extract_call_graph_constraint(
             source, allow_fixture_graph_loading=False
@@ -1928,8 +1859,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
         self.assertIn("main.fallback", run_edges)
 
     def test_delete_global_binding_removes_following_direct_call(self):
-        source = textwrap.dedent(
-            """
+        source = textwrap.dedent("""
             def target():
                 return 1
 
@@ -1944,8 +1874,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
                 return x()
 
             run()
-            """
-        )
+            """)
 
         improved = extract_call_graph_constraint(
             source, allow_fixture_graph_loading=False
@@ -1955,8 +1884,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
         self.assertNotIn("main.target", run_edges)
 
     def test_post_pop_lookup_keeps_existing_target_for_soundness(self):
-        source = textwrap.dedent(
-            """
+        source = textwrap.dedent("""
             def target():
                 return 1
 
@@ -1968,8 +1896,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
 
             run(True)
             run(False)
-            """
-        )
+            """)
 
         builder = ConstraintCallGraphBuilder(
             source,
@@ -1985,8 +1912,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
         self.assertIn("main.target", graph.get("main.run", set()))
 
     def test_delete_then_dict_get_includes_default_fallback(self):
-        source = textwrap.dedent(
-            """
+        source = textwrap.dedent("""
             def target():
                 return 1
 
@@ -2001,8 +1927,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
 
             run(True)
             run(False)
-            """
-        )
+            """)
 
         improved = extract_call_graph_constraint(
             source, allow_fixture_graph_loading=False
@@ -2012,8 +1937,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
         self.assertIn("main.fallback", run_edges)
 
     def test_interprocedural_container_write_requeues_reader_scope(self):
-        source = textwrap.dedent(
-            """
+        source = textwrap.dedent("""
             def target():
                 return 1
 
@@ -2025,8 +1949,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
                 return table["k"]()
 
             run({})
-            """
-        )
+            """)
 
         improved = extract_call_graph_constraint(
             source,
@@ -2037,8 +1960,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
         self.assertIn("main.target", improved.get("main.run", set()))
 
     def test_keyed_subscript_fallback_tracks_wildcard_container_dependency(self):
-        source = textwrap.dedent(
-            """
+        source = textwrap.dedent("""
             def target():
                 return 1
 
@@ -2051,8 +1973,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
                 return fn()
 
             run({})
-            """
-        )
+            """)
 
         improved = extract_call_graph_constraint(
             source,
@@ -2063,8 +1984,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
         self.assertIn("main.target", improved.get("main.run", set()))
 
     def test_exec_literal_string_is_analyzed(self):
-        source = textwrap.dedent(
-            """
+        source = textwrap.dedent("""
             def target():
                 return 1
 
@@ -2072,8 +1992,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
                 exec("target()")
 
             run()
-            """
-        )
+            """)
 
         improved = extract_call_graph_constraint(
             source, allow_fixture_graph_loading=False
@@ -2081,8 +2000,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
         self.assertIn("main.target", improved.get("main.run", set()))
 
     def test_eval_literal_string_is_analyzed(self):
-        source = textwrap.dedent(
-            """
+        source = textwrap.dedent("""
             def target():
                 return 1
 
@@ -2091,8 +2009,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
                 return fn()
 
             run()
-            """
-        )
+            """)
 
         improved = extract_call_graph_constraint(
             source, allow_fixture_graph_loading=False
@@ -2128,8 +2045,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
             self.assertIn(f"main.C{index}.f", run_edges)
 
     def test_match_stops_after_definite_class_pattern_match(self):
-        source = textwrap.dedent(
-            """
+        source = textwrap.dedent("""
             def a():
                 return 1
 
@@ -2150,8 +2066,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
                         return b()
 
             run(A())
-            """
-        )
+            """)
 
         graph = extract_call_graph_constraint(source).get()
         run_edges = graph.get("main.run", set())
@@ -2159,8 +2074,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
         self.assertNotIn("main.b", run_edges)
 
     def test_match_skips_statically_false_guard(self):
-        source = textwrap.dedent(
-            """
+        source = textwrap.dedent("""
             def a():
                 return 1
 
@@ -2178,8 +2092,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
                         return b()
 
             run(A())
-            """
-        )
+            """)
 
         graph = extract_call_graph_constraint(source).get()
         run_edges = graph.get("main.run", set())
@@ -2187,8 +2100,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
         self.assertIn("main.b", run_edges)
 
     def test_unreachable_code_after_return_is_not_analyzed(self):
-        source = textwrap.dedent(
-            """
+        source = textwrap.dedent("""
             def dead():
                 return 1
 
@@ -2197,14 +2109,12 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
                 dead()
 
             run()
-            """
-        )
+            """)
         improved = extract_call_graph_constraint(source).get()
         self.assertNotIn("main.dead", improved.get("main.run", set()))
 
     def test_positional_only_parameter_is_not_bound_by_keyword(self):
-        source = textwrap.dedent(
-            """
+        source = textwrap.dedent("""
             def target():
                 return 1
 
@@ -2213,14 +2123,12 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
 
             def run():
                 return invoke(cb=target)
-            """
-        )
+            """)
         improved = extract_call_graph_constraint(source).get()
         self.assertNotIn("main.target", improved.get("main.invoke", set()))
 
     def test_keyword_only_parameter_is_not_bound_positionally(self):
-        source = textwrap.dedent(
-            """
+        source = textwrap.dedent("""
             def target():
                 return 1
 
@@ -2229,14 +2137,12 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
 
             def run():
                 return invoke(target)
-            """
-        )
+            """)
         improved = extract_call_graph_constraint(source).get()
         self.assertNotIn("main.target", improved.get("main.invoke", set()))
 
     def test_with_calls_enter_and_exit_protocol_methods(self):
-        source = textwrap.dedent(
-            """
+        source = textwrap.dedent("""
             class Ctx:
                 def __enter__(self):
                     return self
@@ -2249,16 +2155,14 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
                     return value
 
             run(Ctx())
-            """
-        )
+            """)
         improved = extract_call_graph_constraint(source).get()
         run_edges = improved.get("main.run", set())
         self.assertIn("main.Ctx.__enter__", run_edges)
         self.assertIn("main.Ctx.__exit__", run_edges)
 
     def test_inconsistent_mro_warns_and_uses_conservative_dispatch(self):
-        source = textwrap.dedent(
-            """
+        source = textwrap.dedent("""
             class A:
                 def f(self):
                     return 0
@@ -2284,8 +2188,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
                 return x.f()
 
             run(F())
-            """
-        )
+            """)
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
             improved = extract_call_graph_constraint(source).get()
@@ -2301,15 +2204,13 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
         self.assertIn("main.C.f", run_edges)
 
     def test_fixpoint_iteration_cap_emits_warning(self):
-        source = textwrap.dedent(
-            """
+        source = textwrap.dedent("""
             def a():
                 return 1
 
             def b():
                 return a()
-            """
-        )
+            """)
         builder = ConstraintCallGraphBuilder(
             source,
             options=AnalysisOptions(fixpoint_max_iterations=1),
@@ -2327,15 +2228,13 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
         self.assertGreaterEqual(builder.fixpoint_iterations, 1)
 
     def test_fixpoint_warning_can_be_disabled(self):
-        source = textwrap.dedent(
-            """
+        source = textwrap.dedent("""
             def a():
                 return 1
 
             def b():
                 return a()
-            """
-        )
+            """)
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
             extract_call_graph_constraint(
@@ -2353,12 +2252,10 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
             "call",
             "main.py",
         )
-        source = textwrap.dedent(
-            """
+        source = textwrap.dedent("""
             def local_only():
                 return 1
-            """
-        )
+            """)
         improved = extract_call_graph_constraint(source, source_path=snippet_main).get()
         self.assertIn("main.local_only", improved)
 
@@ -2416,14 +2313,12 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
             self.assertIn("main.local_only", improved)
 
     def test_unresolved_dynamic_calls_have_summary_nodes(self):
-        source = textwrap.dedent(
-            """
+        source = textwrap.dedent("""
             def run(cb):
                 return cb()
 
             run(42)
-            """
-        )
+            """)
 
         improved = extract_call_graph_constraint(source).get()
         run_edges = improved.get("main.run", set())
@@ -2433,8 +2328,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
         )
 
     def test_dynamic_summary_nodes_include_reason_tags(self):
-        source = textwrap.dedent(
-            """
+        source = textwrap.dedent("""
             class Box:
                 pass
 
@@ -2442,8 +2336,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
                 return x()
 
             run(Box())
-            """
-        )
+            """)
         improved = extract_call_graph_constraint(source).get()
         run_edges = improved.get("main.run", set())
         self.assertTrue(
@@ -2452,14 +2345,12 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
         )
 
     def test_value_flow_graph_debug_output_exposes_assignments(self):
-        source = textwrap.dedent(
-            """
+        source = textwrap.dedent("""
             def target():
                 return 1
 
             alias = target
-            """
-        )
+            """)
         as_graph = extract_value_flow_graph_constraint(source)
         self.assertIn("main.alias", as_graph)
         self.assertIn("main.target", as_graph["main.alias"])
@@ -2467,8 +2358,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
     def test_allocation_site_sensitive_instances_reduce_cross_instance_field_pollution(
         self,
     ):
-        source = textwrap.dedent(
-            """
+        source = textwrap.dedent("""
             class Box:
                 def setf(self, fn):
                     self.fn = fn
@@ -2490,8 +2380,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
                 return x.call()
 
             run()
-            """
-        )
+            """)
 
         insensitive = extract_call_graph_constraint(
             source,
@@ -2514,8 +2403,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
         self.assertNotIn("main.b", sensitive_edges)
 
     def test_priority_scheduler_is_deterministic_for_graph_and_stats(self):
-        source = textwrap.dedent(
-            """
+        source = textwrap.dedent("""
             def a():
                 return 1
 
@@ -2528,8 +2416,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
             def run():
                 choose(a)
                 choose(b)
-            """
-        )
+            """)
         options = AnalysisOptions(
             context_sensitive=True,
             context_depth=2,
@@ -2548,8 +2435,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
         self.assertEqual(stats_a, stats_b)
 
     def test_binding_cap_preserves_all_concrete_callables(self):
-        source = textwrap.dedent(
-            """
+        source = textwrap.dedent("""
             def a():
                 return 1
 
@@ -2574,8 +2460,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
             run(0)
             run(1)
             run(2)
-            """
-        )
+            """)
         builder = ConstraintCallGraphBuilder(
             source,
             options=AnalysisOptions(
@@ -2591,8 +2476,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
         self.assertEqual(function_names, {"main.a", "main.b", "main.c"})
 
     def test_solver_stats_show_requeue_pressure(self):
-        source = textwrap.dedent(
-            """
+        source = textwrap.dedent("""
             def a():
                 return b()
 
@@ -2600,8 +2484,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
                 return a()
 
             a()
-            """
-        )
+            """)
         builder = ConstraintCallGraphBuilder(
             source,
             options=AnalysisOptions(
@@ -2622,9 +2505,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
         unrelated_defs = "\n\n".join(
             f"def unrelated_{index}():\n    return {index}" for index in range(40)
         )
-        source = (
-            textwrap.dedent(
-                """
+        source = textwrap.dedent("""
                 def a():
                     return 1
 
@@ -2647,11 +2528,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
                     return read(table)
 
                 run()
-                """
-            )
-            + "\n"
-            + unrelated_defs
-        )
+                """) + "\n" + unrelated_defs
         builder = ConstraintCallGraphBuilder(
             source,
             options=AnalysisOptions(
@@ -2668,8 +2545,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
         self.assertLess(builder.solver_stats.states_requeued, 140)
 
     def test_context_budget_cap_degrades_to_global_without_truncation(self):
-        source = textwrap.dedent(
-            """
+        source = textwrap.dedent("""
             def id_fn(fn):
                 return fn
 
@@ -2686,8 +2562,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
                 id_fn(a)
                 id_fn(b)
                 id_fn(c)
-            """
-        )
+            """)
         builder = ConstraintCallGraphBuilder(
             source,
             options=AnalysisOptions(
@@ -2700,6 +2575,35 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
         builder.build()
         self.assertFalse(builder.fixpoint_truncated)
         self.assertGreater(builder.solver_stats.contexts_capped, 0)
+
+    def test_loader_traverses_namespace_package_submodule_import(self):
+        """Import loading should handle implicit namespace package parents."""
+        with tempfile.TemporaryDirectory() as d:
+            ns_dir = os.path.join(d, "ns_pkg")
+            os.makedirs(ns_dir)
+            child_path = os.path.join(ns_dir, "child.py")
+            main_path = os.path.join(d, "main.py")
+            with open(child_path, "w", encoding="utf-8") as f:
+                f.write("def target():\n    return 1\n")
+            source = textwrap.dedent("""
+                from ns_pkg import child
+
+                def run():
+                    return child.target()
+
+                run()
+                """)
+            with open(main_path, "w", encoding="utf-8") as f:
+                f.write(source)
+
+            builder = ConstraintCallGraphBuilder(
+                source,
+                entry_path=main_path,
+                options=AnalysisOptions(allow_fixture_graph_loading=False),
+            )
+            builder._load_modules()
+
+            self.assertIn("ns_pkg.child", builder.modules)
 
 
 if __name__ == "__main__":

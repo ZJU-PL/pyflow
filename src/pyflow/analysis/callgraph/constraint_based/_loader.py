@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import ast
-import os
 from collections import deque
 from typing import Iterable, Optional, Set
 
-from .model import make_module, ModuleInfo
+from .model import ModuleInfo
 
 
 class _LoaderMixin:
@@ -42,9 +41,26 @@ class _LoaderMixin:
             for imported in self._iter_imported_modules(module_info):
                 if imported in self.modules:
                     continue
-                imported_path = self._resolve_module_file(imported)
-                if not imported_path:
-                    continue
+                resolution = self.project_context.find_module(
+                    imported,
+                    script_path=module_info.path,
+                )
+                if resolution is None or resolution.path is None:
+                    imported_path = self.stub_resolver.resolve_path(
+                        imported,
+                        script_path=module_info.path,
+                    )
+                    if imported_path is None:
+                        continue
+                else:
+                    imported_path = resolution.path
+                    if not str(imported_path).endswith(".pyi"):
+                        stub_path = self.stub_resolver.resolve_path(
+                            imported,
+                            script_path=module_info.path,
+                        )
+                        if stub_path is not None:
+                            imported_path = stub_path
                 try:
                     with open(imported_path, "r", encoding="utf-8") as handle:
                         src = handle.read()
@@ -60,33 +76,11 @@ class _LoaderMixin:
 
     def _iter_imported_modules(self, module_info: ModuleInfo) -> Iterable[str]:
         """Yield imported module names referenced anywhere in the module AST."""
-        yielded: Set[str] = set()
-
-        def _emit(module_name: str) -> Iterable[str]:
-            if not module_name or module_name in yielded:
-                return ()
-            yielded.add(module_name)
-            return (module_name,)
-
-        for node in ast.walk(module_info.tree):
-            if isinstance(node, ast.Import):
-                for alias in node.names:
-                    for module_name in _emit(alias.name):
-                        yield module_name
-            elif isinstance(node, ast.ImportFrom):
-                resolved = self._resolve_import_module_name(
-                    module_info.name, node.module, node.level
-                )
-                if resolved:
-                    for module_name in _emit(resolved):
-                        yield module_name
-                    for alias in node.names:
-                        if alias.name == "*":
-                            continue
-                        candidate_module = f"{resolved}.{alias.name}"
-                        if self._resolve_module_file(candidate_module):
-                            for module_name in _emit(candidate_module):
-                                yield module_name
+        yield from self.project_context.iter_imported_modules(
+            module_info.tree,
+            current_module=module_info.name,
+            current_path=module_info.path,
+        )
 
     def _resolve_import_module_name(
         self, current_module: str, imported_module: Optional[str], level: int
@@ -97,60 +91,25 @@ class _LoaderMixin:
         The logic mirrors Python package semantics approximately and intentionally
         falls back conservatively when package/module boundaries are ambiguous.
         """
-        if level <= 0:
-            return imported_module
-
-        effective_module = current_module
-        if current_module == "main":
-            effective_module = getattr(
-                self,
-                "entry_module_import_name",
-                current_module,
-            )
-
-        package_parts = effective_module.split(".")
-        if package_parts and package_parts[-1] == "__init__":
-            package_parts = package_parts[:-1]
-            is_package_module = True
-        else:
-            module_info = self.modules.get(current_module)
-            is_package_module = bool(
-                module_info
-                and module_info.path
-                and os.path.basename(module_info.path) == "__init__.py"
-            )
-            if (
-                not is_package_module
-                and "." not in effective_module
-                and effective_module != "main"
-            ):
-                # Without a loaded module path we cannot always distinguish
-                # package modules from top-level .py modules.
-                # Prefer package anchoring for non-entry single-segment names.
-                is_package_module = True
-        if package_parts and not is_package_module:
-            package_parts = package_parts[:-1]
-
-        ascents = level - 1
-        if ascents > len(package_parts):
-            return imported_module
-        prefix = ".".join(package_parts[: len(package_parts) - ascents])
-
-        if imported_module:
-            return f"{prefix}.{imported_module}" if prefix else imported_module
-        return prefix or imported_module
+        module_info = self.modules.get(current_module)
+        current_path = module_info.path if module_info else None
+        return self.project_context.resolve_import_name(
+            current_module,
+            imported_module,
+            level,
+            current_path=current_path,
+        )
 
     def _resolve_module_file(self, module_name: str) -> Optional[str]:
         """Map module name to a `.py` or package `__init__.py` under project root."""
         if not module_name:
             return None
 
-        relative_path = module_name.replace(".", os.sep)
-        direct = os.path.join(self.project_root, f"{relative_path}.py")
-        init_path = os.path.join(self.project_root, relative_path, "__init__.py")
+        stub_path = self.stub_resolver.resolve_path(module_name)
+        if stub_path is not None:
+            return stub_path
 
-        if os.path.isfile(direct):
-            return os.path.abspath(direct)
-        if os.path.isfile(init_path):
-            return os.path.abspath(init_path)
-        return None
+        resolution = self.project_context.find_module(module_name)
+        if resolution is None:
+            return None
+        return resolution.path

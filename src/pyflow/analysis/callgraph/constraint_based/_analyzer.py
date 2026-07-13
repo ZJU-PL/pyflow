@@ -29,6 +29,59 @@ from .model import (
 class _AnalyzerMixin:
     """Fixpoint iteration and per-scope/block analysis."""
 
+    def _is_stub_like_body(self, body: Sequence[ast.stmt]) -> bool:
+        """Return whether a function body is only ``...``/``pass`` placeholders."""
+        if not body:
+            return False
+        for stmt in body:
+            if isinstance(stmt, ast.Pass):
+                continue
+            if (
+                isinstance(stmt, ast.Expr)
+                and isinstance(stmt.value, ast.Constant)
+                and stmt.value.value is Ellipsis
+            ):
+                continue
+            return False
+        return True
+
+    def _return_annotation_is_type_object(self, annotation: ast.expr | None) -> bool:
+        if not isinstance(annotation, ast.Subscript):
+            return False
+        return self._expr_qualname(annotation.value) in {
+            "Type",
+            "typing.Type",
+            "type",
+        }
+
+    def _stub_return_values_from_annotation(
+        self,
+        scope: ScopeInfo,
+    ) -> Set[AbstractValue]:
+        """Seed return values for `.pyi`-style functions from return annotations."""
+        function_info = self.functions.get(scope.name)
+        if (
+            function_info is None
+            or function_info.return_annotation is None
+            or not self._is_stub_like_body(scope.body)
+        ):
+            return set()
+
+        type_values = self._resolve_type_expression_values(
+            function_info.return_annotation,
+            function_info.module,
+        )
+        if self._return_annotation_is_type_object(function_info.return_annotation):
+            return set(type_values)
+
+        out: Set[AbstractValue] = set()
+        for value in type_values:
+            if value.kind == CLASS_KIND:
+                out.add(make_instance(value.name))
+            else:
+                out.add(value)
+        return out
+
     def _evaluate_function_header(
         self,
         scope: ScopeInfo,
@@ -863,6 +916,8 @@ class _AnalyzerMixin:
                 class_definition_env=class_definition_env,
             )
             returns.update(block_returns)
+            if not returns:
+                returns.update(self._stub_return_values_from_annotation(scope))
             callees.update(block_callees)
             input_changed_scope_contexts.update(block_inputs)
             changed_instance_fields.update(self._active_changed_instance_fields)

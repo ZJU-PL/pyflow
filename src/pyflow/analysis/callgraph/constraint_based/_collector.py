@@ -16,6 +16,7 @@ from .model import (
     ScopeInfo,
     make_class,
     make_func,
+    make_instance,
     make_string,
     copy_env,
 )
@@ -380,6 +381,31 @@ class _CollectorMixin:
                     exports[node.name].add(make_class(class_qualname))
 
             self._collect_lambdas(module_name, module_info.tree)
+
+            self.module_bindings[module_name] = {
+                name: set(values) for name, values in exports.items()
+            }
+
+            for node in module_info.tree.body:
+                if (
+                    not isinstance(node, ast.AnnAssign)
+                    or not isinstance(node.target, ast.Name)
+                    or node.target.id.startswith("_")
+                ):
+                    continue
+                annotated_values = self._resolve_type_expression_values(
+                    node.annotation,
+                    module_name,
+                    env=exports,
+                )
+                if self._return_annotation_is_type_object(node.annotation):
+                    exports[node.target.id].update(annotated_values)
+                else:
+                    for value in annotated_values:
+                        if value.kind == CLASS_KIND:
+                            exports[node.target.id].add(make_instance(value.name))
+                        else:
+                            exports[node.target.id].add(value)
 
             # Basic top-level alias/constant propagation for direct assignments.
             for node in module_info.tree.body:
