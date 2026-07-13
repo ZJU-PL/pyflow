@@ -11,7 +11,6 @@ from pyflow.language.asttools.origin import Origin, SourceOrigin
 
 from .cfg_adapter import CFGNode, CFGSupergraphAdapter
 
-
 _SOURCE_TAG = re.compile(r"^source\((.*):(\d+)\)$")
 
 
@@ -67,14 +66,26 @@ class AnalysisFinding:
     @property
     def fingerprint(self) -> str:
         location = self.primary_location
+        location_identity = (
+            "|".join(
+                (
+                    location.uri,
+                    str(location.start_line),
+                    str(location.start_column),
+                    str(location.end_line or ""),
+                    str(location.end_column or ""),
+                )
+            )
+            if location
+            else f"node:{self.node_id}"
+        )
         raw = "|".join(
             (
                 self.rule_id,
                 self.kind,
                 self.procedure,
-                str(self.node_id),
-                location.uri if location else "",
-                str(location.start_line if location else 0),
+                location_identity,
+                self.message,
             )
         )
         return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:24]
@@ -128,7 +139,9 @@ def _span_from_origin(origin: object) -> SourceSpan | None:
     return None
 
 
-def source_span_for_node(adapter: CFGSupergraphAdapter, node: CFGNode) -> SourceSpan | None:
+def source_span_for_node(
+    adapter: CFGSupergraphAdapter, node: CFGNode
+) -> SourceSpan | None:
     """Resolve the best source span available for a CFG-backed node."""
     candidates = (
         adapter.call_expression_of(node),
@@ -182,9 +195,10 @@ def normalized_taint_findings(result) -> tuple[AnalysisFinding, ...]:
         cwe = getattr(model, "cwe", None)
         severity = getattr(model, "severity", None) or "warning"
         suggestion = getattr(model, "suggestion", None)
-        labels = tuple(
-            local.name or "<local>" for local in finding.tainted_arguments
-        ) or finding.tainted_argument_labels
+        labels = (
+            tuple(local.name or "<local>" for local in finding.tainted_arguments)
+            or finding.tainted_argument_labels
+        )
         traces = ()
         if finding.tainted_arguments:
             fact = result.fact_for_local(finding.sink, finding.tainted_arguments[0])

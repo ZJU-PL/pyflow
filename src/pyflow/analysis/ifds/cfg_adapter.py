@@ -18,7 +18,6 @@ from pyflow.language.python import ast as py_ast
 from .supergraph import Supergraph
 from .transfers import bind_call_arguments
 
-
 CallResolver = Callable[
     ["CFGSupergraphAdapter", "CFGNode", py_ast.PythonASTNode | None],
     Iterable[cfg_graph.Code],
@@ -202,6 +201,33 @@ def iter_call_expressions_in_eval_order(
             current.visitChildren(visit)
         if isinstance(current, (py_ast.DirectCall, py_ast.Call, py_ast.MethodCall)):
             found.append(current)
+
+    visit(node)
+    return tuple(found)
+
+
+def iter_suspension_expressions(
+    node: py_ast.PythonASTNode | None,
+) -> tuple[py_ast.PythonASTNode, ...]:
+    """Return await/yield expressions nested in one lowered operation."""
+    found: list[py_ast.PythonASTNode] = []
+
+    def visit(current) -> None:
+        if current is None or isinstance(current, py_ast.leafTypes):
+            return
+        if isinstance(current, py_ast.Code):
+            return
+        if isinstance(current, (list, tuple)):
+            for child in current:
+                visit(child)
+            return
+        if isinstance(
+            current,
+            (py_ast.Await, py_ast.Yield, py_ast.YieldFrom, py_ast.AsyncYield),
+        ):
+            found.append(current)
+        if hasattr(current, "visitChildren"):
+            current.visitChildren(visit)
 
     visit(node)
     return tuple(found)
@@ -463,6 +489,9 @@ class CFGSupergraphAdapter:
         self._local_successors: Dict[CFGNode, set[CFGNode]] = {}
         self._exceptional_local_edges: set[tuple[CFGNode, CFGNode]] = set()
         self._effect_by_node: Dict[CFGNode, object] = {}
+        self._suspension_effects_by_node: Dict[
+            CFGNode, tuple[SuspensionEffect, ...]
+        ] = {}
         self._procedure_semantics: Dict[cfg_graph.Code, ProcedureSemantics] = {
             cfg: self._infer_procedure_semantics(cfg) for cfg in self.cfgs
         }
@@ -493,6 +522,28 @@ class CFGSupergraphAdapter:
 
     def procedure_semantics(self, procedure: cfg_graph.Code) -> ProcedureSemantics:
         return self._procedure_semantics.get(procedure, ProcedureSemantics())
+
+    def suspension_effects_of(self, node: CFGNode) -> tuple[SuspensionEffect, ...]:
+        """Return every suspension boundary evaluated by ``node``."""
+        cached = self._suspension_effects_by_node.get(node)
+        if cached is not None:
+            return cached
+        effects = tuple(
+            SuspensionEffect(
+                node=node,
+                operation=suspension,
+                kind={
+                    py_ast.Await: "await",
+                    py_ast.Yield: "yield",
+                    py_ast.YieldFrom: "yield_from",
+                    py_ast.AsyncYield: "async_yield",
+                }[type(suspension)],
+                value=getattr(suspension, "expr", None),
+            )
+            for suspension in iter_suspension_expressions(self.operation_of(node))
+        )
+        self._suspension_effects_by_node[node] = effects
+        return effects
 
     def is_exceptional_successor(self, source: CFGNode, target: CFGNode) -> bool:
         return (source, target) in self._exceptional_local_edges or (
@@ -741,19 +792,9 @@ class CFGSupergraphAdapter:
                 semantic_role=self._call_semantic_role(call_name),
             )
 
-        if isinstance(
-            operation,
-            (py_ast.Await, py_ast.Yield, py_ast.YieldFrom, py_ast.AsyncYield),
-        ):
-            value = getattr(operation, "expr", None)
-            if value is None:
-                value = getattr(operation, "value", None)
-            return SuspensionEffect(
-                node=node,
-                operation=operation,
-                kind=type(operation).__name__.lower(),
-                value=value,
-            )
+        suspension_effects = self.suspension_effects_of(node)
+        if suspension_effects:
+            return suspension_effects[0]
 
         if isinstance(operation, py_ast.Return):
             return ReturnEffect(
@@ -867,6 +908,10 @@ class CFGSupergraphAdapter:
     def _infer_procedure_semantics(cfg: cfg_graph.Code) -> ProcedureSemantics:
         code = getattr(cfg, "code", None)
         origins = getattr(getattr(code, "annotation", None), "origin", ()) or ()
+        if isinstance(origins, (str, bytes)) or not isinstance(
+            origins, (list, tuple, set, frozenset)
+        ):
+            origins = (origins,)
         tags = {str(origin) for origin in origins}
         is_async = any("converted_async_function" in tag for tag in tags)
         is_generator = any("converted_generator" in tag for tag in tags)
@@ -958,9 +1003,7 @@ class CFGSupergraphAdapter:
     def _record_local_edge(self, source: CFGNode, target: CFGNode) -> None:
         self._local_successors.setdefault(source, set()).add(target)
 
-    def _record_exceptional_local_edge(
-        self, source: CFGNode, target: CFGNode
-    ) -> None:
+    def _record_exceptional_local_edge(self, source: CFGNode, target: CFGNode) -> None:
         self._record_local_edge(source, target)
         self._exceptional_local_edges.add((source, target))
 
@@ -1231,8 +1274,7 @@ class CFGSupergraphAdapter:
                     block,
                     tuple(operation.finally_.blocks),
                     kind=kind,
-                    parent_scope=scope
-                    + ("try", "finally", "abrupt", abrupt_kind),
+                    parent_scope=scope + ("try", "finally", "abrupt", abrupt_kind),
                     index=index,
                 )
 
@@ -1283,9 +1325,7 @@ class CFGSupergraphAdapter:
                     self._record_exceptional_local_edge(exit_node, target)
                 continue
             if default_fragment is not None:
-                self._record_exceptional_local_edge(
-                    exit_node, default_fragment.entry
-                )
+                self._record_exceptional_local_edge(exit_node, default_fragment.entry)
             elif finally_exceptional is not None:
                 self._record_exceptional_local_edge(
                     exit_node, finally_exceptional.entry
@@ -1398,7 +1438,9 @@ class CFGSupergraphAdapter:
 
     @staticmethod
     def _exception_name_matches(raised: str, handled: str) -> bool:
-        return raised == handled or raised.rsplit(".", 1)[-1] == handled.rsplit(".", 1)[-1]
+        return (
+            raised == handled or raised.rsplit(".", 1)[-1] == handled.rsplit(".", 1)[-1]
+        )
 
     @classmethod
     def _matching_handler_entries(

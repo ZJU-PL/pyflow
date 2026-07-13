@@ -5,7 +5,6 @@ from __future__ import annotations
 from collections import defaultdict
 from typing import DefaultDict, Dict, FrozenSet, Generic, Hashable, Iterable, TypeVar
 
-
 ProcT = TypeVar("ProcT", bound=Hashable)
 NodeT = TypeVar("NodeT", bound=Hashable)
 
@@ -73,9 +72,7 @@ class Supergraph(Generic[ProcT, NodeT]):
         self._require_known_node(source)
         self._require_known_node(target)
         if self.procedure_of(source) != self.procedure_of(target):
-            raise SupergraphError(
-                "Normal edges must remain inside a single procedure"
-            )
+            raise SupergraphError("Normal edges must remain inside a single procedure")
         self._normal_succs[source].add(target)
 
     def add_call_edge(
@@ -155,9 +152,7 @@ class Supergraph(Generic[ProcT, NodeT]):
         return frozenset(self._callees_by_call.get(node, ()))
 
     def ordered_callees_of_call_at(self, node: NodeT) -> tuple[ProcT, ...]:
-        return tuple(
-            sorted(self._callees_by_call.get(node, ()), key=self.procedure_id)
-        )
+        return tuple(sorted(self._callees_by_call.get(node, ()), key=self.procedure_id))
 
     def callers_of(self, procedure: ProcT) -> FrozenSet[NodeT]:
         return frozenset(self._callers_by_proc.get(procedure, ()))
@@ -169,17 +164,13 @@ class Supergraph(Generic[ProcT, NodeT]):
         return frozenset(self._return_sites_by_call.get(node, ()))
 
     def ordered_return_sites_of_call_at(self, node: NodeT) -> tuple[NodeT, ...]:
-        return tuple(
-            sorted(self._return_sites_by_call.get(node, ()), key=self.node_id)
-        )
+        return tuple(sorted(self._return_sites_by_call.get(node, ()), key=self.node_id))
 
     def call_to_return_successors(self, node: NodeT) -> FrozenSet[NodeT]:
         return frozenset(self._call_to_return_succs.get(node, ()))
 
     def ordered_call_to_return_successors(self, node: NodeT) -> tuple[NodeT, ...]:
-        return tuple(
-            sorted(self._call_to_return_succs.get(node, ()), key=self.node_id)
-        )
+        return tuple(sorted(self._call_to_return_succs.get(node, ()), key=self.node_id))
 
     def is_call_node(self, node: NodeT) -> bool:
         return node in self._callees_by_call

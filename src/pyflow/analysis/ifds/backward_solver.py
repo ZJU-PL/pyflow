@@ -3,9 +3,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from collections import defaultdict, deque
 from dataclasses import dataclass
-from typing import DefaultDict, Dict, FrozenSet, Generic, Hashable, Mapping, TypeVar
-
-from .problem import FactTransition
+from typing import DefaultDict, Generic, Hashable, Mapping, TypeVar
 from .solver import (
     AnalysisStatus,
     IFDSResult,
@@ -17,7 +15,6 @@ from .solver import (
     _stable_value_key,
 )
 from .supergraph import NodeT, ProcT, Supergraph
-
 
 FactT = TypeVar("FactT", bound=Hashable)
 
@@ -88,9 +85,9 @@ class BackwardIFDSSolver(Generic[ProcT, NodeT, FactT]):
         incoming: DefaultDict[
             tuple[NodeT, FactT], set[_BackwardIncomingRecord[NodeT, FactT]]
         ] = defaultdict(set)
-        end_summary: DefaultDict[
-            tuple[NodeT, FactT, NodeT], set[FactT]
-        ] = defaultdict(set)
+        end_summary: DefaultDict[tuple[NodeT, FactT, NodeT], set[FactT]] = defaultdict(
+            set
+        )
         incoming_total = 0
         summary_entries = 0
         bookkeeping = _SolverBookkeeping[NodeT, FactT](

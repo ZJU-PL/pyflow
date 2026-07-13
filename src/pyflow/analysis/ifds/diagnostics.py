@@ -5,7 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-
 DiagnosticSeverity = Literal["info", "warning", "error"]
 DiagnosticPhase = Literal["extract", "pipeline", "cfg", "callgraph", "solver"]
 

@@ -197,6 +197,7 @@ class SolverStatistics:
 class _IncomingRecord(Generic[NodeT, FactT]):
     caller_source_node: NodeT
     caller_source_fact: FactT
+    caller_source_context: Hashable | None
     call_node: NodeT
     call_fact: FactT
     return_site: NodeT
@@ -396,7 +397,9 @@ def _normalize_ifds_transitions(outputs) -> tuple[FactTransition[FactT], ...]:
             normalized.append(output)
         else:
             normalized.append(FactTransition(output))
-    return tuple(sorted(normalized, key=lambda transition: _stable_value_key(transition.fact)))
+    return tuple(
+        sorted(normalized, key=lambda transition: _stable_value_key(transition.fact))
+    )
 
 
 def _stable_value_key(value: object):
@@ -450,7 +453,11 @@ def _solver_options(
     max_call_string_depth: int | None,
 ) -> SolverOptions:
     if options is not None:
-        if record_traces or max_propagated_path_edges is not None or max_call_string_depth is not None:
+        if (
+            record_traces
+            or max_propagated_path_edges is not None
+            or max_call_string_depth is not None
+        ):
             raise ValueError(
                 "Pass either SolverOptions or legacy solver keyword arguments, not both"
             )
@@ -809,7 +816,8 @@ class IFDSSolver(Generic[ProcT, NodeT, FactT]):
             return (*parts, ctx)
 
         for node, facts in sorted(
-            problem.initial_seeds().items(), key=lambda item: supergraph.node_id(item[0])
+            problem.initial_seeds().items(),
+            key=lambda item: supergraph.node_id(item[0]),
         ):
             ctx = _seed_context()
             for fact in sorted(facts, key=_stable_value_key):
@@ -864,10 +872,13 @@ class IFDSSolver(Generic[ProcT, NodeT, FactT]):
                         incoming_key = _contextual_key(
                             start, start_fact, ctx=callee_ctx
                         )
-                        for return_site in supergraph.ordered_return_sites_of_call_at(node):
+                        for return_site in supergraph.ordered_return_sites_of_call_at(
+                            node
+                        ):
                             incoming_record = _IncomingRecord(
                                 source_node,
                                 source_fact,
+                                edge_ctx,
                                 node,
                                 fact,
                                 return_site,
@@ -966,7 +977,7 @@ class IFDSSolver(Generic[ProcT, NodeT, FactT]):
                                     incoming_record.caller_source_fact,
                                     incoming_record.return_site,
                                     transition.fact,
-                                    context=edge_ctx,
+                                    context=incoming_record.caller_source_context,
                                 ),
                                 kind="return_flow",
                                 predecessor=edge,
@@ -1075,13 +1086,6 @@ class IDESolver(Generic[ProcT, NodeT, FactT, ValueT]):
             if ctx is None or not use_context:
                 return parts
             return (*parts, ctx)
-
-        def _pop_context(ctx: Hashable | None) -> Hashable | None:
-            if ctx is None or not use_context:
-                return None
-            if isinstance(ctx, CallContext):
-                return ctx.pop()
-            return ctx
 
         def _source_key(node: NodeT, fact: FactT, ctx: Hashable | None) -> tuple:
             return _contextual_key(node, fact, ctx=ctx)
@@ -1225,7 +1229,9 @@ class IDESolver(Generic[ProcT, NodeT, FactT, ValueT]):
                         incoming_key = _contextual_key(
                             start, transition.fact, ctx=callee_ctx
                         )
-                        for return_site in supergraph.ordered_return_sites_of_call_at(node):
+                        for return_site in supergraph.ordered_return_sites_of_call_at(
+                            node
+                        ):
                             incoming_record = _IDEIncomingRecord(
                                 source_node,
                                 source_fact,
@@ -1259,7 +1265,9 @@ class IDESolver(Generic[ProcT, NodeT, FactT, ValueT]):
                                         summary = end_summary.get(summary_key)
                                         if summary is None:
                                             continue
-                                        for return_transition in _ordered_value_transitions(
+                                        for (
+                                            return_transition
+                                        ) in _ordered_value_transitions(
                                             problem.return_flow(
                                                 node,
                                                 callee,
@@ -1356,7 +1364,7 @@ class IDESolver(Generic[ProcT, NodeT, FactT, ValueT]):
                                     incoming_record.caller_source_fact,
                                     incoming_record.return_site,
                                     return_transition.fact,
-                                    context=_pop_context(edge_ctx),
+                                    context=incoming_record.caller_source_context,
                                 ),
                                 combined,
                                 kind="return_flow",
