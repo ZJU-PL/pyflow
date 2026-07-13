@@ -82,7 +82,10 @@ class HeapSummaryBuilder:
             )
             reads.extend(effect.reads)
             writes.extend(effect.writes)
-            deletes.extend(effect.deletes)
+            # A syntactic procedure summary cannot prove that a delete occurs
+            # on every returning path.  Omitting kills is conservative for a
+            # may-analysis; operation-level clients still receive precise
+            # definite-delete effects from HeapEffectBuilder.
             escapes.extend(effect.escapes)
             returns.extend(effect.returns)
             allocations.extend(effect.allocations)

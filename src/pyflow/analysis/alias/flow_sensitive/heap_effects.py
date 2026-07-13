@@ -19,14 +19,14 @@ from pyflow.analysis.ir_utils import (
 )
 
 from .abstraction import HeapAbstraction
-from .intrinsics import (
+from .intrinsics import (  # noqa: F401 - selected names are public re-exports
     CALL_RETURN_COPY,
     CALL_RETURN_FRESH,
     CALL_RETURN_OPAQUE,
     CALL_RETURN_SUMMARY,
-    COLLECTION_DELETE_MUTATOR_NAMES,
-    COLLECTION_VALUE_MUTATOR_NAMES,
-    DEFAULT_COLLECTION_MUTATOR_NAMES,
+    COLLECTION_DELETE_MUTATOR_NAMES,  # noqa: F401 - public re-export
+    COLLECTION_VALUE_MUTATOR_NAMES,  # noqa: F401 - public re-export
+    DEFAULT_COLLECTION_MUTATOR_NAMES,  # noqa: F401 - public re-export
     DEFAULT_HEAP_INTRINSICS,
     HeapIntrinsicModels,
 )
@@ -146,16 +146,27 @@ class HeapEffectBuilder:
             *self.delete_read_locations(procedure, operation),
             *self.misc_read_locations(procedure, operation),
         ]
+        write_locations = (
+            *self.global_write_locations(procedure, operation),
+            *self.cell_write_locations(procedure, operation),
+            *self.static_attribute_write_locations(procedure, operation),
+            *self.dynamic_setattr_locations(procedure, operation),
+            *self.dynamic_subscript_write_locations(procedure, operation),
+            *self.dynamic_slice_write_locations(procedure, operation),
+        )
+        ambiguous_write_roots = len(
+            {location.root for location in write_locations if location.is_nested()}
+        ) > 1
         writes = [
-            self.heap.write_for_location(location)
-            for location in (
-                *self.global_write_locations(procedure, operation),
-                *self.cell_write_locations(procedure, operation),
-                *self.static_attribute_write_locations(procedure, operation),
-                *self.dynamic_setattr_locations(procedure, operation),
-                *self.dynamic_subscript_write_locations(procedure, operation),
-                *self.dynamic_slice_write_locations(procedure, operation),
+            self.heap.write_for_location(
+                location,
+                policy=(
+                    UpdatePolicy.WEAK
+                    if ambiguous_write_roots and location.is_nested()
+                    else None
+                ),
             )
+            for location in write_locations
         ]
         deletes = [
             *self.global_delete_locations(procedure, operation),
@@ -226,15 +237,12 @@ class HeapEffectBuilder:
             if isinstance(operation, py_ast.ClassDef):
                 escape_exprs.extend(getattr(operation, "bases", ()))
 
-        make_fn_escapes = self.make_function_escape_locations(procedure, operation)
-
         return HeapEffect(
             reads=tuple(dict.fromkeys(reads)),
             writes=tuple(dict.fromkeys(writes)),
             deletes=tuple(dict.fromkeys(deletes)),
             escapes=tuple(dict.fromkeys(
-                (*self._locations_for_expressions(procedure, tuple(escape_exprs)),
-                 *make_fn_escapes)
+                self._locations_for_expressions(procedure, tuple(escape_exprs))
             )),
             returns=self._locations_for_expressions(procedure, return_exprs),
             allocations=self._allocation_objects_for_operation(procedure, operation),
@@ -466,8 +474,12 @@ class HeapEffectBuilder:
         return (self.cell_location(operation.cell),)
 
     def cell_location(self, cell: object, procedure: object = None) -> HeapLocation:
+        name = getattr(cell, "name", cell)
         return self.heap.location_for_raw(
-            self.heap.cell_object(getattr(cell, "name", cell))
+            self.heap.cell_object(
+                cell,
+                label=str(name),
+            )
         )
 
     def dynamic_subscript_read_locations(
@@ -892,6 +904,44 @@ class HeapEffectBuilder:
             (DYNAMIC_SUBSCRIPT_WILDCARD,),
         )
 
+    def definite_delete_locations(
+        self,
+        operation: object,
+        deletes: tuple[HeapLocation, ...],
+    ) -> tuple[HeapLocation, ...]:
+        """Filter deletion effects to locations definitely absent afterward."""
+        if len({location.root for location in deletes}) > 1:
+            # A runtime receiver denotes only one of these abstract roots, so
+            # no individual root is definitely deleted on every path.
+            return ()
+        if isinstance(operation, (py_ast.Delete, py_ast.DeleteGlobal)):
+            return deletes
+        if isinstance(operation, py_ast.DeleteAttr):
+            if self._constant_string(operation.name) is None:
+                return ()
+            return tuple(location for location in deletes if location.is_precise())
+        if isinstance(operation, py_ast.DeleteSubscript):
+            if self._constant_subscript(operation.subscript) is None:
+                return ()
+            return tuple(location for location in deletes if location.is_precise())
+        if isinstance(operation, py_ast.DeleteSlice):
+            return ()
+
+        call = self._call_from_expression_or_statement(operation)
+        call_name = resolve_call_name(call) if call is not None else None
+        if call_name in {"clear", "dict.clear", "list.clear", "set.clear"}:
+            return deletes
+        if call_name in {"pop", "dict.pop", "get_and_del"} and call is not None:
+            actuals = actual_argument_expressions(call)
+            args = actuals if isinstance(call, py_ast.MethodCall) else actuals[1:]
+            if args and self._constant_subscript(args[0]) is not None:
+                return tuple(location for location in deletes if location.is_precise())
+        if call_name == "interpreter_delitem" and call is not None:
+            actuals = actual_argument_expressions(call)
+            if len(actuals) >= 2 and self._constant_subscript(actuals[1]) is not None:
+                return tuple(location for location in deletes if location.is_precise())
+        return ()
+
     def getiter_read_locations(
         self,
         procedure: object,
@@ -928,7 +978,7 @@ class HeapEffectBuilder:
                 if argument is not None
             )
         elif isinstance(operation, py_ast.AnnAssign):
-            expressions.append(operation.annotation)
+            expressions.append(operation.annotation_expr)
         elif isinstance(operation, py_ast.Print):
             expressions.extend(
                 expression
@@ -994,21 +1044,6 @@ class HeapEffectBuilder:
         for cell in getattr(expr, "cells", ()):
             locations.append(self.cell_location(cell, procedure))
         return tuple(dict.fromkeys(locations))
-
-    def make_function_escape_locations(
-        self,
-        procedure: object,
-        operation: object,
-    ) -> tuple[HeapLocation, ...]:
-        expr = self._assigned_expression(operation)
-        if not isinstance(expr, py_ast.MakeFunction):
-            return ()
-        return tuple(
-            dict.fromkeys(
-                self.cell_location(cell, procedure)
-                for cell in getattr(expr, "cells", ())
-            )
-        )
 
     @staticmethod
     def _assigned_expression(operation: object) -> object | None:

@@ -77,6 +77,9 @@ class CollectionMutatorModel:
         Whether the call writes a value into the container.
     deletes_value:
         Whether the call deletes a value from the container.
+    reorders_values:
+        Whether existing values may move to different indices/keys without
+        being added or removed.
     value_arg_indices:
         Indices within *actuals* that contain the value being written.
         ``None`` means "all arguments are values" (e.g. ``extend``).
@@ -86,6 +89,7 @@ class CollectionMutatorModel:
 
     writes_value: bool = False
     deletes_value: bool = False
+    reorders_values: bool = False
     value_arg_indices: tuple[int, ...] | None = None
     key_arg_index: int | None = None
 
@@ -280,22 +284,22 @@ DEFAULT_HEAP_INTRINSICS = HeapIntrinsicModels(
         "list.copy": CALL_RETURN_COPY,
         "set.copy": CALL_RETURN_COPY,
         # ── dict view methods ──────────────────────────────────────────
-        "keys": CALL_RETURN_FRESH,
-        "values": CALL_RETURN_FRESH,
-        "items": CALL_RETURN_FRESH,
+        "keys": CALL_RETURN_COPY,
+        "values": CALL_RETURN_COPY,
+        "items": CALL_RETURN_COPY,
         # ── builtin iterator-like constructors ─────────────────────────
-        "sorted": CALL_RETURN_FRESH,
-        "builtins.sorted": CALL_RETURN_FRESH,
+        "sorted": CALL_RETURN_COPY,
+        "builtins.sorted": CALL_RETURN_COPY,
         "reversed": CALL_RETURN_FRESH,
         "builtins.reversed": CALL_RETURN_FRESH,
-        "zip": CALL_RETURN_FRESH,
-        "builtins.zip": CALL_RETURN_FRESH,
-        "enumerate": CALL_RETURN_FRESH,
-        "builtins.enumerate": CALL_RETURN_FRESH,
-        "filter": CALL_RETURN_FRESH,
-        "builtins.filter": CALL_RETURN_FRESH,
-        "map": CALL_RETURN_FRESH,
-        "builtins.map": CALL_RETURN_FRESH,
+        "zip": CALL_RETURN_COPY,
+        "builtins.zip": CALL_RETURN_COPY,
+        "enumerate": CALL_RETURN_COPY,
+        "builtins.enumerate": CALL_RETURN_COPY,
+        "filter": CALL_RETURN_COPY,
+        "builtins.filter": CALL_RETURN_COPY,
+        "map": CALL_RETURN_COPY,
+        "builtins.map": CALL_RETURN_COPY,
         "iter": CALL_RETURN_FRESH,
         "builtins.iter": CALL_RETURN_FRESH,
         "all": CALL_RETURN_FRESH,
@@ -344,6 +348,37 @@ DEFAULT_HEAP_INTRINSICS = HeapIntrinsicModels(
         "builtins.exit": CALL_RETURN_NONE,
         "print": CALL_RETURN_NONE,
         "builtins.print": CALL_RETURN_NONE,
+        # ── in-place mutation APIs returning None ─────────────────────
+        "append": CALL_RETURN_NONE,
+        "appendleft": CALL_RETURN_NONE,
+        "add": CALL_RETURN_NONE,
+        "extend": CALL_RETURN_NONE,
+        "extendleft": CALL_RETURN_NONE,
+        "update": CALL_RETURN_NONE,
+        "insert": CALL_RETURN_NONE,
+        "push": CALL_RETURN_NONE,
+        "enqueue": CALL_RETURN_NONE,
+        "put": CALL_RETURN_NONE,
+        "offer": CALL_RETURN_NONE,
+        "symmetric_difference_update": CALL_RETURN_NONE,
+        "intersection_update": CALL_RETURN_NONE,
+        "difference_update": CALL_RETURN_NONE,
+        "clear": CALL_RETURN_NONE,
+        "remove": CALL_RETURN_NONE,
+        "discard": CALL_RETURN_NONE,
+        "sort": CALL_RETURN_NONE,
+        "reverse": CALL_RETURN_NONE,
+        "rotate": CALL_RETURN_NONE,
+        "shuffle": CALL_RETURN_NONE,
+        "setattr": CALL_RETURN_NONE,
+        "builtins.setattr": CALL_RETURN_NONE,
+        "delattr": CALL_RETURN_NONE,
+        "builtins.delattr": CALL_RETURN_NONE,
+        "__setitem__": CALL_RETURN_NONE,
+        "__delitem__": CALL_RETURN_NONE,
+        "interpreter_setitem": CALL_RETURN_NONE,
+        "interpreter_delitem": CALL_RETURN_NONE,
+        "copy": CALL_RETURN_COPY,
         # ── functools ──────────────────────────────────────────────────
         "functools.partial": CALL_RETURN_FRESH,
         "functools.lru_cache": CALL_RETURN_FRESH,
@@ -517,8 +552,8 @@ DEFAULT_HEAP_INTRINSICS = HeapIntrinsicModels(
         "random.randint": CALL_RETURN_FRESH,
         "random.randrange": CALL_RETURN_FRESH,
         "random.choice": CALL_RETURN_FRESH,
-        "random.choices": CALL_RETURN_FRESH,
-        "random.sample": CALL_RETURN_FRESH,
+        "random.choices": CALL_RETURN_COPY,
+        "random.sample": CALL_RETURN_COPY,
         "random.shuffle": CALL_RETURN_NONE,
         "random.seed": CALL_RETURN_NONE,
         "random.getrandbits": CALL_RETURN_FRESH,
@@ -650,13 +685,13 @@ DEFAULT_HEAP_INTRINSICS = HeapIntrinsicModels(
     },
     function_models={
         # ── return one of the arguments ────────────────────────────────
-        "max": FunctionModel(return_kind=CALL_RETURN_ARG, return_arg_index=0),
+        "max": FunctionModel(return_kind=CALL_RETURN_ARG, return_arg_index=-1),
         "builtins.max": FunctionModel(
-            return_kind=CALL_RETURN_ARG, return_arg_index=0
+            return_kind=CALL_RETURN_ARG, return_arg_index=-1
         ),
-        "min": FunctionModel(return_kind=CALL_RETURN_ARG, return_arg_index=0),
+        "min": FunctionModel(return_kind=CALL_RETURN_ARG, return_arg_index=-1),
         "builtins.min": FunctionModel(
-            return_kind=CALL_RETURN_ARG, return_arg_index=0
+            return_kind=CALL_RETURN_ARG, return_arg_index=-1
         ),
         # next(it) → returns elements from the iterator
         "next": FunctionModel(return_kind=CALL_RETURN_ARG, return_arg_index=0),
@@ -666,6 +701,7 @@ DEFAULT_HEAP_INTRINSICS = HeapIntrinsicModels(
         # getattr(obj, attr) → returns the attribute from obj
         "getattr": FunctionModel(return_kind=CALL_RETURN_OPAQUE),
         "builtins.getattr": FunctionModel(return_kind=CALL_RETURN_OPAQUE),
+        "random.choice": FunctionModel(return_kind=CALL_RETURN_OPAQUE),
         # ── property-style access (conservative — returns from self) ───
         "dict.get": FunctionModel(
             return_kind=CALL_RETURN_OPAQUE,
@@ -744,29 +780,29 @@ DEFAULT_HEAP_INTRINSICS = HeapIntrinsicModels(
         ),
         # ── `sorted()` reads arg[0], returns fresh ────────────────────
         "sorted": FunctionModel(
-            return_kind=CALL_RETURN_FRESH,
+            return_kind=CALL_RETURN_COPY,
             read_arg_indices=(0,),
         ),
         "builtins.sorted": FunctionModel(
-            return_kind=CALL_RETURN_FRESH,
+            return_kind=CALL_RETURN_COPY,
             read_arg_indices=(0,),
         ),
         # ── `reversed()` reads arg[0], returns fresh ──────────────────
         "reversed": FunctionModel(
-            return_kind=CALL_RETURN_FRESH,
+            return_kind=CALL_RETURN_COPY,
             read_arg_indices=(0,),
         ),
         "builtins.reversed": FunctionModel(
-            return_kind=CALL_RETURN_FRESH,
+            return_kind=CALL_RETURN_COPY,
             read_arg_indices=(0,),
         ),
         # ── `enumerate()` reads arg[0], returns fresh ─────────────────
         "enumerate": FunctionModel(
-            return_kind=CALL_RETURN_FRESH,
+            return_kind=CALL_RETURN_COPY,
             read_arg_indices=(0,),
         ),
         "builtins.enumerate": FunctionModel(
-            return_kind=CALL_RETURN_FRESH,
+            return_kind=CALL_RETURN_COPY,
             read_arg_indices=(0,),
         ),
     },
@@ -808,10 +844,10 @@ DEFAULT_HEAP_INTRINSICS = HeapIntrinsicModels(
             deletes_value=True, key_arg_index=0
         ),
         # ── in-place reordering (escape existing elements) ────────────
-        "sort": CollectionMutatorModel(deletes_value=True),
-        "reverse": CollectionMutatorModel(deletes_value=True),
-        "rotate": CollectionMutatorModel(deletes_value=True),
-        "shuffle": CollectionMutatorModel(deletes_value=True),
+        "sort": CollectionMutatorModel(reorders_values=True),
+        "reverse": CollectionMutatorModel(reorders_values=True),
+        "rotate": CollectionMutatorModel(reorders_values=True),
+        "shuffle": CollectionMutatorModel(reorders_values=True),
     },
 )
 

@@ -100,7 +100,7 @@ class HeapPolicy:
     max_index: int = 8
     context_sensitivity_depth: int = 0
     recency: bool = True
-    allow_strong_nested_fresh: bool = False
+    allow_strong_nested_fresh: bool = True
     bind_call_results: bool = True
     track_escapes: bool = True
     escape_on_unresolved_call: bool = True
@@ -204,7 +204,7 @@ class HeapPolicy:
             max_index=data.get("max_index", 8),
             context_sensitivity_depth=data.get("context_sensitivity_depth", 0),
             recency=data.get("recency", True),
-            allow_strong_nested_fresh=data.get("allow_strong_nested_fresh", False),
+            allow_strong_nested_fresh=data.get("allow_strong_nested_fresh", True),
             bind_call_results=data.get("bind_call_results", True),
             track_escapes=data.get("track_escapes", True),
             escape_on_unresolved_call=data.get("escape_on_unresolved_call", True),
