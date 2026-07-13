@@ -25,7 +25,6 @@ from pyflow.checker.formatters import text as text_formatter
 from pyflow.checker.formatters import json as json_formatter
 from pyflow.checker.formatters import sarif as sarif_formatter
 
-
 # ── Parser ────────────────────────────────────────────────────────────────
 
 
@@ -321,9 +320,7 @@ def _run_ifds(targets: List[str], args) -> Dict[str, Any]:
                 "status": "failed",
                 "termination_reason": str(e),
             }
-        result = _nullness_result_to_dict(
-            args.function or "<unknown>", nullness_result
-        )
+        result = _nullness_result_to_dict(args.function or "<unknown>", nullness_result)
         return _apply_session_diagnostics(result, _session)
 
     sources, sinks, sanitizers = _merge_taint_specs(args)
@@ -372,13 +369,11 @@ def _run_ifds(targets: List[str], args) -> Dict[str, Any]:
     return _apply_session_diagnostics(result, _session)
 
 
-def _diagnostics_to_dicts(diagnostics) -> list[dict[str, Any]]:
+def _diagnostics_to_dicts(diagnostics) -> list[Any]:
     from dataclasses import asdict, is_dataclass
 
     return [
-        asdict(diagnostic)
-        if is_dataclass(diagnostic)
-        else {"code": "IFDS000", "severity": "warning", "message": str(diagnostic)}
+        (asdict(diagnostic) if is_dataclass(diagnostic) else str(diagnostic))
         for diagnostic in diagnostics
     ]
 
@@ -387,8 +382,7 @@ def _apply_session_diagnostics(result: Dict[str, Any], session) -> Dict[str, Any
     diagnostics = tuple(getattr(session, "diagnostics", ()))
     result["diagnostics"] = _diagnostics_to_dicts(diagnostics)
     if result.get("status") == "complete" and any(
-        getattr(diagnostic, "affects_completeness", False)
-        for diagnostic in diagnostics
+        getattr(diagnostic, "affects_completeness", False) for diagnostic in diagnostics
     ):
         result["status"] = "partial"
         result["termination_reason"] = (
@@ -639,9 +633,7 @@ def _result_to_sarif(engine: str, result, args) -> Dict[str, Any]:
                 rule_indexes[rule_id] = len(rules)
                 rule = {
                     "id": rule_id,
-                    "shortDescription": {
-                        "text": finding.get("message", rule_id)
-                    },
+                    "shortDescription": {"text": finding.get("message", rule_id)},
                     "properties": {
                         "tags": [
                             value
@@ -664,7 +656,9 @@ def _result_to_sarif(engine: str, result, args) -> Dict[str, Any]:
                 location = physical_location(step.get("location"))
                 if location is None:
                     continue
-                location["message"] = {"text": step.get("message", step.get("kind", "flow"))}
+                location["message"] = {
+                    "text": step.get("message", step.get("kind", "flow"))
+                }
                 location["properties"] = {
                     "kind": step.get("kind"),
                     "nodeId": step.get("node_id"),
@@ -679,9 +673,7 @@ def _result_to_sarif(engine: str, result, args) -> Dict[str, Any]:
                 "level": _sarif_level(finding.get("severity")),
                 "message": {"text": finding.get("message", rule_id)},
                 "locations": locations,
-                "partialFingerprints": {
-                    "pyflow/v1": finding.get("fingerprint", "")
-                },
+                "partialFingerprints": {"pyflow/v1": finding.get("fingerprint", "")},
                 "properties": {
                     "confidence": finding.get("confidence"),
                     "analysisStatus": result.get("status", "complete"),
@@ -710,7 +702,9 @@ def _result_to_sarif(engine: str, result, args) -> Dict[str, Any]:
             "version": "2.1.0",
             "runs": [
                 {
-                    "tool": {"driver": {"name": "pyflow-security-ifds", "rules": rules}},
+                    "tool": {
+                        "driver": {"name": "pyflow-security-ifds", "rules": rules}
+                    },
                     "invocations": [invocation],
                     "results": sarif_results,
                 }
@@ -877,132 +871,186 @@ def _code_name(code) -> str:
     return str(code)
 
 
-def _ifds_result_to_dict(function: str, taint_result) -> Dict[str, Any]:
-    """Convert an IFDS TaintAnalysisResult to a JSON-compatible dict."""
+def _result_status(result) -> tuple[str, str | None]:
+    status = getattr(result, "status", "complete")
+    return getattr(status, "value", str(status)), getattr(
+        result, "termination_reason", None
+    )
+
+
+def _statistics_to_dict(statistics) -> dict[str, Any]:
     from dataclasses import asdict, is_dataclass
 
+    if is_dataclass(statistics):
+        return asdict(statistics)
+    if hasattr(statistics, "__dict__"):
+        return dict(vars(statistics))
+    return dict(statistics)
+
+
+def _ifds_result_to_dict(function: str, taint_result) -> Dict[str, Any]:
+    """Convert an IFDS TaintAnalysisResult to a JSON-compatible dict."""
+    from collections import defaultdict, deque
     from pyflow.analysis.ifds.reporting import normalized_taint_findings
 
-    normalized = {
-        finding.node_id: finding
-        for finding in normalized_taint_findings(taint_result)
-    }
+    problem = getattr(taint_result, "_problem", None)
+    adapter = getattr(problem, "adapter", None)
+    enriched = adapter is not None
+    normalized = defaultdict(deque)
+    if enriched:
+        for finding in normalized_taint_findings(taint_result):
+            normalized[
+                (
+                    finding.node_id,
+                    tuple(finding.properties.get("tainted_arguments", ())),
+                )
+            ].append(finding)
     findings = []
     for finding in taint_result.findings:
-        tainted_arguments = [local.name for local in finding.tainted_arguments]
+        tainted_arguments = [
+            local.name or "<local>" for local in finding.tainted_arguments
+        ]
         if not tainted_arguments:
             tainted_arguments = list(finding.tainted_argument_labels)
 
-        node_id = taint_result._problem.adapter.supergraph.node_id(finding.sink)
-        normalized_finding = normalized[node_id].to_dict()
+        if enriched:
+            node_id = adapter.supergraph.node_id(finding.sink)
+            normalized_finding = (
+                normalized[(node_id, tuple(tainted_arguments))].popleft().to_dict()
+            )
+        else:
+            normalized_finding = {}
         normalized_finding.update(
             {
                 "sink_name": finding.sink_name,
                 "procedure": _code_name(finding.sink.procedure.code),
                 "block_kind": finding.sink.kind,
                 "tainted_arguments": tainted_arguments,
-                "explanations": normalized_finding["code_flow"],
+                "explanations": normalized_finding.get("code_flow", []),
             }
         )
         findings.append(normalized_finding)
 
-    statistics = {}
-    if is_dataclass(taint_result.statistics):
-        statistics = asdict(taint_result.statistics)
-    elif hasattr(taint_result.statistics, "__dict__"):
-        statistics = dict(vars(taint_result.statistics))
-    else:
-        statistics = dict(taint_result.statistics)
+    statistics = _statistics_to_dict(taint_result.statistics)
 
+    status, termination_reason = _result_status(taint_result)
     return {
         "function": function,
         "analysis": "taint",
         "findings": findings,
         "statistics": statistics,
-        "status": taint_result.status.value,
-        "termination_reason": taint_result.termination_reason,
+        "status": status,
+        "termination_reason": termination_reason,
     }
 
 
 def _typestate_result_to_dict(function: str, typestate_result) -> Dict[str, Any]:
     """Convert an IFDS TypestateAnalysisResult to a JSON-compatible dict."""
-    from dataclasses import asdict, is_dataclass
-
     from pyflow.analysis.ifds.reporting import normalized_typestate_findings
 
-    normalized = {
-        (
-            finding.node_id,
-            finding.kind,
-            finding.properties.get("resource"),
-        ): finding
-        for finding in normalized_typestate_findings(typestate_result)
-    }
+    problem = getattr(typestate_result, "_problem", None)
+    adapter = getattr(problem, "adapter", None)
+    enriched = adapter is not None
+    normalized = (
+        {
+            (
+                finding.node_id,
+                finding.kind,
+                finding.properties.get("resource"),
+                finding.properties.get("protocol"),
+                finding.properties.get("state"),
+            ): finding
+            for finding in normalized_typestate_findings(typestate_result)
+        }
+        if enriched
+        else {}
+    )
     findings = []
     for finding in typestate_result.findings:
-        node_id = typestate_result._problem.adapter.supergraph.node_id(finding.node)
-        item = normalized[(node_id, finding.kind, finding.resource_label)].to_dict()
-        item.update({
-            "kind": finding.kind,
-            "operation_name": finding.operation_name,
-            "resource_label": finding.resource_label,
-            "protocol": finding.protocol,
-            "state": finding.state,
-            "procedure": _code_name(finding.node.procedure.code),
-            "block_kind": finding.node.kind,
-        })
+        if enriched:
+            node_id = adapter.supergraph.node_id(finding.node)
+            item = normalized[
+                (
+                    node_id,
+                    finding.kind,
+                    finding.resource_label,
+                    finding.protocol,
+                    finding.state,
+                )
+            ].to_dict()
+        else:
+            item = {}
+        item.update(
+            {
+                "kind": finding.kind,
+                "operation_name": finding.operation_name,
+                "resource_label": finding.resource_label,
+                "protocol": finding.protocol,
+                "state": finding.state,
+                "procedure": _code_name(finding.node.procedure.code),
+                "block_kind": finding.node.kind,
+            }
+        )
         findings.append(item)
 
-    statistics = {}
-    if is_dataclass(typestate_result.statistics):
-        statistics = asdict(typestate_result.statistics)
-    elif hasattr(typestate_result.statistics, "__dict__"):
-        statistics = dict(vars(typestate_result.statistics))
-    else:
-        statistics = dict(typestate_result.statistics)
+    statistics = _statistics_to_dict(typestate_result.statistics)
 
+    status, termination_reason = _result_status(typestate_result)
     return {
         "function": function,
         "analysis": "typestate",
         "findings": findings,
         "statistics": statistics,
-        "status": typestate_result.status.value,
-        "termination_reason": typestate_result.termination_reason,
+        "status": status,
+        "termination_reason": termination_reason,
     }
 
 
 def _nullness_result_to_dict(function: str, nullness_result) -> Dict[str, Any]:
     """Convert an IFDS nullness result to a JSON-compatible dictionary."""
-    from dataclasses import asdict
-
     from pyflow.analysis.ifds.reporting import normalized_nullness_findings
 
-    normalized = {
-        (
-            finding.node_id,
-            finding.kind,
-            finding.properties.get("expression"),
-        ): finding
-        for finding in normalized_nullness_findings(nullness_result)
-    }
+    problem = getattr(nullness_result, "_problem", None)
+    adapter = getattr(problem, "adapter", None)
+    enriched = adapter is not None
+    normalized = (
+        {
+            (
+                finding.node_id,
+                finding.kind,
+                finding.properties.get("expression"),
+            ): finding
+            for finding in normalized_nullness_findings(nullness_result)
+        }
+        if enriched
+        else {}
+    )
     findings = []
     for finding in nullness_result.findings:
-        node_id = nullness_result._problem.adapter.supergraph.node_id(finding.node)
-        item = normalized[(node_id, finding.kind, finding.expression_label)].to_dict()
-        item.update({
-            "kind": finding.kind,
-            "expression_label": finding.expression_label,
-            "procedure": _code_name(finding.node.procedure.code),
-            "block_kind": finding.node.kind,
-        })
+        if enriched:
+            node_id = adapter.supergraph.node_id(finding.node)
+            item = normalized[
+                (node_id, finding.kind, finding.expression_label)
+            ].to_dict()
+        else:
+            item = {}
+        item.update(
+            {
+                "kind": finding.kind,
+                "expression_label": finding.expression_label,
+                "procedure": _code_name(finding.node.procedure.code),
+                "block_kind": finding.node.kind,
+            }
+        )
         findings.append(item)
+    status, termination_reason = _result_status(nullness_result)
     return {
         "function": function,
         "analysis": "nullness",
         "findings": findings,
-        "statistics": asdict(nullness_result.statistics),
-        "status": nullness_result.status.value,
-        "termination_reason": nullness_result.termination_reason,
+        "statistics": _statistics_to_dict(nullness_result.statistics),
+        "status": status,
+        "termination_reason": termination_reason,
     }
 
 
