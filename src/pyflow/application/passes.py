@@ -125,7 +125,7 @@ class HeapAnalysisPass(AnalysisPass):
 
     def run(self, compiler, program) -> PassResult:
         try:
-            from pyflow.analysis.heap import HeapAnalysis
+            from pyflow.analysis.alias.flow_sensitive import HeapAnalysis
 
             analysis = HeapAnalysis()
             graph = analysis.analyze(compiler, program)

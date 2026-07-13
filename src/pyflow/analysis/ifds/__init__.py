@@ -14,7 +14,7 @@ from .cfg_adapter import (
     iter_call_expressions_in_eval_order,
     named_call_cfg_resolver,
 )
-from ..heap.model import (
+from ..alias.flow_sensitive.model import (
     AllocationSensitivity,
     ContainerSensitivity,
     FieldSensitivity,
@@ -28,10 +28,10 @@ from ..heap.model import (
     HeapWrite,
     UpdatePolicy,
 )
-from ..heap.abstraction import (
+from ..alias.flow_sensitive.abstraction import (
     HeapAbstraction,
 )
-from ..heap.heap_effects import (
+from ..alias.flow_sensitive.heap_effects import (
     CALL_RETURN_COPY,
     CALL_RETURN_FRESH,
     CALL_RETURN_OPAQUE,
@@ -39,7 +39,7 @@ from ..heap.heap_effects import (
     HeapEffect,
     HeapEffectBuilder,
 )
-from ..heap.heap_summary import (
+from ..alias.flow_sensitive.heap_summary import (
     HeapSummary,
     HeapSummaryBuilder,
 )

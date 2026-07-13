@@ -9,9 +9,9 @@ from pyflow.application.errors import TemporaryLimitation
 from pyflow.analysis.cfg import graph as cfg_graph
 from pyflow.language.python import ast as py_ast
 
-from ...heap.abstraction import HeapAbstraction
-from ...heap.model import HeapLocation
-from ...heap.heap_effects import (
+from ...alias.flow_sensitive.abstraction import HeapAbstraction
+from ...alias.flow_sensitive.model import HeapLocation
+from ...alias.flow_sensitive.heap_effects import (
     CALL_RETURN_COPY,
     CALL_RETURN_FRESH,
     CALL_RETURN_OPAQUE,
@@ -19,7 +19,7 @@ from ...heap.heap_effects import (
     HeapEffect,
     HeapEffectBuilder,
 )
-from ...heap.heap_summary import HeapSummary, HeapSummaryBuilder
+from ...alias.flow_sensitive.heap_summary import HeapSummary, HeapSummaryBuilder
 from ..cfg_adapter import CFGNode, CFGSupergraphAdapter, CallEffect, GuardEffect, assigned_locals
 from ..transfers import (
     actual_argument_expressions,

@@ -6,7 +6,7 @@ import ast
 import sys
 from pathlib import Path
 
-from pyflow.analysis.heap import HeapAnalysis
+from pyflow.analysis.alias.flow_sensitive import HeapAnalysis
 
 
 def add_heap_parser(subparsers):
