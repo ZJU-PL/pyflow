@@ -397,11 +397,11 @@ def test_storing_value_in_local_container_does_not_escape_value():
         "main",
         py_ast.Suite(
             [
+                py_ast.Assign(py_ast.BuildList([]), [value]),
                 py_ast.Assign(py_ast.BuildList([]), [container]),
                 py_ast.SetSubscript(value, container, _existing(0)),
             ]
         ),
-        params=(value,),
     )
 
     analysis = HeapAnalysis()

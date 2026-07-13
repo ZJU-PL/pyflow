@@ -141,7 +141,7 @@ def test_switch_join_preserves_incoming_binding_on_unchanged_branch():
     assert heap.locations_for_local(code, replacement)[0] in loaded_locations
 
 
-def test_joined_aliases_disable_strong_nested_updates():
+def test_joined_roots_remain_individually_singleton():
     cond = py_ast.Local("cond")
     left = py_ast.Local("left")
     right = py_ast.Local("right")
@@ -169,7 +169,7 @@ def test_joined_aliases_disable_strong_nested_updates():
 
     for location in heap.locations_for_local(code, selected):
         field = heap.dynamic_attribute_location(location, "payload")
-        assert heap.update_policy_for_location(field) is UpdatePolicy.WEAK
+        assert heap.update_policy_for_location(field) is UpdatePolicy.STRONG
 
 
 def test_loop_fixed_point_keeps_wildcard_contamination():

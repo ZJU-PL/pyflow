@@ -103,12 +103,9 @@ def test_instantiates_direct_call_formals_and_returns():
 
     arg_location = heap.locations_for_local(caller, arg)[0]
     result_location = heap.locations_for_local(caller, result)[0]
-    formal_location = heap.locations_for_local(callee, formal)[0]
-    return_location = heap.locations_for_local(callee, callee_ret)[0]
-
-    assert graph.aliased(arg_location, formal_location)
     assert graph.aliased(result_location, arg_location)
-    assert graph.aliased(return_location, arg_location)
+    assert not heap.locations_for_local(callee, formal)
+    assert not heap.locations_for_local(callee, callee_ret)
 
 
 def test_rebound_callee_formal_is_not_treated_as_param_return_or_escape():
@@ -150,18 +147,17 @@ def test_rebound_callee_formal_is_not_treated_as_param_return_or_escape():
 
     actual_location = heap.locations_for_local(caller, actual)[0]
     result_location = heap.locations_for_local(caller, result)[0]
-    formal_location = heap.locations_for_local(callee, formal)[0]
-    return_location = heap.locations_for_local(callee, callee_ret)[0]
-
     assert not graph.is_escaped(actual_location)
     assert graph.is_escaped(result_location)
     assert not graph.aliased(result_location, actual_location)
-    assert graph.aliased(result_location, formal_location)
-    assert graph.aliased(return_location, formal_location)
+    assert not heap.locations_for_local(callee, formal)
+    assert not heap.locations_for_local(callee, callee_ret)
 
 
 def test_summary_cache_key_distinguishes_actual_selectors():
     obj = py_ast.Local("obj")
+    value_a = py_ast.Local("value_a")
+    value_b = py_ast.Local("value_b")
     formal = py_ast.Local("formal")
     callee_ret = py_ast.Local("callee_ret")
     result_a = py_ast.Local("result_a")
@@ -177,6 +173,10 @@ def test_summary_cache_key_distinguishes_actual_selectors():
         py_ast.Suite(
             [
                 py_ast.Assign(py_ast.BuildList([]), [obj]),
+                py_ast.Assign(py_ast.BuildList([]), [value_a]),
+                py_ast.Assign(py_ast.BuildList([]), [value_b]),
+                py_ast.SetAttr(value_a, obj, _existing("a")),
+                py_ast.SetAttr(value_b, obj, _existing("b")),
                 py_ast.Assign(
                     py_ast.DirectCall(
                         callee,

@@ -106,7 +106,7 @@ def test_heap_abstraction_canonicalizes_dynamic_subscript_locations():
     assert location.selectors == (HeapSelector.unknown_element(),)
 
 
-def test_heap_abstraction_write_policy_is_weak_for_nested_locations():
+def test_heap_abstraction_write_policy_is_strong_for_precise_singleton_fields():
     base = RawStorage("obj")
     heap = HeapAbstraction(lambda _procedure, _local: ())
 
@@ -116,7 +116,7 @@ def test_heap_abstraction_write_policy_is_weak_for_nested_locations():
     )
 
     assert root_write.policy is UpdatePolicy.STRONG
-    assert field_write.policy is UpdatePolicy.WEAK
+    assert field_write.policy is UpdatePolicy.STRONG
 
 
 def test_heap_abstraction_matches_canonical_location_prefixes():
@@ -326,7 +326,7 @@ def test_heap_abstraction_weak_update_for_summary_or_imprecise_locations():
     assert heap.update_policy_for_location(imprecise) is UpdatePolicy.WEAK
 
 
-def test_heap_abstraction_escaped_fresh_object_uses_weak_updates():
+def test_heap_abstraction_escape_does_not_change_singleton_cardinality():
     heap = HeapAbstraction(
         lambda _procedure, _local: (),
         policy=HeapPolicy(allow_strong_nested_fresh=True),
@@ -336,7 +336,7 @@ def test_heap_abstraction_escaped_fresh_object_uses_weak_updates():
 
     assert heap.update_policy_for_location(field) is UpdatePolicy.STRONG
     heap.mark_escaped(field)
-    assert heap.update_policy_for_location(field) is UpdatePolicy.WEAK
+    assert heap.update_policy_for_location(field) is UpdatePolicy.STRONG
 
 
 # ── Equivalence-class alias tracking and ref-count-gated updates ──
@@ -413,12 +413,12 @@ def test_aliased_locations_excludes_nested():
     assert aliased == frozenset({field})
 
 
-def test_nested_location_weak_by_default_even_with_ref_count_one():
+def test_nested_location_strong_by_default_with_ref_count_one():
     heap = HeapAbstraction(lambda _procedure, _local: (), policy=HeapPolicy())
     obj = heap.allocation_object(None, object(), label="obj")
     field = heap.dynamic_attribute_location(obj, "payload")
 
-    assert heap.update_policy_for_location(field) is UpdatePolicy.WEAK
+    assert heap.update_policy_for_location(field) is UpdatePolicy.STRONG
 
 
 # ── Gap 5: HeapPolicy.from_dict validates the result ──────────────────

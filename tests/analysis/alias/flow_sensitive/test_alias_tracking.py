@@ -303,7 +303,8 @@ class TestHeapPolicyIntegration:
         assert heap.update_policy_for_location(field) is UpdatePolicy.STRONG
         p._mark_escaped_values_for_operation(None, py_ast.Return([x]))
 
-        assert heap.update_policy_for_location(field) is UpdatePolicy.WEAK
+        assert field.root in heap._escaped_objects
+        assert heap.update_policy_for_location(field) is UpdatePolicy.STRONG
 
     def test_unresolved_call_marks_argument_object_escaped(self):
         x = py_ast.Local("x")
@@ -336,7 +337,8 @@ class TestHeapPolicyIntegration:
         assert heap.update_policy_for_location(field) is UpdatePolicy.STRONG
         p._mark_unresolved_call_arguments_escaped(node, call)
 
-        assert heap.update_policy_for_location(field) is UpdatePolicy.WEAK
+        assert field.root in heap._escaped_objects
+        assert heap.update_policy_for_location(field) is UpdatePolicy.STRONG
 
     def test_strong_dynamic_writes_kill_only_precise_singleton_locations(self):
         obj = py_ast.Local("obj")
