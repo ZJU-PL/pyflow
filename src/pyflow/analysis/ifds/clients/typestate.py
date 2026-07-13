@@ -23,7 +23,7 @@ from .typestate_engine import (
 )
 from ..cfg_adapter import CFGNode, CFGSupergraphAdapter, assigned_locals
 from ..problem import IFDSProblem
-from ..solver import IFDSSolver
+from ..solver import IFDSSolver, SolverOptions
 from ..transfers import actual_argument_expressions
 
 
@@ -121,6 +121,21 @@ class TypestateAnalysisResult:
     def explain_fact(self, node: CFGNode, fact: object):
         return self._ifds_result.explain_fact(node, fact)
 
+    def explain_path(self, node: CFGNode, fact: object):
+        return self._ifds_result.explain_path(node, fact)
+
+    @property
+    def status(self):
+        return self._ifds_result.status
+
+    @property
+    def termination_reason(self) -> str | None:
+        return self._ifds_result.termination_reason
+
+    @property
+    def is_complete(self) -> bool:
+        return self._ifds_result.is_complete
+
 
 class InterproceduralTypestateProblem(
     AnnotatedFactProblemBase[object],
@@ -181,11 +196,14 @@ class InterproceduralTypestateProblem(
         return build_entry_seeds(self.entry_nodes, ZERO_TYPESTATE)
 
     def normal_flow(self, node: CFGNode, successor: CFGNode, fact: object):
+        if node.kind == "call" and self.adapter.is_exceptional_successor(
+            node, successor
+        ):
+            return self._identity_outputs(fact, ())
         local_call_outputs = self._local_call_outputs(node, fact)
         if local_call_outputs is not None:
             return local_call_outputs
 
-        del successor
         effect = self.adapter.effect_of(node)
         operation = getattr(effect, "operation", self.adapter.operation_of(node))
         if operation is None:
@@ -600,7 +618,7 @@ class InterproceduralTypestateProblem(
                 )
             )
 
-        for node in self.adapter.supergraph.nodes():
+        for node in self.adapter.supergraph.ordered_nodes():
             call_effect = self._call_effect(node)
             call = call_effect.call_expression if call_effect is not None else None
             if call is None:
@@ -636,8 +654,8 @@ class InterproceduralTypestateProblem(
                                 state=fact.state,
                             )
 
-        for procedure in self.adapter.supergraph.procedures():
-            for exit_node in self.adapter.supergraph.exits_of(procedure):
+        for procedure in self.adapter.supergraph.ordered_procedures():
+            for exit_node in self.adapter.supergraph.ordered_exits_of(procedure):
                 for fact in result.facts_at(exit_node):
                     if not isinstance(fact, ResourceStateFact):
                         continue
@@ -1493,6 +1511,7 @@ class InterproceduralTypestateAnalysis:
         *,
         entry_nodes: Sequence[CFGNode] | None = None,
         record_traces: bool = False,
+        solver_options: SolverOptions | None = None,
     ) -> None:
         self.problem = InterproceduralTypestateProblem(
             adapter,
@@ -1500,9 +1519,15 @@ class InterproceduralTypestateAnalysis:
             entry_nodes=entry_nodes,
         )
         self.record_traces = record_traces
+        self.solver_options = solver_options
 
     def solve(self) -> TypestateAnalysisResult:
-        result = IFDSSolver(record_traces=self.record_traces).solve(self.problem)
+        solver = (
+            IFDSSolver(options=self.solver_options)
+            if self.solver_options is not None
+            else IFDSSolver(record_traces=self.record_traces)
+        )
+        result = solver.solve(self.problem)
         return TypestateAnalysisResult(
             result, self.problem.findings(result), self.problem
         )
@@ -1514,6 +1539,7 @@ def analyze_typestate(
     *,
     entry_nodes: Sequence[CFGNode] | None = None,
     record_traces: bool = False,
+    solver_options: SolverOptions | None = None,
 ) -> TypestateAnalysisResult:
     """Convenience entry point for interprocedural typestate analysis."""
     return InterproceduralTypestateAnalysis(
@@ -1521,4 +1547,5 @@ def analyze_typestate(
         configuration,
         entry_nodes=entry_nodes,
         record_traces=record_traces,
+        solver_options=solver_options,
     ).solve()

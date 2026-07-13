@@ -13,7 +13,7 @@ from ._client_common import AnnotatedFactProblemBase, build_entry_seeds
 from ..cfg_adapter import CFGNode, CFGSupergraphAdapter, assigned_locals
 from ...alias.flow_sensitive.model import HeapLocation, HeapObjectKind
 from ..problem import IFDSProblem
-from ..solver import IFDSSolver
+from ..solver import IFDSSolver, SolverOptions
 from ..transfers import (
     actual_argument_expressions,
 )
@@ -114,6 +114,21 @@ class TaintAnalysisResult:
     def explain_fact(self, node: CFGNode, fact: object):
         return self._ifds_result.explain_fact(node, fact)
 
+    def explain_path(self, node: CFGNode, fact: object):
+        return self._ifds_result.explain_path(node, fact)
+
+    @property
+    def status(self):
+        return self._ifds_result.status
+
+    @property
+    def termination_reason(self) -> str | None:
+        return self._ifds_result.termination_reason
+
+    @property
+    def is_complete(self) -> bool:
+        return self._ifds_result.is_complete
+
     def fact_for_local(self, node: CFGNode, local: py_ast.Local) -> TaintFact | None:
         fallback: TaintFact | None = None
         for location in self._problem.local_locations(node.procedure, local):
@@ -167,7 +182,10 @@ class InterproceduralTaintProblem(
         return build_entry_seeds(self.entry_nodes, ZERO_TAINT)
 
     def normal_flow(self, node: CFGNode, successor: CFGNode, fact: object):
-        del successor
+        if node.kind == "call" and self.adapter.is_exceptional_successor(
+            node, successor
+        ):
+            return self._identity_outputs(fact, ())
         unresolved_call_outputs = self._unresolved_call_outputs(node, fact)
         if unresolved_call_outputs is not None:
             return unresolved_call_outputs
@@ -544,7 +562,7 @@ class InterproceduralTaintProblem(
 
     def findings(self, result) -> tuple[TaintFinding, ...]:
         findings: list[TaintFinding] = []
-        for node in self.adapter.supergraph.nodes():
+        for node in self.adapter.supergraph.ordered_nodes():
             call_effect = self._call_effect(node)
             if call_effect is None:
                 continue
@@ -694,14 +712,21 @@ class InterproceduralTaintAnalysis:
         *,
         entry_nodes: Sequence[CFGNode] | None = None,
         record_traces: bool = False,
+        solver_options: SolverOptions | None = None,
     ) -> None:
         self.problem = InterproceduralTaintProblem(
             adapter, configuration, entry_nodes=entry_nodes
         )
         self.record_traces = record_traces
+        self.solver_options = solver_options
 
     def solve(self) -> TaintAnalysisResult:
-        result = IFDSSolver(record_traces=self.record_traces).solve(self.problem)
+        solver = (
+            IFDSSolver(options=self.solver_options)
+            if self.solver_options is not None
+            else IFDSSolver(record_traces=self.record_traces)
+        )
+        result = solver.solve(self.problem)
         return TaintAnalysisResult(result, self.problem.findings(result), self.problem)
 
 
@@ -711,6 +736,7 @@ def analyze_taint(
     *,
     entry_nodes: Sequence[CFGNode] | None = None,
     record_traces: bool = False,
+    solver_options: SolverOptions | None = None,
 ) -> TaintAnalysisResult:
     """Convenience entry point for interprocedural taint analysis."""
     return InterproceduralTaintAnalysis(
@@ -718,4 +744,5 @@ def analyze_taint(
         configuration,
         entry_nodes=entry_nodes,
         record_traces=record_traces,
+        solver_options=solver_options,
     ).solve()

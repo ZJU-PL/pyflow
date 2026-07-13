@@ -12,7 +12,7 @@ from ._call_model import CallModelRegistry
 from ._client_common import AnnotatedFactProblemBase, build_entry_seeds
 from ..cfg_adapter import CFGNode, CFGSupergraphAdapter, assigned_locals
 from ..problem import IFDSProblem
-from ..solver import IFDSSolver
+from ..solver import IFDSSolver, SolverOptions
 from ..transfers import actual_argument_expressions
 
 
@@ -85,6 +85,21 @@ class NullnessAnalysisResult:
     def explain_fact(self, node: CFGNode, fact: object):
         return self._ifds_result.explain_fact(node, fact)
 
+    def explain_path(self, node: CFGNode, fact: object):
+        return self._ifds_result.explain_path(node, fact)
+
+    @property
+    def status(self):
+        return self._ifds_result.status
+
+    @property
+    def termination_reason(self) -> str | None:
+        return self._ifds_result.termination_reason
+
+    @property
+    def is_complete(self) -> bool:
+        return self._ifds_result.is_complete
+
 
 class InterproceduralNullnessProblem(
     AnnotatedFactProblemBase[object],
@@ -126,6 +141,10 @@ class InterproceduralNullnessProblem(
         return build_entry_seeds(self.entry_nodes, ZERO_NULLNESS)
 
     def normal_flow(self, node: CFGNode, successor: CFGNode, fact: object):
+        if node.kind == "call" and self.adapter.is_exceptional_successor(
+            node, successor
+        ):
+            return self._identity_outputs(fact, ())
         local_call_outputs = self._local_call_outputs(node, fact)
         if local_call_outputs is not None:
             return local_call_outputs
@@ -413,7 +432,7 @@ class InterproceduralNullnessProblem(
             seen.add(key)
             findings.append(NullnessFinding(node=node, kind=kind, expression_label=label))
 
-        for node in self.adapter.supergraph.nodes():
+        for node in self.adapter.supergraph.ordered_nodes():
             call_effect = self._call_effect(node)
             call = call_effect.call_expression if call_effect is not None else None
             effect = self.adapter.effect_of(node)
@@ -647,6 +666,7 @@ class InterproceduralNullnessAnalysis:
         *,
         entry_nodes: Sequence[CFGNode] | None = None,
         record_traces: bool = False,
+        solver_options: SolverOptions | None = None,
     ) -> None:
         self.problem = InterproceduralNullnessProblem(
             adapter,
@@ -654,9 +674,15 @@ class InterproceduralNullnessAnalysis:
             entry_nodes=entry_nodes,
         )
         self.record_traces = record_traces
+        self.solver_options = solver_options
 
     def solve(self) -> NullnessAnalysisResult:
-        result = IFDSSolver(record_traces=self.record_traces).solve(self.problem)
+        solver = (
+            IFDSSolver(options=self.solver_options)
+            if self.solver_options is not None
+            else IFDSSolver(record_traces=self.record_traces)
+        )
+        result = solver.solve(self.problem)
         return NullnessAnalysisResult(result, self.problem.findings(result), self.problem)
 
 
@@ -666,6 +692,7 @@ def analyze_nullness(
     *,
     entry_nodes: Sequence[CFGNode] | None = None,
     record_traces: bool = False,
+    solver_options: SolverOptions | None = None,
 ) -> NullnessAnalysisResult:
     """Convenience entry point for interprocedural nullness analysis."""
     return InterproceduralNullnessAnalysis(
@@ -673,4 +700,5 @@ def analyze_nullness(
         configuration=configuration,
         entry_nodes=entry_nodes,
         record_traces=record_traces,
+        solver_options=solver_options,
     ).solve()
