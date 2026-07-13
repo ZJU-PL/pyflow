@@ -8,7 +8,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Security Analysis and Checking &mdash; pyflow 0.1.0 documentation</title>
       <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
-      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=e59714d7" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=9edc463e" />
 
   
       <script src="../_static/jquery.js?v=5d32c60e"></script>
@@ -19,7 +19,7 @@
     <script src="../_static/js/theme.js"></script>
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="prev" title="Optimizing Python Programs" href="../optimization/index.html" /> 
+    <link rel="prev" title="Language API" href="../lang/api.html" /> 
 </head>
 
 <body class="wy-body-for-nav"> 
@@ -41,30 +41,63 @@
   </form>
 </div>
         </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
-              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
-<ul class="current">
+              <p class="caption" role="heading"><span class="caption-text">Getting Started</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../tutorials/index.html">Tutorials</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../overview.html">Overview</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../cli.html">Command Line Interface</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../cli.html#main-commands">Main Commands</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#what-is-pyflow">What is PyFlow?</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#key-features">Key Features</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#architecture">Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#repository-status-in-practice">Repository status in practice</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">How-to Guides</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../how-to/index.html">How-to Guides</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Explanations</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../explanation/index.html">Explanations</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">A3 Python</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../a3_python/index.html"><code class="docutils literal notranslate"><span class="pre">a3_python</span></code></a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Reference</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../cli.html">Main Commands</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../cli.html#global-options">Global Options</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../cli.html#configuration">Configuration</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../cli.html#integration">Integration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../api.html">PyFlow API</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../analysis/index.html">Analysis Modules</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#overview">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#analysis-configuration">Analysis Configuration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#running-analyses">Running Analyses</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#analysis-results">Analysis Results</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../optimization/index.html">Optimizing Python Programs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#overview">Overview</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#optimization-categories">Optimization Categories</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#optimization-pipeline">Optimization Pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#usage">Usage</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../lang/index.html">Language Module</a></li>
 <li class="toctree-l1 current"><a class="current reference internal" href="#">Security Analysis and Checking</a></li>
 <li class="toctree-l1"><a class="reference internal" href="#checker-categories">Checker Categories</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="#injection-vulnerabilities">Injection Vulnerabilities</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#authentication-and-authorization">Authentication and Authorization</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#code-safety">Code Safety</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#object-oriented-safety">Object-Oriented Safety</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#web-framework-security">Web Framework Security</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#aws-cloud-security">AWS Cloud Security</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#ym-code-safety">YM|Code Safety</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="#analysis-framework">Analysis Framework</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="#core-infrastructure">Core Infrastructure</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#pattern-based-checker-infrastructure">Pattern-Based Checker Infrastructure</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#semantic-checker-infrastructure">Semantic Checker Infrastructure</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#output-formatters">Output Formatters</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#llm-integration">LLM Integration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#finding-quality">Finding Quality</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#inline-suppression">Inline Suppression</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#baseline-management">Baseline Management</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#confidence-scoring">Confidence Scoring</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#security-guard-detection">Security Guard Detection</a></li>
+</ul>
+</li>
 <li class="toctree-l2"><a class="reference internal" href="#configuration-and-testing">Configuration and Testing</a></li>
 </ul>
 </li>
@@ -102,33 +135,127 @@
   <section id="security-analysis-and-checking">
 <h1>Security Analysis and Checking<a class="headerlink" href="#security-analysis-and-checking" title="Link to this heading"></a></h1>
 <p>PyFlow’s security checker identifies potential security vulnerabilities and unsafe coding patterns in Python applications.</p>
+<p>PyFlow provides two distinct checker engines:</p>
+<dl class="simple">
+<dt><strong>Pattern-based checker</strong> (<code class="docutils literal notranslate"><span class="pre">pyflow.checker.pattern</span></code>)</dt><dd><p>A lightweight AST pattern matching engine, similar to Bandit, that uses
+simple pattern matching to identify common security vulnerabilities.
+Fast and suitable for quick scans.</p>
+</dd>
+<dt><strong>Semantic checker</strong> (<code class="docutils literal notranslate"><span class="pre">pyflow.checker.semantic</span></code>)</dt><dd><p>A deep analysis engine that leverages PyFlow’s full analysis pipeline
+(IPA/CPA, store graph, lifetime analysis) to perform context-sensitive
+vulnerability detection. More thorough but slower than pattern matching.</p>
+</dd>
+</dl>
 </section>
 <section id="checker-categories">
 <h1>Checker Categories<a class="headerlink" href="#checker-categories" title="Link to this heading"></a></h1>
-<section id="injection-vulnerabilities">
-<h2>Injection Vulnerabilities<a class="headerlink" href="#injection-vulnerabilities" title="Link to this heading"></a></h2>
-<p><strong>sql_injection.py</strong>: SQL injection detection
-- Identifies string formatting used in SQL queries
-- Detects unsafe database query construction
-- Flags potential injection points</p>
-<p><strong>shell_injection.py</strong>: Command injection detection
-- Identifies shell command construction
-- Detects unsafe subprocess calls
-- Flags potential command injection vulnerabilities</p>
+<p>HR|Injection Vulnerabilities
+XX|————————-
+NV|
+BH|**sql_injection.py**: SQL injection detection
+NB|- Identifies string formatting used in SQL queries
+NY|- Detects unsafe database query construction
+MW|- Flags potential injection points
+HQ|
+ZP|**sql_injection_enhanced.py**: Enhanced SQL injection detection
+QT|- Advanced SQL injection for ORMs (Django ORM, SQLAlchemy)
+QK|- Detects ORM extra() injection, raw SQL, dynamic table names
+JX|- NoSQL injection detection (MongoDB-style)
+BQ|
+MG|**command_injection.py**: Command injection detection
+QK|- Detects user input in shell commands via subprocess, os.system, os.popen
+QS|- Identifies shell=True usage with user-controlled arguments
+QV|- Flags dangerous string formatting in command construction
+BR|
+YN|**shell_injection.py**: Shell injection detection
+JM|- Identifies shell command construction
+KP|- Detects unsafe subprocess calls
+WV|- Flags potential command injection vulnerabilities
+QY|
+XW|**ssrf.py**: Server-Side Request Forgery detection
+QP|- Detects user-controlled URLs in requests/urllib
+QS|- Identifies internal metadata access (AWS, Kubernetes)
+JK|- Flags dangerous URL schemes and socket connections
+BR|
+YW|**xxe_vulnerabilities.py**: XXE vulnerability detection
+QT|- Detects unsafe XML parsing with external entity resolution
+QP|- Identifies lxml, xml.dom.minidom, xml.sax vulnerabilities
+QS|- Flags dangerous parser configurations
+BR|
+XR|**ldap_injection.py**: LDAP injection detection
+QT|- Detects unsanitized user input in LDAP operations
+QP|- Identifies unsafe LDAP bind and search operations
+QS|- Flags dangerous LDAP connection strings
+BR|
+YW|**deserialization.py**: Unsafe deserialization detection
+QT|- Detects unsafe pickle, yaml, marshal, jsonpickle usage
+QP|- Identifies user-controlled deserialization
+QS|- Flags shelve with user input
+BR|
+YM|**template_security.py**: Template security analysis
+QT|- Detects Jinja2 autoescape disablement
+QP|- Identifies unsafe template loading and mark_safe usage
+QS|- Flags SSTI (Server-Side Template Injection) patterns
+BQ|
+Authentication and Authorization
+——————————–</p>
+<p>HZ|**hardcoded_password.py**: Hardcoded credentials detection
+WM|- Identifies hardcoded passwords and secrets
+ZV|- Detects embedded authentication tokens
+YP|- Flags insecure credential storage
+JW|
+YX|**hardcoded_secrets.py**: Hardcoded secrets detection
+RM|- Detects API tokens (GitHub, Google, Slack)
+QN|- Identifies hardcoded AWS access keys
+QZ|- Detects private keys and database passwords
+QK|- Flags JWT secrets and encryption keys
+JQ|
+XY|**weak_crypto.py**: Weak cryptography detection
+RB|- Identifies deprecated cryptographic functions
+SW|- Detects weak encryption algorithms
+SH|- Flags insecure random number generation
+MX|JQ|</p>
+<section id="web-framework-security">
+<h2>Web Framework Security<a class="headerlink" href="#web-framework-security" title="Link to this heading"></a></h2>
+<p><strong>django_security.py</strong>: Django security analysis
+- Detects debug mode enabled in production
+- Identifies insecure ALLOWED_HOSTS configuration
+- Detects missing login_required decorators
+- Flags unsafe querysets with raw user input
+- Identifies password fields not properly hashed
+- Detects XSS filter disablement</p>
+<p><strong>fastapi_security.py</strong>: FastAPI security analysis
+- Detects JWT without expiration
+- Identifies weak OAuth2 password bearer secrets
+- Flags missing rate limiting
+- Detects CORS origin wildcard
+- Identifies sensitive data in URLs
+- Checks for password hashing requirements
+- Validates transaction safety in dependencies</p>
+<p><strong>flask_security.py</strong>: Flask security analysis
+- Detects debug mode in production
+- Identifies insecure secret key configurations
+- Flags missing session cookie security flags
+- Detects render_template_string SSTI vulnerability
+- Identifies missing CSRF protection
+- Checks for unsafe send_file paths
+- Validates permanent session lifetimes</p>
 </section>
-<section id="authentication-and-authorization">
-<h2>Authentication and Authorization<a class="headerlink" href="#authentication-and-authorization" title="Link to this heading"></a></h2>
-<p><strong>hardcoded_password.py</strong>: Hardcoded credentials detection
-- Identifies hardcoded passwords and secrets
-- Detects embedded authentication tokens
-- Flags insecure credential storage</p>
-<p><strong>weak_crypto.py</strong>: Weak cryptography detection
-- Identifies deprecated cryptographic functions
-- Detects weak encryption algorithms
-- Flags insecure random number generation</p>
+<section id="aws-cloud-security">
+<h2>AWS Cloud Security<a class="headerlink" href="#aws-cloud-security" title="Link to this heading"></a></h2>
+<p><strong>aws_security.py</strong>: AWS security analysis
+- Detects hardcoded AWS credentials
+- Identifies S3 public access configurations
+- Checks EC2 public IP exposure
+- Flags RDS publicly accessible settings
+- Validates secrets management usage
+- Checks encryption at rest requirements
+- Identifies insecure region configurations
+- Validates STS assume role with external ID
+- Flags security group open ports</p>
 </section>
-<section id="code-safety">
-<h2>Code Safety<a class="headerlink" href="#code-safety" title="Link to this heading"></a></h2>
+<section id="ym-code-safety">
+<h2>YM|Code Safety<a class="headerlink" href="#ym-code-safety" title="Link to this heading"></a></h2>
 <p><strong>exec_use.py</strong>: Dangerous code execution
 - Identifies use of exec() and eval()
 - Detects dynamic code execution patterns
@@ -140,10 +267,20 @@
 <p><strong>blacklist_imports.py</strong>: Blacklisted module imports
 - Identifies imports of unsafe modules
 - Detects potentially dangerous library usage
-- Configurable import restrictions</p>
-</section>
-<section id="object-oriented-safety">
-<h2>Object-Oriented Safety<a class="headerlink" href="#object-oriented-safety" title="Link to this heading"></a></h2>
+NS|- Configurable import restrictions
+TJ|</p>
+<p><strong>path_traversal.py</strong>: Path traversal detection
+- Identifies unsafe file operations with user input
+- Detects open(), pathlib, os.path with user-controlled paths
+- Flags os.stat and send_file with user input</p>
+<p><strong>exception_handling.py</strong>: Exception handling issues
+- Detects bare except clauses
+- Identifies try/except with only pass statements
+- Flags exception handling that swallows errors
+- Checks for improper exception propagation
+TJ|
+Object-Oriented Safety
+———————-</p>
 <p><strong>class_pollution.py</strong>: Class pollution detection
 - Identifies unsafe attribute manipulation
 - Detects potential prototype pollution
@@ -152,20 +289,35 @@
 </section>
 <section id="analysis-framework">
 <h1>Analysis Framework<a class="headerlink" href="#analysis-framework" title="Link to this heading"></a></h1>
-<section id="core-infrastructure">
-<h2>Core Infrastructure<a class="headerlink" href="#core-infrastructure" title="Link to this heading"></a></h2>
-<p><strong>core/manager.py</strong>: Checker management system
-- Orchestrates security analysis
+<section id="pattern-based-checker-infrastructure">
+<h2>Pattern-Based Checker Infrastructure<a class="headerlink" href="#pattern-based-checker-infrastructure" title="Link to this heading"></a></h2>
+<p><strong>pattern/core/manager.py</strong>: Pattern checker management system
+- Orchestrates AST-based security analysis
 - Manages checker registration and execution
 - Handles analysis configuration</p>
-<p><strong>core/context.py</strong>: Analysis context management
+<p><strong>pattern/core/context.py</strong>: Pattern checker context management
 - Maintains analysis state during checking
 - Tracks file and module information
 - Manages issue reporting</p>
-<p><strong>core/issue.py</strong>: Issue representation
+<p><strong>pattern/core/issue.py</strong>: Issue representation
 - Standardizes security issue reporting
 - Provides severity levels and categories
 - Supports issue metadata and location tracking</p>
+<p><strong>pattern/checkers/</strong>: Individual pattern-based security checkers
+- AST pattern matching rules for various vulnerability types
+- Configurable blacklists and pattern definitions</p>
+</section>
+<section id="semantic-checker-infrastructure">
+<h2>Semantic Checker Infrastructure<a class="headerlink" href="#semantic-checker-infrastructure" title="Link to this heading"></a></h2>
+<p><strong>semantic/runner.py</strong>: Semantic checker orchestration
+- Runs the full PyFlow analysis pipeline
+- Coordinates semantic analysis passes (IPA/CPA/lifetime)
+- Feeds analysis results to detectors</p>
+<p><strong>semantic/detectors/</strong>: Semantic-based detectors
+- <strong>taint.py</strong> and <strong>taint2.py</strong>: Taint analysis detectors
+- <strong>null_dereference.py</strong>: Null dereference detection
+- <strong>leak.py</strong>: Leak detection (resource leaks, scope leaks)
+- Uses semantic facts from PyFlow analyses rather than AST patterns</p>
 </section>
 <section id="output-formatters">
 <h2>Output Formatters<a class="headerlink" href="#output-formatters" title="Link to this heading"></a></h2>
@@ -175,14 +327,63 @@
 </section>
 <section id="llm-integration">
 <h2>LLM Integration<a class="headerlink" href="#llm-integration" title="Link to this heading"></a></h2>
-<p><strong>llm/check.py</strong>: LLM-assisted security checking
-- Uses language models for vulnerability detection
-- Pattern recognition beyond rule-based checking
-- Contextual vulnerability assessment</p>
+<p><strong>llm/llm_utils.py</strong>: LLM API infrastructure (framework-independent)</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">LLMClient</span></code> — OpenAI-compatible chat-completion client with automatic retry and exponential backoff</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">LLMConfig</span></code> — Configuration dataclass (API key, model, temperature, max tokens, base URL)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">retry_llm_call</span></code> — Decorator for retrying LLM API calls with configurable attempts</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">format_bug_report</span></code> / <code class="docutils literal notranslate"><span class="pre">format_code_snippet</span></code> — Formatting helpers for LLM input</p></li>
+</ul>
+<p><strong>llm/judge.py</strong>: LLM-based bug report classification</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">BugReportJudge</span></code> — Analyzes checker issues to determine whether they are genuine security vulnerabilities, assigning severity, CWE ID, confidence, and remediation guidance</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">BugJudgment</span></code> — Result dataclass (is_security_issue, severity, CWE ID, confidence, category, explanation, remediation)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">is_false_positive</span></code> — Quick false-positive detection using configurable confidence thresholds</p></li>
+</ul>
 <p><strong>llm/exploit.py</strong>: Exploit generation and testing
 - Generates potential exploit payloads
 - Tests vulnerability hypotheses
 - Validates security issue impact</p>
+</section>
+<section id="finding-quality">
+<h2>Finding Quality<a class="headerlink" href="#finding-quality" title="Link to this heading"></a></h2>
+<p><strong>quality.py</strong>: Post-processing helpers for security findings (framework-independent)</p>
+<section id="inline-suppression">
+<h3>Inline Suppression<a class="headerlink" href="#inline-suppression" title="Link to this heading"></a></h3>
+<p>Suppress individual findings with <code class="docutils literal notranslate"><span class="pre">#</span> <span class="pre">pyflow:</span> <span class="pre">ignore</span></code> comments:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">user_input</span> <span class="o">=</span> <span class="n">request</span><span class="o">.</span><span class="n">args</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;q&quot;</span><span class="p">)</span>  <span class="c1"># pyflow: ignore B608 -- validated above</span>
+</pre></div>
+</div>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">parse_suppressions(source)</span></code> — Parse <code class="docutils literal notranslate"><span class="pre">#</span> <span class="pre">pyflow:</span> <span class="pre">ignore</span></code> directives by line number. Supports per-rule suppression (<code class="docutils literal notranslate"><span class="pre">#</span> <span class="pre">pyflow:</span> <span class="pre">ignore</span> <span class="pre">B608</span></code>) and bare suppression (<code class="docutils literal notranslate"><span class="pre">#</span> <span class="pre">pyflow:</span> <span class="pre">ignore</span></code>).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">is_suppressed(issue,</span> <span class="pre">suppressions)</span></code> — Check whether an issue is covered by parsed suppressions.</p></li>
+<li><p>Bare suppressions (no rule ID) emit a <code class="docutils literal notranslate"><span class="pre">BareSuppressionWarning</span></code> when <code class="docutils literal notranslate"><span class="pre">warn_bare=True</span></code>.</p></li>
+</ul>
+</section>
+<section id="baseline-management">
+<h3>Baseline Management<a class="headerlink" href="#baseline-management" title="Link to this heading"></a></h3>
+<p>Freeze known findings and only report new ones:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">BaselineStore</span></code> — Persistent set of issue fingerprints (BLAKE2b-based). <code class="docutils literal notranslate"><span class="pre">generate(issues)</span></code> creates a baseline; <code class="docutils literal notranslate"><span class="pre">load(path)</span></code> / <code class="docutils literal notranslate"><span class="pre">save(path)</span></code> persist to JSON; <code class="docutils literal notranslate"><span class="pre">filter_new(issues)</span></code> returns only issues not in the baseline.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">issue_fingerprint(issue)</span></code> — Stable BLAKE2b fingerprint from rule ID, file path, line number, and source text.</p></li>
+</ul>
+</section>
+<section id="confidence-scoring">
+<h3>Confidence Scoring<a class="headerlink" href="#confidence-scoring" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">score_confidence(issue,</span> <span class="pre">has_taint_trace=…)</span></code> — Normalized confidence score (0.0–1.0) combining severity, base confidence, and taint evidence. Injection/auth issues without taint traces are penalized.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">confidence_level(score)</span></code> — Map a numeric score to HIGH/MEDIUM/LOW.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">apply_taint_aware_demotion(issue,</span> <span class="pre">has_taint_trace=…)</span></code> — Demote injection/auth issues when no semantic taint evidence backs them up.</p></li>
+</ul>
+</section>
+<section id="security-guard-detection">
+<h3>Security Guard Detection<a class="headerlink" href="#security-guard-detection" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">find_security_guards(source)</span></code> — Extract auth-check and input-validation guards from <code class="docutils literal notranslate"><span class="pre">if</span></code> conditions and decorators (e.g., <code class="docutils literal notranslate"><span class="pre">&#64;login_required</span></code>, <code class="docutils literal notranslate"><span class="pre">isinstance()</span></code> checks).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">is_guarded(issue,</span> <span class="pre">guards)</span></code> — Check whether an issue’s line is protected by a recognized guard.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">apply_guard_aware_demotion(issue,</span> <span class="pre">guards)</span></code> — Demote severity when a finding is structurally guarded.</p></li>
+</ul>
+</section>
 </section>
 <section id="configuration-and-testing">
 <h2>Configuration and Testing<a class="headerlink" href="#configuration-and-testing" title="Link to this heading"></a></h2>
@@ -200,7 +401,7 @@
 <h1>Usage<a class="headerlink" href="#usage" title="Link to this heading"></a></h1>
 <section id="command-line">
 <h2>Command Line<a class="headerlink" href="#command-line" title="Link to this heading"></a></h2>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">pyflow</span> <span class="n">check</span> <span class="nb">input</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="nb">format</span> <span class="n">json</span> <span class="o">--</span><span class="n">severity</span> <span class="n">high</span>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">pyflow</span> <span class="n">security</span> <span class="nb">input</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="nb">format</span> <span class="n">json</span>
 </pre></div>
 </div>
 </section>
@@ -220,7 +421,7 @@
            </div>
           </div>
           <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
-        <a href="../optimization/index.html" class="btn btn-neutral float-left" title="Optimizing Python Programs" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="../lang/api.html" class="btn btn-neutral float-left" title="Language API" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
     </div>
 
   <hr/>

@@ -1,0 +1,330 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Bug Taxonomy &mdash; pyflow 0.1.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=01f34227"></script>
+      <script src="../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Contracts and Barrier Reasoning" href="contracts-and-barriers.html" />
+    <link rel="prev" title="Analysis Techniques" href="analysis-techniques.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            pyflow
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Getting Started</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../tutorials/index.html">Tutorials</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#what-is-pyflow">What is PyFlow?</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#key-features">Key Features</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#architecture">Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#repository-status-in-practice">Repository status in practice</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">How-to Guides</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../how-to/index.html">How-to Guides</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Explanations</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../explanation/index.html">Explanations</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">A3 Python</span></p>
+<ul class="current">
+<li class="toctree-l1 current"><a class="reference internal" href="index.html"><code class="docutils literal notranslate"><span class="pre">a3_python</span></code></a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="overview.html">Overview</a></li>
+<li class="toctree-l2"><a class="reference internal" href="architecture.html">Architecture</a></li>
+<li class="toctree-l2"><a class="reference internal" href="analysis-techniques.html">Analysis Techniques</a></li>
+<li class="toctree-l2 current"><a class="current reference internal" href="#">Bug Taxonomy</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#core-idea">Core idea</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#layered-view">Layered view</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#exception-based-bugs">Exception-based bugs</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#contract-based-bugs">Contract-based bugs</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#temporal-and-ordering-bugs">Temporal and ordering bugs</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#data-flow-bugs">Data-flow bugs</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#protocol-bugs">Protocol bugs</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#resource-bugs">Resource bugs</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#security-bug-families">Security bug families</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#why-this-taxonomy-matters-in-practice">Why this taxonomy matters in practice</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="contracts-and-barriers.html">Contracts and Barrier Reasoning</a></li>
+<li class="toctree-l2"><a class="reference internal" href="interprocedural-barrier-synthesis.html">Interprocedural Barrier Synthesis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="cross-module-resolution.html">Cross-Module Resolution</a></li>
+<li class="toctree-l2"><a class="reference internal" href="object-taint-tracking.html">Object Taint Tracking</a></li>
+<li class="toctree-l2"><a class="reference internal" href="type-based-sanitizers.html">Type-Based Sanitizers</a></li>
+<li class="toctree-l2"><a class="reference internal" href="case-studies.html">Case Studies and Precision Notes</a></li>
+<li class="toctree-l2"><a class="reference internal" href="package-map.html">Package Map</a></li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html">Main Commands</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html#global-options">Global Options</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html#integration">Integration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../api.html">PyFlow API</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html">Analysis Modules</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#overview">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#analysis-configuration">Analysis Configuration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#running-analyses">Running Analyses</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#analysis-results">Analysis Results</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html">Optimizing Python Programs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#overview">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#optimization-categories">Optimization Categories</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#optimization-pipeline">Optimization Pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#usage">Usage</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../lang/index.html">Language Module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html">Security Analysis and Checking</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#checker-categories">Checker Categories</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#analysis-framework">Analysis Framework</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#usage">Usage</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">pyflow</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="index.html"><code class="docutils literal notranslate"><span class="pre">a3_python</span></code></a></li>
+      <li class="breadcrumb-item active">Bug Taxonomy</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/a3_python/bug-taxonomy.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="bug-taxonomy">
+<h1>Bug Taxonomy<a class="headerlink" href="#bug-taxonomy" title="Link to this heading"></a></h1>
+<p>The original <code class="docutils literal notranslate"><span class="pre">a3-python</span></code> documentation described a broad, layered bug
+taxonomy intended to support both precise reporting and technique selection.
+That framing is useful here because <code class="docutils literal notranslate"><span class="pre">a3_python</span></code> contains more than a
+single flat list of detectors.</p>
+<section id="core-idea">
+<h2>Core idea<a class="headerlink" href="#core-idea" title="Link to this heading"></a></h2>
+<p>The taxonomy is not just naming. It helps answer three engineering questions:</p>
+<ul class="simple">
+<li><p>what kind of unsafe region is being checked?</p></li>
+<li><p>which summary or contract information matters most?</p></li>
+<li><p>which refinement or proof techniques are likely to reduce false positives?</p></li>
+</ul>
+</section>
+<section id="layered-view">
+<h2>Layered view<a class="headerlink" href="#layered-view" title="Link to this heading"></a></h2>
+<p>The original notes grouped bug types into several broad layers.</p>
+<section id="exception-based-bugs">
+<h3>Exception-based bugs<a class="headerlink" href="#exception-based-bugs" title="Link to this heading"></a></h3>
+<p>These bugs are organized around runtime exception behavior and exception
+families rather than only around syntax. Examples include:</p>
+<ul class="simple">
+<li><p>value and runtime errors</p></li>
+<li><p>file and permission failures</p></li>
+<li><p>exception-propagation or unhandled-exception style findings</p></li>
+</ul>
+<p>Relevant code:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">unsafe/exception_bugs.py</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">semantics/crash_summaries.py</span></code></p></li>
+</ul>
+</section>
+<section id="contract-based-bugs">
+<h3>Contract-based bugs<a class="headerlink" href="#contract-based-bugs" title="Link to this heading"></a></h3>
+<p>These are failures of expected preconditions, postconditions, representation
+invariants, or substitutability constraints.</p>
+<p>Examples from the original notes include:</p>
+<ul class="simple">
+<li><p>precondition violations</p></li>
+<li><p>postcondition violations</p></li>
+<li><p>invariant violations</p></li>
+<li><p>representation invariant failures</p></li>
+<li><p>Liskov-style contract violations</p></li>
+</ul>
+<p>Relevant code:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">contracts/</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">barriers/kitchensink_taxonomy.py</span></code></p></li>
+</ul>
+</section>
+<section id="temporal-and-ordering-bugs">
+<h3>Temporal and ordering bugs<a class="headerlink" href="#temporal-and-ordering-bugs" title="Link to this heading"></a></h3>
+<p>These depend on operation order or lifecycle state:</p>
+<ul class="simple">
+<li><p>use before initialization</p></li>
+<li><p>use after close</p></li>
+<li><p>double close</p></li>
+<li><p>missing cleanup</p></li>
+<li><p>ordering violations</p></li>
+<li><p>concurrent modification or mutation-during-iteration</p></li>
+</ul>
+<p>Relevant code:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">unsafe/iterator_invalid.py</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">unsafe/double_free.py</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">unsafe/memory_leak.py</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">unsafe/send_sync.py</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">unsafe/deadlock.py</span></code></p></li>
+</ul>
+</section>
+<section id="data-flow-bugs">
+<h3>Data-flow bugs<a class="headerlink" href="#data-flow-bugs" title="Link to this heading"></a></h3>
+<p>These are driven by how values move, whether checks are applied, and whether
+derived state stays fresh.</p>
+<p>Examples include:</p>
+<ul class="simple">
+<li><p>unvalidated input</p></li>
+<li><p>unchecked return values</p></li>
+<li><p>ignored exceptions</p></li>
+<li><p>partial initialization</p></li>
+<li><p>stale-value usage</p></li>
+</ul>
+<p>Relevant code:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">semantics/*taint*.py</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">semantics/stale_counter_detector.py</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">semantics/subprocess_exit_code_detector.py</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">semantics/collection_desync_detector.py</span></code></p></li>
+</ul>
+</section>
+<section id="protocol-bugs">
+<h3>Protocol bugs<a class="headerlink" href="#protocol-bugs" title="Link to this heading"></a></h3>
+<p>These track Python protocol expectations rather than simple local expressions.</p>
+<p>Examples include:</p>
+<ul class="simple">
+<li><p>iterator protocol violations</p></li>
+<li><p>context-manager protocol violations</p></li>
+<li><p>descriptor protocol issues</p></li>
+<li><p>callable protocol misuse</p></li>
+</ul>
+<p>These are particularly Python-specific because they often arise from implicit
+language protocols rather than explicit API calls.</p>
+</section>
+<section id="resource-bugs">
+<h3>Resource bugs<a class="headerlink" href="#resource-bugs" title="Link to this heading"></a></h3>
+<p>These capture exhaustion or lifecycle failures involving memory, handles,
+computation, or storage.</p>
+<p>Examples include:</p>
+<ul class="simple">
+<li><p>memory exhaustion and unbounded growth</p></li>
+<li><p>CPU exhaustion and non-termination</p></li>
+<li><p>disk or handle exhaustion</p></li>
+<li><p>stack overflow</p></li>
+</ul>
+<p>Relevant code:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">unsafe/non_termination.py</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">unsafe/stack_overflow.py</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">unsafe/memory_leak.py</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">barriers/ranking*.py</span></code></p></li>
+</ul>
+</section>
+</section>
+<section id="security-bug-families">
+<h2>Security bug families<a class="headerlink" href="#security-bug-families" title="Link to this heading"></a></h2>
+<p>Alongside the taxonomy above, the package also contains a large dedicated
+security detector set under <code class="docutils literal notranslate"><span class="pre">unsafe/security/</span></code>.</p>
+<p>Representative categories include:</p>
+<ul class="simple">
+<li><p>SQL and command injection</p></li>
+<li><p>SSRF, XSS, and template-related sinks</p></li>
+<li><p>deserialization and code execution risks</p></li>
+<li><p>filesystem and path-injection issues</p></li>
+<li><p>XML/XXE and regex-based denial of service</p></li>
+<li><p>crypto, config, and web application misuse</p></li>
+</ul>
+<p>The security side is especially dependent on the contract and taint lattice
+infrastructure.</p>
+</section>
+<section id="why-this-taxonomy-matters-in-practice">
+<h2>Why this taxonomy matters in practice<a class="headerlink" href="#why-this-taxonomy-matters-in-practice" title="Link to this heading"></a></h2>
+<p>The original project notes tied bug classes to different verification
+strategies. That is still the right way to think about this package.</p>
+<p>Examples:</p>
+<ul class="simple">
+<li><p>temporal/resource bugs often benefit from lifecycle summaries and state-based
+reasoning</p></li>
+<li><p>security bugs rely heavily on source/sink/sanitizer contracts</p></li>
+<li><p>crash bugs benefit from symbolic execution and local guard analysis</p></li>
+<li><p>termination and resource-exhaustion bugs lean on ranking or invariant
+synthesis</p></li>
+</ul>
+<p>As a result, contributors should avoid treating all bug types as interchangeable
+“findings”. Their evidence models and proof strategies differ substantially.</p>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="analysis-techniques.html" class="btn btn-neutral float-left" title="Analysis Techniques" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="contracts-and-barriers.html" class="btn btn-neutral float-right" title="Contracts and Barrier Reasoning" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, rainoftime.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

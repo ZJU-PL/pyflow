@@ -1,0 +1,526 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>How to Visualize Results &mdash; pyflow 0.1.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=01f34227"></script>
+      <script src="../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="How to Debug Analysis Issues" href="debug-analysis-issues.html" />
+    <link rel="prev" title="Integrate with Build Systems" href="integrate-with-build-systems.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            pyflow
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Getting Started</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../tutorials/index.html">Tutorials</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#what-is-pyflow">What is PyFlow?</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#key-features">Key Features</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#architecture">Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#repository-status-in-practice">Repository status in practice</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">How-to Guides</span></p>
+<ul class="current">
+<li class="toctree-l1 current"><a class="reference internal" href="index.html">How-to Guides</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="analyze-call-graph.html">How to Analyze Call Graphs</a></li>
+<li class="toctree-l2"><a class="reference internal" href="analyze-control-flow.html">How to Analyze Control Flow</a></li>
+<li class="toctree-l2"><a class="reference internal" href="optimize-code.html">How to Optimize Code</a></li>
+<li class="toctree-l2"><a class="reference internal" href="security-analysis.html">How to Perform Security Analysis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="customize-analysis.html">How to Customize Analysis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="integrate-with-build-systems.html">Integrate with Build Systems</a></li>
+<li class="toctree-l2 current"><a class="current reference internal" href="#">How to Visualize Results</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#visualization-formats">Visualization Formats</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#text-diagrams">Text Diagrams</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#graphviz-dot">Graphviz DOT</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#mermaid">Mermaid</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#visualizing-call-graphs">Visualizing Call Graphs</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#basic-call-graph">Basic call graph</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#custom-styling">Custom styling</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#interactive-visualization">Interactive visualization</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#visualizing-control-flow-graphs">Visualizing Control Flow Graphs</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#basic-cfg-visualization">Basic CFG visualization</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#complex-cfg-visualization">Complex CFG visualization</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#visualizing-analysis-results">Visualizing Analysis Results</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#heatmaps-for-complexity">Heatmaps for complexity</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#dependency-graphs">Dependency graphs</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#exporting-for-documentation">Exporting for Documentation</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#advanced-visualization-techniques">Advanced Visualization Techniques</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#animated-visualizations">Animated visualizations</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#interactive-web-visualizations">Interactive web visualizations</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#troubleshooting">Troubleshooting</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#issue-graph-too-large">Issue: Graph too large</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#issue-overlapping-nodes">Issue: Overlapping nodes</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#issue-missing-edges">Issue: Missing edges</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="debug-analysis-issues.html">How to Debug Analysis Issues</a></li>
+<li class="toctree-l2"><a class="reference internal" href="analyze-call-graph.html">How to Analyze Call Graphs</a></li>
+<li class="toctree-l2"><a class="reference internal" href="analyze-control-flow.html">How to Analyze Control Flow</a></li>
+<li class="toctree-l2"><a class="reference internal" href="optimize-code.html">How to Optimize Code</a></li>
+<li class="toctree-l2"><a class="reference internal" href="security-analysis.html">How to Perform Security Analysis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="customize-analysis.html">How to Customize Analysis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="integrate-with-build-systems.html">Integrate with Build Systems</a></li>
+<li class="toctree-l2 current"><a class="current reference internal" href="#">How to Visualize Results</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#visualization-formats">Visualization Formats</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#text-diagrams">Text Diagrams</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#graphviz-dot">Graphviz DOT</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#mermaid">Mermaid</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#visualizing-call-graphs">Visualizing Call Graphs</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#basic-call-graph">Basic call graph</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#custom-styling">Custom styling</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#interactive-visualization">Interactive visualization</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#visualizing-control-flow-graphs">Visualizing Control Flow Graphs</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#basic-cfg-visualization">Basic CFG visualization</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#complex-cfg-visualization">Complex CFG visualization</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#visualizing-analysis-results">Visualizing Analysis Results</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#heatmaps-for-complexity">Heatmaps for complexity</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#dependency-graphs">Dependency graphs</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#exporting-for-documentation">Exporting for Documentation</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#advanced-visualization-techniques">Advanced Visualization Techniques</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#animated-visualizations">Animated visualizations</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#interactive-web-visualizations">Interactive web visualizations</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#troubleshooting">Troubleshooting</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#issue-graph-too-large">Issue: Graph too large</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#issue-overlapping-nodes">Issue: Overlapping nodes</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#issue-missing-edges">Issue: Missing edges</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="debug-analysis-issues.html">How to Debug Analysis Issues</a></li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Explanations</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../explanation/index.html">Explanations</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">A3 Python</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../a3_python/index.html"><code class="docutils literal notranslate"><span class="pre">a3_python</span></code></a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html">Main Commands</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html#global-options">Global Options</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html#integration">Integration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../api.html">PyFlow API</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html">Analysis Modules</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#overview">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#analysis-configuration">Analysis Configuration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#running-analyses">Running Analyses</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#analysis-results">Analysis Results</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html">Optimizing Python Programs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#overview">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#optimization-categories">Optimization Categories</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#optimization-pipeline">Optimization Pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#usage">Usage</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../lang/index.html">Language Module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html">Security Analysis and Checking</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#checker-categories">Checker Categories</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#analysis-framework">Analysis Framework</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#usage">Usage</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">pyflow</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="index.html">How-to Guides</a></li>
+      <li class="breadcrumb-item active">How to Visualize Results</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/how-to/visualize-results.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="how-to-visualize-results">
+<span id="id1"></span><h1>How to Visualize Results<a class="headerlink" href="#how-to-visualize-results" title="Link to this heading"></a></h1>
+<p>This guide explains how to create professional visualizations of PyFlow’s
+analysis results.</p>
+<section id="visualization-formats">
+<h2>Visualization Formats<a class="headerlink" href="#visualization-formats" title="Link to this heading"></a></h2>
+<p>PyFlow supports multiple visualization formats:</p>
+<section id="text-diagrams">
+<h3>Text Diagrams<a class="headerlink" href="#text-diagrams" title="Link to this heading"></a></h3>
+<p>For quick inspection in terminal:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>callgraph<span class="w"> </span>input.py<span class="w"> </span>--format<span class="w"> </span>text
+</pre></div>
+</div>
+</section>
+<section id="graphviz-dot">
+<h3>Graphviz DOT<a class="headerlink" href="#graphviz-dot" title="Link to this heading"></a></h3>
+<p>For professional vector graphics:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>callgraph<span class="w"> </span>input.py<span class="w"> </span>--format<span class="w"> </span>dot<span class="w"> </span>--output<span class="w"> </span>graph.dot
+dot<span class="w"> </span>-Tpng<span class="w"> </span>graph.dot<span class="w"> </span>-o<span class="w"> </span>graph.png
+</pre></div>
+</div>
+</section>
+<section id="mermaid">
+<h3>Mermaid<a class="headerlink" href="#mermaid" title="Link to this heading"></a></h3>
+<p>For markdown documentation:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>callgraph<span class="w"> </span>input.py<span class="w"> </span>--format<span class="w"> </span>mermaid<span class="w"> </span>--output<span class="w"> </span>graph.md
+</pre></div>
+</div>
+</section>
+</section>
+<section id="visualizing-call-graphs">
+<h2>Visualizing Call Graphs<a class="headerlink" href="#visualizing-call-graphs" title="Link to this heading"></a></h2>
+<section id="basic-call-graph">
+<h3>Basic call graph<a class="headerlink" href="#basic-call-graph" title="Link to this heading"></a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>callgraph<span class="w"> </span>input.py<span class="w"> </span>--format<span class="w"> </span>dot<span class="w"> </span>--output<span class="w"> </span>callgraph.dot
+</pre></div>
+</div>
+</section>
+<section id="custom-styling">
+<h3>Custom styling<a class="headerlink" href="#custom-styling" title="Link to this heading"></a></h3>
+<p>Create a custom style file:</p>
+<div class="literal-block-wrapper docutils container" id="id2">
+<div class="code-block-caption"><span class="caption-text">callgraph_style.css</span><a class="headerlink" href="#id2" title="Link to this code"></a></div>
+<div class="highlight-css notranslate"><div class="highlight"><pre><span></span><span class="p">.</span><span class="nc">node</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">shape</span><span class="p">:</span><span class="w"> </span><span class="n">box</span><span class="p">;</span>
+<span class="w">    </span><span class="n">style</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;rounded,filled&quot;</span><span class="p">;</span>
+<span class="w">    </span><span class="n">fillcolor</span><span class="p">:</span><span class="w"> </span><span class="kc">lightblue</span><span class="p">;</span>
+<span class="w">    </span><span class="n">fontname</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Arial&quot;</span><span class="p">;</span>
+<span class="p">}</span>
+
+<span class="p">.</span><span class="nc">recursive</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">fillcolor</span><span class="p">:</span><span class="w"> </span><span class="kc">lightyellow</span><span class="p">;</span>
+<span class="p">}</span>
+
+<span class="p">.</span><span class="nc">entry</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">fillcolor</span><span class="p">:</span><span class="w"> </span><span class="kc">lightgreen</span><span class="p">;</span>
+<span class="p">}</span>
+
+<span class="p">.</span><span class="nc">edge</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">fontname</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Arial&quot;</span><span class="p">;</span>
+<span class="w">    </span><span class="n">fontsize</span><span class="p">:</span><span class="w"> </span><span class="mi">10</span><span class="p">;</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+</div>
+<p>Apply custom style:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>dot<span class="w"> </span>-Tpng<span class="w"> </span>callgraph.dot<span class="w"> </span>-o<span class="w"> </span>callgraph.png<span class="w"> </span>-C
+</pre></div>
+</div>
+</section>
+<section id="interactive-visualization">
+<h3>Interactive visualization<a class="headerlink" href="#interactive-visualization" title="Link to this heading"></a></h3>
+<p>Use pygraphviz for interactive graphs:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">pygraphviz</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pgv</span>
+
+<span class="c1"># Load DOT file</span>
+<span class="n">G</span> <span class="o">=</span> <span class="n">pgv</span><span class="o">.</span><span class="n">AGraph</span><span class="p">(</span><span class="s2">&quot;callgraph.dot&quot;</span><span class="p">)</span>
+
+<span class="c1"># Add layout options</span>
+<span class="n">G</span><span class="o">.</span><span class="n">graph_attr</span><span class="p">[</span><span class="s2">&quot;rankdir&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;TB&quot;</span>
+<span class="n">G</span><span class="o">.</span><span class="n">node_attr</span><span class="p">[</span><span class="s2">&quot;shape&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;box&quot;</span>
+<span class="n">G</span><span class="o">.</span><span class="n">node_attr</span><span class="p">[</span><span class="s2">&quot;style&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;rounded,filled&quot;</span>
+
+<span class="c1"># Highlight specific nodes</span>
+<span class="n">G</span><span class="o">.</span><span class="n">get_node</span><span class="p">(</span><span class="s2">&quot;main&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">attr</span><span class="p">[</span><span class="s2">&quot;fillcolor&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;lightgreen&quot;</span>
+<span class="n">G</span><span class="o">.</span><span class="n">get_node</span><span class="p">(</span><span class="s2">&quot;recursive_func&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">attr</span><span class="p">[</span><span class="s2">&quot;fillcolor&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;lightyellow&quot;</span>
+
+<span class="c1"># Render</span>
+<span class="n">G</span><span class="o">.</span><span class="n">layout</span><span class="p">(</span><span class="n">prog</span><span class="o">=</span><span class="s2">&quot;dot&quot;</span><span class="p">)</span>
+<span class="n">G</span><span class="o">.</span><span class="n">draw</span><span class="p">(</span><span class="s2">&quot;callgraph.png&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="visualizing-control-flow-graphs">
+<h2>Visualizing Control Flow Graphs<a class="headerlink" href="#visualizing-control-flow-graphs" title="Link to this heading"></a></h2>
+<section id="basic-cfg-visualization">
+<h3>Basic CFG visualization<a class="headerlink" href="#basic-cfg-visualization" title="Link to this heading"></a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>ir<span class="w"> </span>input.py<span class="w"> </span>--dump-cfg<span class="w"> </span>function_name<span class="w"> </span>--format<span class="w"> </span>dot<span class="w"> </span>--output<span class="w"> </span>cfg.dot
+</pre></div>
+</div>
+</section>
+<section id="complex-cfg-visualization">
+<h3>Complex CFG visualization<a class="headerlink" href="#complex-cfg-visualization" title="Link to this heading"></a></h3>
+<p>For complex functions with many blocks:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">pygraphviz</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pgv</span>
+
+<span class="n">G</span> <span class="o">=</span> <span class="n">pgv</span><span class="o">.</span><span class="n">AGraph</span><span class="p">(</span><span class="n">directed</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+<span class="c1"># Add blocks as nodes</span>
+<span class="k">for</span> <span class="n">block</span> <span class="ow">in</span> <span class="n">cfg</span><span class="o">.</span><span class="n">blocks</span><span class="p">:</span>
+    <span class="n">label</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;Block </span><span class="si">{</span><span class="n">block</span><span class="o">.</span><span class="n">id</span><span class="si">}</span><span class="se">\n</span><span class="s2">&quot;</span>
+    <span class="k">for</span> <span class="n">stmt</span> <span class="ow">in</span> <span class="n">block</span><span class="o">.</span><span class="n">statements</span><span class="p">:</span>
+        <span class="n">label</span> <span class="o">+=</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">stmt</span><span class="si">}</span><span class="se">\n</span><span class="s2">&quot;</span>
+
+    <span class="n">G</span><span class="o">.</span><span class="n">add_node</span><span class="p">(</span><span class="n">block</span><span class="o">.</span><span class="n">id</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="n">label</span><span class="p">,</span> <span class="n">shape</span><span class="o">=</span><span class="s2">&quot;box&quot;</span><span class="p">)</span>
+
+<span class="c1"># Add edges</span>
+<span class="k">for</span> <span class="n">edge</span> <span class="ow">in</span> <span class="n">cfg</span><span class="o">.</span><span class="n">edges</span><span class="p">:</span>
+    <span class="n">G</span><span class="o">.</span><span class="n">add_edge</span><span class="p">(</span><span class="n">edge</span><span class="o">.</span><span class="n">from_block</span><span class="p">,</span> <span class="n">edge</span><span class="o">.</span><span class="n">to_block</span><span class="p">)</span>
+
+<span class="c1"># Add cluster for loops</span>
+<span class="k">if</span> <span class="n">loop_blocks</span><span class="p">:</span>
+    <span class="k">with</span> <span class="n">G</span><span class="o">.</span><span class="n">subgraph</span><span class="p">()</span> <span class="k">as</span> <span class="n">s</span><span class="p">:</span>
+        <span class="n">s</span><span class="o">.</span><span class="n">add_nodes_from</span><span class="p">(</span><span class="n">loop_blocks</span><span class="p">)</span>
+        <span class="n">s</span><span class="o">.</span><span class="n">attr</span><span class="p">(</span><span class="s2">&quot;color&quot;</span><span class="p">,</span> <span class="s2">&quot;blue&quot;</span><span class="p">)</span>
+        <span class="n">s</span><span class="o">.</span><span class="n">attr</span><span class="p">(</span><span class="s2">&quot;style&quot;</span><span class="p">,</span> <span class="s2">&quot;dashed&quot;</span><span class="p">)</span>
+
+<span class="n">G</span><span class="o">.</span><span class="n">layout</span><span class="p">(</span><span class="n">prog</span><span class="o">=</span><span class="s2">&quot;dot&quot;</span><span class="p">)</span>
+<span class="n">G</span><span class="o">.</span><span class="n">draw</span><span class="p">(</span><span class="s2">&quot;cfg.png&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="visualizing-analysis-results">
+<h2>Visualizing Analysis Results<a class="headerlink" href="#visualizing-analysis-results" title="Link to this heading"></a></h2>
+<section id="heatmaps-for-complexity">
+<h3>Heatmaps for complexity<a class="headerlink" href="#heatmaps-for-complexity" title="Link to this heading"></a></h3>
+<p>Create heatmaps showing analysis metrics:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">matplotlib.pyplot</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">plt</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+
+<span class="c1"># Function complexity data</span>
+<span class="n">functions</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;func1&quot;</span><span class="p">,</span> <span class="s2">&quot;func2&quot;</span><span class="p">,</span> <span class="s2">&quot;func3&quot;</span><span class="p">,</span> <span class="s2">&quot;func4&quot;</span><span class="p">]</span>
+<span class="n">complexity</span> <span class="o">=</span> <span class="p">[</span><span class="mi">5</span><span class="p">,</span> <span class="mi">12</span><span class="p">,</span> <span class="mi">8</span><span class="p">,</span> <span class="mi">15</span><span class="p">]</span>
+
+<span class="c1"># Create heatmap</span>
+<span class="n">fig</span><span class="p">,</span> <span class="n">ax</span> <span class="o">=</span> <span class="n">plt</span><span class="o">.</span><span class="n">subplots</span><span class="p">()</span>
+<span class="n">im</span> <span class="o">=</span> <span class="n">ax</span><span class="o">.</span><span class="n">imshow</span><span class="p">([</span><span class="n">complexity</span><span class="p">],</span> <span class="n">cmap</span><span class="o">=</span><span class="s2">&quot;YlOrRd&quot;</span><span class="p">)</span>
+
+<span class="c1"># Add labels</span>
+<span class="n">ax</span><span class="o">.</span><span class="n">set_xticks</span><span class="p">(</span><span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">functions</span><span class="p">)))</span>
+<span class="n">ax</span><span class="o">.</span><span class="n">set_xticklabels</span><span class="p">(</span><span class="n">functions</span><span class="p">)</span>
+<span class="n">ax</span><span class="o">.</span><span class="n">set_yticks</span><span class="p">([])</span>
+<span class="n">ax</span><span class="o">.</span><span class="n">set_title</span><span class="p">(</span><span class="s2">&quot;Function Complexity&quot;</span><span class="p">)</span>
+
+<span class="c1"># Add colorbar</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">colorbar</span><span class="p">(</span><span class="n">im</span><span class="p">)</span>
+
+<span class="n">plt</span><span class="o">.</span><span class="n">savefig</span><span class="p">(</span><span class="s2">&quot;complexity_heatmap.png&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="dependency-graphs">
+<h3>Dependency graphs<a class="headerlink" href="#dependency-graphs" title="Link to this heading"></a></h3>
+<p>Visualize module dependencies:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">pygraphviz</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pgv</span>
+
+<span class="n">G</span> <span class="o">=</span> <span class="n">pgv</span><span class="o">.</span><span class="n">AGraph</span><span class="p">(</span><span class="n">directed</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+<span class="c1"># Add module nodes</span>
+<span class="k">for</span> <span class="n">module</span> <span class="ow">in</span> <span class="n">modules</span><span class="p">:</span>
+    <span class="n">G</span><span class="o">.</span><span class="n">add_node</span><span class="p">(</span><span class="n">module</span><span class="o">.</span><span class="n">name</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="n">module</span><span class="o">.</span><span class="n">name</span><span class="p">)</span>
+
+<span class="c1"># Add dependency edges</span>
+<span class="k">for</span> <span class="n">dep</span> <span class="ow">in</span> <span class="n">dependencies</span><span class="p">:</span>
+    <span class="n">G</span><span class="o">.</span><span class="n">add_edge</span><span class="p">(</span><span class="n">dep</span><span class="o">.</span><span class="n">from_module</span><span class="p">,</span> <span class="n">dep</span><span class="o">.</span><span class="n">to_module</span><span class="p">)</span>
+
+<span class="c1"># Style</span>
+<span class="n">G</span><span class="o">.</span><span class="n">graph_attr</span><span class="p">[</span><span class="s2">&quot;rankdir&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;LR&quot;</span>
+<span class="n">G</span><span class="o">.</span><span class="n">edge_attr</span><span class="p">[</span><span class="s2">&quot;arrowsize&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="mf">0.8</span>
+
+<span class="n">G</span><span class="o">.</span><span class="n">layout</span><span class="p">(</span><span class="n">prog</span><span class="o">=</span><span class="s2">&quot;dot&quot;</span><span class="p">)</span>
+<span class="n">G</span><span class="o">.</span><span class="n">draw</span><span class="p">(</span><span class="s2">&quot;dependencies.png&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="exporting-for-documentation">
+<h2>Exporting for Documentation<a class="headerlink" href="#exporting-for-documentation" title="Link to this heading"></a></h2>
+<p>Export for Sphinx documentation:</p>
+<div class="highlight-rst notranslate"><div class="highlight"><pre><span></span><span class="p">..</span> <span class="ow">image</span><span class="p">::</span> callgraph.png
+   <span class="nc">:alt:</span> Call graph visualization
+
+<span class="p">..</span> <span class="ow">graphviz</span><span class="p">::</span>
+
+   digraph callgraph {
+       main -&gt; func_a;
+       main -&gt; func_b;
+       func_a -&gt; func_c;
+   }
+</pre></div>
+</div>
+<p>Export for Jupyter notebooks:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">IPython.display</span><span class="w"> </span><span class="kn">import</span> <span class="n">Image</span><span class="p">,</span> <span class="n">display</span>
+
+<span class="c1"># Generate and display</span>
+<span class="err">!</span><span class="n">pyflow</span> <span class="n">callgraph</span> <span class="nb">input</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="nb">format</span> <span class="n">dot</span> <span class="o">--</span><span class="n">output</span> <span class="n">temp</span><span class="o">.</span><span class="n">dot</span>
+<span class="err">!</span><span class="n">dot</span> <span class="o">-</span><span class="n">Tpng</span> <span class="n">temp</span><span class="o">.</span><span class="n">dot</span> <span class="o">-</span><span class="n">o</span> <span class="n">temp</span><span class="o">.</span><span class="n">png</span>
+<span class="n">display</span><span class="p">(</span><span class="n">Image</span><span class="p">(</span><span class="s2">&quot;temp.png&quot;</span><span class="p">))</span>
+</pre></div>
+</div>
+</section>
+<section id="advanced-visualization-techniques">
+<h2>Advanced Visualization Techniques<a class="headerlink" href="#advanced-visualization-techniques" title="Link to this heading"></a></h2>
+<section id="animated-visualizations">
+<h3>Animated visualizations<a class="headerlink" href="#animated-visualizations" title="Link to this heading"></a></h3>
+<p>Create animated call graphs showing analysis evolution:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">imageio</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
+
+<span class="c1"># Generate frames</span>
+<span class="n">frames</span> <span class="o">=</span> <span class="p">[]</span>
+<span class="k">for</span> <span class="n">step</span> <span class="ow">in</span> <span class="n">analysis_steps</span><span class="p">:</span>
+    <span class="n">generate_visualization</span><span class="p">(</span><span class="n">step</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;frame_</span><span class="si">{</span><span class="n">step</span><span class="si">}</span><span class="s2">.png&quot;</span><span class="p">)</span>
+    <span class="n">frames</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">imageio</span><span class="o">.</span><span class="n">imread</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;frame_</span><span class="si">{</span><span class="n">step</span><span class="si">}</span><span class="s2">.png&quot;</span><span class="p">))</span>
+
+<span class="c1"># Create animation</span>
+<span class="n">imageio</span><span class="o">.</span><span class="n">mimsave</span><span class="p">(</span><span class="s2">&quot;analysis_evolution.gif&quot;</span><span class="p">,</span> <span class="n">frames</span><span class="p">,</span> <span class="n">fps</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="interactive-web-visualizations">
+<h3>Interactive web visualizations<a class="headerlink" href="#interactive-web-visualizations" title="Link to this heading"></a></h3>
+<p>Use D3.js for interactive web visualizations:</p>
+<div class="literal-block-wrapper docutils container" id="id3">
+<div class="code-block-caption"><span class="caption-text">visualize.js</span><a class="headerlink" href="#id3" title="Link to this code"></a></div>
+<div class="highlight-javascript notranslate"><div class="highlight"><pre><span></span><span class="c1">// Export PyFlow results to D3.js format</span>
+<span class="kd">const</span><span class="w"> </span><span class="nx">data</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nx">nodes</span><span class="o">:</span><span class="w"> </span><span class="nx">callgraph</span><span class="p">.</span><span class="nx">nodes</span><span class="p">.</span><span class="nx">map</span><span class="p">(</span><span class="nx">n</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">({</span>
+<span class="w">        </span><span class="nx">id</span><span class="o">:</span><span class="w"> </span><span class="nx">n</span><span class="p">.</span><span class="nx">name</span><span class="p">,</span>
+<span class="w">        </span><span class="nx">group</span><span class="o">:</span><span class="w"> </span><span class="nx">n</span><span class="p">.</span><span class="nx">type</span>
+<span class="w">    </span><span class="p">})),</span>
+<span class="w">    </span><span class="nx">links</span><span class="o">:</span><span class="w"> </span><span class="nx">callgraph</span><span class="p">.</span><span class="nx">edges</span><span class="p">.</span><span class="nx">map</span><span class="p">(</span><span class="nx">e</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">({</span>
+<span class="w">        </span><span class="nx">source</span><span class="o">:</span><span class="w"> </span><span class="nx">e</span><span class="p">.</span><span class="kr">from</span><span class="p">,</span>
+<span class="w">        </span><span class="nx">target</span><span class="o">:</span><span class="w"> </span><span class="nx">e</span><span class="p">.</span><span class="nx">to</span>
+<span class="w">    </span><span class="p">}))</span>
+<span class="p">};</span>
+
+<span class="c1">// Create D3 visualization</span>
+<span class="kd">const</span><span class="w"> </span><span class="nx">svg</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">d3</span><span class="p">.</span><span class="nx">select</span><span class="p">(</span><span class="s2">&quot;#visualization&quot;</span><span class="p">);</span>
+<span class="kd">const</span><span class="w"> </span><span class="nx">simulation</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">d3</span><span class="p">.</span><span class="nx">forceSimulation</span><span class="p">(</span><span class="nx">data</span><span class="p">.</span><span class="nx">nodes</span><span class="p">)</span>
+<span class="w">    </span><span class="p">.</span><span class="nx">force</span><span class="p">(</span><span class="s2">&quot;link&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">d3</span><span class="p">.</span><span class="nx">forceLink</span><span class="p">(</span><span class="nx">data</span><span class="p">.</span><span class="nx">links</span><span class="p">).</span><span class="nx">id</span><span class="p">(</span><span class="nx">d</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="nx">d</span><span class="p">.</span><span class="nx">id</span><span class="p">))</span>
+<span class="w">    </span><span class="p">.</span><span class="nx">force</span><span class="p">(</span><span class="s2">&quot;charge&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">d3</span><span class="p">.</span><span class="nx">forceManyBody</span><span class="p">().</span><span class="nx">strength</span><span class="p">(</span><span class="o">-</span><span class="mf">400</span><span class="p">))</span>
+<span class="w">    </span><span class="p">.</span><span class="nx">on</span><span class="p">(</span><span class="s2">&quot;tick&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">ticked</span><span class="p">);</span>
+</pre></div>
+</div>
+</div>
+</section>
+</section>
+<section id="troubleshooting">
+<h2>Troubleshooting<a class="headerlink" href="#troubleshooting" title="Link to this heading"></a></h2>
+<section id="issue-graph-too-large">
+<h3>Issue: Graph too large<a class="headerlink" href="#issue-graph-too-large" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p>Reduce information displayed</p></li>
+<li><p>Use clustering</p></li>
+<li><p>Increase image resolution</p></li>
+<li><p>Use hierarchical layout</p></li>
+</ul>
+</section>
+<section id="issue-overlapping-nodes">
+<h3>Issue: Overlapping nodes<a class="headerlink" href="#issue-overlapping-nodes" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p>Adjust node spacing</p></li>
+<li><p>Use different layout algorithm</p></li>
+<li><p>Increase image size</p></li>
+<li><p>Reduce label length</p></li>
+</ul>
+</section>
+<section id="issue-missing-edges">
+<h3>Issue: Missing edges<a class="headerlink" href="#issue-missing-edges" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p>Check if edges exist in data</p></li>
+<li><p>Verify DOT generation</p></li>
+<li><p>Check for filtered edges</p></li>
+</ul>
+</section>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="integrate-with-build-systems.html" class="btn btn-neutral float-left" title="Integrate with Build Systems" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="debug-analysis-issues.html" class="btn btn-neutral float-right" title="How to Debug Analysis Issues" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, rainoftime.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

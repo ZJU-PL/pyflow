@@ -1,0 +1,482 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Analyzing Python Code &mdash; pyflow 0.1.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=01f34227"></script>
+      <script src="../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Optimizing Python Programs" href="optimizing-python-programs.html" />
+    <link rel="prev" title="Getting Started" href="getting-started.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            pyflow
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Getting Started</span></p>
+<ul class="current">
+<li class="toctree-l1 current"><a class="reference internal" href="index.html">Tutorials</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="getting-started.html">Getting Started</a></li>
+<li class="toctree-l2 current"><a class="current reference internal" href="#">Analyzing Python Code</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#what-you-ll-learn">What You’ll Learn</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#analysis-overview">Analysis Overview</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#control-flow-analysis">Control Flow Analysis</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#running-cfg-analysis">Running CFG Analysis</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#understanding-basic-blocks">Understanding Basic Blocks</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#data-flow-analysis">Data Flow Analysis</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#running-data-flow-analysis">Running Data Flow Analysis</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#inter-procedural-analysis">Inter-procedural Analysis</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#running-ipa">Running IPA</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#context-sensitive-analysis">Context-Sensitive Analysis</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#constraint-based-analysis-cpa">Constraint-Based Analysis (CPA)</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#running-cpa">Running CPA</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#shape-analysis">Shape Analysis</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#running-shape-analysis">Running Shape Analysis</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#call-graph-analysis">Call Graph Analysis</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#building-call-graphs">Building Call Graphs</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#call-graph-formats">Call Graph Formats</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#analyzing-multiple-files">Analyzing Multiple Files</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#advanced-analysis-options">Advanced Analysis Options</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#next-steps">Next Steps</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="optimizing-python-programs.html">Optimizing Python Programs</a></li>
+<li class="toctree-l2"><a class="reference internal" href="understanding-analysis-results.html">Understanding Analysis Results</a></li>
+<li class="toctree-l2"><a class="reference internal" href="getting-started.html">Getting Started</a></li>
+<li class="toctree-l2 current"><a class="current reference internal" href="#">Analyzing Python Code</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#what-you-ll-learn">What You’ll Learn</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#analysis-overview">Analysis Overview</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#control-flow-analysis">Control Flow Analysis</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#running-cfg-analysis">Running CFG Analysis</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#understanding-basic-blocks">Understanding Basic Blocks</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#data-flow-analysis">Data Flow Analysis</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#running-data-flow-analysis">Running Data Flow Analysis</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#inter-procedural-analysis">Inter-procedural Analysis</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#running-ipa">Running IPA</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#context-sensitive-analysis">Context-Sensitive Analysis</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#constraint-based-analysis-cpa">Constraint-Based Analysis (CPA)</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#running-cpa">Running CPA</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#shape-analysis">Shape Analysis</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#running-shape-analysis">Running Shape Analysis</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#call-graph-analysis">Call Graph Analysis</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#building-call-graphs">Building Call Graphs</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#call-graph-formats">Call Graph Formats</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#analyzing-multiple-files">Analyzing Multiple Files</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#advanced-analysis-options">Advanced Analysis Options</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#next-steps">Next Steps</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="optimizing-python-programs.html">Optimizing Python Programs</a></li>
+<li class="toctree-l2"><a class="reference internal" href="understanding-analysis-results.html">Understanding Analysis Results</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#what-is-pyflow">What is PyFlow?</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#key-features">Key Features</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#architecture">Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#repository-status-in-practice">Repository status in practice</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">How-to Guides</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../how-to/index.html">How-to Guides</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Explanations</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../explanation/index.html">Explanations</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">A3 Python</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../a3_python/index.html"><code class="docutils literal notranslate"><span class="pre">a3_python</span></code></a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html">Main Commands</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html#global-options">Global Options</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html#integration">Integration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../api.html">PyFlow API</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html">Analysis Modules</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#overview">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#analysis-configuration">Analysis Configuration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#running-analyses">Running Analyses</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#analysis-results">Analysis Results</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html">Optimizing Python Programs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#overview">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#optimization-categories">Optimization Categories</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#optimization-pipeline">Optimization Pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#usage">Usage</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../lang/index.html">Language Module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html">Security Analysis and Checking</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#checker-categories">Checker Categories</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#analysis-framework">Analysis Framework</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#usage">Usage</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">pyflow</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="index.html">Tutorials</a></li>
+      <li class="breadcrumb-item active">Analyzing Python Code</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/tutorials/analyzing-python-code.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="analyzing-python-code">
+<span id="tutorial-analyzing-python-code"></span><h1>Analyzing Python Code<a class="headerlink" href="#analyzing-python-code" title="Link to this heading"></a></h1>
+<p>This tutorial covers the various analysis capabilities of PyFlow and how to
+use them effectively to understand Python programs.</p>
+<section id="what-you-ll-learn">
+<h2>What You’ll Learn<a class="headerlink" href="#what-you-ll-learn" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p>How to run different types of static analysis</p></li>
+<li><p>Understanding control flow graphs and data flow analysis</p></li>
+<li><p>Using call graph analysis to understand program structure</p></li>
+<li><p>Interpreting analysis results</p></li>
+</ul>
+</section>
+<section id="analysis-overview">
+<h2>Analysis Overview<a class="headerlink" href="#analysis-overview" title="Link to this heading"></a></h2>
+<p>PyFlow provides several types of static analysis:</p>
+<ol class="arabic simple">
+<li><p><strong>Control Flow Analysis</strong>: Understand the control flow structure of your code</p></li>
+<li><p><strong>Data Flow Analysis</strong>: Track how data flows through the program</p></li>
+<li><p><strong>Inter-procedural Analysis</strong>: Analyze behavior across function boundaries</p></li>
+<li><p><strong>Constraint-based Analysis</strong>: Understand object relationships and types</p></li>
+<li><p><strong>Shape Analysis</strong>: Analyze data structure shapes and properties</p></li>
+<li><p><strong>Call Graph Analysis</strong>: Understand function call relationships</p></li>
+</ol>
+</section>
+<section id="control-flow-analysis">
+<h2>Control Flow Analysis<a class="headerlink" href="#control-flow-analysis" title="Link to this heading"></a></h2>
+<p>Control Flow Graph (CFG) construction is the foundation of many analyses.
+The CFG shows the basic blocks of your program and how control flows between them.</p>
+<section id="running-cfg-analysis">
+<h3>Running CFG Analysis<a class="headerlink" href="#running-cfg-analysis" title="Link to this heading"></a></h3>
+<p>Dump the CFG for a specific function:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>ir<span class="w"> </span>example.py<span class="w"> </span>--dump-cfg<span class="w"> </span>function_name<span class="w"> </span>--dump-format<span class="w"> </span>text
+</pre></div>
+</div>
+<p>For our example file:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>ir<span class="w"> </span>example.py<span class="w"> </span>--dump-cfg<span class="w"> </span>fibonacci<span class="w"> </span>--dump-format<span class="w"> </span>text
+</pre></div>
+</div>
+<p>Output:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>CFG for fibonacci:
+───────────────────────────────────────
+
+Block 0 (Entry):
+  n: Parameter
+  if n &lt;= 1
+
+Block 1 (True - Return):
+  return n
+
+Block 2 (False - Recursive):
+  temp1 = fibonacci(n - 1)
+  temp2 = fibonacci(n - 2)
+  return temp1 + temp2
+
+Edges:
+  Block 0 → Block 1 (n &lt;= 1 is True)
+  Block 0 → Block 2 (n &lt;= 1 is False)
+</pre></div>
+</div>
+</section>
+<section id="understanding-basic-blocks">
+<h3>Understanding Basic Blocks<a class="headerlink" href="#understanding-basic-blocks" title="Link to this heading"></a></h3>
+<p>A <strong>basic block</strong> is a sequence of instructions with a single entry and exit
+point. Control flow can only enter at the beginning and exit at the end.</p>
+<p>Key CFG concepts:</p>
+<ul class="simple">
+<li><p><strong>Entry Block</strong>: The first block in the function</p></li>
+<li><p><strong>Exit Block</strong>: The block(s) containing return statements</p></li>
+<li><p><strong>Edges</strong>: Show possible control flow transfers</p></li>
+<li><p><strong>Dominators</strong>: Blocks that must be executed before reaching other blocks</p></li>
+</ul>
+</section>
+</section>
+<section id="data-flow-analysis">
+<h2>Data Flow Analysis<a class="headerlink" href="#data-flow-analysis" title="Link to this heading"></a></h2>
+<p>Data flow analysis tracks how values propagate through the program. PyFlow
+provides several data flow analyses.</p>
+<section id="running-data-flow-analysis">
+<h3>Running Data Flow Analysis<a class="headerlink" href="#running-data-flow-analysis" title="Link to this heading"></a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>optimize<span class="w"> </span>example.py<span class="w"> </span>--analysis<span class="w"> </span>cpa,ipa
+</pre></div>
+</div>
+<p>This runs forward and backward data flow analysis, computing:</p>
+<ul class="simple">
+<li><p><strong>Reaching Definitions</strong>: Which assignments can reach a given program point</p></li>
+<li><p><strong>Live Variables</strong>: Which variables are live (will be used) at each point</p></li>
+<li><p><strong>Available Expressions</strong>: Which expressions have been computed and available</p></li>
+</ul>
+<p>Example output for reaching definitions:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Data Flow Analysis Results:
+───────────────────────────────────────
+
+Block 0:
+  n: {n := @parameter}
+  result: {}
+
+Block 1:
+  n: {n := @parameter}
+  result: {result := n}
+</pre></div>
+</div>
+</section>
+</section>
+<section id="inter-procedural-analysis">
+<h2>Inter-procedural Analysis<a class="headerlink" href="#inter-procedural-analysis" title="Link to this heading"></a></h2>
+<p>Inter-procedural analysis (IPA) analyzes behavior across function boundaries,
+providing more precise results than purely intra-procedural analysis.</p>
+<section id="running-ipa">
+<h3>Running IPA<a class="headerlink" href="#running-ipa" title="Link to this heading"></a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>optimize<span class="w"> </span>example.py<span class="w"> </span>--analysis<span class="w"> </span>ipa
+</pre></div>
+</div>
+<p>IPA provides:</p>
+<ul class="simple">
+<li><p><strong>Context Sensitivity</strong>: Distinguishes between different calling contexts</p></li>
+<li><p><strong>Field Sensitivity</strong>: Tracks individual object fields separately</p></li>
+<li><p><strong>Flow Sensitivity</strong>: Respects the order of statements</p></li>
+</ul>
+</section>
+<section id="context-sensitive-analysis">
+<h3>Context-Sensitive Analysis<a class="headerlink" href="#context-sensitive-analysis" title="Link to this heading"></a></h3>
+<p>PyFlow uses context-sensitive analysis to distinguish between different
+invocations of the same function. For example:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">double</span><span class="p">(</span><span class="n">x</span><span class="p">):</span>
+    <span class="k">return</span> <span class="n">x</span> <span class="o">*</span> <span class="mi">2</span>
+
+<span class="n">a</span> <span class="o">=</span> <span class="n">double</span><span class="p">(</span><span class="mi">5</span><span class="p">)</span>    <span class="c1"># Context 1: x = 5</span>
+<span class="n">b</span> <span class="o">=</span> <span class="n">double</span><span class="p">(</span><span class="mi">10</span><span class="p">)</span>   <span class="c1"># Context 2: x = 10</span>
+</pre></div>
+</div>
+<p>In context-sensitive analysis, these are analyzed separately, providing more
+precise results than merging them together.</p>
+</section>
+</section>
+<section id="constraint-based-analysis-cpa">
+<h2>Constraint-Based Analysis (CPA)<a class="headerlink" href="#constraint-based-analysis-cpa" title="Link to this heading"></a></h2>
+<p>CPA uses constraint solving to perform precise analysis of Python objects,
+types, and their relationships.</p>
+<section id="running-cpa">
+<h3>Running CPA<a class="headerlink" href="#running-cpa" title="Link to this heading"></a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>optimize<span class="w"> </span>example.py<span class="w"> </span>--analysis<span class="w"> </span>cpa
+</pre></div>
+</div>
+<p>CPA produces results such as:</p>
+<ul class="simple">
+<li><p><strong>Points-to sets</strong>: Which objects a variable may point to</p></li>
+<li><p><strong>Type information</strong>: Known types of variables and expressions</p></li>
+<li><p><strong>Object relationships</strong>: How objects are related through fields and aliases</p></li>
+</ul>
+<p>Example CPA output:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>CPA Results for example.py:
+───────────────────────────────────────
+
+fibonacci(10):
+  n: {10} (constant)
+  return: PointsTo{Integer}
+
+fibonacci(n - 1):
+  n: PointsTo{Integer}
+  return: PointsTo{Integer}
+</pre></div>
+</div>
+</section>
+</section>
+<section id="shape-analysis">
+<h2>Shape Analysis<a class="headerlink" href="#shape-analysis" title="Link to this heading"></a></h2>
+<p>Shape analysis determines the shape (structure) of data objects such as lists,
+dictionaries, and custom objects.</p>
+<section id="running-shape-analysis">
+<h3>Running Shape Analysis<a class="headerlink" href="#running-shape-analysis" title="Link to this heading"></a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>optimize<span class="w"> </span>example.py<span class="w"> </span>--analysis<span class="w"> </span>shape
+</pre></div>
+</div>
+<p>Shape analysis identifies:</p>
+<ul class="simple">
+<li><p><strong>List shapes</strong>: Empty, non-empty, length, element types</p></li>
+<li><p><strong>Dictionary shapes</strong>: Key-value patterns, empty vs non-empty</p></li>
+<li><p><strong>Object shapes</strong>: Class types, field structures</p></li>
+</ul>
+</section>
+</section>
+<section id="call-graph-analysis">
+<h2>Call Graph Analysis<a class="headerlink" href="#call-graph-analysis" title="Link to this heading"></a></h2>
+<p>Call graph analysis builds a graph showing which functions call which other
+functions.</p>
+<section id="building-call-graphs">
+<h3>Building Call Graphs<a class="headerlink" href="#building-call-graphs" title="Link to this heading"></a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>callgraph<span class="w"> </span>example.py
+</pre></div>
+</div>
+<p>Output:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Call Graph for example.py:
+───────────────────────────────────────
+
+Nodes:
+  fibonacci: fibonacci(n)
+  factorial: factorial(n)
+  main: main()
+
+Edges:
+  main → fibonacci (line 21)
+  main → factorial (line 22)
+  main → print (line 20)
+  fibonacci → fibonacci (line 16, recursive)
+  factorial → factorial (line 10, recursive)
+</pre></div>
+</div>
+</section>
+<section id="call-graph-formats">
+<h3>Call Graph Formats<a class="headerlink" href="#call-graph-formats" title="Link to this heading"></a></h3>
+<p>You can output call graphs in different formats:</p>
+<ul class="simple">
+<li><p><strong>text</strong> (default): Human-readable text format</p></li>
+<li><p><strong>dot</strong>: Graphviz DOT format for visualization</p></li>
+<li><p><strong>json</strong>: JSON format for programmatic processing</p></li>
+</ul>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>callgraph<span class="w"> </span>example.py<span class="w"> </span>--format<span class="w"> </span>dot<span class="w"> </span>--output<span class="w"> </span>callgraph.dot
+</pre></div>
+</div>
+</section>
+</section>
+<section id="analyzing-multiple-files">
+<h2>Analyzing Multiple Files<a class="headerlink" href="#analyzing-multiple-files" title="Link to this heading"></a></h2>
+<p>PyFlow can analyze entire projects:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Analyze a directory recursively</span>
+pyflow<span class="w"> </span>callgraph<span class="w"> </span>src/<span class="w"> </span>--recursive
+
+<span class="c1"># Include specific patterns</span>
+pyflow<span class="w"> </span>callgraph<span class="w"> </span>src/<span class="w"> </span>--include<span class="w"> </span><span class="s2">&quot;*.py&quot;</span><span class="w"> </span>--exclude<span class="w"> </span><span class="s2">&quot;test_*&quot;</span>
+</pre></div>
+</div>
+</section>
+<section id="advanced-analysis-options">
+<h2>Advanced Analysis Options<a class="headerlink" href="#advanced-analysis-options" title="Link to this heading"></a></h2>
+<p>Combine multiple analyses:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>optimize<span class="w"> </span>example.py<span class="w"> </span>--analysis<span class="w"> </span>all
+</pre></div>
+</div>
+<p>Or run specific combinations:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>optimize<span class="w"> </span>example.py<span class="w"> </span>--analysis<span class="w"> </span>cpa,ipa,shape
+</pre></div>
+</div>
+<p>Dump intermediate representations:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>ir<span class="w"> </span>example.py<span class="w"> </span>--dump-ast<span class="w"> </span>fibonacci<span class="w"> </span>--dump-format<span class="w"> </span>json<span class="w"> </span>--output<span class="w"> </span>ast.json
+</pre></div>
+</div>
+</section>
+<section id="next-steps">
+<h2>Next Steps<a class="headerlink" href="#next-steps" title="Link to this heading"></a></h2>
+<p>Now that you understand the basic analysis capabilities, you can:</p>
+<ul class="simple">
+<li><p>Learn about <span class="xref std std-ref">optimizing-python-programs</span></p></li>
+<li><p>Explore <span class="xref std std-ref">understanding-analysis-results</span></p></li>
+<li><p>Dive into <a class="reference internal" href="../explanation/architecture.html"><span class="doc">Architecture</span></a> for detailed architecture information</p></li>
+</ul>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="getting-started.html" class="btn btn-neutral float-left" title="Getting Started" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="optimizing-python-programs.html" class="btn btn-neutral float-right" title="Optimizing Python Programs" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, rainoftime.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

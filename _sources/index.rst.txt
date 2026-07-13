@@ -1,11 +1,58 @@
 Welcome to PyFlow's Documentation!
 ==================================
 
-=============
-Introduction
-=============
+PyFlow is a static analysis and optimization framework for Python. It provides
+analysis infrastructure, experimental compiler-style transformations, and
+security checking for Python programs without executing them.
 
-PyFlow is a comprehensive static analysis and compilation framework for Python code. It provides advanced analysis capabilities for understanding, optimizing, and securing Python programs without execution.
+.. note::
+
+   PyFlow is currently in **alpha** stage. The architecture is already
+   substantial and the test suite is broad, but parts of the public interface
+   and documentation are still evolving.
+
+If you are new to PyFlow, start with the :ref:`tutorials`.
+
+.. toctree::
+    :maxdepth: 2
+    :caption: Getting Started
+
+    tutorials/index
+    overview
+
+.. toctree::
+    :maxdepth: 2
+    :caption: How-to Guides
+
+    how-to/index
+
+.. toctree::
+    :maxdepth: 2
+    :caption: Explanations
+
+    explanation/index
+
+.. toctree::
+    :maxdepth: 2
+    :caption: A3 Python
+
+    a3_python/index
+
+.. toctree::
+    :maxdepth: 2
+    :caption: Reference
+
+    cli
+    api
+    analysis/index
+    optimization/index
+    lang/index
+    checker/sec
+
+================================================================================
+
+What is PyFlow?
+===============
 
 PyFlow is designed to be a powerful tool for:
 
@@ -14,77 +61,91 @@ PyFlow is designed to be a powerful tool for:
 - **Security Analysis**: Automated vulnerability detection and security checking
 - **Research**: Advancing static analysis techniques for dynamic languages
 
-.. toctree::
-   :maxdepth: 2
-   :caption: Contents:
+It is particularly well suited to:
 
-   overview
-   cli
-   analysis/index
-   optimization/index
-   checker/sec
+- experimenting with static-analysis ideas for Python,
+- inspecting intermediate representations such as AST/CFG/SSA,
+- evaluating optimization passes over a shared program model, and
+- building query or checker features on top of existing analyses.
 
-==========================
-Installing and Using PyFlow
-==========================
+Installation
+============
 
-Install PyFlow from source
----------------------------
+Install PyFlow from source:
 
-::
+.. code-block:: bash
 
-  git clone https://github.com/ZJU-PL/pyflow.git
-  cd pyflow
-  python -m venv venv
-  source venv/bin/activate  # On Windows: venv\Scripts\activate
-  pip install -e .
+   git clone https://github.com/ZJU-PL/pyflow.git
+   cd pyflow
+   python -m venv venv
+   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   pip install -e .
 
-The setup script will:
-- Create a Python virtual environment if it doesn't exist
-- Activate the virtual environment and install dependencies
-- Install PyFlow in development mode
+Quick Start
+===========
 
-Basic Usage
------------
+After installation, use PyFlow's command-line interface:
 
-After installation, you can use PyFlow's command-line interface:
+.. code-block:: bash
 
-::
+   # Analyze call graph
+   pyflow callgraph input.py
 
-  # Analyze call graph
-  pyflow callgraph input.py
+   # Run security checks
+   pyflow security input.py
 
-  # Run security checks
-  pyflow check input.py
+   # Apply optimizations
+   pyflow optimize input.py
 
-  # Apply optimizations
-  pyflow optimize input.py
+   # Visualize intermediate representations
+   pyflow ir input.py --dump-cfg function_name
 
-  # Visualize intermediate representations
-  pyflow ir input.py --dump-cfg
+   # Run heap alias/escape analysis
+   pyflow heap input.py
 
-See :doc:`cli` for detailed command documentation.
+   # Explore available optimization passes
+   pyflow optimize --list-opt-passes
 
-===============
-Core Components
-===============
+Documentation Structure
+=======================
 
-Analysis Modules
-----------------
+This documentation is organized following the Diátaxis framework:
 
-PyFlow provides a rich set of analysis modules organized by purpose:
+.. list-table::
+   :widths: 25 75
+   :header-rows: 1
 
-* **Control Flow Analysis**: CFG construction, dominance analysis, loop detection
-* **Data Flow Analysis**: Forward/backward analysis, constant propagation, live variables
+   * - Section
+     - Description
+   * - :ref:`Tutorials <tutorials>`
+     - Step-by-step guides for learning PyFlow
+   * - :ref:`How-to Guides <how-to>`
+     - Practical guides for accomplishing specific tasks
+   * - :ref:`Explanations <explanation>`
+     - In-depth discussions of concepts and architecture
+   * - :ref:`Reference <reference>`
+     - Complete API documentation and command reference
+
+Core Capabilities
+=================
+
+Static Analysis
+---------------
+
+PyFlow provides comprehensive static analysis:
+
+* **Control Flow Analysis**: CFG, CDG, PDG, DDG construction, dominance analysis, loop detection
+* **Data Flow Analysis**: Forward/backward analysis, data flow IR, IFDS/IDE interprocedural engine
 * **Inter-procedural Analysis**: Context-sensitive analysis across function boundaries
+* **Pointer Analysis**: k-CFA constraint-based points-to analysis for Python objects
 * **Constraint-based Analysis**: Constraint solving for precise object relationship modeling
 * **Shape Analysis**: Data structure shape and property analysis
+* **Heap Analysis**: Alias/escape analysis with canonical locations and points-to graphs
 * **Call Graph Analysis**: Function call relationship analysis with multiple algorithms
+* **Type Information**: Lightweight type-information collection and inference
 
-See :doc:`analysis/index` for detailed analysis module documentation.
-
-Optimization Framework
-----------------------
+Code Optimization
+-----------------
 
 PyFlow includes comprehensive optimization passes:
 
@@ -93,8 +154,7 @@ PyFlow includes comprehensive optimization passes:
 * **Function Inlining**: Performance optimization through inlining
 * **Data Flow Optimizations**: Load/store elimination and redundancy removal
 * **Control Flow Simplification**: Basic block merging and jump optimization
-
-See :doc:`optimization/index` for complete optimization documentation.
+* **Method Call Optimization**: Optimization of method dispatch
 
 Security Analysis
 -----------------
@@ -104,9 +164,15 @@ PyFlow's security checker identifies vulnerabilities:
 * **Injection Attacks**: SQL injection, command injection detection
 * **Authentication Issues**: Hardcoded credentials, weak cryptography
 * **Code Safety**: Dangerous function usage, unsafe imports
-* **LLM Integration**: AI-assisted vulnerability detection
+* **Input Validation**: Missing or improper input validation
+* **Dependency Security**: Known vulnerable dependencies
 
-See :doc:`checker/sec` for security analysis documentation.
+Getting Help
+============
+
+* **Documentation**: See this documentation or :doc:`cli` for command reference
+* **Issues**: Report bugs at https://github.com/ZJU-PL/pyflow/issues
+* **Discussions**: Ask questions at https://github.com/ZJU-PL/pyflow/discussions
 
 Indices and Tables
 ==================

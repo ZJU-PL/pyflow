@@ -1,0 +1,362 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Statistics Collection and Reporting &mdash; pyflow 0.1.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=01f34227"></script>
+      <script src="../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Incremental Analysis Cache" href="incremental.html" />
+    <link rel="prev" title="Analysis Result Dumping" href="dump.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            pyflow
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Getting Started</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../tutorials/index.html">Tutorials</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#what-is-pyflow">What is PyFlow?</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#key-features">Key Features</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#architecture">Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#repository-status-in-practice">Repository status in practice</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">How-to Guides</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../how-to/index.html">How-to Guides</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Explanations</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../explanation/index.html">Explanations</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">A3 Python</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../a3_python/index.html"><code class="docutils literal notranslate"><span class="pre">a3_python</span></code></a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Reference</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../cli.html">Main Commands</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html#global-options">Global Options</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html#integration">Integration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../api.html">PyFlow API</a></li>
+<li class="toctree-l1"><a class="reference internal" href="index.html">Analysis Modules</a></li>
+<li class="toctree-l1"><a class="reference internal" href="index.html#overview">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="index.html#analysis-configuration">Analysis Configuration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="index.html#running-analyses">Running Analyses</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="index.html#analysis-results">Analysis Results</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="index.html#text-output">Text Output</a></li>
+<li class="toctree-l2"><a class="reference internal" href="index.html#json-output">JSON Output</a></li>
+<li class="toctree-l2 current"><a class="reference internal" href="index.html#sarif-output">SARIF Output</a><ul class="current">
+<li class="toctree-l3"><a class="reference internal" href="cfg.html">Control Flow Graph (CFG) Analysis</a></li>
+<li class="toctree-l3"><a class="reference internal" href="cdg.html">Control Dependence Graph (CDG)</a></li>
+<li class="toctree-l3"><a class="reference internal" href="pdg.html">Program Dependence Graph (PDG)</a></li>
+<li class="toctree-l3"><a class="reference internal" href="ddg.html">Data Dependence Graph (DDG)</a></li>
+<li class="toctree-l3"><a class="reference internal" href="cpg.html">Code Property Graph (CPG)</a></li>
+<li class="toctree-l3"><a class="reference internal" href="callgraph.html">Call Graph Analysis</a></li>
+<li class="toctree-l3"><a class="reference internal" href="dataflowIR.html">Data Flow Intermediate Representation</a></li>
+<li class="toctree-l3"><a class="reference internal" href="fsdf.html">Flow-Sensitive Data Flow (FSDF)</a></li>
+<li class="toctree-l3"><a class="reference internal" href="ipa.html">Inter-procedural Analysis (IPA)</a></li>
+<li class="toctree-l3"><a class="reference internal" href="cpa.html">Constraint-based Analysis (CPA)</a></li>
+<li class="toctree-l3"><a class="reference internal" href="pointer.html">k-CFA Pointer Analysis</a></li>
+<li class="toctree-l3"><a class="reference internal" href="heap.html">Heap Abstraction</a></li>
+<li class="toctree-l3"><a class="reference internal" href="storegraph.html">Store Graph Analysis</a></li>
+<li class="toctree-l3"><a class="reference internal" href="shape.html">Shape Analysis</a></li>
+<li class="toctree-l3"><a class="reference internal" href="lifetimeanalysis.html">Variable Lifetime Analysis</a></li>
+<li class="toctree-l3"><a class="reference internal" href="ifds.html">IFDS/IDE Data Flow Engine</a></li>
+<li class="toctree-l3"><a class="reference internal" href="typeinfo.html">Type Information System</a></li>
+<li class="toctree-l3"><a class="reference internal" href="numbering.html">Program Point Numbering</a></li>
+<li class="toctree-l3"><a class="reference internal" href="dump.html">Analysis Result Dumping</a></li>
+<li class="toctree-l3 current"><a class="current reference internal" href="#">Statistics Collection and Reporting</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#overview">Overview</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#key-capabilities">Key Capabilities</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#api-reference">API Reference</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#output-files">Output Files</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#usage">Usage</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#see-also">See Also</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="incremental.html">Incremental Analysis Cache</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html">Optimizing Python Programs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#overview">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#optimization-categories">Optimization Categories</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#optimization-pipeline">Optimization Pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#usage">Usage</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../lang/index.html">Language Module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html">Security Analysis and Checking</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#checker-categories">Checker Categories</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#analysis-framework">Analysis Framework</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#usage">Usage</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">pyflow</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="index.html">Analysis Modules</a></li>
+      <li class="breadcrumb-item active">Statistics Collection and Reporting</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/analysis/stats.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="statistics-collection-and-reporting">
+<h1>Statistics Collection and Reporting<a class="headerlink" href="#statistics-collection-and-reporting" title="Link to this heading"></a></h1>
+<p>The <code class="docutils literal notranslate"><span class="pre">pyflow.stats</span></code> module collects metrics during analysis and generates
+LaTeX reports.  It is designed for research-oriented workflows where
+quantitative comparison of analysis configurations is needed.</p>
+<nav class="contents local" id="contents">
+<ul class="simple">
+<li><p><a class="reference internal" href="#overview" id="id1">Overview</a></p></li>
+<li><p><a class="reference internal" href="#key-capabilities" id="id2">Key Capabilities</a></p></li>
+<li><p><a class="reference internal" href="#api-reference" id="id3">API Reference</a></p></li>
+<li><p><a class="reference internal" href="#output-files" id="id4">Output Files</a></p></li>
+<li><p><a class="reference internal" href="#usage" id="id5">Usage</a></p></li>
+<li><p><a class="reference internal" href="#see-also" id="id6">See Also</a></p></li>
+</ul>
+</nav>
+<section id="overview">
+<h2><a class="toc-backref" href="#id1" role="doc-backlink">Overview</a><a class="headerlink" href="#overview" title="Link to this heading"></a></h2>
+<p>The stats subsystem tracks per-function and per-operation statistics across
+all analyzed code, categorizing functions by their origin (user, interpreter,
+runtime, or primitive).  It produces LaTeX tables and figures suitable for
+inclusion in research papers.</p>
+<p>The module is activated by the <code class="docutils literal notranslate"><span class="pre">dumpStats</span></code> configuration flag and runs after
+the optimization pipeline via <code class="docutils literal notranslate"><span class="pre">contextStats()</span></code>.</p>
+</section>
+<section id="key-capabilities">
+<h2><a class="toc-backref" href="#id2" role="doc-backlink">Key Capabilities</a><a class="headerlink" href="#key-capabilities" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p><strong>Code classification</strong>: Categorizes functions by annotation type (user
+code, interpreter code, runtime code, primitive stubs)</p></li>
+<li><p><strong>Context counting</strong>: Tracks how many contexts (call sites) each function
+is analyzed under</p></li>
+<li><p><strong>Operation statistics</strong>: Counts AST operation types per code category</p></li>
+<li><p><strong>Ratio analysis</strong>: Compares code vs. context-weighted operation counts</p></li>
+<li><p><strong>Optimization comparison</strong>: Compares operation counts between two analysis
+runs to measure optimization effectiveness</p></li>
+<li><p><strong>Visualization</strong>: Generates pie charts of operation distributions</p></li>
+</ul>
+</section>
+<section id="api-reference">
+<h2><a class="toc-backref" href="#id3" role="doc-backlink">API Reference</a><a class="headerlink" href="#api-reference" title="Link to this heading"></a></h2>
+<dl class="py class">
+<dt class="sig sig-object py" id="StatCollector">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">StatCollector</span></span><a class="headerlink" href="#StatCollector" title="Link to this definition"></a></dt>
+<dd><p>Collects and aggregates statistics during analysis.  Tracks code counts,
+context counts, operation frequencies, and variable access patterns.</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="StatCollector.code">
+<span class="sig-name descname"><span class="pre">code</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">cls</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">code</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#StatCollector.code" title="Link to this definition"></a></dt>
+<dd><p>Record a function code object for classification counting.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="StatCollector.op">
+<span class="sig-name descname"><span class="pre">op</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">cls</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">code</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">op</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#StatCollector.op" title="Link to this definition"></a></dt>
+<dd><p>Record an individual AST operation for frequency counting.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="StatCollector.copies">
+<span class="sig-name descname"><span class="pre">copies</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">cls</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">code</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">count</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span></em><span class="sig-paren">)</span><a class="headerlink" href="#StatCollector.copies" title="Link to this definition"></a></dt>
+<dd><p>Record synthetic copy-local operations introduced by optimization.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="StatCollector.digest">
+<span class="sig-name descname"><span class="pre">digest</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#StatCollector.digest" title="Link to this definition"></a></dt>
+<dd><p>Finalize and process collected statistics.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="StatCollector.contextOps">
+<span class="sig-name descname"><span class="pre">contextOps</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.14)"><span class="pre">dict</span></a></span></span><a class="headerlink" href="#StatCollector.contextOps" title="Link to this definition"></a></dt>
+<dd><p>Return context-weighted operation counts indexed by operation type name.</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="contextStats">
+<span class="sig-name descname"><span class="pre">contextStats</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">compiler</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">prgm</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">name</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">classOK</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="#StatCollector" title="StatCollector"><span class="pre">StatCollector</span></a></span></span><a class="headerlink" href="#contextStats" title="Link to this definition"></a></dt>
+<dd><p>Run the full statistics pipeline for a program.  Requires
+<code class="docutils literal notranslate"><span class="pre">config.dumpStats</span></code> to be <code class="docutils literal notranslate"><span class="pre">True</span></code>.  Generates LaTeX tables and an index
+file in <code class="docutils literal notranslate"><span class="pre">outputDirectory/stats/{name}/</span></code>.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>compiler</strong> – The compiler context.</p></li>
+<li><p><strong>prgm</strong> – The analyzed program.</p></li>
+<li><p><strong>name</strong> – A label used for output file naming.</p></li>
+<li><p><strong>classOK</strong> – If <code class="docutils literal notranslate"><span class="pre">True</span></code>, include per-class breakdown rows in ratio
+tables.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>The populated <code class="docutils literal notranslate"><span class="pre">StatCollector</span></code> instance.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="classifyCode">
+<span class="sig-name descname"><span class="pre">classifyCode</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">code</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#classifyCode" title="Link to this definition"></a></dt>
+<dd><p>Categorize a code object by its annotation type.  Returns one of:
+<code class="docutils literal notranslate"><span class="pre">&quot;user&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;interp&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;runtime&quot;</span></code>, or <code class="docutils literal notranslate"><span class="pre">&quot;primitive&quot;</span></code>.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>code</strong> – A <code class="docutils literal notranslate"><span class="pre">Code</span></code> AST node with annotations.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>The classification string.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="opRatios">
+<span class="sig-name descname"><span class="pre">opRatios</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">collect</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#StatCollector" title="StatCollector"><span class="pre">StatCollector</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">classOK</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><span class="pre">bool</span></a></span></em><span class="sig-paren">)</span><a class="headerlink" href="#opRatios" title="Link to this definition"></a></dt>
+<dd><p>Generate <code class="docutils literal notranslate"><span class="pre">op-ratios.tex</span></code> — a LaTeX table comparing raw operation
+counts against context-weighted counts.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="functionRatios">
+<span class="sig-name descname"><span class="pre">functionRatios</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">collect</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#StatCollector" title="StatCollector"><span class="pre">StatCollector</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">classOK</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><span class="pre">bool</span></a></span></em><span class="sig-paren">)</span><a class="headerlink" href="#functionRatios" title="Link to this definition"></a></dt>
+<dd><p>Generate <code class="docutils literal notranslate"><span class="pre">context-ratios.tex</span></code> — a LaTeX table comparing function
+counts against context-weighted function counts.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="opsRemoved">
+<span class="sig-name descname"><span class="pre">opsRemoved</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">current</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#StatCollector" title="StatCollector"><span class="pre">StatCollector</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">old</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#StatCollector" title="StatCollector"><span class="pre">StatCollector</span></a></span></em><span class="sig-paren">)</span><a class="headerlink" href="#opsRemoved" title="Link to this definition"></a></dt>
+<dd><p>Generate <code class="docutils literal notranslate"><span class="pre">ops-removed.tex</span></code> — a LaTeX table comparing operation counts
+between two analysis runs (e.g., before and after optimization).</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="opPieChart">
+<span class="sig-name descname"><span class="pre">opPieChart</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">collect</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#StatCollector" title="StatCollector"><span class="pre">StatCollector</span></a></span></em><span class="sig-paren">)</span><a class="headerlink" href="#opPieChart" title="Link to this definition"></a></dt>
+<dd><p>Generate a Ploticus pie chart script (<code class="docutils literal notranslate"><span class="pre">op-piechart.pl</span></code>) for operation
+distribution visualization.  Requires the <code class="docutils literal notranslate"><span class="pre">pl</span></code> executable for rendering.</p>
+</dd></dl>
+
+</section>
+<section id="output-files">
+<h2><a class="toc-backref" href="#id4" role="doc-backlink">Output Files</a><a class="headerlink" href="#output-files" title="Link to this heading"></a></h2>
+<p>All output is written to <code class="docutils literal notranslate"><span class="pre">config.outputDirectory/stats/{name}/</span></code>:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">index.tex</span></code> — Master file including all sub-tables</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">op-ratios.tex</span></code> — Operation type breakdown by code class</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">context-ratios.tex</span></code> — Context-weighted function counts by code class</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">ops-removed.tex</span></code> — Before/after optimization comparison</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">op-piechart.pl</span></code> — Ploticus script for pie chart generation</p></li>
+</ul>
+</section>
+<section id="usage">
+<h2><a class="toc-backref" href="#id5" role="doc-backlink">Usage</a><a class="headerlink" href="#usage" title="Link to this heading"></a></h2>
+<p>Enable statistics collection in your analysis configuration and call
+<code class="docutils literal notranslate"><span class="pre">contextStats()</span></code> after the pass pipeline has completed:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow</span><span class="w"> </span><span class="kn">import</span> <span class="n">config</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.stats</span><span class="w"> </span><span class="kn">import</span> <span class="n">contextStats</span>
+
+<span class="n">config</span><span class="o">.</span><span class="n">dumpStats</span> <span class="o">=</span> <span class="kc">True</span>
+
+<span class="c1"># ... run analysis and optimization pipeline ...</span>
+
+<span class="n">stats</span> <span class="o">=</span> <span class="n">contextStats</span><span class="p">(</span><span class="n">compiler</span><span class="p">,</span> <span class="n">program</span><span class="p">,</span> <span class="s2">&quot;my_experiment&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>The generated LaTeX files can be compiled with any LaTeX distribution that
+includes <code class="docutils literal notranslate"><span class="pre">\includegraphics</span></code> and <code class="docutils literal notranslate"><span class="pre">\subfloat</span></code> support (e.g., standard
+<code class="docutils literal notranslate"><span class="pre">pdflatex</span></code> with the <code class="docutils literal notranslate"><span class="pre">subfig</span></code> package).</p>
+</section>
+<section id="see-also">
+<h2><a class="toc-backref" href="#id6" role="doc-backlink">See Also</a><a class="headerlink" href="#see-also" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p><a class="reference internal" href="cfg.html"><span class="doc">Control Flow Graph (CFG) Analysis</span></a> — CFG construction (statistics draw on CFG-level metrics)</p></li>
+<li><p><a class="reference internal" href="../optimization/index.html"><span class="doc">Optimizing Python Programs</span></a> — Optimization passes whose effects are measured</p></li>
+</ul>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="dump.html" class="btn btn-neutral float-left" title="Analysis Result Dumping" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="incremental.html" class="btn btn-neutral float-right" title="Incremental Analysis Cache" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, rainoftime.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

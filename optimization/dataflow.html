@@ -1,0 +1,231 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Data Flow Optimizations &mdash; pyflow 0.1.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=01f34227"></script>
+      <script src="../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Control Flow Optimizations" href="control-flow.html" />
+    <link rel="prev" title="Constant Folding and Propagation" href="constant-folding.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            pyflow
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Getting Started</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../tutorials/index.html">Tutorials</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#what-is-pyflow">What is PyFlow?</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#key-features">Key Features</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#architecture">Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#repository-status-in-practice">Repository status in practice</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">How-to Guides</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../how-to/index.html">How-to Guides</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Explanations</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../explanation/index.html">Explanations</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">A3 Python</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../a3_python/index.html"><code class="docutils literal notranslate"><span class="pre">a3_python</span></code></a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Reference</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../cli.html">Main Commands</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html#global-options">Global Options</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html#integration">Integration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../api.html">PyFlow API</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html">Analysis Modules</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#overview">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#analysis-configuration">Analysis Configuration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#running-analyses">Running Analyses</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#analysis-results">Analysis Results</a></li>
+<li class="toctree-l1"><a class="reference internal" href="index.html">Optimizing Python Programs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="index.html#overview">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="index.html#optimization-categories">Optimization Categories</a></li>
+<li class="toctree-l1"><a class="reference internal" href="index.html#optimization-pipeline">Optimization Pipeline</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="index.html#usage">Usage</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="index.html#cli-usage">CLI Usage</a></li>
+<li class="toctree-l2"><a class="reference internal" href="index.html#programmatic-usage">Programmatic Usage</a></li>
+<li class="toctree-l2 current"><a class="reference internal" href="index.html#pass-manager">Pass Manager</a><ul class="current">
+<li class="toctree-l3"><a class="reference internal" href="constant-folding.html">Constant Folding and Propagation</a></li>
+<li class="toctree-l3 current"><a class="current reference internal" href="#">Data Flow Optimizations</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#overview">Overview</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#load-elimination-loadelimination-py">Load Elimination (loadelimination.py)</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#dead-store-elimination-storeelimination-py">Dead Store Elimination (storeelimination.py)</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#limitations">Limitations</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#performance-impact">Performance Impact</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#integration">Integration</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="control-flow.html">Control Flow Optimizations</a></li>
+<li class="toctree-l3"><a class="reference internal" href="function-optimizations.html">Function and Method Optimizations</a></li>
+<li class="toctree-l3"><a class="reference internal" href="advanced.html">Advanced Optimizations</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../lang/index.html">Language Module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html">Security Analysis and Checking</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#checker-categories">Checker Categories</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#analysis-framework">Analysis Framework</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#usage">Usage</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">pyflow</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="index.html">Optimizing Python Programs</a></li>
+      <li class="breadcrumb-item active">Data Flow Optimizations</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/optimization/dataflow.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="data-flow-optimizations">
+<h1>Data Flow Optimizations<a class="headerlink" href="#data-flow-optimizations" title="Link to this heading"></a></h1>
+<p>Data flow optimizations analyze value flow and eliminate redundant memory operations, crucial for performance in loops and hot paths.</p>
+<section id="overview">
+<h2>Overview<a class="headerlink" href="#overview" title="Link to this heading"></a></h2>
+<p>Framework components:</p>
+<ul class="simple">
+<li><p><strong>base.py</strong>: Lattice structures (<code class="docutils literal notranslate"><span class="pre">top</span></code>, <code class="docutils literal notranslate"><span class="pre">bottom</span></code>, <code class="docutils literal notranslate"><span class="pre">undefined</span></code>), meet functions, transfer function base classes</p></li>
+<li><p><strong>forward.py</strong>: Reaching definitions, constant propagation, available expressions (iterative fixed-point, SSA support)</p></li>
+<li><p><strong>reverse.py</strong>: Live variables, reaching uses, dead code detection</p></li>
+</ul>
+</section>
+<section id="load-elimination-loadelimination-py">
+<h2>Load Elimination (loadelimination.py)<a class="headerlink" href="#load-elimination-loadelimination-py" title="Link to this heading"></a></h2>
+<p>Removes redundant memory reads when values are already available.</p>
+<section id="how-it-works">
+<h3>How It Works<a class="headerlink" href="#how-it-works" title="Link to this heading"></a></h3>
+<ol class="arabic simple">
+<li><p>Converts to SSA form for precise tracking</p></li>
+<li><p>Uses dominance analysis for safe elimination</p></li>
+<li><p>Creates signatures based on memory location, SSA version, and fields</p></li>
+<li><p>Forwards values from stores to subsequent loads</p></li>
+<li><p>Eliminates common subexpressions</p></li>
+</ol>
+</section>
+<section id="example">
+<h3>Example<a class="headerlink" href="#example" title="Link to this heading"></a></h3>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Before: x = obj.field; y = obj.field  # Redundant</span>
+<span class="c1"># After:  x = obj.field; y = x  # Forwarded</span>
+
+<span class="c1"># Store-load forwarding: obj.field = v; result = obj.field → result = v</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="dead-store-elimination-storeelimination-py">
+<h2>Dead Store Elimination (storeelimination.py)<a class="headerlink" href="#dead-store-elimination-storeelimination-py" title="Link to this heading"></a></h2>
+<p>Removes memory writes that are never read before being overwritten or object destruction.</p>
+<section id="id1">
+<h3>How It Works<a class="headerlink" href="#id1" title="Link to this heading"></a></h3>
+<ol class="arabic simple">
+<li><p>Live variable analysis identifies live memory locations</p></li>
+<li><p>Collects all store operations</p></li>
+<li><p>Marks stores as dead if location never read and object doesn’t leak</p></li>
+<li><p>Removes dead stores via code rewriting</p></li>
+</ol>
+<p>Performs whole-program analysis tracking reads across functions, considering object lifetime. Reports statistics: “Total stores analyzed: 1000, eliminated: 250 (25.0%)”</p>
+</section>
+</section>
+<section id="limitations">
+<h2>Limitations<a class="headerlink" href="#limitations" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p><strong>Load Elimination</strong>: Conservative with uncertain aliasing, requires SSA form, limited without path sensitivity</p></li>
+<li><p><strong>Store Elimination</strong>: Cannot eliminate stores with side effects, conservative about liveness, limited by inter-procedural precision</p></li>
+</ul>
+</section>
+<section id="performance-impact">
+<h2>Performance Impact<a class="headerlink" href="#performance-impact" title="Link to this heading"></a></h2>
+<p>Reduces memory operations by 20-40% in typical programs. Load elimination reduces memory traffic (especially in loops), store elimination reduces writes and cache pollution. Operates in polynomial time.</p>
+</section>
+<section id="integration">
+<h2>Integration<a class="headerlink" href="#integration" title="Link to this heading"></a></h2>
+<p>Works best with constant folding (creates more constants), dead code elimination (removes dead stores/loads), inlining (more opportunities), and cloning (improves precision).</p>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="constant-folding.html" class="btn btn-neutral float-left" title="Constant Folding and Propagation" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="control-flow.html" class="btn btn-neutral float-right" title="Control Flow Optimizations" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, rainoftime.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

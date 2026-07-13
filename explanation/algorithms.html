@@ -1,0 +1,571 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Algorithms &mdash; pyflow 0.1.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=01f34227"></script>
+      <script src="../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Design Decisions" href="design-decisions.html" />
+    <link rel="prev" title="Architecture" href="architecture.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            pyflow
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Getting Started</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../tutorials/index.html">Tutorials</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#what-is-pyflow">What is PyFlow?</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#key-features">Key Features</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#architecture">Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#repository-status-in-practice">Repository status in practice</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">How-to Guides</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../how-to/index.html">How-to Guides</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Explanations</span></p>
+<ul class="current">
+<li class="toctree-l1 current"><a class="reference internal" href="index.html">Explanations</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="architecture.html">Architecture</a></li>
+<li class="toctree-l2 current"><a class="current reference internal" href="#">Algorithms</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#control-flow-analysis">Control Flow Analysis</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#cfg-construction-algorithm">CFG Construction Algorithm</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#data-flow-analysis">Data Flow Analysis</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#framework">Framework</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#reaching-definitions">Reaching Definitions</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#live-variables">Live Variables</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#constraint-based-analysis-cpa">Constraint-Based Analysis (CPA)</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#constraint-generation">Constraint Generation</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#id1">Worklist Algorithm</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#fixed-point">Fixed Point</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#context-sensitivity">Context Sensitivity</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#shape-analysis">Shape Analysis</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#shape-graphs">Shape Graphs</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#region-analysis">Region Analysis</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#transfer-functions">Transfer Functions</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#optimization-algorithms">Optimization Algorithms</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#constant-folding">Constant Folding</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#dead-code-elimination">Dead Code Elimination</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#function-inlining">Function Inlining</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#complexity-analysis">Complexity Analysis</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#time-complexity">Time Complexity</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#space-complexity">Space Complexity</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="design-decisions.html">Design Decisions</a></li>
+<li class="toctree-l2"><a class="reference internal" href="analysis-comparison.html">Analysis Comparison</a></li>
+<li class="toctree-l2"><a class="reference internal" href="best-practices.html">Best Practices</a></li>
+<li class="toctree-l2"><a class="reference internal" href="architecture.html">Architecture</a></li>
+<li class="toctree-l2 current"><a class="current reference internal" href="#">Algorithms</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#control-flow-analysis">Control Flow Analysis</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#cfg-construction-algorithm">CFG Construction Algorithm</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#data-flow-analysis">Data Flow Analysis</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#framework">Framework</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#reaching-definitions">Reaching Definitions</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#live-variables">Live Variables</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#constraint-based-analysis-cpa">Constraint-Based Analysis (CPA)</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#constraint-generation">Constraint Generation</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#id1">Worklist Algorithm</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#fixed-point">Fixed Point</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#context-sensitivity">Context Sensitivity</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#shape-analysis">Shape Analysis</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#shape-graphs">Shape Graphs</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#region-analysis">Region Analysis</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#transfer-functions">Transfer Functions</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#optimization-algorithms">Optimization Algorithms</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#constant-folding">Constant Folding</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#dead-code-elimination">Dead Code Elimination</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#function-inlining">Function Inlining</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#complexity-analysis">Complexity Analysis</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#time-complexity">Time Complexity</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#space-complexity">Space Complexity</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="design-decisions.html">Design Decisions</a></li>
+<li class="toctree-l2"><a class="reference internal" href="analysis-comparison.html">Analysis Comparison</a></li>
+<li class="toctree-l2"><a class="reference internal" href="best-practices.html">Best Practices</a></li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">A3 Python</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../a3_python/index.html"><code class="docutils literal notranslate"><span class="pre">a3_python</span></code></a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html">Main Commands</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html#global-options">Global Options</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html#integration">Integration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../api.html">PyFlow API</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html">Analysis Modules</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#overview">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#analysis-configuration">Analysis Configuration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#running-analyses">Running Analyses</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#analysis-results">Analysis Results</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html">Optimizing Python Programs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#overview">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#optimization-categories">Optimization Categories</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#optimization-pipeline">Optimization Pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#usage">Usage</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../lang/index.html">Language Module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html">Security Analysis and Checking</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#checker-categories">Checker Categories</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#analysis-framework">Analysis Framework</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#usage">Usage</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">pyflow</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="index.html">Explanations</a></li>
+      <li class="breadcrumb-item active">Algorithms</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/explanation/algorithms.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="algorithms">
+<span id="explanation-algorithms"></span><h1>Algorithms<a class="headerlink" href="#algorithms" title="Link to this heading"></a></h1>
+<p>This document provides detailed explanations of the algorithms used in PyFlow’s
+static analysis and optimization passes.</p>
+<section id="control-flow-analysis">
+<h2>Control Flow Analysis<a class="headerlink" href="#control-flow-analysis" title="Link to this heading"></a></h2>
+<section id="cfg-construction-algorithm">
+<h3>CFG Construction Algorithm<a class="headerlink" href="#cfg-construction-algorithm" title="Link to this heading"></a></h3>
+<p>PyFlow constructs control flow graphs using the following algorithm:</p>
+<ol class="arabic simple">
+<li><p><strong>Parse to AST</strong>: Convert source code to Python’s AST</p></li>
+<li><p><strong>Build Basic Blocks</strong>: Group statements into basic blocks</p></li>
+<li><p><strong>Handle Control Structures</strong>: Process if/else, loops, try/except</p></li>
+<li><p><strong>Add Edges</strong>: Connect blocks based on control flow</p></li>
+<li><p><strong>Post-Process</strong>: Add dominance information and optimize</p></li>
+</ol>
+<section id="block-creation">
+<h4>Block Creation<a class="headerlink" href="#block-creation" title="Link to this heading"></a></h4>
+<p>A basic block is created for:</p>
+<ul class="simple">
+<li><p>Function/method entry</p></li>
+<li><p>After unconditional branches</p></li>
+<li><p>After conditional branches (both paths)</p></li>
+<li><p>Exception handlers</p></li>
+<li><p>Loop headers</p></li>
+<li><p>Return statements</p></li>
+</ul>
+</section>
+<section id="dominance-analysis">
+<h4>Dominance Analysis<a class="headerlink" href="#dominance-analysis" title="Link to this heading"></a></h4>
+<p>PyFlow uses the Lengauer-Tarjan algorithm for dominance computation:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Algorithm: Lengauer-Tarjan Dominance Algorithm
+Input: CFG with entry node
+Output: Dominator tree
+
+1. Perform DFS from entry, numbering nodes
+2. Calculate semi-dominators
+3. Build dominator tree using union-find
+4. Optimize with path compression
+</pre></div>
+</div>
+<p>The algorithm runs in near-linear time: O((V+E) * α(V,E))</p>
+</section>
+</section>
+</section>
+<section id="data-flow-analysis">
+<h2>Data Flow Analysis<a class="headerlink" href="#data-flow-analysis" title="Link to this heading"></a></h2>
+<section id="framework">
+<h3>Framework<a class="headerlink" href="#framework" title="Link to this heading"></a></h3>
+<p>PyFlow implements data flow analysis using the classic framework:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">class</span><span class="w"> </span><span class="nc">DataFlowAnalysis</span><span class="p">:</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">direction</span><span class="p">,</span> <span class="n">lattice</span><span class="p">,</span> <span class="n">transfer</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">direction</span> <span class="o">=</span> <span class="n">direction</span>  <span class="c1"># forward or backward</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">lattice</span> <span class="o">=</span> <span class="n">lattice</span>      <span class="c1"># abstract domain</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">transfer</span> <span class="o">=</span> <span class="n">transfer</span>    <span class="c1"># transfer functions</span>
+</pre></div>
+</div>
+<section id="worklist-algorithm">
+<h4>Worklist Algorithm<a class="headerlink" href="#worklist-algorithm" title="Link to this heading"></a></h4>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Algorithm: Worklist Data Flow Analysis
+Input: CFG, initial lattice values
+Output: Fixed point (stable lattice values)
+
+1. Initialize worklist with all nodes
+2. While worklist not empty:
+    a. Pop node from worklist
+    b. Apply transfer function
+    c. If output changed:
+        i. Update lattice
+        ii. Add successors/predecessors to worklist
+3. Return fixed point
+</pre></div>
+</div>
+</section>
+</section>
+<section id="reaching-definitions">
+<h3>Reaching Definitions<a class="headerlink" href="#reaching-definitions" title="Link to this heading"></a></h3>
+<p>Tracks which assignments can reach each program point:</p>
+<p><strong>Lattice</strong>: Powerset of definition sites (bottom = empty, top = all)</p>
+<p><strong>Meet Operation</strong>: Union of definition sets</p>
+<p><strong>Transfer Function</strong>:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>D_in(n) = U { D_out(p) for p in predecessors(n) }
+D_out(n) = (D_in(n) - kill(n)) U gen(n)
+</pre></div>
+</div>
+<p>Where:
+- kill(n): Definitions overwritten in n
+- gen(n): New definitions created in n</p>
+</section>
+<section id="live-variables">
+<h3>Live Variables<a class="headerlink" href="#live-variables" title="Link to this heading"></a></h3>
+<p>Tracks which variables are live at each point:</p>
+<p><strong>Lattice</strong>: Powerset of variables</p>
+<p><strong>Meet Operation</strong>: Union of variable sets</p>
+<p><strong>Transfer Function</strong> (backward analysis):</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>L_out(n) = U { L_in(s) for s in successors(n) }
+L_in(n) = use(n) U (L_out(n) - def(n))
+</pre></div>
+</div>
+<p>Where:
+- use(n): Variables used before definition in n
+- def(n): Variables defined in n</p>
+</section>
+</section>
+<section id="constraint-based-analysis-cpa">
+<h2>Constraint-Based Analysis (CPA)<a class="headerlink" href="#constraint-based-analysis-cpa" title="Link to this heading"></a></h2>
+<p>CPA uses constraint solving to perform precise analysis.</p>
+<section id="constraint-generation">
+<h3>Constraint Generation<a class="headerlink" href="#constraint-generation" title="Link to this heading"></a></h3>
+<p>Constraints are generated for each statement type:</p>
+<p><strong>Assignment</strong>:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>x = y
+Constraint: x ⊇ y
+</pre></div>
+</div>
+<p><strong>Field Load</strong>:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>z = x.f
+Constraint: z ⊇ field(x, &quot;f&quot;)
+</pre></div>
+</div>
+<p><strong>Field Store</strong>:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>x.f = y
+Constraint: field(x, &quot;f&quot;) ⊇ y
+</pre></div>
+</div>
+<p><strong>Allocation</strong>:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>x = C()
+Constraint: x ⊇ alloc(C)
+</pre></div>
+</div>
+</section>
+<section id="id1">
+<h3>Worklist Algorithm<a class="headerlink" href="#id1" title="Link to this heading"></a></h3>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Algorithm: CPA Worklist Solver
+Input: Set of constraints C
+Output: Satisfying assignment
+
+1. Initialize all variables to ⊤ (may-be)
+2. worklist = C
+3. while worklist not empty:
+    a. Remove constraint c from worklist
+    b. Evaluate c with current assignment
+    c. If constraint not satisfied:
+        i. Strengthen assignment
+        ii. Add related constraints to worklist
+4. Return final assignment
+</pre></div>
+</div>
+</section>
+<section id="fixed-point">
+<h3>Fixed Point<a class="headerlink" href="#fixed-point" title="Link to this heading"></a></h3>
+<p>The algorithm terminates when:</p>
+<ul class="simple">
+<li><p>All constraints are satisfied (stable state)</p></li>
+<li><p>Lattice values can only increase (monotonicity)</p></li>
+<li><p>Lattice is finite height (guaranteed termination)</p></li>
+</ul>
+</section>
+<section id="context-sensitivity">
+<h3>Context Sensitivity<a class="headerlink" href="#context-sensitivity" title="Link to this heading"></a></h3>
+<p>CPA supports k-limiting context sensitivity:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Context = (call_stack[0:k])
+
+For a call at depth d:
+- If d &lt; k: use full call stack
+- If d &gt;= k: merge with similar calls
+</pre></div>
+</div>
+</section>
+</section>
+<section id="shape-analysis">
+<h2>Shape Analysis<a class="headerlink" href="#shape-analysis" title="Link to this heading"></a></h2>
+<p>Shape analysis uses region-based abstraction.</p>
+<section id="shape-graphs">
+<h3>Shape Graphs<a class="headerlink" href="#shape-graphs" title="Link to this heading"></a></h3>
+<p>Abstract representation of heap objects:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Nodes:
+- Abstract heap objects
+- Variables (pointer nodes)
+- Field nodes
+
+Edges:
+- Points-to edges (variable → heap)
+- Field edges (heap → field → heap/value)
+</pre></div>
+</div>
+</section>
+<section id="region-analysis">
+<h3>Region Analysis<a class="headerlink" href="#region-analysis" title="Link to this heading"></a></h3>
+<p>Groups related nodes into regions:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Region types:
+- L: List-like structures
+- T: Tree-like structures
+- D: DAG structures
+- G: General graphs
+</pre></div>
+</div>
+</section>
+<section id="transfer-functions">
+<h3>Transfer Functions<a class="headerlink" href="#transfer-functions" title="Link to this heading"></a></h3>
+<p>Handle each statement type:</p>
+<p><strong>Allocation</strong>:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>x = new()
+Create new abstract node N
+Add points-to edge x → N
+</pre></div>
+</div>
+<p><strong>Assignment</strong>:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>x = y
+If y points to {N1, N2, ...}:
+    Add points-to edges x → {N1, N2, ...}
+</pre></div>
+</div>
+<p><strong>Field Load</strong>:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>z = x.f
+For each N in points-to(x):
+    If N has f → M:
+        Add points-to edge z → M
+</pre></div>
+</div>
+<p><strong>Field Store</strong>:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>x.f = y
+For each N in points-to(x):
+    For each M in points-to(y):
+        Add/modify field edge N.f → M
+</pre></div>
+</div>
+</section>
+</section>
+<section id="optimization-algorithms">
+<h2>Optimization Algorithms<a class="headerlink" href="#optimization-algorithms" title="Link to this heading"></a></h2>
+<section id="constant-folding">
+<h3>Constant Folding<a class="headerlink" href="#constant-folding" title="Link to this heading"></a></h3>
+<p>Evaluates constant expressions at compile time:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">fold_constant</span><span class="p">(</span><span class="n">expr</span><span class="p">):</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">expr</span><span class="p">,</span> <span class="n">BinaryOp</span><span class="p">):</span>
+        <span class="n">left</span> <span class="o">=</span> <span class="n">fold_constant</span><span class="p">(</span><span class="n">expr</span><span class="o">.</span><span class="n">left</span><span class="p">)</span>
+        <span class="n">right</span> <span class="o">=</span> <span class="n">fold_constant</span><span class="p">(</span><span class="n">expr</span><span class="o">.</span><span class="n">right</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">is_constant</span><span class="p">(</span><span class="n">left</span><span class="p">)</span> <span class="ow">and</span> <span class="n">is_constant</span><span class="p">(</span><span class="n">right</span><span class="p">):</span>
+            <span class="k">return</span> <span class="n">evaluate_binary_op</span><span class="p">(</span><span class="n">expr</span><span class="o">.</span><span class="n">op</span><span class="p">,</span> <span class="n">left</span><span class="p">,</span> <span class="n">right</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">expr</span>
+</pre></div>
+</div>
+</section>
+<section id="dead-code-elimination">
+<h3>Dead Code Elimination<a class="headerlink" href="#dead-code-elimination" title="Link to this heading"></a></h3>
+<p>Removes unreachable and unused code:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Algorithm: Dead Code Elimination
+Input: CFG
+Output: CFG with dead code removed
+
+1. Mark entry block as reachable
+2. Traverse reachable blocks via edges
+3. Mark all reachable blocks
+4. Remove unreachable blocks
+5. For each block:
+    a. Remove unused variable assignments
+    b. Remove code after unconditional return
+</pre></div>
+</div>
+</section>
+<section id="function-inlining">
+<h3>Function Inlining<a class="headerlink" href="#function-inlining" title="Link to this heading"></a></h3>
+<p>Replaces function calls with function body:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Algorithm: Function Inlining
+Input: Call site, callee function
+Output: Inlined code
+
+1. Check inlining criteria:
+    a. Function size &lt; threshold
+    b. Call frequency &gt; threshold
+    c. No recursion (or limited depth)
+2. Create parameter mapping
+3. Replace call with function body
+4. Update parameter uses
+5. Add return value handling
+</pre></div>
+</div>
+</section>
+</section>
+<section id="complexity-analysis">
+<h2>Complexity Analysis<a class="headerlink" href="#complexity-analysis" title="Link to this heading"></a></h2>
+<section id="time-complexity">
+<h3>Time Complexity<a class="headerlink" href="#time-complexity" title="Link to this heading"></a></h3>
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>Analysis</p></th>
+<th class="head"><p>Complexity</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>CFG Construction</p></td>
+<td><p>O(n)</p></td>
+</tr>
+<tr class="row-odd"><td><p>Dominance Analysis</p></td>
+<td><p>O(n log n)</p></td>
+</tr>
+<tr class="row-even"><td><p>Data Flow (worklist)</p></td>
+<td><p>O(n²) worst case</p></td>
+</tr>
+<tr class="row-odd"><td><p>CPA</p></td>
+<td><p>O(n²) worst case</p></td>
+</tr>
+<tr class="row-even"><td><p>Shape Analysis</p></td>
+<td><p>O(n³) worst case</p></td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="space-complexity">
+<h3>Space Complexity<a class="headerlink" href="#space-complexity" title="Link to this heading"></a></h3>
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>Analysis</p></th>
+<th class="head"><p>Space</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>CFG</p></td>
+<td><p>O(n + e)</p></td>
+</tr>
+<tr class="row-odd"><td><p>Data Flow Results</p></td>
+<td><p>O(n × d)</p></td>
+</tr>
+<tr class="row-even"><td><p>CPA</p></td>
+<td><p>O(n × c)</p></td>
+</tr>
+<tr class="row-odd"><td><p>Store Graph</p></td>
+<td><p>O(n × f)</p></td>
+</tr>
+</tbody>
+</table>
+<p>Where:
+- n = number of program points
+- e = number of edges
+- d = data flow domain size
+- c = context depth
+- f = number of fields</p>
+</section>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="architecture.html" class="btn btn-neutral float-left" title="Architecture" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="design-decisions.html" class="btn btn-neutral float-right" title="Design Decisions" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, rainoftime.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

@@ -1,0 +1,501 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Design Decisions &mdash; pyflow 0.1.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=01f34227"></script>
+      <script src="../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Analysis Comparison" href="analysis-comparison.html" />
+    <link rel="prev" title="Algorithms" href="algorithms.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            pyflow
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Getting Started</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../tutorials/index.html">Tutorials</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#what-is-pyflow">What is PyFlow?</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#key-features">Key Features</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#architecture">Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#repository-status-in-practice">Repository status in practice</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">How-to Guides</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../how-to/index.html">How-to Guides</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Explanations</span></p>
+<ul class="current">
+<li class="toctree-l1 current"><a class="reference internal" href="index.html">Explanations</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="architecture.html">Architecture</a></li>
+<li class="toctree-l2"><a class="reference internal" href="algorithms.html">Algorithms</a></li>
+<li class="toctree-l2 current"><a class="current reference internal" href="#">Design Decisions</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#overview">Overview</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#analysis-precision-vs-performance">Analysis Precision vs. Performance</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#decision-default-to-sound-possibly-imprecise-analysis">Decision: Default to Sound, Possibly Imprecise Analysis</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#context-sensitivity">Context Sensitivity</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#decision-support-multiple-context-sensitivity-strategies">Decision: Support Multiple Context Sensitivity Strategies</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#ir-design">IR Design</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#decision-use-multiple-ir-forms">Decision: Use Multiple IR Forms</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#optimization-pipeline">Optimization Pipeline</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#decision-ordered-composable-passes">Decision: Ordered, Composable Passes</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#language-support">Language Support</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#decision-python-first-design">Decision: Python-First Design</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#extensibility">Extensibility</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#decision-plugin-architecture-for-extensions">Decision: Plugin Architecture for Extensions</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#cli-design">CLI Design</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#decision-subcommand-based-cli">Decision: Subcommand-Based CLI</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#output-format-design">Output Format Design</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#decision-multiple-output-formats">Decision: Multiple Output Formats</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#error-handling">Error Handling</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#decision-graceful-degradation">Decision: Graceful Degradation</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#performance-trade-offs">Performance Trade-offs</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#decision-configurable-analysis-depth">Decision: Configurable Analysis Depth</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="analysis-comparison.html">Analysis Comparison</a></li>
+<li class="toctree-l2"><a class="reference internal" href="best-practices.html">Best Practices</a></li>
+<li class="toctree-l2"><a class="reference internal" href="architecture.html">Architecture</a></li>
+<li class="toctree-l2"><a class="reference internal" href="algorithms.html">Algorithms</a></li>
+<li class="toctree-l2 current"><a class="current reference internal" href="#">Design Decisions</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#overview">Overview</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#analysis-precision-vs-performance">Analysis Precision vs. Performance</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#decision-default-to-sound-possibly-imprecise-analysis">Decision: Default to Sound, Possibly Imprecise Analysis</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#context-sensitivity">Context Sensitivity</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#decision-support-multiple-context-sensitivity-strategies">Decision: Support Multiple Context Sensitivity Strategies</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#ir-design">IR Design</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#decision-use-multiple-ir-forms">Decision: Use Multiple IR Forms</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#optimization-pipeline">Optimization Pipeline</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#decision-ordered-composable-passes">Decision: Ordered, Composable Passes</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#language-support">Language Support</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#decision-python-first-design">Decision: Python-First Design</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#extensibility">Extensibility</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#decision-plugin-architecture-for-extensions">Decision: Plugin Architecture for Extensions</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#cli-design">CLI Design</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#decision-subcommand-based-cli">Decision: Subcommand-Based CLI</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#output-format-design">Output Format Design</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#decision-multiple-output-formats">Decision: Multiple Output Formats</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#error-handling">Error Handling</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#decision-graceful-degradation">Decision: Graceful Degradation</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#performance-trade-offs">Performance Trade-offs</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#decision-configurable-analysis-depth">Decision: Configurable Analysis Depth</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="analysis-comparison.html">Analysis Comparison</a></li>
+<li class="toctree-l2"><a class="reference internal" href="best-practices.html">Best Practices</a></li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">A3 Python</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../a3_python/index.html"><code class="docutils literal notranslate"><span class="pre">a3_python</span></code></a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html">Main Commands</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html#global-options">Global Options</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html#integration">Integration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../api.html">PyFlow API</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html">Analysis Modules</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#overview">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#analysis-configuration">Analysis Configuration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#running-analyses">Running Analyses</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#analysis-results">Analysis Results</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html">Optimizing Python Programs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#overview">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#optimization-categories">Optimization Categories</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#optimization-pipeline">Optimization Pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#usage">Usage</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../lang/index.html">Language Module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html">Security Analysis and Checking</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#checker-categories">Checker Categories</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#analysis-framework">Analysis Framework</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#usage">Usage</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">pyflow</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="index.html">Explanations</a></li>
+      <li class="breadcrumb-item active">Design Decisions</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/explanation/design-decisions.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="design-decisions">
+<span id="explanation-design-decisions"></span><h1>Design Decisions<a class="headerlink" href="#design-decisions" title="Link to this heading"></a></h1>
+<p>This document explains the key design decisions made in PyFlow’s development,
+including the rationale behind them and alternatives considered.</p>
+<section id="overview">
+<h2>Overview<a class="headerlink" href="#overview" title="Link to this heading"></a></h2>
+<p>PyFlow makes several important design decisions that affect its capabilities,
+performance, and usability. This document explains these decisions and their
+implications.</p>
+</section>
+<section id="analysis-precision-vs-performance">
+<h2>Analysis Precision vs. Performance<a class="headerlink" href="#analysis-precision-vs-performance" title="Link to this heading"></a></h2>
+<section id="decision-default-to-sound-possibly-imprecise-analysis">
+<h3>Decision: Default to Sound, Possibly Imprecise Analysis<a class="headerlink" href="#decision-default-to-sound-possibly-imprecise-analysis" title="Link to this heading"></a></h3>
+<p><strong>Decision</strong>: PyFlow prioritizes soundness over precision by default.</p>
+<p><strong>Rationale</strong>:</p>
+<ul class="simple">
+<li><p>Static analysis for security-critical code must not miss real issues</p></li>
+<li><p>Users can opt into more precise (but slower) analyses when needed</p></li>
+<li><p>False positives are better than false negatives in most use cases</p></li>
+</ul>
+<p><strong>Trade-offs</strong>:</p>
+<p><strong>Configuration Options</strong>:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Sound but potentially slow</span>
+pyflow<span class="w"> </span>optimize<span class="w"> </span>input.py<span class="w"> </span>--analysis<span class="w"> </span>all
+
+<span class="c1"># Faster but may miss issues</span>
+pyflow<span class="w"> </span>optimize<span class="w"> </span>input.py<span class="w"> </span>--analysis<span class="w"> </span>cpa
+</pre></div>
+</div>
+</section>
+</section>
+<section id="context-sensitivity">
+<h2>Context Sensitivity<a class="headerlink" href="#context-sensitivity" title="Link to this heading"></a></h2>
+<section id="decision-support-multiple-context-sensitivity-strategies">
+<h3>Decision: Support Multiple Context Sensitivity Strategies<a class="headerlink" href="#decision-support-multiple-context-sensitivity-strategies" title="Link to this heading"></a></h3>
+<p><strong>Decision</strong>: PyFlow supports different context sensitivity levels rather than
+forcing a single approach.</p>
+<p><strong>Available Strategies</strong>:</p>
+<ol class="arabic simple">
+<li><p><strong>Insensitive</strong>: Ignore calling context</p></li>
+<li><p><strong>k-limiting</strong>: Limit context depth</p></li>
+<li><p><strong>Call-string</strong>: Full call stack</p></li>
+<li><p><strong>Object-sensitive</strong>: Based on allocation site</p></li>
+</ol>
+<p><strong>Rationale</strong>:</p>
+<ul class="simple">
+<li><p>Different codebases have different precision needs</p></li>
+<li><p>Large codebases may need faster (less precise) analysis</p></li>
+<li><p>Security analysis may need maximum precision</p></li>
+</ul>
+<p><strong>Example</strong>:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Fast but insensitive</span>
+pyflow<span class="w"> </span>callgraph<span class="w"> </span>input.py<span class="w"> </span>--algorithm<span class="w"> </span>simple
+
+<span class="c1"># Slower but context-sensitive</span>
+pyflow<span class="w"> </span>callgraph<span class="w"> </span>input.py<span class="w"> </span>--algorithm<span class="w"> </span>constraint<span class="w"> </span>--context-sensitive
+</pre></div>
+</div>
+</section>
+</section>
+<section id="ir-design">
+<h2>IR Design<a class="headerlink" href="#ir-design" title="Link to this heading"></a></h2>
+<section id="decision-use-multiple-ir-forms">
+<h3>Decision: Use Multiple IR Forms<a class="headerlink" href="#decision-use-multiple-ir-forms" title="Link to this heading"></a></h3>
+<p><strong>Decision</strong>: PyFlow uses multiple intermediate representations for different
+purposes.</p>
+<p><strong>IR Forms</strong>:</p>
+<ol class="arabic simple">
+<li><p><strong>AST</strong>: Preserves source structure, used for parsing</p></li>
+<li><p><strong>CFG</strong>: Control flow representation, used for flow analysis</p></li>
+<li><p><strong>SSA</strong>: Single Static Assignment form, used for optimizations</p></li>
+<li><p><strong>Store Graph</strong>: Heap abstraction, used for pointer analysis</p></li>
+</ol>
+<p><strong>Rationale</strong>:</p>
+<ul class="simple">
+<li><p>Each IR is optimized for specific analyses</p></li>
+<li><p>No single IR works well for all purposes</p></li>
+<li><p>Allows mixing analysis techniques</p></li>
+</ul>
+<p><strong>Trade-offs</strong>:</p>
+</section>
+</section>
+<section id="optimization-pipeline">
+<h2>Optimization Pipeline<a class="headerlink" href="#optimization-pipeline" title="Link to this heading"></a></h2>
+<section id="decision-ordered-composable-passes">
+<h3>Decision: Ordered, Composable Passes<a class="headerlink" href="#decision-ordered-composable-passes" title="Link to this heading"></a></h3>
+<p><strong>Decision</strong>: PyFlow’s optimization pipeline applies passes in a specific
+order, with each pass building on previous results.</p>
+<p><strong>Default Order</strong>:</p>
+<ol class="arabic simple">
+<li><p>IPA (Inter-procedural Analysis)</p></li>
+<li><p>CPA (Constraint-based Analysis)</p></li>
+<li><p>Shape Analysis</p></li>
+<li><p>Lifetime Analysis</p></li>
+<li><p>Simplification (constant folding, DCE)</p></li>
+<li><p>Method Call Optimization</p></li>
+<li><p>Function Inlining</p></li>
+<li><p>Argument Normalization</p></li>
+<li><p>Code Cloning</p></li>
+<li><p>Dead Store Elimination</p></li>
+<li><p>Program Culling</p></li>
+</ol>
+<p><strong>Rationale</strong>:</p>
+<ul class="simple">
+<li><p>Analysis passes must run before optimizations</p></li>
+<li><p>Simple optimizations before complex ones</p></li>
+<li><p>Inlining requires prior analysis</p></li>
+<li><p>DCE after inlining catches new dead code</p></li>
+</ul>
+<p><strong>Customization</strong>:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.application.passmanager</span><span class="w"> </span><span class="kn">import</span> <span class="n">PassManager</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.application.passes</span><span class="w"> </span><span class="kn">import</span> <span class="n">register_standard_passes</span>
+
+<span class="n">pm</span> <span class="o">=</span> <span class="n">PassManager</span><span class="p">()</span>
+<span class="n">register_standard_passes</span><span class="p">(</span><span class="n">pm</span><span class="p">)</span>
+<span class="n">pipeline</span> <span class="o">=</span> <span class="n">pm</span><span class="o">.</span><span class="n">build_pipeline</span><span class="p">([</span>
+    <span class="s2">&quot;ipa&quot;</span><span class="p">,</span>           <span class="c1"># Analysis first</span>
+    <span class="s2">&quot;cpa&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;simplify&quot;</span><span class="p">,</span>      <span class="c1"># Then basic optimizations</span>
+    <span class="s2">&quot;inlining&quot;</span><span class="p">,</span>      <span class="c1"># Then advanced</span>
+    <span class="s2">&quot;cullprogram&quot;</span><span class="p">,</span>   <span class="c1"># Cleanup last</span>
+<span class="p">])</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="language-support">
+<h2>Language Support<a class="headerlink" href="#language-support" title="Link to this heading"></a></h2>
+<section id="decision-python-first-design">
+<h3>Decision: Python-First Design<a class="headerlink" href="#decision-python-first-design" title="Link to this heading"></a></h3>
+<p><strong>Decision</strong>: PyFlow is designed specifically for Python, rather than as a
+generic framework adapted for Python.</p>
+<p><strong>Rationale</strong>:</p>
+<ul class="simple">
+<li><p>Python has unique features (dynamic typing, decorators, metaclasses)</p></li>
+<li><p>Python-specific optimizations are more effective</p></li>
+<li><p>Better integration with Python ecosystem</p></li>
+</ul>
+<p><strong>Trade-offs</strong>:</p>
+</section>
+</section>
+<section id="extensibility">
+<h2>Extensibility<a class="headerlink" href="#extensibility" title="Link to this heading"></a></h2>
+<section id="decision-plugin-architecture-for-extensions">
+<h3>Decision: Plugin Architecture for Extensions<a class="headerlink" href="#decision-plugin-architecture-for-extensions" title="Link to this heading"></a></h3>
+<p><strong>Decision</strong>: PyFlow provides a plugin architecture for adding custom
+analyses and optimizations.</p>
+<p><strong>Extension Points</strong>:</p>
+<ol class="arabic simple">
+<li><p><strong>Analysis Passes</strong>: Add new static analyses</p></li>
+<li><p><strong>Optimization Passes</strong>: Add custom transformations</p></li>
+<li><p><strong>Output Formatters</strong>: Add new output formats</p></li>
+<li><p><strong>Constraint Types</strong>: Add domain-specific constraints</p></li>
+</ol>
+<p><strong>Example</strong>:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.analysis</span><span class="w"> </span><span class="kn">import</span> <span class="n">AnalysisPass</span>
+
+<span class="k">class</span><span class="w"> </span><span class="nc">MyCustomAnalysis</span><span class="p">(</span><span class="n">AnalysisPass</span><span class="p">):</span>
+    <span class="n">name</span> <span class="o">=</span> <span class="s2">&quot;my_custom&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">analyze</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">program</span><span class="p">):</span>
+        <span class="c1"># Custom analysis logic</span>
+        <span class="k">pass</span>
+
+<span class="c1"># Register the pass</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.analysis.registry</span><span class="w"> </span><span class="kn">import</span> <span class="n">registry</span>
+<span class="n">registry</span><span class="o">.</span><span class="n">register</span><span class="p">(</span><span class="s2">&quot;my_custom&quot;</span><span class="p">,</span> <span class="n">MyCustomAnalysis</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="cli-design">
+<h2>CLI Design<a class="headerlink" href="#cli-design" title="Link to this heading"></a></h2>
+<section id="decision-subcommand-based-cli">
+<h3>Decision: Subcommand-Based CLI<a class="headerlink" href="#decision-subcommand-based-cli" title="Link to this heading"></a></h3>
+<p><strong>Decision</strong>: PyFlow uses a subcommand-based CLI similar to git and docker.</p>
+<p><strong>Subcommands</strong>:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">pyflow</span> <span class="pre">optimize</span></code>: Run analysis and optimization pipeline</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">pyflow</span> <span class="pre">callgraph</span></code>: Build call graphs</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">pyflow</span> <span class="pre">ir</span></code>: Dump intermediate representations</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">pyflow</span> <span class="pre">heap</span></code>: Run heap alias/escape analysis</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">pyflow</span> <span class="pre">security</span></code>: Run security analysis</p></li>
+</ul>
+<p><strong>Rationale</strong>:</p>
+<ul class="simple">
+<li><p>Familiar interface for developers</p></li>
+<li><p>Clear separation of concerns</p></li>
+<li><p>Easy to extend with new commands</p></li>
+</ul>
+</section>
+</section>
+<section id="output-format-design">
+<h2>Output Format Design<a class="headerlink" href="#output-format-design" title="Link to this heading"></a></h2>
+<section id="decision-multiple-output-formats">
+<h3>Decision: Multiple Output Formats<a class="headerlink" href="#decision-multiple-output-formats" title="Link to this heading"></a></h3>
+<p><strong>Decision</strong>: PyFlow supports multiple output formats for different use cases.</p>
+<p><strong>Formats</strong>:</p>
+<ol class="arabic simple">
+<li><p><strong>text</strong>: Human-readable, for terminal</p></li>
+<li><p><strong>json</strong>: Machine-readable, for scripts</p></li>
+<li><p><strong>dot</strong>: Graphviz format, for visualization</p></li>
+<li><p><strong>sarif</strong>: Standard format, for CI/CD</p></li>
+</ol>
+<p><strong>Rationale</strong>:</p>
+<ul class="simple">
+<li><p>Different use cases need different formats</p></li>
+<li><p>JSON enables programmatic access</p></li>
+<li><p>DOT enables visualization</p></li>
+<li><p>SARIF enables CI/CD integration</p></li>
+</ul>
+</section>
+</section>
+<section id="error-handling">
+<h2>Error Handling<a class="headerlink" href="#error-handling" title="Link to this heading"></a></h2>
+<section id="decision-graceful-degradation">
+<h3>Decision: Graceful Degradation<a class="headerlink" href="#decision-graceful-degradation" title="Link to this heading"></a></h3>
+<p><strong>Decision</strong>: PyFlow continues analysis when possible, rather than failing
+completely on errors.</p>
+<p><strong>Strategies</strong>:</p>
+<ol class="arabic simple">
+<li><p>Skip unparseable files with warnings</p></li>
+<li><p>Use conservative assumptions for ambiguous code</p></li>
+<li><p>Report partial results when analysis is incomplete</p></li>
+</ol>
+<p><strong>Rationale</strong>:</p>
+<ul class="simple">
+<li><p>Large codebases may have some problematic files</p></li>
+<li><p>Users want results for the rest of the code</p></li>
+<li><p>Warnings help identify issues without blocking analysis</p></li>
+</ul>
+</section>
+</section>
+<section id="performance-trade-offs">
+<h2>Performance Trade-offs<a class="headerlink" href="#performance-trade-offs" title="Link to this heading"></a></h2>
+<section id="decision-configurable-analysis-depth">
+<h3>Decision: Configurable Analysis Depth<a class="headerlink" href="#decision-configurable-analysis-depth" title="Link to this heading"></a></h3>
+<p><strong>Decision</strong>: PyFlow allows users to configure analysis depth based on their
+needs.</p>
+<p><strong>Options</strong>:</p>
+<ul class="simple">
+<li><p>Shallow analysis: Fast, less precise</p></li>
+<li><p>Medium analysis: Balanced</p></li>
+<li><p>Deep analysis: Slow, more precise</p></li>
+</ul>
+<p><strong>Example</strong>:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Fast analysis</span>
+pyflow<span class="w"> </span>callgraph<span class="w"> </span>input.py<span class="w"> </span>--algorithm<span class="w"> </span>simple
+
+<span class="c1"># Comprehensive analysis</span>
+pyflow<span class="w"> </span>security<span class="w"> </span>input.py<span class="w"> </span>--engine<span class="w"> </span>ifds<span class="w"> </span>--function<span class="w"> </span>main
+</pre></div>
+</div>
+</section>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="algorithms.html" class="btn btn-neutral float-left" title="Algorithms" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="analysis-comparison.html" class="btn btn-neutral float-right" title="Analysis Comparison" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, rainoftime.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

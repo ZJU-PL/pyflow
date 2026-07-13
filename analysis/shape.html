@@ -8,7 +8,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Shape Analysis &mdash; pyflow 0.1.0 documentation</title>
       <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
-      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=e59714d7" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=9edc463e" />
 
   
       <script src="../_static/jquery.js?v=5d32c60e"></script>
@@ -18,7 +18,9 @@
       <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
     <script src="../_static/js/theme.js"></script>
     <link rel="index" title="Index" href="../genindex.html" />
-    <link rel="search" title="Search" href="../search.html" /> 
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Variable Lifetime Analysis" href="lifetimeanalysis.html" />
+    <link rel="prev" title="Store Graph Analysis" href="storegraph.html" /> 
 </head>
 
 <body class="wy-body-for-nav"> 
@@ -40,18 +42,80 @@
   </form>
 </div>
         </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
-              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+              <p class="caption" role="heading"><span class="caption-text">Getting Started</span></p>
 <ul>
+<li class="toctree-l1"><a class="reference internal" href="../tutorials/index.html">Tutorials</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../overview.html">Overview</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../cli.html">Command Line Interface</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../cli.html#main-commands">Main Commands</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#what-is-pyflow">What is PyFlow?</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#key-features">Key Features</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#architecture">Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#repository-status-in-practice">Repository status in practice</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">How-to Guides</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../how-to/index.html">How-to Guides</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Explanations</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../explanation/index.html">Explanations</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">A3 Python</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../a3_python/index.html"><code class="docutils literal notranslate"><span class="pre">a3_python</span></code></a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Reference</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../cli.html">Main Commands</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../cli.html#global-options">Global Options</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../cli.html#configuration">Configuration</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../cli.html#integration">Integration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../api.html">PyFlow API</a></li>
 <li class="toctree-l1"><a class="reference internal" href="index.html">Analysis Modules</a></li>
+<li class="toctree-l1"><a class="reference internal" href="index.html#overview">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="index.html#analysis-configuration">Analysis Configuration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="index.html#running-analyses">Running Analyses</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="index.html#analysis-results">Analysis Results</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="index.html#text-output">Text Output</a></li>
+<li class="toctree-l2"><a class="reference internal" href="index.html#json-output">JSON Output</a></li>
+<li class="toctree-l2 current"><a class="reference internal" href="index.html#sarif-output">SARIF Output</a><ul class="current">
+<li class="toctree-l3"><a class="reference internal" href="cfg.html">Control Flow Graph (CFG) Analysis</a></li>
+<li class="toctree-l3"><a class="reference internal" href="cdg.html">Control Dependence Graph (CDG)</a></li>
+<li class="toctree-l3"><a class="reference internal" href="pdg.html">Program Dependence Graph (PDG)</a></li>
+<li class="toctree-l3"><a class="reference internal" href="ddg.html">Data Dependence Graph (DDG)</a></li>
+<li class="toctree-l3"><a class="reference internal" href="cpg.html">Code Property Graph (CPG)</a></li>
+<li class="toctree-l3"><a class="reference internal" href="callgraph.html">Call Graph Analysis</a></li>
+<li class="toctree-l3"><a class="reference internal" href="dataflowIR.html">Data Flow Intermediate Representation</a></li>
+<li class="toctree-l3"><a class="reference internal" href="fsdf.html">Flow-Sensitive Data Flow (FSDF)</a></li>
+<li class="toctree-l3"><a class="reference internal" href="ipa.html">Inter-procedural Analysis (IPA)</a></li>
+<li class="toctree-l3"><a class="reference internal" href="cpa.html">Constraint-based Analysis (CPA)</a></li>
+<li class="toctree-l3"><a class="reference internal" href="pointer.html">k-CFA Pointer Analysis</a></li>
+<li class="toctree-l3"><a class="reference internal" href="heap.html">Heap Abstraction</a></li>
+<li class="toctree-l3"><a class="reference internal" href="storegraph.html">Store Graph Analysis</a></li>
+<li class="toctree-l3 current"><a class="current reference internal" href="#">Shape Analysis</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#pipeline-position">Pipeline Position</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#how-it-works">How It Works</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#core-concepts">Core Concepts</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#analysis-pipeline">Analysis Pipeline</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#key-classes">Key Classes</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#relationship-to-other-modules">Relationship to Other Modules</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="lifetimeanalysis.html">Variable Lifetime Analysis</a></li>
+<li class="toctree-l3"><a class="reference internal" href="ifds.html">IFDS/IDE Data Flow Engine</a></li>
+<li class="toctree-l3"><a class="reference internal" href="typeinfo.html">Type Information System</a></li>
+<li class="toctree-l3"><a class="reference internal" href="numbering.html">Program Point Numbering</a></li>
+<li class="toctree-l3"><a class="reference internal" href="dump.html">Analysis Result Dumping</a></li>
+<li class="toctree-l3"><a class="reference internal" href="stats.html">Statistics Collection and Reporting</a></li>
+<li class="toctree-l3"><a class="reference internal" href="incremental.html">Incremental Analysis Cache</a></li>
+</ul>
+</li>
+</ul>
+</li>
 <li class="toctree-l1"><a class="reference internal" href="../optimization/index.html">Optimizing Python Programs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#overview">Overview</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#optimization-categories">Optimization Categories</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#optimization-pipeline">Optimization Pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#usage">Usage</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../lang/index.html">Language Module</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../checker/sec.html">Security Analysis and Checking</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#checker-categories">Checker Categories</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#analysis-framework">Analysis Framework</a></li>
@@ -72,6 +136,7 @@
           <div role="navigation" aria-label="Page navigation">
   <ul class="wy-breadcrumbs">
       <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="index.html">Analysis Modules</a></li>
       <li class="breadcrumb-item active">Shape Analysis</li>
       <li class="wy-breadcrumbs-aside">
             <a href="../_sources/analysis/shape.rst.txt" rel="nofollow"> View page source</a>
@@ -84,51 +149,98 @@
              
   <section id="shape-analysis">
 <h1>Shape Analysis<a class="headerlink" href="#shape-analysis" title="Link to this heading"></a></h1>
-<p>Shape analysis tracks the structure and properties of data structures, providing precise information about object layouts and relationships.</p>
-<section id="analysis-domains">
-<h2>Analysis Domains<a class="headerlink" href="#analysis-domains" title="Link to this heading"></a></h2>
+<p>Shape analysis (<code class="docutils literal notranslate"><span class="pre">pyflow.analysis.shape</span></code>) is a region-based analysis that
+tracks the structure and properties of data structures.  It operates on the
+<strong>store graph</strong> (see <a class="reference internal" href="storegraph.html"><span class="doc">Store Graph Analysis</span></a>) using CPA’s points-to and type results
+as input.</p>
+<p>Unlike the <a class="reference internal" href="heap.html"><span class="doc">Heap Abstraction</span></a> abstraction — which is a fixed-policy model for
+canonical heap locations (primarily consumed by IFDS clients) — shape
+analysis answers a different question: <strong>“what structural properties does this
+data structure have, and how many references point to each field?”</strong></p>
+<section id="pipeline-position">
+<h2>Pipeline Position<a class="headerlink" href="#pipeline-position" title="Link to this heading"></a></h2>
+<p>Shape analysis runs late in the analysis pipeline, after CPA and IPA:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>AST → Store Graph → CPA + IPA → Shape Analysis → Lifetime Analysis
+</pre></div>
+</div>
+<p>It consumes CPA’s points-to results and the store graph’s region information,
+then feeds its own results into <a class="reference internal" href="lifetimeanalysis.html"><span class="doc">Variable Lifetime Analysis</span></a>.</p>
+</section>
+<section id="how-it-works">
+<h2>How It Works<a class="headerlink" href="#how-it-works" title="Link to this heading"></a></h2>
+<p>Shape analysis builds a constraint system over the store graph and solves it
+via a worklist algorithm to a fixed point.  Each constraint models how a
+program operation affects object shapes:</p>
+<ul class="simple">
+<li><p><strong>AssignmentConstraint</strong> — <code class="docutils literal notranslate"><span class="pre">x</span> <span class="pre">=</span> <span class="pre">y</span></code> propagates shape info between variables</p></li>
+<li><p><strong>CopyConstraint</strong> — state propagation through control flow</p></li>
+<li><p><strong>ForgetConstraint</strong> — kills shape info for overwritten variables</p></li>
+<li><p><strong>SplitConstraint</strong> — separates caller/callee state at call sites</p></li>
+<li><p><strong>MergeConstraint</strong> — combines callee results back into caller context</p></li>
+</ul>
+</section>
+<section id="core-concepts">
+<h2>Core Concepts<a class="headerlink" href="#core-concepts" title="Link to this heading"></a></h2>
 <section id="region-based-analysis">
 <h3>Region-based Analysis<a class="headerlink" href="#region-based-analysis" title="Link to this heading"></a></h3>
 <ul class="simple">
-<li><p><strong>Memory Regions</strong>: Abstract representation of memory areas</p></li>
-<li><p><strong>Shape Descriptions</strong>: Structural properties of data structures</p></li>
-<li><p><strong>Reference Tracking</strong>: Relationships between objects</p></li>
-<li><p><strong>Allocation Patterns</strong>: Object creation and lifetime</p></li>
+<li><p><strong>Memory Regions</strong> — abstract groups of aliasing objects</p></li>
+<li><p><strong>Configurations</strong> — shape state at a program point (type, region, entry refs, current refs, external refs, allocated flag)</p></li>
+<li><p><strong>Secondary Information</strong> — path-based access information tracking which code paths reach which fields</p></li>
 </ul>
 </section>
-<section id="constraint-system">
-<h3>Constraint System<a class="headerlink" href="#constraint-system" title="Link to this heading"></a></h3>
+<section id="reference-tracking">
+<h3>Reference Tracking<a class="headerlink" href="#reference-tracking" title="Link to this heading"></a></h3>
 <ul class="simple">
-<li><p><strong>Shape Constraints</strong>: Relationships between object shapes</p></li>
-<li><p><strong>Type Constraints</strong>: Integration with type analysis</p></li>
-<li><p><strong>Flow Constraints</strong>: Shape changes through operations</p></li>
+<li><p><strong>Reference Counts</strong> — how many distinct references point to each field of an object</p></li>
+<li><p><strong>Field Sharing</strong> — whether a field is accessed through multiple references (indicating aliasing)</p></li>
+<li><p><strong>Path Information</strong> — <code class="docutils literal notranslate"><span class="pre">(hits,</span> <span class="pre">misses)</span></code> tuples tracking which access paths are observed vs absent</p></li>
 </ul>
 </section>
-<section id="data-flow-integration">
-<h3>Data Flow Integration<a class="headerlink" href="#data-flow-integration" title="Link to this heading"></a></h3>
+<section id="constraint-solving">
+<h3>Constraint Solving<a class="headerlink" href="#constraint-solving" title="Link to this heading"></a></h3>
 <ul class="simple">
-<li><p><strong>Transfer Functions</strong>: How operations affect shapes</p></li>
-<li><p><strong>Meet Operations</strong>: Merging shape information</p></li>
-<li><p><strong>Fixed Point Computation</strong>: Iterative shape refinement</p></li>
-<li><p><strong>Context Sensitivity</strong>: Shape analysis across function calls</p></li>
+<li><p><strong>Worklist Algorithm</strong> — iteratively processes constraints until fixed point</p></li>
+<li><p><strong>Observer Pattern</strong> — constraints register as observers of program points they depend on</p></li>
+<li><p><strong>Topological Ordering</strong> — constraints sorted by dependency for efficient processing</p></li>
 </ul>
 </section>
 </section>
-<section id="applications">
-<h2>Applications<a class="headerlink" href="#applications" title="Link to this heading"></a></h2>
-<ul class="simple">
-<li><p><strong>Container Analysis</strong>: List, dict, and custom object shapes</p></li>
-<li><p><strong>Memory Optimization</strong>: Shape-aware memory management</p></li>
-<li><p><strong>Safety Analysis</strong>: Detecting shape-related errors</p></li>
-<li><p><strong>Optimization</strong>: Shape-driven code transformations</p></li>
-</ul>
+<section id="analysis-pipeline">
+<h2>Analysis Pipeline<a class="headerlink" href="#analysis-pipeline" title="Link to this heading"></a></h2>
+<p>The <code class="xref py py-func docutils literal notranslate"><span class="pre">pyflow.analysis.shape.evaluate()</span></code> function orchestrates the full shape
+analysis:</p>
+<ol class="arabic simple">
+<li><p><strong>Region analysis</strong> — groups aliasing objects into regions</p></li>
+<li><p><strong>Constraint building</strong> — generates constraints from AST operations</p></li>
+<li><p><strong>Constraint ordering</strong> — topological sort by dependency</p></li>
+<li><p><strong>Entry point analysis</strong> — binds self/args and solves per entry point</p></li>
+<li><p><strong>Allocation handling</strong> — processes object allocation sites</p></li>
+<li><p><strong>Result reporting</strong> — outputs reference counts, field shares, statistics</p></li>
+</ol>
+</section>
+<section id="key-classes">
+<h2>Key Classes<a class="headerlink" href="#key-classes" title="Link to this heading"></a></h2>
+</section>
+<section id="relationship-to-other-modules">
+<h2>Relationship to Other Modules<a class="headerlink" href="#relationship-to-other-modules" title="Link to this heading"></a></h2>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Shape analysis and <a class="reference internal" href="heap.html"><span class="doc">Heap Abstraction</span></a> are <strong>independent subsystems</strong> that serve
+different clients.  Shape runs post-CPA on the store graph; heap runs on
+the CFG supergraph (currently consumed by IFDS).  They do not feed into
+each other.</p>
+</div>
 </section>
 </section>
 
 
            </div>
           </div>
-          <footer>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="storegraph.html" class="btn btn-neutral float-left" title="Store Graph Analysis" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="lifetimeanalysis.html" class="btn btn-neutral float-right" title="Variable Lifetime Analysis" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
 
   <hr/>
 

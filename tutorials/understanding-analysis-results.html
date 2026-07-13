@@ -1,0 +1,599 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Understanding Analysis Results &mdash; pyflow 0.1.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=01f34227"></script>
+      <script src="../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Overview" href="../overview.html" />
+    <link rel="prev" title="Optimizing Python Programs" href="optimizing-python-programs.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            pyflow
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Getting Started</span></p>
+<ul class="current">
+<li class="toctree-l1 current"><a class="reference internal" href="index.html">Tutorials</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="getting-started.html">Getting Started</a></li>
+<li class="toctree-l2"><a class="reference internal" href="analyzing-python-code.html">Analyzing Python Code</a></li>
+<li class="toctree-l2"><a class="reference internal" href="optimizing-python-programs.html">Optimizing Python Programs</a></li>
+<li class="toctree-l2 current"><a class="current reference internal" href="#">Understanding Analysis Results</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#what-you-ll-learn">What You’ll Learn</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#output-formats">Output Formats</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#text-format">Text Format</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#json-format">JSON Format</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#dot-format">DOT Format</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#interpreting-call-graph-results">Interpreting Call Graph Results</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#nodes">Nodes</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#edges">Edges</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#common-patterns">Common Patterns</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#interpreting-cfg-results">Interpreting CFG Results</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#basic-blocks">Basic Blocks</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#id1">Edges</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#example-cfg-for-a-simple-function">Example: CFG for a Simple Function</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#interpreting-data-flow-results">Interpreting Data Flow Results</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#reaching-definitions">Reaching Definitions</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#live-variables">Live Variables</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#interpreting-cpa-results">Interpreting CPA Results</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#points-to-sets">Points-to Sets</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#type-information">Type Information</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#interpreting-shape-analysis-results">Interpreting Shape Analysis Results</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#list-shapes">List Shapes</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#dictionary-shapes">Dictionary Shapes</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#using-results-programmatically">Using Results Programmatically</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#exporting-for-visualization">Exporting for Visualization</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#best-practices">Best Practices</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#next-steps">Next Steps</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="getting-started.html">Getting Started</a></li>
+<li class="toctree-l2"><a class="reference internal" href="analyzing-python-code.html">Analyzing Python Code</a></li>
+<li class="toctree-l2"><a class="reference internal" href="optimizing-python-programs.html">Optimizing Python Programs</a></li>
+<li class="toctree-l2 current"><a class="current reference internal" href="#">Understanding Analysis Results</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#what-you-ll-learn">What You’ll Learn</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#output-formats">Output Formats</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#text-format">Text Format</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#json-format">JSON Format</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#dot-format">DOT Format</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#interpreting-call-graph-results">Interpreting Call Graph Results</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#nodes">Nodes</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#edges">Edges</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#common-patterns">Common Patterns</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#interpreting-cfg-results">Interpreting CFG Results</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#basic-blocks">Basic Blocks</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#id1">Edges</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#example-cfg-for-a-simple-function">Example: CFG for a Simple Function</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#interpreting-data-flow-results">Interpreting Data Flow Results</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#reaching-definitions">Reaching Definitions</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#live-variables">Live Variables</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#interpreting-cpa-results">Interpreting CPA Results</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#points-to-sets">Points-to Sets</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#type-information">Type Information</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#interpreting-shape-analysis-results">Interpreting Shape Analysis Results</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#list-shapes">List Shapes</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#dictionary-shapes">Dictionary Shapes</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#using-results-programmatically">Using Results Programmatically</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#exporting-for-visualization">Exporting for Visualization</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#best-practices">Best Practices</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#next-steps">Next Steps</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#what-is-pyflow">What is PyFlow?</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#key-features">Key Features</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#architecture">Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#repository-status-in-practice">Repository status in practice</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">How-to Guides</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../how-to/index.html">How-to Guides</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Explanations</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../explanation/index.html">Explanations</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">A3 Python</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../a3_python/index.html"><code class="docutils literal notranslate"><span class="pre">a3_python</span></code></a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html">Main Commands</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html#global-options">Global Options</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html#integration">Integration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../api.html">PyFlow API</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html">Analysis Modules</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#overview">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#analysis-configuration">Analysis Configuration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#running-analyses">Running Analyses</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#analysis-results">Analysis Results</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html">Optimizing Python Programs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#overview">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#optimization-categories">Optimization Categories</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#optimization-pipeline">Optimization Pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#usage">Usage</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../lang/index.html">Language Module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html">Security Analysis and Checking</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#checker-categories">Checker Categories</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#analysis-framework">Analysis Framework</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#usage">Usage</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">pyflow</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="index.html">Tutorials</a></li>
+      <li class="breadcrumb-item active">Understanding Analysis Results</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/tutorials/understanding-analysis-results.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="understanding-analysis-results">
+<span id="tutorial-understanding-analysis-results"></span><h1>Understanding Analysis Results<a class="headerlink" href="#understanding-analysis-results" title="Link to this heading"></a></h1>
+<p>This tutorial explains how to interpret and use the results from PyFlow’s
+various analyses.</p>
+<section id="what-you-ll-learn">
+<h2>What You’ll Learn<a class="headerlink" href="#what-you-ll-learn" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p>Understanding output formats (text, JSON, DOT)</p></li>
+<li><p>Interpreting analysis results and annotations</p></li>
+<li><p>Using results for further analysis or optimization</p></li>
+<li><p>Common patterns and how to identify them</p></li>
+</ul>
+</section>
+<section id="output-formats">
+<h2>Output Formats<a class="headerlink" href="#output-formats" title="Link to this heading"></a></h2>
+<p>PyFlow supports multiple output formats for analysis results:</p>
+<ol class="arabic simple">
+<li><p><strong>text</strong>: Human-readable text format (default)</p></li>
+<li><p><strong>dot</strong>: Graphviz DOT format for visualization</p></li>
+<li><p><strong>json</strong>: JSON format for programmatic processing</p></li>
+</ol>
+<section id="text-format">
+<h3>Text Format<a class="headerlink" href="#text-format" title="Link to this heading"></a></h3>
+<p>Text format is designed for human readability:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>callgraph<span class="w"> </span>example.py<span class="w"> </span>--format<span class="w"> </span>text
+</pre></div>
+</div>
+<p>Output:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Call Graph for example.py:
+───────────────────────────────────────
+
+Nodes:
+  fibonacci: fibonacci(n)
+  factorial: factorial(n)
+  main: main()
+
+Edges:
+  main → fibonacci (line 21)
+  main → factorial (line 22)
+</pre></div>
+</div>
+</section>
+<section id="json-format">
+<h3>JSON Format<a class="headerlink" href="#json-format" title="Link to this heading"></a></h3>
+<p>JSON format is suitable for programmatic processing:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>callgraph<span class="w"> </span>example.py<span class="w"> </span>--format<span class="w"> </span>json
+</pre></div>
+</div>
+<p>Output:</p>
+<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;nodes&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">    </span><span class="p">{</span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;fibonacci&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;signature&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;fibonacci(n)&quot;</span><span class="p">},</span>
+<span class="w">    </span><span class="p">{</span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;factorial&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;signature&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;factorial(n)&quot;</span><span class="p">},</span>
+<span class="w">    </span><span class="p">{</span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;main&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;signature&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;main()&quot;</span><span class="p">}</span>
+<span class="w">  </span><span class="p">],</span>
+<span class="w">  </span><span class="nt">&quot;edges&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">    </span><span class="p">{</span><span class="nt">&quot;from&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;main&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;to&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;fibonacci&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;line&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">21</span><span class="p">},</span>
+<span class="w">    </span><span class="p">{</span><span class="nt">&quot;from&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;main&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;to&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;factorial&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;line&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">22</span><span class="p">}</span>
+<span class="w">  </span><span class="p">]</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+</section>
+<section id="dot-format">
+<h3>DOT Format<a class="headerlink" href="#dot-format" title="Link to this heading"></a></h3>
+<p>DOT format is for visualization with Graphviz:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>callgraph<span class="w"> </span>example.py<span class="w"> </span>--format<span class="w"> </span>dot<span class="w"> </span>--output<span class="w"> </span>callgraph.dot
+</pre></div>
+</div>
+<p>Then render to an image:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>dot<span class="w"> </span>-Tpng<span class="w"> </span>callgraph.dot<span class="w"> </span>-o<span class="w"> </span>callgraph.png
+</pre></div>
+</div>
+</section>
+</section>
+<section id="interpreting-call-graph-results">
+<h2>Interpreting Call Graph Results<a class="headerlink" href="#interpreting-call-graph-results" title="Link to this heading"></a></h2>
+<p>Call graphs show function call relationships. Key elements:</p>
+<section id="nodes">
+<h3>Nodes<a class="headerlink" href="#nodes" title="Link to this heading"></a></h3>
+<p>Each node represents a function:</p>
+<ul class="simple">
+<li><p><strong>name</strong>: The function name</p></li>
+<li><p><strong>signature</strong>: The function signature (parameters)</p></li>
+<li><p><strong>line</strong>: The line number where the function is defined</p></li>
+</ul>
+</section>
+<section id="edges">
+<h3>Edges<a class="headerlink" href="#edges" title="Link to this heading"></a></h3>
+<p>Each edge represents a function call:</p>
+<ul class="simple">
+<li><p><strong>from</strong>: The calling function</p></li>
+<li><p><strong>to</strong>: The called function</p></li>
+<li><p><strong>line</strong>: The line number of the call</p></li>
+<li><p><strong>type</strong>: The type of call (direct, indirect, recursive)</p></li>
+</ul>
+</section>
+<section id="common-patterns">
+<h3>Common Patterns<a class="headerlink" href="#common-patterns" title="Link to this heading"></a></h3>
+<ol class="arabic simple">
+<li><p><strong>Direct call</strong>: One function directly calls another</p></li>
+<li><p><strong>Indirect call</strong>: Call through function pointer or callback</p></li>
+<li><p><strong>Recursive call</strong>: Function calls itself</p></li>
+<li><p><strong>Mutual recursion</strong>: Two or more functions call each other</p></li>
+</ol>
+<section id="example-recursive-function">
+<h4>Example: Recursive Function<a class="headerlink" href="#example-recursive-function" title="Link to this heading"></a></h4>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">factorial</span><span class="p">(</span><span class="n">n</span><span class="p">):</span>
+    <span class="k">if</span> <span class="n">n</span> <span class="o">&lt;=</span> <span class="mi">1</span><span class="p">:</span>
+        <span class="k">return</span> <span class="mi">1</span>
+    <span class="k">return</span> <span class="n">n</span> <span class="o">*</span> <span class="n">factorial</span><span class="p">(</span><span class="n">n</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>Call graph shows:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>factorial → factorial (line 5, recursive)
+</pre></div>
+</div>
+</section>
+<section id="example-mutual-recursion">
+<h4>Example: Mutual Recursion<a class="headerlink" href="#example-mutual-recursion" title="Link to this heading"></a></h4>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">is_even</span><span class="p">(</span><span class="n">n</span><span class="p">):</span>
+    <span class="k">if</span> <span class="n">n</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">True</span>
+    <span class="k">return</span> <span class="n">is_odd</span><span class="p">(</span><span class="n">n</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">is_odd</span><span class="p">(</span><span class="n">n</span><span class="p">):</span>
+    <span class="k">if</span> <span class="n">n</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">False</span>
+    <span class="k">return</span> <span class="n">is_even</span><span class="p">(</span><span class="n">n</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>Call graph shows:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>is_even → is_odd (line 4)
+is_odd → is_even (line 4)
+</pre></div>
+</div>
+</section>
+</section>
+</section>
+<section id="interpreting-cfg-results">
+<h2>Interpreting CFG Results<a class="headerlink" href="#interpreting-cfg-results" title="Link to this heading"></a></h2>
+<p>Control Flow Graphs show the structure of control within a function.</p>
+<section id="basic-blocks">
+<h3>Basic Blocks<a class="headerlink" href="#basic-blocks" title="Link to this heading"></a></h3>
+<p>Each block contains:</p>
+<ul class="simple">
+<li><p><strong>Label</strong>: Block identifier</p></li>
+<li><p><strong>Instructions</strong>: Statements in the block</p></li>
+<li><p><strong>Type</strong>: Entry, exit, or regular block</p></li>
+</ul>
+</section>
+<section id="id1">
+<h3>Edges<a class="headerlink" href="#id1" title="Link to this heading"></a></h3>
+<p>Edges show possible control flow transfers:</p>
+<ul class="simple">
+<li><p><strong>Conditional</strong>: From if/else branches</p></li>
+<li><p><strong>Unconditional</strong>: From fall-through or jumps</p></li>
+<li><p><strong>Exceptional</strong>: From exception handling</p></li>
+</ul>
+</section>
+<section id="example-cfg-for-a-simple-function">
+<h3>Example: CFG for a Simple Function<a class="headerlink" href="#example-cfg-for-a-simple-function" title="Link to this heading"></a></h3>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">example</span><span class="p">(</span><span class="n">x</span><span class="p">):</span>
+    <span class="k">if</span> <span class="n">x</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+        <span class="k">return</span> <span class="s2">&quot;positive&quot;</span>
+    <span class="k">elif</span> <span class="n">x</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">:</span>
+        <span class="k">return</span> <span class="s2">&quot;negative&quot;</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">return</span> <span class="s2">&quot;zero&quot;</span>
+</pre></div>
+</div>
+<p>CFG output:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Block 0 (Entry):
+  x: Parameter
+  if x &gt; 0
+
+Block 1 (True):
+  return &quot;positive&quot;
+
+Block 2 (elif x &lt; 0):
+  if x &lt; 0
+
+Block 3 (True):
+  return &quot;negative&quot;
+
+Block 4 (else):
+  return &quot;zero&quot;
+
+Edges:
+  Block 0 → Block 1 (x &gt; 0)
+  Block 0 → Block 2 (x &gt; 0 is False)
+  Block 2 → Block 3 (x &lt; 0)
+  Block 2 → Block 4 (x &lt; 0 is False)
+</pre></div>
+</div>
+</section>
+</section>
+<section id="interpreting-data-flow-results">
+<h2>Interpreting Data Flow Results<a class="headerlink" href="#interpreting-data-flow-results" title="Link to this heading"></a></h2>
+<p>Data flow analysis results show how values propagate through the program.</p>
+<section id="reaching-definitions">
+<h3>Reaching Definitions<a class="headerlink" href="#reaching-definitions" title="Link to this heading"></a></h3>
+<p>A “reaching definition” is an assignment that can reach a program point without
+being overwritten.</p>
+<p>Example:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">x</span> <span class="o">=</span> <span class="mi">1</span>      <span class="c1"># Definition of x</span>
+<span class="n">y</span> <span class="o">=</span> <span class="n">x</span> <span class="o">+</span> <span class="mi">1</span>  <span class="c1"># Uses x</span>
+<span class="n">x</span> <span class="o">=</span> <span class="mi">2</span>      <span class="c1"># Redefinition of x</span>
+<span class="n">z</span> <span class="o">=</span> <span class="n">x</span> <span class="o">+</span> <span class="mi">1</span>  <span class="c1"># Uses x (reaches from line 3)</span>
+</pre></div>
+</div>
+<p>Analysis output:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Line 2 (y = x + 1):
+  x reaches from: {x = 1 (line 1)}
+
+Line 4 (z = x + 1):
+  x reaches from: {x = 2 (line 3)}
+</pre></div>
+</div>
+</section>
+<section id="live-variables">
+<h3>Live Variables<a class="headerlink" href="#live-variables" title="Link to this heading"></a></h3>
+<p>A variable is “live” at a point if its value may be used before being
+reassigned.</p>
+<p>Example:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">x</span> <span class="o">=</span> <span class="mi">1</span>
+<span class="n">y</span> <span class="o">=</span> <span class="n">x</span> <span class="o">+</span> <span class="mi">1</span>  <span class="c1"># x is live here</span>
+<span class="n">z</span> <span class="o">=</span> <span class="mi">2</span>      <span class="c1"># x is dead here</span>
+</pre></div>
+</div>
+<p>Analysis output:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Line 1: {x} (x becomes defined)
+Line 2: {y} (x used, y defined)
+Line 3: {z} (y used, z defined)
+</pre></div>
+</div>
+</section>
+</section>
+<section id="interpreting-cpa-results">
+<h2>Interpreting CPA Results<a class="headerlink" href="#interpreting-cpa-results" title="Link to this heading"></a></h2>
+<p>Constraint-based analysis results show object relationships and type information.</p>
+<section id="points-to-sets">
+<h3>Points-to Sets<a class="headerlink" href="#points-to-sets" title="Link to this heading"></a></h3>
+<p>Points-to sets show which objects a variable may reference:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">a</span> <span class="o">=</span> <span class="p">[]</span>
+<span class="n">b</span> <span class="o">=</span> <span class="p">[]</span>
+<span class="n">c</span> <span class="o">=</span> <span class="n">a</span>
+</pre></div>
+</div>
+<p>Analysis output:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>a: {[empty list]}
+b: {[empty list]}
+c: {a}  # c points to same object as a
+</pre></div>
+</div>
+</section>
+<section id="type-information">
+<h3>Type Information<a class="headerlink" href="#type-information" title="Link to this heading"></a></h3>
+<p>CPA also infers types:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">process</span><span class="p">(</span><span class="n">x</span><span class="p">):</span>
+    <span class="k">return</span> <span class="n">x</span><span class="o">.</span><span class="n">upper</span><span class="p">()</span>
+
+<span class="n">result</span> <span class="o">=</span> <span class="n">process</span><span class="p">(</span><span class="s2">&quot;hello&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>Analysis output:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>process: str -&gt; str
+result: str
+</pre></div>
+</div>
+</section>
+</section>
+<section id="interpreting-shape-analysis-results">
+<h2>Interpreting Shape Analysis Results<a class="headerlink" href="#interpreting-shape-analysis-results" title="Link to this heading"></a></h2>
+<p>Shape analysis identifies the structure of data objects.</p>
+<section id="list-shapes">
+<h3>List Shapes<a class="headerlink" href="#list-shapes" title="Link to this heading"></a></h3>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">empty_list</span> <span class="o">=</span> <span class="p">[]</span>
+<span class="n">non_empty</span> <span class="o">=</span> <span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">]</span>
+<span class="n">mixed</span> <span class="o">=</span> <span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="s2">&quot;two&quot;</span><span class="p">,</span> <span class="mf">3.0</span><span class="p">]</span>
+</pre></div>
+</div>
+<p>Analysis output:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>empty_list: List[Empty]
+non_empty: List[Fixed(length=3, elements={int})]
+mixed: List[Variable(length, elements={int, str, float})]
+</pre></div>
+</div>
+</section>
+<section id="dictionary-shapes">
+<h3>Dictionary Shapes<a class="headerlink" href="#dictionary-shapes" title="Link to this heading"></a></h3>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">empty_dict</span> <span class="o">=</span> <span class="p">{}</span>
+<span class="n">config</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;key&quot;</span><span class="p">:</span> <span class="s2">&quot;value&quot;</span><span class="p">,</span> <span class="s2">&quot;count&quot;</span><span class="p">:</span> <span class="mi">5</span><span class="p">}</span>
+</pre></div>
+</div>
+<p>Analysis output:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>empty_dict: Dict[Empty]
+config: Dict[Fixed(keys={str}, values={str, int})]
+</pre></div>
+</div>
+</section>
+</section>
+<section id="using-results-programmatically">
+<h2>Using Results Programmatically<a class="headerlink" href="#using-results-programmatically" title="Link to this heading"></a></h2>
+<p>JSON output can be processed programmatically:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">json</span>
+
+<span class="c1"># Load call graph</span>
+<span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="s2">&quot;callgraph.json&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+    <span class="n">graph</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">f</span><span class="p">)</span>
+
+<span class="c1"># Find all functions that call a given function</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">find_callers</span><span class="p">(</span><span class="n">graph</span><span class="p">,</span> <span class="n">target</span><span class="p">):</span>
+    <span class="n">callers</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">edge</span> <span class="ow">in</span> <span class="n">graph</span><span class="p">[</span><span class="s2">&quot;edges&quot;</span><span class="p">]:</span>
+        <span class="k">if</span> <span class="n">edge</span><span class="p">[</span><span class="s2">&quot;to&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="n">target</span><span class="p">:</span>
+            <span class="n">callers</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">edge</span><span class="p">[</span><span class="s2">&quot;from&quot;</span><span class="p">])</span>
+    <span class="k">return</span> <span class="n">callers</span>
+
+<span class="c1"># Usage</span>
+<span class="n">callers</span> <span class="o">=</span> <span class="n">find_callers</span><span class="p">(</span><span class="n">graph</span><span class="p">,</span> <span class="s2">&quot;fibonacci&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Functions that call fibonacci:&quot;</span><span class="p">,</span> <span class="n">callers</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="exporting-for-visualization">
+<h2>Exporting for Visualization<a class="headerlink" href="#exporting-for-visualization" title="Link to this heading"></a></h2>
+<p>Use DOT format with Graphviz for professional visualizations:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>callgraph<span class="w"> </span>example.py<span class="w"> </span>--format<span class="w"> </span>dot<span class="w"> </span>--output<span class="w"> </span>callgraph.dot
+</pre></div>
+</div>
+<p>Customize the visualization:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>dot<span class="w"> </span>-Tpng<span class="w"> </span>callgraph.dot<span class="w"> </span>-o<span class="w"> </span>callgraph.png<span class="w"> </span>-Gdpi<span class="o">=</span><span class="m">300</span>
+</pre></div>
+</div>
+<p>Or create an HTML visualization:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Use pygraphviz for more control</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">pygraphviz</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pgv</span>
+
+<span class="n">G</span> <span class="o">=</span> <span class="n">pgv</span><span class="o">.</span><span class="n">AGraph</span><span class="p">(</span><span class="s2">&quot;callgraph.dot&quot;</span><span class="p">)</span>
+<span class="n">G</span><span class="o">.</span><span class="n">layout</span><span class="p">(</span><span class="n">prog</span><span class="o">=</span><span class="s2">&quot;dot&quot;</span><span class="p">)</span>
+<span class="n">G</span><span class="o">.</span><span class="n">draw</span><span class="p">(</span><span class="s2">&quot;callgraph.png&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="best-practices">
+<h2>Best Practices<a class="headerlink" href="#best-practices" title="Link to this heading"></a></h2>
+<ol class="arabic simple">
+<li><p><strong>Use appropriate format</strong>: Text for quick inspection, JSON for scripts</p></li>
+<li><p><strong>Visualize complex graphs</strong>: DOT format for large graphs</p></li>
+<li><p><strong>Combine analyses</strong>: Use multiple analyses for complete understanding</p></li>
+<li><p><strong>Automate processing</strong>: Use JSON output for automated analysis pipelines</p></li>
+</ol>
+</section>
+<section id="next-steps">
+<h2>Next Steps<a class="headerlink" href="#next-steps" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p>Explore <a class="reference internal" href="../how-to/index.html"><span class="doc">How-to Guides</span></a> for task-specific guides</p></li>
+<li><p>Learn about the <a class="reference internal" href="../explanation/algorithms.html"><span class="doc">Algorithms</span></a> behind the analyses</p></li>
+<li><p>Check out the <span class="xref std std-doc">../reference/index</span> for complete API documentation</p></li>
+</ul>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="optimizing-python-programs.html" class="btn btn-neutral float-left" title="Optimizing Python Programs" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="../overview.html" class="btn btn-neutral float-right" title="Overview" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, rainoftime.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

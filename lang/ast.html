@@ -1,0 +1,417 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AST for Python &mdash; pyflow 0.1.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=01f34227"></script>
+      <script src="../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Frontend Module" href="frontend.html" />
+    <link rel="prev" title="Language Module" href="index.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            pyflow
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Getting Started</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../tutorials/index.html">Tutorials</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#what-is-pyflow">What is PyFlow?</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#key-features">Key Features</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#architecture">Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#repository-status-in-practice">Repository status in practice</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">How-to Guides</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../how-to/index.html">How-to Guides</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Explanations</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../explanation/index.html">Explanations</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">A3 Python</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../a3_python/index.html"><code class="docutils literal notranslate"><span class="pre">a3_python</span></code></a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Reference</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../cli.html">Main Commands</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html#global-options">Global Options</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html#integration">Integration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../api.html">PyFlow API</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html">Analysis Modules</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#overview">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#analysis-configuration">Analysis Configuration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#running-analyses">Running Analyses</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#analysis-results">Analysis Results</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html">Optimizing Python Programs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#overview">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#optimization-categories">Optimization Categories</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#optimization-pipeline">Optimization Pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#usage">Usage</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="index.html">Language Module</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="index.html#overview">Overview</a></li>
+<li class="toctree-l2"><a class="reference internal" href="index.html#key-components">Key Components</a></li>
+<li class="toctree-l2"><a class="reference internal" href="index.html#usage">Usage</a></li>
+<li class="toctree-l2 current"><a class="reference internal" href="index.html#module-structure">Module Structure</a><ul class="current">
+<li class="toctree-l3 current"><a class="current reference internal" href="#">AST for Python</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#overview">Overview</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#reference-nodes">Reference Nodes</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#expression-nodes">Expression Nodes</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#statement-nodes">Statement Nodes</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#control-flow-nodes">Control Flow Nodes</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#code-nodes">Code Nodes</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#suite-and-annotations">Suite and Annotations</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#node-properties">Node Properties</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#usage-examples">Usage Examples</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#see-also">See Also</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="frontend.html">Frontend Module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="asttools.html">AST Tools</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api.html">Language API</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="index.html#see-also">See Also</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html">Security Analysis and Checking</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#checker-categories">Checker Categories</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#analysis-framework">Analysis Framework</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#usage">Usage</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">pyflow</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="index.html">Language Module</a></li>
+      <li class="breadcrumb-item active">AST for Python</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/lang/ast.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="ast-for-python">
+<h1>AST for Python<a class="headerlink" href="#ast-for-python" title="Link to this heading"></a></h1>
+<p>PyFlow’s Abstract Syntax Tree (AST) is the core intermediate representation used throughout the analysis pipeline. It provides a semantically-aware representation of Python code designed for static analysis and optimization.</p>
+<section id="overview">
+<h2>Overview<a class="headerlink" href="#overview" title="Link to this heading"></a></h2>
+<p>The AST module (<cite>pyflow.language.python.ast</cite>) defines all node types for representing Python programs. Unlike Python’s standard AST, PyFlow’s AST is designed specifically for static analysis.</p>
+<dl class="simple">
+<dt><strong>Key Design Principles:</strong></dt><dd><ul class="simple">
+<li><p>Semantic preservation of Python semantics</p></li>
+<li><p>Analysis-friendly structure</p></li>
+<li><p>Annotation support for context-sensitive metadata</p></li>
+<li><p>Transformable (clone, rewrite, transform)</p></li>
+<li><p>Type-safe with dispatch for visitor patterns</p></li>
+</ul>
+</dd>
+<dt><strong>Node Hierarchy:</strong></dt><dd><ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">PythonASTNode</span></code> - Root of all AST nodes</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">Expression</span></code> - Nodes that compute values</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">Statement</span></code> - Nodes that perform actions</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">Reference</span></code> - Nodes that reference values</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">ControlFlow</span></code> - Control flow statements</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">BaseCode</span></code> - Function and method definitions</p></li>
+</ul>
+</dd>
+</dl>
+</section>
+<section id="reference-nodes">
+<h2>Reference Nodes<a class="headerlink" href="#reference-nodes" title="Link to this heading"></a></h2>
+<p><strong>Existing</strong>: Represents constant Python objects (literals, constants)</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.language.python</span><span class="w"> </span><span class="kn">import</span> <span class="n">ast</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.language.python.program</span><span class="w"> </span><span class="kn">import</span> <span class="n">Object</span>
+
+<span class="n">const</span> <span class="o">=</span> <span class="n">ast</span><span class="o">.</span><span class="n">Existing</span><span class="p">(</span><span class="n">Object</span><span class="p">(</span><span class="mi">42</span><span class="p">))</span>
+<span class="c1"># Properties: object, isPure(), constantValue()</span>
+</pre></div>
+</div>
+<p><strong>Local</strong>: Represents local variables or function parameters</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">local</span> <span class="o">=</span> <span class="n">ast</span><span class="o">.</span><span class="n">Local</span><span class="p">(</span><span class="s2">&quot;x&quot;</span><span class="p">)</span>  <span class="c1"># name can be None for anonymous</span>
+<span class="c1"># Properties: name, isPure()</span>
+<span class="c1"># Important: Local nodes are shared (same object = same variable)</span>
+</pre></div>
+</div>
+<p><strong>DoNotCare</strong>: Wildcard value for pattern matching</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">wildcard</span> <span class="o">=</span> <span class="n">ast</span><span class="o">.</span><span class="n">DoNotCare</span><span class="p">()</span>
+</pre></div>
+</div>
+</section>
+<section id="expression-nodes">
+<h2>Expression Nodes<a class="headerlink" href="#expression-nodes" title="Link to this heading"></a></h2>
+<p><strong>Call</strong>: Function call with dynamic dispatch</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">call</span> <span class="o">=</span> <span class="n">ast</span><span class="o">.</span><span class="n">Call</span><span class="p">(</span><span class="n">expr</span><span class="o">=</span><span class="n">func_expr</span><span class="p">,</span> <span class="n">args</span><span class="o">=</span><span class="p">[</span><span class="n">arg1</span><span class="p">],</span> <span class="n">kwds</span><span class="o">=</span><span class="p">[],</span> <span class="n">vargs</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">kargs</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
+</pre></div>
+</div>
+<p><strong>DirectCall</strong>: Direct call to known function (created by optimization)</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">direct</span> <span class="o">=</span> <span class="n">ast</span><span class="o">.</span><span class="n">DirectCall</span><span class="p">(</span><span class="n">code</span><span class="o">=</span><span class="n">func_code</span><span class="p">,</span> <span class="n">selfarg</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">args</span><span class="o">=</span><span class="p">[</span><span class="n">arg1</span><span class="p">],</span> <span class="n">kwds</span><span class="o">=</span><span class="p">[],</span> <span class="n">vargs</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">kargs</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
+</pre></div>
+</div>
+<p><strong>MethodCall</strong>: Method call with known method name</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">method</span> <span class="o">=</span> <span class="n">ast</span><span class="o">.</span><span class="n">MethodCall</span><span class="p">(</span><span class="n">expr</span><span class="o">=</span><span class="n">obj_expr</span><span class="p">,</span> <span class="n">name</span><span class="o">=</span><span class="n">name_expr</span><span class="p">,</span> <span class="n">args</span><span class="o">=</span><span class="p">[</span><span class="n">arg1</span><span class="p">],</span> <span class="n">kwds</span><span class="o">=</span><span class="p">[],</span> <span class="n">vargs</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">kargs</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
+</pre></div>
+</div>
+<p><strong>BinaryOp / UnaryPrefixOp</strong>: Arithmetic and logical operations</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">add</span> <span class="o">=</span> <span class="n">ast</span><span class="o">.</span><span class="n">BinaryOp</span><span class="p">(</span><span class="n">left</span><span class="o">=</span><span class="n">left_expr</span><span class="p">,</span> <span class="n">op</span><span class="o">=</span><span class="s2">&quot;+&quot;</span><span class="p">,</span> <span class="n">right</span><span class="o">=</span><span class="n">right_expr</span><span class="p">)</span>
+<span class="n">neg</span> <span class="o">=</span> <span class="n">ast</span><span class="o">.</span><span class="n">UnaryPrefixOp</span><span class="p">(</span><span class="n">op</span><span class="o">=</span><span class="s2">&quot;-&quot;</span><span class="p">,</span> <span class="n">expr</span><span class="o">=</span><span class="n">expr</span><span class="p">)</span>
+<span class="c1"># Operators: +, -, *, /, //, %, **, &amp;, |, ^, &lt;&lt;, &gt;&gt;, ==, !=, &lt;, &lt;=, &gt;, &gt;=</span>
+</pre></div>
+</div>
+<p><strong>GetAttr / SetAttr</strong>: Attribute access and modification</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">get_attr</span> <span class="o">=</span> <span class="n">ast</span><span class="o">.</span><span class="n">GetAttr</span><span class="p">(</span><span class="n">expr</span><span class="o">=</span><span class="n">obj_expr</span><span class="p">,</span> <span class="n">name</span><span class="o">=</span><span class="n">name_expr</span><span class="p">)</span>
+<span class="n">set_attr</span> <span class="o">=</span> <span class="n">ast</span><span class="o">.</span><span class="n">SetAttr</span><span class="p">(</span><span class="n">value</span><span class="o">=</span><span class="n">value_expr</span><span class="p">,</span> <span class="n">expr</span><span class="o">=</span><span class="n">obj_expr</span><span class="p">,</span> <span class="n">name</span><span class="o">=</span><span class="n">name_expr</span><span class="p">)</span>
+</pre></div>
+</div>
+<p><strong>GetSubscript / SetSubscript</strong>: Indexing operations</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">get_sub</span> <span class="o">=</span> <span class="n">ast</span><span class="o">.</span><span class="n">GetSubscript</span><span class="p">(</span><span class="n">expr</span><span class="o">=</span><span class="n">obj_expr</span><span class="p">,</span> <span class="n">subscript</span><span class="o">=</span><span class="n">index_expr</span><span class="p">)</span>
+<span class="n">set_sub</span> <span class="o">=</span> <span class="n">ast</span><span class="o">.</span><span class="n">SetSubscript</span><span class="p">(</span><span class="n">value</span><span class="o">=</span><span class="n">value_expr</span><span class="p">,</span> <span class="n">expr</span><span class="o">=</span><span class="n">obj_expr</span><span class="p">,</span> <span class="n">subscript</span><span class="o">=</span><span class="n">index_expr</span><span class="p">)</span>
+</pre></div>
+</div>
+<p><strong>Container Construction</strong>: <code class="docutils literal notranslate"><span class="pre">BuildTuple([expr1,</span> <span class="pre">expr2])</span></code>, <code class="docutils literal notranslate"><span class="pre">BuildList([expr1,</span> <span class="pre">expr2])</span></code>, <code class="docutils literal notranslate"><span class="pre">BuildMap()</span></code></p>
+</section>
+<section id="statement-nodes">
+<h2>Statement Nodes<a class="headerlink" href="#statement-nodes" title="Link to this heading"></a></h2>
+<p><strong>Assign</strong>: Variable assignment (supports multiple assignment)</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">assign</span> <span class="o">=</span> <span class="n">ast</span><span class="o">.</span><span class="n">Assign</span><span class="p">(</span><span class="n">expr</span><span class="o">=</span><span class="n">value_expr</span><span class="p">,</span> <span class="n">lcls</span><span class="o">=</span><span class="p">[</span><span class="n">local1</span><span class="p">,</span> <span class="n">local2</span><span class="p">])</span>
+</pre></div>
+</div>
+<p><strong>Return</strong>: Function return (Python allows multiple returns)</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">return_node</span> <span class="o">=</span> <span class="n">ast</span><span class="o">.</span><span class="n">Return</span><span class="p">([</span><span class="n">expr1</span><span class="p">,</span> <span class="n">expr2</span><span class="p">])</span>
+</pre></div>
+</div>
+<p><strong>Discard</strong>: Expression statement (side effects only)</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">discard</span> <span class="o">=</span> <span class="n">ast</span><span class="o">.</span><span class="n">Discard</span><span class="p">(</span><span class="n">expr</span><span class="p">)</span>
+</pre></div>
+</div>
+<p><strong>Delete</strong>: Variable deletion</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">delete</span> <span class="o">=</span> <span class="n">ast</span><span class="o">.</span><span class="n">Delete</span><span class="p">(</span><span class="n">local</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="control-flow-nodes">
+<h2>Control Flow Nodes<a class="headerlink" href="#control-flow-nodes" title="Link to this heading"></a></h2>
+<p><strong>Switch</strong>: Conditional execution (if/else)</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">switch</span> <span class="o">=</span> <span class="n">ast</span><span class="o">.</span><span class="n">Switch</span><span class="p">(</span>
+    <span class="n">condition</span><span class="o">=</span><span class="n">ast</span><span class="o">.</span><span class="n">Condition</span><span class="p">(</span><span class="n">preamble</span><span class="o">=</span><span class="n">ast</span><span class="o">.</span><span class="n">Suite</span><span class="p">([]),</span> <span class="n">conditional</span><span class="o">=</span><span class="n">cond_expr</span><span class="p">),</span>
+    <span class="n">t</span><span class="o">=</span><span class="n">then_suite</span><span class="p">,</span>
+    <span class="n">f</span><span class="o">=</span><span class="n">else_suite</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+<p><strong>While</strong>: While loops</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">while_loop</span> <span class="o">=</span> <span class="n">ast</span><span class="o">.</span><span class="n">While</span><span class="p">(</span>
+    <span class="n">condition</span><span class="o">=</span><span class="n">ast</span><span class="o">.</span><span class="n">Condition</span><span class="p">(</span><span class="n">preamble</span><span class="o">=</span><span class="n">ast</span><span class="o">.</span><span class="n">Suite</span><span class="p">([]),</span> <span class="n">conditional</span><span class="o">=</span><span class="n">cond_expr</span><span class="p">),</span>
+    <span class="n">body</span><span class="o">=</span><span class="n">body_suite</span><span class="p">,</span>
+    <span class="n">else_</span><span class="o">=</span><span class="n">else_suite</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+<p><strong>For</strong>: For loops</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">for_loop</span> <span class="o">=</span> <span class="n">ast</span><span class="o">.</span><span class="n">For</span><span class="p">(</span>
+    <span class="n">iterator</span><span class="o">=</span><span class="n">iter_expr</span><span class="p">,</span>
+    <span class="n">index</span><span class="o">=</span><span class="n">index_local</span><span class="p">,</span>
+    <span class="n">loopPreamble</span><span class="o">=</span><span class="n">ast</span><span class="o">.</span><span class="n">Suite</span><span class="p">([]),</span>
+    <span class="n">bodyPreamble</span><span class="o">=</span><span class="n">ast</span><span class="o">.</span><span class="n">Suite</span><span class="p">([]),</span>
+    <span class="n">body</span><span class="o">=</span><span class="n">body_suite</span><span class="p">,</span>
+    <span class="n">else_</span><span class="o">=</span><span class="n">else_suite</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+<p><strong>TryExceptFinally</strong>: Exception handling</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">try_node</span> <span class="o">=</span> <span class="n">ast</span><span class="o">.</span><span class="n">TryExceptFinally</span><span class="p">(</span>
+    <span class="n">body</span><span class="o">=</span><span class="n">try_suite</span><span class="p">,</span>
+    <span class="n">handlers</span><span class="o">=</span><span class="p">[</span><span class="n">ast</span><span class="o">.</span><span class="n">ExceptionHandler</span><span class="p">(</span><span class="n">preamble</span><span class="o">=</span><span class="n">ast</span><span class="o">.</span><span class="n">Suite</span><span class="p">([]),</span> <span class="nb">type</span><span class="o">=</span><span class="n">exc_type_expr</span><span class="p">,</span> <span class="n">value</span><span class="o">=</span><span class="n">exc_value_local</span><span class="p">,</span> <span class="n">body</span><span class="o">=</span><span class="n">handler_suite</span><span class="p">)],</span>
+    <span class="n">defaultHandler</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+    <span class="n">else_</span><span class="o">=</span><span class="n">else_suite</span><span class="p">,</span>
+    <span class="n">finally_</span><span class="o">=</span><span class="n">finally_suite</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+<p><strong>Break / Continue</strong>: Loop control statements</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">break_node</span> <span class="o">=</span> <span class="n">ast</span><span class="o">.</span><span class="n">Break</span><span class="p">()</span>
+<span class="n">continue_node</span> <span class="o">=</span> <span class="n">ast</span><span class="o">.</span><span class="n">Continue</span><span class="p">()</span>
+</pre></div>
+</div>
+</section>
+<section id="code-nodes">
+<h2>Code Nodes<a class="headerlink" href="#code-nodes" title="Link to this heading"></a></h2>
+<p><strong>Code</strong>: Function or method definition</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">code</span> <span class="o">=</span> <span class="n">ast</span><span class="o">.</span><span class="n">Code</span><span class="p">(</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;function_name&quot;</span><span class="p">,</span>
+    <span class="n">codeparameters</span><span class="o">=</span><span class="n">ast</span><span class="o">.</span><span class="n">CodeParameters</span><span class="p">(</span>
+        <span class="n">selfparam</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+        <span class="n">params</span><span class="o">=</span><span class="p">[</span><span class="n">ast</span><span class="o">.</span><span class="n">Local</span><span class="p">(</span><span class="s2">&quot;x&quot;</span><span class="p">),</span> <span class="n">ast</span><span class="o">.</span><span class="n">Local</span><span class="p">(</span><span class="s2">&quot;y&quot;</span><span class="p">)],</span>
+        <span class="n">paramnames</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;x&quot;</span><span class="p">,</span> <span class="s2">&quot;y&quot;</span><span class="p">],</span>
+        <span class="n">defaults</span><span class="o">=</span><span class="p">[],</span>
+        <span class="n">vparam</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+        <span class="n">kparam</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+        <span class="n">returnparams</span><span class="o">=</span><span class="p">[</span><span class="n">ast</span><span class="o">.</span><span class="n">Local</span><span class="p">(</span><span class="s2">&quot;ret0&quot;</span><span class="p">)]</span>
+    <span class="p">),</span>
+    <span class="n">ast</span><span class="o">=</span><span class="n">body_suite</span>
+<span class="p">)</span>
+<span class="c1"># Properties: name, codeparameters, ast, annotation (CodeAnnotation)</span>
+</pre></div>
+</div>
+<p><strong>FunctionDef</strong>: Function definition with decorators</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">func_def</span> <span class="o">=</span> <span class="n">ast</span><span class="o">.</span><span class="n">FunctionDef</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;function_name&quot;</span><span class="p">,</span> <span class="n">code</span><span class="o">=</span><span class="n">code_node</span><span class="p">,</span> <span class="n">decorators</span><span class="o">=</span><span class="p">[</span><span class="n">decor1</span><span class="p">])</span>
+</pre></div>
+</div>
+<p><strong>ClassDef</strong>: Class definition</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">class_def</span> <span class="o">=</span> <span class="n">ast</span><span class="o">.</span><span class="n">ClassDef</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;ClassName&quot;</span><span class="p">,</span> <span class="n">bases</span><span class="o">=</span><span class="p">[</span><span class="n">base1</span><span class="p">],</span> <span class="n">body</span><span class="o">=</span><span class="n">body_suite</span><span class="p">,</span> <span class="n">decorators</span><span class="o">=</span><span class="p">[</span><span class="n">decor1</span><span class="p">])</span>
+</pre></div>
+</div>
+</section>
+<section id="suite-and-annotations">
+<h2>Suite and Annotations<a class="headerlink" href="#suite-and-annotations" title="Link to this heading"></a></h2>
+<p><strong>Suite</strong>: Sequence of statements</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">suite</span> <span class="o">=</span> <span class="n">ast</span><span class="o">.</span><span class="n">Suite</span><span class="p">([</span><span class="n">statement1</span><span class="p">,</span> <span class="n">statement2</span><span class="p">])</span>
+<span class="c1"># Properties: blocks (list of Statement nodes)</span>
+<span class="c1"># Methods: append(), insertHead()</span>
+</pre></div>
+</div>
+<p><strong>Annotations</strong>: AST nodes carry analysis results via the <code class="docutils literal notranslate"><span class="pre">annotation</span></code> attribute</p>
+<ul class="simple">
+<li><p><strong>CodeAnnotation</strong> (on Code nodes): Context-sensitive results, live variables, read/modify/allocate sets</p></li>
+<li><p><strong>OpAnnotation</strong> (on Expression/Statement nodes): Operation-level results, invocation information</p></li>
+<li><p><strong>SlotAnnotation</strong> (on Reference nodes): Variable reference tracking</p></li>
+</ul>
+</section>
+<section id="node-properties">
+<h2>Node Properties<a class="headerlink" href="#node-properties" title="Link to this heading"></a></h2>
+<p>Common methods on AST nodes:</p>
+<p><strong>Type Queries</strong>: <code class="docutils literal notranslate"><span class="pre">isPure()</span></code>, <code class="docutils literal notranslate"><span class="pre">returnsValue()</span></code>, <code class="docutils literal notranslate"><span class="pre">alwaysReturnsBoolean()</span></code>, <code class="docutils literal notranslate"><span class="pre">isControlFlow()</span></code>, <code class="docutils literal notranslate"><span class="pre">isReference()</span></code>, <code class="docutils literal notranslate"><span class="pre">isCode()</span></code></p>
+<p><strong>Traversal</strong>: <code class="docutils literal notranslate"><span class="pre">visitChildren(visitor)</span></code>, <code class="docutils literal notranslate"><span class="pre">visitChildrenReversed(visitor)</span></code>, <code class="docutils literal notranslate"><span class="pre">visitChildrenForcedArgs(visitor,</span> <span class="pre">force)</span></code></p>
+<p><strong>Transformation</strong>: <code class="docutils literal notranslate"><span class="pre">clone()</span></code>, <code class="docutils literal notranslate"><span class="pre">rewrite(**kwargs)</span></code></p>
+</section>
+<section id="usage-examples">
+<h2>Usage Examples<a class="headerlink" href="#usage-examples" title="Link to this heading"></a></h2>
+<section id="creating-a-simple-function">
+<h3>Creating a Simple Function<a class="headerlink" href="#creating-a-simple-function" title="Link to this heading"></a></h3>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.language.python</span><span class="w"> </span><span class="kn">import</span> <span class="n">ast</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.language.python.program</span><span class="w"> </span><span class="kn">import</span> <span class="n">Object</span>
+
+<span class="n">params</span> <span class="o">=</span> <span class="n">ast</span><span class="o">.</span><span class="n">CodeParameters</span><span class="p">(</span>
+    <span class="n">selfparam</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+    <span class="n">params</span><span class="o">=</span><span class="p">[</span><span class="n">ast</span><span class="o">.</span><span class="n">Local</span><span class="p">(</span><span class="s2">&quot;x&quot;</span><span class="p">),</span> <span class="n">ast</span><span class="o">.</span><span class="n">Local</span><span class="p">(</span><span class="s2">&quot;y&quot;</span><span class="p">)],</span>
+    <span class="n">paramnames</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;x&quot;</span><span class="p">,</span> <span class="s2">&quot;y&quot;</span><span class="p">],</span>
+    <span class="n">defaults</span><span class="o">=</span><span class="p">[],</span>
+    <span class="n">vparam</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+    <span class="n">kparam</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+    <span class="n">returnparams</span><span class="o">=</span><span class="p">[</span><span class="n">ast</span><span class="o">.</span><span class="n">Local</span><span class="p">(</span><span class="s2">&quot;ret0&quot;</span><span class="p">)]</span>
+<span class="p">)</span>
+
+<span class="n">body</span> <span class="o">=</span> <span class="n">ast</span><span class="o">.</span><span class="n">Suite</span><span class="p">([</span>
+    <span class="n">ast</span><span class="o">.</span><span class="n">Return</span><span class="p">([</span>
+        <span class="n">ast</span><span class="o">.</span><span class="n">BinaryOp</span><span class="p">(</span><span class="n">left</span><span class="o">=</span><span class="n">ast</span><span class="o">.</span><span class="n">Local</span><span class="p">(</span><span class="s2">&quot;x&quot;</span><span class="p">),</span> <span class="n">op</span><span class="o">=</span><span class="s2">&quot;+&quot;</span><span class="p">,</span> <span class="n">right</span><span class="o">=</span><span class="n">ast</span><span class="o">.</span><span class="n">Local</span><span class="p">(</span><span class="s2">&quot;y&quot;</span><span class="p">))</span>
+    <span class="p">])</span>
+<span class="p">])</span>
+
+<span class="n">code</span> <span class="o">=</span> <span class="n">ast</span><span class="o">.</span><span class="n">Code</span><span class="p">(</span><span class="s2">&quot;add&quot;</span><span class="p">,</span> <span class="n">params</span><span class="p">,</span> <span class="n">body</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="creating-control-flow">
+<h3>Creating Control Flow<a class="headerlink" href="#creating-control-flow" title="Link to this heading"></a></h3>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">condition</span> <span class="o">=</span> <span class="n">ast</span><span class="o">.</span><span class="n">Condition</span><span class="p">(</span>
+    <span class="n">preamble</span><span class="o">=</span><span class="n">ast</span><span class="o">.</span><span class="n">Suite</span><span class="p">([]),</span>
+    <span class="n">conditional</span><span class="o">=</span><span class="n">ast</span><span class="o">.</span><span class="n">BinaryOp</span><span class="p">(</span><span class="n">left</span><span class="o">=</span><span class="n">ast</span><span class="o">.</span><span class="n">Local</span><span class="p">(</span><span class="s2">&quot;x&quot;</span><span class="p">),</span> <span class="n">op</span><span class="o">=</span><span class="s2">&quot;&gt;&quot;</span><span class="p">,</span> <span class="n">right</span><span class="o">=</span><span class="n">ast</span><span class="o">.</span><span class="n">Existing</span><span class="p">(</span><span class="n">Object</span><span class="p">(</span><span class="mi">0</span><span class="p">)))</span>
+<span class="p">)</span>
+
+<span class="n">switch</span> <span class="o">=</span> <span class="n">ast</span><span class="o">.</span><span class="n">Switch</span><span class="p">(</span>
+    <span class="n">condition</span><span class="o">=</span><span class="n">condition</span><span class="p">,</span>
+    <span class="n">t</span><span class="o">=</span><span class="n">ast</span><span class="o">.</span><span class="n">Suite</span><span class="p">([</span><span class="n">ast</span><span class="o">.</span><span class="n">Return</span><span class="p">([</span><span class="n">ast</span><span class="o">.</span><span class="n">Local</span><span class="p">(</span><span class="s2">&quot;x&quot;</span><span class="p">)])]),</span>
+    <span class="n">f</span><span class="o">=</span><span class="n">ast</span><span class="o">.</span><span class="n">Suite</span><span class="p">([</span><span class="n">ast</span><span class="o">.</span><span class="n">Return</span><span class="p">([</span><span class="n">ast</span><span class="o">.</span><span class="n">Existing</span><span class="p">(</span><span class="n">Object</span><span class="p">(</span><span class="mi">0</span><span class="p">))])])</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="see-also">
+<h2>See Also<a class="headerlink" href="#see-also" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p><a class="reference internal" href="frontend.html"><span class="doc">Frontend Module</span></a> - How Python code is converted to this AST</p></li>
+<li><p><a class="reference internal" href="index.html"><span class="doc">Language Module</span></a> - Language module overview</p></li>
+<li><p><a class="reference internal" href="../analysis/index.html"><span class="doc">Analysis Modules</span></a> - Analysis passes operating on AST</p></li>
+<li><p><a class="reference internal" href="../optimization/index.html"><span class="doc">Optimizing Python Programs</span></a> - Optimizations transforming AST</p></li>
+</ul>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="index.html" class="btn btn-neutral float-left" title="Language Module" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="frontend.html" class="btn btn-neutral float-right" title="Frontend Module" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, rainoftime.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

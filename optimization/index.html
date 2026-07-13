@@ -8,7 +8,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Optimizing Python Programs &mdash; pyflow 0.1.0 documentation</title>
       <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
-      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=e59714d7" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=9edc463e" />
 
   
       <script src="../_static/jquery.js?v=5d32c60e"></script>
@@ -19,8 +19,8 @@
     <script src="../_static/js/theme.js"></script>
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="Security Analysis and Checking" href="../checker/sec.html" />
-    <link rel="prev" title="Analysis Modules" href="../analysis/index.html" /> 
+    <link rel="next" title="Constant Folding and Propagation" href="constant-folding.html" />
+    <link rel="prev" title="Incremental Analysis Cache" href="../analysis/incremental.html" /> 
 </head>
 
 <body class="wy-body-for-nav"> 
@@ -42,25 +42,59 @@
   </form>
 </div>
         </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
-              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
-<ul class="current">
+              <p class="caption" role="heading"><span class="caption-text">Getting Started</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../tutorials/index.html">Tutorials</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../overview.html">Overview</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../cli.html">Command Line Interface</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../cli.html#main-commands">Main Commands</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#what-is-pyflow">What is PyFlow?</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#key-features">Key Features</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#architecture">Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#repository-status-in-practice">Repository status in practice</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">How-to Guides</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../how-to/index.html">How-to Guides</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Explanations</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../explanation/index.html">Explanations</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">A3 Python</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../a3_python/index.html"><code class="docutils literal notranslate"><span class="pre">a3_python</span></code></a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Reference</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../cli.html">Main Commands</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../cli.html#global-options">Global Options</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../cli.html#configuration">Configuration</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../cli.html#integration">Integration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../api.html">PyFlow API</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../analysis/index.html">Analysis Modules</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#overview">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#analysis-configuration">Analysis Configuration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#running-analyses">Running Analyses</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#analysis-results">Analysis Results</a></li>
 <li class="toctree-l1 current"><a class="current reference internal" href="#">Optimizing Python Programs</a></li>
-<li class="toctree-l1"><a class="reference internal" href="#optimization-categories">Optimization Categories</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="#constant-folding-and-propagation">Constant Folding and Propagation</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#data-flow-optimizations">Data Flow Optimizations</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#control-flow-optimizations">Control Flow Optimizations</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#function-and-method-optimizations">Function and Method Optimizations</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#advanced-optimizations">Advanced Optimizations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="#overview">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="#optimization-categories">Optimization Categories</a></li>
+<li class="toctree-l1"><a class="reference internal" href="#optimization-pipeline">Optimization Pipeline</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#pass-dependencies">Pass Dependencies</a></li>
 </ul>
 </li>
-<li class="toctree-l1"><a class="reference internal" href="#optimization-pipeline">Optimization Pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="#usage">Usage</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#cli-usage">CLI Usage</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#programmatic-usage">Programmatic Usage</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#pass-manager">Pass Manager</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="constant-folding.html">Constant Folding and Propagation</a></li>
+<li class="toctree-l3"><a class="reference internal" href="dataflow.html">Data Flow Optimizations</a></li>
+<li class="toctree-l3"><a class="reference internal" href="control-flow.html">Control Flow Optimizations</a></li>
+<li class="toctree-l3"><a class="reference internal" href="function-optimizations.html">Function and Method Optimizations</a></li>
+<li class="toctree-l3"><a class="reference internal" href="advanced.html">Advanced Optimizations</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../lang/index.html">Language Module</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../checker/sec.html">Security Analysis and Checking</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#checker-categories">Checker Categories</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#analysis-framework">Analysis Framework</a></li>
@@ -93,101 +127,152 @@
              
   <section id="optimizing-python-programs">
 <h1>Optimizing Python Programs<a class="headerlink" href="#optimizing-python-programs" title="Link to this heading"></a></h1>
-<p>PyFlow provides a comprehensive suite of optimization passes that transform Python code for better performance, smaller size, and improved efficiency.</p>
+<p>PyFlow provides a comprehensive suite of optimization passes that transform Python code for better performance, smaller size, and improved efficiency. These optimizations leverage static analysis to make conservative transformations, with some passes remaining explicitly experimental.</p>
+</section>
+<section id="overview">
+<h1>Overview<a class="headerlink" href="#overview" title="Link to this heading"></a></h1>
+<p>PyFlow’s optimization system operates on an intermediate representation (IR) of Python code, allowing for sophisticated transformations. The optimizations are organized into categories:</p>
+<ul class="simple">
+<li><p><a class="reference internal" href="constant-folding.html"><span class="doc">Constant Folding and Propagation</span></a> - Compile-time evaluation and constant propagation</p></li>
+<li><p><a class="reference internal" href="dataflow.html"><span class="doc">Data Flow Optimizations</span></a> - Data flow analysis and memory optimizations</p></li>
+<li><p><a class="reference internal" href="control-flow.html"><span class="doc">Control Flow Optimizations</span></a> - Control flow simplification and dead code removal</p></li>
+<li><p><a class="reference internal" href="function-optimizations.html"><span class="doc">Function and Method Optimizations</span></a> - Inlining, method call optimization, and specialization</p></li>
+<li><p><a class="reference internal" href="advanced.html"><span class="doc">Advanced Optimizations</span></a> - Advanced transformations and code rewriting</p></li>
+</ul>
 </section>
 <section id="optimization-categories">
 <h1>Optimization Categories<a class="headerlink" href="#optimization-categories" title="Link to this heading"></a></h1>
-<section id="constant-folding-and-propagation">
-<h2>Constant Folding and Propagation<a class="headerlink" href="#constant-folding-and-propagation" title="Link to this heading"></a></h2>
-<p><strong>fold.py</strong>: Compile-time evaluation of constant expressions
-- Arithmetic operations on constants
-- String concatenation and manipulation
-- Boolean expression simplification
-- Built-in function evaluation</p>
-<p><strong>dce.py</strong>: Dead code elimination
-- Removal of unreachable code blocks
-- Elimination of unused variable assignments
-- Conditional dead code removal</p>
-</section>
-<section id="data-flow-optimizations">
-<h2>Data Flow Optimizations<a class="headerlink" href="#data-flow-optimizations" title="Link to this heading"></a></h2>
-<p><strong>dataflow/base.py, forward.py, reverse.py</strong>: Data flow analysis framework
-- Forward data flow analysis for reaching definitions
-- Backward data flow analysis for live variables
-- Configurable meet functions and transfer functions</p>
-<p><strong>loadelimination.py</strong>: Redundant load elimination
-- Common subexpression elimination for loads
-- Store-load forwarding
-- Memory access optimization</p>
-<p><strong>storeelimination.py</strong>: Dead store elimination
-- Removal of stores to dead variables
-- Store-load dependency analysis
-- Memory write optimization</p>
-</section>
-<section id="control-flow-optimizations">
-<h2>Control Flow Optimizations<a class="headerlink" href="#control-flow-optimizations" title="Link to this heading"></a></h2>
-<p><strong>simplify.py</strong>: Control flow simplification
-- Basic block merging
-- Jump optimization
-- Conditional simplification</p>
-<p><strong>cullprogram.py</strong>: Program culling
-- Removal of unused functions and classes
-- Dead module elimination
-- Import optimization</p>
-</section>
-<section id="function-and-method-optimizations">
-<h2>Function and Method Optimizations<a class="headerlink" href="#function-and-method-optimizations" title="Link to this heading"></a></h2>
-<p><strong>codeinlining.py</strong>: Function inlining
-- Small function inlining for performance
-- Context-sensitive inlining decisions
-- Recursion handling</p>
-<p><strong>methodcall.py</strong>: Method call optimization
-- Virtual method call elimination
-- Direct call conversion
-- Polymorphism optimization</p>
-<p><strong>argumentnormalization.py</strong>: Argument handling optimization
-- Default argument optimization
-- Keyword argument normalization
-- Call site optimization</p>
-</section>
-<section id="advanced-optimizations">
-<h2>Advanced Optimizations<a class="headerlink" href="#advanced-optimizations" title="Link to this heading"></a></h2>
-<p><strong>callconverter.py</strong>: Call conversion
-- Builtin function call optimization
-- Library call specialization
-- Foreign function interface optimization</p>
-<p><strong>convertboolelimination.py</strong>: Boolean conversion elimination
-- Unnecessary boolean conversions
-- Type coercion optimization</p>
-<p><strong>rewrite.py</strong>: General code rewriting
-- Pattern-based transformations
-- AST-level code modifications</p>
-<p><strong>termrewrite.py</strong>: Term rewriting
-- Algebraic simplifications
-- Expression normalization</p>
-<p><strong>clone.py</strong>: Code cloning for specialization
-- Function specialization
-- Context-specific code generation</p>
-</section>
+<dl class="simple">
+<dt><strong>Constant Folding and Propagation</strong> (fold.py, dce.py, simplify.py)</dt><dd><p>Compile-time evaluation of constant expressions, dead code elimination, and iterative simplification.</p>
+</dd>
+<dt><strong>Data Flow Optimizations</strong> (dataflow/<a href="#id1"><span class="problematic" id="id2">*</span></a>.py, loadelimination.py, storeelimination.py)</dt><dd><p>Forward/backward data flow analysis for reaching definitions, live variables, redundant load elimination, and dead store elimination.</p>
+</dd>
+<dt><strong>Control Flow Optimizations</strong> (simplify.py, cullprogram.py)</dt><dd><p>Basic block merging, jump optimization, unreachable code removal, and unused function/class elimination.</p>
+</dd>
+<dt><strong>Function and Method Optimizations</strong> (codeinlining.py, methodcall.py, argumentnormalization.py, clone.py)</dt><dd><p>Function inlining, virtual method call elimination, argument normalization, and context-specific code cloning.</p>
+</dd>
+<dt><strong>Advanced Optimizations</strong> (callconverter.py, convertboolelimination.py, rewrite.py, termrewrite.py)</dt><dd><p>Call conversion, boolean elimination, algebraic simplifications, and pattern-based code rewriting.</p>
+</dd>
+</dl>
 </section>
 <section id="optimization-pipeline">
 <h1>Optimization Pipeline<a class="headerlink" href="#optimization-pipeline" title="Link to this heading"></a></h1>
-<p>PyFlow’s optimization pipeline applies transformations in phases:</p>
+<p>PyFlow applies optimizations in phases:</p>
 <ol class="arabic simple">
-<li><p><strong>Analysis Phase</strong>: Gather information about the program</p></li>
-<li><p><strong>Simplification Phase</strong>: Basic optimizations and cleanup</p></li>
-<li><p><strong>Advanced Phase</strong>: Complex transformations requiring analysis</p></li>
-<li><p><strong>Finalization Phase</strong>: Code generation and output</p></li>
+<li><p><strong>Analysis Phase</strong>: IPA, CPA, lifetime analysis</p></li>
+<li><p><strong>Simplification Phase</strong>: Constant folding, dead code elimination, control flow simplification</p></li>
+<li><p><strong>Advanced Phase</strong>: Method optimization, code cloning, argument normalization, optional experimental inlining</p></li>
+<li><p><strong>Finalization Phase</strong>: Program culling, dead store elimination, optional redundant load elimination</p></li>
 </ol>
-<p>Each optimization pass can be enabled/disabled and configured independently.</p>
+<section id="pass-dependencies">
+<h2>Pass Dependencies<a class="headerlink" href="#pass-dependencies" title="Link to this heading"></a></h2>
+<p>Key dependencies ensure correct ordering:
+- IPA → CPA → most optimizations
+- Simplify → clone, argument normalization, cull program
+- Lifetime analysis runs early</p>
+</section>
+</section>
+<section id="usage">
+<h1>Usage<a class="headerlink" href="#usage" title="Link to this heading"></a></h1>
+<section id="cli-usage">
+<h2>CLI Usage<a class="headerlink" href="#cli-usage" title="Link to this heading"></a></h2>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Run all optimizations</span>
+pyflow<span class="w"> </span>optimize<span class="w"> </span>input.py
+
+<span class="c1"># Run specific passes</span>
+pyflow<span class="w"> </span>optimize<span class="w"> </span>input.py<span class="w"> </span>--opt-passes<span class="w"> </span>simplify<span class="w"> </span>methodcall<span class="w"> </span>clone
+
+<span class="c1"># List available passes</span>
+pyflow<span class="w"> </span>optimize<span class="w"> </span>--list-opt-passes
+</pre></div>
+</div>
+</section>
+<section id="programmatic-usage">
+<h2>Programmatic Usage<a class="headerlink" href="#programmatic-usage" title="Link to this heading"></a></h2>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.optimization</span><span class="w"> </span><span class="kn">import</span> <span class="n">simplify</span><span class="p">,</span> <span class="n">methodcall</span><span class="p">,</span> <span class="n">clone</span>
+
+<span class="c1"># Run individual passes</span>
+<span class="n">simplify</span><span class="o">.</span><span class="n">evaluate</span><span class="p">(</span><span class="n">compiler</span><span class="p">,</span> <span class="n">program</span><span class="p">)</span>
+<span class="n">methodcall</span><span class="o">.</span><span class="n">evaluate</span><span class="p">(</span><span class="n">compiler</span><span class="p">,</span> <span class="n">program</span><span class="p">)</span>
+<span class="n">clone</span><span class="o">.</span><span class="n">evaluate</span><span class="p">(</span><span class="n">compiler</span><span class="p">,</span> <span class="n">program</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="pass-manager">
+<h2>Pass Manager<a class="headerlink" href="#pass-manager" title="Link to this heading"></a></h2>
+<p>For complex pipelines:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.application.passmanager</span><span class="w"> </span><span class="kn">import</span> <span class="n">PassManager</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.application.passes</span><span class="w"> </span><span class="kn">import</span> <span class="n">register_standard_passes</span>
+
+<span class="n">pass_manager</span> <span class="o">=</span> <span class="n">PassManager</span><span class="p">()</span>
+<span class="n">register_standard_passes</span><span class="p">(</span><span class="n">pass_manager</span><span class="p">)</span>
+<span class="n">pipeline</span> <span class="o">=</span> <span class="n">pass_manager</span><span class="o">.</span><span class="n">build_pipeline</span><span class="p">([</span>
+    <span class="s2">&quot;ipa&quot;</span><span class="p">,</span> <span class="s2">&quot;cpa&quot;</span><span class="p">,</span> <span class="s2">&quot;simplify&quot;</span><span class="p">,</span> <span class="s2">&quot;methodcall&quot;</span><span class="p">,</span> <span class="s2">&quot;clone&quot;</span>
+<span class="p">])</span>
+<span class="n">results</span> <span class="o">=</span> <span class="n">pass_manager</span><span class="o">.</span><span class="n">run_pipeline</span><span class="p">(</span><span class="n">compiler</span><span class="p">,</span> <span class="n">program</span><span class="p">,</span> <span class="n">pipeline</span><span class="p">)</span>
+</pre></div>
+</div>
+<div class="toctree-wrapper compound">
+<p class="caption" role="heading"><span class="caption-text">Detailed Documentation</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="constant-folding.html">Constant Folding and Propagation</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="constant-folding.html#overview">Overview</a></li>
+<li class="toctree-l2"><a class="reference internal" href="constant-folding.html#example-transformations">Example Transformations</a></li>
+<li class="toctree-l2"><a class="reference internal" href="constant-folding.html#implementation-details">Implementation Details</a></li>
+<li class="toctree-l2"><a class="reference internal" href="constant-folding.html#dead-code-elimination-dce-py">Dead Code Elimination (dce.py)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="constant-folding.html#limitations">Limitations</a></li>
+<li class="toctree-l2"><a class="reference internal" href="constant-folding.html#performance-impact">Performance Impact</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="dataflow.html">Data Flow Optimizations</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="dataflow.html#overview">Overview</a></li>
+<li class="toctree-l2"><a class="reference internal" href="dataflow.html#load-elimination-loadelimination-py">Load Elimination (loadelimination.py)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="dataflow.html#dead-store-elimination-storeelimination-py">Dead Store Elimination (storeelimination.py)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="dataflow.html#limitations">Limitations</a></li>
+<li class="toctree-l2"><a class="reference internal" href="dataflow.html#performance-impact">Performance Impact</a></li>
+<li class="toctree-l2"><a class="reference internal" href="dataflow.html#integration">Integration</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="control-flow.html">Control Flow Optimizations</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="control-flow.html#control-flow-simplification-simplify-py">Control Flow Simplification (simplify.py)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="control-flow.html#program-culling-cullprogram-py">Program Culling (cullprogram.py)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="control-flow.html#dead-code-elimination-dce-py">Dead Code Elimination (dce.py)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="control-flow.html#limitations">Limitations</a></li>
+<li class="toctree-l2"><a class="reference internal" href="control-flow.html#performance-impact">Performance Impact</a></li>
+<li class="toctree-l2"><a class="reference internal" href="control-flow.html#integration">Integration</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="function-optimizations.html">Function and Method Optimizations</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="function-optimizations.html#function-inlining-codeinlining-py">Function Inlining (codeinlining.py)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="function-optimizations.html#method-call-optimization-methodcall-py">Method Call Optimization (methodcall.py)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="function-optimizations.html#argument-normalization-argumentnormalization-py">Argument Normalization (argumentnormalization.py)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="function-optimizations.html#code-cloning-clone-py">Code Cloning (clone.py)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="function-optimizations.html#limitations">Limitations</a></li>
+<li class="toctree-l2"><a class="reference internal" href="function-optimizations.html#performance-impact">Performance Impact</a></li>
+<li class="toctree-l2"><a class="reference internal" href="function-optimizations.html#integration">Integration</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="advanced.html">Advanced Optimizations</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="advanced.html#call-conversion-callconverter-py">Call Conversion (callconverter.py)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="advanced.html#boolean-conversion-elimination-convertboolelimination-py">Boolean Conversion Elimination (convertboolelimination.py)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="advanced.html#term-rewriting-termrewrite-py">Term Rewriting (termrewrite.py)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="advanced.html#code-rewriting-framework-rewrite-py">Code Rewriting Framework (rewrite.py)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="advanced.html#limitations">Limitations</a></li>
+<li class="toctree-l2"><a class="reference internal" href="advanced.html#performance-impact">Performance Impact</a></li>
+<li class="toctree-l2"><a class="reference internal" href="advanced.html#best-practices">Best Practices</a></li>
+</ul>
+</li>
+</ul>
+</div>
+</section>
 </section>
 
 
            </div>
           </div>
           <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
-        <a href="../analysis/index.html" class="btn btn-neutral float-left" title="Analysis Modules" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
-        <a href="../checker/sec.html" class="btn btn-neutral float-right" title="Security Analysis and Checking" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+        <a href="../analysis/incremental.html" class="btn btn-neutral float-left" title="Incremental Analysis Cache" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="constant-folding.html" class="btn btn-neutral float-right" title="Constant Folding and Propagation" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
     </div>
 
   <hr/>

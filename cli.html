@@ -6,9 +6,9 @@
   <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Command Line Interface &mdash; pyflow 0.1.0 documentation</title>
+  <title>Main Commands &mdash; pyflow 0.1.0 documentation</title>
       <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=b86133f3" />
-      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=e59714d7" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=9edc463e" />
 
   
       <script src="_static/jquery.js?v=5d32c60e"></script>
@@ -19,8 +19,8 @@
     <script src="_static/js/theme.js"></script>
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" />
-    <link rel="next" title="Analysis Modules" href="analysis/index.html" />
-    <link rel="prev" title="Overview" href="overview.html" /> 
+    <link rel="next" title="PyFlow API" href="api.html" />
+    <link rel="prev" title="Package Map" href="a3_python/package-map.html" /> 
 </head>
 
 <body class="wy-body-for-nav"> 
@@ -42,11 +42,30 @@
   </form>
 </div>
         </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
-              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
-<ul class="current">
+              <p class="caption" role="heading"><span class="caption-text">Getting Started</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="tutorials/index.html">Tutorials</a></li>
 <li class="toctree-l1"><a class="reference internal" href="overview.html">Overview</a></li>
-<li class="toctree-l1 current"><a class="current reference internal" href="#">Command Line Interface</a></li>
-<li class="toctree-l1"><a class="reference internal" href="#main-commands">Main Commands</a><ul>
+<li class="toctree-l1"><a class="reference internal" href="overview.html#what-is-pyflow">What is PyFlow?</a></li>
+<li class="toctree-l1"><a class="reference internal" href="overview.html#key-features">Key Features</a></li>
+<li class="toctree-l1"><a class="reference internal" href="overview.html#architecture">Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="overview.html#repository-status-in-practice">Repository status in practice</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">How-to Guides</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="how-to/index.html">How-to Guides</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Explanations</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="explanation/index.html">Explanations</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">A3 Python</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="a3_python/index.html"><code class="docutils literal notranslate"><span class="pre">a3_python</span></code></a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Reference</span></p>
+<ul class="current">
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Main Commands</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="#analysis-commands">Analysis Commands</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="#pyflow-callgraph"><strong>pyflow callgraph</strong></a></li>
 <li class="toctree-l3"><a class="reference internal" href="#pyflow-ir"><strong>pyflow ir</strong></a></li>
@@ -57,22 +76,33 @@
 </ul>
 </li>
 <li class="toctree-l2"><a class="reference internal" href="#security-commands">Security Commands</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="#pyflow-check"><strong>pyflow check</strong></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#pyflow-security"><strong>pyflow security</strong></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#heap-command">Heap Command</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#pyflow-heap"><strong>pyflow heap</strong></a></li>
 </ul>
 </li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="#global-options">Global Options</a></li>
-<li class="toctree-l1"><a class="reference internal" href="#configuration">Configuration</a></li>
 <li class="toctree-l1"><a class="reference internal" href="#integration">Integration</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="#ci-cd-integration">CI/CD Integration</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#ide-integration">IDE Integration</a></li>
 </ul>
 </li>
+<li class="toctree-l1"><a class="reference internal" href="api.html">PyFlow API</a></li>
 <li class="toctree-l1"><a class="reference internal" href="analysis/index.html">Analysis Modules</a></li>
+<li class="toctree-l1"><a class="reference internal" href="analysis/index.html#overview">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="analysis/index.html#analysis-configuration">Analysis Configuration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="analysis/index.html#running-analyses">Running Analyses</a></li>
+<li class="toctree-l1"><a class="reference internal" href="analysis/index.html#analysis-results">Analysis Results</a></li>
 <li class="toctree-l1"><a class="reference internal" href="optimization/index.html">Optimizing Python Programs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="optimization/index.html#overview">Overview</a></li>
 <li class="toctree-l1"><a class="reference internal" href="optimization/index.html#optimization-categories">Optimization Categories</a></li>
 <li class="toctree-l1"><a class="reference internal" href="optimization/index.html#optimization-pipeline">Optimization Pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="optimization/index.html#usage">Usage</a></li>
+<li class="toctree-l1"><a class="reference internal" href="lang/index.html">Language Module</a></li>
 <li class="toctree-l1"><a class="reference internal" href="checker/sec.html">Security Analysis and Checking</a></li>
 <li class="toctree-l1"><a class="reference internal" href="checker/sec.html#checker-categories">Checker Categories</a></li>
 <li class="toctree-l1"><a class="reference internal" href="checker/sec.html#analysis-framework">Analysis Framework</a></li>
@@ -93,7 +123,7 @@
           <div role="navigation" aria-label="Page navigation">
   <ul class="wy-breadcrumbs">
       <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
-      <li class="breadcrumb-item active">Command Line Interface</li>
+      <li class="breadcrumb-item active">Main Commands</li>
       <li class="wy-breadcrumbs-aside">
             <a href="_sources/cli.rst.txt" rel="nofollow"> View page source</a>
       </li>
@@ -103,10 +133,12 @@
           <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
            <div itemprop="articleBody">
              
-  <section id="command-line-interface">
-<h1>Command Line Interface<a class="headerlink" href="#command-line-interface" title="Link to this heading"></a></h1>
-<p>PyFlow provides a comprehensive CLI for static analysis, optimization, and security checking of Python code.</p>
-</section>
+  <p>Command Line Interface
+========    ==============</p>
+<p>PyFlow provides a CLI for static analysis, optimization, IR inspection,
+security checking, and heap analysis of Python code.</p>
+<p>This page summarizes the most important commands. For the authoritative option
+reference used by the repository today, also see <code class="docutils literal notranslate"><span class="pre">CLI.md</span></code> in the project root.</p>
 <section id="main-commands">
 <h1>Main Commands<a class="headerlink" href="#main-commands" title="Link to this heading"></a></h1>
 <section id="analysis-commands">
@@ -115,27 +147,29 @@
 <h3><strong>pyflow callgraph</strong><a class="headerlink" href="#pyflow-callgraph" title="Link to this heading"></a></h3>
 <p>Generate and analyze call graphs from Python code.</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">pyflow</span> <span class="n">callgraph</span> <span class="nb">input</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="nb">format</span> <span class="n">dot</span> <span class="o">--</span><span class="n">output</span> <span class="n">callgraph</span><span class="o">.</span><span class="n">dot</span>
-<span class="n">pyflow</span> <span class="n">callgraph</span> <span class="n">package</span><span class="o">/</span> <span class="o">--</span><span class="n">recursive</span> <span class="o">--</span><span class="n">algorithm</span> <span class="n">pycg</span>
+<span class="n">pyflow</span> <span class="n">callgraph</span> <span class="nb">input</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">show</span><span class="o">-</span><span class="n">cycles</span> <span class="o">--</span><span class="nb">max</span><span class="o">-</span><span class="n">depth</span> <span class="mi">5</span>
 </pre></div>
 </div>
 <p>Options:
 - <code class="docutils literal notranslate"><span class="pre">--format</span></code>: Output format (dot, json, text)
 - <code class="docutils literal notranslate"><span class="pre">--output</span></code>: Output file path
-- <code class="docutils literal notranslate"><span class="pre">--algorithm</span></code>: Call graph algorithm (ast, pycg)
-- <code class="docutils literal notranslate"><span class="pre">--recursive</span></code>: Analyze directories recursively</p>
+- <code class="docutils literal notranslate"><span class="pre">--max-depth</span></code>: Limit call depth
+- <code class="docutils literal notranslate"><span class="pre">--show-cycles</span></code>: Report cycles in the call graph</p>
 </section>
 <section id="pyflow-ir">
 <h3><strong>pyflow ir</strong><a class="headerlink" href="#pyflow-ir" title="Link to this heading"></a></h3>
 <p>Visualize intermediate representations and analysis results.</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">pyflow</span> <span class="n">ir</span> <span class="nb">input</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">dump</span><span class="o">-</span><span class="n">cfg</span> <span class="o">--</span><span class="n">output</span> <span class="n">cfg</span><span class="o">.</span><span class="n">dot</span>
-<span class="n">pyflow</span> <span class="n">ir</span> <span class="nb">input</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">dump</span><span class="o">-</span><span class="n">ssa</span> <span class="o">--</span><span class="n">function</span> <span class="n">main</span>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">pyflow</span> <span class="n">ir</span> <span class="nb">input</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">dump</span><span class="o">-</span><span class="n">cfg</span> <span class="n">main</span> <span class="o">--</span><span class="n">dump</span><span class="o">-</span><span class="nb">format</span> <span class="n">dot</span>
+<span class="n">pyflow</span> <span class="n">ir</span> <span class="nb">input</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">dump</span><span class="o">-</span><span class="n">ssa</span> <span class="n">main</span>
 </pre></div>
 </div>
 <p>Options:
-- <code class="docutils literal notranslate"><span class="pre">--dump-cfg</span></code>: Dump control flow graph
-- <code class="docutils literal notranslate"><span class="pre">--dump-ssa</span></code>: Dump SSA form
-- <code class="docutils literal notranslate"><span class="pre">--dump-analysis</span></code>: Dump analysis results
-- <code class="docutils literal notranslate"><span class="pre">--function</span></code>: Focus on specific function</p>
+- <code class="docutils literal notranslate"><span class="pre">--dump-ast</span> <span class="pre">FUNCTION</span></code>: Dump AST for a named function
+- <code class="docutils literal notranslate"><span class="pre">--dump-cfg</span> <span class="pre">FUNCTION</span></code>: Dump CFG for a named function
+- <code class="docutils literal notranslate"><span class="pre">--dump-ssa</span> <span class="pre">FUNCTION</span></code>: Dump SSA for a named function
+- <code class="docutils literal notranslate"><span class="pre">--dump-format</span></code>: Output format (text, dot, json)
+- <code class="docutils literal notranslate"><span class="pre">--dump-output</span></code>: Directory for emitted artifacts
+- <code class="docutils literal notranslate"><span class="pre">--recursive</span></code> / <code class="docutils literal notranslate"><span class="pre">--include</span></code> / <code class="docutils literal notranslate"><span class="pre">--exclude</span></code>: Control file selection</p>
 </section>
 </section>
 <section id="optimization-commands">
@@ -143,32 +177,69 @@
 <section id="pyflow-optimize">
 <h3><strong>pyflow optimize</strong><a class="headerlink" href="#pyflow-optimize" title="Link to this heading"></a></h3>
 <p>Apply optimization passes to Python code.</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">pyflow</span> <span class="n">optimize</span> <span class="nb">input</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">passes</span> <span class="n">fold</span><span class="p">,</span><span class="n">dce</span> <span class="o">--</span><span class="n">output</span> <span class="n">optimized</span><span class="o">.</span><span class="n">py</span>
-<span class="n">pyflow</span> <span class="n">optimize</span> <span class="nb">input</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="nb">all</span><span class="o">-</span><span class="n">passes</span> <span class="o">--</span><span class="n">benchmark</span>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">pyflow</span> <span class="n">optimize</span> <span class="nb">input</span><span class="o">.</span><span class="n">py</span>
+<span class="n">pyflow</span> <span class="n">optimize</span> <span class="nb">input</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">opt</span><span class="o">-</span><span class="n">passes</span> <span class="n">simplify</span> <span class="n">methodcall</span>
+<span class="n">pyflow</span> <span class="n">optimize</span> <span class="o">--</span><span class="nb">list</span><span class="o">-</span><span class="n">opt</span><span class="o">-</span><span class="n">passes</span>
+<span class="n">pyflow</span> <span class="n">optimize</span> <span class="nb">input</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">dump</span><span class="o">-</span><span class="n">cfg</span> <span class="n">main</span> <span class="o">--</span><span class="n">dump</span><span class="o">-</span><span class="nb">format</span> <span class="n">dot</span>
 </pre></div>
 </div>
 <p>Options:
-- <code class="docutils literal notranslate"><span class="pre">--passes</span></code>: Comma-separated list of optimization passes
-- <code class="docutils literal notranslate"><span class="pre">--all-passes</span></code>: Apply all available optimizations
-- <code class="docutils literal notranslate"><span class="pre">--output</span></code>: Output file for optimized code
-- <code class="docutils literal notranslate"><span class="pre">--benchmark</span></code>: Show optimization timing and effects</p>
-<p>Available passes: fold, dce, inline, simplify, loadelim, storeelim, etc.</p>
+- <code class="docutils literal notranslate"><span class="pre">--opt-passes</span></code>: Space-separated list of optimization passes
+- <code class="docutils literal notranslate"><span class="pre">--list-opt-passes</span></code>: List available optimization passes
+- <code class="docutils literal notranslate"><span class="pre">--no-opt-passes</span></code>: Run analysis without optimization passes
+- <code class="docutils literal notranslate"><span class="pre">--dump-ast</span> <span class="pre">FUNCTION</span></code> / <code class="docutils literal notranslate"><span class="pre">--dump-cfg</span> <span class="pre">FUNCTION</span></code>: Inspect IR around optimization
+- <code class="docutils literal notranslate"><span class="pre">--dump-format</span></code>: Output format (text, dot, json)
+- <code class="docutils literal notranslate"><span class="pre">--dump-output</span></code>: Directory for emitted artifacts</p>
+<p>Available passes include <code class="docutils literal notranslate"><span class="pre">simplify</span></code>, <code class="docutils literal notranslate"><span class="pre">methodcall</span></code>, <code class="docutils literal notranslate"><span class="pre">clone</span></code>,
+<code class="docutils literal notranslate"><span class="pre">argumentnormalization</span></code>, <code class="docutils literal notranslate"><span class="pre">cullprogram</span></code>, <code class="docutils literal notranslate"><span class="pre">loadelimination</span></code>,
+<code class="docutils literal notranslate"><span class="pre">storeelimination</span></code>, <code class="docutils literal notranslate"><span class="pre">dce</span></code>, and experimental <code class="docutils literal notranslate"><span class="pre">inlining</span></code>.</p>
 </section>
 </section>
 <section id="security-commands">
 <h2>Security Commands<a class="headerlink" href="#security-commands" title="Link to this heading"></a></h2>
-<section id="pyflow-check">
-<h3><strong>pyflow check</strong><a class="headerlink" href="#pyflow-check" title="Link to this heading"></a></h3>
-<p>Run security analysis on Python code.</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">pyflow</span> <span class="n">check</span> <span class="nb">input</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="nb">format</span> <span class="n">sarif</span> <span class="o">--</span><span class="n">output</span> <span class="n">security</span><span class="o">.</span><span class="n">sarif</span>
-<span class="n">pyflow</span> <span class="n">check</span> <span class="n">package</span><span class="o">/</span> <span class="o">--</span><span class="n">severity</span> <span class="n">high</span> <span class="o">--</span><span class="n">recursive</span>
+<section id="pyflow-security">
+<h3><strong>pyflow security</strong><a class="headerlink" href="#pyflow-security" title="Link to this heading"></a></h3>
+<p>Run security analysis on Python code using one of the available engines.</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">pyflow</span> <span class="n">security</span> <span class="nb">input</span><span class="o">.</span><span class="n">py</span>
+<span class="n">pyflow</span> <span class="n">security</span> <span class="n">package</span><span class="o">/</span> <span class="o">--</span><span class="n">recursive</span>
+<span class="n">pyflow</span> <span class="n">security</span> <span class="n">src</span><span class="o">/</span> <span class="o">-</span><span class="n">v</span> <span class="o">--</span><span class="n">exclude</span> <span class="n">tests</span><span class="o">/</span>
+<span class="n">pyflow</span> <span class="n">security</span> <span class="nb">input</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">engine</span> <span class="n">ifds</span> <span class="o">--</span><span class="n">function</span> <span class="n">main</span> <span class="o">--</span><span class="n">sources</span> <span class="nb">input</span> <span class="o">--</span><span class="n">sinks</span> <span class="nb">eval</span>
+<span class="n">pyflow</span> <span class="n">security</span> <span class="nb">input</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">engine</span> <span class="n">cpg</span> <span class="o">--</span><span class="n">framework</span> <span class="n">flask</span>
 </pre></div>
 </div>
 <p>Options:
-- <code class="docutils literal notranslate"><span class="pre">--format</span></code>: Output format (text, json, sarif)
-- <code class="docutils literal notranslate"><span class="pre">--severity</span></code>: Minimum severity level (low, medium, high, critical)
+- <code class="docutils literal notranslate"><span class="pre">--engine</span></code>: Analysis engine (<code class="docutils literal notranslate"><span class="pre">ast-scanner</span></code>, <code class="docutils literal notranslate"><span class="pre">cpa</span></code>, <code class="docutils literal notranslate"><span class="pre">ifds</span></code>, or <code class="docutils literal notranslate"><span class="pre">cpg</span></code>)
+- <code class="docutils literal notranslate"><span class="pre">--sources</span></code> / <code class="docutils literal notranslate"><span class="pre">--sinks</span></code> / <code class="docutils literal notranslate"><span class="pre">--sanitizers</span></code>: Function names for taint-style dataflow checks
+- <code class="docutils literal notranslate"><span class="pre">--function</span></code>: Entry function for the IFDS engine
+- <code class="docutils literal notranslate"><span class="pre">--framework</span></code>: Framework rule packs for the CPG engine
+- <code class="docutils literal notranslate"><span class="pre">--format</span></code>: Output format (<code class="docutils literal notranslate"><span class="pre">text</span></code>, <code class="docutils literal notranslate"><span class="pre">json</span></code>, or <code class="docutils literal notranslate"><span class="pre">sarif</span></code>)
 - <code class="docutils literal notranslate"><span class="pre">--output</span></code>: Output file path
-- <code class="docutils literal notranslate"><span class="pre">--config</span></code>: Configuration file path</p>
+- <code class="docutils literal notranslate"><span class="pre">-r,</span> <span class="pre">--recursive</span></code>: Scan directories recursively
+- <code class="docutils literal notranslate"><span class="pre">-v,</span> <span class="pre">--verbose</span></code>: Verbose output
+- <code class="docutils literal notranslate"><span class="pre">-d,</span> <span class="pre">--debug</span></code>: Debug output
+- <code class="docutils literal notranslate"><span class="pre">--exclude</span></code>: Comma-separated list of paths to exclude</p>
+<p>The default <code class="docutils literal notranslate"><span class="pre">ast-scanner</span></code> engine is a fast pattern-based checker. The command
+can also dispatch to CPA, IFDS, and CPG-backed security engines.</p>
+</section>
+</section>
+<section id="heap-command">
+<h2>Heap Command<a class="headerlink" href="#heap-command" title="Link to this heading"></a></h2>
+<section id="pyflow-heap">
+<h3><strong>pyflow heap</strong><a class="headerlink" href="#pyflow-heap" title="Link to this heading"></a></h3>
+<p>Run standalone heap alias/escape analysis on Python code.</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">pyflow</span> <span class="n">heap</span> <span class="nb">input</span><span class="o">.</span><span class="n">py</span>
+<span class="n">pyflow</span> <span class="n">heap</span> <span class="n">src</span><span class="o">/</span> <span class="o">--</span><span class="n">recursive</span>
+<span class="n">pyflow</span> <span class="n">heap</span> <span class="nb">input</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">json</span>
+<span class="n">pyflow</span> <span class="n">heap</span> <span class="nb">input</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">verbose</span>
+</pre></div>
+</div>
+<p>Options:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">--recursive,</span> <span class="pre">-r</span></code>: Recursively analyze Python files in a directory</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--json</span></code>: Output machine-readable JSON instead of human-friendly text</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--verbose,</span> <span class="pre">-v</span></code>: Include per-entry details (selector path, update policy,
+points-to sets)</p></li>
+</ul>
 </section>
 </section>
 </section>
@@ -182,28 +253,6 @@
 <li><p><code class="docutils literal notranslate"><span class="pre">--version</span></code>: Show version information</p></li>
 </ul>
 </section>
-<section id="configuration">
-<h1>Configuration<a class="headerlink" href="#configuration" title="Link to this heading"></a></h1>
-<p>PyFlow can be configured via:</p>
-<ol class="arabic simple">
-<li><p><strong>Command line options</strong>: Direct configuration per command</p></li>
-<li><p><strong>Configuration files</strong>: YAML/JSON files for persistent settings</p></li>
-<li><p><strong>Environment variables</strong>: PYFLOW_* prefixed variables</p></li>
-</ol>
-<p>Example configuration file:</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">analysis</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">callgraph</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">algorithm</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pycg</span>
-<span class="w">    </span><span class="nt">format</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">json</span>
-<span class="nt">optimization</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">passes</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">fold</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">dce</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">inline</span><span class="p p-Indicator">]</span>
-<span class="w">  </span><span class="nt">benchmark</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<span class="nt">security</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">severity</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">high</span>
-<span class="w">  </span><span class="nt">format</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">sarif</span>
-</pre></div>
-</div>
-</section>
 <section id="integration">
 <h1>Integration<a class="headerlink" href="#integration" title="Link to this heading"></a></h1>
 <section id="ci-cd-integration">
@@ -212,9 +261,10 @@
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># GitHub Actions example</span>
 -<span class="w"> </span>name:<span class="w"> </span>Run<span class="w"> </span>PyFlow<span class="w"> </span>analysis
 <span class="w">  </span>run:<span class="w"> </span><span class="p">|</span>
-<span class="w">    </span>pyflow<span class="w"> </span>callgraph<span class="w"> </span>src/<span class="w"> </span>--format<span class="w"> </span>json<span class="w"> </span>--output<span class="w"> </span>callgraph.json
-<span class="w">    </span>pyflow<span class="w"> </span>check<span class="w"> </span>src/<span class="w"> </span>--format<span class="w"> </span>sarif<span class="w"> </span>--output<span class="w"> </span>security.sarif
-<span class="w">    </span>pyflow<span class="w"> </span>optimize<span class="w"> </span>src/main.py<span class="w"> </span>--all-passes<span class="w"> </span>--output<span class="w"> </span>optimized.py
+<span class="w">    </span>pyflow<span class="w"> </span>callgraph<span class="w"> </span>src/main.py<span class="w"> </span>--format<span class="w"> </span>json<span class="w"> </span>--output<span class="w"> </span>callgraph.json
+<span class="w">    </span>pyflow<span class="w"> </span>security<span class="w"> </span>src/<span class="w"> </span>--recursive
+<span class="w">    </span>pyflow<span class="w"> </span>optimize<span class="w"> </span>src/main.py<span class="w"> </span>--opt-passes<span class="w"> </span>simplify<span class="w"> </span>dce
+<span class="w">    </span>pyflow<span class="w"> </span>ir<span class="w"> </span>src/main.py<span class="w"> </span>--dump-cfg<span class="w"> </span>main<span class="w"> </span>--dump-format<span class="w"> </span>dot
 </pre></div>
 </div>
 </section>
@@ -234,8 +284,8 @@
            </div>
           </div>
           <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
-        <a href="overview.html" class="btn btn-neutral float-left" title="Overview" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
-        <a href="analysis/index.html" class="btn btn-neutral float-right" title="Analysis Modules" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+        <a href="a3_python/package-map.html" class="btn btn-neutral float-left" title="Package Map" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="api.html" class="btn btn-neutral float-right" title="PyFlow API" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
     </div>
 
   <hr/>

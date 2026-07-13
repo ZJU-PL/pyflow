@@ -1,0 +1,643 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Best Practices &mdash; pyflow 0.1.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=01f34227"></script>
+      <script src="../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="a3_python" href="../a3_python/index.html" />
+    <link rel="prev" title="Analysis Comparison" href="analysis-comparison.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            pyflow
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Getting Started</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../tutorials/index.html">Tutorials</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#what-is-pyflow">What is PyFlow?</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#key-features">Key Features</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#architecture">Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#repository-status-in-practice">Repository status in practice</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">How-to Guides</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../how-to/index.html">How-to Guides</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Explanations</span></p>
+<ul class="current">
+<li class="toctree-l1 current"><a class="reference internal" href="index.html">Explanations</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="architecture.html">Architecture</a></li>
+<li class="toctree-l2"><a class="reference internal" href="algorithms.html">Algorithms</a></li>
+<li class="toctree-l2"><a class="reference internal" href="design-decisions.html">Design Decisions</a></li>
+<li class="toctree-l2"><a class="reference internal" href="analysis-comparison.html">Analysis Comparison</a></li>
+<li class="toctree-l2 current"><a class="current reference internal" href="#">Best Practices</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#beginner-best-practices">Beginner Best Practices</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#start-with-simple-analysis">Start with Simple Analysis</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#use-appropriate-output-formats">Use Appropriate Output Formats</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#check-configuration">Check Configuration</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#intermediate-best-practices">Intermediate Best Practices</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#combine-multiple-analyses">Combine Multiple Analyses</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#profile-before-optimizing">Profile Before Optimizing</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#verify-optimized-code">Verify Optimized Code</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#use-incremental-analysis">Use Incremental Analysis</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#advanced-best-practices">Advanced Best Practices</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#configure-context-sensitivity">Configure Context Sensitivity</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#customize-for-your-codebase">Customize for Your Codebase</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#integrate-with-development-workflow">Integrate with Development Workflow</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#security-analysis-best-practices">Security Analysis Best Practices</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#scan-early-and-often">Scan Early and Often</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#understand-findings">Understand Findings</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#prioritize-remediation">Prioritize Remediation</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#performance-best-practices">Performance Best Practices</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#choose-appropriate-analysis-depth">Choose Appropriate Analysis Depth</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#use-caching">Use Caching</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#parallel-analysis">Parallel Analysis</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#documentation-best-practices">Documentation Best Practices</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#document-analysis-configurations">Document Analysis Configurations</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#include-analysis-results-in-documentation">Include Analysis Results in Documentation</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#troubleshooting-best-practices">Troubleshooting Best Practices</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#start-with-verbose-output">Start with Verbose Output</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#reproduce-with-minimal-example">Reproduce with Minimal Example</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#check-existing-issues">Check Existing Issues</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="architecture.html">Architecture</a></li>
+<li class="toctree-l2"><a class="reference internal" href="algorithms.html">Algorithms</a></li>
+<li class="toctree-l2"><a class="reference internal" href="design-decisions.html">Design Decisions</a></li>
+<li class="toctree-l2"><a class="reference internal" href="analysis-comparison.html">Analysis Comparison</a></li>
+<li class="toctree-l2 current"><a class="current reference internal" href="#">Best Practices</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#beginner-best-practices">Beginner Best Practices</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#start-with-simple-analysis">Start with Simple Analysis</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#use-appropriate-output-formats">Use Appropriate Output Formats</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#check-configuration">Check Configuration</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#intermediate-best-practices">Intermediate Best Practices</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#combine-multiple-analyses">Combine Multiple Analyses</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#profile-before-optimizing">Profile Before Optimizing</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#verify-optimized-code">Verify Optimized Code</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#use-incremental-analysis">Use Incremental Analysis</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#advanced-best-practices">Advanced Best Practices</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#configure-context-sensitivity">Configure Context Sensitivity</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#customize-for-your-codebase">Customize for Your Codebase</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#integrate-with-development-workflow">Integrate with Development Workflow</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#security-analysis-best-practices">Security Analysis Best Practices</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#scan-early-and-often">Scan Early and Often</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#understand-findings">Understand Findings</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#prioritize-remediation">Prioritize Remediation</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#performance-best-practices">Performance Best Practices</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#choose-appropriate-analysis-depth">Choose Appropriate Analysis Depth</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#use-caching">Use Caching</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#parallel-analysis">Parallel Analysis</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#documentation-best-practices">Documentation Best Practices</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#document-analysis-configurations">Document Analysis Configurations</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#include-analysis-results-in-documentation">Include Analysis Results in Documentation</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#troubleshooting-best-practices">Troubleshooting Best Practices</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#start-with-verbose-output">Start with Verbose Output</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#reproduce-with-minimal-example">Reproduce with Minimal Example</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#check-existing-issues">Check Existing Issues</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">A3 Python</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../a3_python/index.html"><code class="docutils literal notranslate"><span class="pre">a3_python</span></code></a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html">Main Commands</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html#global-options">Global Options</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html#integration">Integration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../api.html">PyFlow API</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html">Analysis Modules</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#overview">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#analysis-configuration">Analysis Configuration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#running-analyses">Running Analyses</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#analysis-results">Analysis Results</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html">Optimizing Python Programs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#overview">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#optimization-categories">Optimization Categories</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#optimization-pipeline">Optimization Pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#usage">Usage</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../lang/index.html">Language Module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html">Security Analysis and Checking</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#checker-categories">Checker Categories</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#analysis-framework">Analysis Framework</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#usage">Usage</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">pyflow</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="index.html">Explanations</a></li>
+      <li class="breadcrumb-item active">Best Practices</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/explanation/best-practices.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="best-practices">
+<span id="explanation-best-practices"></span><h1>Best Practices<a class="headerlink" href="#best-practices" title="Link to this heading"></a></h1>
+<p>This page outlines best practices for using PyFlow effectively. Following these
+guidelines will help you get the most out of PyFlow’s static analysis and
+optimization capabilities.</p>
+<p>This guide is organized into sections for different use cases and experience levels.</p>
+<section id="beginner-best-practices">
+<h2>Beginner Best Practices<a class="headerlink" href="#beginner-best-practices" title="Link to this heading"></a></h2>
+<section id="start-with-simple-analysis">
+<h3>Start with Simple Analysis<a class="headerlink" href="#start-with-simple-analysis" title="Link to this heading"></a></h3>
+<p><strong>Do</strong>: Begin with basic analysis before diving into complex configurations.</p>
+<p><strong>Don’t</strong>: Jump straight to deep, context-sensitive analysis without understanding
+the basics.</p>
+<p><strong>Why</strong>: Simple analysis is faster and often sufficient for initial understanding.
+Complex analysis takes longer and may be harder to interpret.</p>
+<p><strong>Example</strong>:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Good: Start simple</span>
+pyflow<span class="w"> </span>callgraph<span class="w"> </span>input.py
+
+<span class="c1"># Then add options as needed</span>
+pyflow<span class="w"> </span>callgraph<span class="w"> </span>input.py<span class="w"> </span>--format<span class="w"> </span>json<span class="w"> </span>--max-depth<span class="w"> </span><span class="m">5</span>
+</pre></div>
+</div>
+</section>
+<section id="use-appropriate-output-formats">
+<h3>Use Appropriate Output Formats<a class="headerlink" href="#use-appropriate-output-formats" title="Link to this heading"></a></h3>
+<p><strong>Do</strong>: Choose the right output format for your task.</p>
+<ul class="simple">
+<li><p>Use <code class="docutils literal notranslate"><span class="pre">text</span></code> for quick inspection</p></li>
+<li><p>Use <code class="docutils literal notranslate"><span class="pre">json</span></code> for programmatic processing</p></li>
+<li><p>Use <code class="docutils literal notranslate"><span class="pre">dot</span></code> for visualization</p></li>
+<li><p>Use <code class="docutils literal notranslate"><span class="pre">sarif</span></code> for CI/CD integration</p></li>
+</ul>
+<p><strong>Why</strong>: Text is easiest to read. JSON enables automation. DOT creates graphs.
+SARIF integrates with CI/CD.</p>
+<p><strong>Example</strong>:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># For quick check</span>
+pyflow<span class="w"> </span>callgraph<span class="w"> </span>input.py<span class="w"> </span>--format<span class="w"> </span>text
+
+<span class="c1"># For scripting</span>
+pyflow<span class="w"> </span>callgraph<span class="w"> </span>input.py<span class="w"> </span>--format<span class="w"> </span>json<span class="w"> </span>--output<span class="w"> </span>graph.json
+
+<span class="c1"># For visualization</span>
+pyflow<span class="w"> </span>callgraph<span class="w"> </span>input.py<span class="w"> </span>--format<span class="w"> </span>dot<span class="w"> </span>--output<span class="w"> </span>graph.dot
+
+<span class="c1"># For CI/CD</span>
+pyflow<span class="w"> </span>callgraph<span class="w"> </span>input.py<span class="w"> </span>--format<span class="w"> </span>sarif<span class="w"> </span>--output<span class="w"> </span>results.sarif
+</pre></div>
+</div>
+</section>
+<section id="check-configuration">
+<h3>Check Configuration<a class="headerlink" href="#check-configuration" title="Link to this heading"></a></h3>
+<p><strong>Do</strong>: Verify your configuration is applied correctly.</p>
+<p><strong>Why</strong>: Misconfiguration can lead to incorrect or missing results.</p>
+<p><strong>Example</strong>:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Verify configuration</span>
+pyflow<span class="w"> </span>optimize<span class="w"> </span>input.py<span class="w"> </span>--verbose
+</pre></div>
+</div>
+</section>
+</section>
+<section id="intermediate-best-practices">
+<h2>Intermediate Best Practices<a class="headerlink" href="#intermediate-best-practices" title="Link to this heading"></a></h2>
+<section id="combine-multiple-analyses">
+<h3>Combine Multiple Analyses<a class="headerlink" href="#combine-multiple-analyses" title="Link to this heading"></a></h3>
+<p><strong>Do</strong>: Use multiple analyses together for comprehensive understanding.</p>
+<p><strong>Why</strong>: Different analyses provide different insights. Combining them gives a
+complete picture.</p>
+<p><strong>Example</strong>:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Run multiple analyses</span>
+pyflow<span class="w"> </span>optimize<span class="w"> </span>input.py<span class="w"> </span>--analysis<span class="w"> </span>cpa,ipa,shape
+
+<span class="c1"># Or run all analyses</span>
+pyflow<span class="w"> </span>optimize<span class="w"> </span>input.py<span class="w"> </span>--analysis<span class="w"> </span>all
+</pre></div>
+</div>
+</section>
+<section id="profile-before-optimizing">
+<h3>Profile Before Optimizing<a class="headerlink" href="#profile-before-optimizing" title="Link to this heading"></a></h3>
+<p><strong>Do</strong>: Profile your code to identify actual bottlenecks before optimizing.</p>
+<p><strong>Why</strong>: Optimizing the wrong code wastes time and may not improve performance.</p>
+<p><strong>Example</strong>:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">cProfile</span>
+
+<span class="c1"># Profile before optimizing</span>
+<span class="n">cProfile</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="s2">&quot;your_function()&quot;</span><span class="p">,</span> <span class="s2">&quot;profile.prof&quot;</span><span class="p">)</span>
+
+<span class="c1"># Analyze results</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">pstats</span>
+<span class="n">stats</span> <span class="o">=</span> <span class="n">pstats</span><span class="o">.</span><span class="n">Stats</span><span class="p">(</span><span class="s2">&quot;profile.prof&quot;</span><span class="p">)</span>
+<span class="n">stats</span><span class="o">.</span><span class="n">sort_stats</span><span class="p">(</span><span class="s2">&quot;cumulative&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">print_stats</span><span class="p">(</span><span class="mi">20</span><span class="p">)</span>
+
+<span class="c1"># Then optimize based on results</span>
+<span class="n">pyflow</span> <span class="n">optimize</span> <span class="n">hot_path</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">opt</span><span class="o">-</span><span class="n">passes</span> <span class="nb">all</span>
+</pre></div>
+</div>
+</section>
+<section id="verify-optimized-code">
+<h3>Verify Optimized Code<a class="headerlink" href="#verify-optimized-code" title="Link to this heading"></a></h3>
+<p><strong>Do</strong>: Always test optimized code for correctness.</p>
+<p><strong>Why</strong>: Optimizations should not change program behavior.</p>
+<p><strong>Example</strong>:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">test_optimization</span><span class="p">():</span>
+    <span class="c1"># Test with same inputs</span>
+    <span class="n">original_result</span> <span class="o">=</span> <span class="n">original_function</span><span class="p">(</span><span class="n">input_data</span><span class="p">)</span>
+    <span class="n">optimized_result</span> <span class="o">=</span> <span class="n">optimized_function</span><span class="p">(</span><span class="n">input_data</span><span class="p">)</span>
+
+    <span class="c1"># Should produce same results</span>
+    <span class="k">assert</span> <span class="n">original_result</span> <span class="o">==</span> <span class="n">optimized_result</span>
+
+    <span class="c1"># Performance should improve</span>
+    <span class="kn">import</span><span class="w"> </span><span class="nn">timeit</span>
+    <span class="n">original_time</span> <span class="o">=</span> <span class="n">timeit</span><span class="o">.</span><span class="n">timeit</span><span class="p">(</span><span class="n">original_function</span><span class="p">,</span> <span class="n">number</span><span class="o">=</span><span class="mi">1000</span><span class="p">)</span>
+    <span class="n">optimized_time</span> <span class="o">=</span> <span class="n">timeit</span><span class="o">.</span><span class="n">timeit</span><span class="p">(</span><span class="n">optimized_function</span><span class="p">,</span> <span class="n">number</span><span class="o">=</span><span class="mi">1000</span><span class="p">)</span>
+
+    <span class="k">assert</span> <span class="n">optimized_time</span> <span class="o">&lt;</span> <span class="n">original_time</span>
+</pre></div>
+</div>
+</section>
+<section id="use-incremental-analysis">
+<h3>Use Incremental Analysis<a class="headerlink" href="#use-incremental-analysis" title="Link to this heading"></a></h3>
+<p><strong>Do</strong>: Use incremental analysis for large projects.</p>
+<p><strong>Why</strong>: Analyzing only changed files is much faster than full analysis.</p>
+<p><strong>Example</strong>:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Use Python API for incremental analysis</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.application.cache</span><span class="w"> </span><span class="kn">import</span> <span class="n">IncrementalAnalysisCache</span>
+
+<span class="n">cache</span> <span class="o">=</span> <span class="n">IncrementalAnalysisCache</span><span class="p">()</span>
+<span class="n">cache</span><span class="o">.</span><span class="n">store</span><span class="p">(</span><span class="n">program</span><span class="p">,</span> <span class="n">results</span><span class="p">)</span>
+<span class="c1"># Later: re-analyze only changed files</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="advanced-best-practices">
+<h2>Advanced Best Practices<a class="headerlink" href="#advanced-best-practices" title="Link to this heading"></a></h2>
+<section id="configure-context-sensitivity">
+<h3>Configure Context Sensitivity<a class="headerlink" href="#configure-context-sensitivity" title="Link to this heading"></a></h3>
+<p><strong>Do</strong>: Tune context sensitivity based on your precision and performance needs.</p>
+<p><strong>Why</strong>: More context sensitivity means more precise results but slower analysis.</p>
+<p><strong>Example</strong>:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Fast, context-insensitive</span>
+<span class="n">context</span><span class="o">.</span><span class="n">set_config</span><span class="p">(</span><span class="s2">&quot;cpa.context_sensitive&quot;</span><span class="p">,</span> <span class="kc">False</span><span class="p">)</span>
+
+<span class="c1"># Balanced, k-limiting</span>
+<span class="n">context</span><span class="o">.</span><span class="n">set_config</span><span class="p">(</span><span class="s2">&quot;cpa.context_sensitive&quot;</span><span class="p">,</span> <span class="kc">True</span><span class="p">)</span>
+<span class="n">context</span><span class="o">.</span><span class="n">set_config</span><span class="p">(</span><span class="s2">&quot;cpa.k_value&quot;</span><span class="p">,</span> <span class="mi">3</span><span class="p">)</span>
+
+<span class="c1"># Precise, full context</span>
+<span class="n">context</span><span class="o">.</span><span class="n">set_config</span><span class="p">(</span><span class="s2">&quot;cpa.context_sensitive&quot;</span><span class="p">,</span> <span class="kc">True</span><span class="p">)</span>
+<span class="n">context</span><span class="o">.</span><span class="n">set_config</span><span class="p">(</span><span class="s2">&quot;cpa.max_context_depth&quot;</span><span class="p">,</span> <span class="mi">10</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="customize-for-your-codebase">
+<h3>Customize for Your Codebase<a class="headerlink" href="#customize-for-your-codebase" title="Link to this heading"></a></h3>
+<p><strong>Do</strong>: Create custom configurations for your specific codebase.</p>
+<p><strong>Why</strong>: Default settings may not be optimal for your code patterns.</p>
+<p><strong>Example</strong>:</p>
+<div class="literal-block-wrapper docutils container" id="id1">
+<div class="code-block-caption"><span class="caption-text">pyflow.toml</span><a class="headerlink" href="#id1" title="Link to this code"></a></div>
+<div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[analysis.cpa]</span>
+<span class="c1"># Custom thresholds for your codebase</span>
+<span class="n">max_context_depth</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">5</span>
+<span class="n">field_sensitive</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span>
+
+<span class="k">[analysis.callgraph]</span>
+<span class="c1"># Use precise algorithm for your codebase</span>
+<span class="n">algorithm</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;opa&quot;</span>
+
+<span class="k">[optimization]</span>
+<span class="c1"># Custom optimization settings</span>
+<span class="n">max_inline_size</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">15</span>
+<span class="n">enable_dce</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span>
+</pre></div>
+</div>
+</div>
+</section>
+<section id="integrate-with-development-workflow">
+<h3>Integrate with Development Workflow<a class="headerlink" href="#integrate-with-development-workflow" title="Link to this heading"></a></h3>
+<p><strong>Do</strong>: Integrate PyFlow into your development and CI/CD workflows.</p>
+<p><strong>Why</strong>: Early detection of issues is cheaper than late detection.</p>
+<p><strong>Example</strong>:</p>
+<div class="literal-block-wrapper docutils container" id="id2">
+<div class="code-block-caption"><span class="caption-text">.github/workflows/pyflow.yml</span><a class="headerlink" href="#id2" title="Link to this code"></a></div>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">PyFlow Analysis</span>
+
+<span class="nt">on</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">push</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">pull_request</span><span class="p p-Indicator">]</span>
+
+<span class="nt">jobs</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">analyze</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">runs-on</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ubuntu-latest</span>
+<span class="w">    </span><span class="nt">steps</span><span class="p">:</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">uses</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">actions/checkout@v3</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Set up Python</span>
+<span class="w">        </span><span class="nt">uses</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">actions/setup-python@v4</span>
+<span class="w">        </span><span class="nt">with</span><span class="p">:</span>
+<span class="w">          </span><span class="nt">python-version</span><span class="p">:</span><span class="w"> </span><span class="s">&#39;3.10&#39;</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Install PyFlow</span>
+<span class="w">        </span><span class="nt">run</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pip install pyflow</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Run Analysis</span>
+<span class="w">        </span><span class="nt">run</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">|</span>
+<span class="w">          </span><span class="no">pyflow callgraph . --format sarif --output callgraph.sarif</span>
+<span class="w">          </span><span class="no">pyflow security . --format sarif --output security.sarif</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Upload SARIF</span>
+<span class="w">        </span><span class="nt">uses</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">github/codeql-action/upload-sarif@v2</span>
+<span class="w">        </span><span class="nt">with</span><span class="p">:</span>
+<span class="w">          </span><span class="nt">sarif_file</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">|</span>
+<span class="w">            </span><span class="no">callgraph.sarif</span>
+<span class="w">            </span><span class="no">security.sarif</span>
+</pre></div>
+</div>
+</div>
+</section>
+</section>
+<section id="security-analysis-best-practices">
+<h2>Security Analysis Best Practices<a class="headerlink" href="#security-analysis-best-practices" title="Link to this heading"></a></h2>
+<section id="scan-early-and-often">
+<h3>Scan Early and Often<a class="headerlink" href="#scan-early-and-often" title="Link to this heading"></a></h3>
+<p><strong>Do</strong>: Run security analysis regularly, not just before releases.</p>
+<p><strong>Why</strong>: Catching vulnerabilities early is cheaper and safer.</p>
+<p><strong>Example</strong>:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># In pre-commit hook</span>
+pyflow<span class="w"> </span>security<span class="w"> </span>input.py
+
+<span class="c1"># In CI/CD</span>
+pyflow<span class="w"> </span>security<span class="w"> </span>.<span class="w"> </span>--format<span class="w"> </span>sarif<span class="w"> </span>--output<span class="w"> </span>security.sarif
+</pre></div>
+</div>
+</section>
+<section id="understand-findings">
+<h3>Understand Findings<a class="headerlink" href="#understand-findings" title="Link to this heading"></a></h3>
+<p><strong>Do</strong>: Take time to understand security findings.</p>
+<p><strong>Why</strong>: False positives may occur. Understanding helps you assess real risk.</p>
+<p><strong>Example</strong>:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Get detailed output</span>
+pyflow<span class="w"> </span>security<span class="w"> </span>input.py<span class="w"> </span>--verbose
+
+<span class="c1"># Check context of finding</span>
+pyflow<span class="w"> </span>ir<span class="w"> </span>input.py<span class="w"> </span>--line<span class="w"> </span><span class="m">15</span><span class="w"> </span>--dump-ast
+</pre></div>
+</div>
+</section>
+<section id="prioritize-remediation">
+<h3>Prioritize Remediation<a class="headerlink" href="#prioritize-remediation" title="Link to this heading"></a></h3>
+<p><strong>Do</strong>: Prioritize findings by severity and exploitability.</p>
+<p><strong>Why</strong>: Not all findings are equally important. Focus on high-risk issues first.</p>
+<p><strong>Example</strong>:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Focus on specific checks</span>
+pyflow<span class="w"> </span>security<span class="w"> </span>input.py<span class="w"> </span>--verbose
+
+<span class="c1"># Get detailed output</span>
+pyflow<span class="w"> </span>security<span class="w"> </span>input.py<span class="w"> </span>--debug
+</pre></div>
+</div>
+</section>
+</section>
+<section id="performance-best-practices">
+<h2>Performance Best Practices<a class="headerlink" href="#performance-best-practices" title="Link to this heading"></a></h2>
+<section id="choose-appropriate-analysis-depth">
+<h3>Choose Appropriate Analysis Depth<a class="headerlink" href="#choose-appropriate-analysis-depth" title="Link to this heading"></a></h3>
+<p><strong>Do</strong>: Match analysis depth to your needs.</p>
+<ul class="simple">
+<li><p>Shallow: Quick overview, initial understanding</p></li>
+<li><p>Medium: Balanced analysis, most use cases</p></li>
+<li><p>Deep: Maximum precision, security-critical code</p></li>
+</ul>
+<p><strong>Why</strong>: Deep analysis is slower. Use depth appropriate for your use case.</p>
+<p><strong>Example</strong>:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Quick check — use simple callgraph</span>
+pyflow<span class="w"> </span>callgraph<span class="w"> </span>input.py<span class="w"> </span>--algorithm<span class="w"> </span>simple
+
+<span class="c1"># Standard analysis — default optimization</span>
+pyflow<span class="w"> </span>optimize<span class="w"> </span>input.py
+
+<span class="c1"># Security analysis — use IFDS engine</span>
+pyflow<span class="w"> </span>security<span class="w"> </span>input.py<span class="w"> </span>--engine<span class="w"> </span>ifds<span class="w"> </span>--function<span class="w"> </span>main
+</pre></div>
+</div>
+</section>
+<section id="use-caching">
+<h3>Use Caching<a class="headerlink" href="#use-caching" title="Link to this heading"></a></h3>
+<p><strong>Do</strong>: Use PyFlow’s internal caching capabilities for repeated analysis.</p>
+<p><strong>Why</strong>: Caching avoids re-analyzing unchanged code.</p>
+<p><strong>Example</strong>:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.application.cache</span><span class="w"> </span><span class="kn">import</span> <span class="n">IncrementalAnalysisCache</span>
+
+<span class="n">cache</span> <span class="o">=</span> <span class="n">IncrementalAnalysisCache</span><span class="p">()</span>
+<span class="n">cache</span><span class="o">.</span><span class="n">store</span><span class="p">(</span><span class="n">program</span><span class="p">,</span> <span class="n">results</span><span class="p">)</span>
+<span class="c1"># Later: re-analyze only changed files</span>
+</pre></div>
+</div>
+</section>
+<section id="parallel-analysis">
+<h3>Parallel Analysis<a class="headerlink" href="#parallel-analysis" title="Link to this heading"></a></h3>
+<p><strong>Do</strong>: Use parallel analysis for large projects.</p>
+<p><strong>Why</strong>: Parallel analysis utilizes multiple CPU cores.</p>
+<p><strong>Example</strong>:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Use recursive mode for large projects</span>
+pyflow<span class="w"> </span>optimize<span class="w"> </span>project/<span class="w"> </span>--recursive
+</pre></div>
+</div>
+</section>
+</section>
+<section id="documentation-best-practices">
+<h2>Documentation Best Practices<a class="headerlink" href="#documentation-best-practices" title="Link to this heading"></a></h2>
+<section id="document-analysis-configurations">
+<h3>Document Analysis Configurations<a class="headerlink" href="#document-analysis-configurations" title="Link to this heading"></a></h3>
+<p><strong>Do</strong>: Document your PyFlow configuration and the rationale behind it.</p>
+<p><strong>Why</strong>: Helps team members understand and reproduce analyses.</p>
+<p><strong>Example</strong>:</p>
+<div class="literal-block-wrapper docutils container" id="id3">
+<div class="code-block-caption"><span class="caption-text">ANALYSIS.md</span><a class="headerlink" href="#id3" title="Link to this code"></a></div>
+<div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># PyFlow Analysis Configuration</span>
+
+<span class="gu">## Purpose</span>
+This document describes our PyFlow analysis configuration and rationale.
+
+<span class="gu">## Configuration</span>
+
+<span class="sb">```toml</span>
+<span class="k">[analysis]</span>
+<span class="n">context_sensitive</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span>
+<span class="n">max_context_depth</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">5</span>
+
+<span class="k">[optimization]</span>
+<span class="n">enable_dce</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span>
+<span class="n">max_inline_size</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">20</span>
+<span class="sb">```</span>
+
+<span class="gu">## Rationale</span>
+
+<span class="k">-</span><span class="w"> </span>Context depth of 5 balances precision and performance for our codebase
+<span class="k">-</span><span class="w"> </span>DCE is enabled to remove obvious dead code before optimization
+</pre></div>
+</div>
+</div>
+</section>
+<section id="include-analysis-results-in-documentation">
+<h3>Include Analysis Results in Documentation<a class="headerlink" href="#include-analysis-results-in-documentation" title="Link to this heading"></a></h3>
+<p><strong>Do</strong>: Include relevant analysis results in project documentation.</p>
+<p><strong>Why</strong>: Documents current state and helps track improvements.</p>
+<p><strong>Example</strong>:</p>
+<div class="literal-block-wrapper docutils container" id="id4">
+<div class="code-block-caption"><span class="caption-text">ARCHITECTURE.md</span><a class="headerlink" href="#id4" title="Link to this code"></a></div>
+<div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gu">## Call Graph</span>
+
+![<span class="nt">Call Graph</span>](<span class="na">docs/callgraph.png</span>)
+
+Generated: 2024-01-15
+Command: <span class="sb">`pyflow callgraph src/ --format dot --output docs/callgraph.png`</span>
+</pre></div>
+</div>
+</div>
+</section>
+</section>
+<section id="troubleshooting-best-practices">
+<h2>Troubleshooting Best Practices<a class="headerlink" href="#troubleshooting-best-practices" title="Link to this heading"></a></h2>
+<section id="start-with-verbose-output">
+<h3>Start with Verbose Output<a class="headerlink" href="#start-with-verbose-output" title="Link to this heading"></a></h3>
+<p><strong>Do</strong>: Use verbose mode when troubleshooting.</p>
+<p><strong>Why</strong>: Verbose output provides detailed information about what’s happening.</p>
+<p><strong>Example</strong>:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>optimize<span class="w"> </span>input.py<span class="w"> </span>--verbose<span class="w"> </span>--debug
+</pre></div>
+</div>
+</section>
+<section id="reproduce-with-minimal-example">
+<h3>Reproduce with Minimal Example<a class="headerlink" href="#reproduce-with-minimal-example" title="Link to this heading"></a></h3>
+<p><strong>Do</strong>: Create minimal examples when reporting issues.</p>
+<p><strong>Why</strong>: Minimal examples are easier to debug and faster to fix.</p>
+<p><strong>Example</strong>:</p>
+<div class="literal-block-wrapper docutils container" id="id5">
+<div class="code-block-caption"><span class="caption-text">minimal_example.py</span><a class="headerlink" href="#id5" title="Link to this code"></a></div>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Minimal example demonstrating the issue</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">problematic_function</span><span class="p">():</span>
+    <span class="c1"># Only include code related to the issue</span>
+    <span class="k">pass</span>
+</pre></div>
+</div>
+</div>
+</section>
+<section id="check-existing-issues">
+<h3>Check Existing Issues<a class="headerlink" href="#check-existing-issues" title="Link to this heading"></a></h3>
+<p><strong>Do</strong>: Check existing issues before reporting new ones.</p>
+<p><strong>Why</strong>: Your issue may already be known or have a workaround.</p>
+<p><strong>Example</strong>:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Search existing issues</span>
+gh<span class="w"> </span>issue<span class="w"> </span>list<span class="w"> </span>--repo<span class="w"> </span>ZJU-PL/pyflow<span class="w"> </span>--search<span class="w"> </span><span class="s2">&quot;context&quot;</span>
+
+<span class="c1"># Check documentation</span>
+pyflow<span class="w"> </span>optimize<span class="w"> </span>--help
+</pre></div>
+</div>
+</section>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="analysis-comparison.html" class="btn btn-neutral float-left" title="Analysis Comparison" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="../a3_python/index.html" class="btn btn-neutral float-right" title="a3_python" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, rainoftime.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

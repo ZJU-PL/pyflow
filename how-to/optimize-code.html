@@ -1,0 +1,519 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>How to Optimize Code &mdash; pyflow 0.1.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=01f34227"></script>
+      <script src="../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="How to Perform Security Analysis" href="security-analysis.html" />
+    <link rel="prev" title="How to Analyze Control Flow" href="analyze-control-flow.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            pyflow
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Getting Started</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../tutorials/index.html">Tutorials</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#what-is-pyflow">What is PyFlow?</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#key-features">Key Features</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#architecture">Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#repository-status-in-practice">Repository status in practice</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">How-to Guides</span></p>
+<ul class="current">
+<li class="toctree-l1 current"><a class="reference internal" href="index.html">How-to Guides</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="analyze-call-graph.html">How to Analyze Call Graphs</a></li>
+<li class="toctree-l2"><a class="reference internal" href="analyze-control-flow.html">How to Analyze Control Flow</a></li>
+<li class="toctree-l2 current"><a class="current reference internal" href="#">How to Optimize Code</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#when-to-use-optimization">When to Use Optimization</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#optimization-levels">Optimization Levels</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#basic-simplify">Basic (simplify)</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#moderate-methodcall">Moderate (methodcall)</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#aggressive-all">Aggressive (all)</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#applying-optimizations">Applying Optimizations</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#via-command-line">Via Command Line</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#via-python-api">Via Python API</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#via-pass-manager">Via Pass Manager</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#common-optimizations">Common Optimizations</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#constant-folding">Constant Folding</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#dead-code-elimination">Dead Code Elimination</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#function-inlining">Function Inlining</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#method-call-optimization">Method Call Optimization</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#argument-normalization">Argument Normalization</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#optimization-best-practices">Optimization Best Practices</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#profile-before-optimizing">1. Profile Before Optimizing</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#verify-correctness">2. Verify Correctness</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#measure-performance">3. Measure Performance</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#apply-selectively">4. Apply Selectively</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#troubleshooting">Troubleshooting</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#issue-optimization-changes-behavior">Issue: Optimization changes behavior</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#issue-no-visible-improvement">Issue: No visible improvement</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#issue-large-code-size-increase">Issue: Large code size increase</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="security-analysis.html">How to Perform Security Analysis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="customize-analysis.html">How to Customize Analysis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="integrate-with-build-systems.html">Integrate with Build Systems</a></li>
+<li class="toctree-l2"><a class="reference internal" href="visualize-results.html">How to Visualize Results</a></li>
+<li class="toctree-l2"><a class="reference internal" href="debug-analysis-issues.html">How to Debug Analysis Issues</a></li>
+<li class="toctree-l2"><a class="reference internal" href="analyze-call-graph.html">How to Analyze Call Graphs</a></li>
+<li class="toctree-l2"><a class="reference internal" href="analyze-control-flow.html">How to Analyze Control Flow</a></li>
+<li class="toctree-l2 current"><a class="current reference internal" href="#">How to Optimize Code</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#when-to-use-optimization">When to Use Optimization</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#optimization-levels">Optimization Levels</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#basic-simplify">Basic (simplify)</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#moderate-methodcall">Moderate (methodcall)</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#aggressive-all">Aggressive (all)</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#applying-optimizations">Applying Optimizations</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#via-command-line">Via Command Line</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#via-python-api">Via Python API</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#via-pass-manager">Via Pass Manager</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#common-optimizations">Common Optimizations</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#constant-folding">Constant Folding</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#dead-code-elimination">Dead Code Elimination</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#function-inlining">Function Inlining</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#method-call-optimization">Method Call Optimization</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#argument-normalization">Argument Normalization</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#optimization-best-practices">Optimization Best Practices</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#profile-before-optimizing">1. Profile Before Optimizing</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#verify-correctness">2. Verify Correctness</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#measure-performance">3. Measure Performance</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#apply-selectively">4. Apply Selectively</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#troubleshooting">Troubleshooting</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#issue-optimization-changes-behavior">Issue: Optimization changes behavior</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#issue-no-visible-improvement">Issue: No visible improvement</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#issue-large-code-size-increase">Issue: Large code size increase</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="security-analysis.html">How to Perform Security Analysis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="customize-analysis.html">How to Customize Analysis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="integrate-with-build-systems.html">Integrate with Build Systems</a></li>
+<li class="toctree-l2"><a class="reference internal" href="visualize-results.html">How to Visualize Results</a></li>
+<li class="toctree-l2"><a class="reference internal" href="debug-analysis-issues.html">How to Debug Analysis Issues</a></li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Explanations</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../explanation/index.html">Explanations</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">A3 Python</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../a3_python/index.html"><code class="docutils literal notranslate"><span class="pre">a3_python</span></code></a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html">Main Commands</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html#global-options">Global Options</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html#integration">Integration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../api.html">PyFlow API</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html">Analysis Modules</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#overview">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#analysis-configuration">Analysis Configuration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#running-analyses">Running Analyses</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#analysis-results">Analysis Results</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html">Optimizing Python Programs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#overview">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#optimization-categories">Optimization Categories</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#optimization-pipeline">Optimization Pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#usage">Usage</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../lang/index.html">Language Module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html">Security Analysis and Checking</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#checker-categories">Checker Categories</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#analysis-framework">Analysis Framework</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#usage">Usage</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">pyflow</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="index.html">How-to Guides</a></li>
+      <li class="breadcrumb-item active">How to Optimize Code</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/how-to/optimize-code.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="how-to-optimize-code">
+<span id="id1"></span><h1>How to Optimize Code<a class="headerlink" href="#how-to-optimize-code" title="Link to this heading"></a></h1>
+<p>This guide explains how to use PyFlow’s optimization passes to improve the
+performance of your Python programs.</p>
+<section id="when-to-use-optimization">
+<h2>When to Use Optimization<a class="headerlink" href="#when-to-use-optimization" title="Link to this heading"></a></h2>
+<p>Use PyFlow optimization when you need to:</p>
+<ul class="simple">
+<li><p>Reduce execution time of Python code</p></li>
+<li><p>Decrease code size</p></li>
+<li><p>Eliminate redundant operations</p></li>
+<li><p>Prepare code for further optimization</p></li>
+<li><p>Improve performance of compute-intensive functions</p></li>
+</ul>
+</section>
+<section id="optimization-levels">
+<h2>Optimization Levels<a class="headerlink" href="#optimization-levels" title="Link to this heading"></a></h2>
+<p>PyFlow supports different optimization levels:</p>
+<section id="basic-simplify">
+<h3>Basic (simplify)<a class="headerlink" href="#basic-simplify" title="Link to this heading"></a></h3>
+<p>Constant folding and dead code elimination:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>optimize<span class="w"> </span>input.py<span class="w"> </span>--opt-passes<span class="w"> </span>simplify
+</pre></div>
+</div>
+</section>
+<section id="moderate-methodcall">
+<h3>Moderate (methodcall)<a class="headerlink" href="#moderate-methodcall" title="Link to this heading"></a></h3>
+<p>Method call optimization and data flow improvements:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>optimize<span class="w"> </span>input.py<span class="w"> </span>--opt-passes<span class="w"> </span>simplify<span class="w"> </span>methodcall
+</pre></div>
+</div>
+</section>
+<section id="aggressive-all">
+<h3>Aggressive (all)<a class="headerlink" href="#aggressive-all" title="Link to this heading"></a></h3>
+<p>All available optimizations:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>optimize<span class="w"> </span>input.py<span class="w"> </span>--opt-passes<span class="w"> </span>all
+</pre></div>
+</div>
+<p>Inlining remains experimental and must be enabled explicitly when requested.</p>
+</section>
+</section>
+<section id="applying-optimizations">
+<h2>Applying Optimizations<a class="headerlink" href="#applying-optimizations" title="Link to this heading"></a></h2>
+<section id="via-command-line">
+<h3>Via Command Line<a class="headerlink" href="#via-command-line" title="Link to this heading"></a></h3>
+<p>The simplest way to apply optimizations:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>optimize<span class="w"> </span>input.py
+</pre></div>
+</div>
+<p>Apply specific passes:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>optimize<span class="w"> </span>input.py<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--opt-passes<span class="w"> </span>simplify<span class="w"> </span>methodcall<span class="w"> </span>inlining<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--experimental-inlining
+</pre></div>
+</div>
+<p>Write a report to disk:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>optimize<span class="w"> </span>input.py<span class="w"> </span>--dump<span class="w"> </span>--output<span class="w"> </span>optimization-analysis.txt
+</pre></div>
+</div>
+</section>
+<section id="via-python-api">
+<h3>Via Python API<a class="headerlink" href="#via-python-api" title="Link to this heading"></a></h3>
+<p>For programmatic optimization:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.application.passmanager</span><span class="w"> </span><span class="kn">import</span> <span class="n">PassManager</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.application.passes</span><span class="w"> </span><span class="kn">import</span> <span class="n">register_standard_passes</span>
+
+<span class="n">pass_manager</span> <span class="o">=</span> <span class="n">PassManager</span><span class="p">()</span>
+<span class="n">register_standard_passes</span><span class="p">(</span><span class="n">pass_manager</span><span class="p">)</span>
+
+<span class="n">pass_manager</span><span class="o">.</span><span class="n">run_passes</span><span class="p">(</span>
+    <span class="n">compiler</span><span class="p">,</span>
+    <span class="n">program</span><span class="p">,</span>
+    <span class="p">[</span><span class="s2">&quot;simplify&quot;</span><span class="p">,</span> <span class="s2">&quot;methodcall&quot;</span><span class="p">,</span> <span class="s2">&quot;inlining&quot;</span><span class="p">],</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="via-pass-manager">
+<h3>Via Pass Manager<a class="headerlink" href="#via-pass-manager" title="Link to this heading"></a></h3>
+<p>For complex optimization pipelines:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.application.passmanager</span><span class="w"> </span><span class="kn">import</span> <span class="n">PassManager</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.application.passes</span><span class="w"> </span><span class="kn">import</span> <span class="n">register_standard_passes</span>
+
+<span class="n">pass_manager</span> <span class="o">=</span> <span class="n">PassManager</span><span class="p">()</span>
+<span class="n">register_standard_passes</span><span class="p">(</span><span class="n">pass_manager</span><span class="p">)</span>
+<span class="n">pipeline</span> <span class="o">=</span> <span class="n">pass_manager</span><span class="o">.</span><span class="n">build_pipeline</span><span class="p">([</span>
+    <span class="s2">&quot;simplify&quot;</span><span class="p">,</span>          <span class="c1"># Basic simplifications</span>
+    <span class="s2">&quot;methodcall&quot;</span><span class="p">,</span>        <span class="c1"># Method call optimization</span>
+    <span class="s2">&quot;argumentnormalization&quot;</span><span class="p">,</span>  <span class="c1"># Normalize arguments</span>
+    <span class="s2">&quot;inlining&quot;</span><span class="p">,</span>          <span class="c1"># Function inlining</span>
+    <span class="s2">&quot;cullprogram&quot;</span><span class="p">,</span>       <span class="c1"># Remove dead code</span>
+<span class="p">])</span>
+
+<span class="n">results</span> <span class="o">=</span> <span class="n">pass_manager</span><span class="o">.</span><span class="n">run_pipeline</span><span class="p">(</span><span class="n">compiler</span><span class="p">,</span> <span class="n">program</span><span class="p">,</span> <span class="n">pipeline</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="common-optimizations">
+<h2>Common Optimizations<a class="headerlink" href="#common-optimizations" title="Link to this heading"></a></h2>
+<section id="constant-folding">
+<h3>Constant Folding<a class="headerlink" href="#constant-folding" title="Link to this heading"></a></h3>
+<p>Evaluate constant expressions at compile time:</p>
+<div class="literal-block-wrapper docutils container" id="id2">
+<div class="code-block-caption"><span class="caption-text">Before</span><a class="headerlink" href="#id2" title="Link to this code"></a></div>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">calculate</span><span class="p">():</span>
+    <span class="n">result</span> <span class="o">=</span> <span class="mf">3.14159</span> <span class="o">*</span> <span class="mi">5</span> <span class="o">*</span> <span class="mi">5</span>  <span class="c1"># 78.53975</span>
+    <span class="k">return</span> <span class="n">result</span>
+</pre></div>
+</div>
+</div>
+<div class="literal-block-wrapper docutils container" id="id3">
+<div class="code-block-caption"><span class="caption-text">After</span><a class="headerlink" href="#id3" title="Link to this code"></a></div>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">calculate</span><span class="p">():</span>
+    <span class="n">result</span> <span class="o">=</span> <span class="mf">78.53975</span>
+    <span class="k">return</span> <span class="n">result</span>
+</pre></div>
+</div>
+</div>
+</section>
+<section id="dead-code-elimination">
+<h3>Dead Code Elimination<a class="headerlink" href="#dead-code-elimination" title="Link to this heading"></a></h3>
+<p>Remove unreachable and unused code:</p>
+<div class="literal-block-wrapper docutils container" id="id4">
+<div class="code-block-caption"><span class="caption-text">Before</span><a class="headerlink" href="#id4" title="Link to this code"></a></div>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">DEBUG</span> <span class="o">=</span> <span class="kc">False</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">process</span><span class="p">():</span>
+    <span class="k">if</span> <span class="n">DEBUG</span><span class="p">:</span>
+        <span class="n">log_detailed_information</span><span class="p">()</span>
+    <span class="k">return</span> <span class="n">core_logic</span><span class="p">()</span>
+</pre></div>
+</div>
+</div>
+<div class="literal-block-wrapper docutils container" id="id5">
+<div class="code-block-caption"><span class="caption-text">After</span><a class="headerlink" href="#id5" title="Link to this code"></a></div>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">process</span><span class="p">():</span>
+    <span class="k">return</span> <span class="n">core_logic</span><span class="p">()</span>
+</pre></div>
+</div>
+</div>
+</section>
+<section id="function-inlining">
+<h3>Function Inlining<a class="headerlink" href="#function-inlining" title="Link to this heading"></a></h3>
+<p>Replace function calls with function body:</p>
+<div class="literal-block-wrapper docutils container" id="id6">
+<div class="code-block-caption"><span class="caption-text">Before</span><a class="headerlink" href="#id6" title="Link to this code"></a></div>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">square</span><span class="p">(</span><span class="n">x</span><span class="p">):</span>
+    <span class="k">return</span> <span class="n">x</span> <span class="o">*</span> <span class="n">x</span>
+
+<span class="n">result</span> <span class="o">=</span> <span class="n">square</span><span class="p">(</span><span class="mi">5</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+<div class="literal-block-wrapper docutils container" id="id7">
+<div class="code-block-caption"><span class="caption-text">After</span><a class="headerlink" href="#id7" title="Link to this code"></a></div>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">result</span> <span class="o">=</span> <span class="mi">25</span>
+</pre></div>
+</div>
+</div>
+</section>
+<section id="method-call-optimization">
+<h3>Method Call Optimization<a class="headerlink" href="#method-call-optimization" title="Link to this heading"></a></h3>
+<p>Optimize method dispatch:</p>
+<div class="literal-block-wrapper docutils container" id="id8">
+<div class="code-block-caption"><span class="caption-text">Before</span><a class="headerlink" href="#id8" title="Link to this code"></a></div>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">class</span><span class="w"> </span><span class="nc">Math</span><span class="p">:</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">double</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">x</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">x</span> <span class="o">*</span> <span class="mi">2</span>
+
+<span class="n">m</span> <span class="o">=</span> <span class="n">Math</span><span class="p">()</span>
+<span class="n">result</span> <span class="o">=</span> <span class="n">m</span><span class="o">.</span><span class="n">double</span><span class="p">(</span><span class="mi">5</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+<div class="literal-block-wrapper docutils container" id="id9">
+<div class="code-block-caption"><span class="caption-text">After</span><a class="headerlink" href="#id9" title="Link to this code"></a></div>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Direct call without lookup overhead</span>
+<span class="n">result</span> <span class="o">=</span> <span class="mi">5</span> <span class="o">*</span> <span class="mi">2</span>
+</pre></div>
+</div>
+</div>
+</section>
+<section id="argument-normalization">
+<h3>Argument Normalization<a class="headerlink" href="#argument-normalization" title="Link to this heading"></a></h3>
+<p>Eliminate <code class="docutils literal notranslate"><span class="pre">*args</span></code> when possible:</p>
+<div class="literal-block-wrapper docutils container" id="id10">
+<div class="code-block-caption"><span class="caption-text">Before</span><a class="headerlink" href="#id10" title="Link to this code"></a></div>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">process</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+    <span class="k">return</span> <span class="n">a</span> <span class="o">+</span> <span class="n">b</span>
+</pre></div>
+</div>
+</div>
+<div class="literal-block-wrapper docutils container" id="id11">
+<div class="code-block-caption"><span class="caption-text">After</span><a class="headerlink" href="#id11" title="Link to this code"></a></div>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">process</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">arg0</span><span class="p">,</span> <span class="n">arg1</span><span class="p">):</span>
+    <span class="k">return</span> <span class="n">a</span> <span class="o">+</span> <span class="n">b</span>
+</pre></div>
+</div>
+</div>
+</section>
+</section>
+<section id="optimization-best-practices">
+<h2>Optimization Best Practices<a class="headerlink" href="#optimization-best-practices" title="Link to this heading"></a></h2>
+<section id="profile-before-optimizing">
+<h3>1. Profile Before Optimizing<a class="headerlink" href="#profile-before-optimizing" title="Link to this heading"></a></h3>
+<p>Use profiling to identify actual bottlenecks:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">cProfile</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">pstats</span>
+
+<span class="c1"># Profile your code</span>
+<span class="n">cProfile</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="s2">&quot;your_function()&quot;</span><span class="p">,</span> <span class="s2">&quot;profile.prof&quot;</span><span class="p">)</span>
+
+<span class="c1"># Analyze results</span>
+<span class="n">stats</span> <span class="o">=</span> <span class="n">pstats</span><span class="o">.</span><span class="n">Stats</span><span class="p">(</span><span class="s2">&quot;profile.prof&quot;</span><span class="p">)</span>
+<span class="n">stats</span><span class="o">.</span><span class="n">sort_stats</span><span class="p">(</span><span class="s2">&quot;cumulative&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">print_stats</span><span class="p">(</span><span class="mi">20</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="verify-correctness">
+<h3>2. Verify Correctness<a class="headerlink" href="#verify-correctness" title="Link to this heading"></a></h3>
+<p>Always test optimized code:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">pytest</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">test_optimization_preserves_behavior</span><span class="p">():</span>
+    <span class="n">original_result</span> <span class="o">=</span> <span class="n">original_function</span><span class="p">(</span><span class="n">input_data</span><span class="p">)</span>
+    <span class="n">optimized_result</span> <span class="o">=</span> <span class="n">optimized_function</span><span class="p">(</span><span class="n">input_data</span><span class="p">)</span>
+    <span class="k">assert</span> <span class="n">original_result</span> <span class="o">==</span> <span class="n">optimized_result</span>
+</pre></div>
+</div>
+</section>
+<section id="measure-performance">
+<h3>3. Measure Performance<a class="headerlink" href="#measure-performance" title="Link to this heading"></a></h3>
+<p>Benchmark before and after:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">timeit</span>
+
+<span class="n">original_time</span> <span class="o">=</span> <span class="n">timeit</span><span class="o">.</span><span class="n">timeit</span><span class="p">(</span><span class="n">original_function</span><span class="p">,</span> <span class="n">number</span><span class="o">=</span><span class="mi">1000</span><span class="p">)</span>
+<span class="n">optimized_time</span> <span class="o">=</span> <span class="n">timeit</span><span class="o">.</span><span class="n">timeit</span><span class="p">(</span><span class="n">optimized_function</span><span class="p">,</span> <span class="n">number</span><span class="o">=</span><span class="mi">1000</span><span class="p">)</span>
+
+<span class="n">speedup</span> <span class="o">=</span> <span class="n">original_time</span> <span class="o">/</span> <span class="n">optimized_time</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Speedup: </span><span class="si">{</span><span class="n">speedup</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2">x&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="apply-selectively">
+<h3>4. Apply Selectively<a class="headerlink" href="#apply-selectively" title="Link to this heading"></a></h3>
+<p>Not all optimizations help every program. Test different combinations:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Try different pass combinations</span>
+pyflow<span class="w"> </span>optimize<span class="w"> </span>input.py<span class="w"> </span>--opt-passes<span class="w"> </span>simplify
+pyflow<span class="w"> </span>optimize<span class="w"> </span>input.py<span class="w"> </span>--opt-passes<span class="w"> </span>simplify<span class="w"> </span>methodcall
+pyflow<span class="w"> </span>optimize<span class="w"> </span>input.py<span class="w"> </span>--opt-passes<span class="w"> </span>simplify<span class="w"> </span>methodcall<span class="w"> </span>inlining<span class="w"> </span>--experimental-inlining
+</pre></div>
+</div>
+</section>
+</section>
+<section id="troubleshooting">
+<h2>Troubleshooting<a class="headerlink" href="#troubleshooting" title="Link to this heading"></a></h2>
+<section id="issue-optimization-changes-behavior">
+<h3>Issue: Optimization changes behavior<a class="headerlink" href="#issue-optimization-changes-behavior" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p>Some optimizations may change behavior in edge cases</p></li>
+<li><p>Use <code class="docutils literal notranslate"><span class="pre">--no-opt-passes</span></code> to disable optimizations</p></li>
+<li><p>Report bugs at <a class="reference external" href="https://github.com/ZJU-PL/pyflow/issues">https://github.com/ZJU-PL/pyflow/issues</a></p></li>
+</ul>
+</section>
+<section id="issue-no-visible-improvement">
+<h3>Issue: No visible improvement<a class="headerlink" href="#issue-no-visible-improvement" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p>The code may already be optimized</p></li>
+<li><p>Profile to find actual bottlenecks</p></li>
+<li><p>Manual optimization may be needed for hot paths</p></li>
+</ul>
+</section>
+<section id="issue-large-code-size-increase">
+<h3>Issue: Large code size increase<a class="headerlink" href="#issue-large-code-size-increase" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p>Inlining can increase code size</p></li>
+<li><p>Use selective inlining with size limits</p></li>
+<li><p>Consider trade-offs between speed and size</p></li>
+</ul>
+</section>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="analyze-control-flow.html" class="btn btn-neutral float-left" title="How to Analyze Control Flow" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="security-analysis.html" class="btn btn-neutral float-right" title="How to Perform Security Analysis" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, rainoftime.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

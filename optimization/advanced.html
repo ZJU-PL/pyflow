@@ -1,0 +1,210 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Advanced Optimizations &mdash; pyflow 0.1.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=01f34227"></script>
+      <script src="../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Language Module" href="../lang/index.html" />
+    <link rel="prev" title="Function and Method Optimizations" href="function-optimizations.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            pyflow
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Getting Started</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../tutorials/index.html">Tutorials</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#what-is-pyflow">What is PyFlow?</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#key-features">Key Features</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#architecture">Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#repository-status-in-practice">Repository status in practice</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">How-to Guides</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../how-to/index.html">How-to Guides</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Explanations</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../explanation/index.html">Explanations</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">A3 Python</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../a3_python/index.html"><code class="docutils literal notranslate"><span class="pre">a3_python</span></code></a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Reference</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../cli.html">Main Commands</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html#global-options">Global Options</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html#integration">Integration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../api.html">PyFlow API</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html">Analysis Modules</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#overview">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#analysis-configuration">Analysis Configuration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#running-analyses">Running Analyses</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#analysis-results">Analysis Results</a></li>
+<li class="toctree-l1"><a class="reference internal" href="index.html">Optimizing Python Programs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="index.html#overview">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="index.html#optimization-categories">Optimization Categories</a></li>
+<li class="toctree-l1"><a class="reference internal" href="index.html#optimization-pipeline">Optimization Pipeline</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="index.html#usage">Usage</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="index.html#cli-usage">CLI Usage</a></li>
+<li class="toctree-l2"><a class="reference internal" href="index.html#programmatic-usage">Programmatic Usage</a></li>
+<li class="toctree-l2 current"><a class="reference internal" href="index.html#pass-manager">Pass Manager</a><ul class="current">
+<li class="toctree-l3"><a class="reference internal" href="constant-folding.html">Constant Folding and Propagation</a></li>
+<li class="toctree-l3"><a class="reference internal" href="dataflow.html">Data Flow Optimizations</a></li>
+<li class="toctree-l3"><a class="reference internal" href="control-flow.html">Control Flow Optimizations</a></li>
+<li class="toctree-l3"><a class="reference internal" href="function-optimizations.html">Function and Method Optimizations</a></li>
+<li class="toctree-l3 current"><a class="current reference internal" href="#">Advanced Optimizations</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#call-conversion-callconverter-py">Call Conversion (callconverter.py)</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#boolean-conversion-elimination-convertboolelimination-py">Boolean Conversion Elimination (convertboolelimination.py)</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#term-rewriting-termrewrite-py">Term Rewriting (termrewrite.py)</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#code-rewriting-framework-rewrite-py">Code Rewriting Framework (rewrite.py)</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#limitations">Limitations</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#performance-impact">Performance Impact</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#best-practices">Best Practices</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../lang/index.html">Language Module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html">Security Analysis and Checking</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#checker-categories">Checker Categories</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#analysis-framework">Analysis Framework</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#usage">Usage</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">pyflow</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="index.html">Optimizing Python Programs</a></li>
+      <li class="breadcrumb-item active">Advanced Optimizations</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/optimization/advanced.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="advanced-optimizations">
+<h1>Advanced Optimizations<a class="headerlink" href="#advanced-optimizations" title="Link to this heading"></a></h1>
+<p>Sophisticated transformations requiring deep program analysis: call conversion, boolean elimination, term rewriting, and general code rewriting.</p>
+<section id="call-conversion-callconverter-py">
+<h2>Call Conversion (callconverter.py)<a class="headerlink" href="#call-conversion-callconverter-py" title="Link to this heading"></a></h2>
+<p>Optimizes built-in/library/FFI calls: converts builtins to direct operations (e.g., <code class="docutils literal notranslate"><span class="pre">len([1,2,3])</span></code> → <code class="docutils literal notranslate"><span class="pre">3</span></code>), specializes library calls (e.g., <code class="docutils literal notranslate"><span class="pre">math.sqrt(4.0)</span></code> → <code class="docutils literal notranslate"><span class="pre">2.0</span></code>), optimizes FFI calls with direct calls and argument marshalling.</p>
+</section>
+<section id="boolean-conversion-elimination-convertboolelimination-py">
+<h2>Boolean Conversion Elimination (convertboolelimination.py)<a class="headerlink" href="#boolean-conversion-elimination-convertboolelimination-py" title="Link to this heading"></a></h2>
+<p>Removes unnecessary <code class="docutils literal notranslate"><span class="pre">bool()</span></code> conversions: eliminates redundant conversions for already-boolean values, always-boolean expressions (e.g., <code class="docutils literal notranslate"><span class="pre">bool(x</span> <span class="pre">==</span> <span class="pre">y)</span></code> → <code class="docutils literal notranslate"><span class="pre">x</span> <span class="pre">==</span> <span class="pre">y</span></code>), and conditional simplifications (e.g., <code class="docutils literal notranslate"><span class="pre">if</span> <span class="pre">bool(x):</span> <span class="pre">return</span> <span class="pre">True</span> <span class="pre">else</span> <span class="pre">False</span></code> → <code class="docutils literal notranslate"><span class="pre">return</span> <span class="pre">x</span></code>).</p>
+</section>
+<section id="term-rewriting-termrewrite-py">
+<h2>Term Rewriting (termrewrite.py)<a class="headerlink" href="#term-rewriting-termrewrite-py" title="Link to this heading"></a></h2>
+<p>Performs algebraic simplifications and expression normalization: <code class="docutils literal notranslate"><span class="pre">x</span> <span class="pre">*</span> <span class="pre">0</span> <span class="pre">→</span> <span class="pre">0</span></code>, <code class="docutils literal notranslate"><span class="pre">x</span> <span class="pre">*</span> <span class="pre">1</span> <span class="pre">→</span> <span class="pre">x</span></code>, <code class="docutils literal notranslate"><span class="pre">x</span> <span class="pre">+</span> <span class="pre">0</span> <span class="pre">→</span> <span class="pre">x</span></code>, <code class="docutils literal notranslate"><span class="pre">x</span> <span class="pre">/</span> <span class="pre">1</span> <span class="pre">→</span> <span class="pre">x</span></code>. Normalizes expressions (e.g., <code class="docutils literal notranslate"><span class="pre">(a</span> <span class="pre">+</span> <span class="pre">b)</span> <span class="pre">+</span> <span class="pre">c</span> <span class="pre">→</span> <span class="pre">a</span> <span class="pre">+</span> <span class="pre">b</span> <span class="pre">+</span> <span class="pre">c</span></code>). Rewrites method calls to direct calls when target known. Applies commutativity, associativity, distributivity, and identity element optimizations.</p>
+</section>
+<section id="code-rewriting-framework-rewrite-py">
+<h2>Code Rewriting Framework (rewrite.py)<a class="headerlink" href="#code-rewriting-framework-rewrite-py" title="Link to this heading"></a></h2>
+<p>General pattern-based transformation framework. Supports AST pattern matching, safe transformation application (preserves semantics, updates annotations), and integration with simplification. Used by load/store elimination, dead code elimination, and custom optimizations.</p>
+</section>
+<section id="limitations">
+<h2>Limitations<a class="headerlink" href="#limitations" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p><strong>Call Conversion</strong>: Cannot optimize dynamic calls, limited by type precision</p></li>
+<li><p><strong>Boolean Elimination</strong>: Must preserve truthiness semantics, some conversions necessary</p></li>
+<li><p><strong>Term Rewriting</strong>: Limited rewrite rules, careful with floating point</p></li>
+<li><p><strong>Code Rewriting</strong>: Must preserve semantics, may miss opportunities</p></li>
+</ul>
+</section>
+<section id="performance-impact">
+<h2>Performance Impact<a class="headerlink" href="#performance-impact" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p>Call conversion: 5-20% speedup (builtin-heavy code)</p></li>
+<li><p>Boolean elimination: 2-5% overhead reduction</p></li>
+<li><p>Term rewriting: 5-15% speedup</p></li>
+<li><p>Code rewriting: varies by transformation</p></li>
+</ul>
+<p>Operates in polynomial time. Works with type analysis, constant folding, data flow, and control flow optimizations.</p>
+</section>
+<section id="best-practices">
+<h2>Best Practices<a class="headerlink" href="#best-practices" title="Link to this heading"></a></h2>
+<p>Most effective with many builtins, redundant operations, rewritable patterns, and precise type info. Can configure rewrite rules, complexity limits, and code size growth. Use <code class="docutils literal notranslate"><span class="pre">--dump</span></code> flags for debugging.</p>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="function-optimizations.html" class="btn btn-neutral float-left" title="Function and Method Optimizations" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="../lang/index.html" class="btn btn-neutral float-right" title="Language Module" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, rainoftime.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

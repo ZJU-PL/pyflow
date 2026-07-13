@@ -1,0 +1,222 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Function and Method Optimizations &mdash; pyflow 0.1.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=01f34227"></script>
+      <script src="../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Advanced Optimizations" href="advanced.html" />
+    <link rel="prev" title="Control Flow Optimizations" href="control-flow.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            pyflow
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Getting Started</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../tutorials/index.html">Tutorials</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#what-is-pyflow">What is PyFlow?</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#key-features">Key Features</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#architecture">Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#repository-status-in-practice">Repository status in practice</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">How-to Guides</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../how-to/index.html">How-to Guides</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Explanations</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../explanation/index.html">Explanations</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">A3 Python</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../a3_python/index.html"><code class="docutils literal notranslate"><span class="pre">a3_python</span></code></a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Reference</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../cli.html">Main Commands</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html#global-options">Global Options</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html#integration">Integration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../api.html">PyFlow API</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html">Analysis Modules</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#overview">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#analysis-configuration">Analysis Configuration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#running-analyses">Running Analyses</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#analysis-results">Analysis Results</a></li>
+<li class="toctree-l1"><a class="reference internal" href="index.html">Optimizing Python Programs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="index.html#overview">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="index.html#optimization-categories">Optimization Categories</a></li>
+<li class="toctree-l1"><a class="reference internal" href="index.html#optimization-pipeline">Optimization Pipeline</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="index.html#usage">Usage</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="index.html#cli-usage">CLI Usage</a></li>
+<li class="toctree-l2"><a class="reference internal" href="index.html#programmatic-usage">Programmatic Usage</a></li>
+<li class="toctree-l2 current"><a class="reference internal" href="index.html#pass-manager">Pass Manager</a><ul class="current">
+<li class="toctree-l3"><a class="reference internal" href="constant-folding.html">Constant Folding and Propagation</a></li>
+<li class="toctree-l3"><a class="reference internal" href="dataflow.html">Data Flow Optimizations</a></li>
+<li class="toctree-l3"><a class="reference internal" href="control-flow.html">Control Flow Optimizations</a></li>
+<li class="toctree-l3 current"><a class="current reference internal" href="#">Function and Method Optimizations</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#function-inlining-codeinlining-py">Function Inlining (codeinlining.py)</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#method-call-optimization-methodcall-py">Method Call Optimization (methodcall.py)</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#argument-normalization-argumentnormalization-py">Argument Normalization (argumentnormalization.py)</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#code-cloning-clone-py">Code Cloning (clone.py)</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#limitations">Limitations</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#performance-impact">Performance Impact</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#integration">Integration</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="advanced.html">Advanced Optimizations</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../lang/index.html">Language Module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html">Security Analysis and Checking</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#checker-categories">Checker Categories</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#analysis-framework">Analysis Framework</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#usage">Usage</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">pyflow</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="index.html">Optimizing Python Programs</a></li>
+      <li class="breadcrumb-item active">Function and Method Optimizations</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/optimization/function-optimizations.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="function-and-method-optimizations">
+<h1>Function and Method Optimizations<a class="headerlink" href="#function-and-method-optimizations" title="Link to this heading"></a></h1>
+<p>Transforms function calls and method invocations to improve performance using type information and call graph analysis. Includes inlining, method call optimization, argument normalization, and code cloning.</p>
+<section id="function-inlining-codeinlining-py">
+<h2>Function Inlining (codeinlining.py)<a class="headerlink" href="#function-inlining-codeinlining-py" title="Link to this heading"></a></h2>
+<p>Replaces function calls with function bodies, eliminating call overhead.</p>
+<section id="inlining-criteria">
+<h3>Inlining Criteria<a class="headerlink" href="#inlining-criteria" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p>Small size: ≤4 operations (configurable <code class="docutils literal notranslate"><span class="pre">maxOps</span></code>)</p></li>
+<li><p>Few call sites: ≤1 call (configurable <code class="docutils literal notranslate"><span class="pre">maxInvokes</span></code>)</p></li>
+<li><p>No complex features: no returns from loops/try, no ops after return, no <a href="#id1"><span class="problematic" id="id2">*</span></a>args/<a href="#id3"><span class="problematic" id="id4">**</span></a>kwargs</p></li>
+<li><p>No recursion (checked via call graph)</p></li>
+</ul>
+<p>Context-sensitive: different contexts inlined separately. Prevents recursion via trace tracking. Counts operations to limit code growth. Immediately applies simplification after inlining.</p>
+</section>
+</section>
+<section id="method-call-optimization-methodcall-py">
+<h2>Method Call Optimization (methodcall.py)<a class="headerlink" href="#method-call-optimization-methodcall-py" title="Link to this heading"></a></h2>
+<p>Converts dynamic method dispatch to direct calls when target is statically known.</p>
+<p>Recognizes patterns: <code class="docutils literal notranslate"><span class="pre">obj.attr</span></code> → direct access, <code class="docutils literal notranslate"><span class="pre">function.__get__()</span></code> → direct function, <code class="docutils literal notranslate"><span class="pre">method.__call__()</span></code> → direct call. Eliminates virtual calls when all targets are the same. Handles polymorphism via cloning, type switches, or context unification.</p>
+</section>
+<section id="argument-normalization-argumentnormalization-py">
+<h2>Argument Normalization (argumentnormalization.py)<a class="headerlink" href="#argument-normalization-argumentnormalization-py" title="Link to this heading"></a></h2>
+<p>Simplifies calling conventions by eliminating <a href="#id5"><span class="problematic" id="id6">*</span></a>args/<a href="#id7"><span class="problematic" id="id8">**</span></a>kwargs when possible.</p>
+<p>Optimizes default arguments (makes explicit), normalizes keyword to positional arguments, eliminates <a href="#id9"><span class="problematic" id="id10">*</span></a>args/<a href="#id11"><span class="problematic" id="id12">**</span></a>kwargs when unused. Enables inlining, eliminates packing/unpacking overhead, enables further optimizations.</p>
+</section>
+<section id="code-cloning-clone-py">
+<h2>Code Cloning (clone.py)<a class="headerlink" href="#code-cloning-clone-py" title="Link to this heading"></a></h2>
+<p>Creates specialized function versions for different calling contexts.</p>
+<p>Unifies similar contexts using union-find (reduces duplication), separates different contexts (enables specialization). Decisions based on type information, call patterns, and optimization opportunities.</p>
+</section>
+<section id="limitations">
+<h2>Limitations<a class="headerlink" href="#limitations" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p><strong>Inlining</strong>: Code size growth, cannot inline recursive/complex functions, limited by <a href="#id13"><span class="problematic" id="id14">*</span></a>args/<a href="#id15"><span class="problematic" id="id16">**</span></a>kwargs</p></li>
+<li><p><strong>Method Optimization</strong>: Limited by type precision, struggles with high polymorphism</p></li>
+<li><p><strong>Argument Normalization</strong>: Cannot eliminate when actually used, limited by call site analysis</p></li>
+<li><p><strong>Cloning</strong>: Code size growth, context explosion risk</p></li>
+</ul>
+</section>
+<section id="performance-impact">
+<h2>Performance Impact<a class="headerlink" href="#performance-impact" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p>Inlining: 10-30% speedup (moderate overhead)</p></li>
+<li><p>Method optimization: 20-50% speedup (low overhead)</p></li>
+<li><p>Argument normalization: 5-15% reduction (low overhead)</p></li>
+<li><p>Cloning: 10-40% speedup (can be expensive with many contexts)</p></li>
+</ul>
+</section>
+<section id="integration">
+<h2>Integration<a class="headerlink" href="#integration" title="Link to this heading"></a></h2>
+<p>Works with type analysis (provides info), constant folding (optimizes inlined code), dead code elimination (removes unused clones), and control flow simplification.</p>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="control-flow.html" class="btn btn-neutral float-left" title="Control Flow Optimizations" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="advanced.html" class="btn btn-neutral float-right" title="Advanced Optimizations" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, rainoftime.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

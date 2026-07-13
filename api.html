@@ -1,0 +1,387 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="./">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PyFlow API &mdash; pyflow 0.1.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="_static/jquery.js?v=5d32c60e"></script>
+      <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="_static/documentation_options.js?v=01f34227"></script>
+      <script src="_static/doctools.js?v=9bcbadda"></script>
+      <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Analysis Modules" href="analysis/index.html" />
+    <link rel="prev" title="Main Commands" href="cli.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="index.html" class="icon icon-home">
+            pyflow
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Getting Started</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="tutorials/index.html">Tutorials</a></li>
+<li class="toctree-l1"><a class="reference internal" href="overview.html">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="overview.html#what-is-pyflow">What is PyFlow?</a></li>
+<li class="toctree-l1"><a class="reference internal" href="overview.html#key-features">Key Features</a></li>
+<li class="toctree-l1"><a class="reference internal" href="overview.html#architecture">Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="overview.html#repository-status-in-practice">Repository status in practice</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">How-to Guides</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="how-to/index.html">How-to Guides</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Explanations</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="explanation/index.html">Explanations</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">A3 Python</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="a3_python/index.html"><code class="docutils literal notranslate"><span class="pre">a3_python</span></code></a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Reference</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="cli.html">Main Commands</a></li>
+<li class="toctree-l1"><a class="reference internal" href="cli.html#global-options">Global Options</a></li>
+<li class="toctree-l1"><a class="reference internal" href="cli.html#integration">Integration</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">PyFlow API</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#quick-start">Quick Start</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#entry-points">Entry Points</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#interfacedeclaration">InterfaceDeclaration</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#classdeclaration">ClassDeclaration</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#argument-wrappers">Argument Wrappers</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#query-service">Query Service</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#semanticqueryservice">SemanticQueryService</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#query-context">Query Context</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#graph-query-engine">Graph Query Engine</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#server-modes">Server Modes</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#localization-queries">Localization Queries</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#test-generation-queries">Test Generation Queries</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#mcp-server-integration">MCP Server Integration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#see-also">See Also</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="analysis/index.html">Analysis Modules</a></li>
+<li class="toctree-l1"><a class="reference internal" href="analysis/index.html#overview">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="analysis/index.html#analysis-configuration">Analysis Configuration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="analysis/index.html#running-analyses">Running Analyses</a></li>
+<li class="toctree-l1"><a class="reference internal" href="analysis/index.html#analysis-results">Analysis Results</a></li>
+<li class="toctree-l1"><a class="reference internal" href="optimization/index.html">Optimizing Python Programs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="optimization/index.html#overview">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="optimization/index.html#optimization-categories">Optimization Categories</a></li>
+<li class="toctree-l1"><a class="reference internal" href="optimization/index.html#optimization-pipeline">Optimization Pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="optimization/index.html#usage">Usage</a></li>
+<li class="toctree-l1"><a class="reference internal" href="lang/index.html">Language Module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="checker/sec.html">Security Analysis and Checking</a></li>
+<li class="toctree-l1"><a class="reference internal" href="checker/sec.html#checker-categories">Checker Categories</a></li>
+<li class="toctree-l1"><a class="reference internal" href="checker/sec.html#analysis-framework">Analysis Framework</a></li>
+<li class="toctree-l1"><a class="reference internal" href="checker/sec.html#usage">Usage</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">pyflow</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">PyFlow API</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/api.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="pyflow-api">
+<h1>PyFlow API<a class="headerlink" href="#pyflow-api" title="Link to this heading"></a></h1>
+<p>The PyFlow API provides programmatic access to PyFlow’s analysis capabilities.
+The API is organized into two main packages:</p>
+<ul class="simple">
+<li><p><strong>Entry Points</strong> (<code class="docutils literal notranslate"><span class="pre">pyflow.api.entrypoints</span></code>): Define what code to analyze</p></li>
+<li><p><strong>Query Service</strong> (<code class="docutils literal notranslate"><span class="pre">pyflow.api.queries</span></code>): Query analysis results</p></li>
+</ul>
+<section id="quick-start">
+<h2>Quick Start<a class="headerlink" href="#quick-start" title="Link to this heading"></a></h2>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.api</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">InterfaceDeclaration</span><span class="p">,</span>
+    <span class="n">ClassDeclaration</span><span class="p">,</span>
+    <span class="n">SemanticQueryService</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.frontend.programextractor</span><span class="w"> </span><span class="kn">import</span> <span class="n">Extractor</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.application.context</span><span class="w"> </span><span class="kn">import</span> <span class="n">CompilerContext</span>
+
+<span class="c1"># Set up the compiler and extractor</span>
+<span class="n">compiler</span> <span class="o">=</span> <span class="n">CompilerContext</span><span class="p">()</span>
+<span class="n">extractor</span> <span class="o">=</span> <span class="n">Extractor</span><span class="p">(</span><span class="n">compiler</span><span class="p">)</span>
+
+<span class="c1"># Declare entry points</span>
+<span class="n">interface</span> <span class="o">=</span> <span class="n">InterfaceDeclaration</span><span class="p">()</span>
+
+<span class="c1"># Add a class to analyze</span>
+<span class="n">class_decl</span> <span class="o">=</span> <span class="n">ClassDeclaration</span><span class="p">(</span><span class="n">MyClass</span><span class="p">)</span>
+<span class="n">class_decl</span><span class="o">.</span><span class="n">init</span><span class="p">(</span><span class="n">arg1</span><span class="p">,</span> <span class="n">arg2</span><span class="p">)</span>
+<span class="n">class_decl</span><span class="o">.</span><span class="n">attr</span><span class="p">(</span><span class="s2">&quot;field1&quot;</span><span class="p">,</span> <span class="s2">&quot;field2&quot;</span><span class="p">)</span>
+<span class="n">class_decl</span><span class="o">.</span><span class="n">method</span><span class="p">(</span><span class="s2">&quot;method_name&quot;</span><span class="p">,</span> <span class="n">param1</span><span class="p">,</span> <span class="n">param2</span><span class="p">)</span>
+<span class="n">interface</span><span class="o">.</span><span class="n">cls</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">class_decl</span><span class="p">)</span>
+
+<span class="c1"># Extract and analyze</span>
+<span class="n">interface</span><span class="o">.</span><span class="n">translate</span><span class="p">(</span><span class="n">extractor</span><span class="p">)</span>
+<span class="n">program</span> <span class="o">=</span> <span class="n">extractor</span><span class="o">.</span><span class="n">extract_from_file</span><span class="p">(</span><span class="s2">&quot;my_file.py&quot;</span><span class="p">)</span>
+
+<span class="c1"># Query analysis results</span>
+<span class="n">service</span> <span class="o">=</span> <span class="n">SemanticQueryService</span><span class="p">(</span><span class="n">compiler</span><span class="p">,</span> <span class="n">program</span><span class="p">)</span>
+<span class="n">callgraph</span> <span class="o">=</span> <span class="n">service</span><span class="o">.</span><span class="n">get_callgraph</span><span class="p">()</span>
+<span class="n">cfg</span> <span class="o">=</span> <span class="n">service</span><span class="o">.</span><span class="n">get_cfg</span><span class="p">(</span><span class="s2">&quot;function_name&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="entry-points">
+<h2>Entry Points<a class="headerlink" href="#entry-points" title="Link to this heading"></a></h2>
+<p>The entry points module (<code class="docutils literal notranslate"><span class="pre">pyflow.api.entrypoints</span></code>) provides classes for
+declaring what code should be analyzed.</p>
+<section id="interfacedeclaration">
+<h3>InterfaceDeclaration<a class="headerlink" href="#interfacedeclaration" title="Link to this heading"></a></h3>
+<p>The main entry point for declaring analysis targets.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.api</span><span class="w"> </span><span class="kn">import</span> <span class="n">InterfaceDeclaration</span>
+
+<span class="n">interface</span> <span class="o">=</span> <span class="n">InterfaceDeclaration</span><span class="p">()</span>
+
+<span class="c1"># Add function entry points</span>
+<span class="n">interface</span><span class="o">.</span><span class="n">func</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">my_function</span><span class="p">,</span> <span class="p">(</span><span class="n">arg1</span><span class="p">,</span> <span class="n">arg2</span><span class="p">)))</span>
+
+<span class="c1"># Add class entry points</span>
+<span class="n">cls_decl</span> <span class="o">=</span> <span class="n">ClassDeclaration</span><span class="p">(</span><span class="n">MyClass</span><span class="p">)</span>
+<span class="n">interface</span><span class="o">.</span><span class="n">cls</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">cls_decl</span><span class="p">)</span>
+</pre></div>
+</div>
+<p><strong>Key Methods:</strong></p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">translate(extractor)</span></code>: Translates declarations into entry points for analysis</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">createEntryPoint(...)</span></code>: Creates an entry point for a specific function call</p></li>
+</ul>
+</section>
+<section id="classdeclaration">
+<h3>ClassDeclaration<a class="headerlink" href="#classdeclaration" title="Link to this heading"></a></h3>
+<p>Declares a class with its initialization, attributes, and methods.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.api</span><span class="w"> </span><span class="kn">import</span> <span class="n">ClassDeclaration</span>
+
+<span class="n">class_decl</span> <span class="o">=</span> <span class="n">ClassDeclaration</span><span class="p">(</span><span class="n">MyClass</span><span class="p">)</span>
+<span class="n">class_decl</span><span class="o">.</span><span class="n">init</span><span class="p">(</span><span class="n">arg1</span><span class="p">,</span> <span class="n">arg2</span><span class="p">)</span>  <span class="c1"># Constructor arguments</span>
+<span class="n">class_decl</span><span class="o">.</span><span class="n">attr</span><span class="p">(</span><span class="s2">&quot;field1&quot;</span><span class="p">,</span> <span class="s2">&quot;field2&quot;</span><span class="p">)</span>  <span class="c1"># Attributes</span>
+<span class="n">class_decl</span><span class="o">.</span><span class="n">method</span><span class="p">(</span><span class="s2">&quot;method_name&quot;</span><span class="p">,</span> <span class="n">param1</span><span class="p">,</span> <span class="n">param2</span><span class="p">)</span>  <span class="c1"># Methods</span>
+</pre></div>
+</div>
+<p><strong>Key Methods:</strong></p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">init(*args)</span></code>: Declare constructor arguments</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">attr(*args)</span></code>: Declare class attributes</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">method(name,</span> <span class="pre">*args)</span></code>: Declare method signatures</p></li>
+</ul>
+</section>
+<section id="argument-wrappers">
+<h3>Argument Wrappers<a class="headerlink" href="#argument-wrappers" title="Link to this heading"></a></h3>
+<p>The <code class="docutils literal notranslate"><span class="pre">wrappers</span></code> module provides wrappers for different argument types:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">ExistingWrapper</span></code>: Wrap an existing object/value</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">InstanceWrapper</span></code>: Wrap an instance creation</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">NullWrapper</span></code>: Represent null/no argument</p></li>
+</ul>
+</section>
+</section>
+<section id="query-service">
+<h2>Query Service<a class="headerlink" href="#query-service" title="Link to this heading"></a></h2>
+<p>The query service module (<code class="docutils literal notranslate"><span class="pre">pyflow.api.queries</span></code>) provides access to
+analysis results.</p>
+<section id="semanticqueryservice">
+<h3>SemanticQueryService<a class="headerlink" href="#semanticqueryservice" title="Link to this heading"></a></h3>
+<p>The main facade for querying analysis results.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.api</span><span class="w"> </span><span class="kn">import</span> <span class="n">SemanticQueryService</span>
+
+<span class="n">service</span> <span class="o">=</span> <span class="n">SemanticQueryService</span><span class="p">(</span><span class="n">compiler</span><span class="p">,</span> <span class="n">program</span><span class="p">)</span>
+
+<span class="c1"># Get various analysis results</span>
+<span class="n">cfg</span> <span class="o">=</span> <span class="n">service</span><span class="o">.</span><span class="n">get_cfg</span><span class="p">(</span><span class="s2">&quot;function_name&quot;</span><span class="p">)</span>
+<span class="n">callgraph</span> <span class="o">=</span> <span class="n">service</span><span class="o">.</span><span class="n">get_callgraph</span><span class="p">()</span>
+<span class="n">data_flow</span> <span class="o">=</span> <span class="n">service</span><span class="o">.</span><span class="n">get_dataflow</span><span class="p">(</span><span class="s2">&quot;function_name&quot;</span><span class="p">)</span>
+<span class="n">callers</span> <span class="o">=</span> <span class="n">service</span><span class="o">.</span><span class="n">get_callers</span><span class="p">(</span><span class="s2">&quot;function_name&quot;</span><span class="p">)</span>
+<span class="n">callees</span> <span class="o">=</span> <span class="n">service</span><span class="o">.</span><span class="n">get_callees</span><span class="p">(</span><span class="s2">&quot;function_name&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+<p><strong>Control Flow Queries:</strong></p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">get_cfg(function)</span></code>: Get Control Flow Graph</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">get_cfg_structure(function)</span></code>: Get CFG as dictionary</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">get_ssa(function)</span></code>: Get SSA form</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">get_cdg(function)</span></code>: Get Control Dependence Graph</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">get_pdg(function)</span></code>: Get Program Dependence Graph</p></li>
+</ul>
+<p><strong>Call Graph Queries:</strong></p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">get_callgraph()</span></code>: Get complete call graph</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">get_callers(function)</span></code>: Get functions that call the given function</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">get_callees(function)</span></code>: Get functions called by the given function</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">get_method_resolution_order(class)</span></code>: Get class MRO</p></li>
+</ul>
+<p><strong>Data Flow Queries:</strong></p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">get_dataflow(function)</span></code>: Get data flow analysis results</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">get_aliases(variable)</span></code>: Get alias information</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">get_points_to(variable)</span></code>: Get points-to information</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">get_reaching_defs(variable)</span></code>: Get reaching definitions</p></li>
+</ul>
+</section>
+<section id="query-context">
+<h3>Query Context<a class="headerlink" href="#query-context" title="Link to this heading"></a></h3>
+<p>The <code class="docutils literal notranslate"><span class="pre">QueryContext</span></code> class maintains the analysis context.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.api.queries</span><span class="w"> </span><span class="kn">import</span> <span class="n">QueryContext</span>
+
+<span class="n">context</span> <span class="o">=</span> <span class="n">QueryContext</span><span class="p">(</span><span class="n">compiler</span><span class="p">,</span> <span class="n">program</span><span class="p">)</span>
+<span class="c1"># Access underlying analysis data</span>
+</pre></div>
+</div>
+</section>
+<section id="graph-query-engine">
+<h3>Graph Query Engine<a class="headerlink" href="#graph-query-engine" title="Link to this heading"></a></h3>
+<p>The <code class="docutils literal notranslate"><span class="pre">GraphQueryEngine</span></code> provides graph-based querying capabilities.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.api.queries</span><span class="w"> </span><span class="kn">import</span> <span class="n">GraphQueryEngine</span>
+
+<span class="n">engine</span> <span class="o">=</span> <span class="n">GraphQueryEngine</span><span class="p">(</span><span class="n">context</span><span class="p">)</span>
+
+<span class="c1"># Query graph structures</span>
+<span class="n">nodes</span> <span class="o">=</span> <span class="n">engine</span><span class="o">.</span><span class="n">get_nodes</span><span class="p">(</span><span class="n">function_name</span><span class="p">)</span>
+<span class="n">edges</span> <span class="o">=</span> <span class="n">engine</span><span class="o">.</span><span class="n">get_edges</span><span class="p">(</span><span class="n">function_name</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="server-modes">
+<h3>Server Modes<a class="headerlink" href="#server-modes" title="Link to this heading"></a></h3>
+<p>PyFlow supports different server modes for different use cases:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">DEFAULT_MODE</span></code>: Standard analysis</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">MCPServerMode</span></code>: Mode optimized for MCP tooling</p></li>
+</ul>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.api.queries</span><span class="w"> </span><span class="kn">import</span> <span class="n">MCPServerMode</span><span class="p">,</span> <span class="n">DEFAULT_MODE</span>
+
+<span class="c1"># Set server mode</span>
+<span class="n">service</span> <span class="o">=</span> <span class="n">SemanticQueryService</span><span class="p">(</span><span class="n">compiler</span><span class="p">,</span> <span class="n">program</span><span class="p">,</span> <span class="n">server_mode</span><span class="o">=</span><span class="n">MCPServerMode</span><span class="p">)</span>
+
+<span class="c1"># Check capabilities</span>
+<span class="n">caps</span> <span class="o">=</span> <span class="n">service</span><span class="o">.</span><span class="n">capabilities</span><span class="p">()</span>
+</pre></div>
+</div>
+</section>
+<section id="localization-queries">
+<h3>Localization Queries<a class="headerlink" href="#localization-queries" title="Link to this heading"></a></h3>
+<p>Query for code localization (finding where variables are defined/used).</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.api.queries</span><span class="w"> </span><span class="kn">import</span> <span class="n">LocalizationQueries</span>
+
+<span class="n">loc_queries</span> <span class="o">=</span> <span class="n">LocalizationQueries</span><span class="p">(</span><span class="n">context</span><span class="p">,</span> <span class="n">engine</span><span class="p">)</span>
+<span class="n">definitions</span> <span class="o">=</span> <span class="n">loc_queries</span><span class="o">.</span><span class="n">get_definitions</span><span class="p">(</span><span class="n">variable</span><span class="p">)</span>
+<span class="n">uses</span> <span class="o">=</span> <span class="n">loc_queries</span><span class="o">.</span><span class="n">get_uses</span><span class="p">(</span><span class="n">variable</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="test-generation-queries">
+<h3>Test Generation Queries<a class="headerlink" href="#test-generation-queries" title="Link to this heading"></a></h3>
+<p>Query for test generation support.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.api.queries</span><span class="w"> </span><span class="kn">import</span> <span class="n">TestGenerationQueries</span>
+
+<span class="n">test_queries</span> <span class="o">=</span> <span class="n">TestGenerationQueries</span><span class="p">(</span><span class="n">context</span><span class="p">)</span>
+<span class="n">scenarios</span> <span class="o">=</span> <span class="n">test_queries</span><span class="o">.</span><span class="n">get_test_scenarios</span><span class="p">(</span><span class="n">function</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="mcp-server-integration">
+<h2>MCP Server Integration<a class="headerlink" href="#mcp-server-integration" title="Link to this heading"></a></h2>
+<p>PyFlow can be used as an MCP (Model Context Protocol) server for AI tooling.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.api.queries</span><span class="w"> </span><span class="kn">import</span> <span class="n">MCPServerMode</span>
+
+<span class="n">service</span> <span class="o">=</span> <span class="n">SemanticQueryService</span><span class="p">(</span><span class="n">compiler</span><span class="p">,</span> <span class="n">program</span><span class="p">,</span> <span class="n">server_mode</span><span class="o">=</span><span class="n">MCPServerMode</span><span class="p">)</span>
+
+<span class="c1"># MCP-compatible methods</span>
+<span class="n">capabilities</span> <span class="o">=</span> <span class="n">service</span><span class="o">.</span><span class="n">capabilities</span><span class="p">()</span>
+<span class="c1"># Returns available query capabilities</span>
+</pre></div>
+</div>
+</section>
+<section id="see-also">
+<h2>See Also<a class="headerlink" href="#see-also" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p><a class="reference internal" href="lang/index.html"><span class="doc">Language Module</span></a> - Language module and AST definitions</p></li>
+<li><p><a class="reference internal" href="analysis/index.html"><span class="doc">Analysis Modules</span></a> - Analysis modules</p></li>
+<li><p><a class="reference internal" href="cli.html"><span class="doc">Main Commands</span></a> - Command-line interface</p></li>
+</ul>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="cli.html" class="btn btn-neutral float-left" title="Main Commands" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="analysis/index.html" class="btn btn-neutral float-right" title="Analysis Modules" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, rainoftime.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

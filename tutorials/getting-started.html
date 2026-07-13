@@ -1,0 +1,377 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Getting Started &mdash; pyflow 0.1.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=01f34227"></script>
+      <script src="../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Analyzing Python Code" href="analyzing-python-code.html" />
+    <link rel="prev" title="Tutorials" href="index.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            pyflow
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Getting Started</span></p>
+<ul class="current">
+<li class="toctree-l1 current"><a class="reference internal" href="index.html">Tutorials</a><ul class="current">
+<li class="toctree-l2 current"><a class="current reference internal" href="#">Getting Started</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#what-you-ll-learn">What You’ll Learn</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#prerequisites">Prerequisites</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#installation">Installation</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#installation-verification">Installation Verification</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#basic-usage">Basic Usage</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#running-your-first-analysis">Running Your First Analysis</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#analyzing-control-flow">Analyzing Control Flow</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#visualizing-results">Visualizing Results</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#optimizing-code">Optimizing Code</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#getting-help">Getting Help</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#next-steps">Next Steps</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="analyzing-python-code.html">Analyzing Python Code</a></li>
+<li class="toctree-l2"><a class="reference internal" href="optimizing-python-programs.html">Optimizing Python Programs</a></li>
+<li class="toctree-l2"><a class="reference internal" href="understanding-analysis-results.html">Understanding Analysis Results</a></li>
+<li class="toctree-l2 current"><a class="current reference internal" href="#">Getting Started</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#what-you-ll-learn">What You’ll Learn</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#prerequisites">Prerequisites</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#installation">Installation</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#installation-verification">Installation Verification</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#basic-usage">Basic Usage</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#running-your-first-analysis">Running Your First Analysis</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#analyzing-control-flow">Analyzing Control Flow</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#visualizing-results">Visualizing Results</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#optimizing-code">Optimizing Code</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#getting-help">Getting Help</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#next-steps">Next Steps</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="analyzing-python-code.html">Analyzing Python Code</a></li>
+<li class="toctree-l2"><a class="reference internal" href="optimizing-python-programs.html">Optimizing Python Programs</a></li>
+<li class="toctree-l2"><a class="reference internal" href="understanding-analysis-results.html">Understanding Analysis Results</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#what-is-pyflow">What is PyFlow?</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#key-features">Key Features</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#architecture">Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#repository-status-in-practice">Repository status in practice</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">How-to Guides</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../how-to/index.html">How-to Guides</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Explanations</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../explanation/index.html">Explanations</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">A3 Python</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../a3_python/index.html"><code class="docutils literal notranslate"><span class="pre">a3_python</span></code></a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html">Main Commands</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html#global-options">Global Options</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html#integration">Integration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../api.html">PyFlow API</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html">Analysis Modules</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#overview">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#analysis-configuration">Analysis Configuration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#running-analyses">Running Analyses</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#analysis-results">Analysis Results</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html">Optimizing Python Programs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#overview">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#optimization-categories">Optimization Categories</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#optimization-pipeline">Optimization Pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#usage">Usage</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../lang/index.html">Language Module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html">Security Analysis and Checking</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#checker-categories">Checker Categories</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#analysis-framework">Analysis Framework</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#usage">Usage</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">pyflow</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="index.html">Tutorials</a></li>
+      <li class="breadcrumb-item active">Getting Started</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/tutorials/getting-started.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="getting-started">
+<span id="tutorial-getting-started"></span><h1>Getting Started<a class="headerlink" href="#getting-started" title="Link to this heading"></a></h1>
+<p>Welcome to PyFlow! This tutorial will guide you through the basics of installing,
+configuring, and running your first static analysis on Python code.</p>
+<section id="what-you-ll-learn">
+<h2>What You’ll Learn<a class="headerlink" href="#what-you-ll-learn" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p>How to install PyFlow from source</p></li>
+<li><p>Basic command-line interface usage</p></li>
+<li><p>Running your first analysis on a Python file</p></li>
+<li><p>Understanding the output and results</p></li>
+</ul>
+</section>
+<section id="prerequisites">
+<h2>Prerequisites<a class="headerlink" href="#prerequisites" title="Link to this heading"></a></h2>
+<p>Before installing PyFlow, ensure you have the following prerequisites:</p>
+<ul>
+<li><p><strong>Python 3.8 or newer</strong>: PyFlow requires Python 3.8 or a newer version. You can
+check your Python version by running:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>--version
+</pre></div>
+</div>
+</li>
+<li><p><strong>Git</strong>: Required for cloning the repository</p></li>
+<li><p><strong>Graphviz</strong> (optional): Required for visualization features such as generating
+control flow graph diagrams. Install via:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># On macOS</span>
+brew<span class="w"> </span>install<span class="w"> </span>graphviz
+
+<span class="c1"># On Ubuntu/Debian</span>
+apt-get<span class="w"> </span>install<span class="w"> </span>graphviz
+
+<span class="c1"># On Windows</span>
+choco<span class="w"> </span>install<span class="w"> </span>graphviz
+</pre></div>
+</div>
+</li>
+</ul>
+</section>
+<section id="installation">
+<h2>Installation<a class="headerlink" href="#installation" title="Link to this heading"></a></h2>
+<p>Install PyFlow from source by following these steps:</p>
+<ol class="arabic">
+<li><p><strong>Clone the Repository</strong></p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>git<span class="w"> </span>clone<span class="w"> </span>https://github.com/ZJU-PL/pyflow.git
+<span class="nb">cd</span><span class="w"> </span>pyflow
+</pre></div>
+</div>
+</li>
+<li><p><strong>Create a Virtual Environment</strong> (recommended)</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>-m<span class="w"> </span>venv<span class="w"> </span>venv
+<span class="nb">source</span><span class="w"> </span>venv/bin/activate<span class="w">  </span><span class="c1"># On Windows: venv\Scripts\activate</span>
+</pre></div>
+</div>
+</li>
+<li><p><strong>Install PyFlow in Development Mode</strong></p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span>.
+</pre></div>
+</div>
+<p>The <code class="docutils literal notranslate"><span class="pre">-e</span></code> flag installs PyFlow in “editable” mode, meaning changes to the
+source code will be reflected immediately without reinstallation.</p>
+</li>
+</ol>
+</section>
+<section id="installation-verification">
+<h2>Installation Verification<a class="headerlink" href="#installation-verification" title="Link to this heading"></a></h2>
+<p>Verify that PyFlow was installed correctly by checking its version:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>--version
+</pre></div>
+</div>
+<p>You should see output similar to:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>PyFlow version: 1.0.0
+</pre></div>
+</div>
+</section>
+<section id="basic-usage">
+<h2>Basic Usage<a class="headerlink" href="#basic-usage" title="Link to this heading"></a></h2>
+<p>PyFlow provides a command-line interface with several commands for different
+tasks. The main commands are:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">optimize</span></code>: Run static analysis and optimization on Python code</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">callgraph</span></code>: Build and visualize call graphs from Python code</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">ir</span></code>: Dump AST, CFG, and SSA forms for specific functions</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">security</span></code>: Check for security vulnerabilities</p></li>
+</ul>
+</section>
+<section id="running-your-first-analysis">
+<h2>Running Your First Analysis<a class="headerlink" href="#running-your-first-analysis" title="Link to this heading"></a></h2>
+<p>Let’s start with a simple Python file to analyze. Create a file called
+<code class="docutils literal notranslate"><span class="pre">example.py</span></code>:</p>
+<div class="literal-block-wrapper docutils container" id="id1">
+<div class="code-block-caption"><span class="caption-text">example.py</span><a class="headerlink" href="#id1" title="Link to this code"></a></div>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">fibonacci</span><span class="p">(</span><span class="n">n</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Calculate the nth Fibonacci number.&quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">n</span> <span class="o">&lt;=</span> <span class="mi">1</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">n</span>
+    <span class="k">return</span> <span class="n">fibonacci</span><span class="p">(</span><span class="n">n</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)</span> <span class="o">+</span> <span class="n">fibonacci</span><span class="p">(</span><span class="n">n</span> <span class="o">-</span> <span class="mi">2</span><span class="p">)</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">factorial</span><span class="p">(</span><span class="n">n</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Calculate the factorial of n.&quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">n</span> <span class="o">&lt;=</span> <span class="mi">1</span><span class="p">:</span>
+        <span class="k">return</span> <span class="mi">1</span>
+    <span class="k">return</span> <span class="n">n</span> <span class="o">*</span> <span class="n">factorial</span><span class="p">(</span><span class="n">n</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">main</span><span class="p">():</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Main function to demonstrate analysis.&quot;&quot;&quot;</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Fibonacci(10):&quot;</span><span class="p">,</span> <span class="n">fibonacci</span><span class="p">(</span><span class="mi">10</span><span class="p">))</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Factorial(5):&quot;</span><span class="p">,</span> <span class="n">factorial</span><span class="p">(</span><span class="mi">5</span><span class="p">))</span>
+
+<span class="k">if</span> <span class="vm">__name__</span> <span class="o">==</span> <span class="s2">&quot;__main__&quot;</span><span class="p">:</span>
+    <span class="n">main</span><span class="p">()</span>
+</pre></div>
+</div>
+</div>
+<p>Now run a basic analysis:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>callgraph<span class="w"> </span>example.py
+</pre></div>
+</div>
+<p>This will output the call graph, showing which functions call which other
+functions. You should see output similar to:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Call Graph for example.py:
+───────────────────────────────
+
+fibonacci → fibonacci (recursive)
+factorial → factorial (recursive)
+main → fibonacci
+main → factorial
+main → print
+</pre></div>
+</div>
+</section>
+<section id="analyzing-control-flow">
+<h2>Analyzing Control Flow<a class="headerlink" href="#analyzing-control-flow" title="Link to this heading"></a></h2>
+<p>You can also analyze the control flow of a specific function:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>ir<span class="w"> </span>example.py<span class="w"> </span>--dump-cfg<span class="w"> </span>fibonacci<span class="w"> </span>--dump-format<span class="w"> </span>text
+</pre></div>
+</div>
+<p>This will output the Control Flow Graph (CFG) for the <code class="docutils literal notranslate"><span class="pre">fibonacci</span></code> function,
+showing the basic blocks and their relationships:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>CFG for fibonacci:
+──────────────────────
+
+Block 0 (Entry):
+  if n &lt;= 1
+Block 1 (True):
+  return n
+Block 2 (False):
+  return fibonacci(n-1) + fibonacci(n-2)
+</pre></div>
+</div>
+</section>
+<section id="visualizing-results">
+<h2>Visualizing Results<a class="headerlink" href="#visualizing-results" title="Link to this heading"></a></h2>
+<p>For more visual output, generate the CFG in DOT format:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>ir<span class="w"> </span>example.py<span class="w"> </span>--dump-cfg<span class="w"> </span>fibonacci<span class="w"> </span>--dump-format<span class="w"> </span>dot<span class="w"> </span>--output<span class="w"> </span>fibonacci.dot
+</pre></div>
+</div>
+<p>Then convert it to an image:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>dot<span class="w"> </span>-Tpng<span class="w"> </span>fibonacci.dot<span class="w"> </span>-o<span class="w"> </span>fibonacci.png
+</pre></div>
+</div>
+<p>This creates a visual representation of the control flow graph.</p>
+</section>
+<section id="optimizing-code">
+<h2>Optimizing Code<a class="headerlink" href="#optimizing-code" title="Link to this heading"></a></h2>
+<p>PyFlow can also optimize your Python code. Run the optimizer:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>optimize<span class="w"> </span>example.py<span class="w"> </span>--opt-passes<span class="w"> </span>simplify
+</pre></div>
+</div>
+<p>This runs the selected optimization passes over PyFlow’s IR and prints the
+analysis/optimization progress in the console. Use <code class="docutils literal notranslate"><span class="pre">--dump</span></code> and <code class="docutils literal notranslate"><span class="pre">--output</span></code>
+if you want a report written to disk.</p>
+</section>
+<section id="getting-help">
+<h2>Getting Help<a class="headerlink" href="#getting-help" title="Link to this heading"></a></h2>
+<p>To see all available commands and options:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>--help
+</pre></div>
+</div>
+<p>To get help for a specific command:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>callgraph<span class="w"> </span>--help
+</pre></div>
+</div>
+</section>
+<section id="next-steps">
+<h2>Next Steps<a class="headerlink" href="#next-steps" title="Link to this heading"></a></h2>
+<p>Now that you’ve completed the getting started tutorial, you can:</p>
+<ul class="simple">
+<li><p>Learn more about <span class="xref std std-ref">analyzing-python-code</span></p></li>
+<li><p>Explore <span class="xref std std-ref">optimizing-python-programs</span></p></li>
+<li><p>Dive deeper into <span class="xref std std-ref">understanding-analysis-results</span></p></li>
+</ul>
+<p>For a complete reference of all commands and options, see the <a class="reference internal" href="../cli.html"><span class="doc">Main Commands</span></a> documentation.</p>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="index.html" class="btn btn-neutral float-left" title="Tutorials" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="analyzing-python-code.html" class="btn btn-neutral float-right" title="Analyzing Python Code" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, rainoftime.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

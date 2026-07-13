@@ -1,0 +1,261 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>How-to Guides &mdash; pyflow 0.1.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=01f34227"></script>
+      <script src="../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="How to Analyze Call Graphs" href="analyze-call-graph.html" />
+    <link rel="prev" title="Overview" href="../overview.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            pyflow
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Getting Started</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../tutorials/index.html">Tutorials</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#what-is-pyflow">What is PyFlow?</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#key-features">Key Features</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#architecture">Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#repository-status-in-practice">Repository status in practice</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">How-to Guides</span></p>
+<ul class="current">
+<li class="toctree-l1 current"><a class="current reference internal" href="#">How-to Guides</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="analyze-call-graph.html">How to Analyze Call Graphs</a></li>
+<li class="toctree-l2"><a class="reference internal" href="analyze-control-flow.html">How to Analyze Control Flow</a></li>
+<li class="toctree-l2"><a class="reference internal" href="optimize-code.html">How to Optimize Code</a></li>
+<li class="toctree-l2"><a class="reference internal" href="security-analysis.html">How to Perform Security Analysis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="customize-analysis.html">How to Customize Analysis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="integrate-with-build-systems.html">Integrate with Build Systems</a></li>
+<li class="toctree-l2"><a class="reference internal" href="visualize-results.html">How to Visualize Results</a></li>
+<li class="toctree-l2"><a class="reference internal" href="debug-analysis-issues.html">How to Debug Analysis Issues</a></li>
+<li class="toctree-l2"><a class="reference internal" href="analyze-call-graph.html">How to Analyze Call Graphs</a></li>
+<li class="toctree-l2"><a class="reference internal" href="analyze-control-flow.html">How to Analyze Control Flow</a></li>
+<li class="toctree-l2"><a class="reference internal" href="optimize-code.html">How to Optimize Code</a></li>
+<li class="toctree-l2"><a class="reference internal" href="security-analysis.html">How to Perform Security Analysis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="customize-analysis.html">How to Customize Analysis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="integrate-with-build-systems.html">Integrate with Build Systems</a></li>
+<li class="toctree-l2"><a class="reference internal" href="visualize-results.html">How to Visualize Results</a></li>
+<li class="toctree-l2"><a class="reference internal" href="debug-analysis-issues.html">How to Debug Analysis Issues</a></li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Explanations</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../explanation/index.html">Explanations</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">A3 Python</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../a3_python/index.html"><code class="docutils literal notranslate"><span class="pre">a3_python</span></code></a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html">Main Commands</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html#global-options">Global Options</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html#integration">Integration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../api.html">PyFlow API</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html">Analysis Modules</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#overview">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#analysis-configuration">Analysis Configuration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#running-analyses">Running Analyses</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#analysis-results">Analysis Results</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html">Optimizing Python Programs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#overview">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#optimization-categories">Optimization Categories</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#optimization-pipeline">Optimization Pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#usage">Usage</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../lang/index.html">Language Module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html">Security Analysis and Checking</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#checker-categories">Checker Categories</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#analysis-framework">Analysis Framework</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#usage">Usage</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">pyflow</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">How-to Guides</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/how-to/index.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="how-to-guides">
+<span id="how-to"></span><h1>How-to Guides<a class="headerlink" href="#how-to-guides" title="Link to this heading"></a></h1>
+<p>How-to guides are step-by-step instructions on how to do specific tasks with
+PyFlow. These guides assume you have completed the <a class="reference internal" href="../tutorials/index.html#tutorials"><span class="std std-ref">Tutorials</span></a> and are
+familiar with PyFlow’s basic functionality.</p>
+<div class="toctree-wrapper compound">
+<p class="caption" role="heading"><span class="caption-text">Available How-to Guides</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="analyze-call-graph.html">How to Analyze Call Graphs</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="analyze-call-graph.html#when-to-use-call-graph-analysis">When to Use Call Graph Analysis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="analyze-call-graph.html#basic-call-graph-analysis">Basic Call Graph Analysis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="analyze-call-graph.html#analyzing-large-codebases">Analyzing Large Codebases</a></li>
+<li class="toctree-l2"><a class="reference internal" href="analyze-call-graph.html#finding-specific-patterns">Finding Specific Patterns</a></li>
+<li class="toctree-l2"><a class="reference internal" href="analyze-call-graph.html#programmatic-call-graph-analysis">Programmatic Call Graph Analysis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="analyze-call-graph.html#visualizing-call-graphs">Visualizing Call Graphs</a></li>
+<li class="toctree-l2"><a class="reference internal" href="analyze-call-graph.html#common-analysis-tasks">Common Analysis Tasks</a></li>
+<li class="toctree-l2"><a class="reference internal" href="analyze-call-graph.html#troubleshooting">Troubleshooting</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="analyze-control-flow.html">How to Analyze Control Flow</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="analyze-control-flow.html#when-to-use-control-flow-analysis">When to Use Control Flow Analysis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="analyze-control-flow.html#basic-control-flow-analysis">Basic Control Flow Analysis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="analyze-control-flow.html#understanding-basic-blocks">Understanding Basic Blocks</a></li>
+<li class="toctree-l2"><a class="reference internal" href="analyze-control-flow.html#control-flow-edges">Control Flow Edges</a></li>
+<li class="toctree-l2"><a class="reference internal" href="analyze-control-flow.html#visualizing-control-flow">Visualizing Control Flow</a></li>
+<li class="toctree-l2"><a class="reference internal" href="analyze-control-flow.html#advanced-cfg-options">Advanced CFG Options</a></li>
+<li class="toctree-l2"><a class="reference internal" href="analyze-control-flow.html#common-analysis-tasks">Common Analysis Tasks</a></li>
+<li class="toctree-l2"><a class="reference internal" href="analyze-control-flow.html#interpreting-results">Interpreting Results</a></li>
+<li class="toctree-l2"><a class="reference internal" href="analyze-control-flow.html#troubleshooting">Troubleshooting</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="optimize-code.html">How to Optimize Code</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="optimize-code.html#when-to-use-optimization">When to Use Optimization</a></li>
+<li class="toctree-l2"><a class="reference internal" href="optimize-code.html#optimization-levels">Optimization Levels</a></li>
+<li class="toctree-l2"><a class="reference internal" href="optimize-code.html#applying-optimizations">Applying Optimizations</a></li>
+<li class="toctree-l2"><a class="reference internal" href="optimize-code.html#common-optimizations">Common Optimizations</a></li>
+<li class="toctree-l2"><a class="reference internal" href="optimize-code.html#optimization-best-practices">Optimization Best Practices</a></li>
+<li class="toctree-l2"><a class="reference internal" href="optimize-code.html#troubleshooting">Troubleshooting</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="security-analysis.html">How to Perform Security Analysis</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="security-analysis.html#when-to-use-security-analysis">When to Use Security Analysis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="security-analysis.html#running-security-analysis">Running Security Analysis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="security-analysis.html#available-security-checks">Available Security Checks</a></li>
+<li class="toctree-l2"><a class="reference internal" href="security-analysis.html#output-formats">Output Formats</a></li>
+<li class="toctree-l2"><a class="reference internal" href="security-analysis.html#understanding-findings">Understanding Findings</a></li>
+<li class="toctree-l2"><a class="reference internal" href="security-analysis.html#remediation-examples">Remediation Examples</a></li>
+<li class="toctree-l2"><a class="reference internal" href="security-analysis.html#integrating-with-ci-cd">Integrating with CI/CD</a></li>
+<li class="toctree-l2"><a class="reference internal" href="security-analysis.html#troubleshooting">Troubleshooting</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="customize-analysis.html">How to Customize Analysis</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="customize-analysis.html#configuration-file">Configuration File</a></li>
+<li class="toctree-l2"><a class="reference internal" href="customize-analysis.html#custom-analysis-passes">Custom Analysis Passes</a></li>
+<li class="toctree-l2"><a class="reference internal" href="customize-analysis.html#custom-optimization-passes">Custom Optimization Passes</a></li>
+<li class="toctree-l2"><a class="reference internal" href="customize-analysis.html#custom-output-formatters">Custom Output Formatters</a></li>
+<li class="toctree-l2"><a class="reference internal" href="customize-analysis.html#advanced-configuration">Advanced Configuration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="customize-analysis.html#command-line-overrides">Command-Line Overrides</a></li>
+<li class="toctree-l2"><a class="reference internal" href="customize-analysis.html#environment-variables">Environment Variables</a></li>
+<li class="toctree-l2"><a class="reference internal" href="customize-analysis.html#programmatic-usage">Programmatic Usage</a></li>
+<li class="toctree-l2"><a class="reference internal" href="customize-analysis.html#troubleshooting">Troubleshooting</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="integrate-with-build-systems.html">Integrate with Build Systems</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="integrate-with-build-systems.html#ci-cd-integration">CI/CD Integration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="integrate-with-build-systems.html#pre-commit-hooks">Pre-commit Hooks</a></li>
+<li class="toctree-l2"><a class="reference internal" href="integrate-with-build-systems.html#makefile-integration">Makefile Integration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="integrate-with-build-systems.html#output-formats-for-automation">Output Formats for Automation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="integrate-with-build-systems.html#see-also">See Also</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="visualize-results.html">How to Visualize Results</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="visualize-results.html#visualization-formats">Visualization Formats</a></li>
+<li class="toctree-l2"><a class="reference internal" href="visualize-results.html#visualizing-call-graphs">Visualizing Call Graphs</a></li>
+<li class="toctree-l2"><a class="reference internal" href="visualize-results.html#visualizing-control-flow-graphs">Visualizing Control Flow Graphs</a></li>
+<li class="toctree-l2"><a class="reference internal" href="visualize-results.html#visualizing-analysis-results">Visualizing Analysis Results</a></li>
+<li class="toctree-l2"><a class="reference internal" href="visualize-results.html#exporting-for-documentation">Exporting for Documentation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="visualize-results.html#advanced-visualization-techniques">Advanced Visualization Techniques</a></li>
+<li class="toctree-l2"><a class="reference internal" href="visualize-results.html#troubleshooting">Troubleshooting</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="debug-analysis-issues.html">How to Debug Analysis Issues</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="debug-analysis-issues.html#common-issues">Common Issues</a></li>
+<li class="toctree-l2"><a class="reference internal" href="debug-analysis-issues.html#syntax-errors">Syntax Errors</a></li>
+<li class="toctree-l2"><a class="reference internal" href="debug-analysis-issues.html#import-errors">Import Errors</a></li>
+<li class="toctree-l2"><a class="reference internal" href="debug-analysis-issues.html#incomplete-analysis">Incomplete Analysis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="debug-analysis-issues.html#incorrect-results">Incorrect Results</a></li>
+<li class="toctree-l2"><a class="reference internal" href="debug-analysis-issues.html#performance-issues">Performance Issues</a></li>
+<li class="toctree-l2"><a class="reference internal" href="debug-analysis-issues.html#debugging-techniques">Debugging Techniques</a></li>
+<li class="toctree-l2"><a class="reference internal" href="debug-analysis-issues.html#common-error-messages">Common Error Messages</a></li>
+<li class="toctree-l2"><a class="reference internal" href="debug-analysis-issues.html#getting-help">Getting Help</a></li>
+</ul>
+</li>
+</ul>
+</div>
+<div class="toctree-wrapper compound">
+</div>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="../overview.html" class="btn btn-neutral float-left" title="Overview" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="analyze-call-graph.html" class="btn btn-neutral float-right" title="How to Analyze Call Graphs" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, rainoftime.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

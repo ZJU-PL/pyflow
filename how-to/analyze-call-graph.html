@@ -1,0 +1,485 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>How to Analyze Call Graphs &mdash; pyflow 0.1.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=01f34227"></script>
+      <script src="../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="How to Analyze Control Flow" href="analyze-control-flow.html" />
+    <link rel="prev" title="How-to Guides" href="index.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            pyflow
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Getting Started</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../tutorials/index.html">Tutorials</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#what-is-pyflow">What is PyFlow?</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#key-features">Key Features</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#architecture">Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#repository-status-in-practice">Repository status in practice</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">How-to Guides</span></p>
+<ul class="current">
+<li class="toctree-l1 current"><a class="reference internal" href="index.html">How-to Guides</a><ul class="current">
+<li class="toctree-l2 current"><a class="current reference internal" href="#">How to Analyze Call Graphs</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#when-to-use-call-graph-analysis">When to Use Call Graph Analysis</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#basic-call-graph-analysis">Basic Call Graph Analysis</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#output-formats">Output Formats</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#analyzing-large-codebases">Analyzing Large Codebases</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#recursive-analysis">Recursive analysis</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#filter-by-patterns">Filter by patterns</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#limit-analysis-depth">Limit analysis depth</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#finding-specific-patterns">Finding Specific Patterns</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#detect-recursive-functions">Detect recursive functions</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#find-functions-called-by-a-specific-function">Find functions called by a specific function</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#find-functions-that-call-a-specific-function">Find functions that call a specific function</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#programmatic-call-graph-analysis">Programmatic Call Graph Analysis</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#visualizing-call-graphs">Visualizing Call Graphs</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#basic-visualization">Basic visualization</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#customized-visualization">Customized visualization</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#common-analysis-tasks">Common Analysis Tasks</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#task-1-find-unused-functions">Task 1: Find unused functions</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#task-2-find-critical-functions">Task 2: Find critical functions</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#task-3-find-deep-call-chains">Task 3: Find deep call chains</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#troubleshooting">Troubleshooting</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#issue-call-graph-is-too-large">Issue: Call graph is too large</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#issue-missing-functions-in-call-graph">Issue: Missing functions in call graph</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#issue-recursive-calls-not-detected">Issue: Recursive calls not detected</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="analyze-control-flow.html">How to Analyze Control Flow</a></li>
+<li class="toctree-l2"><a class="reference internal" href="optimize-code.html">How to Optimize Code</a></li>
+<li class="toctree-l2"><a class="reference internal" href="security-analysis.html">How to Perform Security Analysis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="customize-analysis.html">How to Customize Analysis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="integrate-with-build-systems.html">Integrate with Build Systems</a></li>
+<li class="toctree-l2"><a class="reference internal" href="visualize-results.html">How to Visualize Results</a></li>
+<li class="toctree-l2"><a class="reference internal" href="debug-analysis-issues.html">How to Debug Analysis Issues</a></li>
+<li class="toctree-l2 current"><a class="current reference internal" href="#">How to Analyze Call Graphs</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#when-to-use-call-graph-analysis">When to Use Call Graph Analysis</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#basic-call-graph-analysis">Basic Call Graph Analysis</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#output-formats">Output Formats</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#analyzing-large-codebases">Analyzing Large Codebases</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#recursive-analysis">Recursive analysis</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#filter-by-patterns">Filter by patterns</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#limit-analysis-depth">Limit analysis depth</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#finding-specific-patterns">Finding Specific Patterns</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#detect-recursive-functions">Detect recursive functions</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#find-functions-called-by-a-specific-function">Find functions called by a specific function</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#find-functions-that-call-a-specific-function">Find functions that call a specific function</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#programmatic-call-graph-analysis">Programmatic Call Graph Analysis</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#visualizing-call-graphs">Visualizing Call Graphs</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#basic-visualization">Basic visualization</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#customized-visualization">Customized visualization</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#common-analysis-tasks">Common Analysis Tasks</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#task-1-find-unused-functions">Task 1: Find unused functions</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#task-2-find-critical-functions">Task 2: Find critical functions</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#task-3-find-deep-call-chains">Task 3: Find deep call chains</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#troubleshooting">Troubleshooting</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#issue-call-graph-is-too-large">Issue: Call graph is too large</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#issue-missing-functions-in-call-graph">Issue: Missing functions in call graph</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#issue-recursive-calls-not-detected">Issue: Recursive calls not detected</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="analyze-control-flow.html">How to Analyze Control Flow</a></li>
+<li class="toctree-l2"><a class="reference internal" href="optimize-code.html">How to Optimize Code</a></li>
+<li class="toctree-l2"><a class="reference internal" href="security-analysis.html">How to Perform Security Analysis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="customize-analysis.html">How to Customize Analysis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="integrate-with-build-systems.html">Integrate with Build Systems</a></li>
+<li class="toctree-l2"><a class="reference internal" href="visualize-results.html">How to Visualize Results</a></li>
+<li class="toctree-l2"><a class="reference internal" href="debug-analysis-issues.html">How to Debug Analysis Issues</a></li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Explanations</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../explanation/index.html">Explanations</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">A3 Python</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../a3_python/index.html"><code class="docutils literal notranslate"><span class="pre">a3_python</span></code></a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html">Main Commands</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html#global-options">Global Options</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html#integration">Integration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../api.html">PyFlow API</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html">Analysis Modules</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#overview">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#analysis-configuration">Analysis Configuration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#running-analyses">Running Analyses</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#analysis-results">Analysis Results</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html">Optimizing Python Programs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#overview">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#optimization-categories">Optimization Categories</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#optimization-pipeline">Optimization Pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#usage">Usage</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../lang/index.html">Language Module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html">Security Analysis and Checking</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#checker-categories">Checker Categories</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#analysis-framework">Analysis Framework</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#usage">Usage</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">pyflow</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="index.html">How-to Guides</a></li>
+      <li class="breadcrumb-item active">How to Analyze Call Graphs</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/how-to/analyze-call-graph.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="how-to-analyze-call-graphs">
+<span id="how-to-analyze-call-graph"></span><h1>How to Analyze Call Graphs<a class="headerlink" href="#how-to-analyze-call-graphs" title="Link to this heading"></a></h1>
+<p>This guide explains how to use PyFlow’s call graph analysis to understand the
+function call structure of your Python programs.</p>
+<section id="when-to-use-call-graph-analysis">
+<h2>When to Use Call Graph Analysis<a class="headerlink" href="#when-to-use-call-graph-analysis" title="Link to this heading"></a></h2>
+<p>Use call graph analysis when you need to:</p>
+<ul class="simple">
+<li><p>Understand how functions interact in your codebase</p></li>
+<li><p>Find circular dependencies or mutual recursion</p></li>
+<li><p>Identify unused functions or dead code</p></li>
+<li><p>Analyze the impact of changing a function</p></li>
+<li><p>Find hot paths for performance optimization</p></li>
+</ul>
+</section>
+<section id="basic-call-graph-analysis">
+<h2>Basic Call Graph Analysis<a class="headerlink" href="#basic-call-graph-analysis" title="Link to this heading"></a></h2>
+<p>Generate a call graph for a single file:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>callgraph<span class="w"> </span>input.py
+</pre></div>
+</div>
+<p>This outputs a text representation of the call graph.</p>
+<section id="output-formats">
+<h3>Output Formats<a class="headerlink" href="#output-formats" title="Link to this heading"></a></h3>
+<p>Choose the appropriate format for your needs:</p>
+<section id="text-default">
+<h4>Text (default)<a class="headerlink" href="#text-default" title="Link to this heading"></a></h4>
+<p>For quick inspection:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>callgraph<span class="w"> </span>input.py<span class="w"> </span>--format<span class="w"> </span>text
+</pre></div>
+</div>
+</section>
+<section id="json-programmatic-processing">
+<h4>JSON (programmatic processing)<a class="headerlink" href="#json-programmatic-processing" title="Link to this heading"></a></h4>
+<p>For scripts and automation:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>callgraph<span class="w"> </span>input.py<span class="w"> </span>--format<span class="w"> </span>json<span class="w"> </span>--output<span class="w"> </span>callgraph.json
+</pre></div>
+</div>
+</section>
+<section id="dot-visualization">
+<h4>DOT (visualization)<a class="headerlink" href="#dot-visualization" title="Link to this heading"></a></h4>
+<p>For creating graphs:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>callgraph<span class="w"> </span>input.py<span class="w"> </span>--format<span class="w"> </span>dot<span class="w"> </span>--output<span class="w"> </span>callgraph.dot
+</pre></div>
+</div>
+</section>
+</section>
+</section>
+<section id="analyzing-large-codebases">
+<h2>Analyzing Large Codebases<a class="headerlink" href="#analyzing-large-codebases" title="Link to this heading"></a></h2>
+<p>For large projects, analyze entire directories:</p>
+<section id="recursive-analysis">
+<h3>Recursive analysis<a class="headerlink" href="#recursive-analysis" title="Link to this heading"></a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>callgraph<span class="w"> </span>src/<span class="w"> </span>--recursive
+</pre></div>
+</div>
+</section>
+<section id="filter-by-patterns">
+<h3>Filter by patterns<a class="headerlink" href="#filter-by-patterns" title="Link to this heading"></a></h3>
+<p>Include only specific files:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>callgraph<span class="w"> </span>src/<span class="w"> </span>--include<span class="w"> </span><span class="s2">&quot;*.py&quot;</span><span class="w"> </span>--exclude<span class="w"> </span><span class="s2">&quot;test_*&quot;</span>
+</pre></div>
+</div>
+</section>
+<section id="limit-analysis-depth">
+<h3>Limit analysis depth<a class="headerlink" href="#limit-analysis-depth" title="Link to this heading"></a></h3>
+<p>For large call graphs, limit the depth:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>callgraph<span class="w"> </span>input.py<span class="w"> </span>--max-depth<span class="w"> </span><span class="m">3</span>
+</pre></div>
+</div>
+<p>This only shows calls up to 3 levels deep.</p>
+</section>
+</section>
+<section id="finding-specific-patterns">
+<h2>Finding Specific Patterns<a class="headerlink" href="#finding-specific-patterns" title="Link to this heading"></a></h2>
+<section id="detect-recursive-functions">
+<h3>Detect recursive functions<a class="headerlink" href="#detect-recursive-functions" title="Link to this heading"></a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>callgraph<span class="w"> </span>input.py<span class="w"> </span>--show-cycles
+</pre></div>
+</div>
+</section>
+<section id="find-functions-called-by-a-specific-function">
+<h3>Find functions called by a specific function<a class="headerlink" href="#find-functions-called-by-a-specific-function" title="Link to this heading"></a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>callgraph<span class="w"> </span>input.py<span class="w"> </span>--filter-callees<span class="w"> </span>main
+</pre></div>
+</div>
+<p>This shows all functions that <code class="docutils literal notranslate"><span class="pre">main</span></code> calls.</p>
+</section>
+<section id="find-functions-that-call-a-specific-function">
+<h3>Find functions that call a specific function<a class="headerlink" href="#find-functions-that-call-a-specific-function" title="Link to this heading"></a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>callgraph<span class="w"> </span>input.py<span class="w"> </span>--filter-callers<span class="w"> </span>util_func
+</pre></div>
+</div>
+<p>This shows all functions that call <code class="docutils literal notranslate"><span class="pre">util_func</span></code>.</p>
+</section>
+</section>
+<section id="programmatic-call-graph-analysis">
+<h2>Programmatic Call Graph Analysis<a class="headerlink" href="#programmatic-call-graph-analysis" title="Link to this heading"></a></h2>
+<p>Use the JSON output for programmatic analysis:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">json</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">analyze_call_graph</span><span class="p">(</span><span class="n">json_path</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Analyze call graph for potential issues.&quot;&quot;&quot;</span>
+    <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">json_path</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+        <span class="n">graph</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">f</span><span class="p">)</span>
+
+    <span class="c1"># Build reverse mapping (who calls whom)</span>
+    <span class="n">callers</span> <span class="o">=</span> <span class="p">{}</span>
+    <span class="k">for</span> <span class="n">edge</span> <span class="ow">in</span> <span class="n">graph</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;edges&quot;</span><span class="p">,</span> <span class="p">[]):</span>
+        <span class="n">callee</span> <span class="o">=</span> <span class="n">edge</span><span class="p">[</span><span class="s2">&quot;to&quot;</span><span class="p">]</span>
+        <span class="n">caller</span> <span class="o">=</span> <span class="n">edge</span><span class="p">[</span><span class="s2">&quot;from&quot;</span><span class="p">]</span>
+        <span class="n">callers</span><span class="o">.</span><span class="n">setdefault</span><span class="p">(</span><span class="n">callee</span><span class="p">,</span> <span class="p">[])</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">caller</span><span class="p">)</span>
+
+    <span class="c1"># Find functions with no callers (potentially dead code)</span>
+    <span class="n">all_functions</span> <span class="o">=</span> <span class="p">{</span><span class="n">node</span><span class="p">[</span><span class="s2">&quot;name&quot;</span><span class="p">]</span> <span class="k">for</span> <span class="n">node</span> <span class="ow">in</span> <span class="n">graph</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;nodes&quot;</span><span class="p">,</span> <span class="p">[])}</span>
+    <span class="n">dead_code</span> <span class="o">=</span> <span class="n">all_functions</span> <span class="o">-</span> <span class="nb">set</span><span class="p">(</span><span class="n">callers</span><span class="o">.</span><span class="n">keys</span><span class="p">())</span>
+
+    <span class="c1"># Find recursive functions</span>
+    <span class="n">recursive</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">node</span> <span class="ow">in</span> <span class="n">graph</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;nodes&quot;</span><span class="p">,</span> <span class="p">[]):</span>
+        <span class="k">if</span> <span class="n">node</span><span class="p">[</span><span class="s2">&quot;name&quot;</span><span class="p">]</span> <span class="ow">in</span> <span class="n">callers</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">node</span><span class="p">[</span><span class="s2">&quot;name&quot;</span><span class="p">],</span> <span class="p">[]):</span>
+            <span class="n">recursive</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">node</span><span class="p">[</span><span class="s2">&quot;name&quot;</span><span class="p">])</span>
+
+    <span class="k">return</span> <span class="p">{</span>
+        <span class="s2">&quot;dead_code&quot;</span><span class="p">:</span> <span class="n">dead_code</span><span class="p">,</span>
+        <span class="s2">&quot;recursive&quot;</span><span class="p">:</span> <span class="n">recursive</span><span class="p">,</span>
+        <span class="s2">&quot;call_counts&quot;</span><span class="p">:</span> <span class="p">{</span><span class="n">k</span><span class="p">:</span> <span class="nb">len</span><span class="p">(</span><span class="n">v</span><span class="p">)</span> <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">callers</span><span class="o">.</span><span class="n">items</span><span class="p">()}</span>
+    <span class="p">}</span>
+
+<span class="c1"># Usage</span>
+<span class="n">results</span> <span class="o">=</span> <span class="n">analyze_call_graph</span><span class="p">(</span><span class="s2">&quot;callgraph.json&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Potentially dead code:&quot;</span><span class="p">,</span> <span class="n">results</span><span class="p">[</span><span class="s2">&quot;dead_code&quot;</span><span class="p">])</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Recursive functions:&quot;</span><span class="p">,</span> <span class="n">results</span><span class="p">[</span><span class="s2">&quot;recursive&quot;</span><span class="p">])</span>
+</pre></div>
+</div>
+</section>
+<section id="visualizing-call-graphs">
+<h2>Visualizing Call Graphs<a class="headerlink" href="#visualizing-call-graphs" title="Link to this heading"></a></h2>
+<p>Create professional visualizations using DOT format:</p>
+<section id="basic-visualization">
+<h3>Basic visualization<a class="headerlink" href="#basic-visualization" title="Link to this heading"></a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>callgraph<span class="w"> </span>input.py<span class="w"> </span>--format<span class="w"> </span>dot<span class="w"> </span>--output<span class="w"> </span>callgraph.dot
+dot<span class="w"> </span>-Tpng<span class="w"> </span>callgraph.dot<span class="w"> </span>-o<span class="w"> </span>callgraph.png
+</pre></div>
+</div>
+</section>
+<section id="customized-visualization">
+<h3>Customized visualization<a class="headerlink" href="#customized-visualization" title="Link to this heading"></a></h3>
+<p>Create a custom layout script:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># custom_layout.gv</span>
+<span class="n">graph</span> <span class="p">[</span><span class="n">rankdir</span><span class="o">=</span><span class="n">TB</span><span class="p">,</span> <span class="n">nodesep</span><span class="o">=</span><span class="mf">0.5</span><span class="p">,</span> <span class="n">ranksep</span><span class="o">=</span><span class="mf">0.5</span><span class="p">]</span>
+<span class="n">node</span> <span class="p">[</span><span class="n">shape</span><span class="o">=</span><span class="n">box</span><span class="p">,</span> <span class="n">style</span><span class="o">=</span><span class="s2">&quot;rounded,filled&quot;</span><span class="p">,</span> <span class="n">fontname</span><span class="o">=</span><span class="s2">&quot;Arial&quot;</span><span class="p">]</span>
+<span class="n">edge</span> <span class="p">[</span><span class="n">fontname</span><span class="o">=</span><span class="s2">&quot;Arial&quot;</span><span class="p">,</span> <span class="n">fontsize</span><span class="o">=</span><span class="mi">10</span><span class="p">]</span>
+
+<span class="c1"># Color recursive functions</span>
+<span class="s2">&quot;fibonacci&quot;</span> <span class="p">[</span><span class="n">fillcolor</span><span class="o">=</span><span class="n">yellow</span><span class="p">]</span>
+<span class="s2">&quot;factorial&quot;</span> <span class="p">[</span><span class="n">fillcolor</span><span class="o">=</span><span class="n">yellow</span><span class="p">]</span>
+
+<span class="c1"># Highlight main entry point</span>
+<span class="s2">&quot;main&quot;</span> <span class="p">[</span><span class="n">fillcolor</span><span class="o">=</span><span class="n">lightblue</span><span class="p">,</span> <span class="n">penwidth</span><span class="o">=</span><span class="mi">2</span><span class="p">]</span>
+</pre></div>
+</div>
+<p>Then apply it:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>dot<span class="w"> </span>-Tpng<span class="w"> </span>callgraph.dot<span class="w"> </span>-o<span class="w"> </span>callgraph.png<span class="w"> </span>-Gstylesheet<span class="o">=</span>custom_layout.gv
+</pre></div>
+</div>
+</section>
+</section>
+<section id="common-analysis-tasks">
+<h2>Common Analysis Tasks<a class="headerlink" href="#common-analysis-tasks" title="Link to this heading"></a></h2>
+<section id="task-1-find-unused-functions">
+<h3>Task 1: Find unused functions<a class="headerlink" href="#task-1-find-unused-functions" title="Link to this heading"></a></h3>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">json</span>
+
+<span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="s2">&quot;callgraph.json&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+    <span class="n">graph</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">f</span><span class="p">)</span>
+
+<span class="c1"># Functions with no incoming edges are potentially unused</span>
+<span class="n">all_functions</span> <span class="o">=</span> <span class="p">{</span><span class="n">node</span><span class="p">[</span><span class="s2">&quot;name&quot;</span><span class="p">]</span> <span class="k">for</span> <span class="n">node</span> <span class="ow">in</span> <span class="n">graph</span><span class="p">[</span><span class="s2">&quot;nodes&quot;</span><span class="p">]}</span>
+<span class="n">called_functions</span> <span class="o">=</span> <span class="p">{</span><span class="n">edge</span><span class="p">[</span><span class="s2">&quot;to&quot;</span><span class="p">]</span> <span class="k">for</span> <span class="n">edge</span> <span class="ow">in</span> <span class="n">graph</span><span class="p">[</span><span class="s2">&quot;edges&quot;</span><span class="p">]}</span>
+<span class="n">unused</span> <span class="o">=</span> <span class="n">all_functions</span> <span class="o">-</span> <span class="n">called_functions</span>
+
+<span class="k">if</span> <span class="n">unused</span><span class="p">:</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Potentially unused functions:&quot;</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">func</span> <span class="ow">in</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">unused</span><span class="p">):</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  - </span><span class="si">{</span><span class="n">func</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="k">else</span><span class="p">:</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;All functions are called at least once.&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="task-2-find-critical-functions">
+<h3>Task 2: Find critical functions<a class="headerlink" href="#task-2-find-critical-functions" title="Link to this heading"></a></h3>
+<p>Functions called from many places are critical and should be tested carefully:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="s2">&quot;callgraph.json&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+    <span class="n">graph</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">f</span><span class="p">)</span>
+
+<span class="n">caller_counts</span> <span class="o">=</span> <span class="p">{}</span>
+<span class="k">for</span> <span class="n">edge</span> <span class="ow">in</span> <span class="n">graph</span><span class="p">[</span><span class="s2">&quot;edges&quot;</span><span class="p">]:</span>
+    <span class="n">callee</span> <span class="o">=</span> <span class="n">edge</span><span class="p">[</span><span class="s2">&quot;to&quot;</span><span class="p">]</span>
+    <span class="n">caller_counts</span><span class="p">[</span><span class="n">callee</span><span class="p">]</span> <span class="o">=</span> <span class="n">caller_counts</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">callee</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span> <span class="o">+</span> <span class="mi">1</span>
+
+<span class="c1"># Sort by number of callers</span>
+<span class="n">critical</span> <span class="o">=</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">caller_counts</span><span class="o">.</span><span class="n">items</span><span class="p">(),</span> <span class="n">key</span><span class="o">=</span><span class="k">lambda</span> <span class="n">x</span><span class="p">:</span> <span class="o">-</span><span class="n">x</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Most called functions:&quot;</span><span class="p">)</span>
+<span class="k">for</span> <span class="n">func</span><span class="p">,</span> <span class="n">count</span> <span class="ow">in</span> <span class="n">critical</span><span class="p">[:</span><span class="mi">10</span><span class="p">]:</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  </span><span class="si">{</span><span class="n">func</span><span class="si">}</span><span class="s2">: called from </span><span class="si">{</span><span class="n">count</span><span class="si">}</span><span class="s2"> places&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="task-3-find-deep-call-chains">
+<h3>Task 3: Find deep call chains<a class="headerlink" href="#task-3-find-deep-call-chains" title="Link to this heading"></a></h3>
+<p>Find functions that are deeply nested in the call hierarchy:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>callgraph<span class="w"> </span>input.py<span class="w"> </span>--max-depth<span class="w"> </span><span class="m">10</span><span class="w"> </span>--format<span class="w"> </span>json<span class="w"> </span>&gt;<span class="w"> </span>callgraph.json
+</pre></div>
+</div>
+<p>Then analyze the maximum depth programmatically.</p>
+</section>
+</section>
+<section id="troubleshooting">
+<h2>Troubleshooting<a class="headerlink" href="#troubleshooting" title="Link to this heading"></a></h2>
+<section id="issue-call-graph-is-too-large">
+<h3>Issue: Call graph is too large<a class="headerlink" href="#issue-call-graph-is-too-large" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p>Use <code class="docutils literal notranslate"><span class="pre">--max-depth</span></code> to limit depth</p></li>
+<li><p>Use <code class="docutils literal notranslate"><span class="pre">--exclude</span></code> to filter out test files</p></li>
+<li><p>Analyze specific modules instead of the whole project</p></li>
+</ul>
+</section>
+<section id="issue-missing-functions-in-call-graph">
+<h3>Issue: Missing functions in call graph<a class="headerlink" href="#issue-missing-functions-in-call-graph" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p>Ensure the file is valid Python</p></li>
+<li><p>Check for syntax errors that prevent full parsing</p></li>
+<li><p>Use <code class="docutils literal notranslate"><span class="pre">--recursive</span></code> for multi-file projects</p></li>
+</ul>
+</section>
+<section id="issue-recursive-calls-not-detected">
+<h3>Issue: Recursive calls not detected<a class="headerlink" href="#issue-recursive-calls-not-detected" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p>Use <code class="docutils literal notranslate"><span class="pre">--show-cycles</span></code> flag</p></li>
+<li><p>Ensure the recursion is through direct function calls</p></li>
+</ul>
+</section>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="index.html" class="btn btn-neutral float-left" title="How-to Guides" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="analyze-control-flow.html" class="btn btn-neutral float-right" title="How to Analyze Control Flow" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, rainoftime.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

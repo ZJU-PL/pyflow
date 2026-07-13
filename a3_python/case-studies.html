@@ -1,0 +1,303 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Case Studies and Precision Notes &mdash; pyflow 0.1.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=01f34227"></script>
+      <script src="../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Package Map" href="package-map.html" />
+    <link rel="prev" title="Type-Based Sanitizers" href="type-based-sanitizers.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            pyflow
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Getting Started</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../tutorials/index.html">Tutorials</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#what-is-pyflow">What is PyFlow?</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#key-features">Key Features</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#architecture">Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#repository-status-in-practice">Repository status in practice</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">How-to Guides</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../how-to/index.html">How-to Guides</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Explanations</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../explanation/index.html">Explanations</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">A3 Python</span></p>
+<ul class="current">
+<li class="toctree-l1 current"><a class="reference internal" href="index.html"><code class="docutils literal notranslate"><span class="pre">a3_python</span></code></a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="overview.html">Overview</a></li>
+<li class="toctree-l2"><a class="reference internal" href="architecture.html">Architecture</a></li>
+<li class="toctree-l2"><a class="reference internal" href="analysis-techniques.html">Analysis Techniques</a></li>
+<li class="toctree-l2"><a class="reference internal" href="bug-taxonomy.html">Bug Taxonomy</a></li>
+<li class="toctree-l2"><a class="reference internal" href="contracts-and-barriers.html">Contracts and Barrier Reasoning</a></li>
+<li class="toctree-l2"><a class="reference internal" href="interprocedural-barrier-synthesis.html">Interprocedural Barrier Synthesis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="cross-module-resolution.html">Cross-Module Resolution</a></li>
+<li class="toctree-l2"><a class="reference internal" href="object-taint-tracking.html">Object Taint Tracking</a></li>
+<li class="toctree-l2"><a class="reference internal" href="type-based-sanitizers.html">Type-Based Sanitizers</a></li>
+<li class="toctree-l2 current"><a class="current reference internal" href="#">Case Studies and Precision Notes</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#what-these-notes-are-for">What these notes are for</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#deepspeed-style-precision-analysis">DeepSpeed-style precision analysis</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#flaml">FLAML</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#qlib">Qlib</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#graphrag">GraphRAG</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#precision-improvements-that-came-directly-from-the-notes">Precision improvements that came directly from the notes</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#safe-subscript-classification">Safe subscript classification</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#type-based-sanitizer-reasoning">Type-based sanitizer reasoning</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#project-specific-fp-patterns">Project-specific FP patterns</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#how-to-use-these-case-studies-as-a-contributor">How to use these case studies as a contributor</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="package-map.html">Package Map</a></li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html">Main Commands</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html#global-options">Global Options</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html#integration">Integration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../api.html">PyFlow API</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html">Analysis Modules</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#overview">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#analysis-configuration">Analysis Configuration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#running-analyses">Running Analyses</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#analysis-results">Analysis Results</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html">Optimizing Python Programs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#overview">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#optimization-categories">Optimization Categories</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#optimization-pipeline">Optimization Pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#usage">Usage</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../lang/index.html">Language Module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html">Security Analysis and Checking</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#checker-categories">Checker Categories</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#analysis-framework">Analysis Framework</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#usage">Usage</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">pyflow</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="index.html"><code class="docutils literal notranslate"><span class="pre">a3_python</span></code></a></li>
+      <li class="breadcrumb-item active">Case Studies and Precision Notes</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/a3_python/case-studies.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="case-studies-and-precision-notes">
+<h1>Case Studies and Precision Notes<a class="headerlink" href="#case-studies-and-precision-notes" title="Link to this heading"></a></h1>
+<p>The original <code class="docutils literal notranslate"><span class="pre">a3-python</span></code> docs included many project-specific true-positive and
+false-positive analyses. Those notes are worth preserving because they explain
+what the package is trying to optimize for in real repositories.</p>
+<section id="what-these-notes-are-for">
+<h2>What these notes are for<a class="headerlink" href="#what-these-notes-are-for" title="Link to this heading"></a></h2>
+<p>These case studies are not API documentation. They are evidence about:</p>
+<ul class="simple">
+<li><p>which bug patterns survive strong filtering</p></li>
+<li><p>what kinds of false positives dominated earlier runs</p></li>
+<li><p>how targeted semantic improvements changed precision</p></li>
+</ul>
+<p>They should be read as engineering guidance for future analysis work.</p>
+</section>
+<section id="deepspeed-style-precision-analysis">
+<h2>DeepSpeed-style precision analysis<a class="headerlink" href="#deepspeed-style-precision-analysis" title="Link to this heading"></a></h2>
+<p>The original DeepSpeed notes highlighted a recurring semantic issue:</p>
+<ul class="simple">
+<li><p>method receiver parameters like <code class="docutils literal notranslate"><span class="pre">self</span></code> were being treated too much like
+ordinary nullable inputs</p></li>
+</ul>
+<p>That led to obvious false positives such as <code class="docutils literal notranslate"><span class="pre">NULL_PTR</span></code> on <code class="docutils literal notranslate"><span class="pre">param_0</span></code> in
+instance methods. The underlying lesson is broader than that one project:</p>
+<ul class="simple">
+<li><p>Python calling conventions, framework plumbing, and object-model guarantees
+can invalidate naive bytecode-level warnings</p></li>
+</ul>
+<p>This is exactly the kind of gap that the more semantic detectors and contracts
+are intended to close.</p>
+</section>
+<section id="flaml">
+<h2>FLAML<a class="headerlink" href="#flaml" title="Link to this heading"></a></h2>
+<p>The FLAML case study in the original docs emphasized a useful pattern:</p>
+<ul class="simple">
+<li><p>once high-noise security-style findings are filtered out, the most credible
+remaining issues are often crash or edge-case robustness bugs</p></li>
+</ul>
+<p>Examples called out there included:</p>
+<ul class="simple">
+<li><p>division by zero in normalization or aggregation code</p></li>
+<li><p>empty-collection edge cases</p></li>
+<li><p>missing required context keys in framework-style APIs</p></li>
+</ul>
+<p>This aligns well with the current package structure, where crash summaries,
+guards, and DSE replay are treated as first-class precision tools.</p>
+</section>
+<section id="qlib">
+<h2>Qlib<a class="headerlink" href="#qlib" title="Link to this heading"></a></h2>
+<p>The Qlib notes are valuable because they show both sides of the system:</p>
+<ul class="simple">
+<li><p>some headline security-looking findings were significantly mitigated once
+surrounding semantics were considered</p></li>
+<li><p>a small number of arithmetic crash bugs remained convincing, including
+DSE-validated divide-by-zero paths in backtesting/reporting code</p></li>
+</ul>
+<p>The main lesson is that severity and exploitability depend heavily on context.
+The subsystem therefore tries to preserve:</p>
+<ul class="simple">
+<li><p>raw semantic reachability information</p></li>
+<li><p>confidence/triage metadata</p></li>
+<li><p>optional filtering layers that incorporate contextual knowledge</p></li>
+</ul>
+</section>
+<section id="graphrag">
+<h2>GraphRAG<a class="headerlink" href="#graphrag" title="Link to this heading"></a></h2>
+<p>The GraphRAG notes documented a large reduction in reported findings after
+context-aware filtering. Most dropped reports fell into categories like:</p>
+<ul class="simple">
+<li><p>local CLI-tool misuse rather than remotely exploitable bugs</p></li>
+<li><p>template-injection patterns that were actually <code class="docutils literal notranslate"><span class="pre">string.Template</span></code> rather than
+Jinja2-style code execution surfaces</p></li>
+<li><p>path or archive warnings that were low-risk in a strictly local workflow</p></li>
+</ul>
+<p>This is a good example of why <code class="docutils literal notranslate"><span class="pre">fp_context.py</span></code> and intent-aware filtering
+exist: the same low-level pattern can mean very different things in a local CLI
+tool, a library API, or a network-facing service.</p>
+</section>
+<section id="precision-improvements-that-came-directly-from-the-notes">
+<h2>Precision improvements that came directly from the notes<a class="headerlink" href="#precision-improvements-that-came-directly-from-the-notes" title="Link to this heading"></a></h2>
+<p>Several original docs correspond directly to detector improvements or
+documentation-worthy analysis heuristics:</p>
+<section id="safe-subscript-classification">
+<h3>Safe subscript classification<a class="headerlink" href="#safe-subscript-classification" title="Link to this heading"></a></h3>
+<p>The <code class="docutils literal notranslate"><span class="pre">SAFE_SUBSCRIPT_DETECTION</span></code> note explains why Python slicing and indexing
+must be separated. That work reduces false <code class="docutils literal notranslate"><span class="pre">BOUNDS</span></code> alarms by recognizing:</p>
+<ul class="simple">
+<li><p>slices that clamp rather than raise</p></li>
+<li><p>safe patterns such as guaranteed-nonempty <code class="docutils literal notranslate"><span class="pre">split()</span></code> results</p></li>
+<li><p>dictionary lookups that belong to a different exception family</p></li>
+</ul>
+</section>
+<section id="type-based-sanitizer-reasoning">
+<h3>Type-based sanitizer reasoning<a class="headerlink" href="#type-based-sanitizer-reasoning" title="Link to this heading"></a></h3>
+<p>The <code class="docutils literal notranslate"><span class="pre">type_based_sanitizers</span></code> note records another important shift:</p>
+<ul class="simple">
+<li><p>sanitization is not only about escaping strings</p></li>
+<li><p>converting into a restricted domain can be a proof obligation in itself</p></li>
+</ul>
+<p>Examples include numeric conversion, path canonicalization, datetime parsing,
+and IP-address validation.</p>
+</section>
+<section id="project-specific-fp-patterns">
+<h3>Project-specific FP patterns<a class="headerlink" href="#project-specific-fp-patterns" title="Link to this heading"></a></h3>
+<p>The pattern-analysis notes also show the value of manually studying repeated
+clusters of findings. Common examples included:</p>
+<ul class="simple">
+<li><p>framework-guaranteed non-<code class="docutils literal notranslate"><span class="pre">None</span></code> parameters</p></li>
+<li><p>intentional guard exceptions that should not be reported as unexpected bugs</p></li>
+<li><p>config-validated divisors or dimensions</p></li>
+</ul>
+<p>These analyses are a reminder that improving precision often starts by
+identifying recurring semantic invariants in real code, then turning those into
+contracts, guard recognizers, or specialized summaries.</p>
+</section>
+</section>
+<section id="how-to-use-these-case-studies-as-a-contributor">
+<h2>How to use these case studies as a contributor<a class="headerlink" href="#how-to-use-these-case-studies-as-a-contributor" title="Link to this heading"></a></h2>
+<p>When working on <code class="docutils literal notranslate"><span class="pre">a3_python</span></code>, use these case-study themes as a checklist:</p>
+<ul class="simple">
+<li><p>is this bug class missing an obvious Python semantic guarantee?</p></li>
+<li><p>is there a framework or library contract that should suppress the warning?</p></li>
+<li><p>is the current result a real reachability claim, or only a pattern match?</p></li>
+<li><p>would DSE or summary refinement separate true bugs from contextual false
+positives here?</p></li>
+</ul>
+<p>The package is at its best when those answers are encoded into reusable
+analysis logic rather than left as one-off manual triage rules.</p>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="type-based-sanitizers.html" class="btn btn-neutral float-left" title="Type-Based Sanitizers" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="package-map.html" class="btn btn-neutral float-right" title="Package Map" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, rainoftime.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

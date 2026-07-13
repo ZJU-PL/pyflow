@@ -1,0 +1,498 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>How to Customize Analysis &mdash; pyflow 0.1.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=01f34227"></script>
+      <script src="../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Integrate with Build Systems" href="integrate-with-build-systems.html" />
+    <link rel="prev" title="How to Perform Security Analysis" href="security-analysis.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            pyflow
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Getting Started</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../tutorials/index.html">Tutorials</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#what-is-pyflow">What is PyFlow?</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#key-features">Key Features</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#architecture">Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#repository-status-in-practice">Repository status in practice</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">How-to Guides</span></p>
+<ul class="current">
+<li class="toctree-l1 current"><a class="reference internal" href="index.html">How-to Guides</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="analyze-call-graph.html">How to Analyze Call Graphs</a></li>
+<li class="toctree-l2"><a class="reference internal" href="analyze-control-flow.html">How to Analyze Control Flow</a></li>
+<li class="toctree-l2"><a class="reference internal" href="optimize-code.html">How to Optimize Code</a></li>
+<li class="toctree-l2"><a class="reference internal" href="security-analysis.html">How to Perform Security Analysis</a></li>
+<li class="toctree-l2 current"><a class="current reference internal" href="#">How to Customize Analysis</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#configuration-file">Configuration File</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#loading-configuration">Loading Configuration</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#custom-analysis-passes">Custom Analysis Passes</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#running-custom-analysis">Running Custom Analysis</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#custom-optimization-passes">Custom Optimization Passes</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#running-custom-optimization">Running Custom Optimization</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#custom-output-formatters">Custom Output Formatters</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#using-custom-formatter">Using Custom Formatter</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#advanced-configuration">Advanced Configuration</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#context-sensitive-analysis">Context-Sensitive Analysis</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#field-sensitivity">Field Sensitivity</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#flow-sensitivity">Flow Sensitivity</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#command-line-overrides">Command-Line Overrides</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#environment-variables">Environment Variables</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#programmatic-usage">Programmatic Usage</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#troubleshooting">Troubleshooting</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#issue-configuration-not-applied">Issue: Configuration not applied</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#issue-custom-pass-not-found">Issue: Custom pass not found</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#issue-performance-issues-with-custom-configuration">Issue: Performance issues with custom configuration</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="integrate-with-build-systems.html">Integrate with Build Systems</a></li>
+<li class="toctree-l2"><a class="reference internal" href="visualize-results.html">How to Visualize Results</a></li>
+<li class="toctree-l2"><a class="reference internal" href="debug-analysis-issues.html">How to Debug Analysis Issues</a></li>
+<li class="toctree-l2"><a class="reference internal" href="analyze-call-graph.html">How to Analyze Call Graphs</a></li>
+<li class="toctree-l2"><a class="reference internal" href="analyze-control-flow.html">How to Analyze Control Flow</a></li>
+<li class="toctree-l2"><a class="reference internal" href="optimize-code.html">How to Optimize Code</a></li>
+<li class="toctree-l2"><a class="reference internal" href="security-analysis.html">How to Perform Security Analysis</a></li>
+<li class="toctree-l2 current"><a class="current reference internal" href="#">How to Customize Analysis</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#configuration-file">Configuration File</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#loading-configuration">Loading Configuration</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#custom-analysis-passes">Custom Analysis Passes</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#running-custom-analysis">Running Custom Analysis</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#custom-optimization-passes">Custom Optimization Passes</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#running-custom-optimization">Running Custom Optimization</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#custom-output-formatters">Custom Output Formatters</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#using-custom-formatter">Using Custom Formatter</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#advanced-configuration">Advanced Configuration</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#context-sensitive-analysis">Context-Sensitive Analysis</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#field-sensitivity">Field Sensitivity</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#flow-sensitivity">Flow Sensitivity</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#command-line-overrides">Command-Line Overrides</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#environment-variables">Environment Variables</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#programmatic-usage">Programmatic Usage</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#troubleshooting">Troubleshooting</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#issue-configuration-not-applied">Issue: Configuration not applied</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#issue-custom-pass-not-found">Issue: Custom pass not found</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#issue-performance-issues-with-custom-configuration">Issue: Performance issues with custom configuration</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="integrate-with-build-systems.html">Integrate with Build Systems</a></li>
+<li class="toctree-l2"><a class="reference internal" href="visualize-results.html">How to Visualize Results</a></li>
+<li class="toctree-l2"><a class="reference internal" href="debug-analysis-issues.html">How to Debug Analysis Issues</a></li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Explanations</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../explanation/index.html">Explanations</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">A3 Python</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../a3_python/index.html"><code class="docutils literal notranslate"><span class="pre">a3_python</span></code></a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html">Main Commands</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html#global-options">Global Options</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html#integration">Integration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../api.html">PyFlow API</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html">Analysis Modules</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#overview">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#analysis-configuration">Analysis Configuration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#running-analyses">Running Analyses</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#analysis-results">Analysis Results</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html">Optimizing Python Programs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#overview">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#optimization-categories">Optimization Categories</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#optimization-pipeline">Optimization Pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#usage">Usage</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../lang/index.html">Language Module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html">Security Analysis and Checking</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#checker-categories">Checker Categories</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#analysis-framework">Analysis Framework</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#usage">Usage</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">pyflow</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="index.html">How-to Guides</a></li>
+      <li class="breadcrumb-item active">How to Customize Analysis</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/how-to/customize-analysis.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="how-to-customize-analysis">
+<span id="id1"></span><h1>How to Customize Analysis<a class="headerlink" href="#how-to-customize-analysis" title="Link to this heading"></a></h1>
+<p>This guide explains how to configure and customize PyFlow’s analysis behavior
+for your specific needs.</p>
+<section id="configuration-file">
+<h2>Configuration File<a class="headerlink" href="#configuration-file" title="Link to this heading"></a></h2>
+<p>Create a configuration file to customize analysis:</p>
+<div class="literal-block-wrapper docutils container" id="id2">
+<div class="code-block-caption"><span class="caption-text">pyflow.toml</span><a class="headerlink" href="#id2" title="Link to this code"></a></div>
+<div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[analysis]</span>
+<span class="c1"># Enable/disable specific analyses</span>
+<span class="n">enable_cpa</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span>
+<span class="n">enable_ipa</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span>
+<span class="n">enable_shape</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span>
+
+<span class="k">[analysis.cpa]</span>
+<span class="c1"># CPA configuration</span>
+<span class="n">context_sensitive</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span>
+<span class="n">flow_sensitive</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span>
+<span class="n">field_sensitive</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span>
+
+<span class="k">[analysis.callgraph]</span>
+<span class="c1"># Call graph configuration</span>
+<span class="n">algorithm</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;cha&quot;</span><span class="w">  </span><span class="c1"># &quot;cha&quot;, &quot;rapid&quot;, or &quot;opa&quot;</span>
+<span class="n">max_depth</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">10</span>
+
+<span class="k">[optimization]</span>
+<span class="c1"># Optimization configuration</span>
+<span class="n">default_passes</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;simplify&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;methodcall&quot;</span><span class="p">]</span>
+<span class="n">max_inline_size</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">20</span>
+
+<span class="k">[output]</span>
+<span class="c1"># Output configuration</span>
+<span class="n">format</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;text&quot;</span>
+<span class="n">verbose</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">false</span>
+</pre></div>
+</div>
+</div>
+<section id="loading-configuration">
+<h3>Loading Configuration<a class="headerlink" href="#loading-configuration" title="Link to this heading"></a></h3>
+<p>PyFlow automatically loads configuration from <code class="docutils literal notranslate"><span class="pre">pyflow.toml</span></code> in the current
+directory or project root.</p>
+</section>
+</section>
+<section id="custom-analysis-passes">
+<h2>Custom Analysis Passes<a class="headerlink" href="#custom-analysis-passes" title="Link to this heading"></a></h2>
+<p>Create custom analysis passes by extending PyFlow’s base classes:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.analysis</span><span class="w"> </span><span class="kn">import</span> <span class="n">AnalysisPass</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.analysis.cfg</span><span class="w"> </span><span class="kn">import</span> <span class="n">CFG</span>
+
+<span class="k">class</span><span class="w"> </span><span class="nc">MyCustomAnalysis</span><span class="p">(</span><span class="n">AnalysisPass</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Custom analysis pass for specific needs.&quot;&quot;&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">results</span> <span class="o">=</span> <span class="p">{}</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">analyze</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">program</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Run the analysis on a program.&quot;&quot;&quot;</span>
+        <span class="k">for</span> <span class="n">function</span> <span class="ow">in</span> <span class="n">program</span><span class="o">.</span><span class="n">functions</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">analyze_function</span><span class="p">(</span><span class="n">function</span><span class="p">)</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">results</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">analyze_function</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">function</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Analyze a single function.&quot;&quot;&quot;</span>
+        <span class="n">cfg</span> <span class="o">=</span> <span class="n">function</span><span class="o">.</span><span class="n">cfg</span>
+        <span class="c1"># Custom analysis logic here</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">results</span><span class="p">[</span><span class="n">function</span><span class="o">.</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="s2">&quot;num_blocks&quot;</span><span class="p">:</span> <span class="nb">len</span><span class="p">(</span><span class="n">cfg</span><span class="o">.</span><span class="n">blocks</span><span class="p">),</span>
+            <span class="s2">&quot;num_edges&quot;</span><span class="p">:</span> <span class="nb">len</span><span class="p">(</span><span class="n">cfg</span><span class="o">.</span><span class="n">edges</span><span class="p">),</span>
+        <span class="p">}</span>
+
+<span class="c1"># Register the pass</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.analysis.registry</span><span class="w"> </span><span class="kn">import</span> <span class="n">AnalysisRegistry</span>
+<span class="n">AnalysisRegistry</span><span class="o">.</span><span class="n">register</span><span class="p">(</span><span class="s2">&quot;my_custom&quot;</span><span class="p">,</span> <span class="n">MyCustomAnalysis</span><span class="p">)</span>
+</pre></div>
+</div>
+<section id="running-custom-analysis">
+<h3>Running Custom Analysis<a class="headerlink" href="#running-custom-analysis" title="Link to this heading"></a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>optimize<span class="w"> </span>input.py<span class="w"> </span>--analysis<span class="w"> </span>cpa
+</pre></div>
+</div>
+</section>
+</section>
+<section id="custom-optimization-passes">
+<h2>Custom Optimization Passes<a class="headerlink" href="#custom-optimization-passes" title="Link to this heading"></a></h2>
+<p>Create custom optimization passes:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.application.passmanager</span><span class="w"> </span><span class="kn">import</span> <span class="n">OptimizationPass</span><span class="p">,</span> <span class="n">PassResult</span>
+
+<span class="k">class</span><span class="w"> </span><span class="nc">MyCustomOptimization</span><span class="p">(</span><span class="n">OptimizationPass</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Custom optimization pass.&quot;&quot;&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="s2">&quot;my_optimization&quot;</span><span class="p">,</span> <span class="s2">&quot;Custom optimization example&quot;</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">run</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">compiler</span><span class="p">,</span> <span class="n">program</span><span class="p">):</span>
+        <span class="c1"># Custom optimization logic here</span>
+        <span class="n">changed</span> <span class="o">=</span> <span class="kc">False</span>
+        <span class="k">for</span> <span class="n">function</span> <span class="ow">in</span> <span class="n">program</span><span class="o">.</span><span class="n">liveCode</span><span class="p">:</span>
+            <span class="n">changed</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">optimize_function</span><span class="p">(</span><span class="n">function</span><span class="p">)</span> <span class="ow">or</span> <span class="n">changed</span>
+        <span class="k">return</span> <span class="n">PassResult</span><span class="p">(</span><span class="n">success</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">changed</span><span class="o">=</span><span class="n">changed</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">optimize_function</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">function</span><span class="p">):</span>
+        <span class="k">return</span> <span class="kc">False</span>
+
+<span class="c1"># Register the pass</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.application.passmanager</span><span class="w"> </span><span class="kn">import</span> <span class="n">PassManager</span>
+
+<span class="n">manager</span> <span class="o">=</span> <span class="n">PassManager</span><span class="p">()</span>
+<span class="n">manager</span><span class="o">.</span><span class="n">register_pass</span><span class="p">(</span><span class="n">MyCustomOptimization</span><span class="p">())</span>
+</pre></div>
+</div>
+<section id="running-custom-optimization">
+<h3>Running Custom Optimization<a class="headerlink" href="#running-custom-optimization" title="Link to this heading"></a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>optimize<span class="w"> </span>input.py<span class="w"> </span>--opt-passes<span class="w"> </span>my_custom
+</pre></div>
+</div>
+</section>
+</section>
+<section id="custom-output-formatters">
+<h2>Custom Output Formatters<a class="headerlink" href="#custom-output-formatters" title="Link to this heading"></a></h2>
+<p>Create custom output formatters:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.analysis.callgraph.formats</span><span class="w"> </span><span class="kn">import</span> <span class="n">generate_text_output</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">my_custom_formatter</span><span class="p">(</span><span class="n">call_graph</span><span class="p">,</span> <span class="n">args</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Custom output formatter.&quot;&quot;&quot;</span>
+    <span class="c1"># Custom formatting logic</span>
+    <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;Custom: </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">call_graph</span><span class="o">.</span><span class="n">get</span><span class="p">())</span><span class="si">}</span><span class="s2"> functions&quot;</span>
+
+<span class="c1"># Use the formatter with your call graph</span>
+<span class="n">output</span> <span class="o">=</span> <span class="n">my_custom_formatter</span><span class="p">(</span><span class="n">call_graph</span><span class="p">,</span> <span class="n">args</span><span class="p">)</span>
+</pre></div>
+</div>
+<section id="using-custom-formatter">
+<h3>Using Custom Formatter<a class="headerlink" href="#using-custom-formatter" title="Link to this heading"></a></h3>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Use your custom formatter directly</span>
+<span class="n">output</span> <span class="o">=</span> <span class="n">my_custom_formatter</span><span class="p">(</span><span class="n">call_graph</span><span class="p">,</span> <span class="n">args</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">output</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="advanced-configuration">
+<h2>Advanced Configuration<a class="headerlink" href="#advanced-configuration" title="Link to this heading"></a></h2>
+<section id="context-sensitive-analysis">
+<h3>Context-Sensitive Analysis<a class="headerlink" href="#context-sensitive-analysis" title="Link to this heading"></a></h3>
+<p>Configure context-sensitive analysis:</p>
+<div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[analysis.cpa]</span>
+<span class="n">context_sensitive</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span>
+<span class="c1"># Context depth limit (0 = unlimited)</span>
+<span class="n">max_context_depth</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">5</span>
+<span class="c1"># Context representation: &quot;k-limiting&quot;, &quot;-object-sensitive&quot;, &quot;call-string&quot;</span>
+<span class="n">context_representation</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;k-limiting&quot;</span>
+<span class="n">k_value</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">3</span>
+</pre></div>
+</div>
+</section>
+<section id="field-sensitivity">
+<h3>Field Sensitivity<a class="headerlink" href="#field-sensitivity" title="Link to this heading"></a></h3>
+<p>Configure field-sensitive analysis:</p>
+<div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[analysis.cpa]</span>
+<span class="n">field_sensitive</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span>
+<span class="c1"># Track individual fields separately</span>
+<span class="n">track_individual_fields</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span>
+<span class="c1"># Maximum fields to track per object</span>
+<span class="n">max_tracked_fields</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">20</span>
+</pre></div>
+</div>
+</section>
+<section id="flow-sensitivity">
+<h3>Flow Sensitivity<a class="headerlink" href="#flow-sensitivity" title="Link to this heading"></a></h3>
+<p>Configure flow-sensitive analysis:</p>
+<div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[analysis.cpa]</span>
+<span class="n">flow_sensitive</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span>
+<span class="c1"># Statement-level vs block-level analysis</span>
+<span class="n">granularity</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;statement&quot;</span><span class="w">  </span><span class="c1"># or &quot;block&quot;</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="command-line-overrides">
+<h2>Command-Line Overrides<a class="headerlink" href="#command-line-overrides" title="Link to this heading"></a></h2>
+<p>Override configuration from the command line:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Run with specific analysis</span>
+pyflow<span class="w"> </span>optimize<span class="w"> </span>input.py<span class="w"> </span>--analysis<span class="w"> </span>cpa
+
+<span class="c1"># Disable optimizations</span>
+pyflow<span class="w"> </span>optimize<span class="w"> </span>input.py<span class="w"> </span>--no-opt-passes
+
+<span class="c1"># Set output format</span>
+pyflow<span class="w"> </span>callgraph<span class="w"> </span>input.py<span class="w"> </span>--format<span class="w"> </span>json<span class="w"> </span>--output<span class="w"> </span>result.json
+</pre></div>
+</div>
+</section>
+<section id="environment-variables">
+<h2>Environment Variables<a class="headerlink" href="#environment-variables" title="Link to this heading"></a></h2>
+<p>Configure via environment variables:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Set output format</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">PYFLOW_FORMAT</span><span class="o">=</span>json
+
+<span class="c1"># Set verbosity</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">PYFLOW_VERBOSE</span><span class="o">=</span><span class="nb">true</span>
+
+<span class="c1"># Set configuration file path</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">PYFLOW_CONFIG</span><span class="o">=</span>/path/to/pyflow.toml
+</pre></div>
+</div>
+</section>
+<section id="programmatic-usage">
+<h2>Programmatic Usage<a class="headerlink" href="#programmatic-usage" title="Link to this heading"></a></h2>
+<p>Use PyFlow programmatically for fine-grained control:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow</span><span class="w"> </span><span class="kn">import</span> <span class="n">Program</span><span class="p">,</span> <span class="n">AnalysisContext</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.analysis.cpa</span><span class="w"> </span><span class="kn">import</span> <span class="n">CPA</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.analysis.callgraph</span><span class="w"> </span><span class="kn">import</span> <span class="n">CallGraphAnalysis</span>
+
+<span class="c1"># Create program representation</span>
+<span class="n">program</span> <span class="o">=</span> <span class="n">Program</span><span class="o">.</span><span class="n">from_file</span><span class="p">(</span><span class="s2">&quot;input.py&quot;</span><span class="p">)</span>
+
+<span class="c1"># Create analysis context</span>
+<span class="n">context</span> <span class="o">=</span> <span class="n">AnalysisContext</span><span class="p">()</span>
+<span class="n">context</span><span class="o">.</span><span class="n">set_config</span><span class="p">({</span>
+    <span class="s2">&quot;context_sensitive&quot;</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span>
+    <span class="s2">&quot;flow_sensitive&quot;</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span>
+<span class="p">})</span>
+
+<span class="c1"># Run specific analyses</span>
+<span class="n">cpa</span> <span class="o">=</span> <span class="n">CPA</span><span class="p">(</span><span class="n">context</span><span class="p">)</span>
+<span class="n">cpa_results</span> <span class="o">=</span> <span class="n">cpa</span><span class="o">.</span><span class="n">analyze</span><span class="p">(</span><span class="n">program</span><span class="p">)</span>
+
+<span class="n">callgraph</span> <span class="o">=</span> <span class="n">CallGraphAnalysis</span><span class="p">()</span>
+<span class="n">callgraph_results</span> <span class="o">=</span> <span class="n">callgraph</span><span class="o">.</span><span class="n">analyze</span><span class="p">(</span><span class="n">program</span><span class="p">)</span>
+
+<span class="c1"># Combine results</span>
+<span class="n">combined_results</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="s2">&quot;cpa&quot;</span><span class="p">:</span> <span class="n">cpa_results</span><span class="p">,</span>
+    <span class="s2">&quot;callgraph&quot;</span><span class="p">:</span> <span class="n">callgraph_results</span><span class="p">,</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+</section>
+<section id="troubleshooting">
+<h2>Troubleshooting<a class="headerlink" href="#troubleshooting" title="Link to this heading"></a></h2>
+<section id="issue-configuration-not-applied">
+<h3>Issue: Configuration not applied<a class="headerlink" href="#issue-configuration-not-applied" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p>Ensure pyflow.toml is in the project root</p></li>
+<li><p>Check file permissions</p></li>
+<li><p>Verify TOML syntax</p></li>
+</ul>
+</section>
+<section id="issue-custom-pass-not-found">
+<h3>Issue: Custom pass not found<a class="headerlink" href="#issue-custom-pass-not-found" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p>Ensure the pass is registered before use</p></li>
+<li><p>Check import paths</p></li>
+<li><p>Verify class inheritance</p></li>
+</ul>
+</section>
+<section id="issue-performance-issues-with-custom-configuration">
+<h3>Issue: Performance issues with custom configuration<a class="headerlink" href="#issue-performance-issues-with-custom-configuration" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p>Reduce context depth for large codebases</p></li>
+<li><p>Disable flow sensitivity for faster analysis</p></li>
+<li><p>Use incremental analysis for repeated runs</p></li>
+</ul>
+</section>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="security-analysis.html" class="btn btn-neutral float-left" title="How to Perform Security Analysis" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="integrate-with-build-systems.html" class="btn btn-neutral float-right" title="Integrate with Build Systems" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, rainoftime.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

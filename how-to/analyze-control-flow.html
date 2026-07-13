@@ -1,0 +1,550 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>How to Analyze Control Flow &mdash; pyflow 0.1.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=01f34227"></script>
+      <script src="../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="How to Optimize Code" href="optimize-code.html" />
+    <link rel="prev" title="How to Analyze Call Graphs" href="analyze-call-graph.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            pyflow
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Getting Started</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../tutorials/index.html">Tutorials</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#what-is-pyflow">What is PyFlow?</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#key-features">Key Features</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#architecture">Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#repository-status-in-practice">Repository status in practice</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">How-to Guides</span></p>
+<ul class="current">
+<li class="toctree-l1 current"><a class="reference internal" href="index.html">How-to Guides</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="analyze-call-graph.html">How to Analyze Call Graphs</a></li>
+<li class="toctree-l2 current"><a class="current reference internal" href="#">How to Analyze Control Flow</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#when-to-use-control-flow-analysis">When to Use Control Flow Analysis</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#basic-control-flow-analysis">Basic Control Flow Analysis</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#understanding-basic-blocks">Understanding Basic Blocks</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#block-types">Block Types</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#control-flow-edges">Control Flow Edges</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#conditional-edges">Conditional Edges</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#loop-edges">Loop Edges</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#exception-edges">Exception Edges</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#visualizing-control-flow">Visualizing Control Flow</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#text-diagram">Text diagram</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#dot-visualization">DOT visualization</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#advanced-cfg-options">Advanced CFG Options</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#multiple-formats">Multiple formats</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#all-cfgs-for-a-file">All CFGs for a file</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#common-analysis-tasks">Common Analysis Tasks</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#task-1-identify-unreachable-code">Task 1: Identify unreachable code</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#task-2-find-loop-complexity">Task 2: Find loop complexity</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#task-3-simplify-complex-conditionals">Task 3: Simplify complex conditionals</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#interpreting-results">Interpreting Results</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#simple-control-flow">Simple Control Flow</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#troubleshooting">Troubleshooting</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#issue-cfg-shows-unexpected-structure">Issue: CFG shows unexpected structure</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#issue-missing-blocks">Issue: Missing blocks</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#issue-circular-edges-in-visualization">Issue: Circular edges in visualization</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="optimize-code.html">How to Optimize Code</a></li>
+<li class="toctree-l2"><a class="reference internal" href="security-analysis.html">How to Perform Security Analysis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="customize-analysis.html">How to Customize Analysis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="integrate-with-build-systems.html">Integrate with Build Systems</a></li>
+<li class="toctree-l2"><a class="reference internal" href="visualize-results.html">How to Visualize Results</a></li>
+<li class="toctree-l2"><a class="reference internal" href="debug-analysis-issues.html">How to Debug Analysis Issues</a></li>
+<li class="toctree-l2"><a class="reference internal" href="analyze-call-graph.html">How to Analyze Call Graphs</a></li>
+<li class="toctree-l2 current"><a class="current reference internal" href="#">How to Analyze Control Flow</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#when-to-use-control-flow-analysis">When to Use Control Flow Analysis</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#basic-control-flow-analysis">Basic Control Flow Analysis</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#understanding-basic-blocks">Understanding Basic Blocks</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#block-types">Block Types</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#control-flow-edges">Control Flow Edges</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#conditional-edges">Conditional Edges</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#loop-edges">Loop Edges</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#exception-edges">Exception Edges</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#visualizing-control-flow">Visualizing Control Flow</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#text-diagram">Text diagram</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#dot-visualization">DOT visualization</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#advanced-cfg-options">Advanced CFG Options</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#multiple-formats">Multiple formats</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#all-cfgs-for-a-file">All CFGs for a file</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#common-analysis-tasks">Common Analysis Tasks</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#task-1-identify-unreachable-code">Task 1: Identify unreachable code</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#task-2-find-loop-complexity">Task 2: Find loop complexity</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#task-3-simplify-complex-conditionals">Task 3: Simplify complex conditionals</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#interpreting-results">Interpreting Results</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#simple-control-flow">Simple Control Flow</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#troubleshooting">Troubleshooting</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#issue-cfg-shows-unexpected-structure">Issue: CFG shows unexpected structure</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#issue-missing-blocks">Issue: Missing blocks</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#issue-circular-edges-in-visualization">Issue: Circular edges in visualization</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="optimize-code.html">How to Optimize Code</a></li>
+<li class="toctree-l2"><a class="reference internal" href="security-analysis.html">How to Perform Security Analysis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="customize-analysis.html">How to Customize Analysis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="integrate-with-build-systems.html">Integrate with Build Systems</a></li>
+<li class="toctree-l2"><a class="reference internal" href="visualize-results.html">How to Visualize Results</a></li>
+<li class="toctree-l2"><a class="reference internal" href="debug-analysis-issues.html">How to Debug Analysis Issues</a></li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Explanations</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../explanation/index.html">Explanations</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">A3 Python</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../a3_python/index.html"><code class="docutils literal notranslate"><span class="pre">a3_python</span></code></a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html">Main Commands</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html#global-options">Global Options</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html#integration">Integration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../api.html">PyFlow API</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html">Analysis Modules</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#overview">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#analysis-configuration">Analysis Configuration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#running-analyses">Running Analyses</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#analysis-results">Analysis Results</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html">Optimizing Python Programs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#overview">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#optimization-categories">Optimization Categories</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#optimization-pipeline">Optimization Pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#usage">Usage</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../lang/index.html">Language Module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html">Security Analysis and Checking</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#checker-categories">Checker Categories</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#analysis-framework">Analysis Framework</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#usage">Usage</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">pyflow</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="index.html">How-to Guides</a></li>
+      <li class="breadcrumb-item active">How to Analyze Control Flow</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/how-to/analyze-control-flow.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="how-to-analyze-control-flow">
+<span id="id1"></span><h1>How to Analyze Control Flow<a class="headerlink" href="#how-to-analyze-control-flow" title="Link to this heading"></a></h1>
+<p>This guide explains how to use PyFlow’s control flow analysis to understand
+the structure and flow of control within your Python functions.</p>
+<section id="when-to-use-control-flow-analysis">
+<h2>When to Use Control Flow Analysis<a class="headerlink" href="#when-to-use-control-flow-analysis" title="Link to this heading"></a></h2>
+<p>Use control flow analysis when you need to:</p>
+<ul class="simple">
+<li><p>Understand complex conditional logic</p></li>
+<li><p>Identify unreachable code or infinite loops</p></li>
+<li><p>Optimize control flow structures</p></li>
+<li><p>Prepare for data flow analysis</p></li>
+<li><p>Visualize program structure</p></li>
+</ul>
+</section>
+<section id="basic-control-flow-analysis">
+<h2>Basic Control Flow Analysis<a class="headerlink" href="#basic-control-flow-analysis" title="Link to this heading"></a></h2>
+<p>Dump the CFG for a specific function:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>ir<span class="w"> </span>input.py<span class="w"> </span>--dump-cfg<span class="w"> </span>function_name<span class="w"> </span>--dump-format<span class="w"> </span>text
+</pre></div>
+</div>
+<p>For the fibonacci function:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>ir<span class="w"> </span>input.py<span class="w"> </span>--dump-cfg<span class="w"> </span>fibonacci<span class="w"> </span>--dump-format<span class="w"> </span>text
+</pre></div>
+</div>
+<p>Output shows the basic blocks and their connections:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>CFG for fibonacci:
+───────────────────────────────────────
+
+Block 0 (Entry):
+  n: Parameter
+  if n &lt;= 1
+
+Block 1 (True - Return):
+  return n
+
+Block 2 (False - Recursive):
+  temp1 = fibonacci(n - 1)
+  temp2 = fibonacci(n - 2)
+  return temp1 + temp2
+
+Edges:
+  Block 0 → Block 1 (n &lt;= 1 is True)
+  Block 0 → Block 2 (n &lt;= 1 is False)
+</pre></div>
+</div>
+</section>
+<section id="understanding-basic-blocks">
+<h2>Understanding Basic Blocks<a class="headerlink" href="#understanding-basic-blocks" title="Link to this heading"></a></h2>
+<p>A basic block is a sequence of instructions where:</p>
+<ul class="simple">
+<li><p>Control can only enter at the beginning</p></li>
+<li><p>Control can only exit at the end</p></li>
+<li><p>No branches occur within the block (except at the end)</p></li>
+</ul>
+<section id="block-types">
+<h3>Block Types<a class="headerlink" href="#block-types" title="Link to this heading"></a></h3>
+<section id="entry-block">
+<h4>Entry Block<a class="headerlink" href="#entry-block" title="Link to this heading"></a></h4>
+<p>The first block of the function, where control enters:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Block 0 (Entry):
+  n: Parameter
+  if n &gt; 0
+</pre></div>
+</div>
+</section>
+<section id="regular-block">
+<h4>Regular Block<a class="headerlink" href="#regular-block" title="Link to this heading"></a></h4>
+<p>A standard block with instructions and an exit:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Block 3:
+  x = x + 1
+  if x &lt; 10
+</pre></div>
+</div>
+</section>
+<section id="exit-block">
+<h4>Exit Block<a class="headerlink" href="#exit-block" title="Link to this heading"></a></h4>
+<p>A block containing a return statement:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Block 5 (Exit):
+  return result
+</pre></div>
+</div>
+</section>
+<section id="exception-block">
+<h4>Exception Block<a class="headerlink" href="#exception-block" title="Link to this heading"></a></h4>
+<p>A block handling exceptions:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Block 4 (Exception):
+  print(&quot;Error occurred&quot;)
+  return None
+</pre></div>
+</div>
+</section>
+</section>
+</section>
+<section id="control-flow-edges">
+<h2>Control Flow Edges<a class="headerlink" href="#control-flow-edges" title="Link to this heading"></a></h2>
+<p>Edges represent possible transfers of control between blocks.</p>
+<section id="conditional-edges">
+<h3>Conditional Edges<a class="headerlink" href="#conditional-edges" title="Link to this heading"></a></h3>
+<p>From if statements:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Block 0 → Block 1 (condition is True)
+Block 0 → Block 2 (condition is False)
+</pre></div>
+</div>
+</section>
+<section id="loop-edges">
+<h3>Loop Edges<a class="headerlink" href="#loop-edges" title="Link to this heading"></a></h3>
+<p>From loop headers:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Block 2 → Block 1 (loop back edge)
+Block 2 → Block 3 (loop exit edge)
+</pre></div>
+</div>
+</section>
+<section id="exception-edges">
+<h3>Exception Edges<a class="headerlink" href="#exception-edges" title="Link to this heading"></a></h3>
+<p>From try-except blocks:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Block 0 → Block 4 (exception caught)
+</pre></div>
+</div>
+</section>
+</section>
+<section id="visualizing-control-flow">
+<h2>Visualizing Control Flow<a class="headerlink" href="#visualizing-control-flow" title="Link to this heading"></a></h2>
+<p>Create visual representations of control flow:</p>
+<section id="text-diagram">
+<h3>Text diagram<a class="headerlink" href="#text-diagram" title="Link to this heading"></a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>ir<span class="w"> </span>input.py<span class="w"> </span>--dump-cfg<span class="w"> </span>function_name<span class="w"> </span>--dump-format<span class="w"> </span>text
+</pre></div>
+</div>
+</section>
+<section id="dot-visualization">
+<h3>DOT visualization<a class="headerlink" href="#dot-visualization" title="Link to this heading"></a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>ir<span class="w"> </span>input.py<span class="w"> </span>--dump-cfg<span class="w"> </span>function_name<span class="w"> </span>--dump-format<span class="w"> </span>dot<span class="w"> </span>--output<span class="w"> </span>cfg.dot
+dot<span class="w"> </span>-Tpng<span class="w"> </span>cfg.dot<span class="w"> </span>-o<span class="w"> </span>cfg.png
+</pre></div>
+</div>
+</section>
+</section>
+<section id="advanced-cfg-options">
+<h2>Advanced CFG Options<a class="headerlink" href="#advanced-cfg-options" title="Link to this heading"></a></h2>
+<section id="multiple-formats">
+<h3>Multiple formats<a class="headerlink" href="#multiple-formats" title="Link to this heading"></a></h3>
+<p>Choose the output format that best fits your needs:</p>
+<p>JSON for programmatic access:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>ir<span class="w"> </span>input.py<span class="w"> </span>--dump-cfg<span class="w"> </span>function_name<span class="w"> </span>--dump-format<span class="w"> </span>json<span class="w"> </span>--output<span class="w"> </span>cfg.json
+</pre></div>
+</div>
+</section>
+<section id="all-cfgs-for-a-file">
+<h3>All CFGs for a file<a class="headerlink" href="#all-cfgs-for-a-file" title="Link to this heading"></a></h3>
+<p>Dump all CFGs in a file:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>ir<span class="w"> </span>input.py<span class="w"> </span>--dump-cfg<span class="w"> </span>all<span class="w"> </span>--output<span class="w"> </span>all_cfg.dot
+</pre></div>
+</div>
+</section>
+</section>
+<section id="common-analysis-tasks">
+<h2>Common Analysis Tasks<a class="headerlink" href="#common-analysis-tasks" title="Link to this heading"></a></h2>
+<section id="task-1-identify-unreachable-code">
+<h3>Task 1: Identify unreachable code<a class="headerlink" href="#task-1-identify-unreachable-code" title="Link to this heading"></a></h3>
+<p>Unreachable code appears in blocks that have no incoming edges (except from
+themselves):</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">analyze_reachability</span><span class="p">(</span><span class="n">json_path</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Identify potentially unreachable code.&quot;&quot;&quot;</span>
+    <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">json_path</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+        <span class="n">cfg</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">f</span><span class="p">)</span>
+
+    <span class="n">blocks</span> <span class="o">=</span> <span class="n">cfg</span><span class="p">[</span><span class="s2">&quot;blocks&quot;</span><span class="p">]</span>
+    <span class="n">edges</span> <span class="o">=</span> <span class="n">cfg</span><span class="p">[</span><span class="s2">&quot;edges&quot;</span><span class="p">]</span>
+
+    <span class="c1"># Build set of blocks with incoming edges</span>
+    <span class="n">reachable</span> <span class="o">=</span> <span class="nb">set</span><span class="p">()</span>
+    <span class="k">for</span> <span class="n">edge</span> <span class="ow">in</span> <span class="n">edges</span><span class="p">:</span>
+        <span class="n">reachable</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">edge</span><span class="p">[</span><span class="s2">&quot;from&quot;</span><span class="p">])</span>
+
+    <span class="c1"># Entry block is always reachable</span>
+    <span class="n">reachable</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">cfg</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;entry_block&quot;</span><span class="p">))</span>
+
+    <span class="c1"># Find unreachable blocks</span>
+    <span class="n">all_blocks</span> <span class="o">=</span> <span class="p">{</span><span class="n">block</span><span class="p">[</span><span class="s2">&quot;id&quot;</span><span class="p">]</span> <span class="k">for</span> <span class="n">block</span> <span class="ow">in</span> <span class="n">blocks</span><span class="p">}</span>
+    <span class="n">unreachable</span> <span class="o">=</span> <span class="n">all_blocks</span> <span class="o">-</span> <span class="n">reachable</span>
+
+    <span class="k">return</span> <span class="n">unreachable</span>
+</pre></div>
+</div>
+</section>
+<section id="task-2-find-loop-complexity">
+<h3>Task 2: Find loop complexity<a class="headerlink" href="#task-2-find-loop-complexity" title="Link to this heading"></a></h3>
+<p>Analyze loop nesting depth:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">analyze_loop_depth</span><span class="p">(</span><span class="n">json_path</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Analyze loop nesting depth.&quot;&quot;&quot;</span>
+    <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">json_path</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+        <span class="n">cfg</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">f</span><span class="p">)</span>
+
+    <span class="c1"># Back edges indicate loops</span>
+    <span class="c1"># Count edges from higher blocks to lower blocks</span>
+    <span class="n">back_edges</span> <span class="o">=</span> <span class="p">[</span>
+        <span class="n">e</span> <span class="k">for</span> <span class="n">e</span> <span class="ow">in</span> <span class="n">cfg</span><span class="p">[</span><span class="s2">&quot;edges&quot;</span><span class="p">]</span>
+        <span class="k">if</span> <span class="n">e</span><span class="p">[</span><span class="s2">&quot;from&quot;</span><span class="p">]</span> <span class="o">&gt;</span> <span class="n">e</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;to&quot;</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span> <span class="ow">and</span> <span class="s2">&quot;loop&quot;</span> <span class="ow">in</span> <span class="n">e</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;type&quot;</span><span class="p">,</span> <span class="s2">&quot;&quot;</span><span class="p">)</span>
+    <span class="p">]</span>
+
+    <span class="k">return</span> <span class="p">{</span>
+        <span class="s2">&quot;num_loops&quot;</span><span class="p">:</span> <span class="nb">len</span><span class="p">(</span><span class="n">back_edges</span><span class="p">),</span>
+        <span class="s2">&quot;back_edges&quot;</span><span class="p">:</span> <span class="n">back_edges</span>
+    <span class="p">}</span>
+</pre></div>
+</div>
+</section>
+<section id="task-3-simplify-complex-conditionals">
+<h3>Task 3: Simplify complex conditionals<a class="headerlink" href="#task-3-simplify-complex-conditionals" title="Link to this heading"></a></h3>
+<p>Identify functions with complex control flow:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">analyze_complexity</span><span class="p">(</span><span class="n">json_path</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Calculate control flow complexity metrics.&quot;&quot;&quot;</span>
+    <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">json_path</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+        <span class="n">cfg</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">f</span><span class="p">)</span>
+
+    <span class="n">edges</span> <span class="o">=</span> <span class="n">cfg</span><span class="p">[</span><span class="s2">&quot;edges&quot;</span><span class="p">]</span>
+    <span class="n">blocks</span> <span class="o">=</span> <span class="n">cfg</span><span class="p">[</span><span class="s2">&quot;blocks&quot;</span><span class="p">]</span>
+
+    <span class="c1"># Cyclomatic complexity = edges - nodes + 2</span>
+    <span class="n">n_edges</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">edges</span><span class="p">)</span>
+    <span class="n">n_nodes</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">blocks</span><span class="p">)</span>
+
+    <span class="n">complexity</span> <span class="o">=</span> <span class="n">n_edges</span> <span class="o">-</span> <span class="n">n_nodes</span> <span class="o">+</span> <span class="mi">2</span>
+
+    <span class="k">return</span> <span class="p">{</span>
+        <span class="s2">&quot;cyclomatic_complexity&quot;</span><span class="p">:</span> <span class="n">complexity</span><span class="p">,</span>
+        <span class="s2">&quot;num_blocks&quot;</span><span class="p">:</span> <span class="n">n_nodes</span><span class="p">,</span>
+        <span class="s2">&quot;num_edges&quot;</span><span class="p">:</span> <span class="n">n_edges</span>
+    <span class="p">}</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="interpreting-results">
+<h2>Interpreting Results<a class="headerlink" href="#interpreting-results" title="Link to this heading"></a></h2>
+<section id="simple-control-flow">
+<h3>Simple Control Flow<a class="headerlink" href="#simple-control-flow" title="Link to this heading"></a></h3>
+<p>Functions with simple control flow (low complexity) are easier to understand
+and maintain:</p>
+<ul class="simple">
+<li><p><strong>Complexity 1-10</strong>: Simple, low risk</p></li>
+<li><p><strong>Complexity 11-20</strong>: Moderate complexity</p></li>
+<li><p><strong>Complexity 21+</strong>: High complexity, consider refactoring</p></li>
+</ul>
+<section id="example-low-complexity">
+<h4>Example: Low Complexity<a class="headerlink" href="#example-low-complexity" title="Link to this heading"></a></h4>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">simple</span><span class="p">(</span><span class="n">x</span><span class="p">):</span>
+    <span class="k">if</span> <span class="n">x</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+        <span class="k">return</span> <span class="s2">&quot;positive&quot;</span>
+    <span class="k">return</span> <span class="s2">&quot;non-positive&quot;</span>
+</pre></div>
+</div>
+<p>Complexity: 2 (very simple)</p>
+</section>
+<section id="example-high-complexity">
+<h4>Example: High Complexity<a class="headerlink" href="#example-high-complexity" title="Link to this heading"></a></h4>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">complex</span><span class="p">(</span><span class="n">x</span><span class="p">):</span>
+    <span class="k">if</span> <span class="n">x</span> <span class="o">&gt;</span> <span class="mi">100</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">x</span> <span class="o">&gt;</span> <span class="mi">200</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">x</span> <span class="o">&gt;</span> <span class="mi">300</span><span class="p">:</span>
+                <span class="k">return</span> <span class="s2">&quot;very high&quot;</span>
+            <span class="k">return</span> <span class="s2">&quot;high&quot;</span>
+        <span class="k">elif</span> <span class="n">x</span> <span class="o">&lt;</span> <span class="mi">150</span><span class="p">:</span>
+            <span class="k">return</span> <span class="s2">&quot;medium-high&quot;</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">return</span> <span class="s2">&quot;medium&quot;</span>
+    <span class="k">elif</span> <span class="n">x</span> <span class="o">&gt;</span> <span class="mi">50</span><span class="p">:</span>
+        <span class="k">return</span> <span class="s2">&quot;medium-low&quot;</span>
+    <span class="k">elif</span> <span class="n">x</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+        <span class="k">return</span> <span class="s2">&quot;low&quot;</span>
+    <span class="k">return</span> <span class="s2">&quot;non-positive&quot;</span>
+</pre></div>
+</div>
+<p>Complexity: 8+ (high complexity, consider refactoring)</p>
+</section>
+</section>
+</section>
+<section id="troubleshooting">
+<h2>Troubleshooting<a class="headerlink" href="#troubleshooting" title="Link to this heading"></a></h2>
+<section id="issue-cfg-shows-unexpected-structure">
+<h3>Issue: CFG shows unexpected structure<a class="headerlink" href="#issue-cfg-shows-unexpected-structure" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p>Check for syntax errors in the source code</p></li>
+<li><p>Ensure the function name is correct</p></li>
+<li><p>Try with <code class="docutils literal notranslate"><span class="pre">--dump-ast</span></code> first to verify parsing</p></li>
+</ul>
+</section>
+<section id="issue-missing-blocks">
+<h3>Issue: Missing blocks<a class="headerlink" href="#issue-missing-blocks" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p>The function may have been inlined or optimized</p></li>
+<li><p>Check if the function exists in the source</p></li>
+<li><p>Use <code class="docutils literal notranslate"><span class="pre">--no-opt-passes</span></code> to skip optimizations</p></li>
+</ul>
+</section>
+<section id="issue-circular-edges-in-visualization">
+<h3>Issue: Circular edges in visualization<a class="headerlink" href="#issue-circular-edges-in-visualization" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p>Recursive functions naturally have circular edges</p></li>
+<li><p>Use <code class="docutils literal notranslate"><span class="pre">--max-depth</span></code> to limit recursion depth</p></li>
+<li><p>This is expected behavior, not an error</p></li>
+</ul>
+</section>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="analyze-call-graph.html" class="btn btn-neutral float-left" title="How to Analyze Call Graphs" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="optimize-code.html" class="btn btn-neutral float-right" title="How to Optimize Code" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, rainoftime.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

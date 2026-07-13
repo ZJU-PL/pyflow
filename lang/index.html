@@ -1,0 +1,285 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Language Module &mdash; pyflow 0.1.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=01f34227"></script>
+      <script src="../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+      <script async="async" src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="AST for Python" href="ast.html" />
+    <link rel="prev" title="Advanced Optimizations" href="../optimization/advanced.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            pyflow
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Getting Started</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../tutorials/index.html">Tutorials</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#what-is-pyflow">What is PyFlow?</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#key-features">Key Features</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#architecture">Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#repository-status-in-practice">Repository status in practice</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">How-to Guides</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../how-to/index.html">How-to Guides</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Explanations</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../explanation/index.html">Explanations</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">A3 Python</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../a3_python/index.html"><code class="docutils literal notranslate"><span class="pre">a3_python</span></code></a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Reference</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../cli.html">Main Commands</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html#global-options">Global Options</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html#integration">Integration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../api.html">PyFlow API</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html">Analysis Modules</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#overview">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#analysis-configuration">Analysis Configuration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#running-analyses">Running Analyses</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#analysis-results">Analysis Results</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html">Optimizing Python Programs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#overview">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#optimization-categories">Optimization Categories</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#optimization-pipeline">Optimization Pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#usage">Usage</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Language Module</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#overview">Overview</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#key-components">Key Components</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#ast-node-system">AST Node System</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#program-representation">Program Representation</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#annotations">Annotations</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#ast-transformations">AST Transformations</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#usage">Usage</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#module-structure">Module Structure</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="ast.html">AST for Python</a></li>
+<li class="toctree-l3"><a class="reference internal" href="frontend.html">Frontend Module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="asttools.html">AST Tools</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api.html">Language API</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#see-also">See Also</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html">Security Analysis and Checking</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#checker-categories">Checker Categories</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#analysis-framework">Analysis Framework</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#usage">Usage</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">pyflow</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">Language Module</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/lang/index.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="language-module">
+<h1>Language Module<a class="headerlink" href="#language-module" title="Link to this heading"></a></h1>
+<p>The Language module provides language-specific implementations for representing and processing Python code in PyFlow. This module defines the core intermediate representation (IR) used throughout the analysis pipeline.</p>
+<section id="overview">
+<h2>Overview<a class="headerlink" href="#overview" title="Link to this heading"></a></h2>
+<p>The Language module (<cite>src/pyflow/language/</cite>) contains Python language support:</p>
+<ul class="simple">
+<li><p><a class="reference internal" href="ast.html"><span class="doc">AST for Python</span></a> - Abstract Syntax Tree node definitions for PyFlow’s IR</p></li>
+<li><p><a class="reference internal" href="frontend.html"><span class="doc">Frontend Module</span></a> - Source extraction and dependency resolution</p></li>
+<li><p><a class="reference internal" href="asttools.html"><span class="doc">AST Tools</span></a> - AST utilities: McCabe complexity, decorator detection, visitor patterns</p></li>
+<li><p>Program representation - Object model and type system</p></li>
+<li><p>AST transformations - Collapsing, folding, and def-use analysis</p></li>
+<li><p>Code generation - Output and simple code generation</p></li>
+</ul>
+<p>The language module provides:
+- <strong>AST Representation</strong>: Rich intermediate representation capturing Python semantics
+- <strong>Object Model</strong>: Representation of Python objects, types, and relationships
+- <strong>Type System</strong>: Support for abstract and concrete types, type information
+- <strong>Annotations</strong>: Context-sensitive metadata attached to AST nodes</p>
+</section>
+<section id="key-components">
+<h2>Key Components<a class="headerlink" href="#key-components" title="Link to this heading"></a></h2>
+<section id="ast-node-system">
+<h3>AST Node System<a class="headerlink" href="#ast-node-system" title="Link to this heading"></a></h3>
+<p>The AST system (<cite>pyflow.language.python.ast</cite>) provides node types:</p>
+<p><strong>Reference Nodes</strong>: <code class="docutils literal notranslate"><span class="pre">Existing</span></code> (constants), <code class="docutils literal notranslate"><span class="pre">Local</span></code> (variables), <code class="docutils literal notranslate"><span class="pre">DoNotCare</span></code> (wildcards)</p>
+<p><strong>Expression Nodes</strong>: <code class="docutils literal notranslate"><span class="pre">Call</span></code>, <code class="docutils literal notranslate"><span class="pre">DirectCall</span></code>, <code class="docutils literal notranslate"><span class="pre">MethodCall</span></code>, <code class="docutils literal notranslate"><span class="pre">BinaryOp</span></code>, <code class="docutils literal notranslate"><span class="pre">UnaryPrefixOp</span></code>, <code class="docutils literal notranslate"><span class="pre">GetAttr</span></code>, <code class="docutils literal notranslate"><span class="pre">SetAttr</span></code>, <code class="docutils literal notranslate"><span class="pre">GetSubscript</span></code>, <code class="docutils literal notranslate"><span class="pre">SetSubscript</span></code>, <code class="docutils literal notranslate"><span class="pre">BuildTuple</span></code>, <code class="docutils literal notranslate"><span class="pre">BuildList</span></code>, <code class="docutils literal notranslate"><span class="pre">BuildMap</span></code></p>
+<p><strong>Statement Nodes</strong>: <code class="docutils literal notranslate"><span class="pre">Assign</span></code>, <code class="docutils literal notranslate"><span class="pre">Return</span></code>, <code class="docutils literal notranslate"><span class="pre">Discard</span></code>, <code class="docutils literal notranslate"><span class="pre">Delete</span></code></p>
+<p><strong>Control Flow Nodes</strong>: <code class="docutils literal notranslate"><span class="pre">Switch</span></code>, <code class="docutils literal notranslate"><span class="pre">While</span></code>, <code class="docutils literal notranslate"><span class="pre">For</span></code>, <code class="docutils literal notranslate"><span class="pre">TryExceptFinally</span></code>, <code class="docutils literal notranslate"><span class="pre">Break</span></code>, <code class="docutils literal notranslate"><span class="pre">Continue</span></code></p>
+<p><strong>Code Nodes</strong>: <code class="docutils literal notranslate"><span class="pre">Code</span></code>, <code class="docutils literal notranslate"><span class="pre">FunctionDef</span></code>, <code class="docutils literal notranslate"><span class="pre">ClassDef</span></code></p>
+</section>
+<section id="program-representation">
+<h3>Program Representation<a class="headerlink" href="#program-representation" title="Link to this heading"></a></h3>
+<p>The program module (<cite>pyflow.language.python.program</cite>) provides:</p>
+<ul class="simple">
+<li><p><strong>Object Model</strong>: <code class="docutils literal notranslate"><span class="pre">Object</span></code> (concrete), <code class="docutils literal notranslate"><span class="pre">ImaginaryObject</span></code> (abstract), <code class="docutils literal notranslate"><span class="pre">AbstractObject</span></code> (base), <code class="docutils literal notranslate"><span class="pre">TypeInfo</span></code></p></li>
+<li><p><strong>Program Description</strong>: <code class="docutils literal notranslate"><span class="pre">ProgramDescription</span></code> for metadata, object clustering, call binding</p></li>
+</ul>
+</section>
+<section id="annotations">
+<h3>Annotations<a class="headerlink" href="#annotations" title="Link to this heading"></a></h3>
+<p>The annotations module (<cite>pyflow.language.python.annotations</cite>) provides:</p>
+<ul class="simple">
+<li><p><strong>CodeAnnotation</strong>: Context-sensitive analysis results, live variables, read/modify/allocate sets</p></li>
+<li><p><strong>OpAnnotation</strong>: Operation-level analysis results, invocation information</p></li>
+<li><p><strong>SlotAnnotation</strong>: Variable reference tracking</p></li>
+</ul>
+</section>
+<section id="ast-transformations">
+<h3>AST Transformations<a class="headerlink" href="#ast-transformations" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p><strong>Collapser</strong>: Collapses single-use variables into definitions</p></li>
+<li><p><strong>Fold</strong>: Constant folding for compile-time evaluation</p></li>
+<li><p><strong>DefUse</strong>: Def-use analysis for variables, tracks locals/globals/cells</p></li>
+</ul>
+</section>
+</section>
+<section id="usage">
+<h2>Usage<a class="headerlink" href="#usage" title="Link to this heading"></a></h2>
+<p>The Language module is primarily used internally by PyFlow’s analysis pipeline. Example:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.language.python</span><span class="w"> </span><span class="kn">import</span> <span class="n">ast</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.language.python.program</span><span class="w"> </span><span class="kn">import</span> <span class="n">Object</span>
+
+<span class="n">const</span> <span class="o">=</span> <span class="n">ast</span><span class="o">.</span><span class="n">Existing</span><span class="p">(</span><span class="n">Object</span><span class="p">(</span><span class="mi">42</span><span class="p">))</span>
+<span class="n">local</span> <span class="o">=</span> <span class="n">ast</span><span class="o">.</span><span class="n">Local</span><span class="p">(</span><span class="s2">&quot;x&quot;</span><span class="p">)</span>
+<span class="n">assign</span> <span class="o">=</span> <span class="n">ast</span><span class="o">.</span><span class="n">Assign</span><span class="p">(</span><span class="n">const</span><span class="p">,</span> <span class="p">[</span><span class="n">local</span><span class="p">])</span>
+</pre></div>
+</div>
+</section>
+<section id="module-structure">
+<h2>Module Structure<a class="headerlink" href="#module-structure" title="Link to this heading"></a></h2>
+<div class="toctree-wrapper compound">
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="ast.html">AST for Python</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="ast.html#overview">Overview</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ast.html#reference-nodes">Reference Nodes</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ast.html#expression-nodes">Expression Nodes</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ast.html#statement-nodes">Statement Nodes</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ast.html#control-flow-nodes">Control Flow Nodes</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ast.html#code-nodes">Code Nodes</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ast.html#suite-and-annotations">Suite and Annotations</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ast.html#node-properties">Node Properties</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ast.html#usage-examples">Usage Examples</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ast.html#see-also">See Also</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="frontend.html">Frontend Module</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="frontend.html#overview">Overview</a></li>
+<li class="toctree-l2"><a class="reference internal" href="frontend.html#key-components">Key Components</a></li>
+<li class="toctree-l2"><a class="reference internal" href="frontend.html#workflow">Workflow</a></li>
+<li class="toctree-l2"><a class="reference internal" href="frontend.html#integration-with-analysis">Integration with Analysis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="frontend.html#error-handling">Error Handling</a></li>
+<li class="toctree-l2"><a class="reference internal" href="frontend.html#see-also">See Also</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="asttools.html">AST Tools</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="asttools.html#cyclomatic-complexity">Cyclomatic Complexity</a></li>
+<li class="toctree-l2"><a class="reference internal" href="asttools.html#decorator-utilities">Decorator Utilities</a></li>
+<li class="toctree-l2"><a class="reference internal" href="asttools.html#ast-visitor-utilities">AST Visitor Utilities</a></li>
+<li class="toctree-l2"><a class="reference internal" href="asttools.html#see-also">See Also</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="api.html">Language API</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="api.html#core-language-modules">Core Language Modules</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api.html#see-also">See Also</a></li>
+</ul>
+</li>
+</ul>
+</div>
+</section>
+<section id="see-also">
+<h2>See Also<a class="headerlink" href="#see-also" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p><a class="reference internal" href="api.html"><span class="doc">Language API</span></a> - PyFlow programmatic API</p></li>
+<li><p><a class="reference internal" href="../analysis/index.html"><span class="doc">Analysis Modules</span></a> - Analysis modules using the language IR</p></li>
+<li><p><a class="reference internal" href="../optimization/index.html"><span class="doc">Optimizing Python Programs</span></a> - Optimization passes transforming the AST</p></li>
+<li><p><a class="reference internal" href="../overview.html"><span class="doc">Overview</span></a> - Overall PyFlow architecture</p></li>
+</ul>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="../optimization/advanced.html" class="btn btn-neutral float-left" title="Advanced Optimizations" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="ast.html" class="btn btn-neutral float-right" title="AST for Python" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, rainoftime.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

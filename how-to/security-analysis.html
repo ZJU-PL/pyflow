@@ -1,0 +1,545 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>How to Perform Security Analysis &mdash; pyflow 0.1.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=01f34227"></script>
+      <script src="../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="How to Customize Analysis" href="customize-analysis.html" />
+    <link rel="prev" title="How to Optimize Code" href="optimize-code.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            pyflow
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Getting Started</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../tutorials/index.html">Tutorials</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#what-is-pyflow">What is PyFlow?</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#key-features">Key Features</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#architecture">Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#repository-status-in-practice">Repository status in practice</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">How-to Guides</span></p>
+<ul class="current">
+<li class="toctree-l1 current"><a class="reference internal" href="index.html">How-to Guides</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="analyze-call-graph.html">How to Analyze Call Graphs</a></li>
+<li class="toctree-l2"><a class="reference internal" href="analyze-control-flow.html">How to Analyze Control Flow</a></li>
+<li class="toctree-l2"><a class="reference internal" href="optimize-code.html">How to Optimize Code</a></li>
+<li class="toctree-l2 current"><a class="current reference internal" href="#">How to Perform Security Analysis</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#when-to-use-security-analysis">When to Use Security Analysis</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#running-security-analysis">Running Security Analysis</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#basic-security-scan">Basic security scan</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#full-security-analysis">Full security analysis</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#specific-security-checks">Specific security checks</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#available-security-checks">Available Security Checks</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#injection-attacks">Injection Attacks</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#authentication-issues">Authentication Issues</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#dangerous-function-usage">Dangerous Function Usage</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#output-formats">Output Formats</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#text-default">Text (default)</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#json-programmatic">JSON (programmatic)</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#sarif-ci-cd-integration">SARIF (CI/CD integration)</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#understanding-findings">Understanding Findings</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#severity-levels">Severity Levels</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#remediation-examples">Remediation Examples</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#sql-injection">SQL Injection</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#hardcoded-credentials">Hardcoded Credentials</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#deprecated-cryptography">Deprecated Cryptography</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#integrating-with-ci-cd">Integrating with CI/CD</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#github-actions">GitHub Actions</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#gitlab-ci">GitLab CI</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#troubleshooting">Troubleshooting</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#issue-false-positives">Issue: False positives</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#issue-missing-findings">Issue: Missing findings</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#issue-performance-issues">Issue: Performance issues</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="customize-analysis.html">How to Customize Analysis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="integrate-with-build-systems.html">Integrate with Build Systems</a></li>
+<li class="toctree-l2"><a class="reference internal" href="visualize-results.html">How to Visualize Results</a></li>
+<li class="toctree-l2"><a class="reference internal" href="debug-analysis-issues.html">How to Debug Analysis Issues</a></li>
+<li class="toctree-l2"><a class="reference internal" href="analyze-call-graph.html">How to Analyze Call Graphs</a></li>
+<li class="toctree-l2"><a class="reference internal" href="analyze-control-flow.html">How to Analyze Control Flow</a></li>
+<li class="toctree-l2"><a class="reference internal" href="optimize-code.html">How to Optimize Code</a></li>
+<li class="toctree-l2 current"><a class="current reference internal" href="#">How to Perform Security Analysis</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#when-to-use-security-analysis">When to Use Security Analysis</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#running-security-analysis">Running Security Analysis</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#basic-security-scan">Basic security scan</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#full-security-analysis">Full security analysis</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#specific-security-checks">Specific security checks</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#available-security-checks">Available Security Checks</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#injection-attacks">Injection Attacks</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#authentication-issues">Authentication Issues</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#dangerous-function-usage">Dangerous Function Usage</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#output-formats">Output Formats</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#text-default">Text (default)</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#json-programmatic">JSON (programmatic)</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#sarif-ci-cd-integration">SARIF (CI/CD integration)</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#understanding-findings">Understanding Findings</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#severity-levels">Severity Levels</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#remediation-examples">Remediation Examples</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#sql-injection">SQL Injection</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#hardcoded-credentials">Hardcoded Credentials</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#deprecated-cryptography">Deprecated Cryptography</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#integrating-with-ci-cd">Integrating with CI/CD</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#github-actions">GitHub Actions</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#gitlab-ci">GitLab CI</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#troubleshooting">Troubleshooting</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#issue-false-positives">Issue: False positives</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#issue-missing-findings">Issue: Missing findings</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#issue-performance-issues">Issue: Performance issues</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="customize-analysis.html">How to Customize Analysis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="integrate-with-build-systems.html">Integrate with Build Systems</a></li>
+<li class="toctree-l2"><a class="reference internal" href="visualize-results.html">How to Visualize Results</a></li>
+<li class="toctree-l2"><a class="reference internal" href="debug-analysis-issues.html">How to Debug Analysis Issues</a></li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Explanations</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../explanation/index.html">Explanations</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">A3 Python</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../a3_python/index.html"><code class="docutils literal notranslate"><span class="pre">a3_python</span></code></a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html">Main Commands</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html#global-options">Global Options</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html#integration">Integration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../api.html">PyFlow API</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html">Analysis Modules</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#overview">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#analysis-configuration">Analysis Configuration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#running-analyses">Running Analyses</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#analysis-results">Analysis Results</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html">Optimizing Python Programs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#overview">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#optimization-categories">Optimization Categories</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#optimization-pipeline">Optimization Pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#usage">Usage</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../lang/index.html">Language Module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html">Security Analysis and Checking</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#checker-categories">Checker Categories</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#analysis-framework">Analysis Framework</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#usage">Usage</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">pyflow</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="index.html">How-to Guides</a></li>
+      <li class="breadcrumb-item active">How to Perform Security Analysis</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/how-to/security-analysis.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="how-to-perform-security-analysis">
+<span id="how-to-security-analysis"></span><h1>How to Perform Security Analysis<a class="headerlink" href="#how-to-perform-security-analysis" title="Link to this heading"></a></h1>
+<p>This guide explains how to use PyFlow’s security analysis to find potential
+vulnerabilities in your Python code.</p>
+<section id="when-to-use-security-analysis">
+<h2>When to Use Security Analysis<a class="headerlink" href="#when-to-use-security-analysis" title="Link to this heading"></a></h2>
+<p>Use security analysis when you need to:</p>
+<ul class="simple">
+<li><p>Find potential security vulnerabilities</p></li>
+<li><p>Audit third-party code</p></li>
+<li><p>Ensure code follows security best practices</p></li>
+<li><p>Detect hardcoded credentials</p></li>
+<li><p>Identify unsafe function usage</p></li>
+</ul>
+</section>
+<section id="running-security-analysis">
+<h2>Running Security Analysis<a class="headerlink" href="#running-security-analysis" title="Link to this heading"></a></h2>
+<section id="basic-security-scan">
+<h3>Basic security scan<a class="headerlink" href="#basic-security-scan" title="Link to this heading"></a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>security<span class="w"> </span>input.py
+</pre></div>
+</div>
+</section>
+<section id="full-security-analysis">
+<h3>Full security analysis<a class="headerlink" href="#full-security-analysis" title="Link to this heading"></a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>security<span class="w"> </span>input.py<span class="w"> </span>--analysis<span class="w"> </span>all
+</pre></div>
+</div>
+</section>
+<section id="specific-security-checks">
+<h3>Specific security checks<a class="headerlink" href="#specific-security-checks" title="Link to this heading"></a></h3>
+<p>Run only specific checks:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>security<span class="w"> </span>input.py<span class="w"> </span>--checks<span class="w"> </span>injection,credentials,deprecated
+</pre></div>
+</div>
+</section>
+</section>
+<section id="available-security-checks">
+<h2>Available Security Checks<a class="headerlink" href="#available-security-checks" title="Link to this heading"></a></h2>
+<p>PyFlow performs the following types of security analysis:</p>
+<section id="injection-attacks">
+<h3>Injection Attacks<a class="headerlink" href="#injection-attacks" title="Link to this heading"></a></h3>
+<p>Detects potential SQL, command, and code injection vulnerabilities:</p>
+<div class="literal-block-wrapper docutils container" id="id1">
+<div class="code-block-caption"><span class="caption-text">Vulnerable code</span><a class="headerlink" href="#id1" title="Link to this code"></a></div>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># SQL Injection</span>
+<span class="n">user_input</span> <span class="o">=</span> <span class="n">get_user_input</span><span class="p">()</span>
+<span class="n">query</span> <span class="o">=</span> <span class="s2">&quot;SELECT * FROM users WHERE id = &quot;</span> <span class="o">+</span> <span class="n">user_input</span>
+
+<span class="c1"># Command Injection</span>
+<span class="n">user_file</span> <span class="o">=</span> <span class="n">get_user_input</span><span class="p">()</span>
+<span class="n">os</span><span class="o">.</span><span class="n">system</span><span class="p">(</span><span class="s2">&quot;cat &quot;</span> <span class="o">+</span> <span class="n">user_file</span><span class="p">)</span>
+
+<span class="c1"># Code Injection</span>
+<span class="n">user_code</span> <span class="o">=</span> <span class="n">get_user_input</span><span class="p">()</span>
+<span class="nb">eval</span><span class="p">(</span><span class="n">user_code</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+</section>
+<section id="authentication-issues">
+<h3>Authentication Issues<a class="headerlink" href="#authentication-issues" title="Link to this heading"></a></h3>
+<p>Detects hardcoded credentials and weak authentication:</p>
+<div class="literal-block-wrapper docutils container" id="id2">
+<div class="code-block-caption"><span class="caption-text">Vulnerable code</span><a class="headerlink" href="#id2" title="Link to this code"></a></div>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Hardcoded password</span>
+<span class="n">API_KEY</span> <span class="o">=</span> <span class="s2">&quot;sk-1234567890abcdef&quot;</span>
+
+<span class="c1"># Weak cryptography</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">md5</span>
+<span class="n">hashed</span> <span class="o">=</span> <span class="n">md5</span><span class="p">(</span><span class="n">password</span><span class="p">)</span><span class="o">.</span><span class="n">hexdigest</span><span class="p">()</span>
+</pre></div>
+</div>
+</div>
+</section>
+<section id="dangerous-function-usage">
+<h3>Dangerous Function Usage<a class="headerlink" href="#dangerous-function-usage" title="Link to this heading"></a></h3>
+<p>Identifies use of potentially dangerous functions:</p>
+<div class="literal-block-wrapper docutils container" id="id3">
+<div class="code-block-caption"><span class="caption-text">Vulnerable code</span><a class="headerlink" href="#id3" title="Link to this code"></a></div>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Pickle can execute arbitrary code</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">pickle</span>
+<span class="n">data</span> <span class="o">=</span> <span class="n">pickle</span><span class="o">.</span><span class="n">loads</span><span class="p">(</span><span class="n">untrusted_data</span><span class="p">)</span>
+
+<span class="c1"># Yaml can execute arbitrary code</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">yaml</span>
+<span class="n">data</span> <span class="o">=</span> <span class="n">yaml</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">untrusted_yaml</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+</section>
+</section>
+<section id="output-formats">
+<h2>Output Formats<a class="headerlink" href="#output-formats" title="Link to this heading"></a></h2>
+<section id="text-default">
+<h3>Text (default)<a class="headerlink" href="#text-default" title="Link to this heading"></a></h3>
+<p>Human-readable format:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>security<span class="w"> </span>input.py<span class="w"> </span>--format<span class="w"> </span>text
+</pre></div>
+</div>
+<p>Output:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Security Analysis Results:
+───────────────────────────────────────
+
+[HIGH] SQL Injection (line 15)
+  query = &quot;SELECT * FROM users WHERE id = &quot; + user_input
+
+[MEDIUM] Hardcoded API Key (line 23)
+  API_KEY = &quot;sk-1234567890abcdef&quot;
+
+[LOW] Use of deprecated md5 (line 31)
+  hashed = md5(password).hexdigest()
+</pre></div>
+</div>
+</section>
+<section id="json-programmatic">
+<h3>JSON (programmatic)<a class="headerlink" href="#json-programmatic" title="Link to this heading"></a></h3>
+<p>For integration with other tools:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>security<span class="w"> </span>input.py<span class="w"> </span>--format<span class="w"> </span>json<span class="w"> </span>--output<span class="w"> </span>security_report.json
+</pre></div>
+</div>
+<p>Output:</p>
+<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;findings&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">    </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">&quot;severity&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;HIGH&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;sql_injection&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;line&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">15</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;message&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Potential SQL injection vulnerability&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;code&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;query = \&quot;SELECT * FROM users WHERE id = \&quot; + user_input&quot;</span>
+<span class="w">    </span><span class="p">},</span>
+<span class="w">    </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">&quot;severity&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;MEDIUM&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;hardcoded_credentials&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;line&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">23</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;message&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Hardcoded API key detected&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;code&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;API_KEY = \&quot;sk-1234567890abcdef\&quot;&quot;</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">],</span>
+<span class="w">  </span><span class="nt">&quot;summary&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">&quot;high&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;medium&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;low&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+</section>
+<section id="sarif-ci-cd-integration">
+<h3>SARIF (CI/CD integration)<a class="headerlink" href="#sarif-ci-cd-integration" title="Link to this heading"></a></h3>
+<p>For integration with CI/CD systems:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>security<span class="w"> </span>input.py<span class="w"> </span>--format<span class="w"> </span>sarif<span class="w"> </span>--output<span class="w"> </span>security_report.sarif.json
+</pre></div>
+</div>
+</section>
+</section>
+<section id="understanding-findings">
+<h2>Understanding Findings<a class="headerlink" href="#understanding-findings" title="Link to this heading"></a></h2>
+<section id="severity-levels">
+<h3>Severity Levels<a class="headerlink" href="#severity-levels" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p><strong>CRITICAL</strong>: Immediate action required</p></li>
+<li><p><strong>HIGH</strong>: Significant risk, fix soon</p></li>
+<li><p><strong>MEDIUM</strong>: Moderate risk, plan fix</p></li>
+<li><p><strong>LOW</strong>: Minor risk, consider fix</p></li>
+<li><p><strong>INFO</strong>: Informational, no action needed</p></li>
+</ul>
+</section>
+</section>
+<section id="remediation-examples">
+<h2>Remediation Examples<a class="headerlink" href="#remediation-examples" title="Link to this heading"></a></h2>
+<section id="sql-injection">
+<h3>SQL Injection<a class="headerlink" href="#sql-injection" title="Link to this heading"></a></h3>
+<p><strong>Vulnerable:</strong></p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">user_id</span> <span class="o">=</span> <span class="n">request</span><span class="o">.</span><span class="n">args</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;id&quot;</span><span class="p">)</span>
+<span class="n">query</span> <span class="o">=</span> <span class="s2">&quot;SELECT * FROM users WHERE id = &quot;</span> <span class="o">+</span> <span class="n">user_id</span>
+</pre></div>
+</div>
+<p><strong>Fixed:</strong></p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">sqlite3</span>
+
+<span class="n">user_id</span> <span class="o">=</span> <span class="n">request</span><span class="o">.</span><span class="n">args</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;id&quot;</span><span class="p">)</span>
+<span class="n">conn</span> <span class="o">=</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="s2">&quot;database.db&quot;</span><span class="p">)</span>
+<span class="n">cursor</span> <span class="o">=</span> <span class="n">conn</span><span class="o">.</span><span class="n">cursor</span><span class="p">()</span>
+<span class="n">cursor</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s2">&quot;SELECT * FROM users WHERE id = ?&quot;</span><span class="p">,</span> <span class="p">(</span><span class="n">user_id</span><span class="p">,))</span>
+</pre></div>
+</div>
+</section>
+<section id="hardcoded-credentials">
+<h3>Hardcoded Credentials<a class="headerlink" href="#hardcoded-credentials" title="Link to this heading"></a></h3>
+<p><strong>Vulnerable:</strong></p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">API_KEY</span> <span class="o">=</span> <span class="s2">&quot;sk-1234567890abcdef&quot;</span>
+</pre></div>
+</div>
+<p><strong>Fixed:</strong></p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
+
+<span class="n">API_KEY</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;API_KEY&quot;</span><span class="p">)</span>
+<span class="k">if</span> <span class="ow">not</span> <span class="n">API_KEY</span><span class="p">:</span>
+    <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;API_KEY not configured&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="deprecated-cryptography">
+<h3>Deprecated Cryptography<a class="headerlink" href="#deprecated-cryptography" title="Link to this heading"></a></h3>
+<p><strong>Vulnerable:</strong></p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">hashlib</span>
+
+<span class="n">hashed</span> <span class="o">=</span> <span class="n">hashlib</span><span class="o">.</span><span class="n">md5</span><span class="p">(</span><span class="n">password</span><span class="p">)</span><span class="o">.</span><span class="n">hexdigest</span><span class="p">()</span>
+</pre></div>
+</div>
+<p><strong>Fixed:</strong></p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">hashlib</span>
+
+<span class="n">hashed</span> <span class="o">=</span> <span class="n">hashlib</span><span class="o">.</span><span class="n">sha256</span><span class="p">(</span><span class="n">password</span><span class="p">)</span><span class="o">.</span><span class="n">hexdigest</span><span class="p">()</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="integrating-with-ci-cd">
+<h2>Integrating with CI/CD<a class="headerlink" href="#integrating-with-ci-cd" title="Link to this heading"></a></h2>
+<section id="github-actions">
+<h3>GitHub Actions<a class="headerlink" href="#github-actions" title="Link to this heading"></a></h3>
+<p>Create a workflow file:</p>
+<div class="literal-block-wrapper docutils container" id="id4">
+<div class="code-block-caption"><span class="caption-text">.github/workflows/security.yml</span><a class="headerlink" href="#id4" title="Link to this code"></a></div>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Security Analysis</span>
+
+<span class="nt">on</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">push</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">pull_request</span><span class="p p-Indicator">]</span>
+
+<span class="nt">jobs</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">security</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">runs-on</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ubuntu-latest</span>
+<span class="w">    </span><span class="nt">steps</span><span class="p">:</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">uses</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">actions/checkout@v3</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Set up Python</span>
+<span class="w">        </span><span class="nt">uses</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">actions/setup-python@v4</span>
+<span class="w">        </span><span class="nt">with</span><span class="p">:</span>
+<span class="w">          </span><span class="nt">python-version</span><span class="p">:</span><span class="w"> </span><span class="s">&#39;3.10&#39;</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Install PyFlow</span>
+<span class="w">        </span><span class="nt">run</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pip install pyflow</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Run Security Analysis</span>
+<span class="w">        </span><span class="nt">run</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pyflow security . --format sarif --output security_report.sarif.json</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Upload SARIF</span>
+<span class="w">        </span><span class="nt">uses</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">github/codeql-action/upload-sarif@v2</span>
+<span class="w">        </span><span class="nt">with</span><span class="p">:</span>
+<span class="w">          </span><span class="nt">sarif_file</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">security_report.sarif.json</span>
+</pre></div>
+</div>
+</div>
+</section>
+<section id="gitlab-ci">
+<h3>GitLab CI<a class="headerlink" href="#gitlab-ci" title="Link to this heading"></a></h3>
+<p>Create a CI configuration:</p>
+<div class="literal-block-wrapper docutils container" id="id5">
+<div class="code-block-caption"><span class="caption-text">.gitlab-ci.yml</span><a class="headerlink" href="#id5" title="Link to this code"></a></div>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">security_scan</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">python:3.10</span>
+<span class="w">  </span><span class="nt">script</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pip install pyflow</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pyflow security . --format sarif --output security_report.sarif.json</span>
+<span class="w">  </span><span class="nt">artifacts</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">reports</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">sarif</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">security_report.sarif.json</span>
+</pre></div>
+</div>
+</div>
+</section>
+</section>
+<section id="troubleshooting">
+<h2>Troubleshooting<a class="headerlink" href="#troubleshooting" title="Link to this heading"></a></h2>
+<section id="issue-false-positives">
+<h3>Issue: False positives<a class="headerlink" href="#issue-false-positives" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p>Use <code class="docutils literal notranslate"><span class="pre">--exclude</span></code> to skip known safe patterns</p></li>
+<li><p>Add comments to suppress specific warnings</p></li>
+<li><p>Configure custom rules in pyflow.toml</p></li>
+</ul>
+</section>
+<section id="issue-missing-findings">
+<h3>Issue: Missing findings<a class="headerlink" href="#issue-missing-findings" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p>Ensure all files are analyzed</p></li>
+<li><p>Check for syntax errors that prevent full parsing</p></li>
+<li><p>Use <code class="docutils literal notranslate"><span class="pre">--analysis</span> <span class="pre">all</span></code> for comprehensive analysis</p></li>
+</ul>
+</section>
+<section id="issue-performance-issues">
+<h3>Issue: Performance issues<a class="headerlink" href="#issue-performance-issues" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p>Use <code class="docutils literal notranslate"><span class="pre">--exclude</span></code> to skip test files</p></li>
+<li><p>Analyze specific modules instead of the whole project</p></li>
+<li><p>Use incremental analysis for large projects</p></li>
+</ul>
+</section>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="optimize-code.html" class="btn btn-neutral float-left" title="How to Optimize Code" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="customize-analysis.html" class="btn btn-neutral float-right" title="How to Customize Analysis" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, rainoftime.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

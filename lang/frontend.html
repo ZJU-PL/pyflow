@@ -1,0 +1,356 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Frontend Module &mdash; pyflow 0.1.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=01f34227"></script>
+      <script src="../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="AST Tools" href="asttools.html" />
+    <link rel="prev" title="AST for Python" href="ast.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            pyflow
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Getting Started</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../tutorials/index.html">Tutorials</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#what-is-pyflow">What is PyFlow?</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#key-features">Key Features</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#architecture">Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#repository-status-in-practice">Repository status in practice</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">How-to Guides</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../how-to/index.html">How-to Guides</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Explanations</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../explanation/index.html">Explanations</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">A3 Python</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../a3_python/index.html"><code class="docutils literal notranslate"><span class="pre">a3_python</span></code></a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Reference</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../cli.html">Main Commands</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html#global-options">Global Options</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html#integration">Integration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../api.html">PyFlow API</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html">Analysis Modules</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#overview">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#analysis-configuration">Analysis Configuration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#running-analyses">Running Analyses</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#analysis-results">Analysis Results</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html">Optimizing Python Programs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#overview">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#optimization-categories">Optimization Categories</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#optimization-pipeline">Optimization Pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#usage">Usage</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="index.html">Language Module</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="index.html#overview">Overview</a></li>
+<li class="toctree-l2"><a class="reference internal" href="index.html#key-components">Key Components</a></li>
+<li class="toctree-l2"><a class="reference internal" href="index.html#usage">Usage</a></li>
+<li class="toctree-l2 current"><a class="reference internal" href="index.html#module-structure">Module Structure</a><ul class="current">
+<li class="toctree-l3"><a class="reference internal" href="ast.html">AST for Python</a></li>
+<li class="toctree-l3 current"><a class="current reference internal" href="#">Frontend Module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#overview">Overview</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#key-components">Key Components</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#workflow">Workflow</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#integration-with-analysis">Integration with Analysis</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#error-handling">Error Handling</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#see-also">See Also</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="asttools.html">AST Tools</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api.html">Language API</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="index.html#see-also">See Also</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html">Security Analysis and Checking</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#checker-categories">Checker Categories</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#analysis-framework">Analysis Framework</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#usage">Usage</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">pyflow</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="index.html">Language Module</a></li>
+      <li class="breadcrumb-item active">Frontend Module</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/lang/frontend.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="frontend-module">
+<h1>Frontend Module<a class="headerlink" href="#frontend-module" title="Link to this heading"></a></h1>
+<p>The Frontend module extracts Python source code and converts it into PyFlow’s internal AST representation. It handles parsing, dependency resolution, and conversion for static analysis.</p>
+<section id="overview">
+<h2>Overview<a class="headerlink" href="#overview" title="Link to this heading"></a></h2>
+<p>The Frontend module (<cite>src/pyflow/frontend/</cite>) bridges Python source code and PyFlow’s analysis pipeline:</p>
+<ul class="simple">
+<li><p><strong>Parsing</strong>: Converting Python source to AST</p></li>
+<li><p><strong>Dependency Resolution</strong>: Handling imports and missing dependencies</p></li>
+<li><p><strong>AST Conversion</strong>: Transforming Python AST to PyFlow AST</p></li>
+<li><p><strong>Function Extraction</strong>: Extracting functions and classes</p></li>
+<li><p><strong>Object Management</strong>: Managing Python objects and representations</p></li>
+<li><p><strong>Stub Management</strong>: Providing stubs for built-in operations</p></li>
+</ul>
+</section>
+<section id="key-components">
+<h2>Key Components<a class="headerlink" href="#key-components" title="Link to this heading"></a></h2>
+<section id="ast-converter">
+<h3>AST Converter<a class="headerlink" href="#ast-converter" title="Link to this heading"></a></h3>
+<p>The <code class="docutils literal notranslate"><span class="pre">ASTConverter</span></code> class converts Python’s standard AST to PyFlow’s internal AST.</p>
+<dl class="simple">
+<dt><strong>Features:</strong></dt><dd><ul class="simple">
+<li><p>Handles all major Python constructs (functions, classes, control flow, expressions)</p></li>
+<li><p>Preserves semantic information and creates proper annotations</p></li>
+<li><p>Supports Python 3.x syntax</p></li>
+</ul>
+</dd>
+</dl>
+<p><strong>Example:</strong></p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.frontend.ast_converter</span><span class="w"> </span><span class="kn">import</span> <span class="n">ASTConverter</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">ast</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">python_ast</span>
+
+<span class="n">source</span> <span class="o">=</span> <span class="s2">&quot;def add(x, y): return x + y&quot;</span>
+<span class="n">tree</span> <span class="o">=</span> <span class="n">python_ast</span><span class="o">.</span><span class="n">parse</span><span class="p">(</span><span class="n">source</span><span class="p">)</span>
+<span class="n">converter</span> <span class="o">=</span> <span class="n">ASTConverter</span><span class="p">()</span>
+<span class="n">pyflow_ast</span> <span class="o">=</span> <span class="n">converter</span><span class="o">.</span><span class="n">convert_python_ast_to_pyflow</span><span class="p">([</span><span class="n">tree</span><span class="p">])</span>
+</pre></div>
+</div>
+</section>
+<section id="program-extractor">
+<h3>Program Extractor<a class="headerlink" href="#program-extractor" title="Link to this heading"></a></h3>
+<p>The <code class="docutils literal notranslate"><span class="pre">Extractor</span></code> class orchestrates program extraction from Python source.</p>
+<p><strong>Usage:</strong></p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.frontend.programextractor</span><span class="w"> </span><span class="kn">import</span> <span class="n">Extractor</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.application.context</span><span class="w"> </span><span class="kn">import</span> <span class="n">CompilerContext</span>
+
+<span class="n">compiler</span> <span class="o">=</span> <span class="n">CompilerContext</span><span class="p">()</span>
+<span class="n">extractor</span> <span class="o">=</span> <span class="n">Extractor</span><span class="p">(</span><span class="n">compiler</span><span class="p">,</span> <span class="n">verbose</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+<span class="c1"># Extract from source, file, or multiple files</span>
+<span class="n">program</span> <span class="o">=</span> <span class="n">extractor</span><span class="o">.</span><span class="n">extract_from_source</span><span class="p">(</span><span class="n">source_code</span><span class="p">,</span> <span class="s2">&quot;example.py&quot;</span><span class="p">)</span>
+<span class="n">program</span> <span class="o">=</span> <span class="n">extractor</span><span class="o">.</span><span class="n">extract_from_file</span><span class="p">(</span><span class="s2">&quot;example.py&quot;</span><span class="p">)</span>
+<span class="n">program</span> <span class="o">=</span> <span class="n">extractor</span><span class="o">.</span><span class="n">extract_from_multiple_files</span><span class="p">({</span><span class="s2">&quot;file1.py&quot;</span><span class="p">:</span> <span class="n">source1</span><span class="p">})</span>
+</pre></div>
+</div>
+<dl class="simple">
+<dt><strong>Key Methods:</strong></dt><dd><ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">extract_from_source()</span></code>, <code class="docutils literal notranslate"><span class="pre">extract_from_file()</span></code>, <code class="docutils literal notranslate"><span class="pre">extract_from_multiple_files()</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">convertFunction()</span></code> - Convert Python function to PyFlow AST</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">getObject()</span></code> - Get or create object representation</p></li>
+</ul>
+</dd>
+</dl>
+</section>
+<section id="function-extractor">
+<h3>Function Extractor<a class="headerlink" href="#function-extractor" title="Link to this heading"></a></h3>
+<p>The <code class="docutils literal notranslate"><span class="pre">FunctionExtractor</span></code> class extracts and converts individual Python functions.</p>
+<p><strong>Usage:</strong></p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.frontend.function_extractor</span><span class="w"> </span><span class="kn">import</span> <span class="n">FunctionExtractor</span>
+
+<span class="n">extractor</span> <span class="o">=</span> <span class="n">FunctionExtractor</span><span class="p">(</span><span class="n">verbose</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="n">pyflow_code</span> <span class="o">=</span> <span class="n">extractor</span><span class="o">.</span><span class="n">convert_function</span><span class="p">(</span>
+    <span class="n">my_function</span><span class="p">,</span>
+    <span class="n">source_code</span><span class="o">=</span><span class="s2">&quot;def my_function(x, y): return x + y&quot;</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="dependency-resolver">
+<h3>Dependency Resolver<a class="headerlink" href="#dependency-resolver" title="Link to this heading"></a></h3>
+<p>The <code class="docutils literal notranslate"><span class="pre">DependencyResolver</span></code> class handles import dependencies with multiple strategies:</p>
+<p><strong>AUTO</strong> (default): AST-only extraction (side-effect free)
+<strong>STUBS</strong>: Creates stub modules for missing dependencies
+<strong>AST_ONLY</strong>: Only uses AST parsing (safe for untrusted code)
+<strong>STRICT</strong>: Fails if dependencies can’t be resolved
+<strong>NOOP</strong>: Treats external dependencies as no-ops</p>
+<p>Runtime extraction (<code class="docutils literal notranslate"><span class="pre">STRICT</span></code>, <code class="docutils literal notranslate"><span class="pre">STUBS</span></code>, <code class="docutils literal notranslate"><span class="pre">NOOP</span></code> with
+<code class="docutils literal notranslate"><span class="pre">allow_runtime_execution=True</span></code>) executes in an isolated subprocess to avoid
+polluting analyzer process state (for example, <code class="docutils literal notranslate"><span class="pre">sys.modules</span></code> mutations).</p>
+<p>For CI and production hardening, the dependency resolver also supports quality
+gates:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">fail_on_diagnostics</span></code>: fail when any resolver diagnostic is recorded</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">max_diagnostics</span></code>: fail when diagnostic count exceeds a threshold</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">max_runtime_fallback_ratio</span></code>: fail when runtime-to-AST fallback ratio exceeds a threshold</p></li>
+</ul>
+<p><strong>Usage:</strong></p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.frontend.dependency_resolver</span><span class="w"> </span><span class="kn">import</span> <span class="n">DependencyResolver</span>
+
+<span class="n">resolver</span> <span class="o">=</span> <span class="n">DependencyResolver</span><span class="p">(</span><span class="n">strategy</span><span class="o">=</span><span class="s2">&quot;auto&quot;</span><span class="p">,</span> <span class="n">verbose</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="n">functions</span> <span class="o">=</span> <span class="n">resolver</span><span class="o">.</span><span class="n">extract_functions</span><span class="p">(</span><span class="n">source_code</span><span class="p">,</span> <span class="s2">&quot;example.py&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="object-manager">
+<h3>Object Manager<a class="headerlink" href="#object-manager" title="Link to this heading"></a></h3>
+<p>The <code class="docutils literal notranslate"><span class="pre">ObjectManager</span></code> class manages Python objects and their PyFlow representations.</p>
+<p><strong>Usage:</strong></p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.frontend.object_manager</span><span class="w"> </span><span class="kn">import</span> <span class="n">ObjectManager</span>
+
+<span class="n">manager</span> <span class="o">=</span> <span class="n">ObjectManager</span><span class="p">(</span><span class="n">verbose</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="n">obj</span> <span class="o">=</span> <span class="n">manager</span><span class="o">.</span><span class="n">get_object</span><span class="p">(</span><span class="n">some_python_object</span><span class="p">)</span>
+<span class="n">func_obj</span><span class="p">,</span> <span class="n">code_obj</span> <span class="o">=</span> <span class="n">manager</span><span class="o">.</span><span class="n">get_object_call</span><span class="p">(</span><span class="n">my_function</span><span class="p">)</span>
+<span class="n">manager</span><span class="o">.</span><span class="n">ensure_loaded</span><span class="p">(</span><span class="n">obj</span><span class="p">)</span>
+</pre></div>
+</div>
+<dl class="simple">
+<dt><strong>Key Methods:</strong></dt><dd><ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">get_object()</span></code>, <code class="docutils literal notranslate"><span class="pre">get_object_call()</span></code>, <code class="docutils literal notranslate"><span class="pre">make_imaginary()</span></code>, <code class="docutils literal notranslate"><span class="pre">ensure_loaded()</span></code></p></li>
+</ul>
+</dd>
+</dl>
+</section>
+<section id="stub-manager">
+<h3>Stub Manager<a class="headerlink" href="#stub-manager" title="Link to this heading"></a></h3>
+<p>The <code class="docutils literal notranslate"><span class="pre">StubManager</span></code> class manages stub functions for built-in Python operations (arithmetic, comparison, attribute access, function calls).</p>
+<p><strong>Usage:</strong></p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.frontend.stub_manager</span><span class="w"> </span><span class="kn">import</span> <span class="n">StubManager</span>
+
+<span class="n">manager</span> <span class="o">=</span> <span class="n">StubManager</span><span class="p">(</span><span class="n">compiler</span><span class="p">)</span>
+<span class="n">add_stub</span> <span class="o">=</span> <span class="n">manager</span><span class="o">.</span><span class="n">stubs</span><span class="o">.</span><span class="n">exports</span><span class="p">[</span><span class="s2">&quot;interpreter__add__&quot;</span><span class="p">]</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="workflow">
+<h2>Workflow<a class="headerlink" href="#workflow" title="Link to this heading"></a></h2>
+<p>Typical workflow:</p>
+<ol class="arabic simple">
+<li><p>Create Extractor with compiler context</p></li>
+<li><p>Provide source (single file, multiple files, or source strings)</p></li>
+<li><p>Extract program (functions and classes)</p></li>
+<li><p>Convert functions to PyFlow AST as needed</p></li>
+<li><p>Pass to analysis pipeline</p></li>
+</ol>
+<p><strong>Example:</strong></p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.frontend.programextractor</span><span class="w"> </span><span class="kn">import</span> <span class="n">Extractor</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.application.context</span><span class="w"> </span><span class="kn">import</span> <span class="n">CompilerContext</span>
+
+<span class="n">compiler</span> <span class="o">=</span> <span class="n">CompilerContext</span><span class="p">()</span>
+<span class="n">extractor</span> <span class="o">=</span> <span class="n">Extractor</span><span class="p">(</span><span class="n">compiler</span><span class="p">,</span> <span class="n">verbose</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+<span class="n">source</span> <span class="o">=</span> <span class="s2">&quot;&quot;&quot;</span>
+<span class="s2">def add(x, y):</span>
+<span class="s2">    return x + y</span>
+<span class="s2">&quot;&quot;&quot;</span>
+
+<span class="n">program</span> <span class="o">=</span> <span class="n">extractor</span><span class="o">.</span><span class="n">extract_from_source</span><span class="p">(</span><span class="n">source</span><span class="p">,</span> <span class="s2">&quot;example.py&quot;</span><span class="p">)</span>
+<span class="n">code</span> <span class="o">=</span> <span class="n">extractor</span><span class="o">.</span><span class="n">convertFunction</span><span class="p">(</span><span class="n">add_func</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="integration-with-analysis">
+<h2>Integration with Analysis<a class="headerlink" href="#integration-with-analysis" title="Link to this heading"></a></h2>
+<p>The frontend integrates with PyFlow’s analysis pipeline:</p>
+<ul class="simple">
+<li><p><strong>Program Object</strong>: Extracted functions added to <code class="docutils literal notranslate"><span class="pre">program.liveCode</span></code></p></li>
+<li><p><strong>AST Conversion</strong>: Functions converted to PyFlow AST on demand with annotations</p></li>
+<li><p><strong>Dependency Handling</strong>: Missing dependencies handled via stubs or AST fallback</p></li>
+</ul>
+</section>
+<section id="error-handling">
+<h2>Error Handling<a class="headerlink" href="#error-handling" title="Link to this heading"></a></h2>
+<p>The frontend handles:
+- <strong>Syntax Errors</strong>: Caught during parsing, reported with file location
+- <strong>Import Errors</strong>: Handled by dependency resolver based on strategy
+- <strong>Missing Source</strong>: Minimal code stubs created, signatures preserved
+- <strong>Type Errors</strong>: Object creation errors caught, fallback objects provided</p>
+</section>
+<section id="see-also">
+<h2>See Also<a class="headerlink" href="#see-also" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p><a class="reference internal" href="ast.html"><span class="doc">AST for Python</span></a> - PyFlow AST node definitions</p></li>
+<li><p><a class="reference internal" href="index.html"><span class="doc">Language Module</span></a> - Language module overview</p></li>
+<li><p><a class="reference internal" href="../analysis/index.html"><span class="doc">Analysis Modules</span></a> - Analysis modules</p></li>
+<li><p><a class="reference internal" href="../overview.html"><span class="doc">Overview</span></a> - PyFlow architecture</p></li>
+</ul>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="ast.html" class="btn btn-neutral float-left" title="AST for Python" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="asttools.html" class="btn btn-neutral float-right" title="AST Tools" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, rainoftime.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

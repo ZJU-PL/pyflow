@@ -1,0 +1,307 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Code Property Graph (CPG) &mdash; pyflow 0.1.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=01f34227"></script>
+      <script src="../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Call Graph Analysis" href="callgraph.html" />
+    <link rel="prev" title="Data Dependence Graph (DDG)" href="ddg.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            pyflow
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Getting Started</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../tutorials/index.html">Tutorials</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#what-is-pyflow">What is PyFlow?</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#key-features">Key Features</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#architecture">Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#repository-status-in-practice">Repository status in practice</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">How-to Guides</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../how-to/index.html">How-to Guides</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Explanations</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../explanation/index.html">Explanations</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">A3 Python</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../a3_python/index.html"><code class="docutils literal notranslate"><span class="pre">a3_python</span></code></a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Reference</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../cli.html">Main Commands</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html#global-options">Global Options</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html#integration">Integration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../api.html">PyFlow API</a></li>
+<li class="toctree-l1"><a class="reference internal" href="index.html">Analysis Modules</a></li>
+<li class="toctree-l1"><a class="reference internal" href="index.html#overview">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="index.html#analysis-configuration">Analysis Configuration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="index.html#running-analyses">Running Analyses</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="index.html#analysis-results">Analysis Results</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="index.html#text-output">Text Output</a></li>
+<li class="toctree-l2"><a class="reference internal" href="index.html#json-output">JSON Output</a></li>
+<li class="toctree-l2 current"><a class="reference internal" href="index.html#sarif-output">SARIF Output</a><ul class="current">
+<li class="toctree-l3"><a class="reference internal" href="cfg.html">Control Flow Graph (CFG) Analysis</a></li>
+<li class="toctree-l3"><a class="reference internal" href="cdg.html">Control Dependence Graph (CDG)</a></li>
+<li class="toctree-l3"><a class="reference internal" href="pdg.html">Program Dependence Graph (PDG)</a></li>
+<li class="toctree-l3"><a class="reference internal" href="ddg.html">Data Dependence Graph (DDG)</a></li>
+<li class="toctree-l3 current"><a class="current reference internal" href="#">Code Property Graph (CPG)</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#overview">Overview</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#node-metadata">Node Metadata</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#edge-kinds">Edge Kinds</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#programmatic-usage">Programmatic Usage</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#taint-analysis">Taint Analysis</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#cli-usage">CLI Usage</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#related-modules">Related Modules</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="callgraph.html">Call Graph Analysis</a></li>
+<li class="toctree-l3"><a class="reference internal" href="dataflowIR.html">Data Flow Intermediate Representation</a></li>
+<li class="toctree-l3"><a class="reference internal" href="fsdf.html">Flow-Sensitive Data Flow (FSDF)</a></li>
+<li class="toctree-l3"><a class="reference internal" href="ipa.html">Inter-procedural Analysis (IPA)</a></li>
+<li class="toctree-l3"><a class="reference internal" href="cpa.html">Constraint-based Analysis (CPA)</a></li>
+<li class="toctree-l3"><a class="reference internal" href="pointer.html">k-CFA Pointer Analysis</a></li>
+<li class="toctree-l3"><a class="reference internal" href="heap.html">Heap Abstraction</a></li>
+<li class="toctree-l3"><a class="reference internal" href="storegraph.html">Store Graph Analysis</a></li>
+<li class="toctree-l3"><a class="reference internal" href="shape.html">Shape Analysis</a></li>
+<li class="toctree-l3"><a class="reference internal" href="lifetimeanalysis.html">Variable Lifetime Analysis</a></li>
+<li class="toctree-l3"><a class="reference internal" href="ifds.html">IFDS/IDE Data Flow Engine</a></li>
+<li class="toctree-l3"><a class="reference internal" href="typeinfo.html">Type Information System</a></li>
+<li class="toctree-l3"><a class="reference internal" href="numbering.html">Program Point Numbering</a></li>
+<li class="toctree-l3"><a class="reference internal" href="dump.html">Analysis Result Dumping</a></li>
+<li class="toctree-l3"><a class="reference internal" href="stats.html">Statistics Collection and Reporting</a></li>
+<li class="toctree-l3"><a class="reference internal" href="incremental.html">Incremental Analysis Cache</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html">Optimizing Python Programs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#overview">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#optimization-categories">Optimization Categories</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#optimization-pipeline">Optimization Pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#usage">Usage</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../lang/index.html">Language Module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html">Security Analysis and Checking</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#checker-categories">Checker Categories</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#analysis-framework">Analysis Framework</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#usage">Usage</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">pyflow</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="index.html">Analysis Modules</a></li>
+      <li class="breadcrumb-item active">Code Property Graph (CPG)</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/analysis/cpg.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="code-property-graph-cpg">
+<h1>Code Property Graph (CPG)<a class="headerlink" href="#code-property-graph-cpg" title="Link to this heading"></a></h1>
+<p>The Code Property Graph (CPG) unifies a program’s <strong>control flow</strong>, <strong>data flow</strong>,
+<strong>call graph</strong>, and <strong>AST structure</strong> into a single multi-edge graph. It is the
+primary representation used by PyFlow’s taint analysis engine.</p>
+<section id="overview">
+<h2>Overview<a class="headerlink" href="#overview" title="Link to this heading"></a></h2>
+<p>The CPG is constructed from one or more <a class="reference internal" href="pdg.html"><span class="doc">Program Dependence Graph (PDG)</span></a> instances and optionally a
+<a class="reference internal" href="callgraph.html"><span class="doc">Call Graph Analysis</span></a>. During <code class="xref py py-meth docutils literal notranslate"><span class="pre">build()</span></code>,
+it derives layered edges on top of the raw PDG edges:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">AST_CHILD</span></code> edges from parent → child AST nodes that both have PDG
+representations</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">CFG_NEXT</span></code> / <code class="docutils literal notranslate"><span class="pre">CFG_BRANCH_TRUE</span></code> / <code class="docutils literal notranslate"><span class="pre">CFG_BRANCH_FALSE</span></code> / <code class="docutils literal notranslate"><span class="pre">CFG_EXCEPT</span></code>
+edges derived from the CFG block structure</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">CALL</span></code> and <code class="docutils literal notranslate"><span class="pre">RETURN_EDGE</span></code> edges derived from the attached call graph</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">DATA</span></code> edges passed through from the PDG (with optional SSA version
+metadata recording)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">CONTROL</span></code> edges passed through from the PDG</p></li>
+</ul>
+</section>
+<section id="node-metadata">
+<h2>Node Metadata<a class="headerlink" href="#node-metadata" title="Link to this heading"></a></h2>
+<p>Each CPG node carries a <code class="docutils literal notranslate"><span class="pre">meta</span></code> dictionary (accessible via
+<code class="xref py py-meth docutils literal notranslate"><span class="pre">node_meta()</span></code>) with Ansede-compatible
+fields:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">node_type</span></code> — AST type name or PDG node kind</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">lineno</span></code> / <code class="docutils literal notranslate"><span class="pre">col</span></code> — source location</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">value</span></code> — human-readable AST value</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">func_name</span></code> — enclosing function name</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">kind</span></code> — PDG node kind</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">ssa_defs</span></code> / <code class="docutils literal notranslate"><span class="pre">ssa_uses</span></code> — SSA version entries (<code class="docutils literal notranslate"><span class="pre">var</span></code>, <code class="docutils literal notranslate"><span class="pre">name</span></code>,
+<code class="docutils literal notranslate"><span class="pre">version</span></code>) recorded from DATA edge labels</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">phi_vars</span></code> — list of variables merged at phi nodes</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">isinstance_guard</span></code> — flag for isinstance-based type narrowing</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">lambda_name</span></code> — synthetic name for lambda expressions</p></li>
+</ul>
+</section>
+<section id="edge-kinds">
+<h2>Edge Kinds<a class="headerlink" href="#edge-kinds" title="Link to this heading"></a></h2>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">CPGEdgeKind</span><span class="o">.</span><span class="n">CONTROL</span>         <span class="c1"># Control dependence (from PDG)</span>
+<span class="n">CPGEdgeKind</span><span class="o">.</span><span class="n">DATA</span>            <span class="c1"># Data dependence (from PDG)</span>
+<span class="n">CPGEdgeKind</span><span class="o">.</span><span class="n">AST_CHILD</span>       <span class="c1"># Parent → child AST node</span>
+<span class="n">CPGEdgeKind</span><span class="o">.</span><span class="n">CFG_NEXT</span>        <span class="c1"># Sequential control flow</span>
+<span class="n">CPGEdgeKind</span><span class="o">.</span><span class="n">CFG_BRANCH_TRUE</span> <span class="c1"># True branch</span>
+<span class="n">CPGEdgeKind</span><span class="o">.</span><span class="n">CFG_BRANCH_FALSE</span><span class="c1"># False branch</span>
+<span class="n">CPGEdgeKind</span><span class="o">.</span><span class="n">CFG_EXCEPT</span>      <span class="c1"># Exception edge</span>
+<span class="n">CPGEdgeKind</span><span class="o">.</span><span class="n">CALL</span>            <span class="c1"># Caller → callee entry</span>
+<span class="n">CPGEdgeKind</span><span class="o">.</span><span class="n">RETURN_EDGE</span>     <span class="c1"># Callee exit → call site</span>
+</pre></div>
+</div>
+</section>
+<section id="programmatic-usage">
+<h2>Programmatic Usage<a class="headerlink" href="#programmatic-usage" title="Link to this heading"></a></h2>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.analysis.cpg</span><span class="w"> </span><span class="kn">import</span> <span class="n">CodePropertyGraph</span><span class="p">,</span> <span class="n">CPGEdgeKind</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.analysis.pdg</span><span class="w"> </span><span class="kn">import</span> <span class="n">construct_pdg</span>
+
+<span class="n">cpg</span> <span class="o">=</span> <span class="n">CodePropertyGraph</span><span class="p">()</span>
+<span class="n">cpg</span><span class="o">.</span><span class="n">add_function</span><span class="p">(</span><span class="s2">&quot;my_func&quot;</span><span class="p">,</span> <span class="n">pdg</span><span class="p">)</span>
+<span class="n">cpg</span><span class="o">.</span><span class="n">build</span><span class="p">()</span>
+
+<span class="c1"># Iterate nodes</span>
+<span class="k">for</span> <span class="n">node</span> <span class="ow">in</span> <span class="n">cpg</span><span class="o">.</span><span class="n">nodes</span><span class="p">(</span><span class="s2">&quot;my_func&quot;</span><span class="p">):</span>
+    <span class="n">meta</span> <span class="o">=</span> <span class="n">cpg</span><span class="o">.</span><span class="n">node_meta</span><span class="p">(</span><span class="n">node</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="n">meta</span><span class="p">[</span><span class="s2">&quot;node_type&quot;</span><span class="p">],</span> <span class="n">meta</span><span class="p">[</span><span class="s2">&quot;lineno&quot;</span><span class="p">])</span>
+
+<span class="c1"># Traverse edges</span>
+<span class="k">for</span> <span class="n">edge</span> <span class="ow">in</span> <span class="n">cpg</span><span class="o">.</span><span class="n">edges</span><span class="p">():</span>
+    <span class="nb">print</span><span class="p">(</span><span class="n">edge</span><span class="o">.</span><span class="n">kind</span><span class="p">,</span> <span class="n">edge</span><span class="o">.</span><span class="n">source</span><span class="o">.</span><span class="n">node_id</span><span class="p">,</span> <span class="s2">&quot;-&gt;&quot;</span><span class="p">,</span> <span class="n">edge</span><span class="o">.</span><span class="n">target</span><span class="o">.</span><span class="n">node_id</span><span class="p">)</span>
+
+<span class="c1"># Export</span>
+<span class="n">dot</span> <span class="o">=</span> <span class="n">cpg</span><span class="o">.</span><span class="n">to_dot</span><span class="p">()</span>
+<span class="n">data</span> <span class="o">=</span> <span class="n">cpg</span><span class="o">.</span><span class="n">to_dict</span><span class="p">()</span>
+</pre></div>
+</div>
+</section>
+<section id="taint-analysis">
+<h2>Taint Analysis<a class="headerlink" href="#taint-analysis" title="Link to this heading"></a></h2>
+<p>The CPG is the foundation for PyFlow’s taint analysis engine:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.analysis.cpg.taint</span><span class="w"> </span><span class="kn">import</span> <span class="n">CPGTaintEngine</span>
+
+<span class="n">engine</span> <span class="o">=</span> <span class="n">CPGTaintEngine</span><span class="p">(</span>
+    <span class="n">cpg</span><span class="p">,</span>
+    <span class="n">max_call_depth</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span>  <span class="c1"># context-sensitive call depth limit</span>
+<span class="p">)</span>
+<span class="n">engine</span><span class="o">.</span><span class="n">add_source</span><span class="p">(</span><span class="s2">&quot;request.args&quot;</span><span class="p">)</span>
+<span class="n">engine</span><span class="o">.</span><span class="n">add_sink</span><span class="p">(</span><span class="s2">&quot;subprocess.run&quot;</span><span class="p">,</span> <span class="n">cwe</span><span class="o">=</span><span class="s2">&quot;CWE-78&quot;</span><span class="p">)</span>
+<span class="n">findings</span> <span class="o">=</span> <span class="n">engine</span><span class="o">.</span><span class="n">find_taint_paths</span><span class="p">()</span>
+</pre></div>
+</div>
+<p>The engine supports:</p>
+<ul class="simple">
+<li><p>Context-sensitive visited state (call-context tuple in state key)</p></li>
+<li><p>AST-based call name resolution for source/sink matching</p></li>
+<li><p>Assign RHS propagation (alias, subscript, f-string, collections)</p></li>
+<li><p>Parameterized SQL detection</p></li>
+<li><p>isinstance type-guard stripping</p></li>
+<li><p>getattr dynamic dispatch detection</p></li>
+<li><p>Dict unpack (<code class="docutils literal notranslate"><span class="pre">**kwargs</span></code>) taint propagation</p></li>
+<li><p>Ansede-style JSON taint spec loading</p></li>
+<li><p>SARIF output for CI/CD integration</p></li>
+</ul>
+</section>
+<section id="cli-usage">
+<h2>CLI Usage<a class="headerlink" href="#cli-usage" title="Link to this heading"></a></h2>
+<p>The CPG can be built from the command line:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Build CPG from a Python file and run CPG-backed security analysis</span>
+pyflow<span class="w"> </span>security<span class="w"> </span>input.py<span class="w"> </span>--engine<span class="w"> </span>cpg
+
+<span class="c1"># Export CPG as DOT for visualization</span>
+pyflow<span class="w"> </span>ir<span class="w"> </span>input.py<span class="w"> </span>--dump-cpg
+</pre></div>
+</div>
+</section>
+<section id="related-modules">
+<h2>Related Modules<a class="headerlink" href="#related-modules" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p><a class="reference internal" href="pdg.html"><span class="doc">Program Dependence Graph (PDG)</span></a> — Program Dependence Graph (CPG building block)</p></li>
+<li><p><a class="reference internal" href="cfg.html"><span class="doc">Control Flow Graph (CFG) Analysis</span></a> — Control Flow Graph (PDG building block)</p></li>
+<li><p><a class="reference internal" href="callgraph.html"><span class="doc">Call Graph Analysis</span></a> — Call Graph (CPG CALL edges)</p></li>
+</ul>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="ddg.html" class="btn btn-neutral float-left" title="Data Dependence Graph (DDG)" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="callgraph.html" class="btn btn-neutral float-right" title="Call Graph Analysis" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, rainoftime.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

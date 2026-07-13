@@ -8,7 +8,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Welcome to PyFlow’s Documentation! &mdash; pyflow 0.1.0 documentation</title>
       <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=b86133f3" />
-      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=e59714d7" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=9edc463e" />
 
   
       <script src="_static/jquery.js?v=5d32c60e"></script>
@@ -16,10 +16,11 @@
       <script src="_static/documentation_options.js?v=01f34227"></script>
       <script src="_static/doctools.js?v=9bcbadda"></script>
       <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+      <script async="async" src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
     <script src="_static/js/theme.js"></script>
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" />
-    <link rel="next" title="Overview" href="overview.html" /> 
+    <link rel="next" title="Tutorials" href="tutorials/index.html" /> 
 </head>
 
 <body class="wy-body-for-nav"> 
@@ -41,18 +42,44 @@
   </form>
 </div>
         </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
-              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+              <p class="caption" role="heading"><span class="caption-text">Getting Started</span></p>
 <ul>
+<li class="toctree-l1"><a class="reference internal" href="tutorials/index.html">Tutorials</a></li>
 <li class="toctree-l1"><a class="reference internal" href="overview.html">Overview</a></li>
-<li class="toctree-l1"><a class="reference internal" href="cli.html">Command Line Interface</a></li>
-<li class="toctree-l1"><a class="reference internal" href="cli.html#main-commands">Main Commands</a></li>
+<li class="toctree-l1"><a class="reference internal" href="overview.html#what-is-pyflow">What is PyFlow?</a></li>
+<li class="toctree-l1"><a class="reference internal" href="overview.html#key-features">Key Features</a></li>
+<li class="toctree-l1"><a class="reference internal" href="overview.html#architecture">Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="overview.html#repository-status-in-practice">Repository status in practice</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">How-to Guides</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="how-to/index.html">How-to Guides</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Explanations</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="explanation/index.html">Explanations</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">A3 Python</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="a3_python/index.html"><code class="docutils literal notranslate"><span class="pre">a3_python</span></code></a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="cli.html">Main Commands</a></li>
 <li class="toctree-l1"><a class="reference internal" href="cli.html#global-options">Global Options</a></li>
-<li class="toctree-l1"><a class="reference internal" href="cli.html#configuration">Configuration</a></li>
 <li class="toctree-l1"><a class="reference internal" href="cli.html#integration">Integration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api.html">PyFlow API</a></li>
 <li class="toctree-l1"><a class="reference internal" href="analysis/index.html">Analysis Modules</a></li>
+<li class="toctree-l1"><a class="reference internal" href="analysis/index.html#overview">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="analysis/index.html#analysis-configuration">Analysis Configuration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="analysis/index.html#running-analyses">Running Analyses</a></li>
+<li class="toctree-l1"><a class="reference internal" href="analysis/index.html#analysis-results">Analysis Results</a></li>
 <li class="toctree-l1"><a class="reference internal" href="optimization/index.html">Optimizing Python Programs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="optimization/index.html#overview">Overview</a></li>
 <li class="toctree-l1"><a class="reference internal" href="optimization/index.html#optimization-categories">Optimization Categories</a></li>
 <li class="toctree-l1"><a class="reference internal" href="optimization/index.html#optimization-pipeline">Optimization Pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="optimization/index.html#usage">Usage</a></li>
+<li class="toctree-l1"><a class="reference internal" href="lang/index.html">Language Module</a></li>
 <li class="toctree-l1"><a class="reference internal" href="checker/sec.html">Security Analysis and Checking</a></li>
 <li class="toctree-l1"><a class="reference internal" href="checker/sec.html#checker-categories">Checker Categories</a></li>
 <li class="toctree-l1"><a class="reference internal" href="checker/sec.html#analysis-framework">Analysis Framework</a></li>
@@ -85,65 +112,169 @@
              
   <section id="welcome-to-pyflow-s-documentation">
 <h1>Welcome to PyFlow’s Documentation!<a class="headerlink" href="#welcome-to-pyflow-s-documentation" title="Link to this heading"></a></h1>
-<section id="introduction">
-<h2>Introduction<a class="headerlink" href="#introduction" title="Link to this heading"></a></h2>
-<p>PyFlow is a comprehensive static analysis and compilation framework for Python code. It provides advanced analysis capabilities for understanding, optimizing, and securing Python programs without execution.</p>
-<p>PyFlow is designed to be a powerful tool for:</p>
-<ul class="simple">
-<li><p><strong>Static Analysis</strong>: Deep program understanding through multiple analysis domains</p></li>
-<li><p><strong>Code Optimization</strong>: Compiler-level optimizations for Python code</p></li>
-<li><p><strong>Security Analysis</strong>: Automated vulnerability detection and security checking</p></li>
-<li><p><strong>Research</strong>: Advancing static analysis techniques for dynamic languages</p></li>
-</ul>
+<p>PyFlow is a static analysis and optimization framework for Python. It provides
+analysis infrastructure, experimental compiler-style transformations, and
+security checking for Python programs without executing them.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>PyFlow is currently in <strong>alpha</strong> stage. The architecture is already
+substantial and the test suite is broad, but parts of the public interface
+and documentation are still evolving.</p>
+</div>
+<p>If you are new to PyFlow, start with the <a class="reference internal" href="tutorials/index.html#tutorials"><span class="std std-ref">Tutorials</span></a>.</p>
 <div class="toctree-wrapper compound">
-<p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<p class="caption" role="heading"><span class="caption-text">Getting Started</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="overview.html">Overview</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="overview.html#what-is-pyflow">What is PyFlow?</a></li>
-<li class="toctree-l2"><a class="reference internal" href="overview.html#key-features">Key Features</a></li>
-<li class="toctree-l2"><a class="reference internal" href="overview.html#architecture">Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tutorials/index.html">Tutorials</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="tutorials/getting-started.html">Getting Started</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tutorials/analyzing-python-code.html">Analyzing Python Code</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tutorials/optimizing-python-programs.html">Optimizing Python Programs</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tutorials/understanding-analysis-results.html">Understanding Analysis Results</a></li>
 </ul>
 </li>
-<li class="toctree-l1"><a class="reference internal" href="cli.html">Command Line Interface</a></li>
-<li class="toctree-l1"><a class="reference internal" href="cli.html#main-commands">Main Commands</a><ul>
+<li class="toctree-l1"><a class="reference internal" href="overview.html">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="overview.html#what-is-pyflow">What is PyFlow?</a></li>
+<li class="toctree-l1"><a class="reference internal" href="overview.html#key-features">Key Features</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="overview.html#static-analysis-capabilities">Static Analysis Capabilities</a></li>
+<li class="toctree-l2"><a class="reference internal" href="overview.html#optimization-capabilities">Optimization Capabilities</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="overview.html#architecture">Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="overview.html#repository-status-in-practice">Repository status in practice</a></li>
+</ul>
+</div>
+<div class="toctree-wrapper compound">
+<p class="caption" role="heading"><span class="caption-text">How-to Guides</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="how-to/index.html">How-to Guides</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="how-to/analyze-call-graph.html">How to Analyze Call Graphs</a></li>
+<li class="toctree-l2"><a class="reference internal" href="how-to/analyze-control-flow.html">How to Analyze Control Flow</a></li>
+<li class="toctree-l2"><a class="reference internal" href="how-to/optimize-code.html">How to Optimize Code</a></li>
+<li class="toctree-l2"><a class="reference internal" href="how-to/security-analysis.html">How to Perform Security Analysis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="how-to/customize-analysis.html">How to Customize Analysis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="how-to/integrate-with-build-systems.html">Integrate with Build Systems</a></li>
+<li class="toctree-l2"><a class="reference internal" href="how-to/visualize-results.html">How to Visualize Results</a></li>
+<li class="toctree-l2"><a class="reference internal" href="how-to/debug-analysis-issues.html">How to Debug Analysis Issues</a></li>
+</ul>
+</li>
+</ul>
+</div>
+<div class="toctree-wrapper compound">
+<p class="caption" role="heading"><span class="caption-text">Explanations</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="explanation/index.html">Explanations</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="explanation/architecture.html">Architecture</a></li>
+<li class="toctree-l2"><a class="reference internal" href="explanation/algorithms.html">Algorithms</a></li>
+<li class="toctree-l2"><a class="reference internal" href="explanation/design-decisions.html">Design Decisions</a></li>
+<li class="toctree-l2"><a class="reference internal" href="explanation/analysis-comparison.html">Analysis Comparison</a></li>
+<li class="toctree-l2"><a class="reference internal" href="explanation/best-practices.html">Best Practices</a></li>
+</ul>
+</li>
+</ul>
+</div>
+<div class="toctree-wrapper compound">
+<p class="caption" role="heading"><span class="caption-text">A3 Python</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="a3_python/index.html"><code class="docutils literal notranslate"><span class="pre">a3_python</span></code></a><ul>
+<li class="toctree-l2"><a class="reference internal" href="a3_python/overview.html">Overview</a></li>
+<li class="toctree-l2"><a class="reference internal" href="a3_python/architecture.html">Architecture</a></li>
+<li class="toctree-l2"><a class="reference internal" href="a3_python/analysis-techniques.html">Analysis Techniques</a></li>
+<li class="toctree-l2"><a class="reference internal" href="a3_python/bug-taxonomy.html">Bug Taxonomy</a></li>
+<li class="toctree-l2"><a class="reference internal" href="a3_python/contracts-and-barriers.html">Contracts and Barrier Reasoning</a></li>
+<li class="toctree-l2"><a class="reference internal" href="a3_python/interprocedural-barrier-synthesis.html">Interprocedural Barrier Synthesis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="a3_python/cross-module-resolution.html">Cross-Module Resolution</a></li>
+<li class="toctree-l2"><a class="reference internal" href="a3_python/object-taint-tracking.html">Object Taint Tracking</a></li>
+<li class="toctree-l2"><a class="reference internal" href="a3_python/type-based-sanitizers.html">Type-Based Sanitizers</a></li>
+<li class="toctree-l2"><a class="reference internal" href="a3_python/case-studies.html">Case Studies and Precision Notes</a></li>
+<li class="toctree-l2"><a class="reference internal" href="a3_python/package-map.html">Package Map</a></li>
+</ul>
+</li>
+</ul>
+</div>
+<div class="toctree-wrapper compound">
+<p class="caption" role="heading"><span class="caption-text">Reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="cli.html">Main Commands</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="cli.html#analysis-commands">Analysis Commands</a></li>
 <li class="toctree-l2"><a class="reference internal" href="cli.html#optimization-commands">Optimization Commands</a></li>
 <li class="toctree-l2"><a class="reference internal" href="cli.html#security-commands">Security Commands</a></li>
+<li class="toctree-l2"><a class="reference internal" href="cli.html#heap-command">Heap Command</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="cli.html#global-options">Global Options</a></li>
-<li class="toctree-l1"><a class="reference internal" href="cli.html#configuration">Configuration</a></li>
 <li class="toctree-l1"><a class="reference internal" href="cli.html#integration">Integration</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="cli.html#ci-cd-integration">CI/CD Integration</a></li>
 <li class="toctree-l2"><a class="reference internal" href="cli.html#ide-integration">IDE Integration</a></li>
 </ul>
 </li>
-<li class="toctree-l1"><a class="reference internal" href="analysis/index.html">Analysis Modules</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="analysis/index.html#overview">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api.html">PyFlow API</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="api.html#quick-start">Quick Start</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api.html#entry-points">Entry Points</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api.html#query-service">Query Service</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api.html#mcp-server-integration">MCP Server Integration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api.html#see-also">See Also</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="analysis/index.html">Analysis Modules</a></li>
+<li class="toctree-l1"><a class="reference internal" href="analysis/index.html#overview">Overview</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="analysis/index.html#ir-construction">IR Construction</a></li>
+<li class="toctree-l2"><a class="reference internal" href="analysis/index.html#data-flow-analysis">Data Flow Analysis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="analysis/index.html#pointer-and-type-analysis">Pointer and Type Analysis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="analysis/index.html#heap-shape-and-object-analysis">Heap, Shape, and Object Analysis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="analysis/index.html#specialized-analysis">Specialized Analysis</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="analysis/index.html#analysis-configuration">Analysis Configuration</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="analysis/index.html#context-sensitive-analysis">Context-Sensitive Analysis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="analysis/index.html#flow-sensitive-analysis">Flow-Sensitive Analysis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="analysis/index.html#field-sensitive-analysis">Field-Sensitive Analysis</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="analysis/index.html#running-analyses">Running Analyses</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="analysis/index.html#command-line">Command Line</a></li>
+<li class="toctree-l2"><a class="reference internal" href="analysis/index.html#programmatic-usage">Programmatic Usage</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="analysis/index.html#analysis-results">Analysis Results</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="analysis/index.html#text-output">Text Output</a></li>
+<li class="toctree-l2"><a class="reference internal" href="analysis/index.html#json-output">JSON Output</a></li>
+<li class="toctree-l2"><a class="reference internal" href="analysis/index.html#sarif-output">SARIF Output</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="optimization/index.html">Optimizing Python Programs</a></li>
-<li class="toctree-l1"><a class="reference internal" href="optimization/index.html#optimization-categories">Optimization Categories</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="optimization/index.html#constant-folding-and-propagation">Constant Folding and Propagation</a></li>
-<li class="toctree-l2"><a class="reference internal" href="optimization/index.html#data-flow-optimizations">Data Flow Optimizations</a></li>
-<li class="toctree-l2"><a class="reference internal" href="optimization/index.html#control-flow-optimizations">Control Flow Optimizations</a></li>
-<li class="toctree-l2"><a class="reference internal" href="optimization/index.html#function-and-method-optimizations">Function and Method Optimizations</a></li>
-<li class="toctree-l2"><a class="reference internal" href="optimization/index.html#advanced-optimizations">Advanced Optimizations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="optimization/index.html#overview">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="optimization/index.html#optimization-categories">Optimization Categories</a></li>
+<li class="toctree-l1"><a class="reference internal" href="optimization/index.html#optimization-pipeline">Optimization Pipeline</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="optimization/index.html#pass-dependencies">Pass Dependencies</a></li>
 </ul>
 </li>
-<li class="toctree-l1"><a class="reference internal" href="optimization/index.html#optimization-pipeline">Optimization Pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="optimization/index.html#usage">Usage</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="optimization/index.html#cli-usage">CLI Usage</a></li>
+<li class="toctree-l2"><a class="reference internal" href="optimization/index.html#programmatic-usage">Programmatic Usage</a></li>
+<li class="toctree-l2"><a class="reference internal" href="optimization/index.html#pass-manager">Pass Manager</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="lang/index.html">Language Module</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="lang/index.html#overview">Overview</a></li>
+<li class="toctree-l2"><a class="reference internal" href="lang/index.html#key-components">Key Components</a></li>
+<li class="toctree-l2"><a class="reference internal" href="lang/index.html#usage">Usage</a></li>
+<li class="toctree-l2"><a class="reference internal" href="lang/index.html#module-structure">Module Structure</a></li>
+<li class="toctree-l2"><a class="reference internal" href="lang/index.html#see-also">See Also</a></li>
+</ul>
+</li>
 <li class="toctree-l1"><a class="reference internal" href="checker/sec.html">Security Analysis and Checking</a></li>
 <li class="toctree-l1"><a class="reference internal" href="checker/sec.html#checker-categories">Checker Categories</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="checker/sec.html#injection-vulnerabilities">Injection Vulnerabilities</a></li>
-<li class="toctree-l2"><a class="reference internal" href="checker/sec.html#authentication-and-authorization">Authentication and Authorization</a></li>
-<li class="toctree-l2"><a class="reference internal" href="checker/sec.html#code-safety">Code Safety</a></li>
-<li class="toctree-l2"><a class="reference internal" href="checker/sec.html#object-oriented-safety">Object-Oriented Safety</a></li>
+<li class="toctree-l2"><a class="reference internal" href="checker/sec.html#web-framework-security">Web Framework Security</a></li>
+<li class="toctree-l2"><a class="reference internal" href="checker/sec.html#aws-cloud-security">AWS Cloud Security</a></li>
+<li class="toctree-l2"><a class="reference internal" href="checker/sec.html#ym-code-safety">YM|Code Safety</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="checker/sec.html#analysis-framework">Analysis Framework</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="checker/sec.html#core-infrastructure">Core Infrastructure</a></li>
+<li class="toctree-l2"><a class="reference internal" href="checker/sec.html#pattern-based-checker-infrastructure">Pattern-Based Checker Infrastructure</a></li>
+<li class="toctree-l2"><a class="reference internal" href="checker/sec.html#semantic-checker-infrastructure">Semantic Checker Infrastructure</a></li>
 <li class="toctree-l2"><a class="reference internal" href="checker/sec.html#output-formatters">Output Formatters</a></li>
 <li class="toctree-l2"><a class="reference internal" href="checker/sec.html#llm-integration">LLM Integration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="checker/sec.html#finding-quality">Finding Quality</a></li>
 <li class="toctree-l2"><a class="reference internal" href="checker/sec.html#configuration-and-testing">Configuration and Testing</a></li>
 </ul>
 </li>
@@ -155,58 +286,106 @@
 </ul>
 </div>
 </section>
-<section id="installing-and-using-pyflow">
-<h2>Installing and Using PyFlow<a class="headerlink" href="#installing-and-using-pyflow" title="Link to this heading"></a></h2>
-<section id="install-pyflow-from-source">
-<h3>Install PyFlow from source<a class="headerlink" href="#install-pyflow-from-source" title="Link to this heading"></a></h3>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">git</span> <span class="n">clone</span> <span class="n">https</span><span class="p">:</span><span class="o">//</span><span class="n">github</span><span class="o">.</span><span class="n">com</span><span class="o">/</span><span class="n">ZJU</span><span class="o">-</span><span class="n">PL</span><span class="o">/</span><span class="n">pyflow</span><span class="o">.</span><span class="n">git</span>
-<span class="n">cd</span> <span class="n">pyflow</span>
-<span class="n">python</span> <span class="o">-</span><span class="n">m</span> <span class="n">venv</span> <span class="n">venv</span>
-<span class="n">source</span> <span class="n">venv</span><span class="o">/</span><span class="nb">bin</span><span class="o">/</span><span class="n">activate</span>  <span class="c1"># On Windows: venv\Scripts\activate</span>
-<span class="n">pip</span> <span class="n">install</span> <span class="o">-</span><span class="n">e</span> <span class="o">.</span>
+<hr class="docutils" />
+<section id="what-is-pyflow">
+<h1>What is PyFlow?<a class="headerlink" href="#what-is-pyflow" title="Link to this heading"></a></h1>
+<p>PyFlow is designed to be a powerful tool for:</p>
+<ul class="simple">
+<li><p><strong>Static Analysis</strong>: Deep program understanding through multiple analysis domains</p></li>
+<li><p><strong>Code Optimization</strong>: Compiler-level optimizations for Python code</p></li>
+<li><p><strong>Security Analysis</strong>: Automated vulnerability detection and security checking</p></li>
+<li><p><strong>Research</strong>: Advancing static analysis techniques for dynamic languages</p></li>
+</ul>
+<p>It is particularly well suited to:</p>
+<ul class="simple">
+<li><p>experimenting with static-analysis ideas for Python,</p></li>
+<li><p>inspecting intermediate representations such as AST/CFG/SSA,</p></li>
+<li><p>evaluating optimization passes over a shared program model, and</p></li>
+<li><p>building query or checker features on top of existing analyses.</p></li>
+</ul>
+</section>
+<section id="installation">
+<h1>Installation<a class="headerlink" href="#installation" title="Link to this heading"></a></h1>
+<p>Install PyFlow from source:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>git<span class="w"> </span>clone<span class="w"> </span>https://github.com/ZJU-PL/pyflow.git
+<span class="nb">cd</span><span class="w"> </span>pyflow
+python<span class="w"> </span>-m<span class="w"> </span>venv<span class="w"> </span>venv
+<span class="nb">source</span><span class="w"> </span>venv/bin/activate<span class="w">  </span><span class="c1"># On Windows: venv\Scripts\activate</span>
+pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span>.
 </pre></div>
 </div>
-<p>The setup script will:
-- Create a Python virtual environment if it doesn’t exist
-- Activate the virtual environment and install dependencies
-- Install PyFlow in development mode</p>
 </section>
-<section id="basic-usage">
-<h3>Basic Usage<a class="headerlink" href="#basic-usage" title="Link to this heading"></a></h3>
-<p>After installation, you can use PyFlow’s command-line interface:</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="c1"># Analyze call graph</span>
-<span class="n">pyflow</span> <span class="n">callgraph</span> <span class="nb">input</span><span class="o">.</span><span class="n">py</span>
+<section id="quick-start">
+<h1>Quick Start<a class="headerlink" href="#quick-start" title="Link to this heading"></a></h1>
+<p>After installation, use PyFlow’s command-line interface:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Analyze call graph</span>
+pyflow<span class="w"> </span>callgraph<span class="w"> </span>input.py
 
 <span class="c1"># Run security checks</span>
-<span class="n">pyflow</span> <span class="n">check</span> <span class="nb">input</span><span class="o">.</span><span class="n">py</span>
+pyflow<span class="w"> </span>security<span class="w"> </span>input.py
 
 <span class="c1"># Apply optimizations</span>
-<span class="n">pyflow</span> <span class="n">optimize</span> <span class="nb">input</span><span class="o">.</span><span class="n">py</span>
+pyflow<span class="w"> </span>optimize<span class="w"> </span>input.py
 
 <span class="c1"># Visualize intermediate representations</span>
-<span class="n">pyflow</span> <span class="n">ir</span> <span class="nb">input</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">dump</span><span class="o">-</span><span class="n">cfg</span>
+pyflow<span class="w"> </span>ir<span class="w"> </span>input.py<span class="w"> </span>--dump-cfg<span class="w"> </span>function_name
+
+<span class="c1"># Run heap alias/escape analysis</span>
+pyflow<span class="w"> </span>heap<span class="w"> </span>input.py
+
+<span class="c1"># Explore available optimization passes</span>
+pyflow<span class="w"> </span>optimize<span class="w"> </span>--list-opt-passes
 </pre></div>
 </div>
-<p>See <a class="reference internal" href="cli.html"><span class="doc">Command Line Interface</span></a> for detailed command documentation.</p>
 </section>
+<section id="documentation-structure">
+<h1>Documentation Structure<a class="headerlink" href="#documentation-structure" title="Link to this heading"></a></h1>
+<p>This documentation is organized following the Diátaxis framework:</p>
+<table class="docutils align-default">
+<colgroup>
+<col style="width: 25.0%" />
+<col style="width: 75.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Section</p></th>
+<th class="head"><p>Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><a class="reference internal" href="tutorials/index.html#tutorials"><span class="std std-ref">Tutorials</span></a></p></td>
+<td><p>Step-by-step guides for learning PyFlow</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="how-to/index.html#how-to"><span class="std std-ref">How-to Guides</span></a></p></td>
+<td><p>Practical guides for accomplishing specific tasks</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="explanation/index.html#explanation"><span class="std std-ref">Explanations</span></a></p></td>
+<td><p>In-depth discussions of concepts and architecture</p></td>
+</tr>
+<tr class="row-odd"><td><p><span class="xref std std-ref">Reference</span></p></td>
+<td><p>Complete API documentation and command reference</p></td>
+</tr>
+</tbody>
+</table>
 </section>
-<section id="core-components">
-<h2>Core Components<a class="headerlink" href="#core-components" title="Link to this heading"></a></h2>
-<section id="analysis-modules">
-<h3>Analysis Modules<a class="headerlink" href="#analysis-modules" title="Link to this heading"></a></h3>
-<p>PyFlow provides a rich set of analysis modules organized by purpose:</p>
+<section id="core-capabilities">
+<h1>Core Capabilities<a class="headerlink" href="#core-capabilities" title="Link to this heading"></a></h1>
+<section id="static-analysis">
+<h2>Static Analysis<a class="headerlink" href="#static-analysis" title="Link to this heading"></a></h2>
+<p>PyFlow provides comprehensive static analysis:</p>
 <ul class="simple">
-<li><p><strong>Control Flow Analysis</strong>: CFG construction, dominance analysis, loop detection</p></li>
-<li><p><strong>Data Flow Analysis</strong>: Forward/backward analysis, constant propagation, live variables</p></li>
+<li><p><strong>Control Flow Analysis</strong>: CFG, CDG, PDG, DDG construction, dominance analysis, loop detection</p></li>
+<li><p><strong>Data Flow Analysis</strong>: Forward/backward analysis, data flow IR, IFDS/IDE interprocedural engine</p></li>
 <li><p><strong>Inter-procedural Analysis</strong>: Context-sensitive analysis across function boundaries</p></li>
+<li><p><strong>Pointer Analysis</strong>: k-CFA constraint-based points-to analysis for Python objects</p></li>
 <li><p><strong>Constraint-based Analysis</strong>: Constraint solving for precise object relationship modeling</p></li>
 <li><p><strong>Shape Analysis</strong>: Data structure shape and property analysis</p></li>
+<li><p><strong>Heap Analysis</strong>: Alias/escape analysis with canonical locations and points-to graphs</p></li>
 <li><p><strong>Call Graph Analysis</strong>: Function call relationship analysis with multiple algorithms</p></li>
+<li><p><strong>Type Information</strong>: Lightweight type-information collection and inference</p></li>
 </ul>
-<p>See <a class="reference internal" href="analysis/index.html"><span class="doc">Analysis Modules</span></a> for detailed analysis module documentation.</p>
 </section>
-<section id="optimization-framework">
-<h3>Optimization Framework<a class="headerlink" href="#optimization-framework" title="Link to this heading"></a></h3>
+<section id="code-optimization">
+<h2>Code Optimization<a class="headerlink" href="#code-optimization" title="Link to this heading"></a></h2>
 <p>PyFlow includes comprehensive optimization passes:</p>
 <ul class="simple">
 <li><p><strong>Constant Folding</strong>: Compile-time evaluation of constant expressions</p></li>
@@ -214,21 +393,28 @@
 <li><p><strong>Function Inlining</strong>: Performance optimization through inlining</p></li>
 <li><p><strong>Data Flow Optimizations</strong>: Load/store elimination and redundancy removal</p></li>
 <li><p><strong>Control Flow Simplification</strong>: Basic block merging and jump optimization</p></li>
+<li><p><strong>Method Call Optimization</strong>: Optimization of method dispatch</p></li>
 </ul>
-<p>See <a class="reference internal" href="optimization/index.html"><span class="doc">Optimizing Python Programs</span></a> for complete optimization documentation.</p>
 </section>
 <section id="security-analysis">
-<h3>Security Analysis<a class="headerlink" href="#security-analysis" title="Link to this heading"></a></h3>
+<h2>Security Analysis<a class="headerlink" href="#security-analysis" title="Link to this heading"></a></h2>
 <p>PyFlow’s security checker identifies vulnerabilities:</p>
 <ul class="simple">
 <li><p><strong>Injection Attacks</strong>: SQL injection, command injection detection</p></li>
 <li><p><strong>Authentication Issues</strong>: Hardcoded credentials, weak cryptography</p></li>
 <li><p><strong>Code Safety</strong>: Dangerous function usage, unsafe imports</p></li>
-<li><p><strong>LLM Integration</strong>: AI-assisted vulnerability detection</p></li>
+<li><p><strong>Input Validation</strong>: Missing or improper input validation</p></li>
+<li><p><strong>Dependency Security</strong>: Known vulnerable dependencies</p></li>
 </ul>
-<p>See <a class="reference internal" href="checker/sec.html"><span class="doc">Security Analysis and Checking</span></a> for security analysis documentation.</p>
 </section>
 </section>
+<section id="getting-help">
+<h1>Getting Help<a class="headerlink" href="#getting-help" title="Link to this heading"></a></h1>
+<ul class="simple">
+<li><p><strong>Documentation</strong>: See this documentation or <a class="reference internal" href="cli.html"><span class="doc">Main Commands</span></a> for command reference</p></li>
+<li><p><strong>Issues</strong>: Report bugs at <a class="reference external" href="https://github.com/ZJU-PL/pyflow/issues">https://github.com/ZJU-PL/pyflow/issues</a></p></li>
+<li><p><strong>Discussions</strong>: Ask questions at <a class="reference external" href="https://github.com/ZJU-PL/pyflow/discussions">https://github.com/ZJU-PL/pyflow/discussions</a></p></li>
+</ul>
 </section>
 <section id="indices-and-tables">
 <h1>Indices and Tables<a class="headerlink" href="#indices-and-tables" title="Link to this heading"></a></h1>
@@ -243,7 +429,7 @@
            </div>
           </div>
           <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
-        <a href="overview.html" class="btn btn-neutral float-right" title="Overview" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+        <a href="tutorials/index.html" class="btn btn-neutral float-right" title="Tutorials" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
     </div>
 
   <hr/>

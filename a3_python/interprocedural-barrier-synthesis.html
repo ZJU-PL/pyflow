@@ -1,0 +1,299 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Interprocedural Barrier Synthesis &mdash; pyflow 0.1.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=01f34227"></script>
+      <script src="../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Cross-Module Resolution" href="cross-module-resolution.html" />
+    <link rel="prev" title="Contracts and Barrier Reasoning" href="contracts-and-barriers.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            pyflow
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Getting Started</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../tutorials/index.html">Tutorials</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#what-is-pyflow">What is PyFlow?</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#key-features">Key Features</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#architecture">Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#repository-status-in-practice">Repository status in practice</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">How-to Guides</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../how-to/index.html">How-to Guides</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Explanations</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../explanation/index.html">Explanations</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">A3 Python</span></p>
+<ul class="current">
+<li class="toctree-l1 current"><a class="reference internal" href="index.html"><code class="docutils literal notranslate"><span class="pre">a3_python</span></code></a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="overview.html">Overview</a></li>
+<li class="toctree-l2"><a class="reference internal" href="architecture.html">Architecture</a></li>
+<li class="toctree-l2"><a class="reference internal" href="analysis-techniques.html">Analysis Techniques</a></li>
+<li class="toctree-l2"><a class="reference internal" href="bug-taxonomy.html">Bug Taxonomy</a></li>
+<li class="toctree-l2"><a class="reference internal" href="contracts-and-barriers.html">Contracts and Barrier Reasoning</a></li>
+<li class="toctree-l2 current"><a class="current reference internal" href="#">Interprocedural Barrier Synthesis</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#core-idea">Core idea</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#conceptual-objects">Conceptual objects</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#barrier-shapes-for-common-crash-properties">Barrier shapes for common crash properties</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#division-by-zero">Division by zero</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#bounds-safety">Bounds safety</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#null-safety">Null safety</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#architecture-in-the-current-tree">Architecture in the current tree</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#relation-to-the-layered-verification-stack">Relation to the layered verification stack</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#why-this-matters-for-contributors">Why this matters for contributors</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="cross-module-resolution.html">Cross-Module Resolution</a></li>
+<li class="toctree-l2"><a class="reference internal" href="object-taint-tracking.html">Object Taint Tracking</a></li>
+<li class="toctree-l2"><a class="reference internal" href="type-based-sanitizers.html">Type-Based Sanitizers</a></li>
+<li class="toctree-l2"><a class="reference internal" href="case-studies.html">Case Studies and Precision Notes</a></li>
+<li class="toctree-l2"><a class="reference internal" href="package-map.html">Package Map</a></li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html">Main Commands</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html#global-options">Global Options</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html#integration">Integration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../api.html">PyFlow API</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html">Analysis Modules</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#overview">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#analysis-configuration">Analysis Configuration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#running-analyses">Running Analyses</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#analysis-results">Analysis Results</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html">Optimizing Python Programs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#overview">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#optimization-categories">Optimization Categories</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#optimization-pipeline">Optimization Pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#usage">Usage</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../lang/index.html">Language Module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html">Security Analysis and Checking</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#checker-categories">Checker Categories</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#analysis-framework">Analysis Framework</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#usage">Usage</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">pyflow</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="index.html"><code class="docutils literal notranslate"><span class="pre">a3_python</span></code></a></li>
+      <li class="breadcrumb-item active">Interprocedural Barrier Synthesis</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/a3_python/interprocedural-barrier-synthesis.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="interprocedural-barrier-synthesis">
+<h1>Interprocedural Barrier Synthesis<a class="headerlink" href="#interprocedural-barrier-synthesis" title="Link to this heading"></a></h1>
+<p>The original <code class="docutils literal notranslate"><span class="pre">INTERPROCEDURAL_BARRIER_SYNTHESIS</span></code> note described how the
+standalone project intended to connect summary-based interprocedural analysis
+with barrier-certificate reasoning. That architecture is directly relevant to
+the current <code class="docutils literal notranslate"><span class="pre">a3_python</span></code> tree because the repository now contains an
+explicit <code class="docutils literal notranslate"><span class="pre">semantics/interprocedural_barriers.py</span></code> module.</p>
+<section id="core-idea">
+<h2>Core idea<a class="headerlink" href="#core-idea" title="Link to this heading"></a></h2>
+<p>The goal is to lift safety reasoning from single functions to call chains:</p>
+<ul class="simple">
+<li><p>synthesize or infer safety conditions for individual functions</p></li>
+<li><p>encode those conditions as reusable preconditions or summaries</p></li>
+<li><p>compose them across callers and callees</p></li>
+<li><p>decide whether a project-level unsafe state is reachable or prevented by
+composed conditions</p></li>
+</ul>
+<p>This is a compositional verification view of Python programs: each function can
+contribute a local proof obligation or proof artifact, and callers can reuse
+that information instead of re-deriving everything from scratch.</p>
+</section>
+<section id="conceptual-objects">
+<h2>Conceptual objects<a class="headerlink" href="#conceptual-objects" title="Link to this heading"></a></h2>
+<p>The original note called out a few key abstractions that still describe the
+current design well:</p>
+<ul class="simple">
+<li><p>safety-property categories such as division safety, bounds safety, null
+safety, taint safety, and termination</p></li>
+<li><p>function preconditions that make a local safety argument valid</p></li>
+<li><p>per-function barrier-like certificates or proof summaries</p></li>
+<li><p>interprocedural barrier objects that compose those proofs across call chains</p></li>
+</ul>
+<p>The concrete implementation lives in:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">semantics/interprocedural_barriers.py</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">analyzer.py</span></code> for top-level integration</p></li>
+</ul>
+</section>
+<section id="barrier-shapes-for-common-crash-properties">
+<h2>Barrier shapes for common crash properties<a class="headerlink" href="#barrier-shapes-for-common-crash-properties" title="Link to this heading"></a></h2>
+<p>The original note documented the intended proof shapes for several recurring bug
+classes.</p>
+<section id="division-by-zero">
+<h3>Division by zero<a class="headerlink" href="#division-by-zero" title="Link to this heading"></a></h3>
+<p>The basic local reasoning pattern is:</p>
+<ul class="simple">
+<li><p>if a divisor is known to be non-zero, the corresponding unsafe region is
+unreachable</p></li>
+<li><p>callers therefore need to establish a non-zero precondition for that
+parameter</p></li>
+</ul>
+<p>In simplified terms, this becomes a reusable summary of the form:</p>
+<ul class="simple">
+<li><p>callee is safe if <code class="docutils literal notranslate"><span class="pre">divisor</span> <span class="pre">!=</span> <span class="pre">0</span></code></p></li>
+<li><p>caller obligations must imply that condition</p></li>
+</ul>
+</section>
+<section id="bounds-safety">
+<h3>Bounds safety<a class="headerlink" href="#bounds-safety" title="Link to this heading"></a></h3>
+<p>For indexing or subscript safety, the key shape is:</p>
+<ul class="simple">
+<li><p>safe access requires an index range precondition such as
+<code class="docutils literal notranslate"><span class="pre">0</span> <span class="pre">&lt;=</span> <span class="pre">i</span> <span class="pre">&lt;</span> <span class="pre">n</span></code></p></li>
+<li><p>if a callee relies on that fact, the caller must preserve or establish it</p></li>
+</ul>
+</section>
+<section id="null-safety">
+<h3>Null safety<a class="headerlink" href="#null-safety" title="Link to this heading"></a></h3>
+<p>The same structure applies to <code class="docutils literal notranslate"><span class="pre">None</span></code>-sensitive access:</p>
+<ul class="simple">
+<li><p>local proof: parameter is not <code class="docutils literal notranslate"><span class="pre">None</span></code> at dereference sites</p></li>
+<li><p>interprocedural composition: callers must establish non-nullness or a
+stronger invariant that implies it</p></li>
+</ul>
+</section>
+</section>
+<section id="architecture-in-the-current-tree">
+<h2>Architecture in the current tree<a class="headerlink" href="#architecture-in-the-current-tree" title="Link to this heading"></a></h2>
+<p>The original diagram is still a good mental model:</p>
+<ul class="simple">
+<li><p>function-level semantic analysis produces summaries and candidate safety facts</p></li>
+<li><p>barrier and verification engines attempt to turn those into proofs</p></li>
+<li><p>interprocedural composition combines local conditions along the call graph</p></li>
+</ul>
+<p>In the current repository, the main integration points are:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">semantics/interprocedural_bugs.py</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">semantics/interprocedural_taint.py</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">semantics/interprocedural_barriers.py</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">cfg/call_graph.py</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">barriers/</span></code> for the actual synthesis and proof sub-engines</p></li>
+</ul>
+</section>
+<section id="relation-to-the-layered-verification-stack">
+<h2>Relation to the layered verification stack<a class="headerlink" href="#relation-to-the-layered-verification-stack" title="Link to this heading"></a></h2>
+<p>This page sits at the meeting point of two earlier themes:</p>
+<ul class="simple">
+<li><p>interprocedural summaries from <a class="reference internal" href="architecture.html"><span class="doc">Architecture</span></a></p></li>
+<li><p>barrier and proof machinery from <a class="reference internal" href="contracts-and-barriers.html"><span class="doc">Contracts and Barrier Reasoning</span></a></p></li>
+</ul>
+<p>The original note explicitly tied interprocedural barrier synthesis to a
+portfolio of proof engines:</p>
+<ul class="simple">
+<li><p>SOS and SDP-based synthesis</p></li>
+<li><p>CEGAR and predicate abstraction</p></li>
+<li><p>ICE or Houdini-style learning</p></li>
+<li><p>IC3/PDR, CHC, interpolation, and assume-guarantee reasoning</p></li>
+</ul>
+<p>That is why the current <code class="docutils literal notranslate"><span class="pre">barriers/</span></code> directory is so broad. The subsystem is
+not committed to a single global proof method; it treats interprocedural
+barrier construction as a coordination problem across several families of
+techniques.</p>
+</section>
+<section id="why-this-matters-for-contributors">
+<h2>Why this matters for contributors<a class="headerlink" href="#why-this-matters-for-contributors" title="Link to this heading"></a></h2>
+<p>When extending the subsystem, the main takeaway is this:</p>
+<ul class="simple">
+<li><p>an interprocedural warning should ideally be explainable as either
+reachability through summaries or failure to establish a composed safety
+precondition</p></li>
+<li><p>an interprocedural proof should ideally be reusable as a summary, not just as
+an end-of-run artifact</p></li>
+</ul>
+<p>In other words, the most valuable changes are those that improve both local
+proof strength and cross-function compositionality.</p>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="contracts-and-barriers.html" class="btn btn-neutral float-left" title="Contracts and Barrier Reasoning" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="cross-module-resolution.html" class="btn btn-neutral float-right" title="Cross-Module Resolution" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, rainoftime.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

@@ -1,0 +1,555 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Architecture &mdash; pyflow 0.1.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=01f34227"></script>
+      <script src="../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Algorithms" href="algorithms.html" />
+    <link rel="prev" title="Explanations" href="index.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            pyflow
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Getting Started</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../tutorials/index.html">Tutorials</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#what-is-pyflow">What is PyFlow?</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#key-features">Key Features</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#architecture">Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#repository-status-in-practice">Repository status in practice</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">How-to Guides</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../how-to/index.html">How-to Guides</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Explanations</span></p>
+<ul class="current">
+<li class="toctree-l1 current"><a class="reference internal" href="index.html">Explanations</a><ul class="current">
+<li class="toctree-l2 current"><a class="current reference internal" href="#">Architecture</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#system-overview">System Overview</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#frontend-layer">Frontend Layer</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#components">Components</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#ir-layer">IR Layer</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#control-flow-graph-cfg">Control Flow Graph (CFG)</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#data-flow-ir">Data Flow IR</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#store-graph">Store Graph</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#analysis-layer">Analysis Layer</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#constraint-based-analysis-cpa">Constraint-Based Analysis (CPA)</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#inter-procedural-analysis-ipa">Inter-Procedural Analysis (IPA)</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#shape-analysis">Shape Analysis</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#call-graph-analysis">Call Graph Analysis</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#optimization-layer">Optimization Layer</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#optimization-passes">Optimization Passes</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#pass-manager">Pass Manager</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#application-layer">Application Layer</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#analysis-pipeline">Analysis Pipeline</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#analysis-context">Analysis Context</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#data-flow">Data Flow</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#key-design-principles">Key Design Principles</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#trade-offs">Trade-offs</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="algorithms.html">Algorithms</a></li>
+<li class="toctree-l2"><a class="reference internal" href="design-decisions.html">Design Decisions</a></li>
+<li class="toctree-l2"><a class="reference internal" href="analysis-comparison.html">Analysis Comparison</a></li>
+<li class="toctree-l2"><a class="reference internal" href="best-practices.html">Best Practices</a></li>
+<li class="toctree-l2 current"><a class="current reference internal" href="#">Architecture</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#system-overview">System Overview</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#frontend-layer">Frontend Layer</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#components">Components</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#ir-layer">IR Layer</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#control-flow-graph-cfg">Control Flow Graph (CFG)</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#data-flow-ir">Data Flow IR</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#store-graph">Store Graph</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#analysis-layer">Analysis Layer</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#constraint-based-analysis-cpa">Constraint-Based Analysis (CPA)</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#inter-procedural-analysis-ipa">Inter-Procedural Analysis (IPA)</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#shape-analysis">Shape Analysis</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#call-graph-analysis">Call Graph Analysis</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#optimization-layer">Optimization Layer</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#optimization-passes">Optimization Passes</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#pass-manager">Pass Manager</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#application-layer">Application Layer</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#analysis-pipeline">Analysis Pipeline</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#analysis-context">Analysis Context</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#data-flow">Data Flow</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#key-design-principles">Key Design Principles</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#trade-offs">Trade-offs</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="algorithms.html">Algorithms</a></li>
+<li class="toctree-l2"><a class="reference internal" href="design-decisions.html">Design Decisions</a></li>
+<li class="toctree-l2"><a class="reference internal" href="analysis-comparison.html">Analysis Comparison</a></li>
+<li class="toctree-l2"><a class="reference internal" href="best-practices.html">Best Practices</a></li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">A3 Python</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../a3_python/index.html"><code class="docutils literal notranslate"><span class="pre">a3_python</span></code></a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html">Main Commands</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html#global-options">Global Options</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html#integration">Integration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../api.html">PyFlow API</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html">Analysis Modules</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#overview">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#analysis-configuration">Analysis Configuration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#running-analyses">Running Analyses</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#analysis-results">Analysis Results</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html">Optimizing Python Programs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#overview">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#optimization-categories">Optimization Categories</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#optimization-pipeline">Optimization Pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#usage">Usage</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../lang/index.html">Language Module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html">Security Analysis and Checking</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#checker-categories">Checker Categories</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#analysis-framework">Analysis Framework</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#usage">Usage</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">pyflow</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="index.html">Explanations</a></li>
+      <li class="breadcrumb-item active">Architecture</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/explanation/architecture.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="architecture">
+<span id="explanation-architecture"></span><h1>Architecture<a class="headerlink" href="#architecture" title="Link to this heading"></a></h1>
+<p>This document provides a detailed overview of PyFlow’s architecture, including
+its modular design, key components, and how they interact.</p>
+<section id="system-overview">
+<h2>System Overview<a class="headerlink" href="#system-overview" title="Link to this heading"></a></h2>
+<p>PyFlow is built around a modular architecture that separates concerns into
+distinct layers:</p>
+<img alt="PyFlow Architecture Overview" class="align-center" src="explanation/architecture-diagram.png" />
+<p>The architecture consists of five main layers:</p>
+<ol class="arabic simple">
+<li><p><strong>Frontend Layer</strong>: Parses and preprocesses Python code</p></li>
+<li><p><strong>IR Layer</strong>: Creates and manages intermediate representations</p></li>
+<li><p><strong>Analysis Layer</strong>: Implements various static analyses</p></li>
+<li><p><strong>Optimization Layer</strong>: Applies code transformations</p></li>
+<li><p><strong>Application Layer</strong>: Orchestrates the analysis pipeline</p></li>
+</ol>
+</section>
+<section id="frontend-layer">
+<h2>Frontend Layer<a class="headerlink" href="#frontend-layer" title="Link to this heading"></a></h2>
+<p>The frontend layer is responsible for parsing and preprocessing Python code.</p>
+<section id="components">
+<h3>Components<a class="headerlink" href="#components" title="Link to this heading"></a></h3>
+<section id="ast-converter">
+<h4>AST Converter<a class="headerlink" href="#ast-converter" title="Link to this heading"></a></h4>
+<p>Converts Python’s AST into PyFlow’s internal representation:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.frontend.ast_converter</span><span class="w"> </span><span class="kn">import</span> <span class="n">ASTConverter</span>
+
+<span class="n">converter</span> <span class="o">=</span> <span class="n">ASTConverter</span><span class="p">()</span>
+<span class="n">pyflow_ir</span> <span class="o">=</span> <span class="n">converter</span><span class="o">.</span><span class="n">convert</span><span class="p">(</span><span class="n">python_ast</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>Key responsibilities:</p>
+<ul class="simple">
+<li><p>Extract function definitions and classes</p></li>
+<li><p>Handle Python-specific constructs (decorators, comprehensions)</p></li>
+<li><p>Convert to a canonical form for analysis</p></li>
+</ul>
+</section>
+<section id="program-extractor">
+<h4>Program Extractor<a class="headerlink" href="#program-extractor" title="Link to this heading"></a></h4>
+<p>Extracts the complete program structure from source files:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.frontend.programextractor</span><span class="w"> </span><span class="kn">import</span> <span class="n">ProgramExtractor</span>
+
+<span class="n">extractor</span> <span class="o">=</span> <span class="n">ProgramExtractor</span><span class="p">()</span>
+<span class="n">program</span> <span class="o">=</span> <span class="n">extractor</span><span class="o">.</span><span class="n">extract</span><span class="p">(</span><span class="s2">&quot;input.py&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>Key responsibilities:</p>
+<ul class="simple">
+<li><p>Parse multiple files recursively</p></li>
+<li><p>Resolve imports</p></li>
+<li><p>Build program dependency graph</p></li>
+</ul>
+</section>
+<section id="dependency-resolver">
+<h4>Dependency Resolver<a class="headerlink" href="#dependency-resolver" title="Link to this heading"></a></h4>
+<p>Resolves module and import dependencies:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.frontend.dependency_resolver</span><span class="w"> </span><span class="kn">import</span> <span class="n">DependencyResolver</span>
+
+<span class="n">resolver</span> <span class="o">=</span> <span class="n">DependencyResolver</span><span class="p">()</span>
+<span class="n">dependencies</span> <span class="o">=</span> <span class="n">resolver</span><span class="o">.</span><span class="n">resolve</span><span class="p">(</span><span class="n">program</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>Key responsibilities:</p>
+<ul class="simple">
+<li><p>Find module locations</p></li>
+<li><p>Handle circular imports</p></li>
+<li><p>Build import graph</p></li>
+</ul>
+</section>
+<section id="stub-manager">
+<h4>Stub Manager<a class="headerlink" href="#stub-manager" title="Link to this heading"></a></h4>
+<p>Manages type stubs for standard library modules:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.frontend.stub_manager</span><span class="w"> </span><span class="kn">import</span> <span class="n">StubManager</span>
+
+<span class="n">stub_manager</span> <span class="o">=</span> <span class="n">StubManager</span><span class="p">()</span>
+<span class="n">stubs</span> <span class="o">=</span> <span class="n">stub_manager</span><span class="o">.</span><span class="n">load_stubs</span><span class="p">(</span><span class="s2">&quot;os&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>Key responsibilities:</p>
+<ul class="simple">
+<li><p>Load type stubs for built-in modules</p></li>
+<li><p>Provide analysis information for library code</p></li>
+<li><p>Handle stub versioning</p></li>
+</ul>
+</section>
+</section>
+</section>
+<section id="ir-layer">
+<h2>IR Layer<a class="headerlink" href="#ir-layer" title="Link to this heading"></a></h2>
+<p>The IR (Intermediate Representation) layer provides data structures for
+representing program structure and analysis results.</p>
+<section id="control-flow-graph-cfg">
+<h3>Control Flow Graph (CFG)<a class="headerlink" href="#control-flow-graph-cfg" title="Link to this heading"></a></h3>
+<p>The CFG represents the control flow structure of a function:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.analysis.cfg</span><span class="w"> </span><span class="kn">import</span> <span class="n">CFG</span><span class="p">,</span> <span class="n">BasicBlock</span>
+
+<span class="n">cfg</span> <span class="o">=</span> <span class="n">CFG</span><span class="p">()</span>
+<span class="n">cfg</span><span class="o">.</span><span class="n">add_block</span><span class="p">(</span><span class="n">BasicBlock</span><span class="p">(</span><span class="s2">&quot;entry&quot;</span><span class="p">))</span>
+<span class="n">cfg</span><span class="o">.</span><span class="n">add_block</span><span class="p">(</span><span class="n">BasicBlock</span><span class="p">(</span><span class="s2">&quot;loop_body&quot;</span><span class="p">))</span>
+<span class="n">cfg</span><span class="o">.</span><span class="n">add_edge</span><span class="p">(</span><span class="s2">&quot;entry&quot;</span><span class="p">,</span> <span class="s2">&quot;loop_body&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>Key components:</p>
+<ul class="simple">
+<li><p><strong>BasicBlock</strong>: A sequence of instructions with single entry/exit</p></li>
+<li><p><strong>Edge</strong>: Control flow transfer between blocks</p></li>
+<li><p><strong>DominanceInfo</strong>: Dominator tree and dominance frontiers</p></li>
+</ul>
+</section>
+<section id="data-flow-ir">
+<h3>Data Flow IR<a class="headerlink" href="#data-flow-ir" title="Link to this heading"></a></h3>
+<p>Represents data flow information for analysis:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.analysis.dataflowIR</span><span class="w"> </span><span class="kn">import</span> <span class="n">DataFlowAnalysis</span>
+
+<span class="n">analysis</span> <span class="o">=</span> <span class="n">DataFlowAnalysis</span><span class="p">()</span>
+<span class="n">results</span> <span class="o">=</span> <span class="n">analysis</span><span class="o">.</span><span class="n">analyze</span><span class="p">(</span><span class="n">cfg</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>Key components:</p>
+<ul class="simple">
+<li><p><strong>Lattice</strong>: Abstract domain for values</p></li>
+<li><p><strong>TransferFunction</strong>: How values flow through instructions</p></li>
+<li><p><strong>WorklistAlgorithm</strong>: Iterative fixed-point computation</p></li>
+</ul>
+</section>
+<section id="store-graph">
+<h3>Store Graph<a class="headerlink" href="#store-graph" title="Link to this heading"></a></h3>
+<p>Represents object allocation and field access:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.analysis.storegraph</span><span class="w"> </span><span class="kn">import</span> <span class="n">StoreGraph</span>
+
+<span class="n">graph</span> <span class="o">=</span> <span class="n">StoreGraph</span><span class="p">()</span>
+<span class="n">node</span> <span class="o">=</span> <span class="n">graph</span><span class="o">.</span><span class="n">add_node</span><span class="p">(</span><span class="n">AllocationSite</span><span class="p">(</span><span class="s2">&quot;Object()&quot;</span><span class="p">))</span>
+</pre></div>
+</div>
+<p>Key components:</p>
+<ul class="simple">
+<li><p><strong>AllocationSite</strong>: Where an object is created</p></li>
+<li><p><strong>FieldAccess</strong>: Object field read/write</p></li>
+<li><p><strong>PointsToSet</strong>: Set of objects a reference may point to</p></li>
+</ul>
+</section>
+</section>
+<section id="analysis-layer">
+<h2>Analysis Layer<a class="headerlink" href="#analysis-layer" title="Link to this heading"></a></h2>
+<p>The analysis layer implements various static analysis algorithms.</p>
+<section id="constraint-based-analysis-cpa">
+<h3>Constraint-Based Analysis (CPA)<a class="headerlink" href="#constraint-based-analysis-cpa" title="Link to this heading"></a></h3>
+<p>CPA uses constraint solving for precise analysis:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.analysis.cpa</span><span class="w"> </span><span class="kn">import</span> <span class="n">CPA</span>
+
+<span class="n">cpa</span> <span class="o">=</span> <span class="n">CPA</span><span class="p">()</span>
+<span class="n">results</span> <span class="o">=</span> <span class="n">cpa</span><span class="o">.</span><span class="n">analyze</span><span class="p">(</span><span class="n">program</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>Key concepts:</p>
+<ul class="simple">
+<li><p><strong>Constraints</strong>: Relationships between program elements</p></li>
+<li><p><strong>Worklist</strong>: Set of constraints to solve</p></li>
+<li><p><strong>Fixed Point</strong>: Stable state where all constraints are satisfied</p></li>
+</ul>
+<p>Constraint types:</p>
+<ul class="simple">
+<li><p><strong>AssignmentConstraint</strong>: Variable assignment</p></li>
+<li><p><strong>LoadConstraint</strong>: Field read operation</p></li>
+<li><p><strong>StoreConstraint</strong>: Field write operation</p></li>
+<li><p><strong>CallConstraint</strong>: Function call</p></li>
+</ul>
+</section>
+<section id="inter-procedural-analysis-ipa">
+<h3>Inter-Procedural Analysis (IPA)<a class="headerlink" href="#inter-procedural-analysis-ipa" title="Link to this heading"></a></h3>
+<p>Extends analysis across function boundaries:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.analysis.ipa</span><span class="w"> </span><span class="kn">import</span> <span class="n">IPA</span>
+
+<span class="n">ipa</span> <span class="o">=</span> <span class="n">IPA</span><span class="p">()</span>
+<span class="n">results</span> <span class="o">=</span> <span class="n">ipa</span><span class="o">.</span><span class="n">analyze</span><span class="p">(</span><span class="n">program</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>Key concepts:</p>
+<ul class="simple">
+<li><p><strong>Calling Context</strong>: Information about how a function is called</p></li>
+<li><p><strong>Summary</strong>: Analysis result for a function</p></li>
+<li><p><strong>Context Sensitive</strong>: Distinguishes different calling contexts</p></li>
+</ul>
+</section>
+<section id="shape-analysis">
+<h3>Shape Analysis<a class="headerlink" href="#shape-analysis" title="Link to this heading"></a></h3>
+<p>Analyzes data structure shapes:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.analysis.shape</span><span class="w"> </span><span class="kn">import</span> <span class="n">ShapeAnalysis</span>
+
+<span class="n">shape</span> <span class="o">=</span> <span class="n">ShapeAnalysis</span><span class="p">()</span>
+<span class="n">results</span> <span class="o">=</span> <span class="n">shape</span><span class="o">.</span><span class="n">analyze</span><span class="p">(</span><span class="n">program</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>Key concepts:</p>
+<ul class="simple">
+<li><p><strong>Shape Graph</strong>: Abstract representation of data structures</p></li>
+<li><p><strong>Region</strong>: Set of memory locations with similar properties</p></li>
+<li><p><strong>Heap Abstraction</strong>: How heap objects are represented</p></li>
+</ul>
+</section>
+<section id="call-graph-analysis">
+<h3>Call Graph Analysis<a class="headerlink" href="#call-graph-analysis" title="Link to this heading"></a></h3>
+<p>Builds function call relationships:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.analysis.callgraph</span><span class="w"> </span><span class="kn">import</span> <span class="n">CallGraphAnalysis</span>
+
+<span class="n">callgraph</span> <span class="o">=</span> <span class="n">CallGraphAnalysis</span><span class="p">()</span>
+<span class="n">graph</span> <span class="o">=</span> <span class="n">callgraph</span><span class="o">.</span><span class="n">build</span><span class="p">(</span><span class="n">program</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>Algorithms:</p>
+<ul class="simple">
+<li><p><strong>CHA</strong>: Class Hierarchy Analysis (fast, less precise)</p></li>
+<li><p><strong>Rapid Type Analysis</strong>: Faster for Java-like languages</p></li>
+<li><p><strong>OPA</strong>: Object Sensitivity Analysis (more precise)</p></li>
+</ul>
+</section>
+</section>
+<section id="optimization-layer">
+<h2>Optimization Layer<a class="headerlink" href="#optimization-layer" title="Link to this heading"></a></h2>
+<p>The optimization layer applies code transformations.</p>
+<section id="optimization-passes">
+<h3>Optimization Passes<a class="headerlink" href="#optimization-passes" title="Link to this heading"></a></h3>
+<p>PyFlow implements various optimization passes:</p>
+<section id="constant-folding">
+<h4>Constant Folding<a class="headerlink" href="#constant-folding" title="Link to this heading"></a></h4>
+<p>Evaluates constant expressions at compile time:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.optimization</span><span class="w"> </span><span class="kn">import</span> <span class="n">ConstantFolding</span>
+
+<span class="n">folder</span> <span class="o">=</span> <span class="n">ConstantFolding</span><span class="p">()</span>
+<span class="n">optimized</span> <span class="o">=</span> <span class="n">folder</span><span class="o">.</span><span class="n">optimize</span><span class="p">(</span><span class="n">program</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="dead-code-elimination">
+<h4>Dead Code Elimination<a class="headerlink" href="#dead-code-elimination" title="Link to this heading"></a></h4>
+<p>Removes unreachable and unused code:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.optimization</span><span class="w"> </span><span class="kn">import</span> <span class="n">DeadCodeElimination</span>
+
+<span class="n">dce</span> <span class="o">=</span> <span class="n">DeadCodeElimination</span><span class="p">()</span>
+<span class="n">optimized</span> <span class="o">=</span> <span class="n">dce</span><span class="o">.</span><span class="n">optimize</span><span class="p">(</span><span class="n">program</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="function-inlining">
+<h4>Function Inlining<a class="headerlink" href="#function-inlining" title="Link to this heading"></a></h4>
+<p>Replaces function calls with function body:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.optimization</span><span class="w"> </span><span class="kn">import</span> <span class="n">FunctionInlining</span>
+
+<span class="n">inliner</span> <span class="o">=</span> <span class="n">FunctionInlining</span><span class="p">()</span>
+<span class="n">optimized</span> <span class="o">=</span> <span class="n">inliner</span><span class="o">.</span><span class="n">optimize</span><span class="p">(</span><span class="n">program</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="pass-manager">
+<h3>Pass Manager<a class="headerlink" href="#pass-manager" title="Link to this heading"></a></h3>
+<p>Orchestrates optimization passes:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.application.passmanager</span><span class="w"> </span><span class="kn">import</span> <span class="n">PassManager</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.application.passes</span><span class="w"> </span><span class="kn">import</span> <span class="n">register_standard_passes</span>
+
+<span class="n">pm</span> <span class="o">=</span> <span class="n">PassManager</span><span class="p">()</span>
+<span class="n">register_standard_passes</span><span class="p">(</span><span class="n">pm</span><span class="p">)</span>
+<span class="n">pipeline</span> <span class="o">=</span> <span class="n">pm</span><span class="o">.</span><span class="n">build_pipeline</span><span class="p">([</span>
+    <span class="s2">&quot;simplify&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;methodcall&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;inlining&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;cullprogram&quot;</span>
+<span class="p">])</span>
+<span class="n">results</span> <span class="o">=</span> <span class="n">pm</span><span class="o">.</span><span class="n">run_pipeline</span><span class="p">(</span><span class="n">compiler</span><span class="p">,</span> <span class="n">program</span><span class="p">,</span> <span class="n">pipeline</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="application-layer">
+<h2>Application Layer<a class="headerlink" href="#application-layer" title="Link to this heading"></a></h2>
+<p>The application layer provides high-level interfaces and orchestration.</p>
+<section id="analysis-pipeline">
+<h3>Analysis Pipeline<a class="headerlink" href="#analysis-pipeline" title="Link to this heading"></a></h3>
+<p>Coordinates the overall analysis process:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.application.pipeline</span><span class="w"> </span><span class="kn">import</span> <span class="n">AnalysisPipeline</span>
+
+<span class="n">pipeline</span> <span class="o">=</span> <span class="n">AnalysisPipeline</span><span class="p">()</span>
+<span class="n">results</span> <span class="o">=</span> <span class="n">pipeline</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">program</span><span class="p">,</span> <span class="n">config</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="analysis-context">
+<h3>Analysis Context<a class="headerlink" href="#analysis-context" title="Link to this heading"></a></h3>
+<p>Manages analysis configuration and state:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.application.context</span><span class="w"> </span><span class="kn">import</span> <span class="n">AnalysisContext</span>
+
+<span class="n">context</span> <span class="o">=</span> <span class="n">AnalysisContext</span><span class="p">()</span>
+<span class="n">context</span><span class="o">.</span><span class="n">set_config</span><span class="p">(</span><span class="s2">&quot;cpa.context_sensitive&quot;</span><span class="p">,</span> <span class="kc">True</span><span class="p">)</span>
+<span class="n">context</span><span class="o">.</span><span class="n">set_config</span><span class="p">(</span><span class="s2">&quot;callgraph.algorithm&quot;</span><span class="p">,</span> <span class="s2">&quot;opa&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="data-flow">
+<h2>Data Flow<a class="headerlink" href="#data-flow" title="Link to this heading"></a></h2>
+<p>This section describes how data flows through PyFlow’s architecture:</p>
+<ol class="arabic simple">
+<li><p><strong>Input</strong>: Python source files</p></li>
+<li><p><strong>Frontend</strong>: Parse and extract program structure</p></li>
+<li><p><strong>IR</strong>: Build intermediate representations</p></li>
+<li><p><strong>Analysis</strong>: Run static analyses</p></li>
+<li><p><strong>Optimization</strong>: Apply transformations</p></li>
+<li><p><strong>Output</strong>: Analysis results or optimized code</p></li>
+</ol>
+</section>
+<section id="key-design-principles">
+<h2>Key Design Principles<a class="headerlink" href="#key-design-principles" title="Link to this heading"></a></h2>
+<ol class="arabic simple">
+<li><p><strong>Modularity</strong>: Each component has a single, well-defined responsibility</p></li>
+<li><p><strong>Extensibility</strong>: New analyses can be added without modifying core</p></li>
+<li><p><strong>Reusability</strong>: IR structures can be shared across analyses</p></li>
+<li><p><strong>Performance</strong>: Efficient algorithms for large codebases</p></li>
+<li><p><strong>Precision</strong>: Context-sensitive, flow-sensitive analysis options</p></li>
+</ol>
+</section>
+<section id="trade-offs">
+<h2>Trade-offs<a class="headerlink" href="#trade-offs" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p><strong>Precision vs. Performance</strong>: More precise analyses are slower</p></li>
+<li><p><strong>Soundness vs. Completeness</strong>: PyFlow favors soundness</p></li>
+<li><p><strong>Generality vs. Specificity</strong>: General-purpose but can be configured</p></li>
+</ul>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="index.html" class="btn btn-neutral float-left" title="Explanations" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="algorithms.html" class="btn btn-neutral float-right" title="Algorithms" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, rainoftime.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

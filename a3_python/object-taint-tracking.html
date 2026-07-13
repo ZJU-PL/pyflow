@@ -1,0 +1,287 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Object Taint Tracking &mdash; pyflow 0.1.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=01f34227"></script>
+      <script src="../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Type-Based Sanitizers" href="type-based-sanitizers.html" />
+    <link rel="prev" title="Cross-Module Resolution" href="cross-module-resolution.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            pyflow
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Getting Started</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../tutorials/index.html">Tutorials</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#what-is-pyflow">What is PyFlow?</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#key-features">Key Features</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#architecture">Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#repository-status-in-practice">Repository status in practice</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">How-to Guides</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../how-to/index.html">How-to Guides</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Explanations</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../explanation/index.html">Explanations</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">A3 Python</span></p>
+<ul class="current">
+<li class="toctree-l1 current"><a class="reference internal" href="index.html"><code class="docutils literal notranslate"><span class="pre">a3_python</span></code></a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="overview.html">Overview</a></li>
+<li class="toctree-l2"><a class="reference internal" href="architecture.html">Architecture</a></li>
+<li class="toctree-l2"><a class="reference internal" href="analysis-techniques.html">Analysis Techniques</a></li>
+<li class="toctree-l2"><a class="reference internal" href="bug-taxonomy.html">Bug Taxonomy</a></li>
+<li class="toctree-l2"><a class="reference internal" href="contracts-and-barriers.html">Contracts and Barrier Reasoning</a></li>
+<li class="toctree-l2"><a class="reference internal" href="interprocedural-barrier-synthesis.html">Interprocedural Barrier Synthesis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="cross-module-resolution.html">Cross-Module Resolution</a></li>
+<li class="toctree-l2 current"><a class="current reference internal" href="#">Object Taint Tracking</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#shared-mechanism">Shared mechanism</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#file-object-taint">File-object taint</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#socket-taint">Socket taint</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#security-impact">Security impact</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#why-receiver-aware-propagation-matters">Why receiver-aware propagation matters</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#related-code-and-tests">Related code and tests</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="type-based-sanitizers.html">Type-Based Sanitizers</a></li>
+<li class="toctree-l2"><a class="reference internal" href="case-studies.html">Case Studies and Precision Notes</a></li>
+<li class="toctree-l2"><a class="reference internal" href="package-map.html">Package Map</a></li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html">Main Commands</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html#global-options">Global Options</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html#integration">Integration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../api.html">PyFlow API</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html">Analysis Modules</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#overview">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#analysis-configuration">Analysis Configuration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#running-analyses">Running Analyses</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#analysis-results">Analysis Results</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html">Optimizing Python Programs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#overview">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#optimization-categories">Optimization Categories</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#optimization-pipeline">Optimization Pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#usage">Usage</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../lang/index.html">Language Module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html">Security Analysis and Checking</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#checker-categories">Checker Categories</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#analysis-framework">Analysis Framework</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#usage">Usage</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">pyflow</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="index.html"><code class="docutils literal notranslate"><span class="pre">a3_python</span></code></a></li>
+      <li class="breadcrumb-item active">Object Taint Tracking</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/a3_python/object-taint-tracking.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="object-taint-tracking">
+<h1>Object Taint Tracking<a class="headerlink" href="#object-taint-tracking" title="Link to this heading"></a></h1>
+<p>The original theory notes included dedicated writeups for file-object taint and
+network-socket taint. Those notes are worth preserving because they show that
+<code class="docutils literal notranslate"><span class="pre">a3_python</span></code> is designed for object-aware taint propagation, not only plain
+string-flow analysis.</p>
+<section id="shared-mechanism">
+<h2>Shared mechanism<a class="headerlink" href="#shared-mechanism" title="Link to this heading"></a></h2>
+<p>Both file-object and socket taint tracking rely on the same key idea:</p>
+<ul class="simple">
+<li><p>a call result inherits taint from its arguments</p></li>
+<li><p>for method-like operations, the result can also inherit taint from the
+receiver object or callable reference</p></li>
+</ul>
+<p>This is exactly the pattern described in the original notes and implemented in
+the current tree around:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">semantics/security_tracker_lattice.py</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">contracts/security_lattice.py</span></code></p></li>
+</ul>
+</section>
+<section id="file-object-taint">
+<h2>File-object taint<a class="headerlink" href="#file-object-taint" title="Link to this heading"></a></h2>
+<p>The file-object note used the following canonical flow:</p>
+<ul class="simple">
+<li><p>tainted path</p></li>
+<li><p>file object created from that path</p></li>
+<li><p>content read from the file object</p></li>
+<li><p>content used in a sink</p></li>
+</ul>
+<p>That pattern matters because the danger may not be at the initial <code class="docutils literal notranslate"><span class="pre">open()</span></code>
+call alone. The follow-on read result can become the real source of:</p>
+<ul class="simple">
+<li><p>code injection</p></li>
+<li><p>unsafe configuration loading</p></li>
+<li><p>path-based trust mistakes</p></li>
+</ul>
+<p>The implementation intent is:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">open(tainted_path)</span></code> can create a tainted file object</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">f.read()</span></code> can produce data inheriting taint from <code class="docutils literal notranslate"><span class="pre">f</span></code></p></li>
+<li><p>later sink checks can combine both path and content reasoning</p></li>
+</ul>
+<p>This theory is backed by tests in the repository, including dedicated file
+object taint tests under <code class="docutils literal notranslate"><span class="pre">tests/a3-python</span></code>.</p>
+</section>
+<section id="socket-taint">
+<h2>Socket taint<a class="headerlink" href="#socket-taint" title="Link to this heading"></a></h2>
+<p>The socket-taint note extends the same mechanism to network objects:</p>
+<ul class="simple">
+<li><p>a socket or connection created from attacker-controlled data becomes tainted</p></li>
+<li><p>data received through that socket inherits both a generic network-source label
+and the socket object’s existing taint</p></li>
+</ul>
+<p>This is especially important for second-order SSRF-like patterns:</p>
+<ul class="simple">
+<li><p>attacker controls where the program connects</p></li>
+<li><p>the returned data is then trusted too much</p></li>
+<li><p>that data is reused in another security-sensitive network operation</p></li>
+</ul>
+<p>The original note framed the core transfer rule as:</p>
+<ul class="simple">
+<li><p>socket creation propagates host or address taint into the socket object</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">recv</span></code>-like operations merge a network-read source label with the socket’s
+taint</p></li>
+</ul>
+<p>That gives the analyzer a way to represent:</p>
+<ul class="simple">
+<li><p>ordinary network-derived untrusted input</p></li>
+<li><p>transitive attacker control over the connection origin itself</p></li>
+</ul>
+</section>
+<section id="security-impact">
+<h2>Security impact<a class="headerlink" href="#security-impact" title="Link to this heading"></a></h2>
+<p>These object-aware taint flows improve detection for patterns such as:</p>
+<ul class="simple">
+<li><p>SSRF through tainted URLs, sockets, or connection pools</p></li>
+<li><p>command or code execution on content read from tainted files</p></li>
+<li><p>path or deserialization hazards that arise after object-mediated reads</p></li>
+</ul>
+<p>More broadly, they show why the subsystem uses a richer taint lattice and
+object-sensitive propagation instead of only line-based string sources and
+sinks.</p>
+</section>
+<section id="why-receiver-aware-propagation-matters">
+<h2>Why receiver-aware propagation matters<a class="headerlink" href="#why-receiver-aware-propagation-matters" title="Link to this heading"></a></h2>
+<p>The original notes emphasized that object taint is compositional:</p>
+<ul class="simple">
+<li><p>file handles, sockets, cursors, and similar handles can carry semantic state</p></li>
+<li><p>later operations on those objects should see that state</p></li>
+</ul>
+<p>This is a particularly good fit for Python, where many security-relevant flows
+are protocol-driven:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">open(...).read()</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">socket.recv()</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">cursor.fetchall()</span></code></p></li>
+<li><p>framework object methods that wrap external state</p></li>
+</ul>
+<p>By propagating taint through object receivers and not just explicit arguments,
+the analysis can model these idioms much more naturally.</p>
+</section>
+<section id="related-code-and-tests">
+<h2>Related code and tests<a class="headerlink" href="#related-code-and-tests" title="Link to this heading"></a></h2>
+<p>Relevant implementation areas:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">semantics/security_tracker_lattice.py</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">contracts/security_lattice.py</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">unsafe/security/</span></code></p></li>
+</ul>
+<p>Relevant tests in the current repository include dedicated coverage for:</p>
+<ul class="simple">
+<li><p>file object taint</p></li>
+<li><p>socket taint</p></li>
+<li><p>connection or cursor-like propagation patterns</p></li>
+</ul>
+<p>These are some of the clearest examples where theory notes from the original
+project map directly onto the current codebase.</p>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="cross-module-resolution.html" class="btn btn-neutral float-left" title="Cross-Module Resolution" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="type-based-sanitizers.html" class="btn btn-neutral float-right" title="Type-Based Sanitizers" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, rainoftime.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

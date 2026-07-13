@@ -1,0 +1,526 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>How to Debug Analysis Issues &mdash; pyflow 0.1.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=01f34227"></script>
+      <script src="../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Explanations" href="../explanation/index.html" />
+    <link rel="prev" title="How to Visualize Results" href="visualize-results.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            pyflow
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Getting Started</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../tutorials/index.html">Tutorials</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#what-is-pyflow">What is PyFlow?</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#key-features">Key Features</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#architecture">Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html#repository-status-in-practice">Repository status in practice</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">How-to Guides</span></p>
+<ul class="current">
+<li class="toctree-l1 current"><a class="reference internal" href="index.html">How-to Guides</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="analyze-call-graph.html">How to Analyze Call Graphs</a></li>
+<li class="toctree-l2"><a class="reference internal" href="analyze-control-flow.html">How to Analyze Control Flow</a></li>
+<li class="toctree-l2"><a class="reference internal" href="optimize-code.html">How to Optimize Code</a></li>
+<li class="toctree-l2"><a class="reference internal" href="security-analysis.html">How to Perform Security Analysis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="customize-analysis.html">How to Customize Analysis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="integrate-with-build-systems.html">Integrate with Build Systems</a></li>
+<li class="toctree-l2"><a class="reference internal" href="visualize-results.html">How to Visualize Results</a></li>
+<li class="toctree-l2 current"><a class="current reference internal" href="#">How to Debug Analysis Issues</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#common-issues">Common Issues</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#syntax-errors">Syntax Errors</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#symptom">Symptom</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#solution">Solution</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#import-errors">Import Errors</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#id2">Symptom</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#id3">Solution</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#incomplete-analysis">Incomplete Analysis</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#id4">Symptom</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#id5">Solution</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#incorrect-results">Incorrect Results</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#id6">Symptom</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#id7">Solution</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#performance-issues">Performance Issues</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#id8">Symptom</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#id9">Solution</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#debugging-techniques">Debugging Techniques</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#enable-verbose-output">Enable Verbose Output</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#log-output">Log Output</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#dump-intermediate-representations">Dump Intermediate Representations</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#debug-mode">Debug Mode</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#common-error-messages">Common Error Messages</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#error-module-not-found">Error: “Module not found”</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#error-function-not-found">Error: “Function not found”</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#error-analysis-timeout">Error: “Analysis timeout”</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#error-memory-exhausted">Error: “Memory exhausted”</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#getting-help">Getting Help</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="analyze-call-graph.html">How to Analyze Call Graphs</a></li>
+<li class="toctree-l2"><a class="reference internal" href="analyze-control-flow.html">How to Analyze Control Flow</a></li>
+<li class="toctree-l2"><a class="reference internal" href="optimize-code.html">How to Optimize Code</a></li>
+<li class="toctree-l2"><a class="reference internal" href="security-analysis.html">How to Perform Security Analysis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="customize-analysis.html">How to Customize Analysis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="integrate-with-build-systems.html">Integrate with Build Systems</a></li>
+<li class="toctree-l2"><a class="reference internal" href="visualize-results.html">How to Visualize Results</a></li>
+<li class="toctree-l2 current"><a class="current reference internal" href="#">How to Debug Analysis Issues</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#common-issues">Common Issues</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#syntax-errors">Syntax Errors</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#symptom">Symptom</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#solution">Solution</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#import-errors">Import Errors</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#id2">Symptom</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#id3">Solution</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#incomplete-analysis">Incomplete Analysis</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#id4">Symptom</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#id5">Solution</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#incorrect-results">Incorrect Results</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#id6">Symptom</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#id7">Solution</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#performance-issues">Performance Issues</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#id8">Symptom</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#id9">Solution</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#debugging-techniques">Debugging Techniques</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#enable-verbose-output">Enable Verbose Output</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#log-output">Log Output</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#dump-intermediate-representations">Dump Intermediate Representations</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#debug-mode">Debug Mode</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#common-error-messages">Common Error Messages</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#error-module-not-found">Error: “Module not found”</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#error-function-not-found">Error: “Function not found”</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#error-analysis-timeout">Error: “Analysis timeout”</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#error-memory-exhausted">Error: “Memory exhausted”</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#getting-help">Getting Help</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Explanations</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../explanation/index.html">Explanations</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">A3 Python</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../a3_python/index.html"><code class="docutils literal notranslate"><span class="pre">a3_python</span></code></a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html">Main Commands</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html#global-options">Global Options</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html#integration">Integration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../api.html">PyFlow API</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html">Analysis Modules</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#overview">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#analysis-configuration">Analysis Configuration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#running-analyses">Running Analyses</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#analysis-results">Analysis Results</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html">Optimizing Python Programs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#overview">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#optimization-categories">Optimization Categories</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#optimization-pipeline">Optimization Pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#usage">Usage</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../lang/index.html">Language Module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html">Security Analysis and Checking</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#checker-categories">Checker Categories</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#analysis-framework">Analysis Framework</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#usage">Usage</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">pyflow</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="index.html">How-to Guides</a></li>
+      <li class="breadcrumb-item active">How to Debug Analysis Issues</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/how-to/debug-analysis-issues.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="how-to-debug-analysis-issues">
+<span id="id1"></span><h1>How to Debug Analysis Issues<a class="headerlink" href="#how-to-debug-analysis-issues" title="Link to this heading"></a></h1>
+<p>This guide explains how to diagnose and resolve issues with PyFlow’s analysis.</p>
+<section id="common-issues">
+<h2>Common Issues<a class="headerlink" href="#common-issues" title="Link to this heading"></a></h2>
+<p>PyFlow analysis may encounter various issues. This guide helps you identify
+and resolve them.</p>
+</section>
+<section id="syntax-errors">
+<h2>Syntax Errors<a class="headerlink" href="#syntax-errors" title="Link to this heading"></a></h2>
+<section id="symptom">
+<h3>Symptom<a class="headerlink" href="#symptom" title="Link to this heading"></a></h3>
+<p>Analysis fails with syntax error messages.</p>
+</section>
+<section id="solution">
+<h3>Solution<a class="headerlink" href="#solution" title="Link to this heading"></a></h3>
+<ol class="arabic">
+<li><p>Verify the Python file is syntactically correct:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>-m<span class="w"> </span>py_compile<span class="w"> </span>input.py
+</pre></div>
+</div>
+</li>
+<li><p>Check for Python version compatibility:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>--version
+</pre></div>
+</div>
+</li>
+<li><p>Run PyFlow with verbose output:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>optimize<span class="w"> </span>input.py<span class="w"> </span>--verbose
+</pre></div>
+</div>
+</li>
+</ol>
+<p>Example error and fix:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>SyntaxError: invalid syntax (line 15)
+x = )  # Missing operand
+</pre></div>
+</div>
+<p>Fix:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">x</span> <span class="o">=</span> <span class="mi">5</span>  <span class="c1"># Added operand</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="import-errors">
+<h2>Import Errors<a class="headerlink" href="#import-errors" title="Link to this heading"></a></h2>
+<section id="id2">
+<h3>Symptom<a class="headerlink" href="#id2" title="Link to this heading"></a></h3>
+<p>Analysis fails due to missing modules or import errors.</p>
+</section>
+<section id="id3">
+<h3>Solution<a class="headerlink" href="#id3" title="Link to this heading"></a></h3>
+<ol class="arabic">
+<li><p>Install required dependencies:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pip<span class="w"> </span>install<span class="w"> </span>-r<span class="w"> </span>requirements.txt
+</pre></div>
+</div>
+</li>
+<li><p>Use virtual environment:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">source</span><span class="w"> </span>venv/bin/activate
+</pre></div>
+</div>
+</li>
+<li><p>Check for version mismatches:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pip<span class="w"> </span>list<span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>pyflow
+</pre></div>
+</div>
+</li>
+<li><p>Exclude problematic files:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>optimize<span class="w"> </span>input.py<span class="w"> </span>--recursive
+</pre></div>
+</div>
+</li>
+</ol>
+</section>
+</section>
+<section id="incomplete-analysis">
+<h2>Incomplete Analysis<a class="headerlink" href="#incomplete-analysis" title="Link to this heading"></a></h2>
+<section id="id4">
+<h3>Symptom<a class="headerlink" href="#id4" title="Link to this heading"></a></h3>
+<p>Analysis completes but misses some functions or produces incomplete results.</p>
+</section>
+<section id="id5">
+<h3>Solution<a class="headerlink" href="#id5" title="Link to this heading"></a></h3>
+<ol class="arabic">
+<li><p>Increase call graph depth:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>callgraph<span class="w"> </span>input.py<span class="w"> </span>--context-depth<span class="w"> </span><span class="m">20</span>
+</pre></div>
+</div>
+</li>
+<li><p>Enable all analyses:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>optimize<span class="w"> </span>input.py<span class="w"> </span>--analysis<span class="w"> </span>all
+</pre></div>
+</div>
+</li>
+<li><p>Check for unhandled language features:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>ir<span class="w"> </span>input.py<span class="w"> </span>--dump-ast<span class="w"> </span>function_name
+</pre></div>
+</div>
+</li>
+<li><p>Use context-sensitive analysis:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>callgraph<span class="w"> </span>input.py<span class="w"> </span>--algorithm<span class="w"> </span>constraint<span class="w"> </span>--context-sensitive
+</pre></div>
+</div>
+</li>
+</ol>
+</section>
+</section>
+<section id="incorrect-results">
+<h2>Incorrect Results<a class="headerlink" href="#incorrect-results" title="Link to this heading"></a></h2>
+<section id="id6">
+<h3>Symptom<a class="headerlink" href="#id6" title="Link to this heading"></a></h3>
+<p>Analysis produces incorrect or unexpected results.</p>
+</section>
+<section id="id7">
+<h3>Solution<a class="headerlink" href="#id7" title="Link to this heading"></a></h3>
+<ol class="arabic">
+<li><p>Verify with multiple analysis passes:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>optimize<span class="w"> </span>input.py<span class="w"> </span>--analysis<span class="w"> </span>cpa,ipa,shape
+</pre></div>
+</div>
+</li>
+<li><p>Compare with expected behavior:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Expected: function returns positive numbers</span>
+<span class="c1"># Check actual behavior</span>
+<span class="k">assert</span> <span class="n">result</span> <span class="o">&gt;</span> <span class="mi">0</span>
+</pre></div>
+</div>
+</li>
+<li><p>Use more precise analysis:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>callgraph<span class="w"> </span>input.py<span class="w"> </span>--algorithm<span class="w"> </span>constraint<span class="w"> </span>--context-sensitive
+</pre></div>
+</div>
+</li>
+<li><p>Report false positives/negatives:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>security<span class="w"> </span>input.py<span class="w"> </span>--verbose
+</pre></div>
+</div>
+</li>
+</ol>
+</section>
+</section>
+<section id="performance-issues">
+<h2>Performance Issues<a class="headerlink" href="#performance-issues" title="Link to this heading"></a></h2>
+<section id="id8">
+<h3>Symptom<a class="headerlink" href="#id8" title="Link to this heading"></a></h3>
+<p>Analysis takes too long or runs out of memory.</p>
+</section>
+<section id="id9">
+<h3>Solution<a class="headerlink" href="#id9" title="Link to this heading"></a></h3>
+<ol class="arabic">
+<li><p>Limit analysis scope:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>optimize<span class="w"> </span>input.py<span class="w"> </span>--recursive<span class="w"> </span>--exclude<span class="w"> </span><span class="s2">&quot;test_*&quot;</span>
+</pre></div>
+</div>
+</li>
+<li><p>Reduce context depth:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>callgraph<span class="w"> </span>input.py<span class="w"> </span>--algorithm<span class="w"> </span>constraint<span class="w"> </span>--context-depth<span class="w"> </span><span class="m">2</span>
+</pre></div>
+</div>
+</li>
+<li><p>Use faster analysis algorithms:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>callgraph<span class="w"> </span>input.py<span class="w"> </span>--algorithm<span class="w"> </span>simple
+</pre></div>
+</div>
+</li>
+<li><p>Process files incrementally:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>optimize<span class="w"> </span>file1.py
+pyflow<span class="w"> </span>optimize<span class="w"> </span>file2.py
+<span class="c1"># Combine results programmatically</span>
+</pre></div>
+</div>
+</li>
+<li><p>For large codebases, use targeted analysis:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>ir<span class="w"> </span>input.py<span class="w"> </span>--dump-cfg<span class="w"> </span>main<span class="w"> </span>--dump-format<span class="w"> </span>json
+</pre></div>
+</div>
+</li>
+</ol>
+</section>
+</section>
+<section id="debugging-techniques">
+<h2>Debugging Techniques<a class="headerlink" href="#debugging-techniques" title="Link to this heading"></a></h2>
+<section id="enable-verbose-output">
+<h3>Enable Verbose Output<a class="headerlink" href="#enable-verbose-output" title="Link to this heading"></a></h3>
+<p>Get detailed information about analysis progress:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>optimize<span class="w"> </span>input.py<span class="w"> </span>--verbose
+</pre></div>
+</div>
+</section>
+<section id="log-output">
+<h3>Log Output<a class="headerlink" href="#log-output" title="Link to this heading"></a></h3>
+<p>Capture detailed output for later analysis:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>optimize<span class="w"> </span>input.py<span class="w"> </span>--verbose<span class="w"> </span><span class="m">2</span>&gt;<span class="p">&amp;</span><span class="m">1</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>tee<span class="w"> </span>analysis.log
+</pre></div>
+</div>
+</section>
+<section id="dump-intermediate-representations">
+<h3>Dump Intermediate Representations<a class="headerlink" href="#dump-intermediate-representations" title="Link to this heading"></a></h3>
+<p>Inspect intermediate representations:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>ir<span class="w"> </span>input.py<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--dump-ast<span class="w"> </span>function_name<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--dump-format<span class="w"> </span>json<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--output<span class="w"> </span>ast.json
+
+pyflow<span class="w"> </span>ir<span class="w"> </span>input.py<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--dump-cfg<span class="w"> </span>function_name<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--dump-format<span class="w"> </span>json<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--output<span class="w"> </span>cfg.json
+</pre></div>
+</div>
+</section>
+<section id="debug-mode">
+<h3>Debug Mode<a class="headerlink" href="#debug-mode" title="Link to this heading"></a></h3>
+<p>Run analysis in debug mode for maximum information:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>optimize<span class="w"> </span>input.py<span class="w"> </span>--verbose<span class="w"> </span>--debug
+</pre></div>
+</div>
+</section>
+</section>
+<section id="common-error-messages">
+<h2>Common Error Messages<a class="headerlink" href="#common-error-messages" title="Link to this heading"></a></h2>
+<section id="error-module-not-found">
+<h3>Error: “Module not found”<a class="headerlink" href="#error-module-not-found" title="Link to this heading"></a></h3>
+<p>The required module is not installed or not in the Python path.</p>
+<p>Solution:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pip<span class="w"> </span>install<span class="w"> </span>missing_module
+<span class="c1"># or set PYTHONPATH before running</span>
+<span class="nv">PYTHONPATH</span><span class="o">=</span>/path/to/module<span class="w"> </span>pyflow<span class="w"> </span>optimize<span class="w"> </span>input.py
+</pre></div>
+</div>
+</section>
+<section id="error-function-not-found">
+<h3>Error: “Function not found”<a class="headerlink" href="#error-function-not-found" title="Link to this heading"></a></h3>
+<p>The specified function does not exist in the source file.</p>
+<p>Solution:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># List all functions in file</span>
+pyflow<span class="w"> </span>ir<span class="w"> </span>input.py<span class="w"> </span>--dump-ast<span class="w"> </span>all<span class="w"> </span>--format<span class="w"> </span>json<span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span><span class="s1">&#39;&quot;name&quot;&#39;</span>
+</pre></div>
+</div>
+</section>
+<section id="error-analysis-timeout">
+<h3>Error: “Analysis timeout”<a class="headerlink" href="#error-analysis-timeout" title="Link to this heading"></a></h3>
+<p>The analysis took too long and was aborted.</p>
+<p>Solution:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># For very large codebases, use targeted analysis</span>
+pyflow<span class="w"> </span>optimize<span class="w"> </span>input.py<span class="w"> </span>--analysis<span class="w"> </span>cpa<span class="w">  </span><span class="c1"># Run only one analysis at a time</span>
+</pre></div>
+</div>
+</section>
+<section id="error-memory-exhausted">
+<h3>Error: “Memory exhausted”<a class="headerlink" href="#error-memory-exhausted" title="Link to this heading"></a></h3>
+<p>The analysis ran out of memory.</p>
+<p>Solution:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Limit scope or run on smaller subsets of code</span>
+pyflow<span class="w"> </span>optimize<span class="w"> </span>input.py<span class="w"> </span>--include<span class="w"> </span><span class="s2">&quot;*.py&quot;</span><span class="w"> </span>--exclude<span class="w"> </span><span class="s2">&quot;test_*,*_test.py&quot;</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="getting-help">
+<h2>Getting Help<a class="headerlink" href="#getting-help" title="Link to this heading"></a></h2>
+<p>If you cannot resolve an issue:</p>
+<ol class="arabic simple">
+<li><p>Check the documentation at: <a class="reference external" href="https://github.com/ZJU-PL/pyflow/docs">https://github.com/ZJU-PL/pyflow/docs</a></p></li>
+<li><p>Search existing issues: <a class="reference external" href="https://github.com/ZJU-PL/pyflow/issues">https://github.com/ZJU-PL/pyflow/issues</a></p></li>
+<li><p>Create a new issue with:</p>
+<ul class="simple">
+<li><p>Full error message</p></li>
+<li><p>Minimal reproduction case</p></li>
+<li><p>Environment details (Python version, OS, PyFlow version)</p></li>
+</ul>
+</li>
+</ol>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="visualize-results.html" class="btn btn-neutral float-left" title="How to Visualize Results" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="../explanation/index.html" class="btn btn-neutral float-right" title="Explanations" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, rainoftime.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

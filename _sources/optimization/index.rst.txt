@@ -1,106 +1,107 @@
 Optimizing Python Programs
 ===========================
 
-PyFlow provides a comprehensive suite of optimization passes that transform Python code for better performance, smaller size, and improved efficiency.
+PyFlow provides a comprehensive suite of optimization passes that transform Python code for better performance, smaller size, and improved efficiency. These optimizations leverage static analysis to make conservative transformations, with some passes remaining explicitly experimental.
+
+Overview
+========
+
+PyFlow's optimization system operates on an intermediate representation (IR) of Python code, allowing for sophisticated transformations. The optimizations are organized into categories:
+
+- :doc:`constant-folding` - Compile-time evaluation and constant propagation
+- :doc:`dataflow` - Data flow analysis and memory optimizations
+- :doc:`control-flow` - Control flow simplification and dead code removal
+- :doc:`function-optimizations` - Inlining, method call optimization, and specialization
+- :doc:`advanced` - Advanced transformations and code rewriting
 
 Optimization Categories
-=======================
+========================
 
-Constant Folding and Propagation
----------------------------------
+**Constant Folding and Propagation** (fold.py, dce.py, simplify.py)
+  Compile-time evaluation of constant expressions, dead code elimination, and iterative simplification.
 
-**fold.py**: Compile-time evaluation of constant expressions
-- Arithmetic operations on constants
-- String concatenation and manipulation
-- Boolean expression simplification
-- Built-in function evaluation
+**Data Flow Optimizations** (dataflow/*.py, loadelimination.py, storeelimination.py)
+  Forward/backward data flow analysis for reaching definitions, live variables, redundant load elimination, and dead store elimination.
 
-**dce.py**: Dead code elimination
-- Removal of unreachable code blocks
-- Elimination of unused variable assignments
-- Conditional dead code removal
+**Control Flow Optimizations** (simplify.py, cullprogram.py)
+  Basic block merging, jump optimization, unreachable code removal, and unused function/class elimination.
 
-Data Flow Optimizations
------------------------
+**Function and Method Optimizations** (codeinlining.py, methodcall.py, argumentnormalization.py, clone.py)
+  Function inlining, virtual method call elimination, argument normalization, and context-specific code cloning.
 
-**dataflow/base.py, forward.py, reverse.py**: Data flow analysis framework
-- Forward data flow analysis for reaching definitions
-- Backward data flow analysis for live variables
-- Configurable meet functions and transfer functions
-
-**loadelimination.py**: Redundant load elimination
-- Common subexpression elimination for loads
-- Store-load forwarding
-- Memory access optimization
-
-**storeelimination.py**: Dead store elimination
-- Removal of stores to dead variables
-- Store-load dependency analysis
-- Memory write optimization
-
-Control Flow Optimizations
---------------------------
-
-**simplify.py**: Control flow simplification
-- Basic block merging
-- Jump optimization
-- Conditional simplification
-
-**cullprogram.py**: Program culling
-- Removal of unused functions and classes
-- Dead module elimination
-- Import optimization
-
-Function and Method Optimizations
----------------------------------
-
-**codeinlining.py**: Function inlining
-- Small function inlining for performance
-- Context-sensitive inlining decisions
-- Recursion handling
-
-**methodcall.py**: Method call optimization
-- Virtual method call elimination
-- Direct call conversion
-- Polymorphism optimization
-
-**argumentnormalization.py**: Argument handling optimization
-- Default argument optimization
-- Keyword argument normalization
-- Call site optimization
-
-Advanced Optimizations
-----------------------
-
-**callconverter.py**: Call conversion
-- Builtin function call optimization
-- Library call specialization
-- Foreign function interface optimization
-
-**convertboolelimination.py**: Boolean conversion elimination
-- Unnecessary boolean conversions
-- Type coercion optimization
-
-**rewrite.py**: General code rewriting
-- Pattern-based transformations
-- AST-level code modifications
-
-**termrewrite.py**: Term rewriting
-- Algebraic simplifications
-- Expression normalization
-
-**clone.py**: Code cloning for specialization
-- Function specialization
-- Context-specific code generation
+**Advanced Optimizations** (callconverter.py, convertboolelimination.py, rewrite.py, termrewrite.py)
+  Call conversion, boolean elimination, algebraic simplifications, and pattern-based code rewriting.
 
 Optimization Pipeline
 =====================
 
-PyFlow's optimization pipeline applies transformations in phases:
+PyFlow applies optimizations in phases:
 
-1. **Analysis Phase**: Gather information about the program
-2. **Simplification Phase**: Basic optimizations and cleanup
-3. **Advanced Phase**: Complex transformations requiring analysis
-4. **Finalization Phase**: Code generation and output
+1. **Analysis Phase**: IPA, CPA, lifetime analysis
+2. **Simplification Phase**: Constant folding, dead code elimination, control flow simplification
+3. **Advanced Phase**: Method optimization, code cloning, argument normalization, optional experimental inlining
+4. **Finalization Phase**: Program culling, dead store elimination, optional redundant load elimination
 
-Each optimization pass can be enabled/disabled and configured independently.
+Pass Dependencies
+-----------------
+
+Key dependencies ensure correct ordering:
+- IPA → CPA → most optimizations
+- Simplify → clone, argument normalization, cull program
+- Lifetime analysis runs early
+
+Usage
+=====
+
+CLI Usage
+---------
+
+.. code-block:: bash
+
+   # Run all optimizations
+   pyflow optimize input.py
+
+   # Run specific passes
+   pyflow optimize input.py --opt-passes simplify methodcall clone
+
+   # List available passes
+   pyflow optimize --list-opt-passes
+
+Programmatic Usage
+------------------
+
+.. code-block:: python
+
+   from pyflow.optimization import simplify, methodcall, clone
+
+   # Run individual passes
+   simplify.evaluate(compiler, program)
+   methodcall.evaluate(compiler, program)
+   clone.evaluate(compiler, program)
+
+Pass Manager
+------------
+
+For complex pipelines:
+
+.. code-block:: python
+
+   from pyflow.application.passmanager import PassManager
+   from pyflow.application.passes import register_standard_passes
+
+   pass_manager = PassManager()
+   register_standard_passes(pass_manager)
+   pipeline = pass_manager.build_pipeline([
+       "ipa", "cpa", "simplify", "methodcall", "clone"
+   ])
+   results = pass_manager.run_pipeline(compiler, program, pipeline)
+
+.. toctree::
+   :maxdepth: 2
+   :caption: Detailed Documentation
+
+   constant-folding
+   dataflow
+   control-flow
+   function-optimizations
+   advanced
