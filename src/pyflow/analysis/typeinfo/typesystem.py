@@ -14,6 +14,7 @@ from ``pynguin.analyses.module``.
 from __future__ import annotations
 
 import dataclasses
+import enum
 import functools
 import inspect
 import logging
@@ -223,8 +224,13 @@ class UnionType(ProperType):
     """The union type Union[T1, ..., Tn] (at least one type argument)."""
 
     def __init__(self, items: tuple[ProperType, ...]):  # noqa: D107
-        self.items: Final[tuple[ProperType, ...]] = items
-        # TODO(fk) think about flattening Unions, also order should not matter.
+        flattened: set[ProperType] = set()
+        for item in items:
+            if isinstance(item, UnionType):
+                flattened.update(item.items)
+            else:
+                flattened.add(item)
+        self.items: Final[tuple[ProperType, ...]] = tuple(sorted(flattened))
         assert len(self.items) > 0
         # Cached hash value
         self._hash: int | None = None
@@ -239,6 +245,37 @@ class UnionType(ProperType):
 
     def __eq__(self, other):
         return isinstance(other, UnionType) and self.items == other.items
+
+
+class CallableType(ProperType):
+    """A callable type ``Callable[[A, ...], R]``.
+
+    ``arg_types`` is ``None`` for an ellipsis callable, i.e. ``Callable[..., R]``.
+    """
+
+    def __init__(
+        self,
+        arg_types: tuple[ProperType, ...] | None,
+        return_type: ProperType,
+    ) -> None:
+        self.arg_types: Final[tuple[ProperType, ...] | None] = arg_types
+        self.return_type: Final[ProperType] = return_type
+        self._hash: int | None = None
+
+    def accept(self, visitor: TypeVisitor[T]) -> T:  # noqa: D102
+        return visitor.visit_callable_type(self)
+
+    def __hash__(self):
+        if self._hash is None:
+            self._hash = hash((self.arg_types, self.return_type))
+        return self._hash
+
+    def __eq__(self, other):
+        return (
+            isinstance(other, CallableType)
+            and self.arg_types == other.arg_types
+            and self.return_type == other.return_type
+        )
 
 
 class StringSubtype(ProperType):
@@ -423,6 +460,75 @@ class Unsupported(ProperType):
         return visitor.visit_unsupported_type(self)
 
 
+class Variance(enum.Enum):
+    """Type variable variance kinds as defined in PEP 484."""
+
+    INVARIANT = 0
+    COVARIANT = 1
+    CONTRAVARIANT = 2
+
+
+class TypeVarType(ProperType):
+    """A PEP 484 ``TypeVar`` in the type system.
+
+    Represents a type variable that may be constrained or have an upper bound.
+    Supports invariance, covariance, and contravariance.
+    """
+
+    def __init__(  # noqa: D107
+        self,
+        name: str,
+        *,
+        constraints: tuple[ProperType, ...] = (),
+        bound: ProperType | None = None,
+        variance: Variance = Variance.INVARIANT,
+    ) -> None:
+        self.name: Final[str] = name
+        self.constraints: Final[tuple[ProperType, ...]] = constraints
+        self.bound: Final[ProperType | None] = bound
+        self.variance: Final[Variance] = variance
+        self._hash: int | None = None
+
+    def accept(self, visitor: TypeVisitor[T]) -> T:  # noqa: D102
+        return visitor.visit_type_var_type(self)
+
+    @property
+    def has_constraints(self) -> bool:
+        """Whether this type var has explicit constraints (e.g. ``T = TypeVar('T', int, str)``)."""
+        return len(self.constraints) > 0
+
+    @property
+    def has_bound(self) -> bool:
+        """Whether this type var has an upper bound (e.g. ``T = TypeVar('T', bound=Number)``)."""
+        return self.bound is not None
+
+    def __hash__(self) -> int:
+        if self._hash is None:
+            self._hash = hash((self.name, self.constraints, self.bound, self.variance))
+        return self._hash
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, TypeVarType):
+            return False
+        return (
+            self.name == other.name
+            and self.constraints == other.constraints
+            and self.bound == other.bound
+            and self.variance == other.variance
+        )
+
+    def __repr__(self) -> str:
+        parts = [f"TypeVarType({self.name!r}"]
+        if self.has_constraints:
+            parts.append(f"constraints={self.constraints!r}")
+        if self.has_bound:
+            parts.append(f"bound={self.bound!r}")
+        if self.variance != Variance.INVARIANT:
+            parts.append(f"variance={self.variance.name}")
+        parts.append(")")
+        return "".join(parts)
+
+
 # Static instances to avoid repeated construction.
 ANY = AnyType()
 NONE_TYPE = NoneType()
@@ -513,6 +619,24 @@ class TypeVisitor(Generic[T]):
         Returns:
             Result of the visit
         """
+        return None  # type: ignore[return-value]
+
+    def visit_type_var_type(self, left: TypeVarType) -> T:
+        """Visit a type variable type.
+
+        The default implementation returns ``None``.  Concrete visitors
+        should override this if they need to handle type variables.
+
+        Args:
+            left: type variable
+
+        Returns:
+            Result of the visit
+        """
+        return None  # type: ignore[return-value]
+
+    def visit_callable_type(self, left: CallableType) -> T:
+        """Visit a callable type."""
         return None  # type: ignore[return-value]
 
 
@@ -618,6 +742,21 @@ class TypeStringVisitor(TypeVisitor[str]):
     def visit_unsupported_type(self, left: Unsupported) -> str:  # noqa: D102
         return "<?>"
 
+    def visit_type_var_type(self, left: TypeVarType) -> str:
+        if left.has_constraints:
+            constraints = " | ".join(c.accept(self) for c in left.constraints)
+            return f"{left.name}({constraints})"
+        if left.has_bound and left.bound is not None:
+            return f"{left.name}: {left.bound.accept(self)}"
+        return left.name
+
+    def visit_callable_type(self, left: CallableType) -> str:
+        if left.arg_types is None:
+            args = "..."
+        else:
+            args = "[" + self._sequence_str(left.arg_types) + "]"
+        return f"Callable[{args}, {left.return_type.accept(self)}]"
+
 
 class TypeReprVisitor(TypeVisitor[str]):
     """A simple visitor to create a repr from a proper type."""
@@ -645,6 +784,20 @@ class TypeReprVisitor(TypeVisitor[str]):
 
     def visit_unsupported_type(self, left: Unsupported) -> str:  # noqa: D102
         return "Unsupported()"
+
+    def visit_type_var_type(self, left: TypeVarType) -> str:
+        parts = [f"name={left.name!r}"]
+        if left.has_constraints:
+            parts.append(f"constraints=({', '.join(c.accept(self) for c in left.constraints)})")
+        if left.has_bound and left.bound is not None:
+            parts.append(f"bound={left.bound.accept(self)}")
+        if left.variance != Variance.INVARIANT:
+            parts.append(f"variance={left.variance.name}")
+        return f"TypeVarType({', '.join(parts)})"
+
+    def visit_callable_type(self, left: CallableType) -> str:
+        args = "..." if left.arg_types is None else self._sequence_str(left.arg_types)
+        return f"CallableType(({args}), {left.return_type.accept(self)})"
 
 
 class _SubtypeVisitor(TypeVisitor[bool]):
@@ -714,6 +867,15 @@ class _SubtypeVisitor(TypeVisitor[bool]):
 
     def visit_unsupported_type(self, left: Unsupported) -> bool:
         raise NotImplementedError("This type shall not be used during runtime")
+
+    def visit_type_var_type(self, left: TypeVarType) -> bool:
+        if isinstance(self.right, TypeVarType) and left.name == self.right.name:
+            return True
+        if left.has_constraints:
+            return all(self.sub_type_check(c, self.right) for c in left.constraints)
+        if left.has_bound:
+            return self.sub_type_check(left.bound, self.right)  # type: ignore[arg-type]
+        return True  # Unconstrained TypeVar is subtype of everything
 
 
 class _SubtypeDistanceVisitor(TypeVisitor[int | None]):

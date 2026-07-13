@@ -11,7 +11,6 @@ import enum
 import inspect
 import numbers
 import types
-import typing
 from inspect import isclass
 from typing import TYPE_CHECKING, Any
 
