@@ -477,15 +477,6 @@ class ASTConverter:
         elif isinstance(node, python_ast.Constant):
             return pyflow_ast.Existing(Object(node.value))
 
-        elif isinstance(node, python_ast.Num):  # Python < 3.8
-            return pyflow_ast.Existing(Object(node.n))
-
-        elif isinstance(node, python_ast.Str):  # Python < 3.8
-            return pyflow_ast.Existing(Object(node.s))
-
-        elif isinstance(node, python_ast.NameConstant):  # Python < 3.8
-            return pyflow_ast.Existing(Object(node.value))
-
         elif isinstance(node, python_ast.Call):
             # Handle function calls
             func = self._convert_expression_safe(node.func)
