@@ -13,12 +13,16 @@ from pyflow.analysis.ifds import (
     AnalysisStatus,
     AnalysisFinding,
     CancellationToken,
+    IDEProblem,
+    IDESolver,
+    IdentityEdgeFunction,
     IFDSProblem,
     IFDSSolver,
     SolverOptions,
     SolverLimitExceeded,
     Supergraph,
     SourceSpan,
+    ValueTransition,
 )
 from pyflow.cli.security import run_security
 from pyflow.analysis.ifds.clients.registry import (
@@ -92,6 +96,37 @@ class _GeneratedInterproceduralProblem(IFDSProblem[str, str, str]):
         return self.transitions.get(("bypass", call_node, return_site, fact), ())
 
 
+class _GeneratedIDEProblem(IDEProblem[str, str, str, int]):
+    def __init__(self, graph):
+        self._graph = graph
+
+    @property
+    def supergraph(self):
+        return self._graph
+
+    @property
+    def zero_fact(self):
+        return "0"
+
+    @property
+    def bottom_value(self):
+        return 0
+
+    def join_values(self, left, right):
+        return max(left, right)
+
+    def initial_seed_values(self):
+        return {("n0", "0"): 1}
+
+    def normal_flow(self, node, successor, fact):
+        del node, successor
+        identity = IdentityEdgeFunction()
+        return (
+            ValueTransition(fact, identity),
+            ValueTransition("generated", identity),
+        )
+
+
 def _linear_problem(length=8):
     graph = Supergraph[str, str]()
     graph.add_procedure("main", "n0", [f"n{length - 1}"])
@@ -153,6 +188,16 @@ def test_solver_can_raise_on_budget_exhaustion():
         IFDSSolver(
             options=SolverOptions(max_queue_size=1, limit_behavior="raise")
         ).solve(problem)
+
+
+def test_ide_solver_honors_shared_solver_budgets():
+    base = _linear_problem(3)
+    result = IDESolver(options=SolverOptions(max_facts_per_node=1)).solve(
+        _GeneratedIDEProblem(base.supergraph)
+    )
+
+    assert result.status is AnalysisStatus.PARTIAL
+    assert "max_facts_per_node=1" in result.termination_reason
 
 
 def test_supergraph_assigns_compact_stable_ids_and_order():
