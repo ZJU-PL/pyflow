@@ -3,13 +3,19 @@
 from __future__ import annotations
 
 from collections import defaultdict, deque
-from dataclasses import dataclass
+from dataclasses import dataclass, fields, is_dataclass
+from enum import Enum
+import threading
+import time
+import tracemalloc
+import re
 from typing import (
     DefaultDict,
     Dict,
     FrozenSet,
     Generic,
     Hashable,
+    Literal,
     TYPE_CHECKING,
     TypeVar,
 )
@@ -33,6 +39,79 @@ ValueT = TypeVar("ValueT")
 
 class SolverLimitExceeded(RuntimeError):
     """Raised when solver propagation exceeds a configured safety cap."""
+
+
+class AnalysisStatus(str, Enum):
+    """Completion state of a solver run."""
+
+    COMPLETE = "complete"
+    PARTIAL = "partial"
+    CANCELLED = "cancelled"
+    FAILED = "failed"
+
+
+class CancellationToken:
+    """Thread-safe cooperative cancellation token for solver runs."""
+
+    def __init__(self) -> None:
+        self._event = threading.Event()
+        self._reason: str | None = None
+
+    def cancel(self, reason: str = "cancelled") -> None:
+        self._reason = reason
+        self._event.set()
+
+    @property
+    def is_cancelled(self) -> bool:
+        return self._event.is_set()
+
+    @property
+    def reason(self) -> str | None:
+        return self._reason
+
+
+@dataclass(frozen=True)
+class SolverOptions:
+    """Operational limits and observability controls for IFDS/IDE solving."""
+
+    max_propagated_path_edges: int | None = None
+    max_seconds: float | None = None
+    max_queue_size: int | None = None
+    max_incoming_records: int | None = None
+    max_summary_entries: int | None = None
+    max_facts_per_node: int | None = None
+    max_contexts_per_procedure: int | None = None
+    max_memory_bytes: int | None = None
+    max_call_string_depth: int | None = None
+    cancellation_token: CancellationToken | None = None
+    trace_mode: Literal["none", "findings", "all"] = "none"
+    limit_behavior: Literal["partial", "raise"] = "partial"
+    budget_check_interval: int = 128
+
+    def __post_init__(self) -> None:
+        integer_limits = {
+            "max_propagated_path_edges": self.max_propagated_path_edges,
+            "max_queue_size": self.max_queue_size,
+            "max_incoming_records": self.max_incoming_records,
+            "max_summary_entries": self.max_summary_entries,
+            "max_facts_per_node": self.max_facts_per_node,
+            "max_contexts_per_procedure": self.max_contexts_per_procedure,
+            "max_memory_bytes": self.max_memory_bytes,
+        }
+        for name, value in integer_limits.items():
+            if value is not None and (
+                not isinstance(value, int) or isinstance(value, bool) or value < 1
+            ):
+                raise ValueError(f"{name} must be a positive integer or None")
+        if self.max_seconds is not None and self.max_seconds <= 0:
+            raise ValueError("max_seconds must be positive or None")
+        if self.budget_check_interval < 1:
+            raise ValueError("budget_check_interval must be >= 1")
+        if self.trace_mode not in {"none", "findings", "all"}:
+            raise ValueError("trace_mode must be 'none', 'findings', or 'all'")
+        if self.limit_behavior not in {"partial", "raise"}:
+            raise ValueError("limit_behavior must be 'partial' or 'raise'")
+        _validate_max_call_string_depth(self.max_call_string_depth)
 
 
 @dataclass(frozen=True)
@@ -106,6 +185,12 @@ class SolverStatistics:
     call_to_return_steps: int = 0
     incoming_records: int = 0
     summary_updates: int = 0
+    peak_queue_size: int = 0
+    peak_facts_at_node: int = 0
+    peak_contexts_per_procedure: int = 0
+    peak_memory_bytes: int = 0
+    budget_checks: int = 0
+    elapsed_seconds: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -134,16 +219,27 @@ class _SolverBookkeeping(Generic[NodeT, FactT]):
     def __init__(
         self,
         *,
-        record_traces: bool,
-        max_propagated_path_edges: int | None,
+        options: SolverOptions,
         limit_label: str,
     ) -> None:
-        self.record_traces = record_traces
-        self.max_propagated_path_edges = max_propagated_path_edges
+        self.options = options
+        self.record_traces = options.trace_mode == "all"
+        self.record_predecessors = options.trace_mode in {"findings", "all"}
         self.limit_label = limit_label
+        self.started_at = time.monotonic()
+        self.status = AnalysisStatus.COMPLETE
+        self.termination_reason: str | None = None
+        self._last_budget_check_at = 0
+        self._started_tracemalloc = False
+        if options.max_memory_bytes is not None and not tracemalloc.is_tracing():
+            tracemalloc.start()
+            self._started_tracemalloc = True
         self.traces: DefaultDict[
             PathEdge[NodeT, FactT], list[PropagationTrace[NodeT, FactT]]
         ] = defaultdict(list)
+        self.predecessors: Dict[
+            PathEdge[NodeT, FactT], PropagationTrace[NodeT, FactT]
+        ] = {}
         self.stats = {
             "processed_path_edges": 0,
             "propagated_path_edges": 0,
@@ -153,10 +249,105 @@ class _SolverBookkeeping(Generic[NodeT, FactT]):
             "call_to_return_steps": 0,
             "incoming_records": 0,
             "summary_updates": 0,
+            "peak_queue_size": 0,
+            "peak_facts_at_node": 0,
+            "peak_contexts_per_procedure": 0,
+            "peak_memory_bytes": 0,
+            "budget_checks": 0,
+            "elapsed_seconds": 0.0,
         }
 
     def increment(self, key: str) -> None:
         self.stats[key] += 1
+
+    def observe(self, key: str, value: int) -> None:
+        self.stats[key] = max(self.stats[key], value)
+
+    def stop(self, status: AnalysisStatus, reason: str) -> None:
+        if self.options.limit_behavior == "raise" and status is AnalysisStatus.PARTIAL:
+            self._cleanup_tracing()
+            raise SolverLimitExceeded(reason)
+        if self.status is AnalysisStatus.COMPLETE:
+            self.status = status
+            self.termination_reason = reason
+
+    def check_budget(
+        self,
+        *,
+        queue_size: int = 0,
+        incoming_records: int = 0,
+        summary_entries: int = 0,
+        force: bool = False,
+    ) -> None:
+        if self.status is not AnalysisStatus.COMPLETE:
+            return
+        self.observe("peak_queue_size", queue_size)
+        self.observe("incoming_records", incoming_records)
+        limits = (
+            ("max_queue_size", queue_size, self.options.max_queue_size),
+            (
+                "max_incoming_records",
+                incoming_records,
+                self.options.max_incoming_records,
+            ),
+            (
+                "max_summary_entries",
+                summary_entries,
+                self.options.max_summary_entries,
+            ),
+        )
+        for name, value, limit in limits:
+            if limit is not None and value > limit:
+                self.stop(
+                    AnalysisStatus.PARTIAL,
+                    f"{self.limit_label} exceeded {name}={limit}",
+                )
+                return
+
+        token = self.options.cancellation_token
+        if token is not None and token.is_cancelled:
+            self.stop(AnalysisStatus.CANCELLED, token.reason or "cancelled")
+            return
+
+        self._last_budget_check_at += 1
+        if not force and (
+            self._last_budget_check_at % self.options.budget_check_interval
+        ):
+            return
+
+        self.increment("budget_checks")
+        elapsed = time.monotonic() - self.started_at
+        self.stats["elapsed_seconds"] = elapsed
+        if self.options.max_seconds is not None and elapsed > self.options.max_seconds:
+            self.stop(
+                AnalysisStatus.PARTIAL,
+                f"{self.limit_label} exceeded max_seconds={self.options.max_seconds}",
+            )
+
+        if self.options.max_memory_bytes is not None:
+            _current, peak = tracemalloc.get_traced_memory()
+            self.observe("peak_memory_bytes", peak)
+            if peak > self.options.max_memory_bytes:
+                self.stop(
+                    AnalysisStatus.PARTIAL,
+                    f"{self.limit_label} exceeded max_memory_bytes="
+                    f"{self.options.max_memory_bytes}",
+                )
+
+    def finish(self, *, check_budget: bool = True) -> SolverStatistics:
+        if check_budget:
+            self.check_budget(force=True)
+        self.stats["elapsed_seconds"] = time.monotonic() - self.started_at
+        if self._started_tracemalloc:
+            _current, peak = tracemalloc.get_traced_memory()
+            self.observe("peak_memory_bytes", peak)
+            self._cleanup_tracing()
+        return SolverStatistics(**self.stats)
+
+    def _cleanup_tracing(self) -> None:
+        if self._started_tracemalloc and tracemalloc.is_tracing():
+            tracemalloc.stop()
+        self._started_tracemalloc = False
 
     def record_propagation(
         self,
@@ -166,27 +357,35 @@ class _SolverBookkeeping(Generic[NodeT, FactT]):
         predecessor: PathEdge[NodeT, FactT] | None = None,
         note: str | None = None,
     ) -> None:
+        if self.status is not AnalysisStatus.COMPLETE:
+            return
+        trace = PropagationTrace(path_edge, kind, predecessor, note)
         if self.record_traces:
-            self.traces[path_edge].append(
-                PropagationTrace(path_edge, kind, predecessor, note)
-            )
+            self.traces[path_edge].append(trace)
+        elif self.record_predecessors and path_edge not in self.predecessors:
+            self.predecessors[path_edge] = trace
         self.stats["propagated_path_edges"] += 1
         if (
-            self.max_propagated_path_edges is not None
-            and self.stats["propagated_path_edges"] > self.max_propagated_path_edges
+            self.options.max_propagated_path_edges is not None
+            and self.stats["propagated_path_edges"]
+            > self.options.max_propagated_path_edges
         ):
-            raise SolverLimitExceeded(
-                f"{self.limit_label} propagation exceeded max_propagated_path_edges="
-                f"{self.max_propagated_path_edges}"
+            self.stop(
+                AnalysisStatus.PARTIAL,
+                f"{self.limit_label} propagation exceeded "
+                f"max_propagated_path_edges="
+                f"{self.options.max_propagated_path_edges}",
             )
 
     def frozen_traces(
         self,
     ) -> Dict[PathEdge[NodeT, FactT], tuple[PropagationTrace[NodeT, FactT], ...]]:
-        return {edge: tuple(records) for edge, records in self.traces.items()}
+        if self.record_traces:
+            return {edge: tuple(records) for edge, records in self.traces.items()}
+        return {edge: (record,) for edge, record in self.predecessors.items()}
 
-    def statistics(self) -> SolverStatistics:
-        return SolverStatistics(**self.stats)
+    def statistics(self, *, check_budget: bool = True) -> SolverStatistics:
+        return self.finish(check_budget=check_budget)
 
 
 def _normalize_ifds_transitions(outputs) -> tuple[FactTransition[FactT], ...]:
@@ -197,7 +396,41 @@ def _normalize_ifds_transitions(outputs) -> tuple[FactTransition[FactT], ...]:
             normalized.append(output)
         else:
             normalized.append(FactTransition(output))
-    return tuple(normalized)
+    return tuple(sorted(normalized, key=lambda transition: _stable_value_key(transition.fact)))
+
+
+def _stable_value_key(value: object):
+    """Best-effort semantic ordering key without relying on hash iteration."""
+    if value is None or isinstance(value, (str, int, float, bool, bytes)):
+        return (type(value).__qualname__, value)
+    if isinstance(value, tuple):
+        return ("tuple", tuple(_stable_value_key(item) for item in value))
+    if is_dataclass(value):
+        return (
+            type(value).__qualname__,
+            tuple(
+                (field.name, _stable_value_key(getattr(value, field.name)))
+                for field in fields(value)
+            ),
+        )
+    for attribute in ("name", "label", "state", "protocol"):
+        candidate = getattr(value, attribute, None)
+        if isinstance(candidate, (str, int)):
+            return (type(value).__qualname__, attribute, candidate)
+    rendered = re.sub(r"0x[0-9a-fA-F]+|/\d+", "<id>", repr(value))
+    return (type(value).__qualname__, rendered)
+
+
+def _ordered_value_transitions(outputs):
+    return tuple(
+        sorted(
+            outputs,
+            key=lambda transition: (
+                _stable_value_key(transition.fact),
+                _stable_value_key(transition.edge_function),
+            ),
+        )
+    )
 
 
 def _validate_max_call_string_depth(depth: int | None) -> None:
@@ -207,6 +440,28 @@ def _validate_max_call_string_depth(depth: int | None) -> None:
         raise TypeError("max_call_string_depth must be an integer or None")
     if depth < 1:
         raise ValueError("max_call_string_depth must be >= 1")
+
+
+def _solver_options(
+    *,
+    options: SolverOptions | None,
+    record_traces: bool,
+    max_propagated_path_edges: int | None,
+    max_call_string_depth: int | None,
+) -> SolverOptions:
+    if options is not None:
+        if record_traces or max_propagated_path_edges is not None or max_call_string_depth is not None:
+            raise ValueError(
+                "Pass either SolverOptions or legacy solver keyword arguments, not both"
+            )
+        return options
+    return SolverOptions(
+        max_propagated_path_edges=max_propagated_path_edges,
+        max_call_string_depth=max_call_string_depth,
+        trace_mode="all" if record_traces else "none",
+        # Preserve the exception behavior of the original public constructor.
+        limit_behavior="raise",
+    )
 
 
 class IFDSResult(Generic[NodeT, FactT]):
@@ -222,6 +477,9 @@ class IFDSResult(Generic[NodeT, FactT]):
         ],
         incoming: Dict[tuple[NodeT, FactT], tuple[_IncomingRecord[NodeT, FactT], ...]],
         end_summary: Dict[tuple[NodeT, FactT, NodeT], FrozenSet[FactT]],
+        *,
+        status: AnalysisStatus = AnalysisStatus.COMPLETE,
+        termination_reason: str | None = None,
     ) -> None:
         self._reached = reached
         self._path_edges = path_edges
@@ -229,9 +487,31 @@ class IFDSResult(Generic[NodeT, FactT]):
         self._traces = traces
         self._incoming = incoming
         self._end_summary = end_summary
+        self.status = status
+        self.termination_reason = termination_reason
+        unique_facts = {fact for facts in reached.values() for fact in facts}
+        self._fact_ids = {
+            fact: index
+            for index, fact in enumerate(sorted(unique_facts, key=_stable_value_key))
+        }
+
+    @property
+    def is_complete(self) -> bool:
+        return self.status is AnalysisStatus.COMPLETE
 
     def facts_at(self, node: NodeT) -> FrozenSet[FactT]:
         return frozenset(self._reached.get(node, ()))
+
+    def fact_id(self, fact: FactT) -> int:
+        return self._fact_ids[fact]
+
+    def facts_with_ids_at(self, node: NodeT) -> tuple[tuple[int, FactT], ...]:
+        return tuple(
+            sorted(
+                ((self.fact_id(fact), fact) for fact in self._reached.get(node, ())),
+                key=lambda pair: pair[0],
+            )
+        )
 
     def is_reached(self, node: NodeT, fact: FactT) -> bool:
         return fact in self._reached.get(node, ())
@@ -250,6 +530,36 @@ class IFDSResult(Generic[NodeT, FactT]):
             if edge.node == node and edge.fact == fact
             if traces
         }
+
+    def explain_path(
+        self, node: NodeT, fact: FactT, *, max_steps: int = 256
+    ) -> tuple[PropagationTrace[NodeT, FactT], ...]:
+        """Return one deterministic predecessor chain for a reached fact."""
+        candidates = sorted(
+            (
+                edge
+                for edge in self._path_edges
+                if edge.node == node and edge.fact == fact and edge in self._traces
+            ),
+            key=repr,
+        )
+        if not candidates:
+            return ()
+        chain: list[PropagationTrace[NodeT, FactT]] = []
+        current = candidates[0]
+        visited: set[PathEdge[NodeT, FactT]] = set()
+        while current not in visited and len(chain) < max_steps:
+            visited.add(current)
+            records = self._traces.get(current, ())
+            if not records:
+                break
+            record = records[0]
+            chain.append(record)
+            if record.predecessor is None:
+                break
+            current = record.predecessor
+        chain.reverse()
+        return tuple(chain)
 
     def incoming_records(self, start_node: NodeT, start_fact: FactT):
         return self._incoming.get((start_node, start_fact), ())
@@ -282,6 +592,9 @@ class IDEResult(Generic[NodeT, FactT, ValueT]):
         ],
         incoming: Dict[tuple, tuple[_IDEIncomingRecord[NodeT, FactT, ValueT], ...]],
         end_summary: Dict[tuple, EdgeFunction[ValueT]],
+        *,
+        status: AnalysisStatus = AnalysisStatus.COMPLETE,
+        termination_reason: str | None = None,
     ) -> None:
         self._values = values
         self._values_by_context = values_by_context
@@ -292,6 +605,17 @@ class IDEResult(Generic[NodeT, FactT, ValueT]):
         self._traces = traces
         self._incoming = incoming
         self._end_summary = end_summary
+        self.status = status
+        self.termination_reason = termination_reason
+        unique_facts = {fact for facts in reached.values() for fact in facts}
+        self._fact_ids = {
+            fact: index
+            for index, fact in enumerate(sorted(unique_facts, key=_stable_value_key))
+        }
+
+    @property
+    def is_complete(self) -> bool:
+        return self.status is AnalysisStatus.COMPLETE
 
     def facts_at(self, node: NodeT) -> FrozenSet[FactT]:
         return frozenset(self._reached.get(node, ()))
@@ -303,6 +627,9 @@ class IDEResult(Generic[NodeT, FactT, ValueT]):
         self, node: NodeT, fact: FactT, context: Hashable | None
     ) -> ValueT:
         return self._values_by_context[(node, fact)][context]
+
+    def fact_id(self, fact: FactT) -> int:
+        return self._fact_ids[fact]
 
     def values_at_contexts(
         self, node: NodeT, fact: FactT
@@ -330,6 +657,35 @@ class IDEResult(Generic[NodeT, FactT, ValueT]):
             if traces
         }
 
+    def explain_path(
+        self, node: NodeT, fact: FactT, *, max_steps: int = 256
+    ) -> tuple[PropagationTrace[NodeT, FactT], ...]:
+        candidates = sorted(
+            (
+                edge
+                for edge in self._jump_functions
+                if edge.node == node and edge.fact == fact and edge in self._traces
+            ),
+            key=repr,
+        )
+        if not candidates:
+            return ()
+        chain: list[PropagationTrace[NodeT, FactT]] = []
+        current = candidates[0]
+        visited: set[PathEdge[NodeT, FactT]] = set()
+        while current not in visited and len(chain) < max_steps:
+            visited.add(current)
+            records = self._traces.get(current, ())
+            if not records:
+                break
+            record = records[0]
+            chain.append(record)
+            if record.predecessor is None:
+                break
+            current = record.predecessor
+        chain.reverse()
+        return tuple(chain)
+
     def incoming_records(self, start_node: NodeT, start_fact: FactT):
         return self._incoming.get((start_node, start_fact), ())
 
@@ -348,14 +704,20 @@ class IFDSSolver(Generic[ProcT, NodeT, FactT]):
     def __init__(
         self,
         *,
+        options: SolverOptions | None = None,
         record_traces: bool = False,
         max_propagated_path_edges: int | None = None,
         max_call_string_depth: int | None = None,
     ) -> None:
-        _validate_max_call_string_depth(max_call_string_depth)
-        self.record_traces = record_traces
-        self.max_propagated_path_edges = max_propagated_path_edges
-        self.max_call_string_depth = max_call_string_depth
+        self.options = _solver_options(
+            options=options,
+            record_traces=record_traces,
+            max_propagated_path_edges=max_propagated_path_edges,
+            max_call_string_depth=max_call_string_depth,
+        )
+        self.record_traces = self.options.trace_mode == "all"
+        self.max_propagated_path_edges = self.options.max_propagated_path_edges
+        self.max_call_string_depth = self.options.max_call_string_depth
 
     def solve(
         self, problem: IFDSProblem[ProcT, NodeT, FactT]
@@ -369,9 +731,13 @@ class IFDSSolver(Generic[ProcT, NodeT, FactT]):
             set
         )
         end_summary: DefaultDict[tuple, set[FactT]] = defaultdict(set)
+        contexts_by_procedure: DefaultDict[ProcT, set[Hashable | None]] = defaultdict(
+            set
+        )
+        incoming_total = 0
+        summary_entries = 0
         bookkeeping = _SolverBookkeeping[NodeT, FactT](
-            record_traces=self.record_traces,
-            max_propagated_path_edges=self.max_propagated_path_edges,
+            options=self.options,
             limit_label="IFDS",
         )
 
@@ -382,17 +748,47 @@ class IFDSSolver(Generic[ProcT, NodeT, FactT]):
             predecessor: PathEdge[NodeT, FactT] | None = None,
             note: str | None = None,
         ) -> None:
+            if bookkeeping.status is not AnalysisStatus.COMPLETE:
+                return
             if path_edge in seen:
                 return
             seen.add(path_edge)
             reached[path_edge.node].add(path_edge.fact)
+            facts_at_node = len(reached[path_edge.node])
+            bookkeeping.observe("peak_facts_at_node", facts_at_node)
+            max_facts = self.options.max_facts_per_node
+            if max_facts is not None and facts_at_node > max_facts:
+                bookkeeping.stop(
+                    AnalysisStatus.PARTIAL,
+                    f"IFDS exceeded max_facts_per_node={max_facts}",
+                )
+                return
+
+            procedure = supergraph.procedure_of(path_edge.node)
+            contexts = contexts_by_procedure[procedure]
+            contexts.add(path_edge.context)
+            bookkeeping.observe("peak_contexts_per_procedure", len(contexts))
+            max_contexts = self.options.max_contexts_per_procedure
+            if max_contexts is not None and len(contexts) > max_contexts:
+                bookkeeping.stop(
+                    AnalysisStatus.PARTIAL,
+                    f"IFDS exceeded max_contexts_per_procedure={max_contexts}",
+                )
+                return
             bookkeeping.record_propagation(
                 path_edge,
                 kind=kind,
                 predecessor=predecessor,
                 note=note,
             )
+            if bookkeeping.status is not AnalysisStatus.COMPLETE:
+                return
             queue.append(path_edge)
+            bookkeeping.check_budget(
+                queue_size=len(queue),
+                incoming_records=incoming_total,
+                summary_entries=summary_entries,
+            )
 
         def _seed_context() -> Hashable | None:
             if not use_context:
@@ -412,15 +808,24 @@ class IFDSSolver(Generic[ProcT, NodeT, FactT]):
                 return parts
             return (*parts, ctx)
 
-        for node, facts in problem.initial_seeds().items():
+        for node, facts in sorted(
+            problem.initial_seeds().items(), key=lambda item: supergraph.node_id(item[0])
+        ):
             ctx = _seed_context()
-            for fact in facts:
+            for fact in sorted(facts, key=_stable_value_key):
                 propagate(
                     PathEdge(node, fact, node, fact, context=ctx),
                     kind="seed",
                 )
 
-        while queue:
+        while queue and bookkeeping.status is AnalysisStatus.COMPLETE:
+            bookkeeping.check_budget(
+                queue_size=len(queue),
+                incoming_records=incoming_total,
+                summary_entries=summary_entries,
+            )
+            if bookkeeping.status is not AnalysisStatus.COMPLETE:
+                break
             edge = queue.popleft()
             bookkeeping.increment("processed_path_edges")
             source_node = edge.source_node
@@ -430,7 +835,7 @@ class IFDSSolver(Generic[ProcT, NodeT, FactT]):
             edge_ctx = edge.context
 
             if supergraph.is_call_node(node):
-                for return_site in supergraph.call_to_return_successors(node):
+                for return_site in supergraph.ordered_call_to_return_successors(node):
                     bookkeeping.increment("call_to_return_steps")
                     for transition in _normalize_ifds_transitions(
                         problem.call_to_return_flow(node, return_site, fact)
@@ -448,7 +853,7 @@ class IFDSSolver(Generic[ProcT, NodeT, FactT]):
                             note=f"{node!r} -> {return_site!r}",
                         )
 
-                for callee in supergraph.callees_of_call_at(node):
+                for callee in supergraph.ordered_callees_of_call_at(node):
                     start = supergraph.entry_of(callee)
                     bookkeeping.increment("call_flow_steps")
                     for transition in _normalize_ifds_transitions(
@@ -459,7 +864,7 @@ class IFDSSolver(Generic[ProcT, NodeT, FactT]):
                         incoming_key = _contextual_key(
                             start, start_fact, ctx=callee_ctx
                         )
-                        for return_site in supergraph.return_sites_of_call_at(node):
+                        for return_site in supergraph.ordered_return_sites_of_call_at(node):
                             incoming_record = _IncomingRecord(
                                 source_node,
                                 source_fact,
@@ -469,15 +874,24 @@ class IFDSSolver(Generic[ProcT, NodeT, FactT]):
                             )
                             if incoming_record not in incoming[incoming_key]:
                                 incoming[incoming_key].add(incoming_record)
+                                incoming_total += 1
                                 bookkeeping.increment("incoming_records")
-                                for exit_node in supergraph.exits_of(callee):
+                                bookkeeping.check_budget(
+                                    queue_size=len(queue),
+                                    incoming_records=incoming_total,
+                                    summary_entries=summary_entries,
+                                )
+                                for exit_node in supergraph.ordered_exits_of(callee):
                                     summary_key = _contextual_key(
                                         start,
                                         start_fact,
                                         exit_node,
                                         ctx=callee_ctx,
                                     )
-                                    for exit_fact in end_summary.get(summary_key, ()):
+                                    for exit_fact in sorted(
+                                        end_summary.get(summary_key, ()),
+                                        key=_stable_value_key,
+                                    ):
                                         bookkeeping.increment("return_flow_steps")
                                         for transition in _normalize_ifds_transitions(
                                             problem.return_flow(
@@ -520,12 +934,21 @@ class IFDSSolver(Generic[ProcT, NodeT, FactT]):
                 )
                 if fact not in end_summary[summary_key]:
                     end_summary[summary_key].add(fact)
+                    summary_entries += 1
                     bookkeeping.increment("summary_updates")
+                    bookkeeping.check_budget(
+                        queue_size=len(queue),
+                        incoming_records=incoming_total,
+                        summary_entries=summary_entries,
+                    )
                     callee = supergraph.procedure_of(node)
                     caller_incoming_key = _contextual_key(
                         source_node, source_fact, ctx=edge_ctx
                     )
-                    for incoming_record in incoming.get(caller_incoming_key, ()):
+                    for incoming_record in sorted(
+                        incoming.get(caller_incoming_key, ()),
+                        key=_stable_value_key,
+                    ):
                         bookkeeping.increment("return_flow_steps")
                         for transition in _normalize_ifds_transitions(
                             problem.return_flow(
@@ -550,7 +973,7 @@ class IFDSSolver(Generic[ProcT, NodeT, FactT]):
                                 note=f"{callee!r} -> {incoming_record.return_site!r}",
                             )
 
-            for successor in supergraph.normal_successors(node):
+            for successor in supergraph.ordered_normal_successors(node):
                 bookkeeping.increment("normal_flow_steps")
                 for transition in _normalize_ifds_transitions(
                     problem.normal_flow(node, successor, fact)
@@ -571,10 +994,14 @@ class IFDSSolver(Generic[ProcT, NodeT, FactT]):
         return IFDSResult(
             dict(reached),
             frozenset(seen),
-            bookkeeping.statistics(),
+            bookkeeping.statistics(
+                check_budget=bookkeeping.status is AnalysisStatus.COMPLETE
+            ),
             bookkeeping.frozen_traces(),
             {key: tuple(value) for key, value in incoming.items()},
             {key: frozenset(value) for key, value in end_summary.items()},
+            status=bookkeeping.status,
+            termination_reason=bookkeeping.termination_reason,
         )
 
 
@@ -588,14 +1015,20 @@ class IDESolver(Generic[ProcT, NodeT, FactT, ValueT]):
     def __init__(
         self,
         *,
+        options: SolverOptions | None = None,
         record_traces: bool = False,
         max_propagated_path_edges: int | None = None,
         max_call_string_depth: int | None = None,
     ) -> None:
-        _validate_max_call_string_depth(max_call_string_depth)
-        self.record_traces = record_traces
-        self.max_propagated_path_edges = max_propagated_path_edges
-        self.max_call_string_depth = max_call_string_depth
+        self.options = _solver_options(
+            options=options,
+            record_traces=record_traces,
+            max_propagated_path_edges=max_propagated_path_edges,
+            max_call_string_depth=max_call_string_depth,
+        )
+        self.record_traces = self.options.trace_mode == "all"
+        self.max_propagated_path_edges = self.options.max_propagated_path_edges
+        self.max_call_string_depth = self.options.max_call_string_depth
 
     def solve(
         self, problem: IDEProblem[ProcT, NodeT, FactT, ValueT]
@@ -609,9 +1042,12 @@ class IDESolver(Generic[ProcT, NodeT, FactT, ValueT]):
             defaultdict(set)
         )
         end_summary: Dict[tuple, EdgeFunction[ValueT]] = {}
+        contexts_by_procedure: DefaultDict[ProcT, set[Hashable | None]] = defaultdict(
+            set
+        )
+        incoming_total = 0
         bookkeeping = _SolverBookkeeping[NodeT, FactT](
-            record_traces=self.record_traces,
-            max_propagated_path_edges=self.max_propagated_path_edges,
+            options=self.options,
             limit_label="IDE",
         )
         identity = IdentityEdgeFunction[ValueT]()
@@ -658,17 +1094,46 @@ class IDESolver(Generic[ProcT, NodeT, FactT, ValueT]):
             predecessor: PathEdge[NodeT, FactT] | None = None,
             note: str | None = None,
         ) -> None:
+            if bookkeeping.status is not AnalysisStatus.COMPLETE:
+                return
             current = jump_functions.get(path_edge)
             if current is None:
                 jump_functions[path_edge] = jump
                 reached[path_edge.node].add(path_edge.fact)
+                facts_at_node = len(reached[path_edge.node])
+                bookkeeping.observe("peak_facts_at_node", facts_at_node)
+                max_facts = self.options.max_facts_per_node
+                if max_facts is not None and facts_at_node > max_facts:
+                    bookkeeping.stop(
+                        AnalysisStatus.PARTIAL,
+                        f"IDE exceeded max_facts_per_node={max_facts}",
+                    )
+                    return
+                procedure = supergraph.procedure_of(path_edge.node)
+                contexts = contexts_by_procedure[procedure]
+                contexts.add(path_edge.context)
+                bookkeeping.observe("peak_contexts_per_procedure", len(contexts))
+                max_contexts = self.options.max_contexts_per_procedure
+                if max_contexts is not None and len(contexts) > max_contexts:
+                    bookkeeping.stop(
+                        AnalysisStatus.PARTIAL,
+                        f"IDE exceeded max_contexts_per_procedure={max_contexts}",
+                    )
+                    return
                 bookkeeping.record_propagation(
                     path_edge,
                     kind=kind,
                     predecessor=predecessor,
                     note=note,
                 )
+                if bookkeeping.status is not AnalysisStatus.COMPLETE:
+                    return
                 queue.append(path_edge)
+                bookkeeping.check_budget(
+                    queue_size=len(queue),
+                    incoming_records=incoming_total,
+                    summary_entries=len(end_summary),
+                )
                 return
             joined = join_edge_functions(current, jump)
             if joined != current:
@@ -680,10 +1145,23 @@ class IDESolver(Generic[ProcT, NodeT, FactT, ValueT]):
                     predecessor=predecessor,
                     note=note,
                 )
+                if bookkeeping.status is not AnalysisStatus.COMPLETE:
+                    return
                 queue.append(path_edge)
+                bookkeeping.check_budget(
+                    queue_size=len(queue),
+                    incoming_records=incoming_total,
+                    summary_entries=len(end_summary),
+                )
 
         seed_values_by_key: Dict[tuple, ValueT] = {}
-        for seed, value in seed_values.items():
+        for seed, value in sorted(
+            seed_values.items(),
+            key=lambda item: (
+                supergraph.node_id(item[0][0]),
+                _stable_value_key(item[0][1]),
+            ),
+        ):
             node, fact = seed
             ctx = _seed_context()
             seed_key = _source_key(node, fact, ctx)
@@ -699,7 +1177,14 @@ class IDESolver(Generic[ProcT, NodeT, FactT, ValueT]):
                 kind="seed",
             )
 
-        while queue:
+        while queue and bookkeeping.status is AnalysisStatus.COMPLETE:
+            bookkeeping.check_budget(
+                queue_size=len(queue),
+                incoming_records=incoming_total,
+                summary_entries=len(end_summary),
+            )
+            if bookkeeping.status is not AnalysisStatus.COMPLETE:
+                break
             edge = queue.popleft()
             bookkeeping.increment("processed_path_edges")
             source_node = edge.source_node
@@ -710,10 +1195,10 @@ class IDESolver(Generic[ProcT, NodeT, FactT, ValueT]):
             current_jump = jump_functions[edge]
 
             if supergraph.is_call_node(node):
-                for return_site in supergraph.call_to_return_successors(node):
+                for return_site in supergraph.ordered_call_to_return_successors(node):
                     bookkeeping.increment("call_to_return_steps")
-                    for transition in problem.call_to_return_flow(
-                        node, return_site, fact
+                    for transition in _ordered_value_transitions(
+                        problem.call_to_return_flow(node, return_site, fact)
                     ):
                         propagate(
                             PathEdge(
@@ -729,16 +1214,18 @@ class IDESolver(Generic[ProcT, NodeT, FactT, ValueT]):
                             note=f"{node!r} -> {return_site!r}",
                         )
 
-                for callee in supergraph.callees_of_call_at(node):
+                for callee in supergraph.ordered_callees_of_call_at(node):
                     start = supergraph.entry_of(callee)
                     bookkeeping.increment("call_flow_steps")
-                    for transition in problem.call_flow(node, callee, fact):
+                    for transition in _ordered_value_transitions(
+                        problem.call_flow(node, callee, fact)
+                    ):
                         call_jump = transition.edge_function.compose(current_jump)
                         callee_ctx = _push_context(edge_ctx, node)
                         incoming_key = _contextual_key(
                             start, transition.fact, ctx=callee_ctx
                         )
-                        for return_site in supergraph.return_sites_of_call_at(node):
+                        for return_site in supergraph.ordered_return_sites_of_call_at(node):
                             incoming_record = _IDEIncomingRecord(
                                 source_node,
                                 source_fact,
@@ -750,9 +1237,18 @@ class IDESolver(Generic[ProcT, NodeT, FactT, ValueT]):
                             )
                             if incoming_record not in incoming[incoming_key]:
                                 incoming[incoming_key].add(incoming_record)
+                                incoming_total += 1
                                 bookkeeping.increment("incoming_records")
-                                for exit_node in supergraph.exits_of(callee):
-                                    for exit_fact in reached.get(exit_node, ()):
+                                bookkeeping.check_budget(
+                                    queue_size=len(queue),
+                                    incoming_records=incoming_total,
+                                    summary_entries=len(end_summary),
+                                )
+                                for exit_node in supergraph.ordered_exits_of(callee):
+                                    for exit_fact in sorted(
+                                        reached.get(exit_node, ()),
+                                        key=_stable_value_key,
+                                    ):
                                         summary_key = _contextual_key(
                                             start,
                                             transition.fact,
@@ -763,13 +1259,15 @@ class IDESolver(Generic[ProcT, NodeT, FactT, ValueT]):
                                         summary = end_summary.get(summary_key)
                                         if summary is None:
                                             continue
-                                        for return_transition in problem.return_flow(
-                                            node,
-                                            callee,
-                                            exit_node,
-                                            return_site,
-                                            fact,
-                                            exit_fact,
+                                        for return_transition in _ordered_value_transitions(
+                                            problem.return_flow(
+                                                node,
+                                                callee,
+                                                exit_node,
+                                                return_site,
+                                                fact,
+                                                exit_fact,
+                                            )
                                         ):
                                             combined = (
                                                 return_transition.edge_function.compose(
@@ -822,6 +1320,11 @@ class IDESolver(Generic[ProcT, NodeT, FactT, ValueT]):
                         end_summary[summary_key] = joined_summary
                 if summary_changed:
                     bookkeeping.increment("summary_updates")
+                    bookkeeping.check_budget(
+                        queue_size=len(queue),
+                        incoming_records=incoming_total,
+                        summary_entries=len(end_summary),
+                    )
                     callee = supergraph.procedure_of(node)
                     summary = end_summary[summary_key]
                     caller_incoming_key = _contextual_key(
@@ -829,15 +1332,20 @@ class IDESolver(Generic[ProcT, NodeT, FactT, ValueT]):
                         source_fact,
                         ctx=edge_ctx,
                     )
-                    for incoming_record in incoming.get(caller_incoming_key, ()):
+                    for incoming_record in sorted(
+                        incoming.get(caller_incoming_key, ()),
+                        key=_stable_value_key,
+                    ):
                         bookkeeping.increment("return_flow_steps")
-                        for return_transition in problem.return_flow(
-                            incoming_record.call_node,
-                            callee,
-                            node,
-                            incoming_record.return_site,
-                            incoming_record.call_fact,
-                            fact,
+                        for return_transition in _ordered_value_transitions(
+                            problem.return_flow(
+                                incoming_record.call_node,
+                                callee,
+                                node,
+                                incoming_record.return_site,
+                                incoming_record.call_fact,
+                                fact,
+                            )
                         ):
                             combined = return_transition.edge_function.compose(
                                 summary
@@ -856,9 +1364,11 @@ class IDESolver(Generic[ProcT, NodeT, FactT, ValueT]):
                                 note=f"{callee!r} -> {incoming_record.return_site!r}",
                             )
 
-            for successor in supergraph.normal_successors(node):
+            for successor in supergraph.ordered_normal_successors(node):
                 bookkeeping.increment("normal_flow_steps")
-                for transition in problem.normal_flow(node, successor, fact):
+                for transition in _ordered_value_transitions(
+                    problem.normal_flow(node, successor, fact)
+                ):
                     propagate(
                         PathEdge(
                             source_node,
@@ -897,11 +1407,18 @@ class IDESolver(Generic[ProcT, NodeT, FactT, ValueT]):
             )
 
         changed = True
-        while changed:
+        while changed and bookkeeping.status is AnalysisStatus.COMPLETE:
+            bookkeeping.check_budget(
+                queue_size=0,
+                incoming_records=incoming_total,
+                summary_entries=len(end_summary),
+            )
             changed = False
-            for source_key in source_keys:
+            for source_key in sorted(source_keys, key=repr):
                 resolved = seed_values_by_key.get(source_key)
-                for incoming_record in incoming.get(source_key, ()):
+                for incoming_record in sorted(
+                    incoming.get(source_key, ()), key=_stable_value_key
+                ):
                     caller_key = _source_key(
                         incoming_record.caller_source_node,
                         incoming_record.caller_source_fact,
@@ -959,8 +1476,12 @@ class IDESolver(Generic[ProcT, NodeT, FactT, ValueT]):
             path_edge_values,
             dict(reached),
             jump_functions,
-            bookkeeping.statistics(),
+            bookkeeping.statistics(
+                check_budget=bookkeeping.status is AnalysisStatus.COMPLETE
+            ),
             bookkeeping.frozen_traces(),
             {key: tuple(value) for key, value in incoming.items()},
             dict(end_summary),
+            status=bookkeeping.status,
+            termination_reason=bookkeeping.termination_reason,
         )
