@@ -464,6 +464,12 @@ class ShortCircutOr(Expression):
     __fields__ = "terms*"
 
 
+class ConditionalExpr(Expression):
+    """Expression-level conditional: ``body if test else orelse``."""
+
+    __fields__ = "test:Expression body:Expression orelse:Expression"
+
+
 ### Control flow ###
 class Return(ControlFlow):
     __fields__ = "exprs:Expression*"

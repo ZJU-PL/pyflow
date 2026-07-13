@@ -1014,7 +1014,12 @@ class HeapAbstraction:
             and query_path[: len(stored_path)] == stored_path
         )
 
-    def to_points_to_graph(self) -> "PointsToGraph":
+    def to_points_to_graph(
+        self,
+        *,
+        state: object | None = None,
+        program_point_states: dict[int, tuple[object, object]] | None = None,
+    ) -> "PointsToGraph":
         """Export heap state as a reusable :class:`PointsToGraph`.
 
         Extracts a read-only snapshot mapping every canonical root
@@ -1049,9 +1054,47 @@ class HeapAbstraction:
                 is_singleton=obj.is_singleton(),
                 update_policy=self.update_policy_for_location(location),
             )
+        values = getattr(state, "values", {}) if state is not None else {}
+        contaminants = (
+            getattr(state, "contaminants", {}) if state is not None else {}
+        )
+        point_values: dict[int, tuple[dict, dict]] = {}
+        point_contaminants: dict[int, tuple[dict, dict]] = {}
+        for key, pair in (program_point_states or {}).items():
+            before, after = pair
+            point_values[key] = (
+                {
+                    location: frozenset(stored)
+                    for location, stored in getattr(before, "values", {}).items()
+                },
+                {
+                    location: frozenset(stored)
+                    for location, stored in getattr(after, "values", {}).items()
+                },
+            )
+            point_contaminants[key] = (
+                {
+                    location: frozenset(stored)
+                    for location, stored in getattr(before, "contaminants", {}).items()
+                },
+                {
+                    location: frozenset(stored)
+                    for location, stored in getattr(after, "contaminants", {}).items()
+                },
+            )
         return PointsToGraph(
             entries=entries,
             allow_strong_nested_fresh=self.policy.allow_strong_nested_fresh,
+            heap_values={
+                location: frozenset(stored)
+                for location, stored in values.items()
+            },
+            heap_contaminants={
+                location: frozenset(stored)
+                for location, stored in contaminants.items()
+            },
+            program_point_values=point_values,
+            program_point_contaminants=point_contaminants,
         )
 
     def to_dict(self) -> dict:
@@ -1173,14 +1216,38 @@ class HeapAbstraction:
         if isinstance(site, tuple) and site and site[0] == "call_return":
             return (kind, *site)
         if self.policy.allocation_sensitivity is AllocationSensitivity.SITE:
+            # In bounded programs the same syntactic site may execute through
+            # multiple distinct call activations.  Retaining the activation
+            # token prevents a multi-object site from being misclassified as
+            # a singleton and used for unsound strong updates.
             return (
-                (kind, id(site), tuple(context))
+                (kind, self._site_identity(site), tuple(context))
                 if context
-                else (kind, id(site))
+                else (kind, self._site_identity(site))
             )
         if self.policy.allocation_sensitivity is AllocationSensitivity.PROCEDURE:
-            return kind, id(procedure), id(site)
-        return kind, id(procedure), id(site), self._context_key(context)
+            return kind, self._site_identity(procedure), self._site_identity(site)
+        return (
+            kind,
+            self._site_identity(procedure),
+            self._site_identity(site),
+            self._context_key(context),
+        )
+
+    @staticmethod
+    def _site_identity(node: object) -> object:
+        origin = getattr(getattr(node, "annotation", None), "origin", ()) or ()
+        if origin:
+            return (
+                type(node).__name__,
+                tuple(repr(item) for item in origin),
+                getattr(node, "name", None),
+            )
+        line = getattr(node, "line", None)
+        column = getattr(node, "column", None)
+        if line is not None or column is not None:
+            return type(node).__name__, line, column
+        return type(node).__name__, id(node)
 
     def _context_key(self, context: tuple[object, ...]) -> tuple[object, ...]:
         depth = self.policy.context_sensitivity_depth

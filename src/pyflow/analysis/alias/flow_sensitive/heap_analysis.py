@@ -86,10 +86,12 @@ class HeapAnalysis:
             site_storage=site_storage or {},
             next_site=next_site,
         )
-        HeapTransferEngine(self._heap, intrinsics=self._intrinsics).analyze_program(
-            program
+        engine = HeapTransferEngine(self._heap, intrinsics=self._intrinsics)
+        engine.analyze_program(program)
+        graph = self._heap.to_points_to_graph(
+            state=engine.state,
+            program_point_states=engine.program_point_states,
         )
-        graph = self._heap.to_points_to_graph()
         self._graph = graph
         return graph
 
@@ -165,6 +167,20 @@ class HeapAnalysis:
     def points_to(self, location: "HeapLocation") -> "frozenset[HeapLocation]":
         """Return all locations in the same alias class as *location*."""
         return self._require_graph().points_to(location)
+
+    def values_at(
+        self,
+        location: "HeapLocation",
+        operation: object | None = None,
+        *,
+        before: bool = False,
+    ) -> "frozenset[HeapLocation]":
+        """Return possible heap values at the final or selected program point."""
+        return self._require_graph().values_at(
+            location,
+            operation,
+            before=before,
+        )
 
     def never_escapes(self, location: "HeapLocation") -> bool:
         """Return ``True`` if *location* has not been marked escaped."""

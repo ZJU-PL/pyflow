@@ -9,6 +9,96 @@ from __future__ import annotations
 from pyflow.language.python import ast as py_ast
 
 
+_CALL_ARGUMENT_ORDERS: dict[int, tuple[object, tuple[object, ...]]] = {}
+_CALL_POSITIONAL_SPREADS: dict[int, tuple[object, tuple[object, ...]]] = {}
+_CALL_KEYWORD_SPREADS: dict[int, tuple[object, tuple[object, ...]]] = {}
+_CALL_POSITIONAL_ITEMS: dict[
+    int, tuple[object, tuple[tuple[bool, object], ...]]
+] = {}
+_CODE_DEFINITION_ANNOTATIONS: dict[int, tuple[object, tuple[object, ...]]] = {}
+_CODE_CLOSURE_CELLS: dict[int, tuple[object, tuple[object, ...]]] = {}
+_CLASS_CELLS: dict[int, tuple[object, object | None]] = {}
+
+
+def register_call_argument_metadata(
+    call: object,
+    *,
+    evaluation_order: tuple[object, ...],
+    positional_spreads: tuple[object, ...] = (),
+    keyword_spreads: tuple[object, ...] = (),
+    positional_items: tuple[tuple[bool, object], ...] = (),
+) -> None:
+    """Record source-order call metadata without mutating slot-based IR nodes."""
+    key = id(call)
+    _CALL_ARGUMENT_ORDERS[key] = (call, evaluation_order)
+    _CALL_POSITIONAL_SPREADS[key] = (call, positional_spreads)
+    _CALL_KEYWORD_SPREADS[key] = (call, keyword_spreads)
+    _CALL_POSITIONAL_ITEMS[key] = (call, positional_items)
+
+
+def call_argument_evaluation_order(call: object) -> tuple[object, ...] | None:
+    entry = _CALL_ARGUMENT_ORDERS.get(id(call))
+    return entry[1] if entry is not None and entry[0] is call else None
+
+
+def call_positional_spreads(call: object) -> tuple[object, ...]:
+    entry = _CALL_POSITIONAL_SPREADS.get(id(call))
+    return entry[1] if entry is not None and entry[0] is call else ()
+
+
+def call_keyword_spreads(call: object) -> tuple[object, ...]:
+    entry = _CALL_KEYWORD_SPREADS.get(id(call))
+    return entry[1] if entry is not None and entry[0] is call else ()
+
+
+def call_positional_items(call: object) -> tuple[tuple[bool, object], ...]:
+    entry = _CALL_POSITIONAL_ITEMS.get(id(call))
+    return entry[1] if entry is not None and entry[0] is call else ()
+
+
+def copy_call_argument_metadata(source: object, target: object) -> None:
+    order = call_argument_evaluation_order(source)
+    if order is None:
+        return
+    register_call_argument_metadata(
+        target,
+        evaluation_order=order,
+        positional_spreads=call_positional_spreads(source),
+        keyword_spreads=call_keyword_spreads(source),
+        positional_items=call_positional_items(source),
+    )
+
+
+def register_code_definition_metadata(
+    code: object,
+    *,
+    annotations: tuple[object, ...] = (),
+    closure_cells: tuple[object, ...] = (),
+) -> None:
+    key = id(code)
+    _CODE_DEFINITION_ANNOTATIONS[key] = (code, annotations)
+    _CODE_CLOSURE_CELLS[key] = (code, closure_cells)
+
+
+def code_definition_annotations(code: object) -> tuple[object, ...]:
+    entry = _CODE_DEFINITION_ANNOTATIONS.get(id(code))
+    return entry[1] if entry is not None and entry[0] is code else ()
+
+
+def code_closure_cells(code: object) -> tuple[object, ...]:
+    entry = _CODE_CLOSURE_CELLS.get(id(code))
+    return entry[1] if entry is not None and entry[0] is code else ()
+
+
+def register_class_cell(class_node: object, cell: object | None) -> None:
+    _CLASS_CELLS[id(class_node)] = (class_node, cell)
+
+
+def class_cell(class_node: object) -> object | None:
+    entry = _CLASS_CELLS.get(id(class_node))
+    return entry[1] if entry is not None and entry[0] is class_node else None
+
+
 def assigned_locals(operation: py_ast.PythonASTNode | None) -> tuple[py_ast.Local, ...]:
     """Return locals overwritten by an operation.
 
@@ -68,6 +158,14 @@ def assigned_locals(operation: py_ast.PythonASTNode | None) -> tuple[py_ast.Loca
 
 def actual_argument_expressions(call) -> tuple[object, ...]:
     """Return positional, keyword, and unpacked argument expressions for a call."""
+    source_order = call_argument_evaluation_order(call)
+    if source_order is not None:
+        selfarg = getattr(call, "selfarg", None)
+        return (
+            (selfarg, *tuple(source_order))
+            if selfarg is not None
+            else tuple(source_order)
+        )
     actuals: list[object] = []
     selfarg = getattr(call, "selfarg", None)
     if selfarg is not None:

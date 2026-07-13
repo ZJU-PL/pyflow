@@ -94,6 +94,19 @@ class PointsToGraph:
     allow_strong_nested_fresh: bool = False
     """Whether exact paths below singleton roots admit strong updates."""
 
+    heap_values: "dict[HeapLocation, frozenset[HeapLocation]]" = field(
+        default_factory=dict
+    )
+    heap_contaminants: "dict[HeapLocation, frozenset[HeapLocation]]" = field(
+        default_factory=dict
+    )
+    program_point_values: "dict[int, tuple[dict[HeapLocation, frozenset[HeapLocation]], dict[HeapLocation, frozenset[HeapLocation]]]]" = field(
+        default_factory=dict
+    )
+    program_point_contaminants: "dict[int, tuple[dict[HeapLocation, frozenset[HeapLocation]], dict[HeapLocation, frozenset[HeapLocation]]]]" = field(
+        default_factory=dict
+    )
+
     # ── query methods ──────────────────────────────────────────────────
 
     def __contains__(self, location: "HeapLocation") -> bool:
@@ -120,6 +133,37 @@ class PointsToGraph:
         if entry is None:
             return frozenset({location})
         return entry.aliases
+
+    def values_at(
+        self,
+        location: "HeapLocation",
+        operation: object | None = None,
+        *,
+        before: bool = False,
+    ) -> "frozenset[HeapLocation]":
+        """Return possible values stored at *location*.
+
+        When *operation* is supplied, query the state immediately before or
+        after that IR node.  Wildcard contaminants overlapping the requested
+        path are included.
+        """
+        values = self.heap_values
+        contaminants = self.heap_contaminants
+        if operation is not None:
+            index = 0 if before else 1
+            point_values = self.program_point_values.get(id(operation))
+            point_contaminants = self.program_point_contaminants.get(id(operation))
+            if point_values is not None:
+                values = point_values[index]
+            if point_contaminants is not None:
+                contaminants = point_contaminants[index]
+        result = list(values.get(location, ()))
+        from .heap_state import HeapState
+
+        for contaminant, stored in contaminants.items():
+            if HeapState.locations_may_overlap(location, contaminant):
+                result.extend(stored)
+        return frozenset(result)
 
     def never_escapes(self, location: "HeapLocation") -> bool:
         """Return ``True`` if *location*'s root has **not** been marked escaped.
@@ -345,6 +389,8 @@ class PointsToGraph:
             "entry_count": len(self.entries),
             "escaped_count": len(self.escaped_locations()),
             "singleton_count": len(self.singleton_locations()),
+            "heap_value_location_count": len(self.heap_values),
+            "program_point_count": len(self.program_point_values),
             "entries": [entry.to_dict() for entry in self.entries.values()],
         }
 

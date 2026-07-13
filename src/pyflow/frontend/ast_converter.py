@@ -22,6 +22,11 @@ from pyflow.language.python.program import Object
 from pyflow.language.python.pythonbase import PythonASTNode
 from pyflow.language.python.annotations import CodeAnnotation
 from pyflow.language.asttools.origin import SourceOrigin
+from pyflow.analysis.ir_utils import (
+    register_call_argument_metadata,
+    register_class_cell,
+    register_code_definition_metadata,
+)
 
 HAS_MATCH = sys.version_info >= (3, 10)
 HAS_NAMED_EXPR = sys.version_info >= (3, 8)
@@ -44,6 +49,7 @@ class ASTConverter:
             "merged_kwargs": 0,
         }
         self._scope_stack: List[Dict[str, Any]] = []
+        self._future_annotations = False
         self.current_filename: str | None = None
 
     def _with_source_origin(
@@ -146,6 +152,7 @@ class ASTConverter:
         nonlocal_names: Optional[Set[str]] = None,
         cell_names: Optional[Set[str]] = None,
         global_hints: Optional[Set[str]] = None,
+        bound_names: Optional[Set[str]] = None,
     ) -> None:
         self._scope_stack.append(
             {
@@ -154,6 +161,7 @@ class ASTConverter:
                 "nonlocal_names": set(nonlocal_names or ()),
                 "cell_names": set(cell_names or ()),
                 "global_hints": set(global_hints or ()),
+                "bound_names": set(bound_names or ()),
                 "cells": {},
             }
         )
@@ -192,6 +200,125 @@ class ASTConverter:
         for stmt in body_nodes:
             visitor.visit(stmt)
         return global_names, nonlocal_names
+
+    def _collect_scope_names(
+        self,
+        body_nodes: List[python_ast.AST],
+    ) -> Tuple[Set[str], Set[str]]:
+        """Collect names bound and loaded directly in one lexical scope."""
+        bound: Set[str] = set()
+        loaded: Set[str] = set()
+
+        class ScopeVisitor(python_ast.NodeVisitor):
+            def visit_Name(self, node: python_ast.Name) -> None:
+                if isinstance(node.ctx, (python_ast.Store, python_ast.Del)):
+                    bound.add(node.id)
+                else:
+                    loaded.add(node.id)
+
+            def visit_FunctionDef(self, node: python_ast.FunctionDef) -> None:
+                bound.add(node.name)
+                for decorator in node.decorator_list:
+                    self.visit(decorator)
+                for default in (*node.args.defaults, *node.args.kw_defaults):
+                    if default is not None:
+                        self.visit(default)
+
+            visit_AsyncFunctionDef = visit_FunctionDef
+
+            def visit_ClassDef(self, node: python_ast.ClassDef) -> None:
+                bound.add(node.name)
+                for base in node.bases:
+                    self.visit(base)
+                for keyword in node.keywords:
+                    self.visit(keyword.value)
+                for decorator in node.decorator_list:
+                    self.visit(decorator)
+
+            def visit_Lambda(self, node: python_ast.Lambda) -> None:
+                return
+
+            def visit_Import(self, node: python_ast.Import) -> None:
+                for alias in node.names:
+                    bound.add(alias.asname or alias.name.split(".")[0])
+
+            def visit_ImportFrom(self, node: python_ast.ImportFrom) -> None:
+                for alias in node.names:
+                    if alias.name != "*":
+                        bound.add(alias.asname or alias.name)
+
+        visitor = ScopeVisitor()
+        for statement in body_nodes:
+            visitor.visit(statement)
+        return bound, loaded
+
+    def _enclosing_cell_names(
+        self,
+        candidates: Set[str],
+    ) -> Set[str]:
+        captured: Set[str] = set()
+        for name in candidates:
+            for scope in reversed(self._scope_stack):
+                if scope.get("kind") == "module":
+                    break
+                if name in scope.get("bound_names", ()) or name in scope.get(
+                    "cell_names", ()
+                ):
+                    scope["cell_names"].add(name)
+                    cells = scope["cells"]
+                    cells.setdefault(name, pyflow_ast.Cell(name))
+                    captured.add(name)
+                    break
+        return captured
+
+    def _direct_child_captures(
+        self,
+        body_nodes: List[python_ast.AST],
+        parent_bound: Set[str],
+    ) -> Set[str]:
+        captures: Set[str] = set()
+
+        class ChildVisitor(python_ast.NodeVisitor):
+            def _visit_function(self, node) -> None:
+                child_bound, child_loaded = self_outer._collect_scope_names(
+                    list(node.body)
+                )
+                child_globals, child_nonlocals = (
+                    self_outer._collect_direct_scope_directives(list(node.body))
+                )
+                child_bound.update(
+                    argument.arg
+                    for argument in (
+                        *getattr(node.args, "posonlyargs", ()),
+                        *getattr(node.args, "args", ()),
+                        *getattr(node.args, "kwonlyargs", ()),
+                    )
+                )
+                if getattr(node.args, "vararg", None) is not None:
+                    child_bound.add(node.args.vararg.arg)
+                if getattr(node.args, "kwarg", None) is not None:
+                    child_bound.add(node.args.kwarg.arg)
+                candidates = (
+                    child_loaded - child_bound - child_globals
+                ) | child_nonlocals
+                captures.update(candidates & parent_bound)
+
+            def visit_FunctionDef(self, node: python_ast.FunctionDef) -> None:
+                self._visit_function(node)
+
+            visit_AsyncFunctionDef = visit_FunctionDef
+
+            def visit_Lambda(self, node: python_ast.Lambda) -> None:
+                return
+
+            def visit_ClassDef(self, node: python_ast.ClassDef) -> None:
+                return
+
+        self_outer = self
+        visitor = ChildVisitor()
+        for statement in body_nodes:
+            visitor.visit(statement)
+        return captures
 
     def _collect_descendant_scope_directives(
         self, body_nodes: List[python_ast.AST]
@@ -343,11 +470,23 @@ class ASTConverter:
             return pyflow_ast.Suite([])
 
         pushed_module_scope = False
+        previous_future_annotations = self._future_annotations
         if not self._scope_stack:
+            self._future_annotations = any(
+                isinstance(node, python_ast.ImportFrom)
+                and node.module == "__future__"
+                and any(alias.name == "annotations" for alias in node.names)
+                for node in python_nodes
+            )
             descendant_global, _descendant_nonlocal = (
                 self._collect_descendant_scope_directives(python_nodes)
             )
-            self._push_scope("module", global_hints=descendant_global)
+            module_bound, _module_loaded = self._collect_scope_names(python_nodes)
+            self._push_scope(
+                "module",
+                global_hints=descendant_global,
+                bound_names=module_bound,
+            )
             pushed_module_scope = True
 
         try:
@@ -364,6 +503,7 @@ class ASTConverter:
         finally:
             if pushed_module_scope:
                 self._pop_scope()
+                self._future_annotations = previous_future_annotations
 
     def _convert_node(self, node: python_ast.AST) -> Optional[PythonASTNode]:
         return self._with_source_origin(self._convert_node_impl(node), node)
@@ -517,9 +657,23 @@ class ASTConverter:
             func = self._convert_expression_safe(node.func)
             args: List[PythonASTNode] = []
             vargs: Optional[PythonASTNode] = None
+            positional_spreads: List[PythonASTNode] = []
+            positional_items: List[Tuple[bool, PythonASTNode]] = []
+            ordered_arguments: List[Tuple[int, int, int, PythonASTNode]] = []
+            order_index = 0
             for arg in node.args:
                 if isinstance(arg, python_ast.Starred):
                     star = self._convert_expression_safe(arg.value)
+                    positional_spreads.append(star)
+                    positional_items.append((True, star))
+                    ordered_arguments.append(
+                        (
+                            int(getattr(arg, "lineno", 0) or 0),
+                            int(getattr(arg, "col_offset", 0) or 0),
+                            order_index,
+                            star,
+                        )
+                    )
                     if vargs is None:
                         vargs = star
                     else:
@@ -529,15 +683,37 @@ class ASTConverter:
                             "interpreter_merge_varargs", [vargs, star]
                         )
                 else:
-                    args.append(self._convert_expression_safe(arg))
+                    converted_arg = self._convert_expression_safe(arg)
+                    args.append(converted_arg)
+                    positional_items.append((False, converted_arg))
+                    ordered_arguments.append(
+                        (
+                            int(getattr(arg, "lineno", 0) or 0),
+                            int(getattr(arg, "col_offset", 0) or 0),
+                            order_index,
+                            converted_arg,
+                        )
+                    )
+                order_index += 1
 
             keywords = []
             kargs: Optional[PythonASTNode] = None
+            keyword_spreads: List[PythonASTNode] = []
             if node.keywords:
                 for kw in node.keywords:
                     converted_value = self._convert_expression_safe(kw.value)
+                    ordered_arguments.append(
+                        (
+                            int(getattr(kw.value, "lineno", 0) or 0),
+                            int(getattr(kw.value, "col_offset", 0) or 0),
+                            order_index,
+                            converted_value,
+                        )
+                    )
+                    order_index += 1
                     if kw.arg is None:
                         # **kwargs
+                        keyword_spreads.append(converted_value)
                         if kargs is None:
                             kargs = converted_value
                         else:
@@ -549,7 +725,17 @@ class ASTConverter:
                     else:
                         keywords.append((kw.arg, converted_value))
 
-            return pyflow_ast.Call(func, args, keywords, vargs, kargs)
+            call = pyflow_ast.Call(func, args, keywords, vargs, kargs)
+            register_call_argument_metadata(
+                call,
+                evaluation_order=tuple(
+                    item[3] for item in sorted(ordered_arguments)
+                ),
+                positional_spreads=tuple(positional_spreads),
+                keyword_spreads=tuple(keyword_spreads),
+                positional_items=tuple(positional_items),
+            )
+            return call
 
         elif isinstance(node, python_ast.Starred):
             # Starred expressions are only valid in certain contexts (call args, unpacking).
@@ -737,18 +923,10 @@ class ASTConverter:
                 return self._unsupported_expr(node, "unsupported boolean operator")
 
         elif isinstance(node, python_ast.IfExp):
-            # IfExp is an expression (a if cond else b).  We cannot return a
-            # Suite here because the caller expects an expression node.  Instead
-            # we model it as a Call to a synthetic helper that the downstream
-            # analyses treat conservatively.  The three sub-expressions are
-            # still visited so their data-flow is captured.
             test = self._convert_expression_safe(node.test)
             body = self._convert_expression_safe(node.body)
             orelse = self._convert_expression_safe(node.orelse)
-            return self._call_named(
-                "interpreter_ifexp",
-                [test, body, orelse],
-            )
+            return pyflow_ast.ConditionalExpr(test, body, orelse)
 
         elif isinstance(node, python_ast.JoinedStr):
             parts = []
@@ -862,27 +1040,95 @@ class ASTConverter:
         Supports type parameters for generic functions (Python 3.12+).
         """
         type_params_node = getattr(node, "type_params", None)
+        definition_annotations = [
+            self._convert_annotation(argument.annotation)
+            for argument in (
+                *getattr(node.args, "posonlyargs", ()),
+                *getattr(node.args, "args", ()),
+                *getattr(node.args, "kwonlyargs", ()),
+            )
+            if getattr(argument, "annotation", None) is not None
+        ]
+        if getattr(node.args, "vararg", None) is not None and getattr(
+            node.args.vararg, "annotation", None
+        ) is not None:
+            definition_annotations.append(
+                self._convert_annotation(node.args.vararg.annotation)
+            )
+        if getattr(node.args, "kwarg", None) is not None and getattr(
+            node.args.kwarg, "annotation", None
+        ) is not None:
+            definition_annotations.append(
+                self._convert_annotation(node.args.kwarg.annotation)
+            )
+        if getattr(node, "returns", None) is not None:
+            definition_annotations.append(
+                self._convert_annotation(node.returns)
+            )
         codeparams = self._convert_function_args(
             node.args, ensure_return=True, type_params_node=type_params_node
         )
         direct_global, direct_nonlocal = self._collect_direct_scope_directives(
             list(node.body)
         )
+        body_bound, body_loaded = self._collect_scope_names(list(node.body))
+        parameter_names = {
+            argument.arg
+            for argument in (
+                *getattr(node.args, "posonlyargs", ()),
+                *getattr(node.args, "args", ()),
+                *getattr(node.args, "kwonlyargs", ()),
+            )
+        }
+        if getattr(node.args, "vararg", None) is not None:
+            parameter_names.add(node.args.vararg.arg)
+        if getattr(node.args, "kwarg", None) is not None:
+            parameter_names.add(node.args.kwarg.arg)
+        bound_names = (body_bound | parameter_names) - direct_global - direct_nonlocal
+        uses_zero_arg_super = any(
+            isinstance(candidate, python_ast.Call)
+            and isinstance(candidate.func, python_ast.Name)
+            and candidate.func.id == "super"
+            and not candidate.args
+            and not candidate.keywords
+            for statement in node.body
+            for candidate in python_ast.walk(statement)
+        )
+        if uses_zero_arg_super:
+            body_loaded.add("__class__")
+        implicit_free = self._enclosing_cell_names(
+            body_loaded - bound_names - direct_global
+        )
+        free_names = direct_nonlocal | implicit_free
         _descendant_global, descendant_nonlocal = (
             self._collect_descendant_scope_directives(list(node.body))
+        )
+        captured_by_children = self._direct_child_captures(
+            list(node.body),
+            bound_names,
         )
         self._push_scope(
             "function",
             global_names=direct_global,
-            nonlocal_names=direct_nonlocal,
-            cell_names=descendant_nonlocal,
+            nonlocal_names=free_names,
+            cell_names=descendant_nonlocal | captured_by_children,
+            bound_names=bound_names,
         )
         try:
             body = self.convert_python_ast_to_pyflow(node.body)
+            closure_cells = tuple(
+                self._resolve_nonlocal_cell(name)
+                for name in sorted(free_names)
+            )
         finally:
             self._pop_scope()
 
         code = pyflow_ast.Code(node.name, codeparams, body)
+        register_code_definition_metadata(
+            code,
+            annotations=tuple(definition_annotations),
+            closure_cells=closure_cells,
+        )
 
         code.annotation = CodeAnnotation(
             contexts=None,
@@ -930,13 +1176,22 @@ class ASTConverter:
             if kw.arg is not None:
                 keywords.append((kw.arg, self._convert_expression_safe(kw.value)))
 
-        body = self.convert_python_ast_to_pyflow(node.body)
+        class_bound, _class_loaded = self._collect_scope_names(list(node.body))
+        class_bound.add("__class__")
+        self._push_scope("class", bound_names=class_bound)
+        class_scope = self._current_scope()
+        class_scope["cells"]["__class__"] = pyflow_ast.Cell("__class__")
+        try:
+            body = self.convert_python_ast_to_pyflow(node.body)
+            class_cell = class_scope["cells"].get("__class__")
+        finally:
+            self._pop_scope()
 
         type_params = None
         if hasattr(node, "type_params") and node.type_params:
             type_params = self._convert_type_params(node.type_params)
 
-        return pyflow_ast.ClassDef(
+        class_definition = pyflow_ast.ClassDef(
             node.name,
             bases,
             keywords,
@@ -947,6 +1202,8 @@ class ASTConverter:
             ],
             type_params,
         )
+        register_class_cell(class_definition, class_cell)
+        return class_definition
 
     def _convert_function_args(
         self,
@@ -1050,6 +1307,11 @@ class ASTConverter:
         except Exception:
             return self._convert_expression_safe(node)
         return pyflow_ast.Existing(Object(value))
+
+    def _convert_annotation(self, node: python_ast.AST) -> PythonASTNode:
+        if self._future_annotations:
+            return pyflow_ast.Existing(Object(python_ast.unparse(node)))
+        return self._convert_expression_safe(node)
 
     def _convert_import(self, node: python_ast.Import) -> Optional[PythonASTNode]:
         """Convert Python AST Import to pyflow AST."""
@@ -1342,7 +1604,14 @@ class ASTConverter:
                 slice_node = pyflow_ast.BuildSlice(
                     pyflow_ast.Existing(Object(starred_idx)), stop, None
                 )
-                star_rhs = self._call_named("interpreter_getitem", [value, slice_node])
+                # Extended unpacking always creates a fresh list.  Keep the
+                # slice bounds as evaluated operands, while the dedicated
+                # helper lets heap analysis copy the source elements without
+                # aliasing the result container directly to those elements.
+                star_rhs = self._call_named(
+                    "interpreter_slice_copy",
+                    [value, slice_node],
+                )
                 suite.append(self._convert_store(star_target, star_rhs))
 
                 # Elements after the starred target (use negative indices).
@@ -1900,13 +2169,9 @@ class ASTConverter:
             original_group = pyflow_ast.Local("__exc_group__")
             handler_body = self.convert_python_ast_to_pyflow(handler.body)
             handler_body = self._ensure_suite(handler_body)
-            handler_body.append(
-                pyflow_ast.Raise(
-                    exception=original_group,
-                    parameter=None,
-                    traceback=pyflow_ast.Existing(Object(None)),
-                )
-            )
+            # The transfer engine already preserves an unmatched exceptional
+            # edge for typed handlers.  Unconditionally re-raising the original
+            # group here incorrectly removed the fully-handled normal path.
 
             preamble = pyflow_ast.Suite([])
             if exc_name and exc_type:
@@ -1963,35 +2228,67 @@ class ASTConverter:
             if node.value is not None
             else None
         )
+        scope = self._current_scope()
+        evaluates_annotation = scope is None or scope.get("kind") in {
+            "module",
+            "class",
+        }
+        annotation = (
+            self._convert_annotation(node.annotation)
+            if evaluates_annotation
+            else None
+        )
 
-        # Lower to ordinary runtime effects. PyFlow's AnnAssign node field name
-        # collides with the framework's per-node annotation metadata, so keeping
-        # the source-level syntax node here is not stable across analyses.
         if isinstance(node.target, python_ast.Name):
-            if value is None:
-                return pyflow_ast.Suite([])
-            return self._name_store(node.target.id, value)
+            suite = pyflow_ast.Suite([])
+            if value is not None:
+                suite.append(self._name_store(node.target.id, value))
+            if annotation is not None:
+                annotations = (
+                    pyflow_ast.GetGlobal(self._name_constant("__annotations__"))
+                    if scope is None or scope.get("kind") == "module"
+                    else pyflow_ast.Local("__annotations__")
+                )
+                suite.append(
+                    pyflow_ast.SetSubscript(
+                        annotation,
+                        annotations,
+                        self._name_constant(node.target.id),
+                    )
+                )
+            return suite
 
         # For non-local targets, keep the runtime-equivalent lowering.
+        suite = pyflow_ast.Suite([])
         if value is None:
-            return pyflow_ast.Suite([])
+            if annotation is not None:
+                suite.append(pyflow_ast.Discard(annotation))
+            return suite
 
         if isinstance(node.target, python_ast.Attribute):
             obj = self._convert_expression_safe(node.target.value)
             name = pyflow_ast.Existing(Object(node.target.attr))
-            return pyflow_ast.Suite([pyflow_ast.SetAttr(value, obj, name)])
+            suite.append(pyflow_ast.SetAttr(value, obj, name))
+            if annotation is not None:
+                suite.append(pyflow_ast.Discard(annotation))
+            return suite
         if isinstance(node.target, python_ast.Subscript):
             obj = self._convert_expression_safe(node.target.value)
             sub = self._convert_subscript_index(node.target.slice)
-            return pyflow_ast.Discard(
-                pyflow_ast.Call(
-                    pyflow_ast.Existing(Object("interpreter_setitem")),
-                    [obj, sub, value],
-                    [],
-                    None,
-                    None,
+            suite.append(
+                pyflow_ast.Discard(
+                    pyflow_ast.Call(
+                        pyflow_ast.Existing(Object("interpreter_setitem")),
+                        [obj, sub, value],
+                        [],
+                        None,
+                        None,
+                    )
                 )
             )
+            if annotation is not None:
+                suite.append(pyflow_ast.Discard(annotation))
+            return suite
 
         return self._unsupported_stmt(node, "annotated assignment target unsupported")
 
@@ -2048,6 +2345,9 @@ class ASTConverter:
         """
         generators = node.generators
         kind = result_type.lower()
+        capture_names = self._comprehension_capture_names(node)
+        capture_formals = [pyflow_ast.Local(name) for name in capture_names]
+        capture_actuals = [self._name_expr(name) for name in capture_names]
 
         if kind == "dict":
             result_init = pyflow_ast.BuildMap([])
@@ -2142,8 +2442,8 @@ class ASTConverter:
             selfparam=None,
             posonlyparams=[],
             posonlynames=[],
-            params=[],
-            paramnames=[],
+            params=capture_formals,
+            paramnames=capture_names,
             defaults=[],
             vparam=None,
             kparam=None,
@@ -2167,9 +2467,10 @@ class ASTConverter:
             runtime=False,
             interpreter=False,
         )
-        return pyflow_ast.Call(
-            pyflow_ast.MakeFunction(defaults=[], cells=[], code=comp_code),
-            [],
+        return pyflow_ast.DirectCall(
+            comp_code,
+            None,
+            capture_actuals,
             [],
             None,
             None,
@@ -2195,6 +2496,9 @@ class ASTConverter:
         """
         generators = node.generators
         element = self._convert_expression_safe(node.elt)
+        capture_names = self._comprehension_capture_names(node)
+        capture_formals = [pyflow_ast.Local(name) for name in capture_names]
+        capture_actuals = [self._name_expr(name) for name in capture_names]
 
         if not generators:
             return self._call_named("interpreter_make_generator", [element])
@@ -2203,8 +2507,8 @@ class ASTConverter:
             selfparam=None,
             posonlyparams=[],
             posonlynames=[],
-            params=[],
-            paramnames=[],
+            params=capture_formals,
+            paramnames=capture_names,
             defaults=[],
             vparam=None,
             kparam=None,
@@ -2269,4 +2573,29 @@ class ASTConverter:
             interpreter=False,
         )
 
-        return pyflow_ast.MakeFunction(defaults=[], cells=[], code=code)
+        return pyflow_ast.DirectCall(
+            code,
+            None,
+            capture_actuals,
+            [],
+            None,
+            None,
+        )
+
+    @staticmethod
+    def _comprehension_capture_names(node: python_ast.AST) -> List[str]:
+        loaded: Set[str] = set()
+        bound: Set[str] = set()
+
+        class CaptureVisitor(python_ast.NodeVisitor):
+            def visit_Name(self, current: python_ast.Name) -> None:
+                if isinstance(current.ctx, python_ast.Load):
+                    loaded.add(current.id)
+                else:
+                    bound.add(current.id)
+
+            def visit_Lambda(self, current: python_ast.Lambda) -> None:
+                return
+
+        CaptureVisitor().visit(node)
+        return sorted(loaded - bound)

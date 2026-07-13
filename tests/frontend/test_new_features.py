@@ -5,6 +5,7 @@ import ast as python_ast
 import sys
 
 from pyflow.frontend.ast_converter import ASTConverter
+from pyflow.analysis.ir_utils import code_closure_cells
 from pyflow.language.python import ast as pyflow_ast
 
 
@@ -150,7 +151,9 @@ class TestTypeAnnotations(unittest.TestCase):
         node = tree.body[0]
         
         result = self.converter._convert_node(node)
-        self.assertIsInstance(result, pyflow_ast.Assign)
+        self.assertIsInstance(result, pyflow_ast.Suite)
+        self.assertIsInstance(result.blocks[0], pyflow_ast.Assign)
+        self.assertIsInstance(result.blocks[1], pyflow_ast.SetSubscript)
 
     def test_convert_annassign_no_value(self):
         """Test converting annotation-only (no value)."""
@@ -160,7 +163,8 @@ class TestTypeAnnotations(unittest.TestCase):
         
         result = self.converter._convert_node(node)
         self.assertIsInstance(result, pyflow_ast.Suite)
-        self.assertFalse(result.blocks)
+        self.assertEqual(len(result.blocks), 1)
+        self.assertIsInstance(result.blocks[0], pyflow_ast.SetSubscript)
 
     @unittest.skipIf(not hasattr(python_ast, "TypeAlias"), "Requires Python 3.12+")
     def test_convert_type_alias_emits_marker_and_binding(self):
@@ -257,6 +261,34 @@ def outer():
         self.assertTrue(inner_cell_writes)
         self.assertIsInstance(inner.code.ast.blocks[-1].exprs[0], pyflow_ast.GetCellDeref)
 
+    def test_implicit_free_variable_is_recorded_as_a_closure_cell(self):
+        source = """
+def outer():
+    value = object()
+    def inner():
+        return value
+    return inner
+"""
+        tree = python_ast.parse(source)
+        result = self.converter.convert_python_ast_to_pyflow(tree.body)
+        outer = result.blocks[0]
+        inner = next(
+            block
+            for block in outer.code.ast.blocks
+            if isinstance(block, pyflow_ast.FunctionDef)
+        )
+        self.assertTrue(code_closure_cells(inner.code))
+        self.assertTrue(
+            any(
+                isinstance(block, pyflow_ast.SetCellDeref)
+                for block in outer.code.ast.blocks
+            )
+        )
+        self.assertIsInstance(
+            inner.code.ast.blocks[-1].exprs[0],
+            pyflow_ast.GetCellDeref,
+        )
+
 
 class TestComprehensions(unittest.TestCase):
     """Test comprehension handling."""
@@ -271,18 +303,19 @@ class TestComprehensions(unittest.TestCase):
         node = tree.body
 
         result = self.converter._convert_expression(node)
-        self.assertIsInstance(result, pyflow_ast.Call)
-        self.assertIsInstance(result.expr, pyflow_ast.MakeFunction)
-        self.assertEqual(len(result.args), 0)
+        self.assertIsInstance(result, pyflow_ast.DirectCall)
+        self.assertIsNotNone(result.code)
+        self.assertEqual([arg.name for arg in result.args], ["range"])
 
     def test_gen_exp_not_none(self):
-        """Test that generator expression returns MakeFunction (a generator function)."""
+        """Generator expressions create a deferred generator activation."""
         source = "(x for x in range(10))"
         tree = python_ast.parse(source, mode='eval')
         node = tree.body
         
         result = self.converter._convert_expression(node)
-        self.assertIsInstance(result, pyflow_ast.MakeFunction)
+        self.assertIsInstance(result, pyflow_ast.DirectCall)
+        self.assertIn("converted_genexpr", result.code.annotation.origin)
 
     def test_set_comp_uses_set_builder(self):
         """Set comprehensions should initialize a set and add into it."""
@@ -290,9 +323,8 @@ class TestComprehensions(unittest.TestCase):
         tree = python_ast.parse(source, mode="eval")
         result = self.converter._convert_expression(tree.body)
 
-        self.assertIsInstance(result, pyflow_ast.Call)
-        self.assertIsInstance(result.expr, pyflow_ast.MakeFunction)
-        code_ast = result.expr.code.ast
+        self.assertIsInstance(result, pyflow_ast.DirectCall)
+        code_ast = result.code.ast
         self.assertIsInstance(code_ast.blocks[0].expr, pyflow_ast.BuildSet)
 
     def test_dict_comp_uses_map_builder(self):
@@ -301,9 +333,8 @@ class TestComprehensions(unittest.TestCase):
         tree = python_ast.parse(source, mode="eval")
         result = self.converter._convert_expression(tree.body)
 
-        self.assertIsInstance(result, pyflow_ast.Call)
-        self.assertIsInstance(result.expr, pyflow_ast.MakeFunction)
-        code_ast = result.expr.code.ast
+        self.assertIsInstance(result, pyflow_ast.DirectCall)
+        code_ast = result.code.ast
         self.assertIsInstance(code_ast.blocks[0].expr, pyflow_ast.BuildMap)
 
 
@@ -488,8 +519,7 @@ except* ValueError as err:
         self.assertIsInstance(result, pyflow_ast.TryExceptFinally)
         handler = result.handlers[0]
         self.assertEqual(handler.value.name, "__exc_group__")
-        self.assertIsInstance(handler.body.blocks[-1], pyflow_ast.Raise)
-        self.assertEqual(handler.body.blocks[-1].exception.name, "__exc_group__")
+        self.assertNotIsInstance(handler.body.blocks[-1], pyflow_ast.Raise)
 
 
 if __name__ == "__main__":

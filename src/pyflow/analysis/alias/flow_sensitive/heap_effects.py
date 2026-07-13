@@ -118,10 +118,12 @@ class HeapEffectBuilder:
         read_locations: LocationReader,
         *,
         intrinsics: HeapIntrinsicModels = DEFAULT_HEAP_INTRINSICS,
+        module_owner: Callable[[object], object | None] | None = None,
     ) -> None:
         self.heap = heap
         self.read_locations = read_locations
         self.intrinsics = intrinsics
+        self.module_owner = module_owner
 
     def operation_effect(
         self,
@@ -286,6 +288,14 @@ class HeapEffectBuilder:
             return CALL_RETURN_COPY
         if call_name in policy.fresh_return_names:
             return CALL_RETURN_FRESH
+        if (
+            isinstance(call_expression, py_ast.MethodCall)
+            and "." not in call_name
+            and self.intrinsics.collection_mutator(call_name) is not None
+        ):
+            # A bare method name does not prove the receiver is the builtin
+            # collection whose convention says the method returns None.
+            return CALL_RETURN_OPAQUE
         intrinsic_kind = self.intrinsics.return_kind(call_name)
         if intrinsic_kind is not None:
             return intrinsic_kind
@@ -322,7 +332,7 @@ class HeapEffectBuilder:
         """Stable allocation-site key for a call return."""
         return (
             "call_return",
-            id(call_expression),
+            self.heap._site_identity(call_expression),
             return_index,
             kind or self.call_return_kind(call_expression),
         )
@@ -447,7 +457,11 @@ class HeapEffectBuilder:
         procedure: object,
         name: object,
     ) -> HeapLocation:
-        module = getattr(procedure, "module", None)
+        module = (
+            self.module_owner(procedure)
+            if self.module_owner is not None
+            else getattr(procedure, "module", None)
+        )
         return self.heap.location_for_raw(
             self.heap.global_object(
                 self._path_component(name),
@@ -769,7 +783,7 @@ class HeapEffectBuilder:
                 return ()
             return (self.call_return_object(procedure, expr),)
         if isinstance(expr, py_ast.Import):
-            return (self.import_object(expr),)
+            return (self.import_object(expr, procedure),)
         if not isinstance(
             expr,
             (
@@ -847,6 +861,20 @@ class HeapEffectBuilder:
         if not isinstance(expr, py_ast.Existing):
             return None
         value = getattr(expr.object, "pyobj", None)
+        # Negative indices are sequence-relative.  Without a proven concrete
+        # length, treating them as exact keys loses aliases such as ``xs[-1]``
+        # -> ``xs[len(xs)-1]``.  Widening is also safe for mappings.
+        if isinstance(value, int) and not isinstance(value, bool) and value < 0:
+            return None
+        # Python mappings coalesce equal numeric keys (True, 1 and 1.0).
+        # Preserve the traditional integer spelling so existing paths remain
+        # stable while canonicalising the common cross-type equalities.
+        if isinstance(value, bool):
+            value = int(value)
+        elif isinstance(value, float) and value.is_integer():
+            value = int(value)
+        elif isinstance(value, complex) and value.imag == 0 and value.real.is_integer():
+            value = int(value.real)
         return f"[{value!r}]"
 
     def _allocation_label(self, expr: object) -> str:
@@ -866,10 +894,19 @@ class HeapEffectBuilder:
             return "allocate"
         return type(expr).__name__
 
-    def import_object(self, expr: py_ast.Import) -> HeapObject:
+    def import_object(
+        self,
+        expr: py_ast.Import,
+        procedure: object | None = None,
+    ) -> HeapObject:
         module_name = expr.name
         if getattr(expr, "level", 0):
-            module_name = "." * expr.level + module_name
+            owner = (
+                self.module_owner(procedure)
+                if self.module_owner is not None and procedure is not None
+                else None
+            )
+            module_name = ("relative", owner, expr.level, module_name)
         return self.heap.module_object(module_name, label=expr.name)
 
     def _call_result_label(self, expr: object) -> str:
@@ -929,6 +966,12 @@ class HeapEffectBuilder:
 
         call = self._call_from_expression_or_statement(operation)
         call_name = resolve_call_name(call) if call is not None else None
+        if (
+            isinstance(call, py_ast.MethodCall)
+            and isinstance(call_name, str)
+            and "." not in call_name
+        ):
+            return ()
         if call_name in {"clear", "dict.clear", "list.clear", "set.clear"}:
             return deletes
         if call_name in {"pop", "dict.pop", "get_and_del"} and call is not None:

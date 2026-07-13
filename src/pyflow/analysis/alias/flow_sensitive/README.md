@@ -34,14 +34,16 @@ set of possible receivers are weak.
 The soundness scope excludes unknown or reflective calls, recursive cycles, and
 loops that fail to converge within the configured iteration bound. Native or
 dynamic Python behavior not represented by an IR operation needs an explicit
-model.
+model. The points-to domain tracks reference-bearing heap objects; scalar
+values such as integers and strings are evaluated for ordering and effects but
+are not represented as mutable heap roots.
 
-## Heap vs Pointer Analysis
+## flow_sensitive vs kcfa
 
 `pyflow.analysis.alias.flow_sensitive` and `pyflow.analysis.alias.kcfa` both answer points-to style
 questions, but they target different consumers.
 
-| Area | `analysis.heap` | `analysis.pointer` |
+| Area | `analysis.alias.flow_sensitive` | `analysis.alias.kcfa` |
 | --- | --- | --- |
 | Primary goal | Heap effects, aliases, escapes, and strong/weak update safety for PyFlow passes | General k-CFA pointer/call-graph analysis migrated from PythonStAn |
 | Flow model | Flow-sensitive over PyFlow IR, path-insensitive at joins | Effectively flow-insensitive points-to solving: constraints and pointer-flow edges are solved to a monotone union fixpoint |
@@ -98,6 +100,13 @@ if graph.may_alias(loc_a, loc_b):
 
 if graph.strong_update_possible(loc):
     ...
+
+# Final-state heap contents.
+values = graph.values_at(object_field)
+
+# Operation-specific pre/post state.
+before = graph.values_at(object_field, operation, before=True)
+after = graph.values_at(object_field, operation)
 ```
 
 The application pass registers the result under the `"heap"` analysis key:
@@ -143,8 +152,9 @@ and context sensitivity.
 
 - Canonicalize raw storage through `HeapAbstraction.location_for_raw()` before
   creating heap facts.
-- Treat `PointsToGraph` as a snapshot. Mutate/query live state through
-  `HeapAnalysis.heap` or `HeapAbstraction`, then extract a new graph.
+- Treat `PointsToGraph` as a snapshot. It contains final heap values and
+  immutable pre/post snapshots for analyzed IR nodes; mutate live metadata
+  through `HeapAnalysis.heap` or `HeapAbstraction`, then extract a new graph.
 - Unknown locations are conservative for `may_alias()`, escape, and
   reference-count queries; callers that require proof should first check
   membership in the graph.
