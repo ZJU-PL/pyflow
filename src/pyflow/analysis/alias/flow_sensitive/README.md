@@ -9,6 +9,23 @@ attribute and literal container paths when possible, falls back to wildcard
 selectors for dynamic accesses, and uses escape/reference-count facts to decide
 whether writes can be strong or must be weak.
 
+Flow state includes both heap contents and the local binding environment.
+Branches are analyzed from independent snapshots and join each local's possible
+roots, escape state, and live-reference metadata before subsequent operations.
+Abrupt exits (`return`, `raise`, `break`, and `continue`) are carried separately
+from normal successors, including through `try`/`except`/`finally`.
+
+For bounded, closed-world IR, resolved direct calls preserve per-result return
+slots, short-circuit expressions join skipped and executed side effects, and
+nested collection/function values retain their element, default, and closure
+reachability. Unconstrained parameters include a shared external summary root,
+so independently declared parameters may alias.
+
+The soundness scope excludes unknown or reflective calls, recursive cycles, and
+loops that fail to converge within the configured iteration bound. Native or
+dynamic Python behavior not represented by an IR operation needs an explicit
+model.
+
 ## Heap vs Pointer Analysis
 
 `pyflow.analysis.alias.flow_sensitive` and `pyflow.analysis.alias.kcfa` both answer points-to style
@@ -121,6 +138,8 @@ when downstream consumers benefit from more structure.
   in the graph.
 - Dynamic attribute/subscript writes use wildcard selectors and can contaminate
   overlapping precise paths.
+- Control-flow joins must combine both `HeapState` values and the corresponding
+  `HeapEnvironment`; restoring only heap contents loses branch-local aliases.
 - Strong updates require a precise, non-escaped, singleton-like root unless the
   policy explicitly allows strong updates for fresh nested locations.
 

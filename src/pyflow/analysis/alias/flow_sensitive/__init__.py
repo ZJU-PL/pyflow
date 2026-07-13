@@ -59,6 +59,7 @@ from .model import (
 
 from .abstraction import (
     HeapAbstraction,
+    HeapEnvironment,
 )
 
 from .heap_effects import (
@@ -114,6 +115,7 @@ __all__ = [
     "HeapAnalysis",
     "HeapEffect",
     "HeapEffectBuilder",
+    "HeapEnvironment",
     "HeapEscapeState",
     "HeapLocation",
     "HeapObject",
