@@ -2,6 +2,7 @@
 
 from .cfg_adapter import (
     annotation_invokes_cfg_resolver,
+    CallEffect,
     CFGNode,
     CFGSupergraphAdapter,
     assigned_locals,
@@ -13,6 +14,8 @@ from .cfg_adapter import (
     iter_call_expressions,
     iter_call_expressions_in_eval_order,
     named_call_cfg_resolver,
+    ProcedureSemantics,
+    SuspensionEffect,
 )
 from ..alias.flow_sensitive.model import (
     AllocationSensitivity,
@@ -60,6 +63,8 @@ from .problem import (
     ZeroFact,
 )
 from .solver import (
+    AnalysisStatus,
+    CancellationToken,
     CallContext,
     IDEResult,
     IDESolver,
@@ -67,10 +72,13 @@ from .solver import (
     IFDSSolver,
     PathEdge,
     SolverLimitExceeded,
+    SolverOptions,
 )
 from .solver import PropagationTrace, SolverStatistics
 from .diagnostics import IFDSDiagnostic
+from .preparation import PreparationMode
 from .queries import is_reached_prefix, verify_call_chain
+from .reporting import AnalysisFinding, FlowStep, SourceSpan
 from .supergraph import Supergraph, SupergraphError
 from .backward_solver import (
     BackwardIFDSProblem,
@@ -147,7 +155,11 @@ from .shadow_scan import (
 __all__ = [
     "BackwardIFDSProblem",
     "BackwardIFDSSolver",
+    "AnalysisStatus",
+    "AnalysisFinding",
+    "CancellationToken",
     "CallContext",
+    "CallEffect",
     "CATEGORY_DATABASE",
     "CATEGORY_ENVIRONMENT",
     "CATEGORY_FILE",
@@ -166,6 +178,7 @@ __all__ = [
     "ExpressionResourceFact",
     "ExpressionTaintFact",
     "FactTransition",
+    "FlowStep",
     "IFDSDiagnostic",
     "GenFlow",
     "IDEProblem",
@@ -183,15 +196,20 @@ __all__ = [
     "load_registry",
     "PathEdge",
     "PropagationTrace",
+    "ProcedureSemantics",
+    "PreparationMode",
     "NullnessAnalysisResult",
     "NullnessConfiguration",
     "NullnessFinding",
     "Registry",
     "SolverStatistics",
     "SolverLimitExceeded",
+    "SolverOptions",
     "NullFact",
     "Supergraph",
+    "SuspensionEffect",
     "SupergraphError",
+    "SourceSpan",
     "TaintAnalysisResult",
     "TaintConfiguration",
     "TaintFinding",

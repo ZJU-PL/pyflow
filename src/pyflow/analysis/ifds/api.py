@@ -42,7 +42,8 @@ from .clients.typestate import (
     analyze_typestate,
 )
 from .diagnostics import IFDSDiagnostic
-from .preparation import prepare_program_for_ifds
+from .preparation import PreparationMode, prepare_program_for_ifds
+from .solver import SolverOptions
 
 
 @dataclass(frozen=True)
@@ -277,6 +278,7 @@ def load_analysis_session(
     search_paths: Sequence[str] | None = None,
     include_exceptional_edges: bool = True,
     root_function: str | None = None,
+    preparation_mode: PreparationMode = PreparationMode.BEST_EFFORT,
 ) -> AnalysisSession:
     """Load source files into a PyFlow program and build CFGs for all live code."""
     files = [Path(path) for path in python_files]
@@ -317,6 +319,7 @@ def load_analysis_session(
                 compiler, program, ["ipa", "cpa"]
             ),
             supplemental_live_codes=preserved_codes,
+            mode=preparation_mode,
         )
     call_resolver = _constraint_call_resolver_for_files(files, target_source)
     adapter = build_supergraph_from_cfgs(
@@ -347,6 +350,8 @@ def run_taint_analysis(
     search_paths: Sequence[str] | None = None,
     include_exceptional_edges: bool = True,
     shadow_scan: bool = False,
+    solver_options: SolverOptions | None = None,
+    preparation_mode: PreparationMode = PreparationMode.BEST_EFFORT,
 ) -> tuple[AnalysisSession, TaintAnalysisResult, list | None]:
     """Load files, resolve a function, and run the shipped taint analysis.
 
@@ -362,6 +367,7 @@ def run_taint_analysis(
         search_paths=search_paths,
         include_exceptional_edges=include_exceptional_edges,
         root_function=function,
+        preparation_mode=preparation_mode,
     )
     result = analyze_taint(
         session.adapter,
@@ -384,6 +390,7 @@ def run_taint_analysis(
             ),
         ),
         entry_nodes=_entry_nodes_from_program(session, fallback_function=function),
+        **({"solver_options": solver_options} if solver_options is not None else {}),
     )
 
     if not shadow_scan:
@@ -409,6 +416,8 @@ def run_nullness_analysis(
     dependency_strategy: str = "auto",
     search_paths: Sequence[str] | None = None,
     include_exceptional_edges: bool = True,
+    solver_options: SolverOptions | None = None,
+    preparation_mode: PreparationMode = PreparationMode.BEST_EFFORT,
 ) -> tuple[AnalysisSession, NullnessAnalysisResult]:
     """Load files, resolve a function, and run the shipped nullness analysis."""
     session = load_analysis_session(
@@ -418,6 +427,7 @@ def run_nullness_analysis(
         search_paths=search_paths,
         include_exceptional_edges=include_exceptional_edges,
         root_function=function,
+        preparation_mode=preparation_mode,
     )
     result = analyze_nullness(
         session.adapter,
@@ -435,6 +445,7 @@ def run_nullness_analysis(
             ),
         ),
         entry_nodes=_entry_nodes_from_program(session, fallback_function=function),
+        **({"solver_options": solver_options} if solver_options is not None else {}),
     )
     return session, result
 
@@ -455,6 +466,8 @@ def run_typestate_analysis(
     dependency_strategy: str = "auto",
     search_paths: Sequence[str] | None = None,
     include_exceptional_edges: bool = True,
+    solver_options: SolverOptions | None = None,
+    preparation_mode: PreparationMode = PreparationMode.BEST_EFFORT,
 ) -> tuple[AnalysisSession, TypestateAnalysisResult]:
     """Load files, resolve a function, and run the shipped typestate analysis."""
     files = [Path(path) for path in python_files]
@@ -465,6 +478,7 @@ def run_typestate_analysis(
         search_paths=search_paths,
         include_exceptional_edges=include_exceptional_edges,
         root_function=function,
+        preparation_mode=preparation_mode,
     )
     result = analyze_typestate(
         session.adapter,
@@ -490,6 +504,7 @@ def run_typestate_analysis(
             ),
         ),
         entry_nodes=_entry_nodes_from_program(session, fallback_function=function),
+        **({"solver_options": solver_options} if solver_options is not None else {}),
     )
     return session, result
 
