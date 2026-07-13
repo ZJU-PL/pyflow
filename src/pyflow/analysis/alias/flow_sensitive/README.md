@@ -6,8 +6,8 @@ debugging, and IFDS-style clients that need operation-level heap effects.
 
 The analysis is flow-sensitive and path-insensitive. It preserves precise
 attribute and literal container paths when possible, falls back to wildcard
-selectors for dynamic accesses, and uses escape/reference-count facts to decide
-whether writes can be strong or must be weak.
+selectors for dynamic accesses, and uses abstract cardinality, path precision,
+and receiver ambiguity to decide whether writes can be strong or must be weak.
 
 Flow state includes both heap contents and the local binding environment.
 Branches are analyzed from independent snapshots and join each local's possible
@@ -18,8 +18,18 @@ from normal successors, including through `try`/`except`/`finally`.
 For bounded, closed-world IR, resolved direct calls preserve per-result return
 slots, short-circuit expressions join skipped and executed side effects, and
 nested collection/function values retain their element, default, and closure
-reachability. Unconstrained parameters include a shared external summary root,
-so independently declared parameters may alias.
+reachability. Calls are analyzed against the caller's current heap, call-site
+allocation contexts distinguish repeated callee allocations, and dead callee
+locals do not leak into caller reference counts. Unconstrained parameters and
+unknown return roots conservatively may alias live value objects.
+
+The transfer follows Python evaluation order for assignments, calls, dynamic
+attributes/subscripts, short-circuit expressions, annotations, yields, awaits,
+and definition headers. It models lexical class scopes, closure-cell identity,
+global/nonlocal declarations, packed and spread arguments, exception prefixes,
+and the lifetime of exception-handler targets. Exact writes to one singleton
+root are strong even when that object escapes; writes through a branch-joined
+set of possible receivers are weak.
 
 The soundness scope excludes unknown or reflective calls, recursive cycles, and
 loops that fail to converge within the configured iteration bound. Native or
@@ -48,7 +58,7 @@ objects/callees and do not need per-program-point update semantics.
 ## Module Layout
 
 ```text
-heap/
+flow_sensitive/
 ├── __init__.py          # Public exports
 ├── model.py             # Heap objects, locations, selectors, policies, writes
 ├── abstraction.py       # Canonicalization, alias classes, escape/update policy
@@ -123,9 +133,11 @@ queries.
 - escape handling for returns and unresolved calls
 - whether fresh nested locations can receive strong updates
 
-Default settings favor useful precision without making every nested write
-strong. Use `HeapPolicy.fast()` for coarse analysis and `HeapPolicy.precise()`
-when downstream consumers benefit from more structure.
+Default settings strongly update exact paths under a singleton root. Imprecise
+selectors, summary roots, and writes through multiple possible receiver roots
+remain weak. Use `HeapPolicy.fast()` for coarse analysis and
+`HeapPolicy.precise()` when downstream consumers benefit from unbounded paths
+and context sensitivity.
 
 ## Important Invariants
 
@@ -133,15 +145,16 @@ when downstream consumers benefit from more structure.
   creating heap facts.
 - Treat `PointsToGraph` as a snapshot. Mutate/query live state through
   `HeapAnalysis.heap` or `HeapAbstraction`, then extract a new graph.
-- Unknown locations are conservative for `may_alias()` and local-leaning for
-  `never_escapes()`; callers that require proof should first check membership
-  in the graph.
+- Unknown locations are conservative for `may_alias()`, escape, and
+  reference-count queries; callers that require proof should first check
+  membership in the graph.
 - Dynamic attribute/subscript writes use wildcard selectors and can contaminate
   overlapping precise paths.
 - Control-flow joins must combine both `HeapState` values and the corresponding
   `HeapEnvironment`; restoring only heap contents loses branch-local aliases.
-- Strong updates require a precise, non-escaped, singleton-like root unless the
-  policy explicitly allows strong updates for fresh nested locations.
+- Strong nested updates require a precise singleton root and one possible
+  receiver for that operation. Escape and the number of access paths do not
+  change the cardinality of a singleton abstract object.
 
 ## Tests
 
