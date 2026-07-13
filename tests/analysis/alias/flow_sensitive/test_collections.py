@@ -41,12 +41,13 @@ def test_keeps_literal_dict_keys_precise():
         py_ast.Suite(
             [
                 py_ast.Assign(py_ast.BuildMap([]), [mapping]),
+                py_ast.Assign(py_ast.BuildList([]), [va]),
+                py_ast.Assign(py_ast.BuildList([]), [vb]),
                 py_ast.SetSubscript(va, mapping, _existing("a")),
                 py_ast.SetSubscript(vb, mapping, _existing("b")),
                 py_ast.Assign(py_ast.GetSubscript(mapping, _existing("a")), [loaded]),
             ]
         ),
-        params=(va, vb),
     )
 
     analysis = HeapAnalysis()
@@ -177,6 +178,32 @@ def test_dict_literal_writes_key_values():
     assert b_loc in loaded_y_locs
 
 
+def test_dict_literal_with_dynamic_key_writes_wildcard_value():
+    key = py_ast.Local("key")
+    value = py_ast.Local("value")
+    mapping = py_ast.Local("mapping")
+    loaded = py_ast.Local("loaded")
+    code = _code(
+        "main",
+        py_ast.Suite(
+            [
+                py_ast.Assign(py_ast.BuildMap([key, value]), [mapping]),
+                py_ast.Assign(py_ast.GetSubscript(mapping, key), [loaded]),
+            ]
+        ),
+        params=(key, value),
+    )
+
+    analysis = HeapAnalysis()
+    analysis.analyze(None, code)
+    heap = analysis.heap
+    assert heap is not None
+
+    assert heap.locations_for_local(code, value)[0] in heap.locations_for_local(
+        code, loaded
+    )
+
+
 def test_append_writes_value_to_container():
     """``container.append(value)`` must write value locations to wildcard subscript."""
     container = py_ast.Local("container")
@@ -248,6 +275,77 @@ def test_extend_writes_all_values():
 
     assert a_location in loaded_locations
     assert b_location in loaded_locations
+
+
+def test_extend_reads_elements_from_iterable_argument():
+    container = py_ast.Local("container")
+    source = py_ast.Local("source")
+    value = py_ast.Local("value")
+    loaded = py_ast.Local("loaded")
+    code = _code(
+        "main",
+        py_ast.Suite(
+            [
+                py_ast.Assign(py_ast.BuildList([]), [container]),
+                py_ast.Assign(py_ast.BuildList([value]), [source]),
+                py_ast.Discard(
+                    py_ast.MethodCall(
+                        container,
+                        _existing("extend"),
+                        [source],
+                        [],
+                        None,
+                        None,
+                    )
+                ),
+                py_ast.Assign(
+                    py_ast.GetSubscript(container, _existing(0)),
+                    [loaded],
+                ),
+            ]
+        ),
+        params=(value,),
+    )
+
+    analysis = HeapAnalysis()
+    analysis.analyze(None, code)
+    heap = analysis.heap
+    assert heap is not None
+
+    assert heap.locations_for_local(code, value)[0] in heap.locations_for_local(
+        code, loaded
+    )
+
+
+def test_slice_assignment_reads_elements_from_iterable_value():
+    target = py_ast.Local("target")
+    source = py_ast.Local("source")
+    value = py_ast.Local("value")
+    loaded = py_ast.Local("loaded")
+    code = _code(
+        "main",
+        py_ast.Suite(
+            [
+                py_ast.Assign(py_ast.BuildList([]), [target]),
+                py_ast.Assign(py_ast.BuildList([value]), [source]),
+                py_ast.SetSlice(source, target, None, None, None),
+                py_ast.Assign(
+                    py_ast.GetSubscript(target, _existing(0)),
+                    [loaded],
+                ),
+            ]
+        ),
+        params=(value,),
+    )
+
+    analysis = HeapAnalysis()
+    analysis.analyze(None, code)
+    heap = analysis.heap
+    assert heap is not None
+
+    assert heap.locations_for_local(code, value)[0] in heap.locations_for_local(
+        code, loaded
+    )
 
 
 def test_setdefault_writes_value():

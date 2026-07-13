@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pyflow.analysis.alias.flow_sensitive import (
     HeapAnalysis,
+    HeapPolicy,
+    UpdatePolicy,
 )
 from pyflow.language.python import ast as py_ast
 
@@ -65,6 +67,109 @@ def test_joins_switch_branch_field_values():
     assert left_location in loaded_locations
     assert right_location in loaded_locations
     assert graph.may_alias(loaded_locations[0], left_location)
+
+
+def test_joins_switch_branch_local_bindings():
+    """Local points-to bindings are part of the flow state, not global mutation."""
+    cond = py_ast.Local("cond")
+    left = py_ast.Local("left")
+    right = py_ast.Local("right")
+    selected = py_ast.Local("selected")
+    loaded = py_ast.Local("loaded")
+    code = _code(
+        "main",
+        py_ast.Suite(
+            [
+                py_ast.Switch(
+                    py_ast.Condition(py_ast.Suite([]), cond),
+                    py_ast.Suite([py_ast.Assign(left, [selected])]),
+                    py_ast.Suite([py_ast.Assign(right, [selected])]),
+                ),
+                py_ast.Assign(selected, [loaded]),
+            ]
+        ),
+        params=(cond, left, right),
+    )
+
+    analysis = HeapAnalysis()
+    graph = analysis.analyze(None, code)
+    heap = analysis.heap
+    assert heap is not None
+
+    selected_locations = heap.locations_for_local(code, selected)
+    loaded_locations = heap.locations_for_local(code, loaded)
+    left_location = heap.locations_for_local(code, left)[0]
+    right_location = heap.locations_for_local(code, right)[0]
+
+    assert left_location in selected_locations
+    assert right_location in selected_locations
+    assert left_location in loaded_locations
+    assert right_location in loaded_locations
+    assert any(graph.may_alias(loc, left_location) for loc in loaded_locations)
+    assert any(graph.may_alias(loc, right_location) for loc in loaded_locations)
+
+
+def test_switch_join_preserves_incoming_binding_on_unchanged_branch():
+    cond = py_ast.Local("cond")
+    original = py_ast.Local("original")
+    replacement = py_ast.Local("replacement")
+    selected = py_ast.Local("selected")
+    loaded = py_ast.Local("loaded")
+    code = _code(
+        "main",
+        py_ast.Suite(
+            [
+                py_ast.Assign(original, [selected]),
+                py_ast.Switch(
+                    py_ast.Condition(py_ast.Suite([]), cond),
+                    py_ast.Suite([py_ast.Assign(replacement, [selected])]),
+                    py_ast.Suite([]),
+                ),
+                py_ast.Assign(selected, [loaded]),
+            ]
+        ),
+        params=(cond, original, replacement),
+    )
+
+    analysis = HeapAnalysis()
+    analysis.analyze(None, code)
+    heap = analysis.heap
+    assert heap is not None
+
+    loaded_locations = heap.locations_for_local(code, loaded)
+    assert heap.locations_for_local(code, original)[0] in loaded_locations
+    assert heap.locations_for_local(code, replacement)[0] in loaded_locations
+
+
+def test_joined_aliases_disable_strong_nested_updates():
+    cond = py_ast.Local("cond")
+    left = py_ast.Local("left")
+    right = py_ast.Local("right")
+    selected = py_ast.Local("selected")
+    code = _code(
+        "main",
+        py_ast.Suite(
+            [
+                py_ast.Assign(py_ast.BuildList([]), [left]),
+                py_ast.Assign(py_ast.BuildList([]), [right]),
+                py_ast.Switch(
+                    py_ast.Condition(py_ast.Suite([]), cond),
+                    py_ast.Suite([py_ast.Assign(left, [selected])]),
+                    py_ast.Suite([py_ast.Assign(right, [selected])]),
+                ),
+            ]
+        ),
+        params=(cond,),
+    )
+
+    analysis = HeapAnalysis(policy=HeapPolicy.precise())
+    analysis.analyze(None, code)
+    heap = analysis.heap
+    assert heap is not None
+
+    for location in heap.locations_for_local(code, selected):
+        field = heap.dynamic_attribute_location(location, "payload")
+        assert heap.update_policy_for_location(field) is UpdatePolicy.WEAK
 
 
 def test_loop_fixed_point_keeps_wildcard_contamination():
@@ -360,6 +465,123 @@ def test_try_handler_sees_body_mutations():
     assert value_location in loaded_locations, (
         "Handler should see field mutation from try body"
     )
+
+
+def test_raise_stops_try_body_before_handler_state_is_captured():
+    obj = py_ast.Local("obj")
+    before_raise = py_ast.Local("before_raise")
+    after_raise = py_ast.Local("after_raise")
+    loaded = py_ast.Local("loaded")
+    handler = py_ast.ExceptionHandler(
+        preamble=py_ast.Suite([]),
+        type=_existing("Exception"),
+        value=None,
+        body=py_ast.Suite(
+            [py_ast.Assign(py_ast.GetAttr(obj, _existing("field")), [loaded])]
+        ),
+    )
+    code = _code(
+        "main",
+        py_ast.Suite(
+            [
+                py_ast.Assign(py_ast.BuildList([]), [obj]),
+                py_ast.TryExceptFinally(
+                    body=py_ast.Suite(
+                        [
+                            py_ast.SetAttr(before_raise, obj, _existing("field")),
+                            py_ast.Raise(_existing("boom"), None, None),
+                            py_ast.SetAttr(after_raise, obj, _existing("field")),
+                        ]
+                    ),
+                    handlers=[handler],
+                    defaultHandler=None,
+                    else_=None,
+                    finally_=None,
+                ),
+            ]
+        ),
+        params=(before_raise, after_raise),
+    )
+
+    analysis = HeapAnalysis(policy=HeapPolicy.precise())
+    analysis.analyze(None, code)
+    heap = analysis.heap
+    assert heap is not None
+
+    loaded_locations = heap.locations_for_local(code, loaded)
+    assert heap.locations_for_local(code, before_raise)[0] in loaded_locations
+    assert heap.locations_for_local(code, after_raise)[0] not in loaded_locations
+
+
+def test_exception_handler_joins_all_try_prefixes():
+    obj = py_ast.Local("obj")
+    first = py_ast.Local("first")
+    second = py_ast.Local("second")
+    loaded = py_ast.Local("loaded")
+    handler = py_ast.ExceptionHandler(
+        preamble=py_ast.Suite([]),
+        type=_existing("Exception"),
+        value=None,
+        body=py_ast.Suite(
+            [py_ast.Assign(py_ast.GetAttr(obj, _existing("field")), [loaded])]
+        ),
+    )
+    code = _code(
+        "main",
+        py_ast.Suite(
+            [
+                py_ast.Assign(py_ast.BuildList([]), [obj]),
+                py_ast.TryExceptFinally(
+                    body=py_ast.Suite(
+                        [
+                            py_ast.SetAttr(first, obj, _existing("field")),
+                            py_ast.SetAttr(second, obj, _existing("field")),
+                        ]
+                    ),
+                    handlers=[handler],
+                    defaultHandler=None,
+                    else_=None,
+                    finally_=None,
+                ),
+            ]
+        ),
+        params=(first, second),
+    )
+
+    analysis = HeapAnalysis(policy=HeapPolicy.precise())
+    analysis.analyze(None, code)
+    heap = analysis.heap
+    assert heap is not None
+
+    loaded_locations = heap.locations_for_local(code, loaded)
+    assert heap.locations_for_local(code, first)[0] in loaded_locations
+    assert heap.locations_for_local(code, second)[0] in loaded_locations
+
+
+def test_return_stops_suite_execution():
+    returned = py_ast.Local("returned")
+    unreachable = py_ast.Local("unreachable")
+    ret = py_ast.Local("ret")
+    code = _code(
+        "main",
+        py_ast.Suite(
+            [
+                py_ast.Assign(py_ast.BuildList([]), [returned]),
+                py_ast.Return([returned]),
+                py_ast.Assign(py_ast.BuildList([]), [unreachable]),
+            ]
+        ),
+        returns=(ret,),
+    )
+
+    analysis = HeapAnalysis()
+    analysis.analyze(None, code)
+    heap = analysis.heap
+    assert heap is not None
+
+    assert heap.locations_for_local(code, returned)
+    assert heap.locations_for_local(code, ret)
+    assert not heap.locations_for_local(code, unreachable)
 
 
 def test_break_stops_suite_execution():
