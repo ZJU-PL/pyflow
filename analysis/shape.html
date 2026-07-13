@@ -87,8 +87,7 @@
 <li class="toctree-l3"><a class="reference internal" href="fsdf.html">Flow-Sensitive Data Flow (FSDF)</a></li>
 <li class="toctree-l3"><a class="reference internal" href="ipa.html">Inter-procedural Analysis (IPA)</a></li>
 <li class="toctree-l3"><a class="reference internal" href="cpa.html">Constraint-based Analysis (CPA)</a></li>
-<li class="toctree-l3"><a class="reference internal" href="pointer.html">k-CFA Pointer Analysis</a></li>
-<li class="toctree-l3"><a class="reference internal" href="heap.html">Heap Abstraction</a></li>
+<li class="toctree-l3"><a class="reference internal" href="alias/index.html">Alias Analysis</a></li>
 <li class="toctree-l3"><a class="reference internal" href="storegraph.html">Store Graph Analysis</a></li>
 <li class="toctree-l3 current"><a class="current reference internal" href="#">Shape Analysis</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="#pipeline-position">Pipeline Position</a></li>
@@ -153,7 +152,7 @@
 tracks the structure and properties of data structures.  It operates on the
 <strong>store graph</strong> (see <a class="reference internal" href="storegraph.html"><span class="doc">Store Graph Analysis</span></a>) using CPA’s points-to and type results
 as input.</p>
-<p>Unlike the <a class="reference internal" href="heap.html"><span class="doc">Heap Abstraction</span></a> abstraction — which is a fixed-policy model for
+<p>Unlike the <a class="reference internal" href="alias/flow_sensitive.html"><span class="doc">Flow-Sensitive Alias Analysis</span></a> analysis — which is a fixed-policy model for
 canonical heap locations (primarily consumed by IFDS clients) — shape
 analysis answers a different question: <strong>“what structural properties does this
 data structure have, and how many references point to each field?”</strong></p>
@@ -226,7 +225,7 @@ analysis:</p>
 <h2>Relationship to Other Modules<a class="headerlink" href="#relationship-to-other-modules" title="Link to this heading"></a></h2>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
-<p>Shape analysis and <a class="reference internal" href="heap.html"><span class="doc">Heap Abstraction</span></a> are <strong>independent subsystems</strong> that serve
+<p>Shape analysis and <a class="reference internal" href="alias/flow_sensitive.html"><span class="doc">Flow-Sensitive Alias Analysis</span></a> are <strong>independent subsystems</strong> that serve
 different clients.  Shape runs post-CPA on the store graph; heap runs on
 the CFG supergraph (currently consumed by IFDS).  They do not feed into
 each other.</p>

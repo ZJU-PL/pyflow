@@ -6,7 +6,7 @@ tracks the structure and properties of data structures.  It operates on the
 **store graph** (see :doc:`storegraph`) using CPA's points-to and type results
 as input.
 
-Unlike the :doc:`heap` abstraction — which is a fixed-policy model for
+Unlike the :doc:`alias/flow_sensitive` analysis — which is a fixed-policy model for
 canonical heap locations (primarily consumed by IFDS clients) — shape
 analysis answers a different question: **"what structural properties does this
 data structure have, and how many references point to each field?"**
@@ -97,7 +97,7 @@ Relationship to Other Modules
 
 .. note::
 
-   Shape analysis and :doc:`heap` are **independent subsystems** that serve
+   Shape analysis and :doc:`alias/flow_sensitive` are **independent subsystems** that serve
    different clients.  Shape runs post-CPA on the store graph; heap runs on
    the CFG supergraph (currently consumed by IFDS).  They do not feed into
    each other.

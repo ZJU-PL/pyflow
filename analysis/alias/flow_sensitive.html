@@ -1,26 +1,26 @@
 
 
 <!DOCTYPE html>
-<html class="writer-html5" lang="en" data-content_root="../">
+<html class="writer-html5" lang="en" data-content_root="../../">
 <head>
   <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Heap Abstraction &mdash; pyflow 0.1.0 documentation</title>
-      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
-      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=9edc463e" />
+  <title>Flow-Sensitive Alias Analysis &mdash; pyflow 0.1.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../_static/css/theme.css?v=9edc463e" />
 
   
-      <script src="../_static/jquery.js?v=5d32c60e"></script>
-      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
-      <script src="../_static/documentation_options.js?v=01f34227"></script>
-      <script src="../_static/doctools.js?v=9bcbadda"></script>
-      <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
-    <script src="../_static/js/theme.js"></script>
-    <link rel="index" title="Index" href="../genindex.html" />
-    <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="Store Graph Analysis" href="storegraph.html" />
-    <link rel="prev" title="k-CFA Pointer Analysis" href="pointer.html" /> 
+      <script src="../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../_static/documentation_options.js?v=01f34227"></script>
+      <script src="../../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+    <link rel="next" title="k-CFA Alias Analysis" href="kcfa.html" />
+    <link rel="prev" title="Alias Analysis" href="index.html" /> 
 </head>
 
 <body class="wy-body-for-nav"> 
@@ -31,11 +31,11 @@
 
           
           
-          <a href="../index.html" class="icon icon-home">
+          <a href="../../index.html" class="icon icon-home">
             pyflow
           </a>
 <div role="search">
-  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
     <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
     <input type="hidden" name="check_keywords" value="yes" />
     <input type="hidden" name="area" value="default" />
@@ -44,84 +44,77 @@
         </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
               <p class="caption" role="heading"><span class="caption-text">Getting Started</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="../tutorials/index.html">Tutorials</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../overview.html">Overview</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../overview.html#what-is-pyflow">What is PyFlow?</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../overview.html#key-features">Key Features</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../overview.html#architecture">Architecture</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../overview.html#repository-status-in-practice">Repository status in practice</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../tutorials/index.html">Tutorials</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../overview.html">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../overview.html#what-is-pyflow">What is PyFlow?</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../overview.html#key-features">Key Features</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../overview.html#architecture">Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../overview.html#repository-status-in-practice">Repository status in practice</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">How-to Guides</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="../how-to/index.html">How-to Guides</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../how-to/index.html">How-to Guides</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Explanations</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="../explanation/index.html">Explanations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../explanation/index.html">Explanations</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">A3 Python</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="../a3_python/index.html"><code class="docutils literal notranslate"><span class="pre">a3_python</span></code></a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../a3_python/index.html"><code class="docutils literal notranslate"><span class="pre">a3_python</span></code></a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Reference</span></p>
 <ul class="current">
-<li class="toctree-l1"><a class="reference internal" href="../cli.html">Main Commands</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../cli.html#global-options">Global Options</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../cli.html#integration">Integration</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../api.html">PyFlow API</a></li>
-<li class="toctree-l1"><a class="reference internal" href="index.html">Analysis Modules</a></li>
-<li class="toctree-l1"><a class="reference internal" href="index.html#overview">Overview</a></li>
-<li class="toctree-l1"><a class="reference internal" href="index.html#analysis-configuration">Analysis Configuration</a></li>
-<li class="toctree-l1"><a class="reference internal" href="index.html#running-analyses">Running Analyses</a></li>
-<li class="toctree-l1 current"><a class="reference internal" href="index.html#analysis-results">Analysis Results</a><ul class="current">
-<li class="toctree-l2"><a class="reference internal" href="index.html#text-output">Text Output</a></li>
-<li class="toctree-l2"><a class="reference internal" href="index.html#json-output">JSON Output</a></li>
-<li class="toctree-l2 current"><a class="reference internal" href="index.html#sarif-output">SARIF Output</a><ul class="current">
-<li class="toctree-l3"><a class="reference internal" href="cfg.html">Control Flow Graph (CFG) Analysis</a></li>
-<li class="toctree-l3"><a class="reference internal" href="cdg.html">Control Dependence Graph (CDG)</a></li>
-<li class="toctree-l3"><a class="reference internal" href="pdg.html">Program Dependence Graph (PDG)</a></li>
-<li class="toctree-l3"><a class="reference internal" href="ddg.html">Data Dependence Graph (DDG)</a></li>
-<li class="toctree-l3"><a class="reference internal" href="cpg.html">Code Property Graph (CPG)</a></li>
-<li class="toctree-l3"><a class="reference internal" href="callgraph.html">Call Graph Analysis</a></li>
-<li class="toctree-l3"><a class="reference internal" href="dataflowIR.html">Data Flow Intermediate Representation</a></li>
-<li class="toctree-l3"><a class="reference internal" href="fsdf.html">Flow-Sensitive Data Flow (FSDF)</a></li>
-<li class="toctree-l3"><a class="reference internal" href="ipa.html">Inter-procedural Analysis (IPA)</a></li>
-<li class="toctree-l3"><a class="reference internal" href="cpa.html">Constraint-based Analysis (CPA)</a></li>
-<li class="toctree-l3"><a class="reference internal" href="pointer.html">k-CFA Pointer Analysis</a></li>
-<li class="toctree-l3 current"><a class="current reference internal" href="#">Heap Abstraction</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="#how-heap-differs-from-shape-and-storegraph">How heap differs from shape and storegraph</a></li>
-<li class="toctree-l4"><a class="reference internal" href="#core-model">Core Model</a></li>
-<li class="toctree-l4"><a class="reference internal" href="#standalone-transfer-engine">Standalone Transfer Engine</a></li>
-<li class="toctree-l4"><a class="reference internal" href="#update-policy">Update Policy</a></li>
-<li class="toctree-l4"><a class="reference internal" href="#alias-tracking">Alias Tracking</a></li>
-<li class="toctree-l4"><a class="reference internal" href="#calls-and-constructors">Calls and Constructors</a></li>
-<li class="toctree-l4"><a class="reference internal" href="#heap-effects-and-summaries">Heap Effects and Summaries</a></li>
-<li class="toctree-l4"><a class="reference internal" href="#known-limits">Known Limits</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../cli.html">Main Commands</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../cli.html#global-options">Global Options</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../cli.html#integration">Integration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../api.html">PyFlow API</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../index.html">Analysis Modules</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../index.html#overview">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../index.html#analysis-configuration">Analysis Configuration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../index.html#running-analyses">Running Analyses</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="../index.html#analysis-results">Analysis Results</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="../index.html#text-output">Text Output</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../index.html#json-output">JSON Output</a></li>
+<li class="toctree-l2 current"><a class="reference internal" href="../index.html#sarif-output">SARIF Output</a><ul class="current">
+<li class="toctree-l3"><a class="reference internal" href="../cfg.html">Control Flow Graph (CFG) Analysis</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../cdg.html">Control Dependence Graph (CDG)</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../pdg.html">Program Dependence Graph (PDG)</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../ddg.html">Data Dependence Graph (DDG)</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../cpg.html">Code Property Graph (CPG)</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../callgraph.html">Call Graph Analysis</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../dataflowIR.html">Data Flow Intermediate Representation</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../fsdf.html">Flow-Sensitive Data Flow (FSDF)</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../ipa.html">Inter-procedural Analysis (IPA)</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../cpa.html">Constraint-based Analysis (CPA)</a></li>
+<li class="toctree-l3 current"><a class="reference internal" href="index.html">Alias Analysis</a><ul class="current">
+<li class="toctree-l4 current"><a class="current reference internal" href="#">Flow-Sensitive Alias Analysis</a></li>
+<li class="toctree-l4"><a class="reference internal" href="kcfa.html">k-CFA Alias Analysis</a></li>
 </ul>
 </li>
-<li class="toctree-l3"><a class="reference internal" href="storegraph.html">Store Graph Analysis</a></li>
-<li class="toctree-l3"><a class="reference internal" href="shape.html">Shape Analysis</a></li>
-<li class="toctree-l3"><a class="reference internal" href="lifetimeanalysis.html">Variable Lifetime Analysis</a></li>
-<li class="toctree-l3"><a class="reference internal" href="ifds.html">IFDS/IDE Data Flow Engine</a></li>
-<li class="toctree-l3"><a class="reference internal" href="typeinfo.html">Type Information System</a></li>
-<li class="toctree-l3"><a class="reference internal" href="numbering.html">Program Point Numbering</a></li>
-<li class="toctree-l3"><a class="reference internal" href="dump.html">Analysis Result Dumping</a></li>
-<li class="toctree-l3"><a class="reference internal" href="stats.html">Statistics Collection and Reporting</a></li>
-<li class="toctree-l3"><a class="reference internal" href="incremental.html">Incremental Analysis Cache</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../storegraph.html">Store Graph Analysis</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../shape.html">Shape Analysis</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../lifetimeanalysis.html">Variable Lifetime Analysis</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../ifds.html">IFDS/IDE Data Flow Engine</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../typeinfo.html">Type Information System</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../numbering.html">Program Point Numbering</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../dump.html">Analysis Result Dumping</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../stats.html">Statistics Collection and Reporting</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../incremental.html">Incremental Analysis Cache</a></li>
 </ul>
 </li>
 </ul>
 </li>
-<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html">Optimizing Python Programs</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#overview">Overview</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#optimization-categories">Optimization Categories</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#optimization-pipeline">Optimization Pipeline</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#usage">Usage</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../lang/index.html">Language Module</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html">Security Analysis and Checking</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#checker-categories">Checker Categories</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#analysis-framework">Analysis Framework</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../checker/sec.html#usage">Usage</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../optimization/index.html">Optimizing Python Programs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../optimization/index.html#overview">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../optimization/index.html#optimization-categories">Optimization Categories</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../optimization/index.html#optimization-pipeline">Optimization Pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../optimization/index.html#usage">Usage</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../lang/index.html">Language Module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../checker/sec.html">Security Analysis and Checking</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../checker/sec.html#checker-categories">Checker Categories</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../checker/sec.html#analysis-framework">Analysis Framework</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../checker/sec.html#usage">Usage</a></li>
 </ul>
 
         </div>
@@ -130,18 +123,19 @@
 
     <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
           <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
-          <a href="../index.html">pyflow</a>
+          <a href="../../index.html">pyflow</a>
       </nav>
 
       <div class="wy-nav-content">
         <div class="rst-content">
           <div role="navigation" aria-label="Page navigation">
   <ul class="wy-breadcrumbs">
-      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
-          <li class="breadcrumb-item"><a href="index.html">Analysis Modules</a></li>
-      <li class="breadcrumb-item active">Heap Abstraction</li>
+      <li><a href="../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../index.html">Analysis Modules</a></li>
+          <li class="breadcrumb-item"><a href="index.html">Alias Analysis</a></li>
+      <li class="breadcrumb-item active">Flow-Sensitive Alias Analysis</li>
       <li class="wy-breadcrumbs-aside">
-            <a href="../_sources/analysis/heap.rst.txt" rel="nofollow"> View page source</a>
+            <a href="../../_sources/analysis/alias/flow_sensitive.rst.txt" rel="nofollow"> View page source</a>
       </li>
   </ul>
   <hr/>
@@ -149,10 +143,10 @@
           <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
            <div itemprop="articleBody">
              
-  <section id="heap-abstraction">
-<h1>Heap Abstraction<a class="headerlink" href="#heap-abstraction" title="Link to this heading"></a></h1>
-<p>The heap abstraction (<code class="docutils literal notranslate"><span class="pre">pyflow.analysis.heap</span></code>) provides a canonical,
-policy-driven heap model for field-sensitive program analysis.  Its primary
+  <section id="flow-sensitive-alias-analysis">
+<h1>Flow-Sensitive Alias Analysis<a class="headerlink" href="#flow-sensitive-alias-analysis" title="Link to this heading"></a></h1>
+<p>The <code class="docutils literal notranslate"><span class="pre">pyflow.analysis.alias.flow_sensitive</span></code> package provides a canonical,
+policy-driven heap model for flow-sensitive alias analysis. Its primary
 consumers are IFDS/IDE dataflow clients (taint, nullness, typestate), but
 the core model has no IFDS-specific dependencies — it is a standalone
 analysis module.  Unlike the storegraph-based analyses (CPA, shape,
@@ -160,12 +154,12 @@ lifetime), the heap layer operates on the CFG supergraph and expresses
 facts over fixed <code class="xref py py-class docutils literal notranslate"><span class="pre">HeapLocation</span></code> values.</p>
 <p>The package was originally part of <code class="docutils literal notranslate"><span class="pre">pyflow.analysis.ifds</span></code> and was
 extracted into an independent module.  It now has zero IFDS imports:
-shared IR utilities live in <code class="xref py py-mod docutils literal notranslate"><span class="pre">pyflow.analysis.ir_utils</span></code>, which both
-<code class="docutils literal notranslate"><span class="pre">heap</span></code> and <code class="docutils literal notranslate"><span class="pre">ifds</span></code> import from.</p>
-<section id="how-heap-differs-from-shape-and-storegraph">
-<span id="heap-vs-shape"></span><h2>How heap differs from shape and storegraph<a class="headerlink" href="#how-heap-differs-from-shape-and-storegraph" title="Link to this heading"></a></h2>
-<p>In short: <strong>heap</strong> answers <em>“which abstract locations does this fact
-refer to, and can I strong-update it?”</em>  <strong>shape</strong> answers <em>“what structural
+shared IR utilities live in <code class="xref py py-mod docutils literal notranslate"><span class="pre">pyflow.analysis.ir_utils</span></code>, which both the
+flow-sensitive alias analysis and <code class="docutils literal notranslate"><span class="pre">ifds</span></code> import from.</p>
+<section id="how-the-analysis-differs-from-shape-and-storegraph">
+<span id="heap-vs-shape"></span><h2>How the analysis differs from shape and storegraph<a class="headerlink" href="#how-the-analysis-differs-from-shape-and-storegraph" title="Link to this heading"></a></h2>
+<p>In short, the flow-sensitive alias analysis answers <em>“which abstract
+locations does this fact refer to, and can I strong-update it?”</em> <strong>shape</strong> answers <em>“what structural
 properties does this data structure have, and how many references point to
 each field?”</em>  <strong>storegraph</strong> is the shared data layer both of the latter two
 build on.</p>
@@ -182,7 +176,7 @@ build on.</p>
 </ul>
 <p>Selectors represent object fields and container elements.  Field sensitivity
 and container sensitivity are controlled by <code class="docutils literal notranslate"><span class="pre">HeapPolicy</span></code>:</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.analysis.heap</span><span class="w"> </span><span class="kn">import</span> <span class="n">HeapPolicy</span><span class="p">,</span> <span class="n">HeapAbstraction</span>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.analysis.alias.flow_sensitive</span><span class="w"> </span><span class="kn">import</span> <span class="n">HeapPolicy</span><span class="p">,</span> <span class="n">HeapAbstraction</span>
 
 <span class="n">policy</span> <span class="o">=</span> <span class="n">HeapPolicy</span><span class="p">(</span>
     <span class="n">allocation_sensitivity</span><span class="o">=</span><span class="n">AllocationSensitivity</span><span class="o">.</span><span class="n">SITE</span><span class="p">,</span>
@@ -274,11 +268,11 @@ paths without treating removed keys as stored values.</p>
 </section>
 <section id="heap-effects-and-summaries">
 <h2>Heap Effects and Summaries<a class="headerlink" href="#heap-effects-and-summaries" title="Link to this heading"></a></h2>
-<p><code class="docutils literal notranslate"><span class="pre">HeapEffect</span></code> (from <code class="xref py py-mod docutils literal notranslate"><span class="pre">pyflow.analysis.heap.heap_effects</span></code>) is the
+<p><code class="docutils literal notranslate"><span class="pre">HeapEffect</span></code> (from <code class="xref py py-mod docutils literal notranslate"><span class="pre">pyflow.analysis.alias.flow_sensitive.heap_effects</span></code>) is the
 operation-level heap contract shared by analysis clients.  It records reads,
 writes, deletes, escapes, returns, and allocations without encoding
 taint/nullness/typestate-specific facts.</p>
-<p><code class="docutils literal notranslate"><span class="pre">HeapSummary</span></code> (from <code class="xref py py-mod docutils literal notranslate"><span class="pre">pyflow.analysis.heap.heap_summary</span></code>) joins those
+<p><code class="docutils literal notranslate"><span class="pre">HeapSummary</span></code> (from <code class="xref py py-mod docutils literal notranslate"><span class="pre">pyflow.analysis.alias.flow_sensitive.heap_summary</span></code>) joins those
 effects over a procedure body.  It is a monotone, fixed summary intended for
 client reuse and future interprocedural heap-effect composition.</p>
 </section>
@@ -287,8 +281,8 @@ client reuse and future interprocedural heap-effect composition.</p>
 <p>The abstraction is primarily consumed by IFDS clients and is not a complete
 Python heap analysis.  It does not fully model descriptors, metaclasses,
 reflection, monkey-patching, native library behavior, path-sensitive branches,
-or path-sensitive shape refinement.  For those concerns, see <a class="reference internal" href="shape.html"><span class="doc">Shape Analysis</span></a> and
-<a class="reference internal" href="storegraph.html"><span class="doc">Store Graph Analysis</span></a>.</p>
+or path-sensitive shape refinement. For those concerns, see <a class="reference internal" href="../shape.html"><span class="doc">Shape Analysis</span></a>
+and <a class="reference internal" href="../storegraph.html"><span class="doc">Store Graph Analysis</span></a>.</p>
 </section>
 </section>
 
@@ -296,8 +290,8 @@ or path-sensitive shape refinement.  For those concerns, see <a class="reference
            </div>
           </div>
           <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
-        <a href="pointer.html" class="btn btn-neutral float-left" title="k-CFA Pointer Analysis" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
-        <a href="storegraph.html" class="btn btn-neutral float-right" title="Store Graph Analysis" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+        <a href="index.html" class="btn btn-neutral float-left" title="Alias Analysis" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="kcfa.html" class="btn btn-neutral float-right" title="k-CFA Alias Analysis" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
     </div>
 
   <hr/>

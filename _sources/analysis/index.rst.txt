@@ -35,16 +35,15 @@ Data Flow Analysis
 * :doc:`ipa` - Inter-procedural Analysis
 * :doc:`cpa` - Constraint-based Analysis
 
-Pointer and Type Analysis
--------------------------
+Alias and Type Analysis
+-----------------------
 
-* :doc:`pointer` - k-CFA pointer analysis for Python
+* :doc:`alias/index` - Flow-sensitive and k-CFA alias analyses
 * :doc:`typeinfo` - Type-information collection and inference
 
-Heap, Shape, and Object Analysis
---------------------------------
+Shape and Object Analysis
+-------------------------
 
-* :doc:`heap` - Heap abstraction (canonical locations, aliasing, update policy; used by IFDS)
 * :doc:`storegraph` - Store graph analysis for object relationships (foundational data model for CPA/shape)
 * :doc:`shape` - Region-based shape analysis for data structures (reference counts, path info)
 * :doc:`lifetimeanalysis` - Variable lifetime analysis (read/modify tracking, post-shape pipeline)
@@ -173,8 +172,7 @@ Standard SARIF format for CI/CD integration:
     fsdf
     ipa
     cpa
-    pointer
-    heap
+    alias/index
     storegraph
     shape
     lifetimeanalysis

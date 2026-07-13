@@ -73,8 +73,8 @@
 <li class="toctree-l1"><a class="reference internal" href="#overview">Overview</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="#ir-construction">IR Construction</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#data-flow-analysis">Data Flow Analysis</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#pointer-and-type-analysis">Pointer and Type Analysis</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#heap-shape-and-object-analysis">Heap, Shape, and Object Analysis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#alias-and-type-analysis">Alias and Type Analysis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#shape-and-object-analysis">Shape and Object Analysis</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#specialized-analysis">Specialized Analysis</a></li>
 </ul>
 </li>
@@ -103,8 +103,7 @@
 <li class="toctree-l3"><a class="reference internal" href="fsdf.html">Flow-Sensitive Data Flow (FSDF)</a></li>
 <li class="toctree-l3"><a class="reference internal" href="ipa.html">Inter-procedural Analysis (IPA)</a></li>
 <li class="toctree-l3"><a class="reference internal" href="cpa.html">Constraint-based Analysis (CPA)</a></li>
-<li class="toctree-l3"><a class="reference internal" href="pointer.html">k-CFA Pointer Analysis</a></li>
-<li class="toctree-l3"><a class="reference internal" href="heap.html">Heap Abstraction</a></li>
+<li class="toctree-l3"><a class="reference internal" href="alias/index.html">Alias Analysis</a></li>
 <li class="toctree-l3"><a class="reference internal" href="storegraph.html">Store Graph Analysis</a></li>
 <li class="toctree-l3"><a class="reference internal" href="shape.html">Shape Analysis</a></li>
 <li class="toctree-l3"><a class="reference internal" href="lifetimeanalysis.html">Variable Lifetime Analysis</a></li>
@@ -190,17 +189,16 @@ its capabilities.</p>
 <li><p><a class="reference internal" href="cpa.html"><span class="doc">Constraint-based Analysis (CPA)</span></a> - Constraint-based Analysis</p></li>
 </ul>
 </section>
-<section id="pointer-and-type-analysis">
-<h2>Pointer and Type Analysis<a class="headerlink" href="#pointer-and-type-analysis" title="Link to this heading"></a></h2>
+<section id="alias-and-type-analysis">
+<h2>Alias and Type Analysis<a class="headerlink" href="#alias-and-type-analysis" title="Link to this heading"></a></h2>
 <ul class="simple">
-<li><p><a class="reference internal" href="pointer.html"><span class="doc">k-CFA Pointer Analysis</span></a> - k-CFA pointer analysis for Python</p></li>
+<li><p><a class="reference internal" href="alias/index.html"><span class="doc">Alias Analysis</span></a> - Flow-sensitive and k-CFA alias analyses</p></li>
 <li><p><a class="reference internal" href="typeinfo.html"><span class="doc">Type Information System</span></a> - Type-information collection and inference</p></li>
 </ul>
 </section>
-<section id="heap-shape-and-object-analysis">
-<h2>Heap, Shape, and Object Analysis<a class="headerlink" href="#heap-shape-and-object-analysis" title="Link to this heading"></a></h2>
+<section id="shape-and-object-analysis">
+<h2>Shape and Object Analysis<a class="headerlink" href="#shape-and-object-analysis" title="Link to this heading"></a></h2>
 <ul class="simple">
-<li><p><a class="reference internal" href="heap.html"><span class="doc">Heap Abstraction</span></a> - Heap abstraction (canonical locations, aliasing, update policy; used by IFDS)</p></li>
 <li><p><a class="reference internal" href="storegraph.html"><span class="doc">Store Graph Analysis</span></a> - Store graph analysis for object relationships (foundational data model for CPA/shape)</p></li>
 <li><p><a class="reference internal" href="shape.html"><span class="doc">Shape Analysis</span></a> - Region-based shape analysis for data structures (reference counts, path info)</p></li>
 <li><p><a class="reference internal" href="lifetimeanalysis.html"><span class="doc">Variable Lifetime Analysis</span></a> - Variable lifetime analysis (read/modify tracking, post-shape pipeline)</p></li>
@@ -367,21 +365,9 @@ ast-scanner, CPA, IFDS, or CPG engines</p></li>
 <li class="toctree-l2"><a class="reference internal" href="cpa.html#analysis-process">Analysis Process</a></li>
 </ul>
 </li>
-<li class="toctree-l1"><a class="reference internal" href="pointer.html">k-CFA Pointer Analysis</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="pointer.html#key-features">Key Features</a></li>
-<li class="toctree-l2"><a class="reference internal" href="pointer.html#quick-start">Quick Start</a></li>
-<li class="toctree-l2"><a class="reference internal" href="pointer.html#see-also">See Also</a></li>
-</ul>
-</li>
-<li class="toctree-l1"><a class="reference internal" href="heap.html">Heap Abstraction</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="heap.html#how-heap-differs-from-shape-and-storegraph">How heap differs from shape and storegraph</a></li>
-<li class="toctree-l2"><a class="reference internal" href="heap.html#core-model">Core Model</a></li>
-<li class="toctree-l2"><a class="reference internal" href="heap.html#standalone-transfer-engine">Standalone Transfer Engine</a></li>
-<li class="toctree-l2"><a class="reference internal" href="heap.html#update-policy">Update Policy</a></li>
-<li class="toctree-l2"><a class="reference internal" href="heap.html#alias-tracking">Alias Tracking</a></li>
-<li class="toctree-l2"><a class="reference internal" href="heap.html#calls-and-constructors">Calls and Constructors</a></li>
-<li class="toctree-l2"><a class="reference internal" href="heap.html#heap-effects-and-summaries">Heap Effects and Summaries</a></li>
-<li class="toctree-l2"><a class="reference internal" href="heap.html#known-limits">Known Limits</a></li>
+<li class="toctree-l1"><a class="reference internal" href="alias/index.html">Alias Analysis</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="alias/flow_sensitive.html">Flow-Sensitive Alias Analysis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="alias/kcfa.html">k-CFA Alias Analysis</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="storegraph.html">Store Graph Analysis</a><ul>

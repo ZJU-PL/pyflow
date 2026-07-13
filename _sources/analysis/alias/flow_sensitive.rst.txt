@@ -1,8 +1,8 @@
-Heap Abstraction
-================
+Flow-Sensitive Alias Analysis
+=============================
 
-The heap abstraction (``pyflow.analysis.heap``) provides a canonical,
-policy-driven heap model for field-sensitive program analysis.  Its primary
+The ``pyflow.analysis.alias.flow_sensitive`` package provides a canonical,
+policy-driven heap model for flow-sensitive alias analysis. Its primary
 consumers are IFDS/IDE dataflow clients (taint, nullness, typestate), but
 the core model has no IFDS-specific dependencies — it is a standalone
 analysis module.  Unlike the storegraph-based analyses (CPA, shape,
@@ -11,19 +11,19 @@ facts over fixed :class:`HeapLocation` values.
 
 The package was originally part of ``pyflow.analysis.ifds`` and was
 extracted into an independent module.  It now has zero IFDS imports:
-shared IR utilities live in :mod:`pyflow.analysis.ir_utils`, which both
-``heap`` and ``ifds`` import from.
+shared IR utilities live in :mod:`pyflow.analysis.ir_utils`, which both the
+flow-sensitive alias analysis and ``ifds`` import from.
 
 .. _heap-vs-shape:
 
-How heap differs from shape and storegraph
-------------------------------------------
+How the analysis differs from shape and storegraph
+--------------------------------------------------
 
 +-----------------+--------------------------------------+----------------------------------------+
 | Module          | Purpose                              | Runs on                                |
 +=================+======================================+========================================+
-| ``heap``        | Canonical locations, alias tracking, | CFG supergraph (e.g., IFDS)            |
-|                 | strong/weak update policy.  Primarily|                                        |
+| flow-sensitive  | Canonical locations, alias tracking, | CFG supergraph (e.g., IFDS)            |
+| alias analysis  | strong/weak update policy.  Primarily|                                        |
 |                 | consumed by IFDS clients (taint,     |                                        |
 |                 | nullness, typestate).  Precision is  |                                        |
 |                 | fixed before solving.                |                                        |
@@ -43,8 +43,8 @@ How heap differs from shape and storegraph
 |                      | results.                           |                                        |
 +-----------------+--------------------------------------+----------------------------------------+
 
-In short: **heap** answers *"which abstract locations does this fact
-refer to, and can I strong-update it?"*  **shape** answers *"what structural
+In short, the flow-sensitive alias analysis answers *"which abstract
+locations does this fact refer to, and can I strong-update it?"* **shape** answers *"what structural
 properties does this data structure have, and how many references point to
 each field?"*  **storegraph** is the shared data layer both of the latter two
 build on.
@@ -64,7 +64,7 @@ Root kinds include:
 Selectors represent object fields and container elements.  Field sensitivity
 and container sensitivity are controlled by ``HeapPolicy``::
 
-    from pyflow.analysis.heap import HeapPolicy, HeapAbstraction
+    from pyflow.analysis.alias.flow_sensitive import HeapPolicy, HeapAbstraction
 
     policy = HeapPolicy(
         allocation_sensitivity=AllocationSensitivity.SITE,
@@ -161,12 +161,12 @@ paths without treating removed keys as stored values.
 Heap Effects and Summaries
 --------------------------
 
-``HeapEffect`` (from :mod:`pyflow.analysis.heap.heap_effects`) is the
+``HeapEffect`` (from :mod:`pyflow.analysis.alias.flow_sensitive.heap_effects`) is the
 operation-level heap contract shared by analysis clients.  It records reads,
 writes, deletes, escapes, returns, and allocations without encoding
 taint/nullness/typestate-specific facts.
 
-``HeapSummary`` (from :mod:`pyflow.analysis.heap.heap_summary`) joins those
+``HeapSummary`` (from :mod:`pyflow.analysis.alias.flow_sensitive.heap_summary`) joins those
 effects over a procedure body.  It is a monotone, fixed summary intended for
 client reuse and future interprocedural heap-effect composition.
 
@@ -176,5 +176,5 @@ Known Limits
 The abstraction is primarily consumed by IFDS clients and is not a complete
 Python heap analysis.  It does not fully model descriptors, metaclasses,
 reflection, monkey-patching, native library behavior, path-sensitive branches,
-or path-sensitive shape refinement.  For those concerns, see :doc:`shape` and
-:doc:`storegraph`.
+or path-sensitive shape refinement. For those concerns, see :doc:`../shape`
+and :doc:`../storegraph`.

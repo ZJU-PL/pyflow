@@ -63,7 +63,7 @@ Relationship to Other Modules
 
 .. note::
 
-   The :doc:`heap` abstraction uses its own model (``HeapLocation``,
+   The :doc:`alias/flow_sensitive` analysis uses its own model (``HeapLocation``,
    ``HeapObject``) and does not depend on the store graph.  Heap is
    primarily consumed by IFDS clients (taint, nullness, typestate);
    store graph serves CPA/shape/lifetime.  These are separate subsystems.

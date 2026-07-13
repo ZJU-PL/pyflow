@@ -66,4 +66,4 @@ See Also
 
 - :doc:`dataflowIR` — Data flow IR that IFDS operates on
 - :doc:`cfg` — CFG construction (supergraph foundation)
-- :doc:`heap` — Heap abstraction consumed by taint clients
+- :doc:`alias/flow_sensitive` — Flow-sensitive alias analysis consumed by taint clients
