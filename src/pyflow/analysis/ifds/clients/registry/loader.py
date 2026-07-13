@@ -412,7 +412,9 @@ def validate_registry() -> tuple[ValidationIssue, ...]:
                     )
                 )
             frameworks[framework] = path
-        for rule in data.get("rules", ()) if isinstance(data.get("rules"), list) else ():
+        for rule in (
+            data.get("rules", ()) if isinstance(data.get("rules"), list) else ()
+        ):
             if not isinstance(rule, dict) or not isinstance(rule.get("id"), str):
                 continue
             rule_id = rule["id"]

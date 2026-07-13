@@ -26,7 +26,6 @@ from ..problem import IFDSProblem
 from ..solver import IFDSSolver, SolverOptions
 from ..transfers import actual_argument_expressions
 
-
 ZERO_TYPESTATE = "ZERO_TYPESTATE"
 STATE_OPEN = "open"
 STATE_CLOSED = "closed"
