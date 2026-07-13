@@ -320,6 +320,48 @@ class CFGTransformer(TypeDispatcher):
         Python semantics instead of emitting a miscompiled flat sequence.
         """
         self.emit(node)
+        for exit_name in self._structured_abrupt_exits(node):
+            handlers = self.handlers.get(exit_name, ())
+            if handlers and exit_name not in self.current.next:
+                self.current.setExit(exit_name, handlers[-1])
+
+    def _structured_abrupt_exits(self, node):
+        """Return abrupt exits escaping a preserved structured statement.
+
+        Break and continue inside a nested loop are consumed by that loop;
+        returns always escape to the current procedure.  Definitions carry a
+        separate execution context and are therefore not traversed.
+        """
+        exits = set()
+
+        def visit(current, loop_depth=0):
+            if current is None or isinstance(current, ast.leafTypes):
+                return
+            if isinstance(current, (ast.Code, ast.FunctionDef, ast.ClassDef)):
+                return
+            if isinstance(current, ast.Return):
+                exits.add("return")
+                return
+            if isinstance(current, ast.Break):
+                if loop_depth == 0:
+                    exits.add("break")
+                return
+            if isinstance(current, ast.Continue):
+                if loop_depth == 0:
+                    exits.add("continue")
+                return
+            if isinstance(current, (ast.While, ast.For)):
+                current.visitChildren(lambda child: visit(child, loop_depth + 1))
+                return
+            if isinstance(current, (list, tuple)):
+                for child in current:
+                    visit(child, loop_depth)
+                return
+            if hasattr(current, "visitChildren"):
+                current.visitChildren(lambda child: visit(child, loop_depth))
+
+        visit(node)
+        return tuple(sorted(exits))
 
     @dispatch(ast.ExceptionHandler)
     def visitExceptionHandler(self, node):

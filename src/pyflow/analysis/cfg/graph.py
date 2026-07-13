@@ -630,7 +630,11 @@ class Suite(SingleEntryBlock):
     """
 
     __slots__ = ("ops", "origin_ast")
-    exitNames = ("normal", "fail", "error")
+    # Structured statements such as ``try/finally`` remain embedded in a
+    # Suite until an exception-aware consumer lowers them.  Retain their
+    # non-local control-flow targets so those consumers do not have to infer
+    # the surrounding loop/function structure after CFG simplification.
+    exitNames = ("normal", "fail", "error", "return", "break", "continue")
 
     def __init__(self, region, origin_ast=None):
         """Initialize a suite block.
