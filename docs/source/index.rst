@@ -7,7 +7,7 @@ security checking for Python programs without executing them.
 
 .. note::
 
-   PyFlow is currently an **alpha-stage** project. The architecture is already
+   PyFlow is currently in **alpha** stage. The architecture is already
    substantial and the test suite is broad, but parts of the public interface
    and documentation are still evolving.
 
