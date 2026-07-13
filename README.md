@@ -82,6 +82,9 @@ pyflow security input.py --engine ifds --function main --sources input --sinks e
 
 # Run CPG-based context-sensitive security analysis
 pyflow security input.py --engine cpg --framework flask
+
+# Run heap alias/escape analysis
+pyflow heap input.py --verbose
 ```
 
 See [CLI.md](CLI.md) for the command reference and `docs/` for broader project
@@ -106,15 +109,17 @@ pytest tests/checker
 
 The repository is organized around a few major subsystems:
 
-- `src/pyflow/analysis`: core analysis engines such as call graph, CFG, IFDS, heap, IPA, CPA, shape, and lifetime analysis.
+- `src/pyflow/analysis`: core analysis engines such as call graph, CFG, DDG, IFDS, heap, IPA, CPA, PDG, pointer (k-CFA), shape, and lifetime analysis.
 - `src/pyflow/application`: orchestration code including compiler context, pipeline execution, and the pass manager.
 - `src/pyflow/api`: query-facing interfaces and entrypoint construction.
 - `src/pyflow/checker`: pattern-based and semantic bug-finding layers plus output formatters.
 - `src/pyflow/cli`: command-line entrypoints for optimization, call graph, IR, heap analysis, and unified security analysis.
 - `src/pyflow/frontend`: source-driven extraction, dependency resolution, object loading, and stub handling.
-- `src/pyflow/language`: Python IR/AST support and module-handling utilities.
+- `src/pyflow/language`: Python IR/AST support, module-handling utilities, and AST tooling (cyclomatic complexity, decorator/visitor utilities).
 - `src/pyflow/optimization`: optimization and simplification passes.
+- `src/pyflow/stats`: statistics collection and reporting for analysis results.
 - `src/pyflow/stubs`: builtin/runtime modeling used during analysis.
+- `src/pyflow/util`: foundational utility library (OrderedSet, canonical objects, TVL, type dispatch, graph algorithms).
 - `tests`: focused coverage for analysis, frontend, checker, integration, and API regressions.
 
 ## Project maturity and expectations

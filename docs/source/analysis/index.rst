@@ -22,6 +22,7 @@ IR Construction
 * :doc:`cfg` - Control Flow Graph construction and analysis
 * :doc:`cdg` - Control Dependence Graph analysis
 * :doc:`pdg` - Program Dependence Graph construction and queries
+* :doc:`ddg` - Data Dependence Graph construction and analysis
 * :doc:`cpg` - Code Property Graph (unified CFG + PDG + call graph)
 * :doc:`callgraph` - Call Graph construction and analysis
 
@@ -30,8 +31,15 @@ Data Flow Analysis
 
 * :doc:`dataflowIR` - Data Flow Intermediate Representation
 * :doc:`fsdf` - Flow-Sensitive Data Flow analysis
+* :doc:`ifds` - IFDS/IDE interprocedural data flow engine (taint, nullness, typestate)
 * :doc:`ipa` - Inter-procedural Analysis
 * :doc:`cpa` - Constraint-based Analysis
+
+Pointer and Type Analysis
+-------------------------
+
+* :doc:`pointer` - k-CFA pointer analysis for Python
+* :doc:`typeinfo` - Type-information collection and inference
 
 Heap, Shape, and Object Analysis
 --------------------------------
@@ -60,25 +68,29 @@ context-sensitive analysis for more precise results:
 
 .. code-block:: bash
 
-   pyflow analyze input.py --analysis cpa --cpa-config context_sensitive=true
+   pyflow optimize input.py --analysis cpa
+
+.. code-block:: python
+
+   context.set_config("cpa.context_sensitive", True)
 
 Flow-Sensitive Analysis
 -----------------------
 
 Enable flow-sensitive analysis for statement-by-statement precision:
 
-.. code-block:: bash
+.. code-block:: python
 
-   pyflow analyze input.py --analysis cpa --cpa-config flow_sensitive=true
+   context.set_config("cpa.flow_sensitive", True)
 
 Field-Sensitive Analysis
 ------------------------
 
 Enable field-sensitive analysis to track individual object fields:
 
-.. code-block:: bash
+.. code-block:: python
 
-   pyflow analyze input.py --analysis cpa --cpa-config field_sensitive=true
+   context.set_config("cpa.field_sensitive", True)
 
 Running Analyses
 ================
@@ -86,21 +98,14 @@ Running Analyses
 Command Line
 ------------
 
-Use the ``analyze`` command for general analysis:
+PyFlow provides several CLI commands for running analyses:
 
-.. code-block:: bash
-
-   pyflow analyze input.py --analysis all
-   pyflow analyze input.py --analysis cpa,ipa
-   pyflow analyze input.py --analysis cpa --cpa-config context_sensitive=true
-
-Specific Commands
------------------
-
+* ``pyflow optimize`` - Run analysis and optimization pipeline
 * ``pyflow callgraph`` - Build and analyze call graphs
-* ``pyflow ir`` - Dump intermediate representations
-* ``pyflow security`` - Run security analysis
-* ``pyflow optimize`` - Run analysis and optimization
+* ``pyflow ir`` - Dump intermediate representations (AST, CFG, SSA, CDG, DDG)
+* ``pyflow heap`` - Run standalone heap alias/escape analysis
+* ``pyflow security`` - Unified security analysis dispatching to
+  ast-scanner, CPA, IFDS, or CPG engines
 
 Programmatic Usage
 ------------------
@@ -132,25 +137,25 @@ Human-readable text output for terminal:
 
 .. code-block:: bash
 
-   pyflow analyze input.py --format text
+   pyflow ir input.py --dump-cfg main --dump-format text
 
 JSON Output
------------
+----------
 
 Machine-readable JSON for programmatic processing:
 
 .. code-block:: bash
 
-   pyflow analyze input.py --format json --output results.json
+   pyflow ir input.py --dump-cfg main --dump-format json --dump-output ./out
 
 SARIF Output
-------------
+-----------
 
 Standard SARIF format for CI/CD integration:
 
 .. code-block:: bash
 
-   pyflow analyze input.py --format sarif --output results.sarif
+   pyflow security input.py --format sarif --output results.sarif
 
 .. toctree::
     :maxdepth: 2
@@ -159,15 +164,19 @@ Standard SARIF format for CI/CD integration:
     cfg
     cdg
     pdg
+    ddg
     cpg
     callgraph
     dataflowIR
     fsdf
     ipa
     cpa
+    pointer
     heap
     storegraph
     shape
     lifetimeanalysis
+    ifds
+    typeinfo
     numbering
     dump

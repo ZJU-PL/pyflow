@@ -95,7 +95,7 @@ Running Data Flow Analysis
 
 .. code-block:: bash
 
-   pyflow analyze example.py --analysis dataflow
+   pyflow optimize example.py --analysis cpa,ipa
 
 This runs forward and backward data flow analysis, computing:
 
@@ -129,7 +129,7 @@ Running IPA
 
 .. code-block:: bash
 
-   pyflow analyze example.py --analysis ipa
+   pyflow optimize example.py --analysis ipa
 
 IPA provides:
 
@@ -165,7 +165,7 @@ Running CPA
 
 .. code-block:: bash
 
-   pyflow analyze example.py --analysis cpa
+   pyflow optimize example.py --analysis cpa
 
 CPA produces results such as:
 
@@ -199,7 +199,7 @@ Running Shape Analysis
 
 .. code-block:: bash
 
-   pyflow analyze example.py --analysis shape
+   pyflow optimize example.py --analysis shape
 
 Shape analysis identifies:
 
@@ -272,13 +272,13 @@ Combine multiple analyses:
 
 .. code-block:: bash
 
-   pyflow analyze example.py --analysis all
+   pyflow optimize example.py --analysis all
 
 Or run specific combinations:
 
 .. code-block:: bash
 
-   pyflow analyze example.py --analysis cpa,ipa,shape
+   pyflow optimize example.py --analysis cpa,ipa,shape
 
 Dump intermediate representations:
 

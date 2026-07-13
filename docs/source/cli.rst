@@ -1,8 +1,8 @@
 Command Line Interface
-======================
+========    ==============
 
 PyFlow provides a CLI for static analysis, optimization, IR inspection,
-security checking, and dataflow-oriented analysis of Python code.
+security checking, and heap analysis of Python code.
 
 This page summarizes the most important commands. For the authoritative option
 reference used by the repository today, also see ``CLI.md`` in the project root.
@@ -105,20 +105,27 @@ Options:
 The default ``ast-scanner`` engine is a fast pattern-based checker. The command
 can also dispatch to CPA, IFDS, and CPG-backed security engines.
 
-Dataflow Command
-----------------
+Heap Command
+------------
 
-**pyflow dataflow**
-~~~~~~~~~~~~~~~~~~~
+**pyflow heap**
+~~~~~~~~~~~~~~~
 
-Run IFDS/IDE-backed dataflow analyses.
+Run standalone heap alias/escape analysis on Python code.
 
 ::
 
-  pyflow dataflow input.py --help
+  pyflow heap input.py
+  pyflow heap src/ --recursive
+  pyflow heap input.py --json
+  pyflow heap input.py --verbose
 
-The exact analyses and options available may evolve as the dataflow subsystem
-continues to mature.
+Options:
+
+- ``--recursive, -r``: Recursively analyze Python files in a directory
+- ``--json``: Output machine-readable JSON instead of human-friendly text
+- ``--verbose, -v``: Include per-entry details (selector path, update policy,
+  points-to sets)
 
 Global Options
 ==============

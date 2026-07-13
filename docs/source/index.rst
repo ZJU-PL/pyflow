@@ -98,6 +98,9 @@ After installation, use PyFlow's command-line interface:
    # Visualize intermediate representations
    pyflow ir input.py --dump-cfg function_name
 
+   # Run heap alias/escape analysis
+   pyflow heap input.py
+
    # Explore available optimization passes
    pyflow optimize --list-opt-passes
 
@@ -129,12 +132,15 @@ Static Analysis
 
 PyFlow provides comprehensive static analysis:
 
-* **Control Flow Analysis**: CFG construction, dominance analysis, loop detection
-* **Data Flow Analysis**: Forward/backward analysis, constant propagation, live variables
+* **Control Flow Analysis**: CFG, CDG, PDG, DDG construction, dominance analysis, loop detection
+* **Data Flow Analysis**: Forward/backward analysis, data flow IR, IFDS/IDE interprocedural engine
 * **Inter-procedural Analysis**: Context-sensitive analysis across function boundaries
+* **Pointer Analysis**: k-CFA constraint-based points-to analysis for Python objects
 * **Constraint-based Analysis**: Constraint solving for precise object relationship modeling
 * **Shape Analysis**: Data structure shape and property analysis
+* **Heap Analysis**: Alias/escape analysis with canonical locations and points-to graphs
 * **Call Graph Analysis**: Function call relationship analysis with multiple algorithms
+* **Type Information**: Lightweight type-information collection and inference
 
 Code Optimization
 -----------------

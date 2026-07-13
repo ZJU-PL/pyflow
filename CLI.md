@@ -7,7 +7,7 @@ This document matches the current `pyflow` command surface.
 - `optimize`: Run the analysis and optimization pipeline
 - `callgraph`: Build a call graph from a single Python file
 - `ir`: Dump AST, CFG, SSA, CDG, or DDG forms for specific functions
-- `heap`: Run heap analysis commands
+- `heap`: Run standalone heap alias/escape analysis
 - `security`: Unified security analysis (dispatches to any of four engines)
 
 ## Optimize
@@ -38,7 +38,7 @@ Key options:
 
 Available optimization passes:
 `methodcall`, `lifetime`, `simplify`, `clone`, `argument_normalization`,
-`cull_program`, `inlining`, `load_elimination`, `store_elimination`, `dce`
+`cull_program`, `inlining` *(experimental, disabled by default)*, `load_elimination`, `store_elimination`, `dce`
 
 ## IR
 
@@ -83,6 +83,20 @@ Key options:
 
 `--as-graph-output` is only supported with `--algorithm constraint`.
 
+## Heap
+
+```bash
+pyflow heap [OPTIONS] INPUT_PATH
+```
+
+`INPUT_PATH` may be a Python file or directory.
+
+Key options:
+- `--recursive`, `-r`: Recursively analyze Python files in a directory
+- `--json`: Output machine-readable JSON instead of human-friendly text
+- `--verbose`, `-v`: Include per-entry details (selector path, update policy,
+  points-to sets)
+
 ## Security
 
 ```bash
@@ -117,11 +131,16 @@ Unified security analysis frontend. Dispatches to one of four engines depending 
 
 ### Engine-specific options
 
+- ``--analysis`` (IFDS only): ``taint`` (default) or ``typestate`` — selects the
+  IFDS analysis to run
 - ``--function FUNCTION`` — entry function (required for ``--engine ifds``)
 - ``--framework FRAMEWORK [FRAMEWORK ...]`` — framework rule pack(s) for CPG
   (choices: ``django``, ``flask``, ``fastapi``, ``sqlalchemy``, ``stdlib``,
   ``cloud``, ``injection``, ``network``, ``nosql``, ``requests``, ``sql``)
 - ``--registry`` — activate all framework rule packs (only for ``--engine ifds``)
+- ``--typestate-protocol PROTOCOLS`` — typestate protocols for
+  ``--analysis typestate``. May be repeated; supports ``resource``,
+  ``python-builtins``, ``file``, ``socket``, ``lock``, ``transaction``
 
 The ``security`` command exits with ``1`` when findings are reported and ``0``
 otherwise.

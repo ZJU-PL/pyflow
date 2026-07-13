@@ -249,7 +249,7 @@ Command Line
 
 ::
 
-  pyflow check input.py --format json --severity high
+  pyflow security input.py --format json
 
 Configuration File
 ------------------
