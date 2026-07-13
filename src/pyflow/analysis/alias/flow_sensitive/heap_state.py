@@ -23,6 +23,10 @@ class HeapState:
     )
     escaped: set[HeapLocation] = field(default_factory=set)
     returns: dict[object, tuple[HeapLocation, ...]] = field(default_factory=dict)
+    return_slots: dict[
+        object, tuple[tuple[HeapLocation, ...], ...]
+    ] = field(default_factory=dict)
+    raised: dict[object, tuple[HeapLocation, ...]] = field(default_factory=dict)
 
     def read(
         self,
@@ -133,7 +137,32 @@ class HeapState:
         procedure: object,
         locations: tuple[HeapLocation, ...],
     ) -> None:
-        self.returns[procedure] = tuple(dict.fromkeys(locations))
+        self.returns[procedure] = tuple(
+            dict.fromkeys((*self.returns.get(procedure, ()), *locations))
+        )
+
+    def set_raised(
+        self,
+        procedure: object,
+        locations: tuple[HeapLocation, ...],
+    ) -> None:
+        self.raised[procedure] = tuple(
+            dict.fromkeys((*self.raised.get(procedure, ()), *locations))
+        )
+
+    def set_return_slots(
+        self,
+        procedure: object,
+        slots: tuple[tuple[HeapLocation, ...], ...],
+    ) -> None:
+        existing = self.return_slots.get(procedure, ())
+        count = max(len(existing), len(slots))
+        merged: list[tuple[HeapLocation, ...]] = []
+        for index in range(count):
+            old = existing[index] if index < len(existing) else ()
+            new = slots[index] if index < len(slots) else ()
+            merged.append(tuple(dict.fromkeys((*old, *new))))
+        self.return_slots[procedure] = tuple(merged)
 
     def join(self, other: "HeapState") -> "HeapState":
         joined = HeapState()
@@ -151,6 +180,24 @@ class HeapState:
                 joined.returns[procedure] = tuple(
                     dict.fromkeys((*joined.returns.get(procedure, ()), *values))
                 )
+            for procedure, slots in source.return_slots.items():
+                existing = joined.return_slots.get(procedure, ())
+                count = max(len(existing), len(slots))
+                joined.return_slots[procedure] = tuple(
+                    tuple(
+                        dict.fromkeys(
+                            (
+                                *(existing[index] if index < len(existing) else ()),
+                                *(slots[index] if index < len(slots) else ()),
+                            )
+                        )
+                    )
+                    for index in range(count)
+                )
+            for procedure, values in source.raised.items():
+                joined.raised[procedure] = tuple(
+                    dict.fromkeys((*joined.raised.get(procedure, ()), *values))
+                )
         return joined
 
     def copy(self) -> "HeapState":
@@ -159,6 +206,8 @@ class HeapState:
         copied.contaminants = dict(self.contaminants)
         copied.escaped = set(self.escaped)
         copied.returns = dict(self.returns)
+        copied.return_slots = dict(self.return_slots)
+        copied.raised = dict(self.raised)
         return copied
 
     def equivalent(self, other: "HeapState") -> bool:
@@ -167,6 +216,8 @@ class HeapState:
             and self.contaminants == other.contaminants
             and self.escaped == other.escaped
             and self.returns == other.returns
+            and self.return_slots == other.return_slots
+            and self.raised == other.raised
         )
 
     @staticmethod

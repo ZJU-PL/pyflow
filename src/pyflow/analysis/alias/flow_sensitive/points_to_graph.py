@@ -200,9 +200,35 @@ class PointsToGraph:
         entry_b = self.get(b)
         if entry_a is None or entry_b is None:
             return True  # unknown → may alias
+        if self._roots_may_overlap(a.root, b.root):
+            return self._selectors_may_overlap(a.selectors, b.selectors)
         if entry_a.aliases.isdisjoint(entry_b.aliases):
             return False
         return self._selectors_may_overlap(a.selectors, b.selectors)
+
+    @staticmethod
+    def _roots_may_overlap(a: object, b: object) -> bool:
+        from .model import HeapObjectKind
+
+        kind_a = getattr(a, "kind", None)
+        kind_b = getattr(b, "kind", None)
+        if kind_a in {HeapObjectKind.SUMMARY, HeapObjectKind.UNKNOWN}:
+            return True
+        if kind_b in {HeapObjectKind.SUMMARY, HeapObjectKind.UNKNOWN}:
+            return True
+        if kind_a is not HeapObjectKind.PARAMETER:
+            return False
+        if kind_b is not HeapObjectKind.PARAMETER:
+            return False
+        key_a = getattr(a, "key", ())
+        key_b = getattr(b, "key", ())
+        return (
+            isinstance(key_a, tuple)
+            and isinstance(key_b, tuple)
+            and len(key_a) >= 3
+            and len(key_b) >= 3
+            and key_a[1] == key_b[1]
+        )
 
     def may_alias_path(self, a: "HeapLocation", b: "HeapLocation") -> bool:
         """Return whether two full access paths may overlap."""

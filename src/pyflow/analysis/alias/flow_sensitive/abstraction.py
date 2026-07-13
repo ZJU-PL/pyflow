@@ -8,6 +8,7 @@ updates via reference counting, and tracks escape status.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -28,6 +29,27 @@ from .model import (
     RawStorageProvider,
     UpdatePolicy,
 )
+
+
+@dataclass
+class HeapEnvironment:
+    """Flow-sensitive snapshot of mutable heap binding metadata.
+
+    Canonical object caches are deliberately not included: they are stable
+    identities shared by every path.  Bindings, escape state, alias metadata,
+    and reference counts do vary by path and therefore must be restored and
+    joined with the value-level :class:`HeapState`.
+    """
+
+    storage_overrides: dict[tuple[int, int], tuple[object, ...]]
+    allocation_sites: dict[tuple[int, int], int]
+    site_storage: dict[int, tuple[object, ...]]
+    object_labels: dict[HeapObject, str]
+    local_names: dict[tuple[int, int], str]
+    escaped_objects: set[HeapObject]
+    equiv_parent: dict[int, int]
+    equiv_members: dict[int, set[int]]
+    site_ref_counts: dict[int, int]
 
 
 class HeapAbstraction:
@@ -127,13 +149,168 @@ class HeapAbstraction:
             return UpdatePolicy.WEAK
         if not location.is_precise():
             return UpdatePolicy.WEAK
-        site = self._root_allocation_site(location.root)
-        ref_count = self._equiv_class_ref_count(site) if site is not None else 0
+        ref_count = self.reference_count_for_root(location.root)
         if not location.is_nested():
             return UpdatePolicy.STRONG if ref_count <= 1 else UpdatePolicy.WEAK
         if self.policy.allow_strong_nested_fresh and ref_count <= 1:
             return UpdatePolicy.STRONG
         return UpdatePolicy.WEAK
+
+    def snapshot_environment(self) -> HeapEnvironment:
+        """Capture all path-dependent binding and escape metadata."""
+        return HeapEnvironment(
+            storage_overrides=dict(self.storage_overrides),
+            allocation_sites=dict(self.allocation_sites),
+            site_storage=dict(self.site_storage),
+            object_labels=dict(self._object_labels),
+            local_names=dict(self._local_names),
+            escaped_objects=set(self._escaped_objects),
+            equiv_parent=dict(self._equiv_parent),
+            equiv_members={
+                root: set(members) for root, members in self._equiv_members.items()
+            },
+            site_ref_counts=dict(self._site_ref_counts),
+        )
+
+    def restore_environment(self, environment: HeapEnvironment) -> None:
+        """Restore a previously captured flow-sensitive environment."""
+        self.storage_overrides = dict(environment.storage_overrides)
+        self.allocation_sites = dict(environment.allocation_sites)
+        self.site_storage = dict(environment.site_storage)
+        self._object_labels = dict(environment.object_labels)
+        self._local_names = dict(environment.local_names)
+        self._escaped_objects = set(environment.escaped_objects)
+        self._equiv_parent = dict(environment.equiv_parent)
+        self._equiv_members = {
+            root: set(members) for root, members in environment.equiv_members.items()
+        }
+        self._site_ref_counts = dict(environment.site_ref_counts)
+
+    def join_environments(
+        self,
+        environments: tuple[HeapEnvironment, ...],
+    ) -> HeapEnvironment:
+        """Join path environments by unioning each local's possible storage.
+
+        Allocation-site equivalence is a must-alias relation, so branch-local
+        unifications are not unioned.  Joined bindings instead retain every
+        possible root and receive an independent site whenever the incoming
+        bindings differ.  Reference counts are subsequently derived from live
+        bindings rather than historical union-find membership.
+        """
+        if not environments:
+            return self.snapshot_environment()
+
+        local_names: dict[tuple[int, int], str] = {}
+        object_labels: dict[HeapObject, str] = {}
+        escaped_objects: set[HeapObject] = set()
+        keys: set[tuple[int, int]] = set()
+        for environment in environments:
+            local_names.update(environment.local_names)
+            object_labels.update(environment.object_labels)
+            escaped_objects.update(environment.escaped_objects)
+            keys.update(environment.storage_overrides)
+            keys.update(environment.allocation_sites)
+
+        storage_overrides: dict[tuple[int, int], tuple[object, ...]] = {}
+        allocation_sites: dict[tuple[int, int], int] = {}
+        site_storage: dict[int, tuple[object, ...]] = {}
+        site_ref_counts: dict[int, int] = {}
+
+        for key in sorted(keys):
+            incoming = tuple(
+                self._environment_storage(environment, key)
+                for environment in environments
+            )
+            joined = self._join_storage(incoming)
+            if not joined:
+                continue
+
+            storage_overrides[key] = joined
+            sites = tuple(
+                environment.allocation_sites.get(key)
+                for environment in environments
+            )
+            concrete_sites = tuple(site for site in sites if site is not None)
+            same_storage = all(
+                self._canonicalize_storage(storage) == joined
+                for storage in incoming
+                if storage
+            )
+            if (
+                concrete_sites
+                and len(concrete_sites) == len(environments)
+                and same_storage
+            ):
+                site = concrete_sites[0]
+            else:
+                site = self.next_site
+                self.next_site += 1
+            allocation_sites[key] = site
+            site_storage[site] = joined
+            site_ref_counts[site] = site_ref_counts.get(site, 0) + 1
+
+        equiv_parent = {site: site for site in site_storage}
+        equiv_members = {site: {site} for site in site_storage}
+        return HeapEnvironment(
+            storage_overrides=storage_overrides,
+            allocation_sites=allocation_sites,
+            site_storage=site_storage,
+            object_labels=object_labels,
+            local_names=local_names,
+            escaped_objects=escaped_objects,
+            equiv_parent=equiv_parent,
+            equiv_members=equiv_members,
+            site_ref_counts=site_ref_counts,
+        )
+
+    @staticmethod
+    def _environment_storage(
+        environment: HeapEnvironment,
+        key: tuple[int, int],
+    ) -> tuple[object, ...]:
+        override = environment.storage_overrides.get(key)
+        if override is not None:
+            return override
+        site = environment.allocation_sites.get(key)
+        if site is None:
+            return ()
+        return environment.site_storage.get(site, ())
+
+    def _canonicalize_storage(
+        self,
+        storage: tuple[object, ...],
+    ) -> tuple[HeapLocation, ...]:
+        return tuple(
+            dict.fromkeys(self.location_for_raw(raw) for raw in storage)
+        )
+
+    def _join_storage(
+        self,
+        storages: tuple[tuple[object, ...], ...],
+    ) -> tuple[HeapLocation, ...]:
+        return tuple(
+            dict.fromkeys(
+                location
+                for storage in storages
+                for location in self._canonicalize_storage(storage)
+            )
+        )
+
+    def reference_count_for_root(self, root: HeapObject) -> int:
+        """Count live logical local bindings that may reference *root*."""
+        logical_bindings: set[tuple[object, ...]] = set()
+        keys = set(self.storage_overrides) | set(self.allocation_sites)
+        for key in keys:
+            storage = self.storage_overrides.get(key)
+            if storage is None:
+                site = self.allocation_sites.get(key)
+                storage = self.site_storage.get(site, ()) if site is not None else ()
+            if not any(self.location_for_raw(raw).root == root for raw in storage):
+                continue
+            name = self._local_names.get(key)
+            logical_bindings.add((key[0], name) if name is not None else key)
+        return len(logical_bindings)
 
     def _is_immutable_type(self, root: HeapObject) -> bool:
         if root.type_hint is not None and root.type_hint in self.policy.immutable_type_hints:
@@ -142,28 +319,10 @@ class HeapAbstraction:
 
     def _root_allocation_site(self, root: HeapObject) -> int | None:
         """Get the allocation-site id for a HeapObject root, if one exists."""
-        alloc_site = root.allocation_site
-        if alloc_site is None:
-            return None
-        if isinstance(alloc_site, tuple):
-            site_key = alloc_site
-        else:
-            site_key = id(alloc_site)
         for site, storage in self.site_storage.items():
-            candidate = self._objects.get(
-                (
-                    root.kind.value,
-                    root.key,
-                    root.label,
-                    root.type_hint,
-                    site_key,
-                    root.context,
-                    root.freshness.value,
-                    root.escape.value,
-                )
-            )
-            if candidate is root:
-                return site
+            for raw in storage:
+                if self.location_for_raw(raw).root == root:
+                    return site
         return None
 
     # ── alias equivalence-class tracking ────────────────────────────────
@@ -831,12 +990,12 @@ class HeapAbstraction:
             location = HeapLocation(obj)
             if location in entries:
                 continue
-            site = self._root_allocation_site(obj)
+            ref_count = self.reference_count_for_root(obj)
             entries[location] = PointsToEntry(
                 location=location,
                 label=self.display_label_for_location(location),
                 aliases=self.aliased_locations(location),
-                ref_count=self._equiv_class_ref_count(site) if site is not None else 0,
+                ref_count=ref_count,
                 is_escaped=obj in self._escaped_objects,
                 is_singleton=obj.is_singleton()
                 and obj not in self._escaped_objects,

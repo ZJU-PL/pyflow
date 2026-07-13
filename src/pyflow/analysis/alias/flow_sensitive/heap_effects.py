@@ -144,6 +144,7 @@ class HeapEffectBuilder:
             *self.assert_read_locations(procedure, operation),
             *self.make_function_read_locations(procedure, operation),
             *self.delete_read_locations(procedure, operation),
+            *self.misc_read_locations(procedure, operation),
         ]
         writes = [
             self.heap.write_for_location(location)
@@ -203,6 +204,27 @@ class HeapEffectBuilder:
 
         if isinstance(operation, py_ast.Assert) and operation.message is not None:
             escape_exprs.append(operation.message)
+
+        if isinstance(operation, py_ast.OutputBlock):
+            escape_exprs.extend(
+                output.expr
+                for output in getattr(operation, "outputs", ())
+                if getattr(output, "expr", None) is not None
+            )
+        elif isinstance(operation, py_ast.Output):
+            escape_exprs.append(operation.expr)
+        elif isinstance(operation, py_ast.Print):
+            escape_exprs.extend(
+                expression
+                for expression in (operation.target, operation.expr)
+                if expression is not None
+            )
+        elif isinstance(operation, py_ast.TypeAlias):
+            escape_exprs.append(operation.value)
+        elif isinstance(operation, (py_ast.FunctionDef, py_ast.ClassDef)):
+            escape_exprs.extend(getattr(operation, "decorators", ()))
+            if isinstance(operation, py_ast.ClassDef):
+                escape_exprs.extend(getattr(operation, "bases", ()))
 
         make_fn_escapes = self.make_function_escape_locations(procedure, operation)
 
@@ -321,6 +343,15 @@ class HeapEffectBuilder:
     ) -> tuple[HeapLocation, ...]:
         if not isinstance(expr, (py_ast.GetAttr, py_ast.Load)):
             return ()
+        if isinstance(expr, py_ast.Load) and getattr(expr, "fieldtype", None) in {
+            "Dictionary",
+            "Array",
+        }:
+            return self.dynamic_subscript_locations(
+                procedure,
+                expr.expr,
+                (f"[{self._path_component(expr.name)}]",),
+            )
         return self.dynamic_attribute_locations(
             procedure,
             expr.expr,
@@ -334,6 +365,14 @@ class HeapEffectBuilder:
     ) -> tuple[HeapLocation, ...]:
         if not isinstance(operation, (py_ast.SetAttr, py_ast.Store)):
             return ()
+        if isinstance(operation, py_ast.Store) and getattr(
+            operation, "fieldtype", None
+        ) in {"Dictionary", "Array"}:
+            return self.dynamic_subscript_locations(
+                procedure,
+                operation.expr,
+                (f"[{self._path_component(operation.name)}]",),
+            )
         return self.dynamic_attribute_locations(
             procedure,
             operation.expr,
@@ -726,7 +765,9 @@ class HeapEffectBuilder:
                 py_ast.BuildList,
                 py_ast.BuildSet,
                 py_ast.BuildMap,
+                py_ast.BuildSlice,
                 py_ast.MakeFunction,
+                py_ast.Allocate,
             ),
         ):
             return ()
@@ -780,6 +821,8 @@ class HeapEffectBuilder:
         return value if isinstance(value, str) else None
 
     def _path_component(self, expr: object) -> str:
+        if isinstance(expr, str):
+            return expr
         if isinstance(expr, py_ast.Local) and expr.name:
             return expr.name
         if isinstance(expr, py_ast.Existing):
@@ -805,6 +848,10 @@ class HeapEffectBuilder:
             return "dict literal"
         if isinstance(expr, py_ast.MakeFunction):
             return "function"
+        if isinstance(expr, py_ast.BuildSlice):
+            return "slice literal"
+        if isinstance(expr, py_ast.Allocate):
+            return "allocate"
         return type(expr).__name__
 
     def import_object(self, expr: py_ast.Import) -> HeapObject:
@@ -850,7 +897,7 @@ class HeapEffectBuilder:
         procedure: object,
         operation: object,
     ) -> tuple[HeapLocation, ...]:
-        if not isinstance(operation, py_ast.GetIter):
+        if not isinstance(operation, (py_ast.GetIter, py_ast.AsyncGetIter)):
             return ()
         if operation.expr is None:
             return ()
@@ -866,6 +913,56 @@ class HeapEffectBuilder:
         expressions = [operation.test]
         if operation.message is not None:
             expressions.append(operation.message)
+        return self._locations_for_expressions(procedure, tuple(expressions))
+
+    def misc_read_locations(
+        self,
+        procedure: object,
+        operation: object,
+    ) -> tuple[HeapLocation, ...]:
+        expressions: list[object] = []
+        if isinstance(operation, py_ast.Phi):
+            expressions.extend(
+                argument
+                for argument in getattr(operation, "arguments", ())
+                if argument is not None
+            )
+        elif isinstance(operation, py_ast.AnnAssign):
+            expressions.append(operation.annotation)
+        elif isinstance(operation, py_ast.Print):
+            expressions.extend(
+                expression
+                for expression in (operation.target, operation.expr)
+                if expression is not None
+            )
+        elif isinstance(operation, py_ast.OutputBlock):
+            expressions.extend(
+                output.expr
+                for output in getattr(operation, "outputs", ())
+                if getattr(output, "expr", None) is not None
+            )
+        elif isinstance(operation, py_ast.Output):
+            expressions.append(operation.expr)
+        elif isinstance(operation, py_ast.TypeAlias):
+            expressions.append(operation.value)
+            expressions.extend(getattr(operation, "params", ()))
+        elif isinstance(operation, (py_ast.FunctionDef, py_ast.ClassDef)):
+            expressions.extend(getattr(operation, "decorators", ()))
+            type_params = getattr(operation, "type_params", None)
+            if type_params is not None:
+                expressions.append(type_params)
+            if isinstance(operation, py_ast.FunctionDef):
+                expressions.extend(
+                    getattr(operation.code.codeparameters, "defaults", ())
+                )
+            else:
+                expressions.extend(getattr(operation, "bases", ()))
+                expressions.extend(
+                    keyword[1]
+                    if isinstance(keyword, tuple) and len(keyword) == 2
+                    else keyword
+                    for keyword in getattr(operation, "keywords", ())
+                )
         return self._locations_for_expressions(procedure, tuple(expressions))
 
     @staticmethod
