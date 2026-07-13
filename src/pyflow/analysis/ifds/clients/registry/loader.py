@@ -33,6 +33,25 @@ from ..typestate_engine import typestate_action_for_protocol
 _log = logging.getLogger(__name__)
 
 _REGISTRY_DIR = Path(__file__).parent
+RULE_PACK_SCHEMA_VERSION = 1
+_SEVERITIES = {"info", "low", "medium", "high", "critical"}
+
+
+@dataclass(frozen=True)
+class ValidationIssue:
+    path: str
+    message: str
+    severity: str = "error"
+
+
+class RulePackValidationError(ValueError):
+    def __init__(self, path: Path, issues: Sequence[ValidationIssue]) -> None:
+        self.path = path
+        self.issues = tuple(issues)
+        super().__init__(
+            f"Invalid IFDS rule pack {path.name}: "
+            + "; ".join(issue.message for issue in issues)
+        )
 
 
 @dataclass(frozen=True)
@@ -51,7 +70,10 @@ class RuleMetadata:
 class RulePack:
     """A single framework rule pack loaded from a JSON file."""
 
-    def __init__(self, data: dict) -> None:
+    def __init__(self, data: dict, *, source_path: Path | None = None) -> None:
+        self.schema_version: int = data.get("schema_version", 0)
+        self.version: str = str(data.get("version", ""))
+        self.source_path = source_path
         self.framework: str = data.get("framework", "unknown")
         self.description: str = data.get("description", "")
         self.detection: dict = data.get("detection", {})
@@ -263,12 +285,147 @@ def _parse_typestate_action_protocols(entry: dict) -> FrozenSet[tuple[str, str]]
 def _available_packs() -> tuple[RulePack, ...]:
     packs: list[RulePack] = []
     for path in sorted(_REGISTRY_DIR.glob("*.json")):
+        if path.name.endswith(".schema.json"):
+            continue
         try:
             data = json.loads(path.read_text())
-            packs.append(RulePack(data))
+            issues = validate_rule_pack_data(data, path=path)
+            if issues:
+                raise RulePackValidationError(path, issues)
+            packs.append(RulePack(data, source_path=path))
         except Exception:
             _log.debug("Failed to load rule pack %s", path.name, exc_info=True)
     return tuple(packs)
+
+
+def validate_rule_pack_data(
+    data: object, *, path: Path | None = None
+) -> tuple[ValidationIssue, ...]:
+    """Validate one rule pack without requiring a third-party schema library."""
+    label = str(path or "<memory>")
+    issues: list[ValidationIssue] = []
+
+    def error(location: str, message: str) -> None:
+        issues.append(ValidationIssue(f"{label}:{location}", message))
+
+    if not isinstance(data, dict):
+        error("$", "root must be an object")
+        return tuple(issues)
+    if data.get("schema_version") != RULE_PACK_SCHEMA_VERSION:
+        error(
+            "schema_version",
+            f"must equal {RULE_PACK_SCHEMA_VERSION}",
+        )
+    for key in ("framework", "version"):
+        if not isinstance(data.get(key), str) or not data[key].strip():
+            error(key, "must be a non-empty string")
+
+    models = data.get("models", [])
+    if not isinstance(models, list):
+        error("models", "must be an array")
+        models = []
+    for index, model in enumerate(models):
+        location = f"models[{index}]"
+        if not isinstance(model, dict):
+            error(location, "must be an object")
+            continue
+        call = model.get("call")
+        if not isinstance(call, str) or not call.strip():
+            error(f"{location}.call", "must be a non-empty string")
+        _validate_positions(model, location, error)
+        severity = model.get("severity")
+        if severity is not None and str(severity).lower() not in _SEVERITIES:
+            error(f"{location}.severity", f"unknown severity {severity!r}")
+
+    rules = data.get("rules", [])
+    if not isinstance(rules, list):
+        error("rules", "must be an array")
+        rules = []
+    seen_rule_ids: set[str] = set()
+    for index, rule in enumerate(rules):
+        location = f"rules[{index}]"
+        if not isinstance(rule, dict):
+            error(location, "must be an object")
+            continue
+        rule_id = rule.get("id")
+        if not isinstance(rule_id, str) or not rule_id.strip():
+            error(f"{location}.id", "must be a non-empty string")
+        elif rule_id in seen_rule_ids:
+            error(f"{location}.id", f"duplicate rule id {rule_id!r}")
+        else:
+            seen_rule_ids.add(rule_id)
+        if not isinstance(rule.get("title"), str) or not rule["title"].strip():
+            error(f"{location}.title", "must be a non-empty string")
+        if not tuple(_iter_rule_calls(rule)):
+            error(location, "must reference at least one call")
+        severity = rule.get("severity")
+        if severity is not None and str(severity).lower() not in _SEVERITIES:
+            error(f"{location}.severity", f"unknown severity {severity!r}")
+        cwe = rule.get("cwe")
+        if cwe is not None and not re_fullmatch_cwe(cwe):
+            error(f"{location}.cwe", "must match CWE-<number>")
+        _validate_positions(rule, location, error)
+    return tuple(issues)
+
+
+def _validate_positions(entry: dict, location: str, error) -> None:
+    for key in ("sink_arg_positions", "resource_arg_positions"):
+        value = entry.get(key)
+        if value is None:
+            continue
+        if not isinstance(value, list) or any(
+            not isinstance(item, int) or isinstance(item, bool) or item < 0
+            for item in value
+        ):
+            error(f"{location}.{key}", "must contain non-negative integers")
+
+
+def re_fullmatch_cwe(value: object) -> bool:
+    text = str(value)
+    return text.startswith("CWE-") and text[4:].isdigit()
+
+
+def validate_registry() -> tuple[ValidationIssue, ...]:
+    """Validate every shipped rule pack and report all errors."""
+    issues: list[ValidationIssue] = []
+    frameworks: dict[str, Path] = {}
+    rule_ids: dict[str, Path] = {}
+    for path in sorted(_REGISTRY_DIR.glob("*.json")):
+        if path.name.endswith(".schema.json"):
+            continue
+        try:
+            data = json.loads(path.read_text())
+        except Exception as exc:
+            issues.append(ValidationIssue(str(path), f"invalid JSON: {exc}"))
+            continue
+        issues.extend(validate_rule_pack_data(data, path=path))
+        if not isinstance(data, dict):
+            continue
+        framework = data.get("framework")
+        if isinstance(framework, str):
+            previous = frameworks.get(framework)
+            if previous is not None:
+                issues.append(
+                    ValidationIssue(
+                        str(path),
+                        f"framework {framework!r} also defined by {previous.name}",
+                    )
+                )
+            frameworks[framework] = path
+        for rule in data.get("rules", ()) if isinstance(data.get("rules"), list) else ():
+            if not isinstance(rule, dict) or not isinstance(rule.get("id"), str):
+                continue
+            rule_id = rule["id"]
+            previous = rule_ids.get(rule_id)
+            if previous is not None:
+                issues.append(
+                    ValidationIssue(
+                        str(path),
+                        f"rule id {rule_id!r} also defined by {previous.name}",
+                    )
+                )
+            rule_ids[rule_id] = path
+    return tuple(issues)
 
 
 class Registry:
