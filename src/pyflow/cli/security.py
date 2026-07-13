@@ -54,7 +54,7 @@ def add_security_parser(subparsers):
     )
     p.add_argument(
         "--analysis",
-        choices=["taint", "typestate"],
+        choices=["taint", "nullness", "typestate"],
         default="taint",
         help="IFDS analysis to run when --engine ifds is selected",
     )
@@ -114,6 +114,26 @@ def add_security_parser(subparsers):
         help="Activate all framework rule packs (only for --engine ifds)",
     )
     p.add_argument(
+        "--ifds-mode",
+        choices=["strict", "best-effort"],
+        default="best-effort",
+        help="Fail on preparation gaps or continue with explicit partial status",
+    )
+    p.add_argument("--ifds-max-seconds", type=float)
+    p.add_argument("--ifds-max-path-edges", type=int)
+    p.add_argument("--ifds-max-queue-size", type=int)
+    p.add_argument("--ifds-max-incoming-records", type=int)
+    p.add_argument("--ifds-max-summary-entries", type=int)
+    p.add_argument("--ifds-max-facts-per-node", type=int)
+    p.add_argument("--ifds-max-contexts-per-procedure", type=int)
+    p.add_argument("--ifds-max-memory-bytes", type=int)
+    p.add_argument("--ifds-context-depth", type=int, default=3)
+    p.add_argument(
+        "--ifds-trace-mode",
+        choices=["none", "findings", "all"],
+        default="findings",
+    )
+    p.add_argument(
         "--typestate-protocol",
         action="append",
         default=[],
@@ -152,6 +172,26 @@ def add_security_parser(subparsers):
 
 
 # ── Engine dispatchers ────────────────────────────────────────────────────
+
+
+def _ifds_solver_options(args):
+    from pyflow.analysis.ifds.solver import SolverOptions
+
+    return SolverOptions(
+        max_propagated_path_edges=getattr(args, "ifds_max_path_edges", None),
+        max_seconds=getattr(args, "ifds_max_seconds", None),
+        max_queue_size=getattr(args, "ifds_max_queue_size", None),
+        max_incoming_records=getattr(args, "ifds_max_incoming_records", None),
+        max_summary_entries=getattr(args, "ifds_max_summary_entries", None),
+        max_facts_per_node=getattr(args, "ifds_max_facts_per_node", None),
+        max_contexts_per_procedure=getattr(
+            args, "ifds_max_contexts_per_procedure", None
+        ),
+        max_memory_bytes=getattr(args, "ifds_max_memory_bytes", None),
+        max_call_string_depth=getattr(args, "ifds_context_depth", 3),
+        trace_mode=getattr(args, "ifds_trace_mode", "findings"),
+        limit_behavior="partial",
+    )
 
 
 def _run_ast_scanner(
@@ -206,7 +246,19 @@ def _run_cpa(
 
 def _run_ifds(targets: List[str], args) -> Dict[str, Any]:
     """Run the IFDS-backed interprocedural security analysis."""
-    from pyflow.analysis.ifds.api import run_taint_analysis, run_typestate_analysis
+    from pyflow.analysis.ifds.api import (
+        run_nullness_analysis,
+        run_taint_analysis,
+        run_typestate_analysis,
+    )
+    from pyflow.analysis.ifds.preparation import PreparationMode
+
+    solver_options = _ifds_solver_options(args)
+    preparation_mode = (
+        PreparationMode.STRICT
+        if getattr(args, "ifds_mode", "best-effort") == "strict"
+        else PreparationMode.BEST_EFFORT
+    )
 
     files = _discover_python_files(targets, getattr(args, "recursive", False))
     if not files:
@@ -215,6 +267,8 @@ def _run_ifds(targets: List[str], args) -> Dict[str, Any]:
             "function": args.function or "<unknown>",
             "findings": [],
             "diagnostics": [],
+            "status": "failed",
+            "termination_reason": "No Python files found to analyze",
         }
 
     if getattr(args, "analysis", "taint") == "typestate":
@@ -229,6 +283,8 @@ def _run_ifds(targets: List[str], args) -> Dict[str, Any]:
                 collection_accessor_names=getattr(args, "collection_accessors", None),
                 dependency_strategy=getattr(args, "dependency_strategy", "auto"),
                 verbose=getattr(args, "verbose", False),
+                solver_options=solver_options,
+                preparation_mode=preparation_mode,
             )
         except Exception as e:
             print(f"IFDS analysis failed: {e}", file=sys.stderr)
@@ -237,12 +293,38 @@ def _run_ifds(targets: List[str], args) -> Dict[str, Any]:
                 "analysis": "typestate",
                 "findings": [],
                 "diagnostics": [str(e)],
+                "status": "failed",
+                "termination_reason": str(e),
             }
         result = _typestate_result_to_dict(
             args.function or "<unknown>", typestate_result
         )
-        result["diagnostics"] = list(getattr(_session, "diagnostics", ()))
-        return result
+        return _apply_session_diagnostics(result, _session)
+
+    if getattr(args, "analysis", "taint") == "nullness":
+        try:
+            _session, nullness_result = run_nullness_analysis(
+                files,
+                function=args.function or "",
+                dependency_strategy=getattr(args, "dependency_strategy", "auto"),
+                verbose=getattr(args, "verbose", False),
+                solver_options=solver_options,
+                preparation_mode=preparation_mode,
+            )
+        except Exception as e:
+            print(f"IFDS analysis failed: {e}", file=sys.stderr)
+            return {
+                "function": args.function or "<unknown>",
+                "analysis": "nullness",
+                "findings": [],
+                "diagnostics": [str(e)],
+                "status": "failed",
+                "termination_reason": str(e),
+            }
+        result = _nullness_result_to_dict(
+            args.function or "<unknown>", nullness_result
+        )
+        return _apply_session_diagnostics(result, _session)
 
     sources, sinks, sanitizers = _merge_taint_specs(args)
 
@@ -255,6 +337,8 @@ def _run_ifds(targets: List[str], args) -> Dict[str, Any]:
             "function": args.function or "<unknown>",
             "findings": [],
             "diagnostics": [],
+            "status": "invalid",
+            "termination_reason": "No taint sources or sinks configured",
         }
 
     try:
@@ -271,6 +355,8 @@ def _run_ifds(targets: List[str], args) -> Dict[str, Any]:
             ),
             dependency_strategy=getattr(args, "dependency_strategy", "auto"),
             verbose=getattr(args, "verbose", False),
+            solver_options=solver_options,
+            preparation_mode=preparation_mode,
         )
     except Exception as e:
         print(f"IFDS analysis failed: {e}", file=sys.stderr)
@@ -278,10 +364,36 @@ def _run_ifds(targets: List[str], args) -> Dict[str, Any]:
             "function": args.function or "<unknown>",
             "findings": [],
             "diagnostics": [str(e)],
+            "status": "failed",
+            "termination_reason": str(e),
         }
 
     result = _ifds_result_to_dict(args.function or "<unknown>", taint_result)
-    result["diagnostics"] = list(getattr(_session, "diagnostics", ()))
+    return _apply_session_diagnostics(result, _session)
+
+
+def _diagnostics_to_dicts(diagnostics) -> list[dict[str, Any]]:
+    from dataclasses import asdict, is_dataclass
+
+    return [
+        asdict(diagnostic)
+        if is_dataclass(diagnostic)
+        else {"code": "IFDS000", "severity": "warning", "message": str(diagnostic)}
+        for diagnostic in diagnostics
+    ]
+
+
+def _apply_session_diagnostics(result: Dict[str, Any], session) -> Dict[str, Any]:
+    diagnostics = tuple(getattr(session, "diagnostics", ()))
+    result["diagnostics"] = _diagnostics_to_dicts(diagnostics)
+    if result.get("status") == "complete" and any(
+        getattr(diagnostic, "affects_completeness", False)
+        for diagnostic in diagnostics
+    ):
+        result["status"] = "partial"
+        result["termination_reason"] = (
+            "Analysis preparation recovered from one or more incomplete stages"
+        )
     return result
 
 
@@ -498,6 +610,113 @@ def _result_to_json(engine: str, result) -> Any:
 
 def _result_to_sarif(engine: str, result, args) -> Dict[str, Any]:
     """Convert engine results to SARIF v2.1.0 format."""
+    if engine == "ifds":
+        findings = result.get("findings", [])
+        rules: List[Dict[str, Any]] = []
+        rule_indexes: Dict[str, int] = {}
+        sarif_results: List[Dict[str, Any]] = []
+
+        def physical_location(span):
+            if not span:
+                return None
+            region = {"startLine": max(int(span.get("start_line", 1)), 1)}
+            if span.get("start_column") is not None:
+                region["startColumn"] = max(int(span["start_column"]) + 1, 1)
+            if span.get("end_line") is not None:
+                region["endLine"] = int(span["end_line"])
+            if span.get("end_column") is not None:
+                region["endColumn"] = int(span["end_column"]) + 1
+            return {
+                "physicalLocation": {
+                    "artifactLocation": {"uri": span.get("uri", "")},
+                    "region": region,
+                }
+            }
+
+        for finding in findings:
+            rule_id = finding.get("rule_id") or "PYFLOW-IFDS"
+            if rule_id not in rule_indexes:
+                rule_indexes[rule_id] = len(rules)
+                rule = {
+                    "id": rule_id,
+                    "shortDescription": {
+                        "text": finding.get("message", rule_id)
+                    },
+                    "properties": {
+                        "tags": [
+                            value
+                            for value in (finding.get("cwe"), finding.get("kind"))
+                            if value
+                        ]
+                    },
+                }
+                if finding.get("suggestion"):
+                    rule["help"] = {"text": finding["suggestion"]}
+                rules.append(rule)
+
+            locations = []
+            primary = physical_location(finding.get("primary_location"))
+            if primary is not None:
+                locations.append(primary)
+
+            thread_flow_locations = []
+            for index, step in enumerate(finding.get("code_flow", []), 1):
+                location = physical_location(step.get("location"))
+                if location is None:
+                    continue
+                location["message"] = {"text": step.get("message", step.get("kind", "flow"))}
+                location["properties"] = {
+                    "kind": step.get("kind"),
+                    "nodeId": step.get("node_id"),
+                    "procedureId": step.get("procedure_id"),
+                }
+                location["nestingLevel"] = index - 1
+                thread_flow_locations.append({"location": location})
+
+            sarif_result = {
+                "ruleId": rule_id,
+                "ruleIndex": rule_indexes[rule_id],
+                "level": _sarif_level(finding.get("severity")),
+                "message": {"text": finding.get("message", rule_id)},
+                "locations": locations,
+                "partialFingerprints": {
+                    "pyflow/v1": finding.get("fingerprint", "")
+                },
+                "properties": {
+                    "confidence": finding.get("confidence"),
+                    "analysisStatus": result.get("status", "complete"),
+                    **(finding.get("properties") or {}),
+                },
+            }
+            if thread_flow_locations:
+                sarif_result["codeFlows"] = [
+                    {"threadFlows": [{"locations": thread_flow_locations}]}
+                ]
+            sarif_results.append(sarif_result)
+
+        invocation = {
+            "executionSuccessful": result.get("status") == "complete",
+            "properties": {"analysisStatus": result.get("status", "complete")},
+        }
+        if result.get("termination_reason"):
+            invocation["toolExecutionNotifications"] = [
+                {
+                    "level": "warning",
+                    "message": {"text": result["termination_reason"]},
+                }
+            ]
+        return {
+            "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+            "version": "2.1.0",
+            "runs": [
+                {
+                    "tool": {"driver": {"name": "pyflow-security-ifds", "rules": rules}},
+                    "invocations": [invocation],
+                    "results": sarif_results,
+                }
+            ],
+        }
+
     if engine == "cpg":
         from pyflow.analysis.cpg.taint import CPGTaintEngine
 
@@ -571,6 +790,15 @@ def _result_to_sarif(engine: str, result, args) -> Dict[str, Any]:
             }
         ],
     }
+
+
+def _sarif_level(severity: str | None) -> str:
+    normalized = (severity or "warning").lower()
+    if normalized in {"critical", "high", "error"}:
+        return "error"
+    if normalized in {"low", "note", "info", "informational"}:
+        return "note"
+    return "warning"
 
 
 # ── Shared helpers ────────────────────────────────────────────────────────
@@ -653,43 +881,30 @@ def _ifds_result_to_dict(function: str, taint_result) -> Dict[str, Any]:
     """Convert an IFDS TaintAnalysisResult to a JSON-compatible dict."""
     from dataclasses import asdict, is_dataclass
 
+    from pyflow.analysis.ifds.reporting import normalized_taint_findings
+
+    normalized = {
+        finding.node_id: finding
+        for finding in normalized_taint_findings(taint_result)
+    }
     findings = []
     for finding in taint_result.findings:
         tainted_arguments = [local.name for local in finding.tainted_arguments]
         if not tainted_arguments:
             tainted_arguments = list(finding.tainted_argument_labels)
 
-        explanations = []
-        if finding.tainted_arguments:
-            fact = taint_result.fact_for_local(
-                finding.sink, finding.tainted_arguments[0]
-            )
-            if fact is not None:
-                for edge, traces in taint_result.explain_fact(
-                    finding.sink, fact
-                ).items():
-                    explanations.append(
-                        {
-                            "source": getattr(
-                                edge.source_node.procedure.code, "name", None
-                            ),
-                            "target_kind": edge.node.kind,
-                            "trace": [
-                                {"kind": step.kind, "note": step.note}
-                                for step in traces
-                            ],
-                        }
-                    )
-
-        findings.append(
+        node_id = taint_result._problem.adapter.supergraph.node_id(finding.sink)
+        normalized_finding = normalized[node_id].to_dict()
+        normalized_finding.update(
             {
                 "sink_name": finding.sink_name,
                 "procedure": _code_name(finding.sink.procedure.code),
                 "block_kind": finding.sink.kind,
                 "tainted_arguments": tainted_arguments,
-                "explanations": explanations,
+                "explanations": normalized_finding["code_flow"],
             }
         )
+        findings.append(normalized_finding)
 
     statistics = {}
     if is_dataclass(taint_result.statistics):
@@ -704,6 +919,8 @@ def _ifds_result_to_dict(function: str, taint_result) -> Dict[str, Any]:
         "analysis": "taint",
         "findings": findings,
         "statistics": statistics,
+        "status": taint_result.status.value,
+        "termination_reason": taint_result.termination_reason,
     }
 
 
@@ -711,8 +928,21 @@ def _typestate_result_to_dict(function: str, typestate_result) -> Dict[str, Any]
     """Convert an IFDS TypestateAnalysisResult to a JSON-compatible dict."""
     from dataclasses import asdict, is_dataclass
 
-    findings = [
-        {
+    from pyflow.analysis.ifds.reporting import normalized_typestate_findings
+
+    normalized = {
+        (
+            finding.node_id,
+            finding.kind,
+            finding.properties.get("resource"),
+        ): finding
+        for finding in normalized_typestate_findings(typestate_result)
+    }
+    findings = []
+    for finding in typestate_result.findings:
+        node_id = typestate_result._problem.adapter.supergraph.node_id(finding.node)
+        item = normalized[(node_id, finding.kind, finding.resource_label)].to_dict()
+        item.update({
             "kind": finding.kind,
             "operation_name": finding.operation_name,
             "resource_label": finding.resource_label,
@@ -720,9 +950,8 @@ def _typestate_result_to_dict(function: str, typestate_result) -> Dict[str, Any]
             "state": finding.state,
             "procedure": _code_name(finding.node.procedure.code),
             "block_kind": finding.node.kind,
-        }
-        for finding in typestate_result.findings
-    ]
+        })
+        findings.append(item)
 
     statistics = {}
     if is_dataclass(typestate_result.statistics):
@@ -737,6 +966,43 @@ def _typestate_result_to_dict(function: str, typestate_result) -> Dict[str, Any]
         "analysis": "typestate",
         "findings": findings,
         "statistics": statistics,
+        "status": typestate_result.status.value,
+        "termination_reason": typestate_result.termination_reason,
+    }
+
+
+def _nullness_result_to_dict(function: str, nullness_result) -> Dict[str, Any]:
+    """Convert an IFDS nullness result to a JSON-compatible dictionary."""
+    from dataclasses import asdict
+
+    from pyflow.analysis.ifds.reporting import normalized_nullness_findings
+
+    normalized = {
+        (
+            finding.node_id,
+            finding.kind,
+            finding.properties.get("expression"),
+        ): finding
+        for finding in normalized_nullness_findings(nullness_result)
+    }
+    findings = []
+    for finding in nullness_result.findings:
+        node_id = nullness_result._problem.adapter.supergraph.node_id(finding.node)
+        item = normalized[(node_id, finding.kind, finding.expression_label)].to_dict()
+        item.update({
+            "kind": finding.kind,
+            "expression_label": finding.expression_label,
+            "procedure": _code_name(finding.node.procedure.code),
+            "block_kind": finding.node.kind,
+        })
+        findings.append(item)
+    return {
+        "function": function,
+        "analysis": "nullness",
+        "findings": findings,
+        "statistics": asdict(nullness_result.statistics),
+        "status": nullness_result.status.value,
+        "termination_reason": nullness_result.termination_reason,
     }
 
 
@@ -776,9 +1042,16 @@ def run_security(args) -> int:
                 "Error: --function is required for 'ifds' engine",
                 file=sys.stderr,
             )
-            return 1
+            return 2
         result = _run_ifds(targets, args)
         _output_results(engine, result, args)
+        status = result.get("status", "complete")
+        if status == "invalid":
+            return 2
+        if status in {"partial", "cancelled"}:
+            return 3
+        if status == "failed":
+            return 4
         return 1 if result.get("findings") else 0
 
     elif engine == "cpg":
