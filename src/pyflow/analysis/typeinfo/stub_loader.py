@@ -270,6 +270,16 @@ class StubFunctionInfo:
 
 
 @dataclass
+class StubImportInfo:
+    """Raw import information extracted from a ``.pyi`` stub file."""
+
+    module: str | None
+    names: list[tuple[str, str | None]] = field(default_factory=list)
+    level: int = 0
+    is_from: bool = False
+
+
+@dataclass
 class StubClassInfo:
     """Extracted type information for a class in a ``.pyi`` stub file.
 
@@ -299,6 +309,7 @@ class StubInfo:
     functions: list[StubFunctionInfo] = field(default_factory=list)
     classes: list[StubClassInfo] = field(default_factory=list)
     variables: list[tuple[str, str]] = field(default_factory=list)
+    imports: list[StubImportInfo] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -544,6 +555,25 @@ class _StubVisitor(ast.NodeVisitor):
 
     def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:  # noqa: N802
         self._info.functions.append(self._extract_function(node))
+
+    def visit_Import(self, node: ast.Import) -> None:  # noqa: N802
+        self._info.imports.append(
+            StubImportInfo(
+                module=None,
+                names=[(alias.name, alias.asname) for alias in node.names],
+                is_from=False,
+            )
+        )
+
+    def visit_ImportFrom(self, node: ast.ImportFrom) -> None:  # noqa: N802
+        self._info.imports.append(
+            StubImportInfo(
+                module=node.module or "",
+                names=[(alias.name, alias.asname) for alias in node.names],
+                level=node.level,
+                is_from=True,
+            )
+        )
 
     def visit_ClassDef(self, node: ast.ClassDef) -> None:  # noqa: N802
         cls = StubClassInfo(name=node.name)

@@ -54,12 +54,20 @@ class BuiltinTypeLookup:
         self._fallback = fallback
 
     def __call__(self, qualified_name: str) -> ProperType | None:
-        from pyflow.analysis.typeinfo.typesystem import ANY, NONE_TYPE, Instance, TypeInfo
+        from pyflow.analysis.typeinfo.typesystem import (
+            ANY,
+            NONE_TYPE,
+            Instance,
+            TupleType,
+            TypeInfo,
+        )
 
         if qualified_name in {"Any", "typing.Any"}:
             return ANY
         if qualified_name in {"None", "NoneType", "types.NoneType"}:
             return NONE_TYPE
+        if qualified_name in {"tuple", "builtins.tuple"}:
+            return TupleType((), unknown_size=True)
         if qualified_name.startswith("builtins."):
             qualified_name = qualified_name.rsplit(".", 1)[-1]
         raw = getattr(builtins, qualified_name, None)
@@ -165,6 +173,11 @@ def _resolve_expr(
         return None
 
     if isinstance(node, ast.Attribute):
+        qualified_name = _get_qualified_name(node)
+        if qualified_name:
+            direct = lookup(qualified_name)
+            if direct is not None:
+                return direct
         base = _resolve_expr(node.value, lookup)
         if base is not None:
             return lookup(f"{_get_qualified_name(node.value)}.{node.attr}")
@@ -246,7 +259,7 @@ def _resolve_special_form(
     if name == "Type" and args:
         return _resolve_expr(args[0], lookup)
 
-    if name == "Tuple" and args:
+    if name in {"Tuple", "tuple", "builtins.tuple"} and args:
         return _resolve_tuple(args, lookup)
 
     if name == "Callable" and len(args) >= 1:

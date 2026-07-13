@@ -12,6 +12,8 @@ from .collector import (
     collect_pyflow_type_info,
     collect_python_type_info,
 )
+from .models import ClassTypeInfo, FunctionTypeInfo, TypeFact
+from .service import TypeInfoService
 from .annotation_resolver import (
     BuiltinTypeLookup,
     TypeLookup,
@@ -23,6 +25,7 @@ from .stub_loader import (
     StubClassInfo,
     StubDiagnostic,
     StubFunctionInfo,
+    StubImportInfo,
     StubInfo,
     StubResolver,
     build_stub_map,
@@ -46,13 +49,18 @@ __all__ = [
     "TypeEvidence",
     "TypeInfo",
     "BuiltinTypeLookup",
+    "ClassTypeInfo",
+    "FunctionTypeInfo",
     "ResolvedStub",
     "StubClassInfo",
     "StubDiagnostic",
     "StubFunctionInfo",
+    "StubImportInfo",
     "StubInfo",
     "StubResolver",
+    "TypeFact",
     "TypeLookup",
+    "TypeInfoService",
     "annotation_resolver",
     "build_stub_map",
     "collect_pyflow_type_info",

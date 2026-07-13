@@ -137,6 +137,33 @@ def test_resolve_dict_str_int() -> None:
     assert len(result.args) == 2
 
 
+def test_resolve_qualified_attribute_without_resolving_module_base() -> None:
+    lookup = _make_lookup(("pkg.mod.Client", int))
+
+    result = resolve_annotation("pkg.mod.Client", lookup)
+
+    assert isinstance(result, Instance)
+    assert result.type.raw_type is int
+
+
+def test_resolve_builtin_tuple_generic() -> None:
+    result = resolve_annotation("tuple[int, str]", _BASIC_LOOKUP)
+    assert isinstance(result, TupleType)
+    assert not result.unknown_size
+    assert len(result.args) == 2
+    assert isinstance(result.args[0], Instance)
+    assert result.args[0].type.raw_type is int
+    assert isinstance(result.args[1], Instance)
+    assert result.args[1].type.raw_type is str
+
+
+def test_resolve_builtin_bare_tuple() -> None:
+    result = resolve_annotation("tuple", BuiltinTypeLookup())
+    assert isinstance(result, TupleType)
+    assert result.unknown_size
+    assert result.args == ()
+
+
 # ---------------------------------------------------------------------------
 # resolve_annotation — Optional
 # ---------------------------------------------------------------------------
