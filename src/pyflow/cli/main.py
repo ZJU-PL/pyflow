@@ -27,6 +27,7 @@ from .ir import run_ir_dump, add_ir_parser
 from .security import run_security, add_security_parser
 from . import callgraph
 from .heap import run_heap_analysis, add_heap_parser
+from .supply_chain import add_supply_chain_parser, run_supply_chain
 
 
 def main():
@@ -59,6 +60,9 @@ def main():
     # Unified security analysis command
     add_security_parser(subparsers)
 
+    # Supply-chain analysis command
+    add_supply_chain_parser(subparsers)
+
     args = parser.parse_args()
 
     # Handle special commands that don't require input
@@ -85,6 +89,8 @@ def main():
         input_path = Path(args.input_path)
     elif args.command == "security":
         input_path = None
+    elif args.command == "supply-chain":
+        input_path = None
     elif args.command == "heap":
         input_path = Path(args.input_path)
     else:
@@ -108,6 +114,8 @@ def main():
         return run_heap_analysis(args.input_path, args)
     elif args.command == "security":
         return run_security(args)
+    elif args.command == "supply-chain":
+        return run_supply_chain(args)
     else:
         parser.print_help()
         return 1
