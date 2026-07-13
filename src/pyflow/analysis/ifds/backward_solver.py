@@ -4,6 +4,7 @@ from abc import ABC, abstractmethod
 from collections import defaultdict, deque
 from dataclasses import dataclass
 from typing import DefaultDict, Generic, Hashable, Mapping, TypeVar
+
 from .solver import (
     AnalysisStatus,
     IFDSResult,

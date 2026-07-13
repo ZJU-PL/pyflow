@@ -4,8 +4,7 @@ from pyflow.analysis.ifds.backward_solver import (
     BackwardIFDSProblem,
     BackwardIFDSSolver,
 )
-from pyflow.analysis.ifds import Supergraph
-
+from pyflow.analysis.ifds import AnalysisStatus, SolverOptions, Supergraph
 
 ZERO = "ZERO"
 
@@ -43,11 +42,22 @@ def build_linear_supergraph() -> Supergraph[str, str]:
 
 
 def test_backward_ifds_linear_intra_procedural():
-    result = BackwardIFDSSolver().solve(LinearBackwardProblem(build_linear_supergraph()))
+    result = BackwardIFDSSolver().solve(
+        LinearBackwardProblem(build_linear_supergraph())
+    )
 
     assert result.is_reached("main.entry", ZERO)
     assert result.is_reached("main.entry", "tainted")
     assert result.is_reached("main.body", "tainted")
+
+
+def test_backward_ifds_honors_solver_budgets():
+    result = BackwardIFDSSolver(
+        options=SolverOptions(max_propagated_path_edges=1)
+    ).solve(LinearBackwardProblem(build_linear_supergraph()))
+
+    assert result.status is AnalysisStatus.PARTIAL
+    assert "max_propagated_path_edges=1" in result.termination_reason
 
 
 class CallReturnBackwardProblem(BackwardIFDSProblem[str, str, str]):
@@ -68,9 +78,17 @@ class CallReturnBackwardProblem(BackwardIFDSProblem[str, str, str]):
     def normal_flow(self, predecessor: str, successor: str, fact: str):
         if predecessor == "main.entry" and successor == "main.call" and fact == ZERO:
             return (ZERO,)
-        if predecessor == "main.after" and successor == "main.exit" and fact in {ZERO, "sink_fact"}:
+        if (
+            predecessor == "main.after"
+            and successor == "main.exit"
+            and fact in {ZERO, "sink_fact"}
+        ):
             return (fact,)
-        if predecessor == "helper.entry" and successor == "helper.exit" and fact == ZERO:
+        if (
+            predecessor == "helper.entry"
+            and successor == "helper.exit"
+            and fact == ZERO
+        ):
             return (ZERO, "source_fact")
         return ()
 
@@ -82,8 +100,14 @@ class CallReturnBackwardProblem(BackwardIFDSProblem[str, str, str]):
                 return ("sink_fact",)
         return ()
 
-    def return_flow(self, return_site: str, callee: str, callee_entry: str, call_fact: str):
-        if return_site == "main.after" and callee == "helper" and callee_entry == "helper.entry":
+    def return_flow(
+        self, return_site: str, callee: str, callee_entry: str, call_fact: str
+    ):
+        if (
+            return_site == "main.after"
+            and callee == "helper"
+            and callee_entry == "helper.entry"
+        ):
             if call_fact == "sink_fact":
                 return ("sink_fact",)
         return ()
@@ -91,7 +115,11 @@ class CallReturnBackwardProblem(BackwardIFDSProblem[str, str, str]):
     def call_to_return_flow(self, return_site: str, call_site: str, fact: str):
         if return_site == "main.after" and call_site == "main.call" and fact == ZERO:
             return (ZERO,)
-        if return_site == "main.after" and call_site == "main.call" and fact == "sink_fact":
+        if (
+            return_site == "main.after"
+            and call_site == "main.call"
+            and fact == "sink_fact"
+        ):
             return ("sink_fact",)
         return ()
 
