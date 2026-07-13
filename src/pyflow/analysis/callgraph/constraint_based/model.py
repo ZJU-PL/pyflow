@@ -301,11 +301,3 @@ def join_envs(
     return dict(out)
 
 
-def decorator_id(expr: ast.expr) -> Optional[str]:
-    if isinstance(expr, ast.Name):
-        return expr.id
-    if isinstance(expr, ast.Attribute):
-        if isinstance(expr.value, ast.Name):
-            return f"{expr.value.id}.{expr.attr}"
-        return expr.attr
-    return None

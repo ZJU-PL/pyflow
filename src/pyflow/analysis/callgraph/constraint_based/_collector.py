@@ -6,13 +6,14 @@ import ast
 from collections import defaultdict
 from typing import DefaultDict, Dict, Optional, Sequence, Set, List
 
+from pyflow.language.asttools import contains_yield, extract_decorator_name
+
 from .model import (
     AbstractValue,
     CLASS_KIND,
     ClassInfo,
     FunctionInfo,
     ScopeInfo,
-    decorator_id,
     make_class,
     make_func,
     make_string,
@@ -312,7 +313,7 @@ class _CollectorMixin:
             if not isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 continue
             method_qualname = f"{class_qualname}.{child.name}"
-            decorator_names = {decorator_id(deco) for deco in child.decorator_list}
+            decorator_names = {extract_decorator_name(deco) for deco in child.decorator_list}
             is_staticmethod = (
                 "staticmethod" in decorator_names
                 or "builtins.staticmethod" in decorator_names
@@ -479,34 +480,6 @@ class _CollectorMixin:
         closure_vars: Set[str],
     ) -> FunctionInfo:
         """Build a normalized `FunctionInfo` record from a function-like AST node."""
-        def _contains_yield(node: ast.AST) -> bool:
-            class YieldVisitor(ast.NodeVisitor):
-                def __init__(self) -> None:
-                    self.found = False
-
-                def visit_Yield(self, inner: ast.Yield) -> None:
-                    self.found = True
-
-                def visit_YieldFrom(self, inner: ast.YieldFrom) -> None:
-                    self.found = True
-
-                def visit_FunctionDef(self, inner: ast.FunctionDef) -> None:
-                    return
-
-                def visit_AsyncFunctionDef(self, inner: ast.AsyncFunctionDef) -> None:
-                    return
-
-                def visit_ClassDef(self, inner: ast.ClassDef) -> None:
-                    return
-
-            visitor = YieldVisitor()
-            if isinstance(node, ast.Lambda):
-                visitor.visit(node.body)
-            else:
-                for statement in node.body:  # type: ignore[attr-defined]
-                    visitor.visit(statement)
-            return visitor.found
-
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
             posonly_params = [arg.arg for arg in node.args.posonlyargs]
             pos_or_kw_params = [arg.arg for arg in node.args.args]
@@ -556,7 +529,7 @@ class _CollectorMixin:
             param_annotations=param_annotations,
             return_annotation=return_annotation,
             is_async=isinstance(node, ast.AsyncFunctionDef),
-            is_generator=_contains_yield(node),
+            is_generator=contains_yield(node),
         )
 
     def _resolve_import_bindings(self) -> None:
