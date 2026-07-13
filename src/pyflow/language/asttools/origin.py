@@ -5,6 +5,8 @@ This module provides utilities for tracking and formatting the source
 location (file, line, column) and context (name) of AST nodes.
 """
 
+from dataclasses import dataclass
+
 from pyflow.util.monkeypatch.xcollections import namedtuple
 
 
@@ -64,3 +66,18 @@ def originString(origin):
 Origin = namedtuple(
     "Origin", "name filename lineno col", dict(originString=originString)
 )
+
+
+@dataclass(frozen=True)
+class SourceOrigin:
+    """Source origin with the complete span supplied by Python's AST."""
+
+    name: str | None
+    filename: str | None
+    lineno: int | None
+    col: int | None
+    end_lineno: int | None = None
+    end_col: int | None = None
+
+    def originString(self):
+        return originString(self)

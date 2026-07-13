@@ -7,7 +7,7 @@ import hashlib
 import re
 from typing import Any, Mapping, Sequence
 
-from pyflow.language.asttools.origin import Origin
+from pyflow.language.asttools.origin import Origin, SourceOrigin
 
 from .cfg_adapter import CFGNode, CFGSupergraphAdapter
 
@@ -103,7 +103,7 @@ class AnalysisFinding:
 def _iter_origins(origin: object) -> tuple[object, ...]:
     if origin is None:
         return ()
-    if isinstance(origin, Origin):
+    if isinstance(origin, (Origin, SourceOrigin)):
         return (origin,)
     if isinstance(origin, (list, tuple)):
         return tuple(origin)
@@ -111,13 +111,15 @@ def _iter_origins(origin: object) -> tuple[object, ...]:
 
 
 def _span_from_origin(origin: object) -> SourceSpan | None:
-    if isinstance(origin, Origin):
+    if isinstance(origin, (Origin, SourceOrigin)):
         if not origin.filename or not isinstance(origin.lineno, int):
             return None
         return SourceSpan(
             str(origin.filename),
             max(origin.lineno, 1),
             max(origin.col or 0, 0),
+            getattr(origin, "end_lineno", None),
+            getattr(origin, "end_col", None),
         )
     if isinstance(origin, str):
         match = _SOURCE_TAG.match(origin)
