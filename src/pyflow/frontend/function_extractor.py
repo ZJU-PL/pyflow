@@ -269,7 +269,7 @@ class FunctionExtractor:
         first_lineno: int = 1,
         origin_tag: str,
     ) -> pyflow_ast.Code:
-        body = self.ast_converter.convert_python_ast_to_pyflow(list(body_nodes))
+        body = self._convert_body(body_nodes, filename)
         code = pyflow_ast.Code(name, self._empty_code_parameters(), body)
         origin = [f"{origin_tag}({name})"]
         if filename:
@@ -285,7 +285,7 @@ class FunctionExtractor:
         codeparams = self._convert_function_args(func_node.args, func)
 
         # Convert function body
-        body = self.ast_converter.convert_python_ast_to_pyflow(func_node.body)
+        body = self._convert_body(func_node.body, filename)
 
         # Use func_node.name if func is None
         func_name = func.__name__ if func else func_node.name
@@ -309,6 +309,10 @@ class FunctionExtractor:
 
         # Initialize the annotation properly
         origin = [f"converted_function({func_name})"]
+        if isinstance(func_node, python_ast.AsyncFunctionDef):
+            origin.append("converted_async_function")
+        if self._contains_yield(func_node):
+            origin.append("converted_generator")
         try:
             if (
                 func is not None
@@ -328,6 +332,42 @@ class FunctionExtractor:
         code.annotation = self._make_code_annotation(origin)
 
         return code
+
+    @staticmethod
+    def _contains_yield(func_node: python_ast.AST) -> bool:
+        class YieldVisitor(python_ast.NodeVisitor):
+            found = False
+
+            def visit_Yield(self, node):
+                self.found = True
+
+            def visit_YieldFrom(self, node):
+                self.found = True
+
+            def visit_FunctionDef(self, node):
+                if node is func_node:
+                    self.generic_visit(node)
+
+            def visit_AsyncFunctionDef(self, node):
+                if node is func_node:
+                    self.generic_visit(node)
+
+            def visit_Lambda(self, node):
+                return None
+
+        visitor = YieldVisitor()
+        visitor.visit(func_node)
+        return visitor.found
+
+    def _convert_body(
+        self, body_nodes: Iterable[python_ast.AST], filename: Optional[str]
+    ) -> pyflow_ast.Suite:
+        previous_filename = self.ast_converter.current_filename
+        self.ast_converter.current_filename = filename
+        try:
+            return self.ast_converter.convert_python_ast_to_pyflow(list(body_nodes))
+        finally:
+            self.ast_converter.current_filename = previous_filename
 
     def _add_code_to_program(self, program: Program, code: pyflow_ast.Code) -> None:
         if hasattr(program, "liveCode"):

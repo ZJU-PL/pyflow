@@ -21,6 +21,7 @@ from pyflow.language.python.default_markers import MISSING_DEFAULT
 from pyflow.language.python.program import Object
 from pyflow.language.python.pythonbase import PythonASTNode
 from pyflow.language.python.annotations import CodeAnnotation
+from pyflow.language.asttools.origin import SourceOrigin
 
 
 HAS_MATCH = sys.version_info >= (3, 10)
@@ -44,6 +45,27 @@ class ASTConverter:
             "merged_kwargs": 0,
         }
         self._scope_stack: List[Dict[str, Any]] = []
+        self.current_filename: str | None = None
+
+    def _with_source_origin(
+        self, converted: Optional[PythonASTNode], source: python_ast.AST
+    ) -> Optional[PythonASTNode]:
+        if converted is None or not hasattr(converted, "rewriteAnnotation"):
+            return converted
+        annotation = getattr(converted, "annotation", None)
+        if annotation is None or not hasattr(annotation, "origin"):
+            return converted
+        filename = self.current_filename or getattr(source, "filename", None)
+        origin = SourceOrigin(
+            None,
+            filename,
+            getattr(source, "lineno", None),
+            getattr(source, "col_offset", None),
+            getattr(source, "end_lineno", None),
+            getattr(source, "end_col_offset", None),
+        )
+        converted.rewriteAnnotation(origin=(origin,))
+        return converted
 
     def _tmp_local(self, hint: str, node: python_ast.AST) -> pyflow_ast.Local:
         return pyflow_ast.Local(f"__pyflow_tmp_{hint}_{id(node)}")
@@ -341,6 +363,9 @@ class ASTConverter:
                 self._pop_scope()
 
     def _convert_node(self, node: python_ast.AST) -> Optional[PythonASTNode]:
+        return self._with_source_origin(self._convert_node_impl(node), node)
+
+    def _convert_node_impl(self, node: python_ast.AST) -> Optional[PythonASTNode]:
         """Convert a single Python AST node to pyflow AST."""
         if isinstance(node, (python_ast.FunctionDef, python_ast.AsyncFunctionDef)):
             # Handle function definitions
@@ -470,6 +495,9 @@ class ASTConverter:
             return self._unsupported_stmt(node, "unhandled statement node")
 
     def _convert_expression(self, node: python_ast.AST) -> PythonASTNode:
+        return self._with_source_origin(self._convert_expression_impl(node), node)
+
+    def _convert_expression_impl(self, node: python_ast.AST) -> PythonASTNode:
         """Convert Python AST expressions to pyflow AST expressions."""
         if isinstance(node, python_ast.Name):
             return self._name_expr(node.id)
