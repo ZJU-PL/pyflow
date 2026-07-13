@@ -94,6 +94,14 @@ Options:
 - ``--engine``: Analysis engine (``ast-scanner``, ``cpa``, ``ifds``, or ``cpg``)
 - ``--sources`` / ``--sinks`` / ``--sanitizers``: Function names for taint-style dataflow checks
 - ``--function``: Entry function for the IFDS engine
+- ``--analysis``: IFDS client (``taint``, ``nullness``, or ``typestate``)
+- ``--ifds-mode``: ``strict`` preparation or diagnostic ``best-effort`` mode
+- ``--ifds-max-seconds`` / ``--ifds-max-memory-bytes``: Wall-clock and memory budgets
+- ``--ifds-max-path-edges`` / ``--ifds-max-queue-size``: Solver work budgets
+- ``--ifds-max-incoming-records`` / ``--ifds-max-summary-entries``: Interprocedural table budgets
+- ``--ifds-max-facts-per-node`` / ``--ifds-max-contexts-per-procedure``: Precision/cardinality budgets
+- ``--ifds-context-depth``: Maximum call-string depth
+- ``--ifds-trace-mode``: Retain no traces, finding traces, or all traces
 - ``--framework``: Framework rule packs for the CPG engine
 - ``--format``: Output format (``text``, ``json``, or ``sarif``)
 - ``--output``: Output file path

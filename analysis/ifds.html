@@ -95,6 +95,10 @@
 <li class="toctree-l4"><a class="reference internal" href="#key-features">Key Features</a></li>
 <li class="toctree-l4"><a class="reference internal" href="#analysis-clients">Analysis Clients</a></li>
 <li class="toctree-l4"><a class="reference internal" href="#cli-usage">CLI Usage</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#production-execution-contract">Production Execution Contract</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#findings-and-sarif">Findings and SARIF</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#language-semantics">Language Semantics</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#rule-pack-quality-and-performance">Rule-Pack Quality and Performance</a></li>
 <li class="toctree-l4"><a class="reference internal" href="#annotation-synthesis">Annotation Synthesis</a></li>
 <li class="toctree-l4"><a class="reference internal" href="#see-also">See Also</a></li>
 </ul>
@@ -163,7 +167,16 @@ functions</p></li>
 <li><p><strong>Supergraph Construction</strong>: Builds CFG supergraphs from per-function CFGs
 and call graph information</p></li>
 <li><p><strong>Backward Analysis</strong>: Backward IFDS solver for reverse data flow problems</p></li>
-<li><p><strong>Diagnostics</strong>: Built-in diagnostic tracking for debugging solver behavior</p></li>
+<li><p><strong>Bounded Execution</strong>: Cancellation, time, memory, queue, path-edge, fact,
+summary, incoming-record, and context budgets through <code class="docutils literal notranslate"><span class="pre">SolverOptions</span></code></p></li>
+<li><p><strong>Explicit Completeness</strong>: Results report <code class="docutils literal notranslate"><span class="pre">complete</span></code>, <code class="docutils literal notranslate"><span class="pre">partial</span></code>,
+<code class="docutils literal notranslate"><span class="pre">cancelled</span></code>, or <code class="docutils literal notranslate"><span class="pre">failed</span></code> status with a termination reason</p></li>
+<li><p><strong>Deterministic Results</strong>: Stable procedure, node, and fact IDs plus ordered
+graph traversal make serialized findings reproducible</p></li>
+<li><p><strong>Diagnostics</strong>: Coded preparation diagnostics distinguish recoverable gaps
+from strict failures</p></li>
+<li><p><strong>Explanations</strong>: <code class="docutils literal notranslate"><span class="pre">trace_mode</span></code> can retain finding paths or all predecessor
+paths for demand-driven explanations</p></li>
 </ul>
 </section>
 <section id="analysis-clients">
@@ -190,11 +203,70 @@ pyflow<span class="w"> </span>security<span class="w"> </span>input.py<span clas
 <span class="c1"># Typestate analysis</span>
 pyflow<span class="w"> </span>security<span class="w"> </span>input.py<span class="w"> </span>--engine<span class="w"> </span>ifds<span class="w"> </span>--function<span class="w"> </span>main<span class="w"> </span>--analysis<span class="w"> </span>typestate
 
+<span class="c1"># Nullness analysis</span>
+pyflow<span class="w"> </span>security<span class="w"> </span>input.py<span class="w"> </span>--engine<span class="w"> </span>ifds<span class="w"> </span>--function<span class="w"> </span>main<span class="w"> </span>--analysis<span class="w"> </span>nullness
+
 <span class="c1"># With specific typestate protocols</span>
 pyflow<span class="w"> </span>security<span class="w"> </span>input.py<span class="w"> </span>--engine<span class="w"> </span>ifds<span class="w"> </span>--function<span class="w"> </span>main<span class="w"> </span>--analysis<span class="w"> </span>typestate<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--typestate-protocol<span class="w"> </span>file<span class="w"> </span>--typestate-protocol<span class="w"> </span>socket
+
+<span class="c1"># CI-friendly bounded analysis with SARIF output</span>
+pyflow<span class="w"> </span>security<span class="w"> </span>input.py<span class="w"> </span>--engine<span class="w"> </span>ifds<span class="w"> </span>--function<span class="w"> </span>main<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--sources<span class="w"> </span>input<span class="w"> </span>--sinks<span class="w"> </span><span class="nb">eval</span><span class="w"> </span>--ifds-mode<span class="w"> </span>strict<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--ifds-max-seconds<span class="w"> </span><span class="m">60</span><span class="w"> </span>--ifds-max-memory-bytes<span class="w"> </span><span class="m">1073741824</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--format<span class="w"> </span>sarif<span class="w"> </span>--output<span class="w"> </span>pyflow.sarif
 </pre></div>
 </div>
+</section>
+<section id="production-execution-contract">
+<h2>Production Execution Contract<a class="headerlink" href="#production-execution-contract" title="Link to this heading"></a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">SolverOptions</span></code> is shared by forward IFDS, backward IFDS, and IDE solvers.
+When a configured budget is reached, the default options used by the CLI stop
+the analysis and return a partial result rather than silently presenting it as
+complete.  Library callers may select <code class="docutils literal notranslate"><span class="pre">limit_behavior=&quot;raise&quot;</span></code> when an
+exception is preferable.  <code class="docutils literal notranslate"><span class="pre">CancellationToken</span></code> supports cooperative
+cancellation; <code class="docutils literal notranslate"><span class="pre">trace_mode</span></code> accepts <code class="docutils literal notranslate"><span class="pre">none</span></code>, <code class="docutils literal notranslate"><span class="pre">findings</span></code>, or <code class="docutils literal notranslate"><span class="pre">all</span></code>.</p>
+<p>The CLI uses distinct process exit codes:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">0</span></code>: complete with no findings</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">1</span></code>: complete with findings</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">2</span></code>: invalid invocation or configuration</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">3</span></code>: partial or cancelled analysis</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">4</span></code>: analysis failure</p></li>
+</ul>
+<p><code class="docutils literal notranslate"><span class="pre">--ifds-mode</span> <span class="pre">strict</span></code> fails when preparation cannot construct required
+analysis state.  <code class="docutils literal notranslate"><span class="pre">best-effort</span></code> records coded diagnostics and marks the result
+partial when recovery can affect completeness.</p>
+</section>
+<section id="findings-and-sarif">
+<h2>Findings and SARIF<a class="headerlink" href="#findings-and-sarif" title="Link to this heading"></a></h2>
+<p>Taint, nullness, and typestate clients expose normalized findings with stable
+fingerprints, source spans, severity, confidence, and optional code flows.
+Python-source spans include start and end positions.  SARIF output includes
+rules, physical locations, thread flows, partial fingerprints, and the overall
+analysis-completeness status.</p>
+</section>
+<section id="language-semantics">
+<h2>Language Semantics<a class="headerlink" href="#language-semantics" title="Link to this heading"></a></h2>
+<p>The CFG adapter preserves first-match typed exception handlers, exceptional
+call paths, and <code class="docutils literal notranslate"><span class="pre">finally</span></code> execution for normal, exceptional, <code class="docutils literal notranslate"><span class="pre">return</span></code>,
+<code class="docutils literal notranslate"><span class="pre">break</span></code>, and <code class="docutils literal notranslate"><span class="pre">continue</span></code> control flow.  It also exposes async/generator
+procedure metadata, suspension effects, and semantic roles for synchronous and
+asynchronous context-manager and iteration calls.  These are conservative
+building blocks; individual clients decide which effects alter their facts.</p>
+</section>
+<section id="rule-pack-quality-and-performance">
+<h2>Rule-Pack Quality and Performance<a class="headerlink" href="#rule-pack-quality-and-performance" title="Link to this heading"></a></h2>
+<p>Registry JSON files are versioned and validated against the shipped schema.
+Run these checks before publishing model changes:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>make<span class="w"> </span>ifds-validate-rules
+make<span class="w"> </span>ifds-benchmark
+</pre></div>
+</div>
+<p>The benchmark emits one JSON object containing the requested graph size,
+elapsed time, completion status, termination reason, and solver statistics.
+The IFDS test suite also includes a small concrete reference solver and
+randomized differential tests for regression detection.</p>
 </section>
 <section id="annotation-synthesis">
 <h2>Annotation Synthesis<a class="headerlink" href="#annotation-synthesis" title="Link to this heading"></a></h2>
