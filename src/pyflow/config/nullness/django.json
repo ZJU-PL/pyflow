@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "framework": "django",
+  "version": "1.0",
+  "description": "Django nullable-return models for the IFDS nullness analysis",
+  "detection": {
+    "imports": [],
+    "patterns": []
+  },
+  "models": [
+    {
+      "call": "django.http.HttpRequest.GET.get",
+      "nullness_nullable_return": true
+    },
+    {
+      "call": "django.http.HttpRequest.POST.get",
+      "nullness_nullable_return": true
+    }
+  ],
+  "type": "nullness"
+}

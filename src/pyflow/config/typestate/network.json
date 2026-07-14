@@ -1,0 +1,130 @@
+{
+  "schema_version": 1,
+  "framework": "network",
+  "version": "1.0",
+  "description": "Network typestate models (extracted from root rule pack)",
+  "detection": {
+    "imports": [],
+    "patterns": []
+  },
+  "models": [
+    {
+      "call": "socket.socket",
+      "typestate_protocol": "socket",
+      "typestate_action": "open",
+      "resource_arg_positions": [],
+      "module_prefixes": [
+        "socket"
+      ]
+    },
+    {
+      "call": "socket.create_connection",
+      "typestate_protocol": "socket",
+      "typestate_action": "open",
+      "resource_arg_positions": [],
+      "module_prefixes": [
+        "socket"
+      ]
+    },
+    {
+      "call": "close",
+      "typestate_protocol": "resource",
+      "typestate_action": "close",
+      "receiver_types": [
+        "socket.socket",
+        "socket.create_connection"
+      ]
+    },
+    {
+      "call": "shutdown",
+      "typestate_protocol": "socket",
+      "typestate_action": "close",
+      "receiver_types": [
+        "socket.socket",
+        "socket.create_connection"
+      ]
+    },
+    {
+      "call": "send",
+      "typestate_protocol": "socket",
+      "typestate_action": "use",
+      "receiver_types": [
+        "socket.socket",
+        "socket.create_connection"
+      ]
+    },
+    {
+      "call": "sendall",
+      "typestate_protocol": "socket",
+      "typestate_action": "use",
+      "receiver_types": [
+        "socket.socket",
+        "socket.create_connection"
+      ]
+    },
+    {
+      "call": "sendto",
+      "typestate_protocol": "socket",
+      "typestate_action": "use",
+      "receiver_types": [
+        "socket.socket",
+        "socket.create_connection"
+      ]
+    },
+    {
+      "call": "recv",
+      "typestate_protocol": "socket",
+      "typestate_action": "use",
+      "receiver_types": [
+        "socket.socket",
+        "socket.create_connection"
+      ]
+    },
+    {
+      "call": "recvfrom",
+      "typestate_protocol": "socket",
+      "typestate_action": "use",
+      "receiver_types": [
+        "socket.socket",
+        "socket.create_connection"
+      ]
+    },
+    {
+      "call": "connect",
+      "typestate_protocol": "socket",
+      "typestate_action": "use",
+      "receiver_types": [
+        "socket.socket",
+        "socket.create_connection"
+      ]
+    },
+    {
+      "call": "bind",
+      "typestate_protocol": "socket",
+      "typestate_action": "use",
+      "receiver_types": [
+        "socket.socket",
+        "socket.create_connection"
+      ]
+    },
+    {
+      "call": "listen",
+      "typestate_protocol": "socket",
+      "typestate_action": "use",
+      "receiver_types": [
+        "socket.socket",
+        "socket.create_connection"
+      ]
+    },
+    {
+      "call": "accept",
+      "typestate_protocol": "socket",
+      "typestate_action": "use",
+      "receiver_types": [
+        "socket.socket",
+        "socket.create_connection"
+      ]
+    }
+  ],
+  "type": "typestate"
+}

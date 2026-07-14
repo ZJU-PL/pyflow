@@ -1,0 +1,463 @@
+{
+  "schema_version": 1,
+  "framework": "pandas",
+  "version": "1.0",
+  "description": "Pandas taint models (extracted from root rule pack)",
+  "detection": {
+    "imports": [
+      "pandas",
+      "import pandas"
+    ]
+  },
+  "models": [
+    {
+      "call": "pandas.core.computation.eval.eval",
+      "category": "rce",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "pandas.core.generic.NDFrame.to_csv",
+      "category": "file",
+      "sink_arg_positions": [
+        1
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "pandas.core.generic.NDFrame.to_hdf",
+      "category": "file",
+      "sink_arg_positions": [
+        1
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "pandas.core.generic.NDFrame.to_latex",
+      "category": "file",
+      "sink_arg_positions": [
+        1
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "pandas.core.generic.NDFrame.to_sql",
+      "category": "sql",
+      "sink_arg_positions": [
+        1
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "pandas.io.excel._base.read_excel",
+      "categories": [
+        "file",
+        "ssrf"
+      ],
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "pandas.io.feather_format.read_feather",
+      "categories": [
+        "file",
+        "ssrf"
+      ],
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "pandas.io.html.read_html",
+      "categories": [
+        "file",
+        "ssrf"
+      ],
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "pandas.io.json._json.read_json",
+      "categories": [
+        "file",
+        "ssrf"
+      ],
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "pandas.io.orc.read_orc",
+      "categories": [
+        "file",
+        "ssrf"
+      ],
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "pandas.io.parquet.read_parquet",
+      "categories": [
+        "file",
+        "ssrf"
+      ],
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "pandas.io.parsers.read_csv",
+      "categories": [
+        "file",
+        "ssrf"
+      ],
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "pandas.io.pickle.read_pickle",
+      "categories": [
+        "file",
+        "rce",
+        "ssrf"
+      ],
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "pandas.io.pytables.read_hdf",
+      "categories": [
+        "file",
+        "ssrf"
+      ],
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "pandas.io.spss.read_spss",
+      "category": "file",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "pandas.io.sql.read_sql",
+      "category": "sql",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "pandas.io.sql.read_sql_query",
+      "category": "sql",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    }
+  ],
+  "rules": [
+    {
+      "categories": [
+        "rce"
+      ],
+      "cwe": "CWE-78",
+      "id": "pandas/rce/pandas_core_computation_eval_eval",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "pandas.core.computation.eval.eval"
+      ],
+      "title": "Tainted data reaches eval"
+    },
+    {
+      "categories": [
+        "file"
+      ],
+      "cwe": "CWE-22",
+      "id": "pandas/file/pandas_core_generic_NDFrame_to_csv",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        1
+      ],
+      "sinks": [
+        "pandas.core.generic.NDFrame.to_csv"
+      ],
+      "title": "Tainted data reaches to_csv"
+    },
+    {
+      "categories": [
+        "file"
+      ],
+      "cwe": "CWE-22",
+      "id": "pandas/file/pandas_core_generic_NDFrame_to_hdf",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        1
+      ],
+      "sinks": [
+        "pandas.core.generic.NDFrame.to_hdf"
+      ],
+      "title": "Tainted data reaches to_hdf"
+    },
+    {
+      "categories": [
+        "file"
+      ],
+      "cwe": "CWE-22",
+      "id": "pandas/file/pandas_core_generic_NDFrame_to_latex",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        1
+      ],
+      "sinks": [
+        "pandas.core.generic.NDFrame.to_latex"
+      ],
+      "title": "Tainted data reaches to_latex"
+    },
+    {
+      "categories": [
+        "sql"
+      ],
+      "cwe": "CWE-89",
+      "id": "pandas/sql/pandas_core_generic_NDFrame_to_sql",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        1
+      ],
+      "sinks": [
+        "pandas.core.generic.NDFrame.to_sql"
+      ],
+      "title": "Tainted data reaches to_sql"
+    },
+    {
+      "categories": [
+        "file",
+        "ssrf"
+      ],
+      "cwe": "CWE-918",
+      "id": "pandas/file_ssrf/pandas_io_excel__base_read_excel",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "pandas.io.excel._base.read_excel"
+      ],
+      "title": "Tainted data reaches read_excel"
+    },
+    {
+      "categories": [
+        "file",
+        "ssrf"
+      ],
+      "cwe": "CWE-918",
+      "id": "pandas/file_ssrf/pandas_io_feather_format_read_feather",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "pandas.io.feather_format.read_feather"
+      ],
+      "title": "Tainted data reaches read_feather"
+    },
+    {
+      "categories": [
+        "file",
+        "ssrf"
+      ],
+      "cwe": "CWE-918",
+      "id": "pandas/file_ssrf/pandas_io_html_read_html",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "pandas.io.html.read_html"
+      ],
+      "title": "Tainted data reaches read_html"
+    },
+    {
+      "categories": [
+        "file",
+        "ssrf"
+      ],
+      "cwe": "CWE-918",
+      "id": "pandas/file_ssrf/pandas_io_json__json_read_json",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "pandas.io.json._json.read_json"
+      ],
+      "title": "Tainted data reaches read_json"
+    },
+    {
+      "categories": [
+        "file",
+        "ssrf"
+      ],
+      "cwe": "CWE-918",
+      "id": "pandas/file_ssrf/pandas_io_orc_read_orc",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "pandas.io.orc.read_orc"
+      ],
+      "title": "Tainted data reaches read_orc"
+    },
+    {
+      "categories": [
+        "file",
+        "ssrf"
+      ],
+      "cwe": "CWE-918",
+      "id": "pandas/file_ssrf/pandas_io_parquet_read_parquet",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "pandas.io.parquet.read_parquet"
+      ],
+      "title": "Tainted data reaches read_parquet"
+    },
+    {
+      "categories": [
+        "file",
+        "ssrf"
+      ],
+      "cwe": "CWE-918",
+      "id": "pandas/file_ssrf/pandas_io_parsers_read_csv",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "pandas.io.parsers.read_csv"
+      ],
+      "title": "Tainted data reaches read_csv"
+    },
+    {
+      "categories": [
+        "file",
+        "rce",
+        "ssrf"
+      ],
+      "cwe": "CWE-78",
+      "id": "pandas/file_rce_ssrf/pandas_io_pickle_read_pickle",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "pandas.io.pickle.read_pickle"
+      ],
+      "title": "Tainted data reaches read_pickle"
+    },
+    {
+      "categories": [
+        "file",
+        "ssrf"
+      ],
+      "cwe": "CWE-918",
+      "id": "pandas/file_ssrf/pandas_io_pytables_read_hdf",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "pandas.io.pytables.read_hdf"
+      ],
+      "title": "Tainted data reaches read_hdf"
+    },
+    {
+      "categories": [
+        "file"
+      ],
+      "cwe": "CWE-22",
+      "id": "pandas/file/pandas_io_spss_read_spss",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "pandas.io.spss.read_spss"
+      ],
+      "title": "Tainted data reaches read_spss"
+    },
+    {
+      "categories": [
+        "sql"
+      ],
+      "cwe": "CWE-89",
+      "id": "pandas/sql/pandas_io_sql_read_sql",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "pandas.io.sql.read_sql"
+      ],
+      "title": "Tainted data reaches read_sql"
+    },
+    {
+      "categories": [
+        "sql"
+      ],
+      "cwe": "CWE-89",
+      "id": "pandas/sql/pandas_io_sql_read_sql_query",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "pandas.io.sql.read_sql_query"
+      ],
+      "title": "Tainted data reaches read_sql_query"
+    }
+  ],
+  "type": "taint"
+}

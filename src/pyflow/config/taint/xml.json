@@ -1,0 +1,89 @@
+{
+  "schema_version": 1,
+  "framework": "xml",
+  "version": "1.0",
+  "description": "Xml taint models (extracted from root rule pack)",
+  "detection": {
+    "imports": [
+      "lxml",
+      "from lxml"
+    ]
+  },
+  "models": [
+    {
+      "call": "lxml.etree.fromstring",
+      "category": "xxe",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "lxml.etree.fromstringlist",
+      "category": "xxe",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "lxml.etree.parse",
+      "category": "xxe",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    }
+  ],
+  "rules": [
+    {
+      "categories": [
+        "xxe"
+      ],
+      "cwe": "CWE-611",
+      "id": "xml/xxe/lxml_etree_fromstring",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "lxml.etree.fromstring"
+      ],
+      "title": "Tainted data reaches fromstring"
+    },
+    {
+      "categories": [
+        "xxe"
+      ],
+      "cwe": "CWE-611",
+      "id": "xml/xxe/lxml_etree_fromstringlist",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "lxml.etree.fromstringlist"
+      ],
+      "title": "Tainted data reaches fromstringlist"
+    },
+    {
+      "categories": [
+        "xxe"
+      ],
+      "cwe": "CWE-611",
+      "id": "xml/xxe/lxml_etree_parse",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "lxml.etree.parse"
+      ],
+      "title": "Tainted data reaches parse"
+    }
+  ],
+  "type": "taint"
+}

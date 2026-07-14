@@ -3,11 +3,16 @@
   "$id": "https://pyflow.dev/schemas/ifds-rule-pack-v1.json",
   "title": "PyFlow IFDS Rule Pack",
   "type": "object",
-  "required": ["schema_version", "framework", "version"],
+  "required": ["schema_version", "framework", "version", "type"],
   "properties": {
     "schema_version": {"const": 1},
     "framework": {"type": "string", "minLength": 1},
     "version": {"type": "string", "minLength": 1},
+    "type": {
+      "type": "string",
+      "enum": ["taint", "typestate", "nullness"],
+      "description": "Required. Analysis domain this pack targets."
+    },
     "description": {"type": "string"},
     "detection": {
       "type": "object",

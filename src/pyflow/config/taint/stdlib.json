@@ -1,0 +1,4388 @@
+{
+  "schema_version": 1,
+  "framework": "stdlib",
+  "version": "1.0",
+  "description": "Stdlib taint models (extracted from root rule pack)",
+  "detection": {
+    "imports": [],
+    "patterns": [
+      "open(",
+      "input(",
+      "eval(",
+      "exec("
+    ]
+  },
+  "models": [
+    {
+      "call": "open",
+      "taint_source": true,
+      "category": "file"
+    },
+    {
+      "call": "io.open",
+      "taint_source": true,
+      "category": "file"
+    },
+    {
+      "call": "input",
+      "taint_source": true,
+      "category": "user_input"
+    },
+    {
+      "call": "sys.stdin.read",
+      "taint_source": true,
+      "category": "user_input"
+    },
+    {
+      "call": "sys.stdin.readline",
+      "taint_source": true,
+      "category": "user_input"
+    },
+    {
+      "call": "sys.argv",
+      "taint_source": true,
+      "category": "user_input"
+    },
+    {
+      "call": "os.environ.get",
+      "taint_source": true,
+      "category": "env"
+    },
+    {
+      "call": "os.environ",
+      "taint_source": true,
+      "category": "env"
+    },
+    {
+      "call": "os.getenv",
+      "taint_source": true,
+      "category": "env"
+    },
+    {
+      "call": "eval",
+      "taint_sink": true
+    },
+    {
+      "call": "exec",
+      "taint_sink": true
+    },
+    {
+      "call": "compile",
+      "taint_sink": true
+    },
+    {
+      "call": "__import__",
+      "taint_sink": true
+    },
+    {
+      "call": "os.system",
+      "taint_sink": true
+    },
+    {
+      "call": "os.popen",
+      "taint_sink": true
+    },
+    {
+      "call": "subprocess.run",
+      "taint_sink": true
+    },
+    {
+      "call": "subprocess.call",
+      "taint_sink": true
+    },
+    {
+      "call": "subprocess.Popen",
+      "taint_sink": true
+    },
+    {
+      "call": "subprocess.check_call",
+      "taint_sink": true
+    },
+    {
+      "call": "subprocess.check_output",
+      "taint_sink": true
+    },
+    {
+      "call": "print",
+      "taint_sink": true
+    },
+    {
+      "call": "sys.stdout.write",
+      "taint_sink": true
+    },
+    {
+      "call": "sys.stderr.write",
+      "taint_sink": true
+    },
+    {
+      "call": "logging.debug",
+      "taint_sink": true,
+      "category": "logging"
+    },
+    {
+      "call": "logging.info",
+      "taint_sink": true,
+      "category": "logging"
+    },
+    {
+      "call": "logging.warning",
+      "taint_sink": true,
+      "category": "logging"
+    },
+    {
+      "call": "logging.error",
+      "taint_sink": true,
+      "category": "logging"
+    },
+    {
+      "call": "logging.critical",
+      "taint_sink": true,
+      "category": "logging"
+    },
+    {
+      "call": "logging.log",
+      "taint_sink": true,
+      "category": "logging"
+    },
+    {
+      "call": "pickle.loads",
+      "taint_sink": true
+    },
+    {
+      "call": "pickle.load",
+      "taint_sink": true,
+      "category": "file"
+    },
+    {
+      "call": "yaml.load",
+      "taint_sink": true
+    },
+    {
+      "call": "json.loads",
+      "taint_sink": true
+    },
+    {
+      "call": "json.load",
+      "taint_sink": true
+    },
+    {
+      "call": "marshal.loads",
+      "taint_sink": true
+    },
+    {
+      "call": "marshal.load",
+      "taint_sink": true,
+      "category": "file"
+    },
+    {
+      "call": "json.dumps",
+      "taint_sanitizer": true
+    },
+    {
+      "call": "repr",
+      "taint_sanitizer": true
+    },
+    {
+      "call": "str",
+      "taint_sanitizer": true
+    },
+    {
+      "call": "int",
+      "taint_sanitizer": true
+    },
+    {
+      "call": "float",
+      "taint_sanitizer": true
+    },
+    {
+      "call": "bool",
+      "taint_sanitizer": true
+    },
+    {
+      "call": "html.escape",
+      "taint_sanitizer": true
+    },
+    {
+      "call": "urllib.parse.quote",
+      "taint_sanitizer": true
+    },
+    {
+      "call": "urllib.parse.quote_plus",
+      "taint_sanitizer": true
+    },
+    {
+      "call": "shlex.quote",
+      "taint_sanitizer": true
+    },
+    {
+      "call": "re.escape",
+      "taint_sanitizer": true
+    },
+    {
+      "call": "os.path.basename",
+      "taint_sanitizer": true
+    },
+    {
+      "call": "os.path.normpath",
+      "taint_sanitizer": true
+    },
+    {
+      "call": "os.path.realpath",
+      "taint_sanitizer": true
+    },
+    {
+      "call": "hashlib.md5",
+      "taint_sanitizer": true
+    },
+    {
+      "call": "hashlib.sha1",
+      "taint_sanitizer": true
+    },
+    {
+      "call": "hashlib.sha256",
+      "taint_sanitizer": true
+    },
+    {
+      "call": "hashlib.sha512",
+      "taint_sanitizer": true
+    },
+    {
+      "call": "str.strip",
+      "taint_sanitizer": true
+    },
+    {
+      "call": "str.lstrip",
+      "taint_sanitizer": true
+    },
+    {
+      "call": "str.rstrip",
+      "taint_sanitizer": true
+    },
+    {
+      "call": "str.replace",
+      "taint_sanitizer": true
+    },
+    {
+      "call": "BaseException.__repr__",
+      "category": "exception",
+      "taint_source": true
+    },
+    {
+      "call": "BaseException.__str__",
+      "category": "exception",
+      "taint_source": true
+    },
+    {
+      "call": "argparse.ArgumentParser.parse_args",
+      "category": "user_input",
+      "taint_source": true
+    },
+    {
+      "call": "wsgiref.handlers.BaseHandler.error_output",
+      "categories": [
+        "user_input",
+        "xss"
+      ],
+      "taint_source": true
+    },
+    {
+      "call": "wsgiref.handlers.BaseHandler.start_response",
+      "categories": [
+        "user_input",
+        "xss"
+      ],
+      "taint_source": true
+    },
+    {
+      "call": "wsgiref.handlers.SimpleHandler.get_stderr",
+      "category": "user_input",
+      "taint_source": true
+    },
+    {
+      "call": "wsgiref.handlers.SimpleHandler.get_stdin",
+      "category": "user_input",
+      "taint_source": true
+    },
+    {
+      "call": "wsgiref.handlers.read_environ",
+      "category": "user_input",
+      "taint_source": true
+    },
+    {
+      "call": "wsgiref.headers.Headers.__bytes__",
+      "category": "user_input",
+      "taint_source": true
+    },
+    {
+      "call": "wsgiref.headers.Headers.__getitem__",
+      "category": "user_input",
+      "taint_source": true
+    },
+    {
+      "call": "wsgiref.headers.Headers.get",
+      "category": "user_input",
+      "taint_source": true
+    },
+    {
+      "call": "wsgiref.headers.Headers.get_all",
+      "category": "user_input",
+      "taint_source": true
+    },
+    {
+      "call": "wsgiref.headers.Headers.items",
+      "category": "user_input",
+      "taint_source": true
+    },
+    {
+      "call": "wsgiref.headers.Headers.values",
+      "category": "user_input",
+      "taint_source": true
+    },
+    {
+      "call": "wsgiref.simple_server.WSGIRequestHandler.get_environ",
+      "category": "user_input",
+      "taint_source": true
+    },
+    {
+      "call": "wsgiref.util.application_uri",
+      "category": "user_input",
+      "taint_source": true
+    },
+    {
+      "call": "wsgiref.util.request_uri",
+      "category": "user_input",
+      "taint_source": true
+    },
+    {
+      "call": "wsgiref.util.shift_path_info",
+      "category": "user_input",
+      "taint_source": true
+    },
+    {
+      "call": "BaseException.__init__",
+      "category": "logging",
+      "sink_arg_positions": [
+        1
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "PIL.Image.Image.save",
+      "category": "file",
+      "sink_arg_positions": [
+        1
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "PIL.Image.open",
+      "category": "file",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "aiofiles.threadpool.open",
+      "category": "file",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "bz2.open",
+      "category": "file",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "django.core.mail.message.EmailMessage.__init__",
+      "category": "email",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "django.core.mail.send_mail",
+      "category": "email",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "email.contentmanager.ContentManager.set_content",
+      "category": "email",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "email.message.MIMEPart.add_alternative",
+      "category": "email",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "email.message.MIMEPart.add_attachment",
+      "category": "email",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "email.message.MIMEPart.add_related",
+      "category": "email",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "email.message.MIMEPart.set_content",
+      "category": "email",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "email.message.Message.__setitem__",
+      "category": "email",
+      "sink_arg_positions": [
+        0,
+        1
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "email.message.Message.add_header",
+      "category": "email",
+      "sink_arg_positions": [
+        0,
+        1,
+        2
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "email.message.Message.attach",
+      "category": "email",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "email.message.Message.epilogue",
+      "category": "email",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "email.message.Message.preamble",
+      "category": "email",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "email.message.Message.replace_header",
+      "category": "email",
+      "sink_arg_positions": [
+        0,
+        1
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "email.message.Message.set_param",
+      "category": "email",
+      "sink_arg_positions": [
+        0,
+        1,
+        2
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "email.message.Message.set_payload",
+      "category": "email",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "email.message.Message.set_unixfrom",
+      "category": "email",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "email.message_from_bytes",
+      "category": "email",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "email.message_from_string",
+      "category": "email",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "email.mime.application.MIMEApplication.__init__",
+      "category": "email",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "email.mime.audio.MIMEAudio.__init__",
+      "category": "email",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "email.mime.image.MIMEImage.__init__",
+      "category": "email",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "email.mime.message.MIMEMessage.__init__",
+      "category": "email",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "email.mime.text.MIMEText.__init__",
+      "category": "email",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "email.parser.BytesHeaderParser.parsebytes",
+      "category": "email",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "email.parser.BytesParser.parsebytes",
+      "category": "email",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "email.parser.HeaderParser.parsestr",
+      "category": "email",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "email.parser.Parser.parsestr",
+      "category": "email",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "fabric.operations.get",
+      "category": "file",
+      "sink_arg_positions": [
+        0,
+        1
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "fabric.operations.put",
+      "category": "file",
+      "sink_arg_positions": [
+        0,
+        1
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "fabric.transfer.Transfer.get",
+      "category": "file",
+      "sink_arg_positions": [
+        0,
+        1
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "fabric.transfer.Transfer.put",
+      "category": "file",
+      "sink_arg_positions": [
+        0,
+        1
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "fabric2.transfer.Transfer.get",
+      "category": "file",
+      "sink_arg_positions": [
+        0,
+        1
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "fabric2.transfer.Transfer.put",
+      "category": "file",
+      "sink_arg_positions": [
+        0,
+        1
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "getattr",
+      "category": "reflection",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "gzip.GzipFile.__init__",
+      "category": "file",
+      "sink_arg_positions": [
+        1
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "gzip.open",
+      "category": "file",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "linecache.getline",
+      "category": "file",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "linecache.lazycache",
+      "category": "file",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "logging.Logger.critical",
+      "category": "logging",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "logging.Logger.debug",
+      "category": "logging",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "logging.Logger.error",
+      "category": "logging",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "logging.Logger.exception",
+      "category": "logging",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "logging.Logger.info",
+      "category": "logging",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "logging.Logger.log",
+      "category": "logging",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "logging.Logger.warning",
+      "category": "logging",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "logging.LoggerAdapter.critical",
+      "category": "logging",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "logging.LoggerAdapter.debug",
+      "category": "logging",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "logging.LoggerAdapter.error",
+      "category": "logging",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "logging.LoggerAdapter.exception",
+      "category": "logging",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "logging.LoggerAdapter.info",
+      "category": "logging",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "logging.LoggerAdapter.log",
+      "category": "logging",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "logging.LoggerAdapter.warn",
+      "category": "logging",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "logging.LoggerAdapter.warning",
+      "category": "logging",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "logging.exception",
+      "category": "logging",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "logging.warn",
+      "category": "logging",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "markdown.core.Markdown.convertFile",
+      "category": "file",
+      "sink_arg_positions": [
+        1,
+        2
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "markdown.core.markdownFromFile",
+      "category": "file",
+      "sink_arg_positions": [
+        1
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "marshal.dump",
+      "category": "file",
+      "sink_arg_positions": [
+        1
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "open",
+      "category": "file",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "os.access",
+      "category": "file",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "os.chdir",
+      "category": "file",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "os.chflags",
+      "category": "file",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "os.chmod",
+      "category": "file",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "os.chown",
+      "category": "file",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "os.chroot",
+      "category": "file",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "os.fwalk",
+      "category": "file",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "os.lchflags",
+      "category": "file",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "os.lchmod",
+      "category": "file",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "os.lchown",
+      "category": "file",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "os.link",
+      "category": "file",
+      "sink_arg_positions": [
+        0,
+        1,
+        3,
+        4
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "os.makedirs",
+      "category": "file",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "os.mkdir",
+      "category": "file",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "os.open",
+      "category": "file",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "os.putenv",
+      "category": "file",
+      "sink_arg_positions": [
+        0,
+        1
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "os.remove",
+      "category": "file",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "os.removedirs",
+      "category": "file",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "os.removexattr",
+      "category": "file",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "os.rename",
+      "category": "file",
+      "sink_arg_positions": [
+        0,
+        1
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "os.renames",
+      "category": "file",
+      "sink_arg_positions": [
+        0,
+        1
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "os.replace",
+      "category": "file",
+      "sink_arg_positions": [
+        0,
+        1
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "os.rmdir",
+      "category": "file",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "os.setxattr",
+      "category": "file",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "os.truncate",
+      "category": "file",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "os.unlink",
+      "category": "file",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "os.unsetenv",
+      "category": "file",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "os.utime",
+      "category": "file",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "os.walk",
+      "category": "file",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "pathlib.Path.__new__",
+      "category": "file",
+      "sink_arg_positions": [
+        1
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "pathlib.Path.chmod",
+      "category": "file",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "pathlib.Path.lchmod",
+      "category": "file",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "pathlib.Path.mkdir",
+      "category": "file",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "pathlib.Path.open",
+      "category": "file",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "pathlib.Path.read_bytes",
+      "category": "file",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "pathlib.Path.read_text",
+      "category": "file",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "pathlib.Path.rename",
+      "category": "file",
+      "sink_arg_positions": [
+        0,
+        1
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "pathlib.Path.replace",
+      "category": "file",
+      "sink_arg_positions": [
+        0,
+        1
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "pathlib.Path.rglob",
+      "category": "file",
+      "sink_arg_positions": [
+        1
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "pathlib.Path.rmdir",
+      "category": "file",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "pathlib.Path.symlink_to",
+      "category": "file",
+      "sink_arg_positions": [
+        0,
+        1
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "pathlib.Path.touch",
+      "category": "file",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "pathlib.Path.unlink",
+      "category": "file",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "pathlib.Path.write_bytes",
+      "category": "file",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "pathlib.Path.write_text",
+      "category": "file",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "pathlib.PurePath.__new__",
+      "category": "file",
+      "sink_arg_positions": [
+        1
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "pathlib.PurePath.__rtruediv__",
+      "category": "file",
+      "sink_arg_positions": [
+        1
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "pathlib.PurePath.__truediv__",
+      "category": "file",
+      "sink_arg_positions": [
+        1
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "pickle.Unpickler.__init__",
+      "category": "file",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "shelve.DbfilenameShelf.__init__",
+      "category": "file",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "shelve.open",
+      "category": "file",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "shutil.chown",
+      "category": "file",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "shutil.copy",
+      "category": "file",
+      "sink_arg_positions": [
+        0,
+        1
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "shutil.copy2",
+      "category": "file",
+      "sink_arg_positions": [
+        0,
+        1
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "shutil.copyfile",
+      "category": "file",
+      "sink_arg_positions": [
+        0,
+        1
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "shutil.copymode",
+      "category": "file",
+      "sink_arg_positions": [
+        0,
+        1
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "shutil.copystat",
+      "category": "file",
+      "sink_arg_positions": [
+        0,
+        1
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "shutil.copytree",
+      "category": "file",
+      "sink_arg_positions": [
+        0,
+        1
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "shutil.make_archive",
+      "category": "file",
+      "sink_arg_positions": [
+        0,
+        3
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "shutil.move",
+      "category": "file",
+      "sink_arg_positions": [
+        0,
+        1
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "shutil.rmtree",
+      "category": "file",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "shutil.unpack_archive",
+      "category": "file",
+      "sink_arg_positions": [
+        0,
+        1
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "smtplib.SMTP.sendmail",
+      "category": "email",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "str.format",
+      "category": "formatstring",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "tarfile.TarFile.__init__",
+      "category": "file",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "tarfile.TarFile.open",
+      "category": "file",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "tempfile.NamedTemporaryFile",
+      "category": "file",
+      "sink_arg_positions": [
+        5,
+        6
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "tempfile.SpooledTemporaryFile.__init__",
+      "category": "file",
+      "sink_arg_positions": [
+        6,
+        7
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "tempfile.TemporaryDirectory.__init__",
+      "category": "file",
+      "sink_arg_positions": [
+        0,
+        1,
+        2
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "tempfile.TemporaryFile",
+      "category": "file",
+      "sink_arg_positions": [
+        5,
+        6
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "tempfile.mkdtemp",
+      "category": "file",
+      "sink_arg_positions": [
+        0,
+        1,
+        2
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "tempfile.mkstemp",
+      "category": "file",
+      "sink_arg_positions": [
+        0,
+        1,
+        2
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "urllib.request.urlretrieve",
+      "category": "file",
+      "sink_arg_positions": [
+        1
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "wsgiref.handlers.BaseHandler.error_output",
+      "categories": [
+        "user_input",
+        "xss"
+      ],
+      "sink_arg_positions": [
+        1
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "wsgiref.handlers.BaseHandler.log_exception",
+      "category": "logging",
+      "sink_arg_positions": [
+        1
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "wsgiref.handlers.BaseHandler.start_response",
+      "categories": [
+        "user_input",
+        "xss"
+      ],
+      "sink_arg_positions": [
+        1,
+        2
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "wsgiref.handlers.BaseHandler.write",
+      "category": "xss",
+      "sink_arg_positions": [
+        1
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "wsgiref.handlers.SimpleHandler._write",
+      "category": "xss",
+      "sink_arg_positions": [
+        1
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "wsgiref.headers.Headers.__setitem__",
+      "category": "user_input",
+      "sink_arg_positions": [
+        1,
+        2
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "wsgiref.headers.Headers.add_header",
+      "category": "user_input",
+      "sink_arg_positions": [
+        1,
+        2
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "wsgiref.headers.Headers.setdefault",
+      "category": "user_input",
+      "sink_arg_positions": [
+        1,
+        2
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "xml.dom.minidom.parse",
+      "category": "xxe",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "xml.dom.minidom.parseString",
+      "category": "xxe",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "xml.dom.pulldom.parse",
+      "category": "xxe",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "xml.dom.pulldom.parseString",
+      "category": "xxe",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "xml.etree.ElementTree.XML",
+      "category": "xxe",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "xml.etree.ElementTree.XMLParser.feed",
+      "category": "xxe",
+      "sink_arg_positions": [
+        1
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "xml.etree.ElementTree.iterparse",
+      "category": "xxe",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "xml.etree.ElementTree.parse",
+      "category": "xxe",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "zipfile.ZipFile.__init__",
+      "category": "file",
+      "sink_arg_positions": [
+        1
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "len",
+      "taint_sanitizer": true
+    },
+    {
+      "call": "type.__init__",
+      "taint_sanitizer": true
+    },
+    {
+      "call": "type.__new__",
+      "taint_sanitizer": true
+    }
+  ],
+  "rules": [
+    {
+      "id": "PYFLOW-SRC-USER-INPUT",
+      "title": "User-controlled standard input source",
+      "pattern_type": "taint_source",
+      "category": "user_input",
+      "calls": [
+        "input",
+        "sys.argv",
+        "sys.stdin.read",
+        "sys.stdin.readline"
+      ]
+    },
+    {
+      "id": "PYFLOW-SRC-ENV",
+      "title": "Environment-derived input source",
+      "pattern_type": "taint_source",
+      "category": "env",
+      "calls": [
+        "os.environ",
+        "os.environ.get",
+        "os.getenv"
+      ]
+    },
+    {
+      "id": "PYFLOW-SRC-FILE",
+      "title": "File-derived input source",
+      "pattern_type": "taint_source",
+      "category": "file",
+      "calls": [
+        "open",
+        "io.open",
+        "pathlib.Path.read_text",
+        "pathlib.Path.read_bytes"
+      ]
+    },
+    {
+      "id": "PYFLOW-SRC-NETWORK",
+      "title": "Network-derived input source",
+      "pattern_type": "taint_source",
+      "category": "network",
+      "calls": [
+        "socket.recv",
+        "socket.recvfrom"
+      ]
+    },
+    {
+      "id": "PYFLOW-SINK-CMD-INJECTION",
+      "title": "Command execution with tainted data",
+      "pattern_type": "taint_sink",
+      "cwe": "CWE-78",
+      "severity": "HIGH",
+      "sink_arg_positions": [
+        0
+      ],
+      "calls": [
+        "os.system",
+        "os.popen",
+        "subprocess.run",
+        "subprocess.call",
+        "subprocess.Popen",
+        "subprocess.check_output"
+      ],
+      "suggestion": "Pass argument lists to subprocess with shell=False and validate user-controlled command components."
+    },
+    {
+      "id": "PYFLOW-SINK-CODE-INJECTION",
+      "title": "Dynamic code execution with tainted data",
+      "pattern_type": "taint_sink",
+      "cwe": "CWE-95",
+      "severity": "HIGH",
+      "sink_arg_positions": [
+        0
+      ],
+      "calls": [
+        "eval",
+        "exec",
+        "compile"
+      ],
+      "suggestion": "Avoid dynamic code execution; use explicit dispatch tables or parsers for user-controlled expressions."
+    },
+    {
+      "id": "PYFLOW-SINK-DESERIALIZATION",
+      "title": "Unsafe deserialization with tainted data",
+      "pattern_type": "taint_sink",
+      "cwe": "CWE-502",
+      "severity": "HIGH",
+      "sink_arg_positions": [
+        0
+      ],
+      "calls": [
+        "pickle.loads",
+        "pickle.load",
+        "yaml.load",
+        "marshal.loads",
+        "marshal.load"
+      ],
+      "suggestion": "Use safe data formats or safe loaders, and avoid deserializing untrusted bytes."
+    },
+    {
+      "id": "PYFLOW-SINK-LOG-INJECTION",
+      "title": "Logging tainted data",
+      "pattern_type": "taint_sink",
+      "cwe": "CWE-117",
+      "severity": "MEDIUM",
+      "sink_arg_positions": [
+        0
+      ],
+      "calls": [
+        "logging.info",
+        "logging.warning",
+        "logging.error",
+        "logging.debug"
+      ],
+      "suggestion": "Normalize or encode untrusted text before writing it to logs."
+    },
+    {
+      "id": "PYFLOW-SANITIZE-HTML",
+      "title": "HTML and URL encoding sanitizer",
+      "pattern_type": "taint_sanitizer",
+      "sanitizer_categories": [
+        "user_input"
+      ],
+      "calls": [
+        "html.escape",
+        "urllib.parse.quote",
+        "urllib.parse.quote_plus"
+      ],
+      "suggestion": "Use context-specific encoding for the output context."
+    },
+    {
+      "id": "PYFLOW-SANITIZE-PATH",
+      "title": "Path component sanitizer",
+      "pattern_type": "taint_sanitizer",
+      "sanitizer_categories": [
+        "file",
+        "user_input"
+      ],
+      "calls": [
+        "os.path.basename",
+        "os.path.realpath"
+      ],
+      "suggestion": "Validate normalized paths against an allowed base directory."
+    },
+    {
+      "categories": [
+        "logging"
+      ],
+      "id": "stdlib/logging/BaseException___init__",
+      "pattern_type": "taint_sink",
+      "severity": "medium",
+      "sink_arg_positions": [
+        1
+      ],
+      "sinks": [
+        "BaseException.__init__"
+      ],
+      "title": "Tainted data reaches __init__"
+    },
+    {
+      "categories": [
+        "file"
+      ],
+      "cwe": "CWE-22",
+      "id": "stdlib/file/PIL_Image_Image_save",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        1
+      ],
+      "sinks": [
+        "PIL.Image.Image.save"
+      ],
+      "title": "Tainted data reaches save"
+    },
+    {
+      "categories": [
+        "file"
+      ],
+      "cwe": "CWE-22",
+      "id": "stdlib/file/PIL_Image_open",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "PIL.Image.open"
+      ],
+      "title": "Tainted data reaches open"
+    },
+    {
+      "categories": [
+        "file"
+      ],
+      "cwe": "CWE-22",
+      "id": "stdlib/file/aiofiles_threadpool_open",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "aiofiles.threadpool.open"
+      ],
+      "title": "Tainted data reaches open"
+    },
+    {
+      "categories": [
+        "file"
+      ],
+      "cwe": "CWE-22",
+      "id": "stdlib/file/bz2_open",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "bz2.open"
+      ],
+      "title": "Tainted data reaches open"
+    },
+    {
+      "categories": [
+        "email"
+      ],
+      "cwe": "CWE-93",
+      "id": "stdlib/email/django_core_mail_message_EmailMessage___init__",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "django.core.mail.message.EmailMessage.__init__"
+      ],
+      "title": "Tainted data reaches __init__"
+    },
+    {
+      "categories": [
+        "email"
+      ],
+      "cwe": "CWE-93",
+      "id": "stdlib/email/django_core_mail_send_mail",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "django.core.mail.send_mail"
+      ],
+      "title": "Tainted data reaches send_mail"
+    },
+    {
+      "categories": [
+        "email"
+      ],
+      "cwe": "CWE-93",
+      "id": "stdlib/email/email_contentmanager_ContentManager_set_content",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "email.contentmanager.ContentManager.set_content"
+      ],
+      "title": "Tainted data reaches set_content"
+    },
+    {
+      "categories": [
+        "email"
+      ],
+      "cwe": "CWE-93",
+      "id": "stdlib/email/email_message_MIMEPart_add_alternative",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "email.message.MIMEPart.add_alternative"
+      ],
+      "title": "Tainted data reaches add_alternative"
+    },
+    {
+      "categories": [
+        "email"
+      ],
+      "cwe": "CWE-93",
+      "id": "stdlib/email/email_message_MIMEPart_add_attachment",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "email.message.MIMEPart.add_attachment"
+      ],
+      "title": "Tainted data reaches add_attachment"
+    },
+    {
+      "categories": [
+        "email"
+      ],
+      "cwe": "CWE-93",
+      "id": "stdlib/email/email_message_MIMEPart_add_related",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "email.message.MIMEPart.add_related"
+      ],
+      "title": "Tainted data reaches add_related"
+    },
+    {
+      "categories": [
+        "email"
+      ],
+      "cwe": "CWE-93",
+      "id": "stdlib/email/email_message_MIMEPart_set_content",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "email.message.MIMEPart.set_content"
+      ],
+      "title": "Tainted data reaches set_content"
+    },
+    {
+      "categories": [
+        "email"
+      ],
+      "cwe": "CWE-93",
+      "id": "stdlib/email/email_message_Message___setitem__",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0,
+        1
+      ],
+      "sinks": [
+        "email.message.Message.__setitem__"
+      ],
+      "title": "Tainted data reaches __setitem__"
+    },
+    {
+      "categories": [
+        "email"
+      ],
+      "cwe": "CWE-93",
+      "id": "stdlib/email/email_message_Message_add_header",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0,
+        1,
+        2
+      ],
+      "sinks": [
+        "email.message.Message.add_header"
+      ],
+      "title": "Tainted data reaches add_header"
+    },
+    {
+      "categories": [
+        "email"
+      ],
+      "cwe": "CWE-93",
+      "id": "stdlib/email/email_message_Message_attach",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "email.message.Message.attach"
+      ],
+      "title": "Tainted data reaches attach"
+    },
+    {
+      "categories": [
+        "email"
+      ],
+      "cwe": "CWE-93",
+      "id": "stdlib/email/email_message_Message_epilogue",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "email.message.Message.epilogue"
+      ],
+      "title": "Tainted data reaches epilogue"
+    },
+    {
+      "categories": [
+        "email"
+      ],
+      "cwe": "CWE-93",
+      "id": "stdlib/email/email_message_Message_preamble",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "email.message.Message.preamble"
+      ],
+      "title": "Tainted data reaches preamble"
+    },
+    {
+      "categories": [
+        "email"
+      ],
+      "cwe": "CWE-93",
+      "id": "stdlib/email/email_message_Message_replace_header",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0,
+        1
+      ],
+      "sinks": [
+        "email.message.Message.replace_header"
+      ],
+      "title": "Tainted data reaches replace_header"
+    },
+    {
+      "categories": [
+        "email"
+      ],
+      "cwe": "CWE-93",
+      "id": "stdlib/email/email_message_Message_set_param",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0,
+        1,
+        2
+      ],
+      "sinks": [
+        "email.message.Message.set_param"
+      ],
+      "title": "Tainted data reaches set_param"
+    },
+    {
+      "categories": [
+        "email"
+      ],
+      "cwe": "CWE-93",
+      "id": "stdlib/email/email_message_Message_set_payload",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "email.message.Message.set_payload"
+      ],
+      "title": "Tainted data reaches set_payload"
+    },
+    {
+      "categories": [
+        "email"
+      ],
+      "cwe": "CWE-93",
+      "id": "stdlib/email/email_message_Message_set_unixfrom",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "email.message.Message.set_unixfrom"
+      ],
+      "title": "Tainted data reaches set_unixfrom"
+    },
+    {
+      "categories": [
+        "email"
+      ],
+      "cwe": "CWE-93",
+      "id": "stdlib/email/email_message_from_bytes",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "email.message_from_bytes"
+      ],
+      "title": "Tainted data reaches message_from_bytes"
+    },
+    {
+      "categories": [
+        "email"
+      ],
+      "cwe": "CWE-93",
+      "id": "stdlib/email/email_message_from_string",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "email.message_from_string"
+      ],
+      "title": "Tainted data reaches message_from_string"
+    },
+    {
+      "categories": [
+        "email"
+      ],
+      "cwe": "CWE-93",
+      "id": "stdlib/email/email_mime_application_MIMEApplication___init__",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "email.mime.application.MIMEApplication.__init__"
+      ],
+      "title": "Tainted data reaches __init__"
+    },
+    {
+      "categories": [
+        "email"
+      ],
+      "cwe": "CWE-93",
+      "id": "stdlib/email/email_mime_audio_MIMEAudio___init__",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "email.mime.audio.MIMEAudio.__init__"
+      ],
+      "title": "Tainted data reaches __init__"
+    },
+    {
+      "categories": [
+        "email"
+      ],
+      "cwe": "CWE-93",
+      "id": "stdlib/email/email_mime_image_MIMEImage___init__",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "email.mime.image.MIMEImage.__init__"
+      ],
+      "title": "Tainted data reaches __init__"
+    },
+    {
+      "categories": [
+        "email"
+      ],
+      "cwe": "CWE-93",
+      "id": "stdlib/email/email_mime_message_MIMEMessage___init__",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "email.mime.message.MIMEMessage.__init__"
+      ],
+      "title": "Tainted data reaches __init__"
+    },
+    {
+      "categories": [
+        "email"
+      ],
+      "cwe": "CWE-93",
+      "id": "stdlib/email/email_mime_text_MIMEText___init__",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "email.mime.text.MIMEText.__init__"
+      ],
+      "title": "Tainted data reaches __init__"
+    },
+    {
+      "categories": [
+        "email"
+      ],
+      "cwe": "CWE-93",
+      "id": "stdlib/email/email_parser_BytesHeaderParser_parsebytes",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "email.parser.BytesHeaderParser.parsebytes"
+      ],
+      "title": "Tainted data reaches parsebytes"
+    },
+    {
+      "categories": [
+        "email"
+      ],
+      "cwe": "CWE-93",
+      "id": "stdlib/email/email_parser_BytesParser_parsebytes",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "email.parser.BytesParser.parsebytes"
+      ],
+      "title": "Tainted data reaches parsebytes"
+    },
+    {
+      "categories": [
+        "email"
+      ],
+      "cwe": "CWE-93",
+      "id": "stdlib/email/email_parser_HeaderParser_parsestr",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "email.parser.HeaderParser.parsestr"
+      ],
+      "title": "Tainted data reaches parsestr"
+    },
+    {
+      "categories": [
+        "email"
+      ],
+      "cwe": "CWE-93",
+      "id": "stdlib/email/email_parser_Parser_parsestr",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "email.parser.Parser.parsestr"
+      ],
+      "title": "Tainted data reaches parsestr"
+    },
+    {
+      "categories": [
+        "file"
+      ],
+      "cwe": "CWE-22",
+      "id": "stdlib/file/fabric_operations_get",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0,
+        1
+      ],
+      "sinks": [
+        "fabric.operations.get"
+      ],
+      "title": "Tainted data reaches get"
+    },
+    {
+      "categories": [
+        "file"
+      ],
+      "cwe": "CWE-22",
+      "id": "stdlib/file/fabric_operations_put",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0,
+        1
+      ],
+      "sinks": [
+        "fabric.operations.put"
+      ],
+      "title": "Tainted data reaches put"
+    },
+    {
+      "categories": [
+        "file"
+      ],
+      "cwe": "CWE-22",
+      "id": "stdlib/file/fabric_transfer_Transfer_get",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0,
+        1
+      ],
+      "sinks": [
+        "fabric.transfer.Transfer.get"
+      ],
+      "title": "Tainted data reaches get"
+    },
+    {
+      "categories": [
+        "file"
+      ],
+      "cwe": "CWE-22",
+      "id": "stdlib/file/fabric_transfer_Transfer_put",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0,
+        1
+      ],
+      "sinks": [
+        "fabric.transfer.Transfer.put"
+      ],
+      "title": "Tainted data reaches put"
+    },
+    {
+      "categories": [
+        "file"
+      ],
+      "cwe": "CWE-22",
+      "id": "stdlib/file/fabric2_transfer_Transfer_get",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0,
+        1
+      ],
+      "sinks": [
+        "fabric2.transfer.Transfer.get"
+      ],
+      "title": "Tainted data reaches get"
+    },
+    {
+      "categories": [
+        "file"
+      ],
+      "cwe": "CWE-22",
+      "id": "stdlib/file/fabric2_transfer_Transfer_put",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0,
+        1
+      ],
+      "sinks": [
+        "fabric2.transfer.Transfer.put"
+      ],
+      "title": "Tainted data reaches put"
+    },
+    {
+      "categories": [
+        "reflection"
+      ],
+      "id": "stdlib/reflection/getattr",
+      "pattern_type": "taint_sink",
+      "severity": "medium",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "getattr"
+      ],
+      "title": "Tainted data reaches getattr"
+    },
+    {
+      "categories": [
+        "file"
+      ],
+      "cwe": "CWE-22",
+      "id": "stdlib/file/gzip_GzipFile___init__",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        1
+      ],
+      "sinks": [
+        "gzip.GzipFile.__init__"
+      ],
+      "title": "Tainted data reaches __init__"
+    },
+    {
+      "categories": [
+        "file"
+      ],
+      "cwe": "CWE-22",
+      "id": "stdlib/file/gzip_open",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "gzip.open"
+      ],
+      "title": "Tainted data reaches open"
+    },
+    {
+      "categories": [
+        "file"
+      ],
+      "cwe": "CWE-22",
+      "id": "stdlib/file/linecache_getline",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "linecache.getline"
+      ],
+      "title": "Tainted data reaches getline"
+    },
+    {
+      "categories": [
+        "file"
+      ],
+      "cwe": "CWE-22",
+      "id": "stdlib/file/linecache_lazycache",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "linecache.lazycache"
+      ],
+      "title": "Tainted data reaches lazycache"
+    },
+    {
+      "categories": [
+        "logging"
+      ],
+      "id": "stdlib/logging/logging_Logger_critical",
+      "pattern_type": "taint_sink",
+      "severity": "medium",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "logging.Logger.critical"
+      ],
+      "title": "Tainted data reaches critical"
+    },
+    {
+      "categories": [
+        "logging"
+      ],
+      "id": "stdlib/logging/logging_Logger_debug",
+      "pattern_type": "taint_sink",
+      "severity": "medium",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "logging.Logger.debug"
+      ],
+      "title": "Tainted data reaches debug"
+    },
+    {
+      "categories": [
+        "logging"
+      ],
+      "id": "stdlib/logging/logging_Logger_error",
+      "pattern_type": "taint_sink",
+      "severity": "medium",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "logging.Logger.error"
+      ],
+      "title": "Tainted data reaches error"
+    },
+    {
+      "categories": [
+        "logging"
+      ],
+      "id": "stdlib/logging/logging_Logger_exception",
+      "pattern_type": "taint_sink",
+      "severity": "medium",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "logging.Logger.exception"
+      ],
+      "title": "Tainted data reaches exception"
+    },
+    {
+      "categories": [
+        "logging"
+      ],
+      "id": "stdlib/logging/logging_Logger_info",
+      "pattern_type": "taint_sink",
+      "severity": "medium",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "logging.Logger.info"
+      ],
+      "title": "Tainted data reaches info"
+    },
+    {
+      "categories": [
+        "logging"
+      ],
+      "id": "stdlib/logging/logging_Logger_log",
+      "pattern_type": "taint_sink",
+      "severity": "medium",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "logging.Logger.log"
+      ],
+      "title": "Tainted data reaches log"
+    },
+    {
+      "categories": [
+        "logging"
+      ],
+      "id": "stdlib/logging/logging_Logger_warning",
+      "pattern_type": "taint_sink",
+      "severity": "medium",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "logging.Logger.warning"
+      ],
+      "title": "Tainted data reaches warning"
+    },
+    {
+      "categories": [
+        "logging"
+      ],
+      "id": "stdlib/logging/logging_LoggerAdapter_critical",
+      "pattern_type": "taint_sink",
+      "severity": "medium",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "logging.LoggerAdapter.critical"
+      ],
+      "title": "Tainted data reaches critical"
+    },
+    {
+      "categories": [
+        "logging"
+      ],
+      "id": "stdlib/logging/logging_LoggerAdapter_debug",
+      "pattern_type": "taint_sink",
+      "severity": "medium",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "logging.LoggerAdapter.debug"
+      ],
+      "title": "Tainted data reaches debug"
+    },
+    {
+      "categories": [
+        "logging"
+      ],
+      "id": "stdlib/logging/logging_LoggerAdapter_error",
+      "pattern_type": "taint_sink",
+      "severity": "medium",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "logging.LoggerAdapter.error"
+      ],
+      "title": "Tainted data reaches error"
+    },
+    {
+      "categories": [
+        "logging"
+      ],
+      "id": "stdlib/logging/logging_LoggerAdapter_exception",
+      "pattern_type": "taint_sink",
+      "severity": "medium",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "logging.LoggerAdapter.exception"
+      ],
+      "title": "Tainted data reaches exception"
+    },
+    {
+      "categories": [
+        "logging"
+      ],
+      "id": "stdlib/logging/logging_LoggerAdapter_info",
+      "pattern_type": "taint_sink",
+      "severity": "medium",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "logging.LoggerAdapter.info"
+      ],
+      "title": "Tainted data reaches info"
+    },
+    {
+      "categories": [
+        "logging"
+      ],
+      "id": "stdlib/logging/logging_LoggerAdapter_log",
+      "pattern_type": "taint_sink",
+      "severity": "medium",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "logging.LoggerAdapter.log"
+      ],
+      "title": "Tainted data reaches log"
+    },
+    {
+      "categories": [
+        "logging"
+      ],
+      "id": "stdlib/logging/logging_LoggerAdapter_warn",
+      "pattern_type": "taint_sink",
+      "severity": "medium",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "logging.LoggerAdapter.warn"
+      ],
+      "title": "Tainted data reaches warn"
+    },
+    {
+      "categories": [
+        "logging"
+      ],
+      "id": "stdlib/logging/logging_LoggerAdapter_warning",
+      "pattern_type": "taint_sink",
+      "severity": "medium",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "logging.LoggerAdapter.warning"
+      ],
+      "title": "Tainted data reaches warning"
+    },
+    {
+      "categories": [
+        "logging"
+      ],
+      "id": "stdlib/logging/logging_critical",
+      "pattern_type": "taint_sink",
+      "severity": "medium",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "logging.critical"
+      ],
+      "title": "Tainted data reaches critical"
+    },
+    {
+      "categories": [
+        "logging"
+      ],
+      "id": "stdlib/logging/logging_debug",
+      "pattern_type": "taint_sink",
+      "severity": "medium",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "logging.debug"
+      ],
+      "title": "Tainted data reaches debug"
+    },
+    {
+      "categories": [
+        "logging"
+      ],
+      "id": "stdlib/logging/logging_error",
+      "pattern_type": "taint_sink",
+      "severity": "medium",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "logging.error"
+      ],
+      "title": "Tainted data reaches error"
+    },
+    {
+      "categories": [
+        "logging"
+      ],
+      "id": "stdlib/logging/logging_exception",
+      "pattern_type": "taint_sink",
+      "severity": "medium",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "logging.exception"
+      ],
+      "title": "Tainted data reaches exception"
+    },
+    {
+      "categories": [
+        "logging"
+      ],
+      "id": "stdlib/logging/logging_info",
+      "pattern_type": "taint_sink",
+      "severity": "medium",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "logging.info"
+      ],
+      "title": "Tainted data reaches info"
+    },
+    {
+      "categories": [
+        "logging"
+      ],
+      "id": "stdlib/logging/logging_log",
+      "pattern_type": "taint_sink",
+      "severity": "medium",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "logging.log"
+      ],
+      "title": "Tainted data reaches log"
+    },
+    {
+      "categories": [
+        "logging"
+      ],
+      "id": "stdlib/logging/logging_warn",
+      "pattern_type": "taint_sink",
+      "severity": "medium",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "logging.warn"
+      ],
+      "title": "Tainted data reaches warn"
+    },
+    {
+      "categories": [
+        "logging"
+      ],
+      "id": "stdlib/logging/logging_warning",
+      "pattern_type": "taint_sink",
+      "severity": "medium",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "logging.warning"
+      ],
+      "title": "Tainted data reaches warning"
+    },
+    {
+      "categories": [
+        "file"
+      ],
+      "cwe": "CWE-22",
+      "id": "stdlib/file/markdown_core_Markdown_convertFile",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        1,
+        2
+      ],
+      "sinks": [
+        "markdown.core.Markdown.convertFile"
+      ],
+      "title": "Tainted data reaches convertFile"
+    },
+    {
+      "categories": [
+        "file"
+      ],
+      "cwe": "CWE-22",
+      "id": "stdlib/file/markdown_core_markdownFromFile",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        1
+      ],
+      "sinks": [
+        "markdown.core.markdownFromFile"
+      ],
+      "title": "Tainted data reaches markdownFromFile"
+    },
+    {
+      "categories": [
+        "file"
+      ],
+      "cwe": "CWE-22",
+      "id": "stdlib/file/marshal_dump",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        1
+      ],
+      "sinks": [
+        "marshal.dump"
+      ],
+      "title": "Tainted data reaches dump"
+    },
+    {
+      "categories": [
+        "file"
+      ],
+      "cwe": "CWE-22",
+      "id": "stdlib/file/marshal_load",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "marshal.load"
+      ],
+      "title": "Tainted data reaches load"
+    },
+    {
+      "categories": [
+        "file"
+      ],
+      "cwe": "CWE-22",
+      "id": "stdlib/file/open",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "open"
+      ],
+      "title": "Tainted data reaches open"
+    },
+    {
+      "categories": [
+        "file"
+      ],
+      "cwe": "CWE-22",
+      "id": "stdlib/file/os_access",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "os.access"
+      ],
+      "title": "Tainted data reaches access"
+    },
+    {
+      "categories": [
+        "file"
+      ],
+      "cwe": "CWE-22",
+      "id": "stdlib/file/os_chdir",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "os.chdir"
+      ],
+      "title": "Tainted data reaches chdir"
+    },
+    {
+      "categories": [
+        "file"
+      ],
+      "cwe": "CWE-22",
+      "id": "stdlib/file/os_chflags",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "os.chflags"
+      ],
+      "title": "Tainted data reaches chflags"
+    },
+    {
+      "categories": [
+        "file"
+      ],
+      "cwe": "CWE-22",
+      "id": "stdlib/file/os_chmod",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "os.chmod"
+      ],
+      "title": "Tainted data reaches chmod"
+    },
+    {
+      "categories": [
+        "file"
+      ],
+      "cwe": "CWE-22",
+      "id": "stdlib/file/os_chown",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "os.chown"
+      ],
+      "title": "Tainted data reaches chown"
+    },
+    {
+      "categories": [
+        "file"
+      ],
+      "cwe": "CWE-22",
+      "id": "stdlib/file/os_chroot",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "os.chroot"
+      ],
+      "title": "Tainted data reaches chroot"
+    },
+    {
+      "categories": [
+        "file"
+      ],
+      "cwe": "CWE-22",
+      "id": "stdlib/file/os_fwalk",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "os.fwalk"
+      ],
+      "title": "Tainted data reaches fwalk"
+    },
+    {
+      "categories": [
+        "file"
+      ],
+      "cwe": "CWE-22",
+      "id": "stdlib/file/os_lchflags",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "os.lchflags"
+      ],
+      "title": "Tainted data reaches lchflags"
+    },
+    {
+      "categories": [
+        "file"
+      ],
+      "cwe": "CWE-22",
+      "id": "stdlib/file/os_lchmod",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "os.lchmod"
+      ],
+      "title": "Tainted data reaches lchmod"
+    },
+    {
+      "categories": [
+        "file"
+      ],
+      "cwe": "CWE-22",
+      "id": "stdlib/file/os_lchown",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "os.lchown"
+      ],
+      "title": "Tainted data reaches lchown"
+    },
+    {
+      "categories": [
+        "file"
+      ],
+      "cwe": "CWE-22",
+      "id": "stdlib/file/os_link",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0,
+        1,
+        3,
+        4
+      ],
+      "sinks": [
+        "os.link"
+      ],
+      "title": "Tainted data reaches link"
+    },
+    {
+      "categories": [
+        "file"
+      ],
+      "cwe": "CWE-22",
+      "id": "stdlib/file/os_makedirs",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "os.makedirs"
+      ],
+      "title": "Tainted data reaches makedirs"
+    },
+    {
+      "categories": [
+        "file"
+      ],
+      "cwe": "CWE-22",
+      "id": "stdlib/file/os_mkdir",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "os.mkdir"
+      ],
+      "title": "Tainted data reaches mkdir"
+    },
+    {
+      "categories": [
+        "file"
+      ],
+      "cwe": "CWE-22",
+      "id": "stdlib/file/os_open",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "os.open"
+      ],
+      "title": "Tainted data reaches open"
+    },
+    {
+      "categories": [
+        "file"
+      ],
+      "cwe": "CWE-22",
+      "id": "stdlib/file/os_putenv",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0,
+        1
+      ],
+      "sinks": [
+        "os.putenv"
+      ],
+      "title": "Tainted data reaches putenv"
+    },
+    {
+      "categories": [
+        "file"
+      ],
+      "cwe": "CWE-22",
+      "id": "stdlib/file/os_remove",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "os.remove"
+      ],
+      "title": "Tainted data reaches remove"
+    },
+    {
+      "categories": [
+        "file"
+      ],
+      "cwe": "CWE-22",
+      "id": "stdlib/file/os_removedirs",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "os.removedirs"
+      ],
+      "title": "Tainted data reaches removedirs"
+    },
+    {
+      "categories": [
+        "file"
+      ],
+      "cwe": "CWE-22",
+      "id": "stdlib/file/os_removexattr",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "os.removexattr"
+      ],
+      "title": "Tainted data reaches removexattr"
+    },
+    {
+      "categories": [
+        "file"
+      ],
+      "cwe": "CWE-22",
+      "id": "stdlib/file/os_rename",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0,
+        1
+      ],
+      "sinks": [
+        "os.rename"
+      ],
+      "title": "Tainted data reaches rename"
+    },
+    {
+      "categories": [
+        "file"
+      ],
+      "cwe": "CWE-22",
+      "id": "stdlib/file/os_renames",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0,
+        1
+      ],
+      "sinks": [
+        "os.renames"
+      ],
+      "title": "Tainted data reaches renames"
+    },
+    {
+      "categories": [
+        "file"
+      ],
+      "cwe": "CWE-22",
+      "id": "stdlib/file/os_replace",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0,
+        1
+      ],
+      "sinks": [
+        "os.replace"
+      ],
+      "title": "Tainted data reaches replace"
+    },
+    {
+      "categories": [
+        "file"
+      ],
+      "cwe": "CWE-22",
+      "id": "stdlib/file/os_rmdir",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "os.rmdir"
+      ],
+      "title": "Tainted data reaches rmdir"
+    },
+    {
+      "categories": [
+        "file"
+      ],
+      "cwe": "CWE-22",
+      "id": "stdlib/file/os_setxattr",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "os.setxattr"
+      ],
+      "title": "Tainted data reaches setxattr"
+    },
+    {
+      "categories": [
+        "file"
+      ],
+      "cwe": "CWE-22",
+      "id": "stdlib/file/os_truncate",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "os.truncate"
+      ],
+      "title": "Tainted data reaches truncate"
+    },
+    {
+      "categories": [
+        "file"
+      ],
+      "cwe": "CWE-22",
+      "id": "stdlib/file/os_unlink",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "os.unlink"
+      ],
+      "title": "Tainted data reaches unlink"
+    },
+    {
+      "categories": [
+        "file"
+      ],
+      "cwe": "CWE-22",
+      "id": "stdlib/file/os_unsetenv",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "os.unsetenv"
+      ],
+      "title": "Tainted data reaches unsetenv"
+    },
+    {
+      "categories": [
+        "file"
+      ],
+      "cwe": "CWE-22",
+      "id": "stdlib/file/os_utime",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "os.utime"
+      ],
+      "title": "Tainted data reaches utime"
+    },
+    {
+      "categories": [
+        "file"
+      ],
+      "cwe": "CWE-22",
+      "id": "stdlib/file/os_walk",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "os.walk"
+      ],
+      "title": "Tainted data reaches walk"
+    },
+    {
+      "categories": [
+        "file"
+      ],
+      "cwe": "CWE-22",
+      "id": "stdlib/file/pathlib_Path___new__",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        1
+      ],
+      "sinks": [
+        "pathlib.Path.__new__"
+      ],
+      "title": "Tainted data reaches __new__"
+    },
+    {
+      "categories": [
+        "file"
+      ],
+      "cwe": "CWE-22",
+      "id": "stdlib/file/pathlib_Path_chmod",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "pathlib.Path.chmod"
+      ],
+      "title": "Tainted data reaches chmod"
+    },
+    {
+      "categories": [
+        "file"
+      ],
+      "cwe": "CWE-22",
+      "id": "stdlib/file/pathlib_Path_lchmod",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "pathlib.Path.lchmod"
+      ],
+      "title": "Tainted data reaches lchmod"
+    },
+    {
+      "categories": [
+        "file"
+      ],
+      "cwe": "CWE-22",
+      "id": "stdlib/file/pathlib_Path_mkdir",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "pathlib.Path.mkdir"
+      ],
+      "title": "Tainted data reaches mkdir"
+    },
+    {
+      "categories": [
+        "file"
+      ],
+      "cwe": "CWE-22",
+      "id": "stdlib/file/pathlib_Path_open",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "pathlib.Path.open"
+      ],
+      "title": "Tainted data reaches open"
+    },
+    {
+      "categories": [
+        "file"
+      ],
+      "cwe": "CWE-22",
+      "id": "stdlib/file/pathlib_Path_read_bytes",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "pathlib.Path.read_bytes"
+      ],
+      "title": "Tainted data reaches read_bytes"
+    },
+    {
+      "categories": [
+        "file"
+      ],
+      "cwe": "CWE-22",
+      "id": "stdlib/file/pathlib_Path_read_text",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "pathlib.Path.read_text"
+      ],
+      "title": "Tainted data reaches read_text"
+    },
+    {
+      "categories": [
+        "file"
+      ],
+      "cwe": "CWE-22",
+      "id": "stdlib/file/pathlib_Path_rename",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0,
+        1
+      ],
+      "sinks": [
+        "pathlib.Path.rename"
+      ],
+      "title": "Tainted data reaches rename"
+    },
+    {
+      "categories": [
+        "file"
+      ],
+      "cwe": "CWE-22",
+      "id": "stdlib/file/pathlib_Path_replace",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0,
+        1
+      ],
+      "sinks": [
+        "pathlib.Path.replace"
+      ],
+      "title": "Tainted data reaches replace"
+    },
+    {
+      "categories": [
+        "file"
+      ],
+      "cwe": "CWE-22",
+      "id": "stdlib/file/pathlib_Path_rglob",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        1
+      ],
+      "sinks": [
+        "pathlib.Path.rglob"
+      ],
+      "title": "Tainted data reaches rglob"
+    },
+    {
+      "categories": [
+        "file"
+      ],
+      "cwe": "CWE-22",
+      "id": "stdlib/file/pathlib_Path_rmdir",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "pathlib.Path.rmdir"
+      ],
+      "title": "Tainted data reaches rmdir"
+    },
+    {
+      "categories": [
+        "file"
+      ],
+      "cwe": "CWE-22",
+      "id": "stdlib/file/pathlib_Path_symlink_to",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0,
+        1
+      ],
+      "sinks": [
+        "pathlib.Path.symlink_to"
+      ],
+      "title": "Tainted data reaches symlink_to"
+    },
+    {
+      "categories": [
+        "file"
+      ],
+      "cwe": "CWE-22",
+      "id": "stdlib/file/pathlib_Path_touch",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "pathlib.Path.touch"
+      ],
+      "title": "Tainted data reaches touch"
+    },
+    {
+      "categories": [
+        "file"
+      ],
+      "cwe": "CWE-22",
+      "id": "stdlib/file/pathlib_Path_unlink",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "pathlib.Path.unlink"
+      ],
+      "title": "Tainted data reaches unlink"
+    },
+    {
+      "categories": [
+        "file"
+      ],
+      "cwe": "CWE-22",
+      "id": "stdlib/file/pathlib_Path_write_bytes",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "pathlib.Path.write_bytes"
+      ],
+      "title": "Tainted data reaches write_bytes"
+    },
+    {
+      "categories": [
+        "file"
+      ],
+      "cwe": "CWE-22",
+      "id": "stdlib/file/pathlib_Path_write_text",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "pathlib.Path.write_text"
+      ],
+      "title": "Tainted data reaches write_text"
+    },
+    {
+      "categories": [
+        "file"
+      ],
+      "cwe": "CWE-22",
+      "id": "stdlib/file/pathlib_PurePath___new__",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        1
+      ],
+      "sinks": [
+        "pathlib.PurePath.__new__"
+      ],
+      "title": "Tainted data reaches __new__"
+    },
+    {
+      "categories": [
+        "file"
+      ],
+      "cwe": "CWE-22",
+      "id": "stdlib/file/pathlib_PurePath___rtruediv__",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        1
+      ],
+      "sinks": [
+        "pathlib.PurePath.__rtruediv__"
+      ],
+      "title": "Tainted data reaches __rtruediv__"
+    },
+    {
+      "categories": [
+        "file"
+      ],
+      "cwe": "CWE-22",
+      "id": "stdlib/file/pathlib_PurePath___truediv__",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        1
+      ],
+      "sinks": [
+        "pathlib.PurePath.__truediv__"
+      ],
+      "title": "Tainted data reaches __truediv__"
+    },
+    {
+      "categories": [
+        "file"
+      ],
+      "cwe": "CWE-22",
+      "id": "stdlib/file/pickle_Unpickler___init__",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "pickle.Unpickler.__init__"
+      ],
+      "title": "Tainted data reaches __init__"
+    },
+    {
+      "categories": [
+        "file"
+      ],
+      "cwe": "CWE-22",
+      "id": "stdlib/file/pickle_load",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "pickle.load"
+      ],
+      "title": "Tainted data reaches load"
+    },
+    {
+      "categories": [
+        "file"
+      ],
+      "cwe": "CWE-22",
+      "id": "stdlib/file/shelve_DbfilenameShelf___init__",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "shelve.DbfilenameShelf.__init__"
+      ],
+      "title": "Tainted data reaches __init__"
+    },
+    {
+      "categories": [
+        "file"
+      ],
+      "cwe": "CWE-22",
+      "id": "stdlib/file/shelve_open",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "shelve.open"
+      ],
+      "title": "Tainted data reaches open"
+    },
+    {
+      "categories": [
+        "file"
+      ],
+      "cwe": "CWE-22",
+      "id": "stdlib/file/shutil_chown",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "shutil.chown"
+      ],
+      "title": "Tainted data reaches chown"
+    },
+    {
+      "categories": [
+        "file"
+      ],
+      "cwe": "CWE-22",
+      "id": "stdlib/file/shutil_copy",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0,
+        1
+      ],
+      "sinks": [
+        "shutil.copy"
+      ],
+      "title": "Tainted data reaches copy"
+    },
+    {
+      "categories": [
+        "file"
+      ],
+      "cwe": "CWE-22",
+      "id": "stdlib/file/shutil_copy2",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0,
+        1
+      ],
+      "sinks": [
+        "shutil.copy2"
+      ],
+      "title": "Tainted data reaches copy2"
+    },
+    {
+      "categories": [
+        "file"
+      ],
+      "cwe": "CWE-22",
+      "id": "stdlib/file/shutil_copyfile",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0,
+        1
+      ],
+      "sinks": [
+        "shutil.copyfile"
+      ],
+      "title": "Tainted data reaches copyfile"
+    },
+    {
+      "categories": [
+        "file"
+      ],
+      "cwe": "CWE-22",
+      "id": "stdlib/file/shutil_copymode",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0,
+        1
+      ],
+      "sinks": [
+        "shutil.copymode"
+      ],
+      "title": "Tainted data reaches copymode"
+    },
+    {
+      "categories": [
+        "file"
+      ],
+      "cwe": "CWE-22",
+      "id": "stdlib/file/shutil_copystat",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0,
+        1
+      ],
+      "sinks": [
+        "shutil.copystat"
+      ],
+      "title": "Tainted data reaches copystat"
+    },
+    {
+      "categories": [
+        "file"
+      ],
+      "cwe": "CWE-22",
+      "id": "stdlib/file/shutil_copytree",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0,
+        1
+      ],
+      "sinks": [
+        "shutil.copytree"
+      ],
+      "title": "Tainted data reaches copytree"
+    },
+    {
+      "categories": [
+        "file"
+      ],
+      "cwe": "CWE-22",
+      "id": "stdlib/file/shutil_make_archive",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0,
+        3
+      ],
+      "sinks": [
+        "shutil.make_archive"
+      ],
+      "title": "Tainted data reaches make_archive"
+    },
+    {
+      "categories": [
+        "file"
+      ],
+      "cwe": "CWE-22",
+      "id": "stdlib/file/shutil_move",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0,
+        1
+      ],
+      "sinks": [
+        "shutil.move"
+      ],
+      "title": "Tainted data reaches move"
+    },
+    {
+      "categories": [
+        "file"
+      ],
+      "cwe": "CWE-22",
+      "id": "stdlib/file/shutil_rmtree",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "shutil.rmtree"
+      ],
+      "title": "Tainted data reaches rmtree"
+    },
+    {
+      "categories": [
+        "file"
+      ],
+      "cwe": "CWE-22",
+      "id": "stdlib/file/shutil_unpack_archive",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0,
+        1
+      ],
+      "sinks": [
+        "shutil.unpack_archive"
+      ],
+      "title": "Tainted data reaches unpack_archive"
+    },
+    {
+      "categories": [
+        "email"
+      ],
+      "cwe": "CWE-93",
+      "id": "stdlib/email/smtplib_SMTP_sendmail",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "smtplib.SMTP.sendmail"
+      ],
+      "title": "Tainted data reaches sendmail"
+    },
+    {
+      "categories": [
+        "formatstring"
+      ],
+      "id": "stdlib/formatstring/str_format",
+      "pattern_type": "taint_sink",
+      "severity": "medium",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "str.format"
+      ],
+      "title": "Tainted data reaches format"
+    },
+    {
+      "categories": [
+        "file"
+      ],
+      "cwe": "CWE-22",
+      "id": "stdlib/file/tarfile_TarFile___init__",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "tarfile.TarFile.__init__"
+      ],
+      "title": "Tainted data reaches __init__"
+    },
+    {
+      "categories": [
+        "file"
+      ],
+      "cwe": "CWE-22",
+      "id": "stdlib/file/tarfile_TarFile_open",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "tarfile.TarFile.open"
+      ],
+      "title": "Tainted data reaches open"
+    },
+    {
+      "categories": [
+        "file"
+      ],
+      "cwe": "CWE-22",
+      "id": "stdlib/file/tempfile_NamedTemporaryFile",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        5,
+        6
+      ],
+      "sinks": [
+        "tempfile.NamedTemporaryFile"
+      ],
+      "title": "Tainted data reaches NamedTemporaryFile"
+    },
+    {
+      "categories": [
+        "file"
+      ],
+      "cwe": "CWE-22",
+      "id": "stdlib/file/tempfile_SpooledTemporaryFile___init__",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        6,
+        7
+      ],
+      "sinks": [
+        "tempfile.SpooledTemporaryFile.__init__"
+      ],
+      "title": "Tainted data reaches __init__"
+    },
+    {
+      "categories": [
+        "file"
+      ],
+      "cwe": "CWE-22",
+      "id": "stdlib/file/tempfile_TemporaryDirectory___init__",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0,
+        1,
+        2
+      ],
+      "sinks": [
+        "tempfile.TemporaryDirectory.__init__"
+      ],
+      "title": "Tainted data reaches __init__"
+    },
+    {
+      "categories": [
+        "file"
+      ],
+      "cwe": "CWE-22",
+      "id": "stdlib/file/tempfile_TemporaryFile",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        5,
+        6
+      ],
+      "sinks": [
+        "tempfile.TemporaryFile"
+      ],
+      "title": "Tainted data reaches TemporaryFile"
+    },
+    {
+      "categories": [
+        "file"
+      ],
+      "cwe": "CWE-22",
+      "id": "stdlib/file/tempfile_mkdtemp",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0,
+        1,
+        2
+      ],
+      "sinks": [
+        "tempfile.mkdtemp"
+      ],
+      "title": "Tainted data reaches mkdtemp"
+    },
+    {
+      "categories": [
+        "file"
+      ],
+      "cwe": "CWE-22",
+      "id": "stdlib/file/tempfile_mkstemp",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0,
+        1,
+        2
+      ],
+      "sinks": [
+        "tempfile.mkstemp"
+      ],
+      "title": "Tainted data reaches mkstemp"
+    },
+    {
+      "categories": [
+        "file"
+      ],
+      "cwe": "CWE-22",
+      "id": "stdlib/file/urllib_request_urlretrieve",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        1
+      ],
+      "sinks": [
+        "urllib.request.urlretrieve"
+      ],
+      "title": "Tainted data reaches urlretrieve"
+    },
+    {
+      "categories": [
+        "user_input",
+        "xss"
+      ],
+      "cwe": "CWE-79",
+      "id": "stdlib/user_input_xss/wsgiref_handlers_BaseHandler_error_output",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        1
+      ],
+      "sinks": [
+        "wsgiref.handlers.BaseHandler.error_output"
+      ],
+      "title": "Tainted data reaches error_output"
+    },
+    {
+      "categories": [
+        "logging"
+      ],
+      "id": "stdlib/logging/wsgiref_handlers_BaseHandler_log_exception",
+      "pattern_type": "taint_sink",
+      "severity": "medium",
+      "sink_arg_positions": [
+        1
+      ],
+      "sinks": [
+        "wsgiref.handlers.BaseHandler.log_exception"
+      ],
+      "title": "Tainted data reaches log_exception"
+    },
+    {
+      "categories": [
+        "user_input",
+        "xss"
+      ],
+      "cwe": "CWE-79",
+      "id": "stdlib/user_input_xss/wsgiref_handlers_BaseHandler_start_response",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        1,
+        2
+      ],
+      "sinks": [
+        "wsgiref.handlers.BaseHandler.start_response"
+      ],
+      "title": "Tainted data reaches start_response"
+    },
+    {
+      "categories": [
+        "xss"
+      ],
+      "cwe": "CWE-79",
+      "id": "stdlib/xss/wsgiref_handlers_BaseHandler_write",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        1
+      ],
+      "sinks": [
+        "wsgiref.handlers.BaseHandler.write"
+      ],
+      "title": "Tainted data reaches write"
+    },
+    {
+      "categories": [
+        "xss"
+      ],
+      "cwe": "CWE-79",
+      "id": "stdlib/xss/wsgiref_handlers_SimpleHandler__write",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        1
+      ],
+      "sinks": [
+        "wsgiref.handlers.SimpleHandler._write"
+      ],
+      "title": "Tainted data reaches _write"
+    },
+    {
+      "categories": [
+        "user_input"
+      ],
+      "id": "stdlib/user_input/wsgiref_headers_Headers___setitem__",
+      "pattern_type": "taint_sink",
+      "severity": "medium",
+      "sink_arg_positions": [
+        1,
+        2
+      ],
+      "sinks": [
+        "wsgiref.headers.Headers.__setitem__"
+      ],
+      "title": "Tainted data reaches __setitem__"
+    },
+    {
+      "categories": [
+        "user_input"
+      ],
+      "id": "stdlib/user_input/wsgiref_headers_Headers_add_header",
+      "pattern_type": "taint_sink",
+      "severity": "medium",
+      "sink_arg_positions": [
+        1,
+        2
+      ],
+      "sinks": [
+        "wsgiref.headers.Headers.add_header"
+      ],
+      "title": "Tainted data reaches add_header"
+    },
+    {
+      "categories": [
+        "user_input"
+      ],
+      "id": "stdlib/user_input/wsgiref_headers_Headers_setdefault",
+      "pattern_type": "taint_sink",
+      "severity": "medium",
+      "sink_arg_positions": [
+        1,
+        2
+      ],
+      "sinks": [
+        "wsgiref.headers.Headers.setdefault"
+      ],
+      "title": "Tainted data reaches setdefault"
+    },
+    {
+      "categories": [
+        "xxe"
+      ],
+      "cwe": "CWE-611",
+      "id": "stdlib/xxe/xml_dom_minidom_parse",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "xml.dom.minidom.parse"
+      ],
+      "title": "Tainted data reaches parse"
+    },
+    {
+      "categories": [
+        "xxe"
+      ],
+      "cwe": "CWE-611",
+      "id": "stdlib/xxe/xml_dom_minidom_parseString",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "xml.dom.minidom.parseString"
+      ],
+      "title": "Tainted data reaches parseString"
+    },
+    {
+      "categories": [
+        "xxe"
+      ],
+      "cwe": "CWE-611",
+      "id": "stdlib/xxe/xml_dom_pulldom_parse",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "xml.dom.pulldom.parse"
+      ],
+      "title": "Tainted data reaches parse"
+    },
+    {
+      "categories": [
+        "xxe"
+      ],
+      "cwe": "CWE-611",
+      "id": "stdlib/xxe/xml_dom_pulldom_parseString",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "xml.dom.pulldom.parseString"
+      ],
+      "title": "Tainted data reaches parseString"
+    },
+    {
+      "categories": [
+        "xxe"
+      ],
+      "cwe": "CWE-611",
+      "id": "stdlib/xxe/xml_etree_ElementTree_XML",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "xml.etree.ElementTree.XML"
+      ],
+      "title": "Tainted data reaches XML"
+    },
+    {
+      "categories": [
+        "xxe"
+      ],
+      "cwe": "CWE-611",
+      "id": "stdlib/xxe/xml_etree_ElementTree_XMLParser_feed",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        1
+      ],
+      "sinks": [
+        "xml.etree.ElementTree.XMLParser.feed"
+      ],
+      "title": "Tainted data reaches feed"
+    },
+    {
+      "categories": [
+        "xxe"
+      ],
+      "cwe": "CWE-611",
+      "id": "stdlib/xxe/xml_etree_ElementTree_iterparse",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "xml.etree.ElementTree.iterparse"
+      ],
+      "title": "Tainted data reaches iterparse"
+    },
+    {
+      "categories": [
+        "xxe"
+      ],
+      "cwe": "CWE-611",
+      "id": "stdlib/xxe/xml_etree_ElementTree_parse",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "xml.etree.ElementTree.parse"
+      ],
+      "title": "Tainted data reaches parse"
+    },
+    {
+      "categories": [
+        "file"
+      ],
+      "cwe": "CWE-22",
+      "id": "stdlib/file/zipfile_ZipFile___init__",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        1
+      ],
+      "sinks": [
+        "zipfile.ZipFile.__init__"
+      ],
+      "title": "Tainted data reaches __init__"
+    }
+  ],
+  "type": "taint"
+}
