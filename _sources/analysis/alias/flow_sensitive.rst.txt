@@ -203,11 +203,3 @@ taint/nullness/typestate-specific facts.
 effects over a procedure body.  It is a monotone, fixed summary intended for
 client reuse and future interprocedural heap-effect composition.
 
-Known Limits
-------------
-
-The abstraction is primarily consumed by IFDS clients and is not a complete
-Python heap analysis.  It does not fully model descriptors, metaclasses,
-reflection, monkey-patching, native library behavior, path-sensitive branches,
-or path-sensitive shape refinement. For those concerns, see :doc:`../shape`
-and :doc:`../storegraph`.

@@ -2,7 +2,7 @@ Command Line Interface
 ========    ==============
 
 PyFlow provides a CLI for static analysis, optimization, IR inspection,
-security checking, and heap analysis of Python code.
+security checking, and alias analysis of Python code.
 
 This page summarizes the most important commands. For the authoritative option
 reference used by the repository today, also see ``CLI.md`` in the project root.
@@ -151,27 +151,30 @@ Audit format:
 
 - ``--format text`` (default) or ``--format json``
 
-Heap Command
-------------
+Alias Command
+--------------
 
-**pyflow heap**
-~~~~~~~~~~~~~~~
+**pyflow alias**
+~~~~~~~~~~~~~~~~
 
-Run standalone heap alias/escape analysis on Python code.
+Run alias analysis on Python code. Supports two engines:
+``flow-sensitive`` (heap alias/escape) and ``kcfa`` (k-CFA pointer).
 
 ::
 
-  pyflow heap input.py
-  pyflow heap src/ --recursive
-  pyflow heap input.py --json
-  pyflow heap input.py --verbose
+  pyflow alias input.py
+  pyflow alias src/ --recursive
+  pyflow alias input.py --engine kcfa
+  pyflow alias input.py --json
+  pyflow alias input.py --verbose
 
 Options:
 
+- ``--engine {flow-sensitive,kcfa}``: Analysis engine (default: flow-sensitive)
+- ``--k N``: k-CFA context sensitivity depth (kcfa engine only, default: 1)
 - ``--recursive, -r``: Recursively analyze Python files in a directory
 - ``--json``: Output machine-readable JSON instead of human-friendly text
-- ``--verbose, -v``: Include per-entry details (selector path, update policy,
-  points-to sets)
+- ``--verbose, -v``: Include per-entry details
 
 Global Options
 ==============

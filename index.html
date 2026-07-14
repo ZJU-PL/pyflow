@@ -199,7 +199,7 @@ and documentation are still evolving.</p>
 <li class="toctree-l2"><a class="reference internal" href="cli.html#optimization-commands">Optimization Commands</a></li>
 <li class="toctree-l2"><a class="reference internal" href="cli.html#security-commands">Security Commands</a></li>
 <li class="toctree-l2"><a class="reference internal" href="cli.html#supply-chain-command">Supply Chain Command</a></li>
-<li class="toctree-l2"><a class="reference internal" href="cli.html#heap-command">Heap Command</a></li>
+<li class="toctree-l2"><a class="reference internal" href="cli.html#alias-command">Alias Command</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="cli.html#global-options">Global Options</a></li>
@@ -332,8 +332,8 @@ pyflow<span class="w"> </span>optimize<span class="w"> </span>input.py
 <span class="c1"># Visualize intermediate representations</span>
 pyflow<span class="w"> </span>ir<span class="w"> </span>input.py<span class="w"> </span>--dump-cfg<span class="w"> </span>function_name
 
-<span class="c1"># Run heap alias/escape analysis</span>
-pyflow<span class="w"> </span>heap<span class="w"> </span>input.py
+<span class="c1"># Run alias analysis (flow-sensitive heap or k-CFA pointer)</span>
+pyflow<span class="w"> </span><span class="nb">alias</span><span class="w"> </span>input.py
 
 <span class="c1"># Explore available optimization passes</span>
 pyflow<span class="w"> </span>optimize<span class="w"> </span>--list-opt-passes
@@ -381,7 +381,7 @@ pyflow<span class="w"> </span>optimize<span class="w"> </span>--list-opt-passes
 <li><p><strong>Pointer Analysis</strong>: k-CFA constraint-based points-to analysis for Python objects</p></li>
 <li><p><strong>Constraint-based Analysis</strong>: Constraint solving for precise object relationship modeling</p></li>
 <li><p><strong>Shape Analysis</strong>: Data structure shape and property analysis</p></li>
-<li><p><strong>Heap Analysis</strong>: Alias/escape analysis with canonical locations and points-to graphs</p></li>
+<li><p><strong>Alias Analysis</strong>: Flow-sensitive heap analysis (alias/escape) and k-CFA pointer analysis</p></li>
 <li><p><strong>Call Graph Analysis</strong>: Function call relationship analysis with multiple algorithms</p></li>
 <li><p><strong>Type Information</strong>: Lightweight type-information collection and inference</p></li>
 </ul>

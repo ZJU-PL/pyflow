@@ -306,14 +306,6 @@ taint/nullness/typestate-specific facts.</p>
 effects over a procedure body.  It is a monotone, fixed summary intended for
 client reuse and future interprocedural heap-effect composition.</p>
 </section>
-<section id="known-limits">
-<h2>Known Limits<a class="headerlink" href="#known-limits" title="Link to this heading"></a></h2>
-<p>The abstraction is primarily consumed by IFDS clients and is not a complete
-Python heap analysis.  It does not fully model descriptors, metaclasses,
-reflection, monkey-patching, native library behavior, path-sensitive branches,
-or path-sensitive shape refinement. For those concerns, see <a class="reference internal" href="../shape.html"><span class="doc">Shape Analysis</span></a>
-and <a class="reference internal" href="../storegraph.html"><span class="doc">Store Graph Analysis</span></a>.</p>
-</section>
 </section>
 
 

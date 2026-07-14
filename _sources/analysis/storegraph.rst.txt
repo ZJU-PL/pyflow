@@ -56,7 +56,7 @@ Relationship to Other Modules
 | ``lifetimeanalysis``| Read/modify tracking using        |
 |                     | shape and CPA results             |
 +---------------------+-----------------------------------+
-| ``heap``            | **Independent** — operates on the     |
+| ``alias/flow_sensitive`` | **Independent** — operates on the     |
 |                     | CFG supergraph (consumed by IFDS),    |
 |                     | not the store graph                   |
 +---------------------+-----------------------------------+

@@ -83,8 +83,8 @@
 <li class="toctree-l3"><a class="reference internal" href="#pyflow-supply-chain"><strong>pyflow supply-chain</strong></a></li>
 </ul>
 </li>
-<li class="toctree-l2"><a class="reference internal" href="#heap-command">Heap Command</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="#pyflow-heap"><strong>pyflow heap</strong></a></li>
+<li class="toctree-l2"><a class="reference internal" href="#alias-command">Alias Command</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#pyflow-alias"><strong>pyflow alias</strong></a></li>
 </ul>
 </li>
 </ul>
@@ -140,7 +140,7 @@
   <p>Command Line Interface
 ========    ==============</p>
 <p>PyFlow provides a CLI for static analysis, optimization, IR inspection,
-security checking, and heap analysis of Python code.</p>
+security checking, and alias analysis of Python code.</p>
 <p>This page summarizes the most important commands. For the authoritative option
 reference used by the repository today, also see <code class="docutils literal notranslate"><span class="pre">CLI.md</span></code> in the project root.</p>
 <section id="main-commands">
@@ -269,23 +269,26 @@ mismatches, unlisted files).</p>
 </ul>
 </section>
 </section>
-<section id="heap-command">
-<h2>Heap Command<a class="headerlink" href="#heap-command" title="Link to this heading"></a></h2>
-<section id="pyflow-heap">
-<h3><strong>pyflow heap</strong><a class="headerlink" href="#pyflow-heap" title="Link to this heading"></a></h3>
-<p>Run standalone heap alias/escape analysis on Python code.</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">pyflow</span> <span class="n">heap</span> <span class="nb">input</span><span class="o">.</span><span class="n">py</span>
-<span class="n">pyflow</span> <span class="n">heap</span> <span class="n">src</span><span class="o">/</span> <span class="o">--</span><span class="n">recursive</span>
-<span class="n">pyflow</span> <span class="n">heap</span> <span class="nb">input</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">json</span>
-<span class="n">pyflow</span> <span class="n">heap</span> <span class="nb">input</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">verbose</span>
+<section id="alias-command">
+<h2>Alias Command<a class="headerlink" href="#alias-command" title="Link to this heading"></a></h2>
+<section id="pyflow-alias">
+<h3><strong>pyflow alias</strong><a class="headerlink" href="#pyflow-alias" title="Link to this heading"></a></h3>
+<p>Run alias analysis on Python code. Supports two engines:
+<code class="docutils literal notranslate"><span class="pre">flow-sensitive</span></code> (heap alias/escape) and <code class="docutils literal notranslate"><span class="pre">kcfa</span></code> (k-CFA pointer).</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">pyflow</span> <span class="n">alias</span> <span class="nb">input</span><span class="o">.</span><span class="n">py</span>
+<span class="n">pyflow</span> <span class="n">alias</span> <span class="n">src</span><span class="o">/</span> <span class="o">--</span><span class="n">recursive</span>
+<span class="n">pyflow</span> <span class="n">alias</span> <span class="nb">input</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">engine</span> <span class="n">kcfa</span>
+<span class="n">pyflow</span> <span class="n">alias</span> <span class="nb">input</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">json</span>
+<span class="n">pyflow</span> <span class="n">alias</span> <span class="nb">input</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">verbose</span>
 </pre></div>
 </div>
 <p>Options:</p>
 <ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">--engine</span> <span class="pre">{flow-sensitive,kcfa}</span></code>: Analysis engine (default: flow-sensitive)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--k</span> <span class="pre">N</span></code>: k-CFA context sensitivity depth (kcfa engine only, default: 1)</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--recursive,</span> <span class="pre">-r</span></code>: Recursively analyze Python files in a directory</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--json</span></code>: Output machine-readable JSON instead of human-friendly text</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">--verbose,</span> <span class="pre">-v</span></code>: Include per-entry details (selector path, update policy,
-points-to sets)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--verbose,</span> <span class="pre">-v</span></code>: Include per-entry details</p></li>
 </ul>
 </section>
 </section>

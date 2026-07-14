@@ -228,7 +228,7 @@ Decision: Subcommand-Based CLI
 - ``pyflow optimize``: Run analysis and optimization pipeline
 - ``pyflow callgraph``: Build call graphs
 - ``pyflow ir``: Dump intermediate representations
-- ``pyflow heap``: Run heap alias/escape analysis
+- ``pyflow alias``: Run alias analysis (flow-sensitive heap or k-CFA pointer)
 - ``pyflow security``: Run security analysis
 
 **Rationale**:

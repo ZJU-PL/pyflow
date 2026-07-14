@@ -104,7 +104,7 @@ PyFlow provides several CLI commands for running analyses:
 * ``pyflow optimize`` - Run analysis and optimization pipeline
 * ``pyflow callgraph`` - Build and analyze call graphs
 * ``pyflow ir`` - Dump intermediate representations (AST, CFG, SSA, CDG, DDG)
-* ``pyflow heap`` - Run standalone heap alias/escape analysis
+* ``pyflow alias`` - Run alias analysis (flow-sensitive heap or k-CFA pointer)
 * ``pyflow security`` - Unified security analysis dispatching to
   ast-scanner, CPA, IFDS, or CPG engines
 

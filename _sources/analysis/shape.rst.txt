@@ -92,12 +92,5 @@ Relationship to Other Modules
 +------------------+---------------------------------------+----------------------------+
 | ``lifetimeanalysis`` | —                                | Shape ref-count data       |
 +------------------+---------------------------------------+----------------------------+
-| ``heap``         | — (separate subsystem)                | —                          |
+| ``alias/flow_sensitive`` | — (separate subsystem)                | —                          |
 +------------------+---------------------------------------+----------------------------+
-
-.. note::
-
-   Shape analysis and :doc:`alias/flow_sensitive` are **independent subsystems** that serve
-   different clients.  Shape runs post-CPA on the store graph; heap runs on
-   the CFG supergraph (currently consumed by IFDS).  They do not feed into
-   each other.
