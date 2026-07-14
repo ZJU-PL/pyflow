@@ -86,31 +86,38 @@ def add_security_parser(subparsers):
         "--function",
         help="Entry function name (required for --engine ifds)",
     )
-    # CPG-specific
     p.add_argument(
         "--framework",
         nargs="*",
-        default=[],
+        default=["stdlib"],
         metavar="FRAMEWORK",
         choices=[
-            "django",
-            "flask",
-            "fastapi",
-            "sqlalchemy",
-            "stdlib",
-            "cloud",
-            "injection",
-            "network",
-            "nosql",
-            "requests",
-            "sql",
+            "aiohttp", "cloud", "concurrency", "django", "falcon", "fastapi",
+            "flask", "injection", "network", "nosql", "pandas",
+            "requests", "serialization", "sql", "sqlalchemy", "stdlib",
+            "tornado", "wtforms", "xml",
         ],
-        help="Framework rule pack(s) for CPG engine (repeatable; auto-detect if omitted)",
+        help=(
+            "Framework rule pack(s) for taint sources/sinks/sanitizers "
+            "(supports both --engine cpg and --engine ifds).  Default: stdlib "
+            "(covers Python builtins: open(), eval(), subprocess, …).  "
+            "Pass --framework with no values to auto-detect packs from imports "
+            "in the target source.  Available: aiohttp, cloud, concurrency, "
+            "django, falcon, fastapi, flask, injection, network, nosql, "
+            "pandas, requests, serialization, sql, sqlalchemy, stdlib, tornado, "
+            "wtforms, xml."
+        ),
     )
     p.add_argument(
-        "--registry",
-        action="store_true",
-        help="Activate all framework rule packs (only for --engine ifds)",
+        "--registry-path",
+        nargs="+",
+        default=[],
+        metavar="PATH",
+        help=(
+            "Load custom rule-pack JSON file(s) or directory(ies) of JSON "
+            "rule-packs (both engines).  Each file must follow the same schema "
+            "as the bundled rule-packs under pyflow/config/."
+        ),
     )
     p.add_argument(
         "--ifds-mode",
@@ -276,8 +283,8 @@ def _run_ifds(targets: List[str], args) -> Dict[str, Any]:
                 files,
                 function=args.function or "",
                 enabled_protocols=_parse_typestate_protocols(args),
-                registry=getattr(args, "registry", False),
                 registry_frameworks=getattr(args, "framework", ()) or (),
+                registry_paths=getattr(args, "registry_path", []) or (),
                 collection_mutator_names=getattr(args, "collection_mutators", None),
                 collection_accessor_names=getattr(args, "collection_accessors", None),
                 dependency_strategy=getattr(args, "dependency_strategy", "auto"),
@@ -305,6 +312,8 @@ def _run_ifds(targets: List[str], args) -> Dict[str, Any]:
             _session, nullness_result = run_nullness_analysis(
                 files,
                 function=args.function or "",
+                registry_frameworks=getattr(args, "framework", ()) or (),
+                registry_paths=getattr(args, "registry_path", []) or (),
                 dependency_strategy=getattr(args, "dependency_strategy", "auto"),
                 verbose=getattr(args, "verbose", False),
                 solver_options=solver_options,
@@ -323,11 +332,12 @@ def _run_ifds(targets: List[str], args) -> Dict[str, Any]:
         result = _nullness_result_to_dict(args.function or "<unknown>", nullness_result)
         return _apply_session_diagnostics(result, _session)
 
-    sources, sinks, sanitizers = _merge_taint_specs(args)
+    sources, sinks, sanitizers = _merge_taint_specs(args, source_files=files)
 
     if not sources and not sinks:
         print(
-            "No sources or sinks specified. Use --sources/--sinks flags or --registry.",
+            "No sources or sinks specified. Use --sources/--sinks --framework,"
+            " or --registry-path.",
             file=sys.stderr,
         )
         return {
@@ -435,7 +445,8 @@ def _run_cpg(targets: List[str], args) -> List[Dict[str, Any]]:
                 frameworks = detect_frameworks(source)
             except OSError:
                 pass
-        load_rules(engine, frameworks=frameworks)
+        registry_paths = getattr(args, "registry_path", []) or []
+        load_rules(engine, frameworks=frameworks, custom_paths=registry_paths)
 
         result = engine.find_taint_paths()
         findings.extend(f.to_dict() for f in result)
@@ -816,30 +827,47 @@ def _discover_python_files(targets: Sequence[str], recursive: bool) -> list[Path
     return files
 
 
-def _merge_taint_specs(args) -> tuple[list[str], list[str], list[str]]:
-    """Merge CLI-provided sources/sinks/sanitizers with optional framework registry."""
+def _merge_taint_specs(
+    args,
+    source_files: Sequence[Path] = (),
+) -> tuple[list[str], list[str], list[str]]:
+    """Merge CLI-provided sources/sinks/sanitizers with --framework rule packs."""
     sources = list(getattr(args, "sources", []) or [])
     sinks = list(getattr(args, "sinks", []) or [])
     sanitizers = list(getattr(args, "sanitizers", []) or [])
 
-    use_registry = getattr(args, "registry", False)
-    if not use_registry:
+    custom_paths = getattr(args, "registry_path", []) or []
+    given_frameworks = getattr(args, "framework", None) or None
+    if given_frameworks is not None and len(given_frameworks) == 0:
+        given_frameworks = None
+
+    # No framework or custom paths → user handles sources/sinks manually
+    if given_frameworks is None and not custom_paths:
         return sources, sinks, sanitizers
 
     try:
         from pyflow.analysis.ifds.clients.registry import load_registry
 
         registry = load_registry()
-        registry.activate_all()
-        models = registry.active_models()
-        mapping = models.as_mapping()
-        for name, model in mapping.items():
-            if model.taint_source:
-                sources.append(name)
-            if model.taint_sink:
-                sinks.append(name)
-            if model.taint_sanitizer:
-                sanitizers.append(name)
+        if given_frameworks is not None:
+            registry.activate(*given_frameworks, type="taint")
+        else:
+            if source_files:
+                for path in source_files:
+                    try:
+                        registry.detect(
+                            path.read_text(encoding="utf-8").splitlines()
+                        )
+                    except OSError:
+                        continue
+            if not registry.detected_frameworks:
+                registry.activate("stdlib", type="taint")
+        if custom_paths:
+            registry.load_custom(*custom_paths)
+        config = registry.as_config()
+        sources.extend(config.source_names)
+        sinks.extend(config.sink_names)
+        sanitizers.extend(config.sanitizer_names)
     except ImportError:
         pass
 

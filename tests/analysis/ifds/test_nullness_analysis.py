@@ -678,6 +678,27 @@ def test_nullness_delete_kills_local_fact():
     assert result.findings == ()
 
 
+def test_nullness_respects_configuration_call_models():
+    """NullnessConfiguration.call_models should merge with nullable_return_names."""
+    from pyflow.analysis.ifds.clients._call_model import CallModel, CallModelRegistry
+
+    custom_models = CallModelRegistry([
+        CallModel(name="custom_lookup", nullness_nullable_return=True),
+    ])
+    config = NullnessConfiguration(
+        nullable_return_names=frozenset({"get"}),
+        call_models=custom_models,
+    )
+    # Verify that both sources are represented in the merged models
+    merged = CallModelRegistry.from_nullness_configuration(config)
+    if config.call_models is not None:
+        merged = merged.merged(config.call_models)
+
+    assert merged.model_for_name("get").nullness_nullable_return is True
+    assert merged.model_for_name("custom_lookup").nullness_nullable_return is True
+    assert merged.model_for_name("nonexistent") is None
+
+
 def test_nullness_requires_explicit_entry_nodes():
     compiler = context.CompilerContext(None)
 

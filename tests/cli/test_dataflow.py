@@ -237,7 +237,6 @@ def test_security_cli_forwards_typestate_protocol_options(
     args = _make_args("json")
     args.analysis = "typestate"
     args.typestate_protocol = ["python-builtins", "lock"]
-    args.registry = True
     args.framework = ["network"]
     args.collection_mutators = ["append_safe"]
     args.collection_accessors = ["fetch"]
@@ -250,7 +249,6 @@ def test_security_cli_forwards_typestate_protocol_options(
     assert payload["analysis"] == "typestate"
     assert payload["findings"][0]["protocol"] == "lock"
     assert captured["enabled_protocols"] == ["python-builtins", "lock"]
-    assert captured["registry"] is True
     assert captured["registry_frameworks"] == ["network"]
     assert captured["collection_mutator_names"] == ["append_safe"]
     assert captured["collection_accessor_names"] == ["fetch"]

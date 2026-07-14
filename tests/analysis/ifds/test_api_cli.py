@@ -320,10 +320,10 @@ def test_run_typestate_analysis_forwards_registry_models(monkeypatch):
     class FakeRegistry:
         detected_frameworks = frozenset({"network"})
 
-        def activate(self, *frameworks):
+        def activate(self, *frameworks, type=None):
             captured["frameworks"] = frameworks
 
-        def active_models(self):
+        def active_models(self, *, type=None):
             return "registry-models"
 
     monkeypatch.setattr(

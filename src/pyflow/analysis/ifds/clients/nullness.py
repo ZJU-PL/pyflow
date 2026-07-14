@@ -8,7 +8,7 @@ from typing import FrozenSet, Mapping, Sequence
 from pyflow.analysis.cfg import graph as cfg_graph
 from pyflow.language.python import ast as py_ast
 
-from ._call_model import CallModelRegistry
+from ._call_model import CallModel, CallModelRegistry
 from ._client_common import AnnotatedFactProblemBase, build_entry_seeds
 from ..cfg_adapter import CFGNode, CFGSupergraphAdapter, assigned_locals
 from ..problem import IFDSProblem
@@ -27,6 +27,7 @@ class NullnessConfiguration:
         {"append", "add", "extend", "update"}
     )
     collection_accessor_names: FrozenSet[str] = frozenset({"get"})
+    call_models: CallModelRegistry | None = None
 
 
 @dataclass(frozen=True)
@@ -117,11 +118,14 @@ class InterproceduralNullnessProblem(
         entry_nodes: Sequence[CFGNode] | None = None,
     ) -> None:
         self.configuration = configuration or NullnessConfiguration()
+        call_models = CallModelRegistry.from_nullness_configuration(
+            self.configuration
+        )
+        if self.configuration.call_models is not None:
+            call_models = call_models.merged(self.configuration.call_models)
         super().__init__(
             adapter,
-            call_models=CallModelRegistry.from_nullness_configuration(
-                self.configuration
-            ),
+            call_models=call_models,
         )
         if entry_nodes is None:
             raise ValueError(
