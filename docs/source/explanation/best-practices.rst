@@ -31,37 +31,27 @@ Complex analysis takes longer and may be harder to interpret.
    # Good: Start simple
    pyflow callgraph input.py
 
-   # Then add options as needed
-   pyflow callgraph input.py --format json --max-depth 5
+    # Then pass specific options as needed
+   pyflow callgraph input.py --algorithm constraint
 
-Use Appropriate Output Formats
--------------------------------
+Choose the right tools for your task.
 
-**Do**: Choose the right output format for your task.
-
-- Use ``text`` for quick inspection
-- Use ``json`` for programmatic processing
-- Use ``dot`` for visualization
-- Use ``sarif`` for CI/CD integration
-
-**Why**: Text is easiest to read. JSON enables automation. DOT creates graphs.
-SARIF integrates with CI/CD.
+- Use ``pyflow callgraph`` for textual call graph analysis
+- Use ``pyflow ir --dump-format dot`` for IR visualization
+- Use ``pyflow security --format sarif`` for CI/CD security integration
 
 **Example**:
 
 .. code-block:: bash
 
    # For quick check
-   pyflow callgraph input.py --format text
+   pyflow callgraph input.py
 
-   # For scripting
-   pyflow callgraph input.py --format json --output graph.json
+   # For constraint-based analysis
+   pyflow callgraph input.py --algorithm constraint
 
-   # For visualization
-   pyflow callgraph input.py --format dot --output graph.dot
-
-   # For CI/CD
-   pyflow callgraph input.py --format sarif --output results.sarif
+   # For visualization, use ir dump with DOT format
+   pyflow ir input.py --dump-cfg main --dump-format dot --output cfg.dot
 
 Check Configuration
 -------------------
@@ -244,16 +234,14 @@ Integrate with Development Workflow
              python-version: '3.10'
          - name: Install PyFlow
            run: pip install pyflow
-         - name: Run Analysis
-           run: |
-             pyflow callgraph . --format sarif --output callgraph.sarif
-             pyflow security . --format sarif --output security.sarif
-         - name: Upload SARIF
-           uses: github/codeql-action/upload-sarif@v2
-           with:
-             sarif_file: |
-               callgraph.sarif
-               security.sarif
+          - name: Run Analysis
+            run: |
+              pyflow callgraph . --output callgraph.txt
+              pyflow security . --format sarif --output security.sarif
+          - name: Upload SARIF
+            uses: github/codeql-action/upload-sarif@v2
+            with:
+              sarif_file: security.sarif
 
 Security Analysis Best Practices
 =================================

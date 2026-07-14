@@ -213,7 +213,7 @@ Override configuration from the command line:
    pyflow optimize input.py --no-opt-passes
 
    # Set output format
-   pyflow callgraph input.py --format json --output result.json
+   pyflow callgraph input.py --output result.txt
 
 Environment Variables
 =====================

@@ -13,7 +13,7 @@ PyFlow is a research-oriented static analysis framework for Python. The reposito
 - optimization passes and pipeline orchestration
 - a public API for entrypoint declarations and semantic queries
 - CLI commands for optimization, call graph generation, IR dumping, security,
-  and dataflow
+  alias, and supply-chain
 - a large test suite with both focused unit tests and slower integration tests
 
 ## Environment

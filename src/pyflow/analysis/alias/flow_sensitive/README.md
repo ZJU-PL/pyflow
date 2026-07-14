@@ -115,7 +115,7 @@ The application pass registers the result under the `"heap"` analysis key:
 from pyflow.application.passes import HeapAnalysisPass
 ```
 
-CLI-oriented inspection lives in `pyflow.cli.heap`.
+CLI-oriented inspection lives in `pyflow.cli.alias`.
 
 ## Core Model
 

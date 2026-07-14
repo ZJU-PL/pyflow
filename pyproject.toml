@@ -37,7 +37,7 @@ dependencies = [
     "networkx",
     "packaging",
     "rstr",
-    "typing_inspect>=0.9.0"
+    "typing_inspect"
 ]
 
 [project.optional-dependencies]
