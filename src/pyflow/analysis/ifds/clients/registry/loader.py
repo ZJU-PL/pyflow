@@ -629,6 +629,59 @@ class Registry:
             sanitizer_categories=sanitizer_categories,
         )
 
+    def as_nullness_config(
+        self,
+        *,
+        extra_nullable_returns: Iterable[str] = (),
+    ):
+        """Build a ``NullnessConfiguration`` from active nullness models."""
+        from ...clients.nullness import NullnessConfiguration
+
+        models = self.active_models(type="nullness")
+        mapping = models.as_mapping()
+        nullable_returns: set[str] = set(extra_nullable_returns)
+        for name, model in mapping.items():
+            if model.nullness_nullable_return:
+                nullable_returns.add(name)
+        return NullnessConfiguration(
+            nullable_return_names=frozenset(nullable_returns),
+            call_models=models,
+        )
+
+    def as_typestate_config(
+        self,
+        *,
+        extra_open: Iterable[str] = (),
+        extra_close: Iterable[str] = (),
+        extra_use: Iterable[str] = (),
+    ):
+        """Build a ``TypestateConfiguration`` from active typestate models."""
+        from ...clients.typestate import TypestateConfiguration
+        from .._call_model import STATE_CLOSE, STATE_OPEN, STATE_USE
+
+        models = self.active_models(type="typestate")
+        mapping = models.as_mapping()
+        open_names: set[str] = set(extra_open)
+        close_names: set[str] = set(extra_close)
+        use_names: set[str] = set(extra_use)
+        protocol_names: set[str] = set()
+        for name, model in mapping.items():
+            if STATE_OPEN in model.typestate_actions:
+                open_names.add(name)
+            if STATE_CLOSE in model.typestate_actions:
+                close_names.add(name)
+            if STATE_USE in model.typestate_actions:
+                use_names.add(name)
+            for _action, protocol in model.typestate_action_protocols:
+                protocol_names.add(protocol)
+        return TypestateConfiguration(
+            open_names=frozenset(open_names) if open_names else frozenset({"open"}),
+            close_names=frozenset(close_names) if close_names else frozenset({"close"}),
+            use_names=frozenset(use_names) if use_names else frozenset({"read", "write", "send", "recv"}),
+            enabled_protocols=frozenset(protocol_names) if protocol_names else frozenset({"resource"}),
+            call_models=models,
+        )
+
 
 def load_registry() -> Registry:
     """Return the singleton process-wide registry."""
