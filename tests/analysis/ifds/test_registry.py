@@ -47,9 +47,10 @@ class TestRegistryLoading:
         r = Registry()
         r.activate("stdlib")
         mapping = r.active_models().as_mapping()
-        assert mapping["open"].typestate_actions == frozenset({"open"})
+        # Now all typestate configs use namespaced typestate_protocol+typestate_action
+        assert mapping["open"].typestate_actions == frozenset({"file.open"})
         assert mapping["close"].typestate_actions == frozenset({"close"})
-        assert mapping["read"].typestate_actions == frozenset({"use"})
+        assert mapping["read"].typestate_actions == frozenset({"file.use"})
 
     def test_explicit_typestate_protocol_actions(self):
         r = Registry()
@@ -166,15 +167,44 @@ class TestTaintConfiguration:
         )
 
 
+class TestNullnessPack:
+    def test_nullness_pack_from_subdir(self):
+        """The nullness pack lives under config/nullness/ and must be discoverable."""
+        r = Registry()
+        r.activate("stdlib")
+        assert "stdlib" in r.detected_frameworks
+        mapping = r.active_models().as_mapping()
+        assert mapping["re.match"].nullness_nullable_return is True
+        assert mapping["json.loads"].nullness_nullable_return is True
+        assert mapping["pickle.loads"].nullness_nullable_return is True
+        assert mapping["next"].nullness_nullable_return is True
+        assert mapping["get"].nullness_nullable_return is True
+        assert mapping["fetchone"].nullness_nullable_return is True
+        assert mapping["first"].nullness_nullable_return is True
+
+    def test_nullness_pack_auto_activated_with_stdlib(self):
+        """Nullness models should be merged when stdlib is active."""
+        r = Registry()
+        r.activate("stdlib")
+        mapping = r.active_models().as_mapping()
+        assert mapping["re.match"].nullness_nullable_return is True
+        assert mapping["first"].nullness_nullable_return is True
+        # stdlib taint models should still be present
+        assert mapping["eval"].taint_sink is True
+        assert mapping["open"].taint_source is True
+
+
 class TestTypeStatePresets:
     def test_file_typestate(self):
         r = Registry()
         r.activate("stdlib")
         mapping = r.active_models().as_mapping()
-        assert mapping["open"].typestate_actions == frozenset({"open"})
+        # open/read/write use "file" protocol → namespaced actions
+        assert mapping["open"].typestate_actions == frozenset({"file.open"})
+        assert mapping["read"].typestate_actions == frozenset({"file.use"})
+        assert mapping["write"].typestate_actions == frozenset({"file.use"})
+        # close uses generic "resource" protocol → bare action
         assert mapping["close"].typestate_actions == frozenset({"close"})
-        assert mapping["read"].typestate_actions == frozenset({"use"})
-        assert mapping["write"].typestate_actions == frozenset({"use"})
 
     def test_subprocess_typestate(self):
         r = Registry()

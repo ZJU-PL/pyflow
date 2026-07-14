@@ -412,6 +412,8 @@ def run_nullness_analysis(
     nullable_return_names: Iterable[str] = (),
     collection_mutator_names: Iterable[str] | None = None,
     collection_accessor_names: Iterable[str] | None = None,
+    registry_frameworks: Iterable[str] = (),
+    registry_paths: Iterable[str] = (),
     verbose: bool = False,
     dependency_strategy: str = "auto",
     search_paths: Sequence[str] | None = None,
@@ -420,8 +422,9 @@ def run_nullness_analysis(
     preparation_mode: PreparationMode = PreparationMode.BEST_EFFORT,
 ) -> tuple[AnalysisSession, NullnessAnalysisResult]:
     """Load files, resolve a function, and run the shipped nullness analysis."""
+    files = [Path(path) for path in python_files]
     session = load_analysis_session(
-        python_files,
+        files,
         verbose=verbose,
         dependency_strategy=dependency_strategy,
         search_paths=search_paths,
@@ -433,6 +436,12 @@ def run_nullness_analysis(
         session.adapter,
         NullnessConfiguration(
             nullable_return_names=frozenset(nullable_return_names),
+            call_models=_registry_models(
+                files,
+                type="nullness",
+                frameworks=registry_frameworks,
+                custom_paths=registry_paths,
+            ),
             collection_mutator_names=(
                 frozenset(collection_mutator_names)
                 if collection_mutator_names is not None
@@ -458,8 +467,8 @@ def run_typestate_analysis(
     close_names: Iterable[str] = ("close",),
     use_names: Iterable[str] = ("read", "write", "send", "recv"),
     enabled_protocols: Iterable[str] = ("resource",),
-    registry: bool = False,
     registry_frameworks: Iterable[str] = (),
+    registry_paths: Iterable[str] = (),
     collection_mutator_names: Iterable[str] | None = None,
     collection_accessor_names: Iterable[str] | None = None,
     verbose: bool = False,
@@ -487,10 +496,11 @@ def run_typestate_analysis(
             close_names=frozenset(close_names),
             use_names=frozenset(use_names),
             enabled_protocols=_normalize_typestate_protocols(enabled_protocols),
-            call_models=_typestate_registry_models(
+            call_models=_registry_models(
                 files,
-                enabled=registry,
+                type="typestate",
                 frameworks=registry_frameworks,
+                custom_paths=registry_paths,
             ),
             collection_mutator_names=(
                 frozenset(collection_mutator_names)
@@ -509,27 +519,42 @@ def run_typestate_analysis(
     return session, result
 
 
-def _typestate_registry_models(
+def _registry_models(
     files: Sequence[Path],
     *,
-    enabled: bool,
+    type: str,
     frameworks: Iterable[str],
+    custom_paths: Iterable[str] = (),
 ):
+    """Load call models from the JSON rule-pack registry, filtered by *type*.
+
+    Activates named frameworks (auto-detects when the list is empty, falls
+    back to ``"stdlib"``).  Returns a ``CallModelRegistry`` or ``None`` when
+    no loadable models are configured.
+    """
     frameworks = tuple(frameworks)
-    if not enabled and not frameworks:
+    custom_paths = tuple(custom_paths)
+    if not frameworks and not custom_paths:
         return None
 
     registry = load_registry()
     if frameworks:
-        registry.activate(*frameworks)
-    elif enabled:
+        registry.activate(*frameworks, type=type)
+    else:
+        all_detected: set[str] = set()
         for path in files:
             try:
-                registry.detect(path.read_text(encoding="utf-8").splitlines())
+                all_detected |= registry.detect(
+                    path.read_text(encoding="utf-8").splitlines()
+                )
             except OSError:
                 continue
-        if not registry.detected_frameworks:
-            registry.activate_all()
+        if all_detected:
+            registry.activate(*all_detected, type=type)
+        else:
+            registry.activate("stdlib", type=type)
+    if custom_paths:
+        registry.load_custom(*custom_paths)
     return registry.active_models()
 
 

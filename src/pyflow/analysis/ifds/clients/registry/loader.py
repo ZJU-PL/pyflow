@@ -32,9 +32,11 @@ from ..typestate_engine import typestate_action_for_protocol
 
 _log = logging.getLogger(__name__)
 
-_REGISTRY_DIR = Path(__file__).parent
+# JSON rule packs live under src/pyflow/config/ — resolve relative to this file
+_REGISTRY_DIR = Path(__file__).resolve().parent.parent.parent.parent.parent / "config"
 RULE_PACK_SCHEMA_VERSION = 1
 _SEVERITIES = {"info", "low", "medium", "high", "critical"}
+_KNOWN_TYPES = frozenset({"taint", "typestate", "nullness"})
 
 
 @dataclass(frozen=True)
@@ -75,6 +77,7 @@ class RulePack:
         self.version: str = str(data.get("version", ""))
         self.source_path = source_path
         self.framework: str = data.get("framework", "unknown")
+        self.type: str = data.get("type", "taint")
         self.description: str = data.get("description", "")
         self.detection: dict = data.get("detection", {})
         self._models_data: list[dict] = data.get("models", [])
@@ -281,12 +284,29 @@ def _parse_typestate_action_protocols(entry: dict) -> FrozenSet[tuple[str, str]]
     return frozenset(pairs)
 
 
+def _discover_pack_paths(base_dir: Path) -> list[Path]:
+    """Yield all ``.json`` pack files under *base_dir*, including subdirectories.
+
+    Subdirectories such as ``typestate/`` and ``nullness/`` are scanned
+    one level deep.  Schema files (``*.schema.json``) are excluded.
+    """
+    paths: list[Path] = []
+    for entry in sorted(base_dir.iterdir()):
+        if entry.name.endswith(".schema.json"):
+            continue
+        if entry.is_dir():
+            for child in sorted(entry.glob("*.json")):
+                if not child.name.endswith(".schema.json"):
+                    paths.append(child)
+        elif entry.suffix == ".json":
+            paths.append(entry)
+    return paths
+
+
 @lru_cache(maxsize=1)
 def _available_packs() -> tuple[RulePack, ...]:
     packs: list[RulePack] = []
-    for path in sorted(_REGISTRY_DIR.glob("*.json")):
-        if path.name.endswith(".schema.json"):
-            continue
+    for path in _discover_pack_paths(_REGISTRY_DIR):
         try:
             data = json.loads(path.read_text())
             issues = validate_rule_pack_data(data, path=path)
@@ -316,9 +336,15 @@ def validate_rule_pack_data(
             "schema_version",
             f"must equal {RULE_PACK_SCHEMA_VERSION}",
         )
-    for key in ("framework", "version"):
+    for key in ("framework", "version", "type"):
         if not isinstance(data.get(key), str) or not data[key].strip():
             error(key, "must be a non-empty string")
+    raw_type = str(data.get("type", "")).strip()
+    if raw_type and raw_type not in _KNOWN_TYPES:
+        error(
+            "type",
+            f"must be one of {sorted(_KNOWN_TYPES)}, got {raw_type!r}",
+        )
 
     models = data.get("models", [])
     if not isinstance(models, list):
@@ -388,11 +414,12 @@ def re_fullmatch_cwe(value: object) -> bool:
 def validate_registry() -> tuple[ValidationIssue, ...]:
     """Validate every shipped rule pack and report all errors."""
     issues: list[ValidationIssue] = []
-    frameworks: dict[str, Path] = {}
-    rule_ids: dict[str, Path] = {}
-    for path in sorted(_REGISTRY_DIR.glob("*.json")):
-        if path.name.endswith(".schema.json"):
-            continue
+    # Track (framework, subdirectory) pairs; same framework name across
+    # different subdirectory levels (e.g. root + taint/ + typestate/ + nullness/)
+    # is intentional — each file covers a different analysis concern.
+    seen_frameworks: dict[str, dict[str, Path]] = {}
+    seen_rule_ids: dict[str, dict[str, Path]] = {}
+    for path in _discover_pack_paths(_REGISTRY_DIR):
         try:
             data = json.loads(path.read_text())
         except Exception as exc:
@@ -401,83 +428,165 @@ def validate_registry() -> tuple[ValidationIssue, ...]:
         issues.extend(validate_rule_pack_data(data, path=path))
         if not isinstance(data, dict):
             continue
+        subdir = path.parent.relative_to(_REGISTRY_DIR).as_posix()
         framework = data.get("framework")
         if isinstance(framework, str):
-            previous = frameworks.get(framework)
+            group = seen_frameworks.setdefault(framework, {})
+            previous = group.get(subdir)
             if previous is not None:
                 issues.append(
                     ValidationIssue(
                         str(path),
-                        f"framework {framework!r} also defined by {previous.name}",
+                        f"framework {framework!r} also defined by {previous.name} "
+                        f"in the same directory {subdir!r}",
                     )
                 )
-            frameworks[framework] = path
+            group[subdir] = path
         for rule in (
             data.get("rules", ()) if isinstance(data.get("rules"), list) else ()
         ):
             if not isinstance(rule, dict) or not isinstance(rule.get("id"), str):
                 continue
             rule_id = rule["id"]
-            previous = rule_ids.get(rule_id)
+            group = seen_rule_ids.setdefault(rule_id, {})
+            previous = group.get(subdir)
             if previous is not None:
                 issues.append(
                     ValidationIssue(
                         str(path),
-                        f"rule id {rule_id!r} also defined by {previous.name}",
+                        f"rule id {rule_id!r} also defined by {previous.name} "
+                        f"in the same directory {subdir!r}",
                     )
                 )
-            rule_ids[rule_id] = path
+            group[subdir] = path
     return tuple(issues)
 
 
 class Registry:
-    """Lazy-loaded, framework-aware call model registry.
+    """Lazy-loaded, framework-aware and type-aware call model registry.
 
-    Packs are loaded from JSON files in the ``registry/`` directory.
-    Detection runs on source text; matching packs are activated and
-    their models merged into a single ``CallModelRegistry``.
+    Packs carry both a ``framework`` (stdlib, flask, django, …) and a ``type``
+    (taint, typestate, nullness).  Activation and detection can be filtered by
+    type so that callers load only the models relevant to their analysis.
     """
+
+    _KNOWN_TYPES = _KNOWN_TYPES  # alias the module-level constant
 
     def __init__(self) -> None:
         self._active_packs: list[RulePack] = []
-        self._detected: set[str] = set()
+        self._activated_sources: set[int] = set()
 
-    def detect(self, source_lines: Iterable[str]) -> FrozenSet[str]:
+    # ── helpers ──────────────────────────────────────────────────────
+
+    @staticmethod
+    def _pack_type(pack: RulePack) -> str:
+        return getattr(pack, "type", "taint")
+
+    # ── activation & detection ───────────────────────────────────────
+
+    def activate(
+        self, *framework_names: str, type: str | None = None
+    ) -> None:
+        """Explicitly activate packs, optionally filtered by *type*."""
+        for pack in _available_packs():
+            pid = id(pack)
+            if pack.framework not in framework_names:
+                continue
+            if type is not None and self._pack_type(pack) != type:
+                continue
+            if pid not in self._activated_sources:
+                self._activated_sources.add(pid)
+                self._active_packs.append(pack)
+
+    def detect(
+        self, source_lines: Iterable[str], *, type: str | None = None
+    ) -> FrozenSet[str]:
         """Scan *source_lines* for framework markers and activate matching packs."""
         lines = tuple(source_lines)
+        detected_frameworks: set[str] = set()
         for pack in _available_packs():
-            if pack.framework in self._detected:
+            pid = id(pack)
+            if pid in self._activated_sources:
+                continue
+            if type is not None and self._pack_type(pack) != type:
                 continue
             if pack.matches(lines):
-                self._detected.add(pack.framework)
+                self._activated_sources.add(pid)
                 self._active_packs.append(pack)
-        return frozenset(self._detected)
+                detected_frameworks.add(pack.framework)
+        return frozenset(detected_frameworks)
 
-    def activate(self, *framework_names: str) -> None:
-        """Explicitly activate packs by framework name."""
+    def activate_all(self, *, type: str | None = None) -> None:
+        """Activate every available pack, optionally filtered by *type*."""
         for pack in _available_packs():
-            if (
-                pack.framework in framework_names
-                and pack.framework not in self._detected
-            ):
-                self._detected.add(pack.framework)
+            pid = id(pack)
+            if type is not None and self._pack_type(pack) != type:
+                continue
+            if pid not in self._activated_sources:
+                self._activated_sources.add(pid)
                 self._active_packs.append(pack)
 
-    def activate_all(self) -> None:
-        """Activate every available pack (for exhaustive analysis)."""
-        for pack in _available_packs():
-            if pack.framework not in self._detected:
-                self._detected.add(pack.framework)
-                self._active_packs.append(pack)
+    # ── introspection ────────────────────────────────────────────────
 
     @property
     def detected_frameworks(self) -> FrozenSet[str]:
-        return frozenset(self._detected)
+        return frozenset(
+            pack.framework for pack in self._active_packs
+        )
 
-    def active_models(self) -> CallModelRegistry:
-        """Return a ``CallModelRegistry`` merging all active packs."""
+    def available_frameworks(self, *, type: str | None = None) -> FrozenSet[str]:
+        """Return all known framework names, optionally filtered by *type*."""
+        return frozenset(
+            pack.framework
+            for pack in _available_packs()
+            if type is None or self._pack_type(pack) == type
+        )
+
+    def available_types(self) -> FrozenSet[str]:
+        """Return pack types known to the registry."""
+        return self._KNOWN_TYPES
+
+    # ── custom packs ─────────────────────────────────────────────────
+
+    def load_custom(self, *paths: str | Path) -> None:
+        """Load custom rule packs from JSON files or directories."""
+        for raw in paths:
+            path = Path(raw)
+            if not path.exists():
+                _log.warning("Custom registry path not found: %s", path)
+                continue
+            if path.is_dir():
+                for child in sorted(path.glob("*.json")):
+                    self._load_custom_file(child)
+            else:
+                self._load_custom_file(path)
+
+    def _load_custom_file(self, path: Path) -> None:
+        try:
+            data = json.loads(path.read_text())
+        except Exception as exc:
+            _log.warning("Failed to parse custom rule pack %s: %s", path.name, exc)
+            return
+        issues = validate_rule_pack_data(data, path=path)
+        if issues:
+            for issue in issues:
+                _log.warning(
+                    "Validation issue in %s: %s", path.name, issue.message
+                )
+            return
+        pack = RulePack(data, source_path=path)
+        self._active_packs.append(pack)
+
+    # ── model access ─────────────────────────────────────────────────
+
+    def active_models(
+        self, *, type: str | None = None
+    ) -> CallModelRegistry:
+        """Return a ``CallModelRegistry`` merging active packs, optionally filtered by *type*."""
         models: list[CallModel] = []
         for pack in self._active_packs:
+            if type is not None and self._pack_type(pack) != type:
+                continue
             models.extend(pack.to_call_models())
         return CallModelRegistry(models)
 
@@ -495,14 +604,10 @@ class Registry:
         extra_sinks: Iterable[str] = (),
         extra_sanitizers: Iterable[str] = (),
     ):
-        """Build a ``TaintConfiguration`` from active models.
-
-        Intended as a drop-in for programmatic ``TaintConfiguration``
-        construction.  Only the taint-related fields are populated.
-        """
+        """Build a ``TaintConfiguration`` from active taint models."""
         from ...clients.taint import TaintConfiguration
 
-        models = self.active_models()
+        models = self.active_models(type="taint")
         mapping = models.as_mapping()
         sources: set[str] = set(extra_sources)
         sinks: set[str] = set(extra_sinks)
