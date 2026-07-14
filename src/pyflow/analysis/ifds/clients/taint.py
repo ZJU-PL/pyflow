@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import FrozenSet, Mapping, Sequence
 
 from pyflow.analysis.cfg import graph as cfg_graph
@@ -42,7 +42,7 @@ class TaintConfiguration:
     source_names: FrozenSet[str] = frozenset()
     sink_names: FrozenSet[str] = frozenset()
     sanitizer_names: FrozenSet[str] = frozenset()
-    sanitizer_categories: Mapping[str, FrozenSet[str]] = frozenset()
+    sanitizer_categories: Mapping[str, FrozenSet[str]] = field(default_factory=dict)
     collection_mutator_names: FrozenSet[str] = frozenset(
         {"append", "add", "extend", "update"}
     )
