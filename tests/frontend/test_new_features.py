@@ -151,9 +151,8 @@ class TestTypeAnnotations(unittest.TestCase):
         node = tree.body[0]
         
         result = self.converter._convert_node(node)
-        self.assertIsInstance(result, pyflow_ast.Suite)
-        self.assertIsInstance(result.blocks[0], pyflow_ast.Assign)
-        self.assertIsInstance(result.blocks[1], pyflow_ast.SetSubscript)
+        self.assertIsInstance(result, pyflow_ast.AnnAssign)
+        self.assertIsNotNone(result.value)
 
     def test_convert_annassign_no_value(self):
         """Test converting annotation-only (no value)."""
@@ -162,9 +161,8 @@ class TestTypeAnnotations(unittest.TestCase):
         node = tree.body[0]
         
         result = self.converter._convert_node(node)
-        self.assertIsInstance(result, pyflow_ast.Suite)
-        self.assertEqual(len(result.blocks), 1)
-        self.assertIsInstance(result.blocks[0], pyflow_ast.SetSubscript)
+        self.assertIsInstance(result, pyflow_ast.AnnAssign)
+        self.assertIsNone(result.value)
 
     @unittest.skipIf(not hasattr(python_ast, "TypeAlias"), "Requires Python 3.12+")
     def test_convert_type_alias_emits_marker_and_binding(self):

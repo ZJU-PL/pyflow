@@ -516,10 +516,9 @@ finally:
         node = tree.body[0]
 
         result = self.converter._convert_node(node)
-        self.assertIsInstance(result, pyflow_ast.Suite)
-        self.assertIsInstance(result.blocks[0], pyflow_ast.Assign)
-        self.assertEqual(result.blocks[0].lcls[0].name, "x")
-        self.assertIsInstance(result.blocks[1], pyflow_ast.SetSubscript)
+        self.assertIsInstance(result, pyflow_ast.AnnAssign)
+        self.assertEqual(result.target.name, "x")
+        self.assertIsInstance(result.value, pyflow_ast.Existing)
 
     def test_convert_annassign_without_value_updates_annotations(self):
         """Annotation-only assignment still updates ``__annotations__``."""
@@ -528,9 +527,8 @@ finally:
         node = tree.body[0]
 
         result = self.converter._convert_node(node)
-        self.assertIsInstance(result, pyflow_ast.Suite)
-        self.assertEqual(len(result.blocks), 1)
-        self.assertIsInstance(result.blocks[0], pyflow_ast.SetSubscript)
+        self.assertIsInstance(result, pyflow_ast.AnnAssign)
+        self.assertIsNone(result.value)
 
     @unittest.skipIf(not hasattr(python_ast, "TypeAlias"), "Requires Python 3.12+")
     def test_convert_type_alias_preserves_alias_and_binding(self):

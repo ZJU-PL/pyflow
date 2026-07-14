@@ -1237,17 +1237,18 @@ class HeapAbstraction:
     @staticmethod
     def _site_identity(node: object) -> object:
         origin = getattr(getattr(node, "annotation", None), "origin", ()) or ()
-        if origin:
+        meaningful_origin = tuple(item for item in origin if item is not None)
+        if meaningful_origin:
             return (
                 type(node).__name__,
-                tuple(repr(item) for item in origin),
+                tuple(repr(item) for item in meaningful_origin),
                 getattr(node, "name", None),
             )
         line = getattr(node, "line", None)
         column = getattr(node, "column", None)
         if line is not None or column is not None:
             return type(node).__name__, line, column
-        return type(node).__name__, id(node)
+        return id(node)
 
     def _context_key(self, context: tuple[object, ...]) -> tuple[object, ...]:
         depth = self.policy.context_sensitivity_depth

@@ -1535,9 +1535,9 @@ def test_bare_raise_preserves_the_active_exception_identity():
                 py_ast.TryExceptFinally(
                     py_ast.Suite([py_ast.Raise(exception, None, None)]),
                     [
-                            py_ast.ExceptionHandler(
-                                py_ast.Suite([]),
-                                _existing("Exception"),
+                        py_ast.ExceptionHandler(
+                            py_ast.Suite([]),
+                            _existing("Exception"),
                             caught,
                             py_ast.Suite([py_ast.Raise(None, None, None)]),
                         )

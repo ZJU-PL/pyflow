@@ -2240,23 +2240,15 @@ class ASTConverter:
         )
 
         if isinstance(node.target, python_ast.Name):
-            suite = pyflow_ast.Suite([])
-            if value is not None:
-                suite.append(self._name_store(node.target.id, value))
             if annotation is not None:
-                annotations = (
-                    pyflow_ast.GetGlobal(self._name_constant("__annotations__"))
-                    if scope is None or scope.get("kind") == "module"
-                    else pyflow_ast.Local("__annotations__")
+                return pyflow_ast.AnnAssign(
+                    pyflow_ast.Local(node.target.id),
+                    annotation,
+                    value,
                 )
-                suite.append(
-                    pyflow_ast.SetSubscript(
-                        annotation,
-                        annotations,
-                        self._name_constant(node.target.id),
-                    )
-                )
-            return suite
+            if value is not None:
+                return self._name_store(node.target.id, value)
+            return pyflow_ast.Suite([])
 
         # For non-local targets, keep the runtime-equivalent lowering.
         suite = pyflow_ast.Suite([])
