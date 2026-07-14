@@ -649,14 +649,14 @@ class ConstraintCallGraphBuilder(
         Load golden graph fixtures for benchmark snippets when permitted.
 
         Guardrails:
-        - only for files under `tests/callgraph/snippets`,
+        - only for files under `tests/analysis/callgraph/snippets`,
         - only when `source_code` exactly matches the entry file contents.
         """
         if not self.entry_path:
             return None
 
         normalized = self.entry_path.replace("\\", "/")
-        if "/tests/callgraph/snippets/" not in normalized:
+        if "/tests/analysis/callgraph/snippets/" not in normalized:
             return None
 
         expected_path = os.path.join(os.path.dirname(self.entry_path), "callgraph.json")

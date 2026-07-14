@@ -5,7 +5,7 @@ from pyflow.analysis.ifds import build_supergraph_from_cfgs
 from pyflow.analysis.ifds.cfg_adapter import CallEffect
 from pyflow.language.python import ast
 
-from tests.ifds._support import build_cfg, make_code
+from tests.analysis.ifds._support import build_cfg, make_code
 
 
 def _reachable_nodes(adapter, start):

@@ -5,7 +5,7 @@ from __future__ import annotations
 from pyflow.analysis.ifds.annotation_fallback import ensure_ifds_annotations_complete
 from pyflow.language.python import ast
 
-from tests.ifds._support import make_code
+from tests.analysis.ifds._support import make_code
 
 
 def test_annotation_fallback_marks_call_callee_expression_as_read():

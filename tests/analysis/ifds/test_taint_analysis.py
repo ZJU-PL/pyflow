@@ -15,7 +15,7 @@ from pyflow.analysis.ifds import (
 )
 from pyflow.language.python import ast
 
-from tests.ifds._support import build_cfg, call_stmt, make_code
+from tests.analysis.ifds._support import build_cfg, call_stmt, make_code
 
 
 def test_interprocedural_taint_analysis_reports_only_unsanitized_sink_flow():

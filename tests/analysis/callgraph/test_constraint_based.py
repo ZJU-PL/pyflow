@@ -2262,7 +2262,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
     def test_fixture_graph_loading_can_be_disabled(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             snippet_dir = os.path.join(
-                temp_dir, "tests", "callgraph", "snippets", "fixture_toggle"
+                temp_dir, "tests", "analysis", "callgraph", "snippets", "fixture_toggle"
             )
             os.makedirs(snippet_dir, exist_ok=True)
             main_path = os.path.join(snippet_dir, "main.py")
@@ -2293,7 +2293,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
     def test_invalid_fixture_json_falls_back_to_analysis(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             snippet_dir = os.path.join(
-                temp_dir, "tests", "callgraph", "snippets", "invalid_fixture"
+                temp_dir, "tests", "analysis", "callgraph", "snippets", "invalid_fixture"
             )
             os.makedirs(snippet_dir, exist_ok=True)
             main_path = os.path.join(snippet_dir, "main.py")

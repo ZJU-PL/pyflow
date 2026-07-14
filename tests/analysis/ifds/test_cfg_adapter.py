@@ -16,7 +16,7 @@ from pyflow.analysis.ifds.cfg_adapter import (
 from pyflow.language.python import ast
 from pyflow.language.python.default_markers import MISSING_DEFAULT
 
-from tests.ifds._support import build_cfg, make_code
+from tests.analysis.ifds._support import build_cfg, make_code
 
 
 def test_cfg_adapter_discovers_direct_call_edges_and_return_sites():

@@ -12,7 +12,7 @@ from pyflow.analysis.ifds import (
 )
 from pyflow.language.python import ast
 
-from tests.ifds._support import build_cfg, make_code
+from tests.analysis.ifds._support import build_cfg, make_code
 
 
 def test_nullness_reports_attribute_access_on_nullable_local():

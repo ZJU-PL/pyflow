@@ -31,7 +31,7 @@ from pyflow.analysis.ifds.clients.registry import (
 )
 from pyflow.analysis.ifds.preparation import PreparationMode, prepare_program_for_ifds
 
-from tests.ifds.reference_solver import solve_reference
+from tests.analysis.ifds.reference_solver import solve_reference
 
 
 class _GeneratedProblem(IFDSProblem[str, str, str]):

@@ -23,7 +23,7 @@ from pyflow.analysis.ifds.clients.typestate_engine import (
 )
 from pyflow.language.python import ast
 
-from tests.ifds._support import build_cfg, make_code
+from tests.analysis.ifds._support import build_cfg, make_code
 
 
 def test_typestate_engine_models_resource_protocol_rules():

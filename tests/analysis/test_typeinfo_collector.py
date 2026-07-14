@@ -3,7 +3,7 @@ from __future__ import annotations
 from pyflow.analysis.typeinfo import collect_pyflow_type_info, collect_python_type_info
 from pyflow.language.python import ast
 
-from tests.ifds._support import make_code
+from tests.analysis.ifds._support import make_code
 
 
 def test_collect_python_type_info_from_annotations_and_literals():
