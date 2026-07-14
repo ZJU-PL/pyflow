@@ -2,7 +2,7 @@
 
 The tables describe common Python calls in terms of return-value kind,
 argument read/write effects, and collection mutation shape.  They let
-the heap analysis resolve call semantics without computing a full summary.
+the analysis resolve call semantics without computing a full summary.
 
 Each model is a frozen dataclass so that default instances can be shared
 safely across analysis contexts.
@@ -23,7 +23,7 @@ CALL_RETURN_FRESH = "fresh"
 CALL_RETURN_COPY = "copy"
 """Return value is a *new allocation* (shallow copy of inputs).
 
-Treated identically to FRESH in the heap analysis today.  The distinction
+Treated identically to FRESH in the flow-sensitive heap analysis today.  The distinction
 is reserved for copy-elision / escape reasoning.
 """
 

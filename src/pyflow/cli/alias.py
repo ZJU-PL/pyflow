@@ -1,4 +1,4 @@
-"""CLI entrypoint for standalone heap alias/escape analysis."""
+"""CLI entrypoint for alias analysis — flow-sensitive heap and k-CFA pointer."""
 
 from __future__ import annotations
 
@@ -7,22 +7,35 @@ import sys
 from pathlib import Path
 
 from pyflow.analysis.alias.flow_sensitive import HeapAnalysis
+from pyflow.analysis.alias.kcfa import PointerAnalysis
 
 
-def add_heap_parser(subparsers):
-    """Add the heap subcommand parser."""
+def add_alias_parser(subparsers):
+    """Add the alias subcommand parser."""
     parser = subparsers.add_parser(
-        "heap",
-        help="Run standalone heap alias/escape analysis on Python files",
+        "alias",
+        help="Run alias analysis on Python files (flow-sensitive or k-CFA)",
         description=(
-            "Parse one or more Python source files, convert each function to "
-            "PyFlow IR, and run the heap analysis engine.  Prints per-function "
-            "heap entries with escape status and alias information."
+            "Parse one or more Python source files and run alias analysis. "
+            "Supports two engines: flow-sensitive (heap alias/escape analysis) "
+            "and kcfa (k-CFA pointer/call-graph analysis)."
         ),
     )
     parser.add_argument(
         "input_path",
         help="Python file or directory to analyze",
+    )
+    parser.add_argument(
+        "--engine",
+        choices=["flow-sensitive", "kcfa"],
+        default="flow-sensitive",
+        help="Analysis engine: flow-sensitive (default) or kcfa",
+    )
+    parser.add_argument(
+        "--k",
+        type=int,
+        default=1,
+        help="k-CFA context sensitivity depth (kcfa engine only, default: 1)",
     )
     parser.add_argument(
         "--recursive", "-r",
@@ -37,7 +50,7 @@ def add_heap_parser(subparsers):
     parser.add_argument(
         "--verbose", "-v",
         action="store_true",
-        help="Include per-entry details (selector path, update policy, points-to sets)",
+        help="Include per-entry details",
     )
     return parser
 
@@ -75,6 +88,10 @@ def _convert_functions(source: str, filename: str) -> dict[str, object]:
     return result
 
 
+# ---------------------------------------------------------------------------
+# Flow-sensitive (heap) engine
+# ---------------------------------------------------------------------------
+
 def _format_entry(entry, verbose: bool) -> str:
     loc = entry.location
     sig = "S" if entry.is_singleton else " "
@@ -89,26 +106,21 @@ def _format_entry(entry, verbose: bool) -> str:
             f"    [{sig}{esc}] refs={entry.ref_count} {label}  "
             f"[{strong}]{sel_str}"
         )
-    else:
-        return f"    [{sig}{esc}] refs={entry.ref_count} {label}"
+    return f"    [{sig}{esc}] refs={entry.ref_count} {label}"
 
 
 def _build_alias_group_lines(all_entries, graph, verbose: bool) -> list[str]:
-    """Build alias group lines showing must-alias equivalence classes
-    and may-alias relationships between classes."""
     lines: list[str] = []
-
-    # Group entries by their alias equivalence class
     groups: dict[int, list] = {}
     group_ref_count: dict[int, int] = {}
     for entry in all_entries:
         key = id(entry.aliases)
         groups.setdefault(key, []).append(entry)
-        group_ref_count[key] = entry.ref_count  # same for all in class
+        group_ref_count[key] = entry.ref_count
 
     multi_member = {k: v for k, v in groups.items() if len(v) >= 2}
     if not multi_member and not verbose:
-        return lines  # all singletons, nothing interesting to show
+        return lines
 
     header = "    alias groups (must-alias):" if multi_member else ""
     if header:
@@ -124,11 +136,8 @@ def _build_alias_group_lines(all_entries, graph, verbose: bool) -> list[str]:
         flags = f" [{''.join(status_flags)}]" if status_flags else ""
         lines.append(f"      {{{', '.join(labels)}}}{flags}  refs={refs}")
 
-    # Cross-group may-alias (only interesting when groups actually
-    # may-alias despite being in different equivalence classes).
-    # This can happen with nested selectors that may overlap.
     group_keys = list(groups.keys())
-    may_pairs: list[tuple[str, str]] = []
+    may_pairs: list[tuple[str, str, str]] = []
     for i in range(len(group_keys)):
         for j in range(i + 1, len(group_keys)):
             a_entry = groups[group_keys[i]][0]
@@ -164,7 +173,7 @@ def _collect_param_names(code) -> list[str]:
     return param_names
 
 
-def _analyze_file(filepath: Path, verbose: bool) -> None:
+def _analyze_file_flow_sensitive(filepath: Path, verbose: bool) -> None:
     source = filepath.read_text()
     codes = _convert_functions(source, str(filepath))
 
@@ -172,7 +181,7 @@ def _analyze_file(filepath: Path, verbose: bool) -> None:
         print(f"  (no functions found to analyze)")
         return
 
-    print(f"# {filepath}")
+    print(f"# {filepath}  [engine: flow-sensitive]")
     print()
 
     for func_name, code in codes.items():
@@ -188,7 +197,6 @@ def _analyze_file(filepath: Path, verbose: bool) -> None:
         singleton_count = sum(1 for e in all_entries if e.is_singleton)
         escaped_count = sum(1 for e in all_entries if e.is_escaped)
 
-        # Count alias groups
         seen_groups: set[int] = set()
         for e in all_entries:
             seen_groups.add(id(e.aliases))
@@ -203,7 +211,6 @@ def _analyze_file(filepath: Path, verbose: bool) -> None:
         for entry in all_entries:
             print(_format_entry(entry, verbose))
 
-        # Alias group details
         group_lines = _build_alias_group_lines(all_entries, graph, verbose)
         if group_lines:
             for l in group_lines:
@@ -212,7 +219,7 @@ def _analyze_file(filepath: Path, verbose: bool) -> None:
         print()
 
 
-def _to_json_entry(entry, graph) -> dict:
+def _to_json_entry_flow_sensitive(entry, graph) -> dict:
     loc = entry.location
     must_aliases = sorted(
         e.label for e in graph.iter_entries()
@@ -234,7 +241,7 @@ def _to_json_entry(entry, graph) -> dict:
     }
 
 
-def _analyze_file_json(filepath: Path) -> dict:
+def _analyze_file_flow_sensitive_json(filepath: Path) -> dict:
     source = filepath.read_text()
     codes = _convert_functions(source, str(filepath))
     functions: dict[str, object] = {}
@@ -247,7 +254,7 @@ def _analyze_file_json(filepath: Path) -> dict:
             functions[func_name] = {"error": str(exc)}
             continue
 
-        entries = [_to_json_entry(e, graph) for e in graph.iter_entries()]
+        entries = [_to_json_entry_flow_sensitive(e, graph) for e in graph.iter_entries()]
         functions[func_name] = {
             "entry_count": len(entries),
             "singleton_count": sum(1 for e in entries if e["is_singleton"]),
@@ -258,7 +265,97 @@ def _analyze_file_json(filepath: Path) -> dict:
     return {"file": str(filepath), "functions": functions}
 
 
-def run_heap_analysis(input_path: str, args) -> int:
+# ---------------------------------------------------------------------------
+# k-CFA pointer engine
+# ---------------------------------------------------------------------------
+
+def _analyze_file_kcfa(filepath: Path, k: int, verbose: bool) -> None:
+    source = filepath.read_text()
+
+    print(f"# {filepath}  [engine: kcfa, k={k}]")
+    print()
+
+    try:
+        analysis = PointerAnalysis(source, k=k)
+        result = analysis.run()
+    except Exception as exc:
+        print(f"  ERROR — {exc}", file=sys.stderr)
+        return
+
+    call_edges = result.call_edges()
+    print(f"  call edges: {len(call_edges)}")
+    if verbose:
+        for caller, callee in call_edges:
+            print(f"    {caller} → {callee}")
+
+    seen_names: set[str] = set()
+    all_bindings: dict[str, list[tuple[str, set[str]]]] = {}
+    for name in _collect_variable_names(source):
+        bindings = result.bindings_for_name(name)
+        if bindings:
+            all_bindings[name] = bindings
+            seen_names.add(name)
+
+    print(f"  tracked variables: {len(seen_names)}")
+    for name in sorted(seen_names):
+        pts = result.points_to(name)
+        print(f"    {name} → {sorted(pts) if pts else '∅'}")
+        if verbose:
+            for ctx, ctx_pts in all_bindings.get(name, []):
+                print(f"      [{ctx}] → {sorted(ctx_pts)}")
+
+    print()
+
+
+def _collect_variable_names(source: str) -> set[str]:
+    """Collect variable names from a Python source for kcfa display."""
+    names: set[str] = set()
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Load)):
+            names.add(node.id)
+    return names
+
+
+def _analyze_file_kcfa_json(filepath: Path, k: int) -> dict:
+    source = filepath.read_text()
+    result_data: dict = {"file": str(filepath), "engine": "kcfa", "k": k}
+
+    try:
+        analysis = PointerAnalysis(source, k=k)
+        result = analysis.run()
+    except Exception as exc:
+        result_data["error"] = str(exc)
+        return result_data
+
+    call_edges = result.call_edges()
+    result_data["call_edges"] = [
+        {"caller": c, "callee": t} for c, t in call_edges
+    ]
+
+    variables: dict[str, object] = {}
+    for name in sorted(_collect_variable_names(source)):
+        pts = result.points_to(name)
+        if pts:
+            variables[name] = {
+                "points_to": sorted(pts),
+                "bindings": [
+                    {"context": ctx, "points_to": sorted(ctx_pts)}
+                    for ctx, ctx_pts in result.bindings_for_name(name)
+                ],
+            }
+    result_data["variables"] = variables
+
+    return result_data
+
+
+# ---------------------------------------------------------------------------
+# Top-level driver
+# ---------------------------------------------------------------------------
+
+def run_alias_analysis(input_path: str, args) -> int:
+    engine: str = getattr(args, "engine", "flow-sensitive")
+    k: int = getattr(args, "k", 1)
+
     try:
         files = _discover_python_files(Path(input_path), getattr(args, "recursive", False))
     except FileNotFoundError as e:
@@ -272,15 +369,25 @@ def run_heap_analysis(input_path: str, args) -> int:
     verbose = getattr(args, "verbose", False)
     json_mode = getattr(args, "json", False)
 
-    if json_mode:
-        import json
-
-        all_results: list[dict] = []
-        for filepath in files:
-            all_results.append(_analyze_file_json(filepath))
-        print(json.dumps(all_results, indent=2))
+    if engine == "kcfa":
+        if json_mode:
+            import json
+            all_results: list[dict] = []
+            for filepath in files:
+                all_results.append(_analyze_file_kcfa_json(filepath, k))
+            print(json.dumps(all_results, indent=2))
+        else:
+            for filepath in files:
+                _analyze_file_kcfa(filepath, k, verbose)
     else:
-        for filepath in files:
-            _analyze_file(filepath, verbose)
+        if json_mode:
+            import json
+            all_results: list[dict] = []
+            for filepath in files:
+                all_results.append(_analyze_file_flow_sensitive_json(filepath))
+            print(json.dumps(all_results, indent=2))
+        else:
+            for filepath in files:
+                _analyze_file_flow_sensitive(filepath, verbose)
 
     return 0

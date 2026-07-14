@@ -26,7 +26,7 @@ from .optimize import run_analysis, list_optimization_passes, add_optimize_parse
 from .ir import run_ir_dump, add_ir_parser
 from .security import run_security, add_security_parser
 from . import callgraph
-from .heap import run_heap_analysis, add_heap_parser
+from .alias import run_alias_analysis, add_alias_parser
 from .supply_chain import add_supply_chain_parser, run_supply_chain
 
 
@@ -54,8 +54,7 @@ def main():
     # IR dumping command
     add_ir_parser(subparsers)
 
-    # Heap analysis command
-    add_heap_parser(subparsers)
+    add_alias_parser(subparsers)
 
     # Unified security analysis command
     add_security_parser(subparsers)
@@ -91,7 +90,7 @@ def main():
         input_path = None
     elif args.command == "supply-chain":
         input_path = None
-    elif args.command == "heap":
+    elif args.command == "alias":
         input_path = Path(args.input_path)
     else:
         input_path = None
@@ -110,8 +109,8 @@ def main():
     elif args.command == "ir":
         run_ir_dump(input_path, args)
         return 0
-    elif args.command == "heap":
-        return run_heap_analysis(args.input_path, args)
+    elif args.command == "alias":
+        return run_alias_analysis(args.input_path, args)
     elif args.command == "security":
         return run_security(args)
     elif args.command == "supply-chain":

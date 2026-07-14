@@ -1606,7 +1606,7 @@ class ASTConverter:
                 )
                 # Extended unpacking always creates a fresh list.  Keep the
                 # slice bounds as evaluated operands, while the dedicated
-                # helper lets heap analysis copy the source elements without
+                # helper lets the flow-sensitive heap analysis copy the source elements without
                 # aliasing the result container directly to those elements.
                 star_rhs = self._call_named(
                     "interpreter_slice_copy",

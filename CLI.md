@@ -7,7 +7,7 @@ This document matches the current `pyflow` command surface.
 - `optimize`: Run the analysis and optimization pipeline
 - `callgraph`: Build a call graph from a single Python file
 - `ir`: Dump AST, CFG, SSA, CDG, or DDG forms for specific functions
-- `heap`: Run standalone heap alias/escape analysis
+- `alias`: Run alias analysis (flow-sensitive heap or k-CFA pointer)
 - `security`: Unified security analysis (dispatches to any of four engines)
 
 ## Optimize
@@ -83,19 +83,21 @@ Key options:
 
 `--as-graph-output` is only supported with `--algorithm constraint`.
 
-## Heap
+## Alias
 
 ```bash
-pyflow heap [OPTIONS] INPUT_PATH
+pyflow alias [OPTIONS] INPUT_PATH
 ```
 
 `INPUT_PATH` may be a Python file or directory.
 
 Key options:
+- `--engine {flow-sensitive,kcfa}`: Analysis engine (default: flow-sensitive).
+  `flow-sensitive` runs heap alias/escape analysis; `kcfa` runs k-CFA pointer analysis.
+- `--k N`: k-CFA context sensitivity depth (kcfa engine only, default: 1)
 - `--recursive`, `-r`: Recursively analyze Python files in a directory
 - `--json`: Output machine-readable JSON instead of human-friendly text
-- `--verbose`, `-v`: Include per-entry details (selector path, update policy,
-  points-to sets)
+- `--verbose`, `-v`: Include per-entry details
 
 ## Supply Chain
 

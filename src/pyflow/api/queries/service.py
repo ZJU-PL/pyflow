@@ -254,7 +254,7 @@ class SemanticQueryService:
         graph = self.get_heap_graph()
         if graph is None:
             raise RuntimeError(
-                "Heap analysis not available; ensure the 'heap' pass has been run."
+                "Flow-sensitive heap analysis not available; ensure the 'heap' pass has been run."
             )
         return graph
 

@@ -1,4 +1,4 @@
-"""Standalone heap analysis engine.
+"""Flow-sensitive heap analysis engine.
 
 :class:`HeapAnalysis` wraps :class:`HeapAbstraction` as a first-class
 analysis engine that produces a reusable :class:`PointsToGraph`.  Unlike

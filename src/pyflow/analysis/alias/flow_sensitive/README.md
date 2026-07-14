@@ -1,4 +1,4 @@
-# Heap Analysis Module
+# Flow-Sensitive Heap Analysis Module
 
 `pyflow.analysis.alias.flow_sensitive` provides PyFlow's standalone heap, alias, escape, and
 points-to model. It is used by optimization passes, semantic queries, CLI
@@ -52,7 +52,7 @@ questions, but they target different consumers.
 | Query surface | `PointsToGraph` with `may_alias`, `aliased`, escape, ref-count, and update-policy queries | `PointerAnalysisResult.points_to(name)` and call edges, with raw PythonStAn result access |
 | Integration | Uses PyFlow program/code objects and feeds optimization/query APIs | Starts from source text and runs the PythonStAn lowering pipeline |
 
-Use heap analysis when a PyFlow pass needs order-aware heap state, escape facts,
+Use the analysis when a PyFlow pass needs order-aware heap state, escape facts,
 or proof that a write can overwrite previous facts. Use pointer analysis when
 you need a source-level, context-sensitive over-approximation of possible
 objects/callees and do not need per-program-point update semantics.

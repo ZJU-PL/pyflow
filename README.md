@@ -31,7 +31,7 @@ If you use pyflow in your research or work, please cite the following:
 - **Supply-chain analysis**: local SBOM generation, distribution integrity
   auditing, and dependency metadata extraction
 - **CLI tooling**: commands for optimization, call graph generation, IR dumps,
-  security, supply-chain, and heap analysis
+  security, supply-chain, and alias analysis
 
 ## Installation and Usage
 
@@ -85,8 +85,8 @@ pyflow security input.py --engine ifds --function main --sources input --sinks e
 # Run CPG-based context-sensitive security analysis
 pyflow security input.py --engine cpg --framework flask
 
-# Run heap alias/escape analysis
-pyflow heap input.py --verbose
+# Run alias analysis (flow-sensitive heap or k-CFA pointer)
+pyflow alias input.py --verbose
 
 # Generate a CycloneDX SBOM from local package metadata
 pyflow supply-chain sbom package/
@@ -117,11 +117,11 @@ pytest tests/checker
 
 The repository is organized around a few major subsystems:
 
-- `src/pyflow/analysis`: core analysis engines such as call graph, CFG, DDG, IFDS, heap, IPA, CPA, PDG, pointer (k-CFA), shape, and lifetime analysis.
+- `src/pyflow/analysis`: core analysis engines such as call graph, CFG, DDG, IFDS, alias (flow-sensitive heap + k-CFA pointer), IPA, CPA, PDG, shape, and lifetime analysis.
 - `src/pyflow/application`: orchestration code including compiler context, pipeline execution, and the pass manager.
 - `src/pyflow/api`: query-facing interfaces and entrypoint construction.
 - `src/pyflow/checker`: pattern-based, semantic, and supply-chain analysis modules plus output formatters.
-- `src/pyflow/cli`: command-line entrypoints for optimization, call graph, IR, heap, security, and supply-chain analysis.
+- `src/pyflow/cli`: command-line entrypoints for optimization, call graph, IR, alias, security, and supply-chain analysis.
 - `src/pyflow/frontend`: source-driven extraction, dependency resolution, object loading, and stub handling.
 - `src/pyflow/language`: Python IR/AST support, module-handling utilities, and AST tooling (cyclomatic complexity, decorator/visitor utilities).
 - `src/pyflow/optimization`: optimization and simplification passes.
