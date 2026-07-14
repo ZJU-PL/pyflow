@@ -11,6 +11,7 @@ Dispatches to one of four engine backends:
 
 from __future__ import annotations
 
+import argparse
 import json
 import logging
 import sys
@@ -52,15 +53,20 @@ def add_security_parser(subparsers):
         help="Security analysis engine to use",
     )
     p.add_argument(
+        "--config",
+        type=Path,
+        help="JSON config file for IFDS analysis parameters",
+    )
+    p.add_argument(
         "--analysis",
         choices=["taint", "nullness", "typestate"],
-        default="taint",
+        default=argparse.SUPPRESS,
         help="IFDS analysis to run when --engine ifds is selected",
     )
     p.add_argument(
         "--sources",
         nargs="+",
-        default=[],
+        default=argparse.SUPPRESS,
         help=(
             "Source function names for taint-style checks "
             "(repeatable, e.g. 'request.args' 'input')"
@@ -69,7 +75,7 @@ def add_security_parser(subparsers):
     p.add_argument(
         "--sinks",
         nargs="+",
-        default=[],
+        default=argparse.SUPPRESS,
         help=(
             "Sink function names for taint-style checks "
             "(repeatable, e.g. 'eval' 'subprocess.run')"
@@ -78,7 +84,7 @@ def add_security_parser(subparsers):
     p.add_argument(
         "--sanitizers",
         nargs="+",
-        default=[],
+        default=argparse.SUPPRESS,
         help="Sanitizer function names for taint-style checks (repeatable)",
     )
     # IFDS-specific
@@ -89,7 +95,7 @@ def add_security_parser(subparsers):
     p.add_argument(
         "--framework",
         nargs="*",
-        default=["stdlib"],
+        default=argparse.SUPPRESS,
         metavar="FRAMEWORK",
         choices=[
             "aiohttp", "cloud", "concurrency", "django", "falcon", "fastapi",
@@ -111,7 +117,7 @@ def add_security_parser(subparsers):
     p.add_argument(
         "--registry-path",
         nargs="+",
-        default=[],
+        default=argparse.SUPPRESS,
         metavar="PATH",
         help=(
             "Load custom rule-pack JSON file(s) or directory(ies) of JSON "
@@ -122,27 +128,27 @@ def add_security_parser(subparsers):
     p.add_argument(
         "--ifds-mode",
         choices=["strict", "best-effort"],
-        default="best-effort",
+        default=argparse.SUPPRESS,
         help="Fail on preparation gaps or continue with explicit partial status",
     )
-    p.add_argument("--ifds-max-seconds", type=float)
-    p.add_argument("--ifds-max-path-edges", type=int)
-    p.add_argument("--ifds-max-queue-size", type=int)
-    p.add_argument("--ifds-max-incoming-records", type=int)
-    p.add_argument("--ifds-max-summary-entries", type=int)
-    p.add_argument("--ifds-max-facts-per-node", type=int)
-    p.add_argument("--ifds-max-contexts-per-procedure", type=int)
-    p.add_argument("--ifds-max-memory-bytes", type=int)
-    p.add_argument("--ifds-context-depth", type=int, default=3)
+    p.add_argument("--ifds-max-seconds", type=_positive_float)
+    p.add_argument("--ifds-max-path-edges", type=_positive_int)
+    p.add_argument("--ifds-max-queue-size", type=_positive_int)
+    p.add_argument("--ifds-max-incoming-records", type=_positive_int)
+    p.add_argument("--ifds-max-summary-entries", type=_positive_int)
+    p.add_argument("--ifds-max-facts-per-node", type=_positive_int)
+    p.add_argument("--ifds-max-contexts-per-procedure", type=_positive_int)
+    p.add_argument("--ifds-max-memory-bytes", type=_positive_int)
+    p.add_argument("--ifds-context-depth", type=_non_negative_int, default=argparse.SUPPRESS)
     p.add_argument(
         "--ifds-trace-mode",
         choices=["none", "findings", "all"],
-        default="findings",
+        default=argparse.SUPPRESS,
     )
     p.add_argument(
         "--typestate-protocol",
         action="append",
-        default=[],
+        default=argparse.SUPPRESS,
         metavar="PROTOCOLS",
         help=(
             "Typestate protocols for --analysis typestate. May be repeated "
@@ -177,6 +183,51 @@ def add_security_parser(subparsers):
     p.add_argument("--debug", "-d", action="store_true", help="Debug output")
 
 
+# ── argparse type validators ───────────────────────────────────────────────
+
+
+def _positive_int(value: str) -> int:
+    try:
+        parsed = int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            f"invalid positive int value: {value!r}"
+        )
+    if parsed < 1:
+        raise argparse.ArgumentTypeError(
+            f"must be >= 1, got {parsed}"
+        )
+    return parsed
+
+
+def _non_negative_int(value: str) -> int:
+    try:
+        parsed = int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            f"invalid non-negative int value: {value!r}"
+        )
+    if parsed < 0:
+        raise argparse.ArgumentTypeError(
+            f"must be >= 0, got {parsed}"
+        )
+    return parsed
+
+
+def _positive_float(value: str) -> float:
+    try:
+        parsed = float(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            f"invalid positive float value: {value!r}"
+        )
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError(
+            f"must be > 0, got {parsed}"
+        )
+    return parsed
+
+
 # ── Engine dispatchers ────────────────────────────────────────────────────
 
 
@@ -198,6 +249,75 @@ def _ifds_solver_options(args):
         trace_mode=getattr(args, "ifds_trace_mode", "findings"),
         limit_behavior="partial",
     )
+
+
+_CONFIG_SCALAR_MAP: dict[str, str] = {
+    "analysis": "analysis",
+    "function": "function",
+    "ifds_mode": "ifds_mode",
+    "ifds_trace_mode": "ifds_trace_mode",
+    "ifds_context_depth": "ifds_context_depth",
+}
+
+_CONFIG_LIST_MAP: dict[str, str] = {
+    "frameworks": "framework",
+    "sources": "sources",
+    "sinks": "sinks",
+    "sanitizers": "sanitizers",
+    "registry_path": "registry_path",
+    "typestate_protocol": "typestate_protocol",
+}
+
+_CONFIG_SOLVER_MAP: dict[str, str] = {
+    "max_seconds": "ifds_max_seconds",
+    "max_path_edges": "ifds_max_path_edges",
+    "max_queue_size": "ifds_max_queue_size",
+    "max_incoming_records": "ifds_max_incoming_records",
+    "max_summary_entries": "ifds_max_summary_entries",
+    "max_facts_per_node": "ifds_max_facts_per_node",
+    "max_contexts_per_procedure": "ifds_max_contexts_per_procedure",
+    "max_memory_bytes": "ifds_max_memory_bytes",
+    "max_call_string_depth": "ifds_max_call_string_depth",
+}
+
+
+def _apply_ifds_config(args) -> None:
+    config_path = getattr(args, "config", None)
+    if config_path is None:
+        return
+    path = Path(config_path)
+    if not path.exists():
+        print(f"Error: config file not found: {config_path}", file=sys.stderr)
+        raise SystemExit(2)
+
+    try:
+        config_data = json.loads(path.read_text())
+    except json.JSONDecodeError as exc:
+        print(f"Error: invalid JSON in config file {config_path}: {exc}",
+              file=sys.stderr)
+        raise SystemExit(2)
+
+    unknown = set(config_data) - {"solver_options", "frameworks", "sources",
+        "sinks", "sanitizers", "analysis", "function", "ifds_mode",
+        "ifds_trace_mode", "ifds_context_depth", "registry_path",
+        "typestate_protocol"}
+    if unknown:
+        print(f"Warning: unknown config keys: {', '.join(sorted(unknown))}",
+              file=sys.stderr)
+
+    for config_key, attr_name in _CONFIG_SCALAR_MAP.items():
+        if config_key in config_data and not hasattr(args, attr_name):
+            setattr(args, attr_name, config_data[config_key])
+
+    for config_key, attr_name in _CONFIG_LIST_MAP.items():
+        if config_key in config_data and not hasattr(args, attr_name):
+            setattr(args, attr_name, config_data[config_key])
+
+    solver_opts = config_data.get("solver_options")
+    if isinstance(solver_opts, dict):
+        for config_key, attr_name in _CONFIG_SOLVER_MAP.items():
+            if config_key in solver_opts and not hasattr(args, attr_name):
+                setattr(args, attr_name, solver_opts[config_key])
 
 
 def _run_ast_scanner(
@@ -1094,6 +1214,8 @@ def run_security(args) -> int:
         else logging.INFO if getattr(args, "verbose", False) else logging.WARNING
     )
     logging.basicConfig(level=level, format="%(levelname)s: %(message)s")
+
+    _apply_ifds_config(args)
 
     engine = args.engine
     targets = args.targets or ["."]
