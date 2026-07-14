@@ -14,6 +14,7 @@ how PyFlow works under the hood.
 
     architecture
     algorithms
+    memory-reasoning
     design-decisions
     analysis-comparison
     best-practices
@@ -23,6 +24,7 @@ how PyFlow works under the hood.
 
     architecture
     algorithms
+    memory-reasoning
     design-decisions
     analysis-comparison
     best-practices
