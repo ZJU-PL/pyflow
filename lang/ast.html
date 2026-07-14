@@ -203,6 +203,10 @@
 <span class="c1"># Operators: +, -, *, /, //, %, **, &amp;, |, ^, &lt;&lt;, &gt;&gt;, ==, !=, &lt;, &lt;=, &gt;, &gt;=</span>
 </pre></div>
 </div>
+<p><strong>ConditionalExpr</strong>: Expression-level conditional (ternary <code class="docutils literal notranslate"><span class="pre">a</span> <span class="pre">if</span> <span class="pre">cond</span> <span class="pre">else</span> <span class="pre">b</span></code>)</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">cond</span> <span class="o">=</span> <span class="n">ast</span><span class="o">.</span><span class="n">ConditionalExpr</span><span class="p">(</span><span class="n">test</span><span class="o">=</span><span class="n">cond_expr</span><span class="p">,</span> <span class="n">body</span><span class="o">=</span><span class="n">then_expr</span><span class="p">,</span> <span class="n">orelse</span><span class="o">=</span><span class="n">else_expr</span><span class="p">)</span>
+</pre></div>
+</div>
 <p><strong>GetAttr / SetAttr</strong>: Attribute access and modification</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">get_attr</span> <span class="o">=</span> <span class="n">ast</span><span class="o">.</span><span class="n">GetAttr</span><span class="p">(</span><span class="n">expr</span><span class="o">=</span><span class="n">obj_expr</span><span class="p">,</span> <span class="n">name</span><span class="o">=</span><span class="n">name_expr</span><span class="p">)</span>
 <span class="n">set_attr</span> <span class="o">=</span> <span class="n">ast</span><span class="o">.</span><span class="n">SetAttr</span><span class="p">(</span><span class="n">value</span><span class="o">=</span><span class="n">value_expr</span><span class="p">,</span> <span class="n">expr</span><span class="o">=</span><span class="n">obj_expr</span><span class="p">,</span> <span class="n">name</span><span class="o">=</span><span class="n">name_expr</span><span class="p">)</span>
@@ -231,6 +235,13 @@
 </div>
 <p><strong>Delete</strong>: Variable deletion</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">delete</span> <span class="o">=</span> <span class="n">ast</span><span class="o">.</span><span class="n">Delete</span><span class="p">(</span><span class="n">local</span><span class="p">)</span>
+</pre></div>
+</div>
+<p><strong>AnnAssign</strong>: Annotated assignment (<code class="docutils literal notranslate"><span class="pre">x:</span> <span class="pre">int</span> <span class="pre">=</span> <span class="pre">5</span></code> or just <code class="docutils literal notranslate"><span class="pre">x:</span> <span class="pre">int</span></code>)</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">ann</span> <span class="o">=</span> <span class="n">ast</span><span class="o">.</span><span class="n">AnnAssign</span><span class="p">(</span><span class="n">target</span><span class="o">=</span><span class="n">ast</span><span class="o">.</span><span class="n">Local</span><span class="p">(</span><span class="s2">&quot;x&quot;</span><span class="p">),</span> <span class="n">annotation_expr</span><span class="o">=</span><span class="n">type_expr</span><span class="p">,</span> <span class="n">value</span><span class="o">=</span><span class="n">init_expr</span><span class="p">)</span>
+<span class="c1"># ``annotation_expr`` holds the type expression (distinct from the</span>
+<span class="c1"># inherited ``annotation`` field used for per-node analysis metadata).</span>
+<span class="c1"># ``value`` is optional (annotation-only form).</span>
 </pre></div>
 </div>
 </section>

@@ -33,9 +33,9 @@ The AST system (`pyflow.language.python.ast`) provides node types:
 
 **Reference Nodes**: ``Existing`` (constants), ``Local`` (variables), ``DoNotCare`` (wildcards)
 
-**Expression Nodes**: ``Call``, ``DirectCall``, ``MethodCall``, ``BinaryOp``, ``UnaryPrefixOp``, ``GetAttr``, ``SetAttr``, ``GetSubscript``, ``SetSubscript``, ``BuildTuple``, ``BuildList``, ``BuildMap``
+**Expression Nodes**: ``Call``, ``DirectCall``, ``MethodCall``, ``BinaryOp``, ``UnaryPrefixOp``, ``ConditionalExpr``, ``GetAttr``, ``SetAttr``, ``GetSubscript``, ``SetSubscript``, ``BuildTuple``, ``BuildList``, ``BuildMap``
 
-**Statement Nodes**: ``Assign``, ``Return``, ``Discard``, ``Delete``
+**Statement Nodes**: ``Assign``, ``AnnAssign``, ``Return``, ``Discard``, ``Delete``
 
 **Control Flow Nodes**: ``Switch``, ``While``, ``For``, ``TryExceptFinally``, ``Break``, ``Continue``
 

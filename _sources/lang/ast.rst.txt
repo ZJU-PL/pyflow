@@ -82,6 +82,12 @@ Expression Nodes
    neg = ast.UnaryPrefixOp(op="-", expr=expr)
    # Operators: +, -, *, /, //, %, **, &, |, ^, <<, >>, ==, !=, <, <=, >, >=
 
+**ConditionalExpr**: Expression-level conditional (ternary ``a if cond else b``)
+
+.. code-block:: python
+
+   cond = ast.ConditionalExpr(test=cond_expr, body=then_expr, orelse=else_expr)
+
 **GetAttr / SetAttr**: Attribute access and modification
 
 .. code-block:: python
@@ -125,6 +131,15 @@ Statement Nodes
 .. code-block:: python
 
    delete = ast.Delete(local)
+
+**AnnAssign**: Annotated assignment (``x: int = 5`` or just ``x: int``)
+
+.. code-block:: python
+
+   ann = ast.AnnAssign(target=ast.Local("x"), annotation_expr=type_expr, value=init_expr)
+   # ``annotation_expr`` holds the type expression (distinct from the
+   # inherited ``annotation`` field used for per-node analysis metadata).
+   # ``value`` is optional (annotation-only form).
 
 ===============
 Control Flow Nodes
