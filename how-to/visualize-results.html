@@ -62,9 +62,8 @@
 <li class="toctree-l2"><a class="reference internal" href="integrate-with-build-systems.html">Integrate with Build Systems</a></li>
 <li class="toctree-l2 current"><a class="current reference internal" href="#">How to Visualize Results</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="#visualization-formats">Visualization Formats</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="#text-diagrams">Text Diagrams</a></li>
-<li class="toctree-l4"><a class="reference internal" href="#graphviz-dot">Graphviz DOT</a></li>
-<li class="toctree-l4"><a class="reference internal" href="#mermaid">Mermaid</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#call-graph-text-output">Call Graph Text Output</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#ir-dumps-with-dot">IR Dumps with DOT</a></li>
 </ul>
 </li>
 <li class="toctree-l3"><a class="reference internal" href="#visualizing-call-graphs">Visualizing Call Graphs</a><ul>
@@ -106,9 +105,8 @@
 <li class="toctree-l2"><a class="reference internal" href="integrate-with-build-systems.html">Integrate with Build Systems</a></li>
 <li class="toctree-l2 current"><a class="current reference internal" href="#">How to Visualize Results</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="#visualization-formats">Visualization Formats</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="#text-diagrams">Text Diagrams</a></li>
-<li class="toctree-l4"><a class="reference internal" href="#graphviz-dot">Graphviz DOT</a></li>
-<li class="toctree-l4"><a class="reference internal" href="#mermaid">Mermaid</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#call-graph-text-output">Call Graph Text Output</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#ir-dumps-with-dot">IR Dumps with DOT</a></li>
 </ul>
 </li>
 <li class="toctree-l3"><a class="reference internal" href="#visualizing-call-graphs">Visualizing Call Graphs</a><ul>
@@ -208,25 +206,18 @@ analysis results.</p>
 <section id="visualization-formats">
 <h2>Visualization Formats<a class="headerlink" href="#visualization-formats" title="Link to this heading"></a></h2>
 <p>PyFlow supports multiple visualization formats:</p>
-<section id="text-diagrams">
-<h3>Text Diagrams<a class="headerlink" href="#text-diagrams" title="Link to this heading"></a></h3>
+<section id="call-graph-text-output">
+<h3>Call Graph Text Output<a class="headerlink" href="#call-graph-text-output" title="Link to this heading"></a></h3>
 <p>For quick inspection in terminal:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>callgraph<span class="w"> </span>input.py<span class="w"> </span>--format<span class="w"> </span>text
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>callgraph<span class="w"> </span>input.py
 </pre></div>
 </div>
 </section>
-<section id="graphviz-dot">
-<h3>Graphviz DOT<a class="headerlink" href="#graphviz-dot" title="Link to this heading"></a></h3>
-<p>For professional vector graphics:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>callgraph<span class="w"> </span>input.py<span class="w"> </span>--format<span class="w"> </span>dot<span class="w"> </span>--output<span class="w"> </span>graph.dot
-dot<span class="w"> </span>-Tpng<span class="w"> </span>graph.dot<span class="w"> </span>-o<span class="w"> </span>graph.png
-</pre></div>
-</div>
-</section>
-<section id="mermaid">
-<h3>Mermaid<a class="headerlink" href="#mermaid" title="Link to this heading"></a></h3>
-<p>For markdown documentation:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>callgraph<span class="w"> </span>input.py<span class="w"> </span>--format<span class="w"> </span>mermaid<span class="w"> </span>--output<span class="w"> </span>graph.md
+<section id="ir-dumps-with-dot">
+<h3>IR Dumps with DOT<a class="headerlink" href="#ir-dumps-with-dot" title="Link to this heading"></a></h3>
+<p>For professional vector graphics, use the IR dump command:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>ir<span class="w"> </span>input.py<span class="w"> </span>--dump-cfg<span class="w"> </span>main<span class="w"> </span>--dump-format<span class="w"> </span>dot<span class="w"> </span>--output<span class="w"> </span>cfg.dot
+dot<span class="w"> </span>-Tpng<span class="w"> </span>cfg.dot<span class="w"> </span>-o<span class="w"> </span>cfg.png
 </pre></div>
 </div>
 </section>
@@ -235,7 +226,7 @@ dot<span class="w"> </span>-Tpng<span class="w"> </span>graph.dot<span class="w"
 <h2>Visualizing Call Graphs<a class="headerlink" href="#visualizing-call-graphs" title="Link to this heading"></a></h2>
 <section id="basic-call-graph">
 <h3>Basic call graph<a class="headerlink" href="#basic-call-graph" title="Link to this heading"></a></h3>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>callgraph<span class="w"> </span>input.py<span class="w"> </span>--format<span class="w"> </span>dot<span class="w"> </span>--output<span class="w"> </span>callgraph.dot
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>callgraph<span class="w"> </span>input.py<span class="w"> </span>--output<span class="w"> </span>callgraph.txt
 </pre></div>
 </div>
 </section>

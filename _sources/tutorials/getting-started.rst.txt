@@ -20,7 +20,7 @@ Prerequisites
 
 Before installing PyFlow, ensure you have the following prerequisites:
 
-- **Python 3.8 or newer**: PyFlow requires Python 3.8 or a newer version. You can
+- **Python 3.10 or newer**: PyFlow requires Python 3.10 or a newer version. You can
   check your Python version by running:
 
   .. code-block:: bash
@@ -83,7 +83,7 @@ You should see output similar to:
 
 .. code-block:: text
 
-   PyFlow version: 1.0.0
+   PyFlow 0.1.0
 
 Basic Usage
 ===========
@@ -94,7 +94,9 @@ tasks. The main commands are:
 - ``optimize``: Run static analysis and optimization on Python code
 - ``callgraph``: Build and visualize call graphs from Python code
 - ``ir``: Dump AST, CFG, and SSA forms for specific functions
+- ``alias``: Run alias analysis (flow-sensitive heap or k-CFA pointer)
 - ``security``: Check for security vulnerabilities
+- ``supply-chain``: Generate SBOMs and audit distribution metadata
 
 Running Your First Analysis
 ============================

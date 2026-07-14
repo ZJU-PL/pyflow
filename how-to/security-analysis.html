@@ -62,7 +62,7 @@
 <li class="toctree-l3"><a class="reference internal" href="#running-security-analysis">Running Security Analysis</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="#basic-security-scan">Basic security scan</a></li>
 <li class="toctree-l4"><a class="reference internal" href="#full-security-analysis">Full security analysis</a></li>
-<li class="toctree-l4"><a class="reference internal" href="#specific-security-checks">Specific security checks</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#specific-security-engines">Specific security engines</a></li>
 </ul>
 </li>
 <li class="toctree-l3"><a class="reference internal" href="#available-security-checks">Available Security Checks</a><ul>
@@ -112,7 +112,7 @@
 <li class="toctree-l3"><a class="reference internal" href="#running-security-analysis">Running Security Analysis</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="#basic-security-scan">Basic security scan</a></li>
 <li class="toctree-l4"><a class="reference internal" href="#full-security-analysis">Full security analysis</a></li>
-<li class="toctree-l4"><a class="reference internal" href="#specific-security-checks">Specific security checks</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#specific-security-engines">Specific security engines</a></li>
 </ul>
 </li>
 <li class="toctree-l3"><a class="reference internal" href="#available-security-checks">Available Security Checks</a><ul>
@@ -238,14 +238,17 @@ vulnerabilities in your Python code.</p>
 </section>
 <section id="full-security-analysis">
 <h3>Full security analysis<a class="headerlink" href="#full-security-analysis" title="Link to this heading"></a></h3>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>security<span class="w"> </span>input.py<span class="w"> </span>--analysis<span class="w"> </span>all
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>security<span class="w"> </span>input.py<span class="w"> </span>--engine<span class="w"> </span>cpa
 </pre></div>
 </div>
 </section>
-<section id="specific-security-checks">
-<h3>Specific security checks<a class="headerlink" href="#specific-security-checks" title="Link to this heading"></a></h3>
-<p>Run only specific checks:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>security<span class="w"> </span>input.py<span class="w"> </span>--checks<span class="w"> </span>injection,credentials,deprecated
+<section id="specific-security-engines">
+<h3>Specific security engines<a class="headerlink" href="#specific-security-engines" title="Link to this heading"></a></h3>
+<p>Run with a specific analysis engine:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>security<span class="w"> </span>input.py<span class="w"> </span>--engine<span class="w"> </span>ast-scanner
+pyflow<span class="w"> </span>security<span class="w"> </span>input.py<span class="w"> </span>--engine<span class="w"> </span>cpa
+pyflow<span class="w"> </span>security<span class="w"> </span>input.py<span class="w"> </span>--engine<span class="w"> </span>ifds<span class="w"> </span>--function<span class="w"> </span>main<span class="w"> </span>--sources<span class="w"> </span>input<span class="w"> </span>--sinks<span class="w"> </span><span class="nb">eval</span>
+pyflow<span class="w"> </span>security<span class="w"> </span>input.py<span class="w"> </span>--engine<span class="w"> </span>cpg<span class="w"> </span>--framework<span class="w"> </span>flask
 </pre></div>
 </div>
 </section>

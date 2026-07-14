@@ -107,6 +107,7 @@ PyFlow provides several CLI commands for running analyses:
 * ``pyflow alias`` - Run alias analysis (flow-sensitive heap or k-CFA pointer)
 * ``pyflow security`` - Unified security analysis dispatching to
   ast-scanner, CPA, IFDS, or CPG engines
+* ``pyflow supply-chain`` - Generate CycloneDX SBOMs and audit distribution metadata
 
 Programmatic Usage
 ------------------

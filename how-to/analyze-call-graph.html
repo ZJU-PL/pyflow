@@ -63,13 +63,12 @@
 <li class="toctree-l3"><a class="reference internal" href="#analyzing-large-codebases">Analyzing Large Codebases</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="#recursive-analysis">Recursive analysis</a></li>
 <li class="toctree-l4"><a class="reference internal" href="#filter-by-patterns">Filter by patterns</a></li>
-<li class="toctree-l4"><a class="reference internal" href="#limit-analysis-depth">Limit analysis depth</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#constrain-solver-resources">Constrain solver resources</a></li>
 </ul>
 </li>
 <li class="toctree-l3"><a class="reference internal" href="#finding-specific-patterns">Finding Specific Patterns</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="#detect-recursive-functions">Detect recursive functions</a></li>
 <li class="toctree-l4"><a class="reference internal" href="#find-functions-called-by-a-specific-function">Find functions called by a specific function</a></li>
-<li class="toctree-l4"><a class="reference internal" href="#find-functions-that-call-a-specific-function">Find functions that call a specific function</a></li>
 </ul>
 </li>
 <li class="toctree-l3"><a class="reference internal" href="#programmatic-call-graph-analysis">Programmatic Call Graph Analysis</a></li>
@@ -108,13 +107,12 @@
 <li class="toctree-l3"><a class="reference internal" href="#analyzing-large-codebases">Analyzing Large Codebases</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="#recursive-analysis">Recursive analysis</a></li>
 <li class="toctree-l4"><a class="reference internal" href="#filter-by-patterns">Filter by patterns</a></li>
-<li class="toctree-l4"><a class="reference internal" href="#limit-analysis-depth">Limit analysis depth</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#constrain-solver-resources">Constrain solver resources</a></li>
 </ul>
 </li>
 <li class="toctree-l3"><a class="reference internal" href="#finding-specific-patterns">Finding Specific Patterns</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="#detect-recursive-functions">Detect recursive functions</a></li>
 <li class="toctree-l4"><a class="reference internal" href="#find-functions-called-by-a-specific-function">Find functions called by a specific function</a></li>
-<li class="toctree-l4"><a class="reference internal" href="#find-functions-that-call-a-specific-function">Find functions that call a specific function</a></li>
 </ul>
 </li>
 <li class="toctree-l3"><a class="reference internal" href="#programmatic-call-graph-analysis">Programmatic Call Graph Analysis</a></li>
@@ -231,21 +229,21 @@ function call structure of your Python programs.</p>
 <section id="text-default">
 <h4>Text (default)<a class="headerlink" href="#text-default" title="Link to this heading"></a></h4>
 <p>For quick inspection:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>callgraph<span class="w"> </span>input.py<span class="w"> </span>--format<span class="w"> </span>text
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>callgraph<span class="w"> </span>input.py
 </pre></div>
 </div>
 </section>
 <section id="json-programmatic-processing">
 <h4>JSON (programmatic processing)<a class="headerlink" href="#json-programmatic-processing" title="Link to this heading"></a></h4>
 <p>For scripts and automation:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>callgraph<span class="w"> </span>input.py<span class="w"> </span>--format<span class="w"> </span>json<span class="w"> </span>--output<span class="w"> </span>callgraph.json
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>callgraph<span class="w"> </span>input.py<span class="w"> </span>--output<span class="w"> </span>callgraph.txt
 </pre></div>
 </div>
 </section>
-<section id="dot-visualization">
-<h4>DOT (visualization)<a class="headerlink" href="#dot-visualization" title="Link to this heading"></a></h4>
-<p>For creating graphs:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>callgraph<span class="w"> </span>input.py<span class="w"> </span>--format<span class="w"> </span>dot<span class="w"> </span>--output<span class="w"> </span>callgraph.dot
+<section id="text-output">
+<h4>Text output<a class="headerlink" href="#text-output" title="Link to this heading"></a></h4>
+<p>For quick inspection:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>callgraph<span class="w"> </span>input.py<span class="w"> </span>--output<span class="w"> </span>callgraph.txt
 </pre></div>
 </div>
 </section>
@@ -267,36 +265,24 @@ function call structure of your Python programs.</p>
 </pre></div>
 </div>
 </section>
-<section id="limit-analysis-depth">
-<h3>Limit analysis depth<a class="headerlink" href="#limit-analysis-depth" title="Link to this heading"></a></h3>
-<p>For large call graphs, limit the depth:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>callgraph<span class="w"> </span>input.py<span class="w"> </span>--max-depth<span class="w"> </span><span class="m">3</span>
+<section id="constrain-solver-resources">
+<h3>Constrain solver resources<a class="headerlink" href="#constrain-solver-resources" title="Link to this heading"></a></h3>
+<p>For large projects, cap fixpoint iterations for the constraint algorithm:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>callgraph<span class="w"> </span>input.py<span class="w"> </span>--algorithm<span class="w"> </span>constraint<span class="w"> </span>--fixpoint-max-iterations<span class="w"> </span><span class="m">1000</span>
 </pre></div>
 </div>
-<p>This only shows calls up to 3 levels deep.</p>
 </section>
 </section>
 <section id="finding-specific-patterns">
 <h2>Finding Specific Patterns<a class="headerlink" href="#finding-specific-patterns" title="Link to this heading"></a></h2>
 <section id="detect-recursive-functions">
 <h3>Detect recursive functions<a class="headerlink" href="#detect-recursive-functions" title="Link to this heading"></a></h3>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>callgraph<span class="w"> </span>input.py<span class="w"> </span>--show-cycles
-</pre></div>
-</div>
+<p>Recursive calls appear as self-loops in the call graph output:</p>
 </section>
 <section id="find-functions-called-by-a-specific-function">
 <h3>Find functions called by a specific function<a class="headerlink" href="#find-functions-called-by-a-specific-function" title="Link to this heading"></a></h3>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>callgraph<span class="w"> </span>input.py<span class="w"> </span>--filter-callees<span class="w"> </span>main
-</pre></div>
-</div>
-<p>This shows all functions that <code class="docutils literal notranslate"><span class="pre">main</span></code> calls.</p>
-</section>
-<section id="find-functions-that-call-a-specific-function">
-<h3>Find functions that call a specific function<a class="headerlink" href="#find-functions-that-call-a-specific-function" title="Link to this heading"></a></h3>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>callgraph<span class="w"> </span>input.py<span class="w"> </span>--filter-callers<span class="w"> </span>util_func
-</pre></div>
-</div>
-<p>This shows all functions that call <code class="docutils literal notranslate"><span class="pre">util_func</span></code>.</p>
+<p>Use the constraint algorithm output and filter programmatically from the JSON
+value-flow graph.</p>
 </section>
 </section>
 <section id="programmatic-call-graph-analysis">
@@ -344,8 +330,9 @@ function call structure of your Python programs.</p>
 <p>Create professional visualizations using DOT format:</p>
 <section id="basic-visualization">
 <h3>Basic visualization<a class="headerlink" href="#basic-visualization" title="Link to this heading"></a></h3>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>callgraph<span class="w"> </span>input.py<span class="w"> </span>--format<span class="w"> </span>dot<span class="w"> </span>--output<span class="w"> </span>callgraph.dot
-dot<span class="w"> </span>-Tpng<span class="w"> </span>callgraph.dot<span class="w"> </span>-o<span class="w"> </span>callgraph.png
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>callgraph<span class="w"> </span>input.py<span class="w"> </span>--output<span class="w"> </span>callgraph.txt
+<span class="c1"># Re-run with constraint algorithm for JSON output</span>
+pyflow<span class="w"> </span>callgraph<span class="w"> </span>input.py<span class="w"> </span>--algorithm<span class="w"> </span>constraint<span class="w"> </span>--as-graph-output<span class="w"> </span>callgraph.json
 </pre></div>
 </div>
 </section>
@@ -417,7 +404,7 @@ dot<span class="w"> </span>-Tpng<span class="w"> </span>callgraph.dot<span class
 <section id="task-3-find-deep-call-chains">
 <h3>Task 3: Find deep call chains<a class="headerlink" href="#task-3-find-deep-call-chains" title="Link to this heading"></a></h3>
 <p>Find functions that are deeply nested in the call hierarchy:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>callgraph<span class="w"> </span>input.py<span class="w"> </span>--max-depth<span class="w"> </span><span class="m">10</span><span class="w"> </span>--format<span class="w"> </span>json<span class="w"> </span>&gt;<span class="w"> </span>callgraph.json
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>callgraph<span class="w"> </span>input.py<span class="w"> </span>--algorithm<span class="w"> </span>constraint<span class="w"> </span>--as-graph-output<span class="w"> </span>callgraph.json
 </pre></div>
 </div>
 <p>Then analyze the maximum depth programmatically.</p>
@@ -428,9 +415,9 @@ dot<span class="w"> </span>-Tpng<span class="w"> </span>callgraph.dot<span class
 <section id="issue-call-graph-is-too-large">
 <h3>Issue: Call graph is too large<a class="headerlink" href="#issue-call-graph-is-too-large" title="Link to this heading"></a></h3>
 <ul class="simple">
-<li><p>Use <code class="docutils literal notranslate"><span class="pre">--max-depth</span></code> to limit depth</p></li>
 <li><p>Use <code class="docutils literal notranslate"><span class="pre">--exclude</span></code> to filter out test files</p></li>
 <li><p>Analyze specific modules instead of the whole project</p></li>
+<li><p>Limit fixpoint iterations with <code class="docutils literal notranslate"><span class="pre">--fixpoint-max-iterations</span></code> (constraint algorithm)</p></li>
 </ul>
 </section>
 <section id="issue-missing-functions-in-call-graph">
@@ -444,8 +431,8 @@ dot<span class="w"> </span>-Tpng<span class="w"> </span>callgraph.dot<span class
 <section id="issue-recursive-calls-not-detected">
 <h3>Issue: Recursive calls not detected<a class="headerlink" href="#issue-recursive-calls-not-detected" title="Link to this heading"></a></h3>
 <ul class="simple">
-<li><p>Use <code class="docutils literal notranslate"><span class="pre">--show-cycles</span></code> flag</p></li>
-<li><p>Ensure the recursion is through direct function calls</p></li>
+<li><p>Recursive calls appear as self-loops in the call graph output</p></li>
+<li><p>Use the constraint algorithm for more precise call resolution</p></li>
 </ul>
 </section>
 </section>

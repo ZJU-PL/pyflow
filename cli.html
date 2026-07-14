@@ -150,30 +150,42 @@ reference used by the repository today, also see <code class="docutils literal n
 <section id="pyflow-callgraph">
 <h3><strong>pyflow callgraph</strong><a class="headerlink" href="#pyflow-callgraph" title="Link to this heading"></a></h3>
 <p>Generate and analyze call graphs from Python code.</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">pyflow</span> <span class="n">callgraph</span> <span class="nb">input</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="nb">format</span> <span class="n">dot</span> <span class="o">--</span><span class="n">output</span> <span class="n">callgraph</span><span class="o">.</span><span class="n">dot</span>
-<span class="n">pyflow</span> <span class="n">callgraph</span> <span class="nb">input</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">show</span><span class="o">-</span><span class="n">cycles</span> <span class="o">--</span><span class="nb">max</span><span class="o">-</span><span class="n">depth</span> <span class="mi">5</span>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">pyflow</span> <span class="n">callgraph</span> <span class="nb">input</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">algorithm</span> <span class="n">constraint</span> <span class="o">--</span><span class="n">output</span> <span class="n">callgraph</span><span class="o">.</span><span class="n">txt</span>
+<span class="n">pyflow</span> <span class="n">callgraph</span> <span class="nb">input</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">algorithm</span> <span class="n">constraint</span> <span class="o">--</span><span class="n">context</span><span class="o">-</span><span class="n">sensitive</span> <span class="o">--</span><span class="n">context</span><span class="o">-</span><span class="n">depth</span> <span class="mi">2</span>
 </pre></div>
 </div>
 <p>Options:
-- <code class="docutils literal notranslate"><span class="pre">--format</span></code>: Output format (dot, json, text)
-- <code class="docutils literal notranslate"><span class="pre">--output</span></code>: Output file path
-- <code class="docutils literal notranslate"><span class="pre">--max-depth</span></code>: Limit call depth
-- <code class="docutils literal notranslate"><span class="pre">--show-cycles</span></code>: Report cycles in the call graph</p>
+- <code class="docutils literal notranslate"><span class="pre">--algorithm,</span> <span class="pre">-a</span></code>: Algorithm (<code class="docutils literal notranslate"><span class="pre">simple</span></code>, <code class="docutils literal notranslate"><span class="pre">constraint</span></code>, or <code class="docutils literal notranslate"><span class="pre">pycg</span></code>; default: <code class="docutils literal notranslate"><span class="pre">simple</span></code>)
+- <code class="docutils literal notranslate"><span class="pre">--output,</span> <span class="pre">-o</span></code>: Output file path
+- <code class="docutils literal notranslate"><span class="pre">--verbose,</span> <span class="pre">-v</span></code>: Enable verbose output
+- <code class="docutils literal notranslate"><span class="pre">--context-sensitive</span></code>: Enable call-site context sensitivity (constraint algorithm only)
+- <code class="docutils literal notranslate"><span class="pre">--context-depth</span></code>: Call-string depth when <code class="docutils literal notranslate"><span class="pre">--context-sensitive</span></code> is enabled (default: 1)
+- <code class="docutils literal notranslate"><span class="pre">--fixpoint-max-iterations</span></code>: Cap fixpoint iterations (constraint algorithm only)
+- <code class="docutils literal notranslate"><span class="pre">--no-fixpoint-warning</span></code>: Disable warning when fixpoint cap is hit (constraint algorithm only)
+- <code class="docutils literal notranslate"><span class="pre">--allocation-site-sensitive-instances</span></code>: Track per-allocation instance identities (constraint algorithm only)
+- <code class="docutils literal notranslate"><span class="pre">--as-graph-output</span></code>: Write constraint value-flow assignment graph JSON (constraint algorithm only)</p>
 </section>
 <section id="pyflow-ir">
 <h3><strong>pyflow ir</strong><a class="headerlink" href="#pyflow-ir" title="Link to this heading"></a></h3>
 <p>Visualize intermediate representations and analysis results.</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">pyflow</span> <span class="n">ir</span> <span class="nb">input</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">dump</span><span class="o">-</span><span class="n">cfg</span> <span class="n">main</span> <span class="o">--</span><span class="n">dump</span><span class="o">-</span><span class="nb">format</span> <span class="n">dot</span>
 <span class="n">pyflow</span> <span class="n">ir</span> <span class="nb">input</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">dump</span><span class="o">-</span><span class="n">ssa</span> <span class="n">main</span>
+<span class="n">pyflow</span> <span class="n">ir</span> <span class="nb">input</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">dump</span><span class="o">-</span><span class="n">cdg</span> <span class="n">main</span> <span class="o">--</span><span class="n">dump</span><span class="o">-</span><span class="nb">format</span> <span class="n">text</span>
+<span class="n">pyflow</span> <span class="n">ir</span> <span class="nb">input</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">dump</span><span class="o">-</span><span class="n">ddg</span> <span class="n">main</span> <span class="o">--</span><span class="n">dump</span><span class="o">-</span><span class="nb">format</span> <span class="n">text</span>
 </pre></div>
 </div>
 <p>Options:
 - <code class="docutils literal notranslate"><span class="pre">--dump-ast</span> <span class="pre">FUNCTION</span></code>: Dump AST for a named function
 - <code class="docutils literal notranslate"><span class="pre">--dump-cfg</span> <span class="pre">FUNCTION</span></code>: Dump CFG for a named function
 - <code class="docutils literal notranslate"><span class="pre">--dump-ssa</span> <span class="pre">FUNCTION</span></code>: Dump SSA for a named function
+- <code class="docutils literal notranslate"><span class="pre">--dump-cdg</span> <span class="pre">FUNCTION</span></code>: Dump Control Dependence Graph for a named function
+- <code class="docutils literal notranslate"><span class="pre">--dump-ddg</span> <span class="pre">FUNCTION</span></code>: Dump Data Dependence Graph for a named function
 - <code class="docutils literal notranslate"><span class="pre">--dump-format</span></code>: Output format (text, dot, json)
 - <code class="docutils literal notranslate"><span class="pre">--dump-output</span></code>: Directory for emitted artifacts
-- <code class="docutils literal notranslate"><span class="pre">--recursive</span></code> / <code class="docutils literal notranslate"><span class="pre">--include</span></code> / <code class="docutils literal notranslate"><span class="pre">--exclude</span></code>: Control file selection</p>
+- <code class="docutils literal notranslate"><span class="pre">--dependency-strategy</span></code>: How to handle imports (<code class="docutils literal notranslate"><span class="pre">auto</span></code>, <code class="docutils literal notranslate"><span class="pre">stubs</span></code>, <code class="docutils literal notranslate"><span class="pre">noop</span></code>, <code class="docutils literal notranslate"><span class="pre">strict</span></code>, <code class="docutils literal notranslate"><span class="pre">ast_only</span></code>)
+- <code class="docutils literal notranslate"><span class="pre">--recursive,</span> <span class="pre">-r</span></code>: Recursively analyze subdirectories
+- <code class="docutils literal notranslate"><span class="pre">--include</span></code> / <code class="docutils literal notranslate"><span class="pre">--exclude</span></code>: File patterns to include/exclude
+- <code class="docutils literal notranslate"><span class="pre">--verbose,</span> <span class="pre">-v</span></code>: Enable verbose output</p>
 </section>
 </section>
 <section id="optimization-commands">
@@ -184,19 +196,29 @@ reference used by the repository today, also see <code class="docutils literal n
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">pyflow</span> <span class="n">optimize</span> <span class="nb">input</span><span class="o">.</span><span class="n">py</span>
 <span class="n">pyflow</span> <span class="n">optimize</span> <span class="nb">input</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">opt</span><span class="o">-</span><span class="n">passes</span> <span class="n">simplify</span> <span class="n">methodcall</span>
 <span class="n">pyflow</span> <span class="n">optimize</span> <span class="o">--</span><span class="nb">list</span><span class="o">-</span><span class="n">opt</span><span class="o">-</span><span class="n">passes</span>
-<span class="n">pyflow</span> <span class="n">optimize</span> <span class="nb">input</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">dump</span><span class="o">-</span><span class="n">cfg</span> <span class="n">main</span> <span class="o">--</span><span class="n">dump</span><span class="o">-</span><span class="nb">format</span> <span class="n">dot</span>
+<span class="n">pyflow</span> <span class="n">optimize</span> <span class="nb">input</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">analysis</span> <span class="n">cpa</span>
 </pre></div>
 </div>
 <p>Options:
+- <code class="docutils literal notranslate"><span class="pre">--analysis,</span> <span class="pre">-a</span></code>: Analysis type (<code class="docutils literal notranslate"><span class="pre">all</span></code>, <code class="docutils literal notranslate"><span class="pre">cpa</span></code>, <code class="docutils literal notranslate"><span class="pre">ipa</span></code>, <code class="docutils literal notranslate"><span class="pre">shape</span></code>, <code class="docutils literal notranslate"><span class="pre">lifetime</span></code>; default: <code class="docutils literal notranslate"><span class="pre">all</span></code>)
+- <code class="docutils literal notranslate"><span class="pre">--dependency-strategy</span></code>: How to handle imports (<code class="docutils literal notranslate"><span class="pre">auto</span></code>, <code class="docutils literal notranslate"><span class="pre">stubs</span></code>, <code class="docutils literal notranslate"><span class="pre">noop</span></code>, <code class="docutils literal notranslate"><span class="pre">strict</span></code>, <code class="docutils literal notranslate"><span class="pre">ast_only</span></code>)
+- <code class="docutils literal notranslate"><span class="pre">--recursive,</span> <span class="pre">-r</span></code>: Recursively analyze subdirectories
+- <code class="docutils literal notranslate"><span class="pre">--include</span></code> / <code class="docutils literal notranslate"><span class="pre">--exclude</span></code>: File patterns to include/exclude
+- <code class="docutils literal notranslate"><span class="pre">--output,</span> <span class="pre">-o</span></code>: Output file for dumped results
+- <code class="docutils literal notranslate"><span class="pre">--dump,</span> <span class="pre">-d</span></code>: Dump analysis results
+- <code class="docutils literal notranslate"><span class="pre">--dump-ipa</span></code>: Dump IPA analysis results
+- <code class="docutils literal notranslate"><span class="pre">--dump-shape</span></code>: Dump Shape analysis results
+- <code class="docutils literal notranslate"><span class="pre">--suggest-only</span></code>: Generate suggestions without running transforming passes
+- <code class="docutils literal notranslate"><span class="pre">--apply-optimizations</span></code>: Explicitly run optimization passes (also the default)
+- <code class="docutils literal notranslate"><span class="pre">--no-opt-passes</span></code>: Run analysis without optimization passes
+- <code class="docutils literal notranslate"><span class="pre">--experimental-inlining</span></code>: Enable experimental inlining pass
 - <code class="docutils literal notranslate"><span class="pre">--opt-passes</span></code>: Space-separated list of optimization passes
 - <code class="docutils literal notranslate"><span class="pre">--list-opt-passes</span></code>: List available optimization passes
-- <code class="docutils literal notranslate"><span class="pre">--no-opt-passes</span></code>: Run analysis without optimization passes
-- <code class="docutils literal notranslate"><span class="pre">--dump-ast</span> <span class="pre">FUNCTION</span></code> / <code class="docutils literal notranslate"><span class="pre">--dump-cfg</span> <span class="pre">FUNCTION</span></code>: Inspect IR around optimization
-- <code class="docutils literal notranslate"><span class="pre">--dump-format</span></code>: Output format (text, dot, json)
-- <code class="docutils literal notranslate"><span class="pre">--dump-output</span></code>: Directory for emitted artifacts</p>
-<p>Available passes include <code class="docutils literal notranslate"><span class="pre">simplify</span></code>, <code class="docutils literal notranslate"><span class="pre">methodcall</span></code>, <code class="docutils literal notranslate"><span class="pre">clone</span></code>,
-<code class="docutils literal notranslate"><span class="pre">argumentnormalization</span></code>, <code class="docutils literal notranslate"><span class="pre">cullprogram</span></code>, <code class="docutils literal notranslate"><span class="pre">loadelimination</span></code>,
-<code class="docutils literal notranslate"><span class="pre">storeelimination</span></code>, <code class="docutils literal notranslate"><span class="pre">dce</span></code>, and experimental <code class="docutils literal notranslate"><span class="pre">inlining</span></code>.</p>
+- <code class="docutils literal notranslate"><span class="pre">--verbose,</span> <span class="pre">-v</span></code>: Enable verbose output</p>
+<p>Available passes include <code class="docutils literal notranslate"><span class="pre">simplify</span></code>, <code class="docutils literal notranslate"><span class="pre">methodcall</span></code>, <code class="docutils literal notranslate"><span class="pre">lifetime</span></code>, <code class="docutils literal notranslate"><span class="pre">clone</span></code>,
+<code class="docutils literal notranslate"><span class="pre">argument_normalization</span></code>, <code class="docutils literal notranslate"><span class="pre">cull_program</span></code>, <code class="docutils literal notranslate"><span class="pre">load_elimination</span></code>,
+<code class="docutils literal notranslate"><span class="pre">store_elimination</span></code>, <code class="docutils literal notranslate"><span class="pre">dce</span></code>, and experimental <code class="docutils literal notranslate"><span class="pre">inlining</span></code>.
+(Legacy names such as <code class="docutils literal notranslate"><span class="pre">argumentnormalization</span></code> are also accepted.)</p>
 </section>
 </section>
 <section id="security-commands">
@@ -295,10 +317,9 @@ mismatches, unlisted files).</p>
 </section>
 <section id="global-options">
 <h1>Global Options<a class="headerlink" href="#global-options" title="Link to this heading"></a></h1>
-<p>Common options available across all commands:</p>
+<p>Common options available across most commands:</p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">--verbose,</span> <span class="pre">-v</span></code>: Increase verbosity</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">--quiet,</span> <span class="pre">-q</span></code>: Suppress output</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--help</span></code>: Show help information</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--version</span></code>: Show version information</p></li>
 </ul>
@@ -311,7 +332,7 @@ mismatches, unlisted files).</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># GitHub Actions example</span>
 -<span class="w"> </span>name:<span class="w"> </span>Run<span class="w"> </span>PyFlow<span class="w"> </span>analysis
 <span class="w">  </span>run:<span class="w"> </span><span class="p">|</span>
-<span class="w">    </span>pyflow<span class="w"> </span>callgraph<span class="w"> </span>src/main.py<span class="w"> </span>--format<span class="w"> </span>json<span class="w"> </span>--output<span class="w"> </span>callgraph.json
+<span class="w">    </span>pyflow<span class="w"> </span>callgraph<span class="w"> </span>src/main.py<span class="w"> </span>--output<span class="w"> </span>callgraph.txt
 <span class="w">    </span>pyflow<span class="w"> </span>security<span class="w"> </span>src/<span class="w"> </span>--recursive
 <span class="w">    </span>pyflow<span class="w"> </span>optimize<span class="w"> </span>src/main.py<span class="w"> </span>--opt-passes<span class="w"> </span>simplify<span class="w"> </span>dce
 <span class="w">    </span>pyflow<span class="w"> </span>ir<span class="w"> </span>src/main.py<span class="w"> </span>--dump-cfg<span class="w"> </span>main<span class="w"> </span>--dump-format<span class="w"> </span>dot

@@ -41,7 +41,7 @@ For quick inspection:
 
 .. code-block:: bash
 
-   pyflow callgraph input.py --format text
+   pyflow callgraph input.py
 
 JSON (programmatic processing)
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -50,16 +50,16 @@ For scripts and automation:
 
 .. code-block:: bash
 
-   pyflow callgraph input.py --format json --output callgraph.json
+   pyflow callgraph input.py --output callgraph.txt
 
-DOT (visualization)
-^^^^^^^^^^^^^^^^^^^
+Text output
+^^^^^^^^^^^
 
-For creating graphs:
+For quick inspection:
 
 .. code-block:: bash
 
-   pyflow callgraph input.py --format dot --output callgraph.dot
+   pyflow callgraph input.py --output callgraph.txt
 
 Analyzing Large Codebases
 ==========================
@@ -82,16 +82,14 @@ Include only specific files:
 
    pyflow callgraph src/ --include "*.py" --exclude "test_*"
 
-Limit analysis depth
---------------------
+Constrain solver resources
+--------------------------
 
-For large call graphs, limit the depth:
+For large projects, cap fixpoint iterations for the constraint algorithm:
 
 .. code-block:: bash
 
-   pyflow callgraph input.py --max-depth 3
-
-This only shows calls up to 3 levels deep.
+   pyflow callgraph input.py --algorithm constraint --fixpoint-max-iterations 1000
 
 Finding Specific Patterns
 ==========================
@@ -99,27 +97,13 @@ Finding Specific Patterns
 Detect recursive functions
 --------------------------
 
-.. code-block:: bash
-
-   pyflow callgraph input.py --show-cycles
+Recursive calls appear as self-loops in the call graph output:
 
 Find functions called by a specific function
 --------------------------------------------
 
-.. code-block:: bash
-
-   pyflow callgraph input.py --filter-callees main
-
-This shows all functions that ``main`` calls.
-
-Find functions that call a specific function
---------------------------------------------
-
-.. code-block:: bash
-
-   pyflow callgraph input.py --filter-callers util_func
-
-This shows all functions that call ``util_func``.
+Use the constraint algorithm output and filter programmatically from the JSON
+value-flow graph.
 
 Programmatic Call Graph Analysis
 =================================
@@ -169,12 +153,13 @@ Visualizing Call Graphs
 Create professional visualizations using DOT format:
 
 Basic visualization
--------------------
+------------------
 
 .. code-block:: bash
 
-   pyflow callgraph input.py --format dot --output callgraph.dot
-   dot -Tpng callgraph.dot -o callgraph.png
+   pyflow callgraph input.py --output callgraph.txt
+   # Re-run with constraint algorithm for JSON output
+   pyflow callgraph input.py --algorithm constraint --as-graph-output callgraph.json
 
 Customized visualization
 ------------------------
@@ -255,7 +240,7 @@ Find functions that are deeply nested in the call hierarchy:
 
 .. code-block:: bash
 
-   pyflow callgraph input.py --max-depth 10 --format json > callgraph.json
+   pyflow callgraph input.py --algorithm constraint --as-graph-output callgraph.json
 
 Then analyze the maximum depth programmatically.
 
@@ -265,9 +250,9 @@ Troubleshooting
 Issue: Call graph is too large
 -------------------------------
 
-- Use ``--max-depth`` to limit depth
 - Use ``--exclude`` to filter out test files
 - Analyze specific modules instead of the whole project
+- Limit fixpoint iterations with ``--fixpoint-max-iterations`` (constraint algorithm)
 
 Issue: Missing functions in call graph
 ---------------------------------------
@@ -279,5 +264,5 @@ Issue: Missing functions in call graph
 Issue: Recursive calls not detected
 ------------------------------------
 
-- Use ``--show-cycles`` flag
-- Ensure the recursion is through direct function calls
+- Recursive calls appear as self-loops in the call graph output
+- Use the constraint algorithm for more precise call resolution

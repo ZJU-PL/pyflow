@@ -164,7 +164,7 @@ configuring, and running your first static analysis on Python code.</p>
 <h2>Prerequisites<a class="headerlink" href="#prerequisites" title="Link to this heading"></a></h2>
 <p>Before installing PyFlow, ensure you have the following prerequisites:</p>
 <ul>
-<li><p><strong>Python 3.8 or newer</strong>: PyFlow requires Python 3.8 or a newer version. You can
+<li><p><strong>Python 3.10 or newer</strong>: PyFlow requires Python 3.10 or a newer version. You can
 check your Python version by running:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>--version
 </pre></div>
@@ -218,7 +218,7 @@ source code will be reflected immediately without reinstallation.</p>
 </pre></div>
 </div>
 <p>You should see output similar to:</p>
-<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>PyFlow version: 1.0.0
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>PyFlow 0.1.0
 </pre></div>
 </div>
 </section>
@@ -230,7 +230,9 @@ tasks. The main commands are:</p>
 <li><p><code class="docutils literal notranslate"><span class="pre">optimize</span></code>: Run static analysis and optimization on Python code</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">callgraph</span></code>: Build and visualize call graphs from Python code</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">ir</span></code>: Dump AST, CFG, and SSA forms for specific functions</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">alias</span></code>: Run alias analysis (flow-sensitive heap or k-CFA pointer)</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">security</span></code>: Check for security vulnerabilities</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">supply-chain</span></code>: Generate SBOMs and audit distribution metadata</p></li>
 </ul>
 </section>
 <section id="running-your-first-analysis">

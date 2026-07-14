@@ -65,7 +65,6 @@
 <li class="toctree-l2 current"><a class="current reference internal" href="#">Best Practices</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="#beginner-best-practices">Beginner Best Practices</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="#start-with-simple-analysis">Start with Simple Analysis</a></li>
-<li class="toctree-l4"><a class="reference internal" href="#use-appropriate-output-formats">Use Appropriate Output Formats</a></li>
 <li class="toctree-l4"><a class="reference internal" href="#check-configuration">Check Configuration</a></li>
 </ul>
 </li>
@@ -114,7 +113,6 @@
 <li class="toctree-l2 current"><a class="current reference internal" href="#">Best Practices</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="#beginner-best-practices">Beginner Best Practices</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="#start-with-simple-analysis">Start with Simple Analysis</a></li>
-<li class="toctree-l4"><a class="reference internal" href="#use-appropriate-output-formats">Use Appropriate Output Formats</a></li>
 <li class="toctree-l4"><a class="reference internal" href="#check-configuration">Check Configuration</a></li>
 </ul>
 </li>
@@ -230,34 +228,25 @@ Complex analysis takes longer and may be harder to interpret.</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Good: Start simple</span>
 pyflow<span class="w"> </span>callgraph<span class="w"> </span>input.py
 
-<span class="c1"># Then add options as needed</span>
-pyflow<span class="w"> </span>callgraph<span class="w"> </span>input.py<span class="w"> </span>--format<span class="w"> </span>json<span class="w"> </span>--max-depth<span class="w"> </span><span class="m">5</span>
+<span class="w"> </span><span class="c1"># Then pass specific options as needed</span>
+pyflow<span class="w"> </span>callgraph<span class="w"> </span>input.py<span class="w"> </span>--algorithm<span class="w"> </span>constraint
 </pre></div>
 </div>
-</section>
-<section id="use-appropriate-output-formats">
-<h3>Use Appropriate Output Formats<a class="headerlink" href="#use-appropriate-output-formats" title="Link to this heading"></a></h3>
-<p><strong>Do</strong>: Choose the right output format for your task.</p>
+<p>Choose the right tools for your task.</p>
 <ul class="simple">
-<li><p>Use <code class="docutils literal notranslate"><span class="pre">text</span></code> for quick inspection</p></li>
-<li><p>Use <code class="docutils literal notranslate"><span class="pre">json</span></code> for programmatic processing</p></li>
-<li><p>Use <code class="docutils literal notranslate"><span class="pre">dot</span></code> for visualization</p></li>
-<li><p>Use <code class="docutils literal notranslate"><span class="pre">sarif</span></code> for CI/CD integration</p></li>
+<li><p>Use <code class="docutils literal notranslate"><span class="pre">pyflow</span> <span class="pre">callgraph</span></code> for textual call graph analysis</p></li>
+<li><p>Use <code class="docutils literal notranslate"><span class="pre">pyflow</span> <span class="pre">ir</span> <span class="pre">--dump-format</span> <span class="pre">dot</span></code> for IR visualization</p></li>
+<li><p>Use <code class="docutils literal notranslate"><span class="pre">pyflow</span> <span class="pre">security</span> <span class="pre">--format</span> <span class="pre">sarif</span></code> for CI/CD security integration</p></li>
 </ul>
-<p><strong>Why</strong>: Text is easiest to read. JSON enables automation. DOT creates graphs.
-SARIF integrates with CI/CD.</p>
 <p><strong>Example</strong>:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># For quick check</span>
-pyflow<span class="w"> </span>callgraph<span class="w"> </span>input.py<span class="w"> </span>--format<span class="w"> </span>text
+pyflow<span class="w"> </span>callgraph<span class="w"> </span>input.py
 
-<span class="c1"># For scripting</span>
-pyflow<span class="w"> </span>callgraph<span class="w"> </span>input.py<span class="w"> </span>--format<span class="w"> </span>json<span class="w"> </span>--output<span class="w"> </span>graph.json
+<span class="c1"># For constraint-based analysis</span>
+pyflow<span class="w"> </span>callgraph<span class="w"> </span>input.py<span class="w"> </span>--algorithm<span class="w"> </span>constraint
 
-<span class="c1"># For visualization</span>
-pyflow<span class="w"> </span>callgraph<span class="w"> </span>input.py<span class="w"> </span>--format<span class="w"> </span>dot<span class="w"> </span>--output<span class="w"> </span>graph.dot
-
-<span class="c1"># For CI/CD</span>
-pyflow<span class="w"> </span>callgraph<span class="w"> </span>input.py<span class="w"> </span>--format<span class="w"> </span>sarif<span class="w"> </span>--output<span class="w"> </span>results.sarif
+<span class="c1"># For visualization, use ir dump with DOT format</span>
+pyflow<span class="w"> </span>ir<span class="w"> </span>input.py<span class="w"> </span>--dump-cfg<span class="w"> </span>main<span class="w"> </span>--dump-format<span class="w"> </span>dot<span class="w"> </span>--output<span class="w"> </span>cfg.dot
 </pre></div>
 </div>
 </section>
@@ -411,16 +400,14 @@ pyflow<span class="w"> </span>optimize<span class="w"> </span>input.py<span clas
 <span class="w">          </span><span class="nt">python-version</span><span class="p">:</span><span class="w"> </span><span class="s">&#39;3.10&#39;</span>
 <span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Install PyFlow</span>
 <span class="w">        </span><span class="nt">run</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pip install pyflow</span>
-<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Run Analysis</span>
-<span class="w">        </span><span class="nt">run</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">|</span>
-<span class="w">          </span><span class="no">pyflow callgraph . --format sarif --output callgraph.sarif</span>
-<span class="w">          </span><span class="no">pyflow security . --format sarif --output security.sarif</span>
-<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Upload SARIF</span>
-<span class="w">        </span><span class="nt">uses</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">github/codeql-action/upload-sarif@v2</span>
-<span class="w">        </span><span class="nt">with</span><span class="p">:</span>
-<span class="w">          </span><span class="nt">sarif_file</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">|</span>
-<span class="w">            </span><span class="no">callgraph.sarif</span>
-<span class="w">            </span><span class="no">security.sarif</span>
+<span class="w">      </span><span class="w w-Error"> </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Run Analysis</span>
+<span class="w">         </span><span class="nt">run</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">|</span>
+<span class="w">           </span><span class="no">pyflow callgraph . --output callgraph.txt</span>
+<span class="w">           </span><span class="no">pyflow security . --format sarif --output security.sarif</span>
+<span class="w">       </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Upload SARIF</span>
+<span class="w">         </span><span class="nt">uses</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">github/codeql-action/upload-sarif@v2</span>
+<span class="w">         </span><span class="nt">with</span><span class="p">:</span>
+<span class="w">           </span><span class="nt">sarif_file</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">security.sarif</span>
 </pre></div>
 </div>
 </div>

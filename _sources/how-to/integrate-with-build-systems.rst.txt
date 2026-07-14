@@ -30,7 +30,7 @@ GitHub Actions
              python-version: "3.10"
          - run: pip install -e .
          - run: pyflow security src/ --recursive
-         - run: pyflow callgraph src/ --format json --output callgraph.json
+          - run: pyflow callgraph src/ --output callgraph.txt
 
 GitLab CI
 ~~~~~~~~~
@@ -43,7 +43,7 @@ GitLab CI
      script:
        - pip install -e .
        - pyflow security src/ --recursive
-       - pyflow callgraph src/ --format json --output callgraph.json
+        - pyflow callgraph src/ --output callgraph.txt
 
 Pre-commit Hooks
 ----------------
@@ -74,7 +74,7 @@ Add PyFlow targets to your ``Makefile``:
    	pyflow security src/ --recursive
 
    pyflow-callgraph:
-   	pyflow callgraph src/ --format json --output callgraph.json
+   	pyflow callgraph src/ --output callgraph.txt
 
 Output Formats for Automation
 -----------------------------
@@ -85,7 +85,7 @@ For CI/CD pipelines, use machine-readable output formats:
 
    # JSON output for custom tooling
    pyflow security src/ --recursive --format json --output results.json
-   pyflow callgraph src/ --format json --output callgraph.json
+   pyflow callgraph src/ --output callgraph.txt
 
    # SARIF output for GitHub Code Scanning, GitLab SAST, etc.
    pyflow security src/ --recursive --format sarif --output results.sarif

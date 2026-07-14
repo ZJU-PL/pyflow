@@ -20,14 +20,19 @@ Generate and analyze call graphs from Python code.
 
 ::
 
-  pyflow callgraph input.py --format dot --output callgraph.dot
-  pyflow callgraph input.py --show-cycles --max-depth 5
+  pyflow callgraph input.py --algorithm constraint --output callgraph.txt
+  pyflow callgraph input.py --algorithm constraint --context-sensitive --context-depth 2
 
 Options:
-- ``--format``: Output format (dot, json, text)
-- ``--output``: Output file path
-- ``--max-depth``: Limit call depth
-- ``--show-cycles``: Report cycles in the call graph
+- ``--algorithm, -a``: Algorithm (``simple``, ``constraint``, or ``pycg``; default: ``simple``)
+- ``--output, -o``: Output file path
+- ``--verbose, -v``: Enable verbose output
+- ``--context-sensitive``: Enable call-site context sensitivity (constraint algorithm only)
+- ``--context-depth``: Call-string depth when ``--context-sensitive`` is enabled (default: 1)
+- ``--fixpoint-max-iterations``: Cap fixpoint iterations (constraint algorithm only)
+- ``--no-fixpoint-warning``: Disable warning when fixpoint cap is hit (constraint algorithm only)
+- ``--allocation-site-sensitive-instances``: Track per-allocation instance identities (constraint algorithm only)
+- ``--as-graph-output``: Write constraint value-flow assignment graph JSON (constraint algorithm only)
 
 **pyflow ir**
 ~~~~~~~~~~~~~
@@ -38,14 +43,21 @@ Visualize intermediate representations and analysis results.
 
   pyflow ir input.py --dump-cfg main --dump-format dot
   pyflow ir input.py --dump-ssa main
+  pyflow ir input.py --dump-cdg main --dump-format text
+  pyflow ir input.py --dump-ddg main --dump-format text
 
 Options:
 - ``--dump-ast FUNCTION``: Dump AST for a named function
 - ``--dump-cfg FUNCTION``: Dump CFG for a named function
 - ``--dump-ssa FUNCTION``: Dump SSA for a named function
+- ``--dump-cdg FUNCTION``: Dump Control Dependence Graph for a named function
+- ``--dump-ddg FUNCTION``: Dump Data Dependence Graph for a named function
 - ``--dump-format``: Output format (text, dot, json)
 - ``--dump-output``: Directory for emitted artifacts
-- ``--recursive`` / ``--include`` / ``--exclude``: Control file selection
+- ``--dependency-strategy``: How to handle imports (``auto``, ``stubs``, ``noop``, ``strict``, ``ast_only``)
+- ``--recursive, -r``: Recursively analyze subdirectories
+- ``--include`` / ``--exclude``: File patterns to include/exclude
+- ``--verbose, -v``: Enable verbose output
 
 Optimization Commands
 ---------------------
@@ -60,19 +72,29 @@ Apply optimization passes to Python code.
   pyflow optimize input.py
   pyflow optimize input.py --opt-passes simplify methodcall
   pyflow optimize --list-opt-passes
-  pyflow optimize input.py --dump-cfg main --dump-format dot
+  pyflow optimize input.py --analysis cpa
 
 Options:
+- ``--analysis, -a``: Analysis type (``all``, ``cpa``, ``ipa``, ``shape``, ``lifetime``; default: ``all``)
+- ``--dependency-strategy``: How to handle imports (``auto``, ``stubs``, ``noop``, ``strict``, ``ast_only``)
+- ``--recursive, -r``: Recursively analyze subdirectories
+- ``--include`` / ``--exclude``: File patterns to include/exclude
+- ``--output, -o``: Output file for dumped results
+- ``--dump, -d``: Dump analysis results
+- ``--dump-ipa``: Dump IPA analysis results
+- ``--dump-shape``: Dump Shape analysis results
+- ``--suggest-only``: Generate suggestions without running transforming passes
+- ``--apply-optimizations``: Explicitly run optimization passes (also the default)
+- ``--no-opt-passes``: Run analysis without optimization passes
+- ``--experimental-inlining``: Enable experimental inlining pass
 - ``--opt-passes``: Space-separated list of optimization passes
 - ``--list-opt-passes``: List available optimization passes
-- ``--no-opt-passes``: Run analysis without optimization passes
-- ``--dump-ast FUNCTION`` / ``--dump-cfg FUNCTION``: Inspect IR around optimization
-- ``--dump-format``: Output format (text, dot, json)
-- ``--dump-output``: Directory for emitted artifacts
+- ``--verbose, -v``: Enable verbose output
 
-Available passes include ``simplify``, ``methodcall``, ``clone``,
-``argumentnormalization``, ``cullprogram``, ``loadelimination``,
-``storeelimination``, ``dce``, and experimental ``inlining``.
+Available passes include ``simplify``, ``methodcall``, ``lifetime``, ``clone``,
+``argument_normalization``, ``cull_program``, ``load_elimination``,
+``store_elimination``, ``dce``, and experimental ``inlining``.
+(Legacy names such as ``argumentnormalization`` are also accepted.)
 
 Security Commands
 -----------------
@@ -179,10 +201,9 @@ Options:
 Global Options
 ==============
 
-Common options available across all commands:
+Common options available across most commands:
 
 - ``--verbose, -v``: Increase verbosity
-- ``--quiet, -q``: Suppress output
 - ``--help``: Show help information
 - ``--version``: Show version information
 
@@ -199,7 +220,7 @@ PyFlow integrates with CI/CD pipelines:
   # GitHub Actions example
   - name: Run PyFlow analysis
     run: |
-      pyflow callgraph src/main.py --format json --output callgraph.json
+      pyflow callgraph src/main.py --output callgraph.txt
       pyflow security src/ --recursive
       pyflow optimize src/main.py --opt-passes simplify dce
       pyflow ir src/main.py --dump-cfg main --dump-format dot

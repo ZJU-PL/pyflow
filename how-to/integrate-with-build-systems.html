@@ -177,7 +177,7 @@ and adapt them to your specific build system.</p>
 <span class="w">          </span><span class="nt">python-version</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;3.10&quot;</span>
 <span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">run</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pip install -e .</span>
 <span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">run</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pyflow security src/ --recursive</span>
-<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">run</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pyflow callgraph src/ --format json --output callgraph.json</span>
+<span class="w">      </span><span class="w w-Error"> </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">run</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pyflow callgraph src/ --output callgraph.txt</span>
 </pre></div>
 </div>
 </section>
@@ -189,7 +189,7 @@ and adapt them to your specific build system.</p>
 <span class="w">  </span><span class="nt">script</span><span class="p">:</span>
 <span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pip install -e .</span>
 <span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pyflow security src/ --recursive</span>
-<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pyflow callgraph src/ --format json --output callgraph.json</span>
+<span class="w">     </span><span class="l l-Scalar l-Scalar-Plain">- pyflow callgraph src/ --output callgraph.txt</span>
 </pre></div>
 </div>
 </section>
@@ -217,7 +217,7 @@ and adapt them to your specific build system.</p>
 <span class="w">     </span>pyflow<span class="w"> </span>security<span class="w"> </span>src/<span class="w"> </span>--recursive
 
 <span class="nf">pyflow-callgraph</span><span class="o">:</span>
-<span class="w">     </span>pyflow<span class="w"> </span>callgraph<span class="w"> </span>src/<span class="w"> </span>--format<span class="w"> </span>json<span class="w"> </span>--output<span class="w"> </span>callgraph.json
+<span class="w">     </span>pyflow<span class="w"> </span>callgraph<span class="w"> </span>src/<span class="w"> </span>--output<span class="w"> </span>callgraph.txt
 </pre></div>
 </div>
 </section>
@@ -226,7 +226,7 @@ and adapt them to your specific build system.</p>
 <p>For CI/CD pipelines, use machine-readable output formats:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># JSON output for custom tooling</span>
 pyflow<span class="w"> </span>security<span class="w"> </span>src/<span class="w"> </span>--recursive<span class="w"> </span>--format<span class="w"> </span>json<span class="w"> </span>--output<span class="w"> </span>results.json
-pyflow<span class="w"> </span>callgraph<span class="w"> </span>src/<span class="w"> </span>--format<span class="w"> </span>json<span class="w"> </span>--output<span class="w"> </span>callgraph.json
+pyflow<span class="w"> </span>callgraph<span class="w"> </span>src/<span class="w"> </span>--output<span class="w"> </span>callgraph.txt
 
 <span class="c1"># SARIF output for GitHub Code Scanning, GitLab SAST, etc.</span>
 pyflow<span class="w"> </span>security<span class="w"> </span>src/<span class="w"> </span>--recursive<span class="w"> </span>--format<span class="w"> </span>sarif<span class="w"> </span>--output<span class="w"> </span>results.sarif

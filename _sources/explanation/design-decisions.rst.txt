@@ -230,6 +230,7 @@ Decision: Subcommand-Based CLI
 - ``pyflow ir``: Dump intermediate representations
 - ``pyflow alias``: Run alias analysis (flow-sensitive heap or k-CFA pointer)
 - ``pyflow security``: Run security analysis
+- ``pyflow supply-chain``: Generate SBOMs and audit distribution metadata
 
 **Rationale**:
 

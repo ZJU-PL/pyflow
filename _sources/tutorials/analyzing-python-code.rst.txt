@@ -250,7 +250,7 @@ You can output call graphs in different formats:
 
 .. code-block:: bash
 
-   pyflow callgraph example.py --format dot --output callgraph.dot
+   pyflow callgraph example.py --output callgraph.txt
 
 Analyzing Multiple Files
 ========================
