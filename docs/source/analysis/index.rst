@@ -42,11 +42,16 @@ Alias and Type Analysis
 * :doc:`typeinfo` - Type-information collection and inference
 
 Shape and Object Analysis
--------------------------
+------------------------
 
 * :doc:`storegraph` - Store graph analysis for object relationships (foundational data model for CPA/shape)
 * :doc:`shape` - Region-based shape analysis for data structures (reference counts, path info)
 * :doc:`lifetimeanalysis` - Variable lifetime analysis (read/modify tracking, post-shape pipeline)
+
+.. seealso::
+
+   :doc:`/explanation/memory-reasoning` — Comprehensive comparison of all six
+   memory/heap reasoning systems in PyFlow, including when to use each one.
 
 Specialized Analysis
 --------------------
