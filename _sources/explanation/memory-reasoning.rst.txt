@@ -4,8 +4,8 @@
 Memory Reasoning Systems
 ==========================
 
-PyFlow has **five** heap/memory analyses built on **one** shared data model
-(StoreGraph) plus **two** standalone analyses with independent heap models.
+PyFlow has **five** heap/memory analyses: three built on a shared data model
+(StoreGraph) and two standalone with independent heap models.
 This page explains what they are, how they relate, and when to use each.
 
 .. contents::
