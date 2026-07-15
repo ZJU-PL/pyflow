@@ -26,7 +26,16 @@ class ConstraintCallGraphBuilder(
 ```
 
 The analysis propagates abstract values (functions, classes, instances, bound
-methods, modules) through assignments, calls, and returns.
+methods, modules) through assignments, calls, and returns. Within a
+scope-context it is flow-insensitive: assignments accumulate may-values, and
+the scope is revisited until values discovered later in the body are visible at
+earlier uses. This deliberately trades ordering precision for recall and a
+monotone soundness story.
+
+Type annotations, `typing.cast`, and recognized type guards remain trusted
+refinement contracts. They may prune values that violate those contracts; this
+is intentional for typed-code analysis rather than a claim about untyped
+Python runtime enforcement.
 
 ## Context Modes
 - Context-insensitive mode (`context_sensitive=False`):
@@ -42,9 +51,13 @@ methods, modules) through assignments, calls, and returns.
 - Precision:
   - improved for higher-order and indirect call flows in context-sensitive
     mode.
+  - local reassignments are merged, so an individual call site may contain
+    targets assigned before or after it.
 - Recall:
   - maintained for direct calls, aliases, dynamic dispatch, module indirection,
     and `getattr(obj, "name")`.
+  - loop-carried, exceptional-path, and deletion-sensitive bindings are kept as
+    may-values rather than strongly killed.
 - Performance:
   - context-sensitive mode increases state space (`scope x contexts`) and
     fixpoint iterations.

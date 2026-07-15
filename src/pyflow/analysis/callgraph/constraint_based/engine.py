@@ -70,7 +70,7 @@ class ConstraintCallGraphBuilder(
     4. Materialize context-projected call edges.
 
     Sensitivity:
-    - Flow-sensitive within a scope body.
+    - Flow-insensitive within each scope-context state.
     - Context-insensitive or call-site context-sensitive, depending on options.
     """
 
@@ -122,6 +122,13 @@ class ConstraintCallGraphBuilder(
         self.class_maybe_missing_fields: DefaultDict[str, Set[str]] = defaultdict(set)
 
         self.scope_inputs: Dict[
+            Tuple[str, ContextKey], Dict[str, Set[AbstractValue]]
+        ] = {}
+        # Monotone scope-local may-bindings.  These bindings are fed back into
+        # subsequent analyses of the same scope-context so values discovered
+        # later in a block are visible at earlier uses (loop back-edges,
+        # exceptional paths, and ordinary reassignments).
+        self.scope_flow_bindings: Dict[
             Tuple[str, ContextKey], Dict[str, Set[AbstractValue]]
         ] = {}
         self.scope_returns: Dict[Tuple[str, ContextKey], Set[AbstractValue]] = (

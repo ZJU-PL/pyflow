@@ -1858,7 +1858,7 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
         self.assertIn("main.target", run_edges)
         self.assertIn("main.fallback", run_edges)
 
-    def test_delete_global_binding_removes_following_direct_call(self):
+    def test_delete_global_binding_keeps_prior_may_target(self):
         source = textwrap.dedent("""
             def target():
                 return 1
@@ -1881,7 +1881,109 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
         ).get()
         run_edges = improved.get("main.run", set())
         self.assertIn("main.kill", run_edges)
-        self.assertNotIn("main.target", run_edges)
+        self.assertIn("main.target", run_edges)
+
+    def test_flow_insensitive_loop_carries_later_target_to_earlier_call(self):
+        source = textwrap.dedent("""
+            def a():
+                return 1
+
+            def b():
+                return 2
+
+            def run(flag):
+                fn = a
+                while flag:
+                    fn()
+                    fn = b
+
+            run(True)
+            """)
+
+        improved = extract_call_graph_constraint(
+            source, allow_fixture_graph_loading=False
+        ).get()
+        run_edges = improved.get("main.run", set())
+        self.assertIn("main.a", run_edges)
+        self.assertIn("main.b", run_edges)
+
+    def test_flow_insensitive_reassignment_reaches_earlier_call(self):
+        source = textwrap.dedent("""
+            def a():
+                return 1
+
+            def b():
+                return 2
+
+            def run():
+                fn = a
+                fn()
+                fn = b
+
+            run()
+            """)
+
+        improved = extract_call_graph_constraint(
+            source, allow_fixture_graph_loading=False
+        ).get()
+        run_edges = improved.get("main.run", set())
+        self.assertIn("main.a", run_edges)
+        self.assertIn("main.b", run_edges)
+
+    def test_flow_insensitive_handler_keeps_pre_exception_target(self):
+        source = textwrap.dedent("""
+            def a():
+                return 1
+
+            def b():
+                return 2
+
+            def boom():
+                raise RuntimeError()
+
+            def run():
+                fn = a
+                try:
+                    boom()
+                    fn = b
+                except RuntimeError:
+                    return fn()
+
+            run()
+            """)
+
+        improved = extract_call_graph_constraint(
+            source, allow_fixture_graph_loading=False
+        ).get()
+        run_edges = improved.get("main.run", set())
+        self.assertIn("main.a", run_edges)
+        self.assertIn("main.b", run_edges)
+
+    def test_user_getattribute_adds_redirected_call_target(self):
+        source = textwrap.dedent("""
+            def actual():
+                return 1
+
+            class C:
+                def declared(self):
+                    return 2
+
+                def __getattribute__(self, name):
+                    return actual
+
+            def run(value):
+                return value.declared()
+
+            run(C())
+            """)
+
+        improved = extract_call_graph_constraint(
+            source, allow_fixture_graph_loading=False
+        ).get()
+        run_edges = improved.get("main.run", set())
+        self.assertIn("main.C.__getattribute__", run_edges)
+        self.assertIn("main.actual", run_edges)
+        self.assertIn("main.C.declared", run_edges)
 
     def test_post_pop_lookup_keeps_existing_target_for_soundness(self):
         source = textwrap.dedent("""

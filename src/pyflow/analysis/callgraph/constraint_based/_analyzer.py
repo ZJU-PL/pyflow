@@ -188,6 +188,7 @@ class _AnalyzerMixin:
     ) -> int:
         scope_key = (scope.name, scope_context)
         input_bindings = self.scope_inputs.get(scope_key, {})
+        flow_bindings = self.scope_flow_bindings.get(scope_key, {})
         normalized_bindings = tuple(
             (
                 name,
@@ -195,10 +196,18 @@ class _AnalyzerMixin:
             )
             for name, values in sorted(input_bindings.items())
         )
+        normalized_flow_bindings = tuple(
+            (
+                name,
+                tuple(sorted((value.kind, value.name) for value in values)),
+            )
+            for name, values in sorted(flow_bindings.items())
+        )
         # Coarse, monotonic side-effect stamps used to avoid redundant re-analysis.
         return hash(
             (
                 normalized_bindings,
+                normalized_flow_bindings,
                 self._global_module_stamp,
                 self._global_heap_stamp,
                 self._global_return_stamp,
@@ -863,8 +872,12 @@ class _AnalyzerMixin:
         The returned `ScopeResult` is consumed by `_run_fixpoint` to decide
         which other scope-context states must be revisited.
         """
-        env = copy_env(self.module_bindings.get(scope.module, {}))
         scope_ctx_key = (scope.name, scope_context)
+        env = copy_env(self.module_bindings.get(scope.module, {}))
+        self._merge_bindings(
+            env,
+            self.scope_flow_bindings.get(scope_ctx_key, {}),
+        )
         previous_active_scope_context = self._active_scope_context
         previous_active_changed_instance_fields = self._active_changed_instance_fields
         previous_active_changed_class_fields = self._active_changed_class_fields
@@ -886,11 +899,19 @@ class _AnalyzerMixin:
             },
         )
         for param in scope.params:
-            env[param] = set(param_inputs.get(param, set()))
+            self._merge_value_set(
+                env.setdefault(param, set()),
+                set(param_inputs.get(param, set())),
+                preserve_callables=True,
+            )
         for closure_var in scope.closure_vars:
             captured_values = set(param_inputs.get(closure_var, set()))
             if captured_values:
-                env[closure_var] = captured_values
+                self._merge_value_set(
+                    env.setdefault(closure_var, set()),
+                    captured_values,
+                    preserve_callables=True,
+                )
         class_definition_env = copy_env(env) if scope.class_owner else None
 
         try:
@@ -923,6 +944,10 @@ class _AnalyzerMixin:
             changed_instance_fields.update(self._active_changed_instance_fields)
             changed_class_fields.update(self._active_changed_class_fields)
             input_changed_scope_contexts.update(self._active_changed_closure_scopes)
+
+            flow_bindings = self.scope_flow_bindings.setdefault(scope_ctx_key, {})
+            if self._merge_bindings(flow_bindings, env):
+                input_changed_scope_contexts.add(scope_ctx_key)
 
             if scope.class_owner is not None:
                 class_info = self.classes.get(scope.class_owner)
@@ -1009,7 +1034,12 @@ class _AnalyzerMixin:
         bool,
     ]:
         """
-        Flow-sensitively interpret a statement block.
+        Interpret a statement block while accumulating flow-insensitive may-facts.
+
+        Statement order is still used to discover constraints, but name writes
+        are weak and the resulting environment is fed back through the outer
+        scope-context fixpoint.  Consequently later assignments eventually
+        reach earlier uses without requiring a separate CFG solver.
 
         Returns:
         - updated env for fall-through path,
@@ -1744,15 +1774,10 @@ class _AnalyzerMixin:
             elif isinstance(stmt, ast.Delete):
                 for target in stmt.targets:
                     if isinstance(target, ast.Name):
-                        if target.id in scope.global_names:
-                            env.pop(target.id, None)
-                            global_writes[target.id] = set()
-                            continue
-                        if target.id in scope.nonlocal_names:
-                            env.pop(target.id, None)
-                            nonlocal_writes[target.id] = set()
-                            continue
-                        env.pop(target.id, None)
+                        # A may-analysis does not kill a binding.  Another path
+                        # or an earlier/later loop iteration can still expose
+                        # any value previously assigned to this name.
+                        continue
                     elif isinstance(target, ast.Attribute):
                         base_values = self._eval_expr(
                             scope,

@@ -941,15 +941,13 @@ class _ResolverMixin:
         scope_key = (callee_scope_name, callee_context)
         for name, values in self.scope_global_writes.get(scope_key, {}).items():
             if not values:
-                changed = name in env or changed
-                env.pop(name, None)
+                # Deletes do not kill may-values in the flow-insensitive model.
                 continue
             current = env.setdefault(name, set())
             changed = self._merge_value_set(current, set(values)) or changed
         for name, values in self.scope_nonlocal_writes.get(scope_key, {}).items():
             if not values:
-                changed = name in env or changed
-                env.pop(name, None)
+                # Deletes do not kill may-values in the flow-insensitive model.
                 continue
             current = env.setdefault(name, set())
             changed = self._merge_value_set(current, set(values)) or changed
@@ -1104,12 +1102,7 @@ class _ResolverMixin:
 
         unresolved_dynamic = not target_values
         unresolved_reasons: Set[str] = set()
-        resolved_callable = False
         deferred_parameter_call = False
-        has_concrete_callable_target = any(
-            self._is_callable_value(value) and value.kind != UNKNOWN_KIND
-            for value in target_values
-        )
         if unresolved_dynamic:
             unresolved_reasons.add("missing_target")
             if isinstance(call_node.func, ast.Name):
@@ -1165,7 +1158,6 @@ class _ResolverMixin:
 
         for target in target_values:
             if target.kind == FUNC_KIND:
-                resolved_callable = True
                 callee_name = target.name
                 add_direct_callee(callee_name)
                 if callee_name in {"<builtin>.setattr", "<builtin>.delattr"}:
@@ -1216,14 +1208,18 @@ class _ResolverMixin:
                             input_changed_scope_contexts.update(branch_inputs)
                             for name, values in branch_globals.items():
                                 if values:
-                                    merged_env[name] = set(values)
-                                else:
-                                    merged_env.pop(name, None)
+                                    self._merge_value_set(
+                                        merged_env.setdefault(name, set()),
+                                        set(values),
+                                        preserve_callables=True,
+                                    )
                             for name, values in branch_nonlocals.items():
                                 if values:
-                                    merged_env[name] = set(values)
-                                else:
-                                    merged_env.pop(name, None)
+                                    self._merge_value_set(
+                                        merged_env.setdefault(name, set()),
+                                        set(values),
+                                        preserve_callables=True,
+                                    )
                         env.clear()
                         env.update(merged_env)
                     out.add(NONE_VALUE)
@@ -1619,7 +1615,6 @@ class _ResolverMixin:
                     out.add(UNKNOWN_VALUE)
 
             elif target.kind == CLASS_KIND:
-                resolved_callable = True
                 class_name = target.name
                 class_info = self.classes.get(class_name)
                 if self.options.allocation_site_sensitive_instances:
@@ -1766,7 +1761,6 @@ class _ResolverMixin:
                         self._apply_callee_side_effects(init_name, callee_context, env)
 
             elif target.kind == BOUND_METHOD_KIND:
-                resolved_callable = True
                 method_name, receiver_instance = parse_bound_method(target)
                 add_direct_callee(method_name)
                 receiver_class, receiver_alloc = parse_instance_name(receiver_instance)
@@ -1811,7 +1805,6 @@ class _ResolverMixin:
                 self._apply_callee_side_effects(method_name, callee_context, env)
 
             elif target.kind == BOUND_CLASS_METHOD_KIND:
-                resolved_callable = True
                 method_name, receiver_class = parse_bound_class_method(target)
                 add_direct_callee(method_name)
                 implicit_values = [{make_class(receiver_class)}] + arg_values
@@ -1891,7 +1884,6 @@ class _ResolverMixin:
                                 COROUTINE_KIND, call_name, callee_context
                             )
                         )
-                        resolved_callable = True
                         if target_class_name not in self._invalid_mro_classes:
                             break
                         continue
@@ -1901,7 +1893,6 @@ class _ResolverMixin:
                                 GENERATOR_KIND, call_name, callee_context
                             )
                         )
-                        resolved_callable = True
                         if target_class_name not in self._invalid_mro_classes:
                             break
                         continue
@@ -1910,7 +1901,6 @@ class _ResolverMixin:
                     )
                     out.update(self.scope_returns[(call_name, callee_context)])
                     self._apply_callee_side_effects(call_name, callee_context, env)
-                    resolved_callable = True
                     if target_class_name not in self._invalid_mro_classes:
                         break
                 if not called:
@@ -1919,7 +1909,6 @@ class _ResolverMixin:
                     out.add(UNKNOWN_VALUE)
 
             elif target.kind == PARTIAL_KIND:
-                resolved_callable = True
                 inner_kind, inner_name = parse_partial(target)
                 forwarded_target = AbstractValue(inner_kind, inner_name)
                 partial_result = self._invoke_targets(
@@ -1934,16 +1923,12 @@ class _ResolverMixin:
                 out.update(partial_result or {UNKNOWN_VALUE})
 
             elif target.kind in {CONTAINER_KIND, STRING_KIND, UNKNOWN_KIND, NONE_KIND}:
-                unresolved_dynamic = True
-                unresolved_reasons.add("unknown_callable")
+                if target.kind != NONE_KIND:
+                    unresolved_dynamic = True
+                    unresolved_reasons.add("unknown_callable")
                 out.add(UNKNOWN_VALUE)
 
-        if (
-            unresolved_dynamic
-            and not resolved_callable
-            and not has_concrete_callable_target
-            and not deferred_parameter_call
-        ):
+        if unresolved_dynamic and not deferred_parameter_call:
             reasons = unresolved_reasons or {"unresolved"}
             for reason in sorted(reasons):
                 add_direct_callee(
@@ -2143,16 +2128,11 @@ class _ResolverMixin:
 
         if isinstance(target, ast.Name):
             if target.id in scope.global_names:
-                if weak:
-                    self._merge_value_set(
-                        env.setdefault(target.id, set()),
-                        set(values),
-                        preserve_callables=True,
-                    )
-                else:
-                    env[target.id] = self._cap_values(
-                        set(values), preserve_callables=True
-                    )
+                self._merge_value_set(
+                    env.setdefault(target.id, set()),
+                    set(values),
+                    preserve_callables=True,
+                )
                 if global_writes is not None:
                     self._merge_value_set(
                         global_writes.setdefault(target.id, set()),
@@ -2161,16 +2141,11 @@ class _ResolverMixin:
                     )
                 return False
             if target.id in scope.nonlocal_names:
-                if weak:
-                    self._merge_value_set(
-                        env.setdefault(target.id, set()),
-                        set(values),
-                        preserve_callables=True,
-                    )
-                else:
-                    env[target.id] = self._cap_values(
-                        set(values), preserve_callables=True
-                    )
+                self._merge_value_set(
+                    env.setdefault(target.id, set()),
+                    set(values),
+                    preserve_callables=True,
+                )
                 if nonlocal_writes is not None:
                     self._merge_value_set(
                         nonlocal_writes.setdefault(target.id, set()),
@@ -2179,14 +2154,11 @@ class _ResolverMixin:
                     )
                 self._propagate_nonlocal_write(target.id, set(values))
                 return False
-            if weak:
-                self._merge_value_set(
-                    env.setdefault(target.id, set()),
-                    set(values),
-                    preserve_callables=True,
-                )
-            else:
-                env[target.id] = self._cap_values(set(values), preserve_callables=True)
+            self._merge_value_set(
+                env.setdefault(target.id, set()),
+                set(values),
+                preserve_callables=True,
+            )
             return False
 
         if isinstance(target, (ast.Tuple, ast.List)):
@@ -2791,9 +2763,14 @@ class _ResolverMixin:
             return
         root_name = imported_name.split(".")[0]
         if not explicit_alias and "." in imported_name and local_name == root_name:
-            env[local_name] = {make_module(root_name)}
+            imported_value = make_module(root_name)
         else:
-            env[local_name] = {make_module(imported_name)}
+            imported_value = make_module(imported_name)
+        self._merge_value_set(
+            env.setdefault(local_name, set()),
+            {imported_value},
+            preserve_callables=True,
+        )
         self._register_imported_module_chain(imported_name)
 
     def _bind_import(
