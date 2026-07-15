@@ -156,6 +156,11 @@ facts over fixed <code class="xref py py-class docutils literal notranslate"><sp
 extracted into an independent module.  It now has zero IFDS imports:
 shared IR utilities live in <code class="xref py py-mod docutils literal notranslate"><span class="pre">pyflow.analysis.ir_utils</span></code>, which both the
 flow-sensitive alias analysis and <code class="docutils literal notranslate"><span class="pre">ifds</span></code> import from.</p>
+<p>The implementation is optimized for bug finding rather than whole-language
+verification. Unsupported operations preserve visible nested effects, locally
+contaminate reachable heap objects, and expose a precision-degradation reason
+through <code class="docutils literal notranslate"><span class="pre">PointsToGraph</span></code>. Detectors can use <code class="docutils literal notranslate"><span class="pre">degradations_at()</span></code>,
+<code class="docutils literal notranslate"><span class="pre">alias_evidence()</span></code>, and <code class="docutils literal notranslate"><span class="pre">analysis_metrics()</span></code> to rank or suppress findings.</p>
 <section id="how-the-analysis-differs-from-shape-and-storegraph">
 <span id="heap-vs-shape"></span><h2>How the analysis differs from shape and storegraph<a class="headerlink" href="#how-the-analysis-differs-from-shape-and-storegraph" title="Link to this heading"></a></h2>
 <p>In short, the flow-sensitive alias analysis answers <em>“which abstract
@@ -220,6 +225,12 @@ nested directly in a return or another expression</p></li>
 <li><p>function values retain default and closure-cell reachability</p></li>
 <li><p>incomplete reads produce explicit unknown-reference roots rather than
 silently empty sets</p></li>
+<li><p>argument binding separates definite errors from dynamic-spread calls that
+have both normal and <code class="docutils literal notranslate"><span class="pre">TypeError</span></code> outcomes</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">nonlocal</span></code> names share a stable cell with the nearest enclosing binding and
+do not merge with same-named variables in unrelated scopes</p></li>
+<li><p>execution-derived <code class="docutils literal notranslate"><span class="pre">ProcedureHeapSummary</span></code> effects can be supplied to the
+CFG adapter and reused by IFDS clients</p></li>
 </ul>
 <p>Compound control flow is joined path-insensitively:</p>
 <ul class="simple">

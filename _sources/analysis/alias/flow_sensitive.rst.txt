@@ -14,6 +14,12 @@ extracted into an independent module.  It now has zero IFDS imports:
 shared IR utilities live in :mod:`pyflow.analysis.ir_utils`, which both the
 flow-sensitive alias analysis and ``ifds`` import from.
 
+The implementation is optimized for bug finding rather than whole-language
+verification. Unsupported operations preserve visible nested effects, locally
+contaminate reachable heap objects, and expose a precision-degradation reason
+through ``PointsToGraph``. Detectors can use ``degradations_at()``,
+``alias_evidence()``, and ``analysis_metrics()`` to rank or suppress findings.
+
 .. _heap-vs-shape:
 
 How the analysis differs from shape and storegraph
@@ -109,6 +115,12 @@ The transfer engine owns a ``HeapState`` value map layered on top of
 * function values retain default and closure-cell reachability
 * incomplete reads produce explicit unknown-reference roots rather than
   silently empty sets
+* argument binding separates definite errors from dynamic-spread calls that
+  have both normal and ``TypeError`` outcomes
+* ``nonlocal`` names share a stable cell with the nearest enclosing binding and
+  do not merge with same-named variables in unrelated scopes
+* execution-derived ``ProcedureHeapSummary`` effects can be supplied to the
+  CFG adapter and reused by IFDS clients
 
 Compound control flow is joined path-insensitively:
 
