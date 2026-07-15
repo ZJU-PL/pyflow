@@ -209,12 +209,17 @@ local may reference afterward.</p>
 paths instead of flattening unrelated fields or keys</p></li>
 <li><p>reads from an exact path return exact values plus any overlapping wildcard
 contamination</p></li>
-<li><p>direct calls bind actuals to formals and route return locations back to
-assignment targets when a concrete <code class="docutils literal notranslate"><span class="pre">Code</span></code> object is available; multiple
-result positions remain separate across control-flow joins</p></li>
+<li><p>direct calls and finite, fully known function or virtual target sets bind
+actuals to formals and route return locations back to assignment targets;
+multiple result positions remain separate across control-flow joins</p></li>
+<li><p>nested calls, lambdas, bound methods, callable instances, recognized method
+decorators, class aliases, and known native callbacks use the same finite
+call evaluator</p></li>
 <li><p>collection literals retain element/key-to-value edges even when they are
 nested directly in a return or another expression</p></li>
 <li><p>function values retain default and closure-cell reachability</p></li>
+<li><p>incomplete reads produce explicit unknown-reference roots rather than
+silently empty sets</p></li>
 </ul>
 <p>Compound control flow is joined path-insensitively:</p>
 <ul class="simple">
@@ -230,8 +235,13 @@ explicit exits, so unreachable following statements are not analyzed</p></li>
 <li><p>short-circuit expressions join the states where evaluation stops with states
 where later terms execute, preserving conditional calls and named-expression
 assignments</p></li>
-<li><p>direct-call summaries are cached by callee and coarse actual root bindings;
-recursive call cycles fall back to conservative return roots</p></li>
+<li><p>expression evaluation carries normal and exceptional exits explicitly,
+including calls used directly in conditions and assertions</p></li>
+<li><p>generator resumptions join alternative branch yields at the same suspension
+depth and rebase only the delta after the preceding suspension frontier onto
+the caller heap; frame environments and allocation identities persist across
+resumes</p></li>
+<li><p>recursive call cycles fall back to conservative return roots</p></li>
 </ul>
 <p>This improves recall for common Python heap flows such as <code class="docutils literal notranslate"><span class="pre">obj.x</span> <span class="pre">=</span> <span class="pre">v</span></code> followed
 by <code class="docutils literal notranslate"><span class="pre">return</span> <span class="pre">obj.x</span></code> and improves precision for unrelated fields or literal
@@ -245,22 +255,27 @@ than guarded by branch predicates.</p>
 Python IR.  Within that contract, the transfer engine conservatively handles
 ordinary assignments and deletes, fields/cells/globals, literal and dynamic
 container accesses, unpacking and phi nodes, synchronous and asynchronous
-expression forms, definitions, exceptions/finally, and resolved direct calls.
-Unconstrained parameters share an external summary root so distinct parameters
-are allowed to alias.</p>
+expression forms, definitions, exceptions/finally, direct calls, finite known
+indirect/virtual calls, known implicit special-method implementations,
+descriptor binding, root-based constructors, <code class="docutils literal notranslate"><span class="pre">super()</span></code>, and known definition
+decorators.
+Unconstrained parameters share an explicit unknown root so distinct parameters
+are allowed to alias. Heap value queries return a <code class="docutils literal notranslate"><span class="pre">PossibleValues</span></code> result
+that separates enumerated locations, unknown inclusion, and definite absence.</p>
 <p>The contract deliberately excludes unresolved or reflective call targets,
 recursive call cycles, and loops that do not converge within the configured
-iteration bound.  Native code, descriptors/metaclasses, monkey-patching, and
-other mutations not represented in the IR likewise require an explicit model.
+iteration bound. Native code, unknown descriptors/metaclasses, monkey-patching,
+and other mutations not represented in the IR likewise require an explicit model.
 For those features the result should be treated as a useful conservative model,
 not as a proof of whole-Python soundness.</p>
 </section>
 <section id="update-policy">
 <h2>Update Policy<a class="headerlink" href="#update-policy" title="Link to this heading"></a></h2>
 <p>Writes are represented as <code class="docutils literal notranslate"><span class="pre">HeapWrite(location,</span> <span class="pre">policy)</span></code>.  A write is strong
-only when the target is singleton-like, precise, fresh, and not escaped.
-Nested field and element writes are strong only when
-<code class="docutils literal notranslate"><span class="pre">allow_strong_nested_fresh</span></code> is enabled.</p>
+only when the selector is precise, evaluation produced one receiver root, and
+that root has cardinality <code class="docutils literal notranslate"><span class="pre">ONE</span></code>. Allocation-insensitive roots have
+cardinality <code class="docutils literal notranslate"><span class="pre">MANY</span></code> even when recency is enabled. Nested field and element
+writes additionally require <code class="docutils literal notranslate"><span class="pre">allow_strong_nested_fresh</span></code>.</p>
 <p>Escapes are tracked for:</p>
 <ul class="simple">
 <li><p>values reachable through object fields, containers, globals, cells,
@@ -268,14 +283,16 @@ function defaults, or closures once their owning root escapes</p></li>
 <li><p>values returned from procedures</p></li>
 <li><p>values passed to unresolved calls</p></li>
 </ul>
-<p>Escaped roots use weak updates.</p>
+<p>Escape and cardinality are independent: escaping a known singleton does not
+turn it into multiple concrete objects.</p>
 </section>
 <section id="alias-tracking">
 <h2>Alias Tracking<a class="headerlink" href="#alias-tracking" title="Link to this heading"></a></h2>
 <p><code class="docutils literal notranslate"><span class="pre">HeapAbstraction</span></code> maintains union-find equivalence classes over allocation
 sites.  When two locals are aliased (e.g., <code class="docutils literal notranslate"><span class="pre">y</span> <span class="pre">=</span> <span class="pre">x</span></code>), their sites are
 unified.  Reference counts per equivalence class gate strong updates:
-singleton classes allow strong updates; aliased classes force weak updates.</p>
+reference counts describe live local bindings, while root cardinality and the
+number of possible receivers determine strong-update safety.</p>
 </section>
 <section id="calls-and-constructors">
 <h2>Calls and Constructors<a class="headerlink" href="#calls-and-constructors" title="Link to this heading"></a></h2>
@@ -290,6 +307,14 @@ fresh allocation roots</p></li>
 copy roots</p></li>
 <li><p>other direct call results remain opaque call-result roots</p></li>
 </ul>
+<p>Known class construction resolves <code class="docutils literal notranslate"><span class="pre">__new__</span></code> and <code class="docutils literal notranslate"><span class="pre">__init__</span></code> through the
+recorded C3 base order. A resolved <code class="docutils literal notranslate"><span class="pre">__new__</span></code> controls result identity instead
+of being joined with an invented fresh instance, and <code class="docutils literal notranslate"><span class="pre">__init__</span></code> is applied
+only to results that may be instances of the constructed class.</p>
+<p>Program-point snapshots contain the complete flow value rather than heap maps
+alone: local bindings, reference values, scalar presence, return slots, yielded
+values, and raised values are retained for each labeled outcome. The standalone
+engine also publishes outcome-sensitive <code class="docutils literal notranslate"><span class="pre">ProcedureHeapSummary</span></code> values.</p>
 <p>Collection mutators are also modeled in the heap package.  Value-writing
 mutators such as <code class="docutils literal notranslate"><span class="pre">append</span></code>, <code class="docutils literal notranslate"><span class="pre">insert</span></code>, <code class="docutils literal notranslate"><span class="pre">extend</span></code>, <code class="docutils literal notranslate"><span class="pre">update</span></code>, and
 <code class="docutils literal notranslate"><span class="pre">setdefault</span></code> write wildcard element paths and escape inserted values.
@@ -298,9 +323,9 @@ paths without treating removed keys as stored values.</p>
 </section>
 <section id="heap-effects-and-summaries">
 <h2>Heap Effects and Summaries<a class="headerlink" href="#heap-effects-and-summaries" title="Link to this heading"></a></h2>
-<p><code class="docutils literal notranslate"><span class="pre">HeapEffect</span></code> (from <code class="xref py py-mod docutils literal notranslate"><span class="pre">pyflow.analysis.alias.flow_sensitive.heap_effects</span></code>) is the
-operation-level heap contract shared by analysis clients.  It records reads,
-writes, deletes, escapes, returns, and allocations without encoding
+<p><code class="docutils literal notranslate"><span class="pre">HeapOperationSemantics</span></code> is the shared operation descriptor consumed by the
+standalone transfer, summaries, and IFDS clients. Its <code class="docutils literal notranslate"><span class="pre">HeapEffect</span></code> records
+reads, writes, deletes, escapes, returns, and allocations without encoding
 taint/nullness/typestate-specific facts.</p>
 <p><code class="docutils literal notranslate"><span class="pre">HeapSummary</span></code> (from <code class="xref py py-mod docutils literal notranslate"><span class="pre">pyflow.analysis.alias.flow_sensitive.heap_summary</span></code>) joins those
 effects over a procedure body.  It is a monotone, fixed summary intended for
