@@ -21,7 +21,9 @@ from .model import (
     HeapEscapeState,
     HeapLocation,
     HeapObject,
+    HeapObjectCardinality,
     HeapObjectFreshness,
+    HeapObjectIdentity,
     HeapObjectKind,
     HeapPolicy,
     HeapSelector,
@@ -772,6 +774,8 @@ class HeapAbstraction:
             key,
             str(name),
             freshness=HeapObjectFreshness.FRESH,
+            cardinality=HeapObjectCardinality.ONE,
+            identity=HeapObjectIdentity.SYMBOLIC,
             escape=HeapEscapeState.LOCAL,
         )
 
@@ -790,6 +794,8 @@ class HeapAbstraction:
             label or f"param[{index}]",
             type_hint=type_hint,
             freshness=HeapObjectFreshness.UNKNOWN,
+            cardinality=HeapObjectCardinality.UNKNOWN,
+            identity=HeapObjectIdentity.SYMBOLIC,
             escape=HeapEscapeState.UNKNOWN,
         )
 
@@ -808,6 +814,8 @@ class HeapAbstraction:
             label or f"return[{index}]",
             type_hint=type_hint,
             freshness=HeapObjectFreshness.UNKNOWN,
+            cardinality=HeapObjectCardinality.UNKNOWN,
+            identity=HeapObjectIdentity.SYMBOLIC,
             escape=HeapEscapeState.UNKNOWN,
         )
 
@@ -826,6 +834,12 @@ class HeapAbstraction:
             if self.policy.recency
             else HeapObjectFreshness.SUMMARY
         )
+        cardinality = (
+            HeapObjectCardinality.ONE
+            if self.policy.allocation_sensitivity is not AllocationSensitivity.NONE
+            and self.policy.recency
+            else HeapObjectCardinality.MANY
+        )
         return self._object(
             HeapObjectKind.ALLOCATION,
             key,
@@ -834,6 +848,12 @@ class HeapAbstraction:
             allocation_site=key,
             context=self._context_key(context),
             freshness=freshness,
+            cardinality=cardinality,
+            identity=(
+                HeapObjectIdentity.SINGLETON
+                if cardinality is HeapObjectCardinality.ONE
+                else HeapObjectIdentity.SUMMARY
+            ),
             escape=HeapEscapeState.LOCAL,
         )
 
@@ -855,6 +875,8 @@ class HeapAbstraction:
             allocation_site=key,
             context=self._context_key(context),
             freshness=HeapObjectFreshness.UNKNOWN,
+            cardinality=HeapObjectCardinality.UNKNOWN,
+            identity=HeapObjectIdentity.SYMBOLIC,
             escape=HeapEscapeState.UNKNOWN,
         )
 
@@ -864,6 +886,7 @@ class HeapAbstraction:
         *,
         label: str | None = None,
         type_hint: str | None = None,
+        stable_identity: bool = False,
     ) -> HeapObject:
         return self._object(
             HeapObjectKind.EXTERNAL,
@@ -871,7 +894,33 @@ class HeapAbstraction:
             label or f"external:{key!r}",
             type_hint=type_hint,
             freshness=HeapObjectFreshness.UNKNOWN,
+            cardinality=HeapObjectCardinality.UNKNOWN,
+            identity=(
+                HeapObjectIdentity.SYMBOLIC
+                if stable_identity
+                else HeapObjectIdentity.SUMMARY
+            ),
             escape=HeapEscapeState.EXTERNAL,
+        )
+
+    def unknown_object(
+        self,
+        key: object,
+        *,
+        label: str | None = None,
+        type_hint: str | None = None,
+        identity: HeapObjectIdentity = HeapObjectIdentity.SUMMARY,
+    ) -> HeapObject:
+        """Return an explicit top-like reference root with stable provenance."""
+        return self._object(
+            HeapObjectKind.UNKNOWN,
+            ("unknown", key),
+            label or f"unknown:{key!r}",
+            type_hint=type_hint,
+            freshness=HeapObjectFreshness.UNKNOWN,
+            cardinality=HeapObjectCardinality.UNKNOWN,
+            identity=identity,
+            escape=HeapEscapeState.UNKNOWN,
         )
 
     def global_object(
@@ -890,6 +939,8 @@ class HeapAbstraction:
             display,
             type_hint=type_hint,
             freshness=HeapObjectFreshness.FRESH,
+            cardinality=HeapObjectCardinality.ONE,
+            identity=HeapObjectIdentity.SYMBOLIC,
             escape=HeapEscapeState.EXTERNAL,
         )
 
@@ -918,6 +969,16 @@ class HeapAbstraction:
                 if has_identity
                 else HeapObjectFreshness.SUMMARY
             ),
+            cardinality=(
+                HeapObjectCardinality.ONE
+                if has_identity
+                else HeapObjectCardinality.UNKNOWN
+            ),
+            identity=(
+                HeapObjectIdentity.SYMBOLIC
+                if has_identity
+                else HeapObjectIdentity.SUMMARY
+            ),
             escape=(
                 HeapEscapeState.LOCAL
                 if has_identity
@@ -939,6 +1000,8 @@ class HeapAbstraction:
             display,
             type_hint=type_hint or "module",
             freshness=HeapObjectFreshness.FRESH,
+            cardinality=HeapObjectCardinality.ONE,
+            identity=HeapObjectIdentity.SYMBOLIC,
             escape=HeapEscapeState.EXTERNAL,
         )
 
@@ -955,6 +1018,8 @@ class HeapAbstraction:
             label or f"summary:{key!r}",
             type_hint=type_hint,
             freshness=HeapObjectFreshness.SUMMARY,
+            cardinality=HeapObjectCardinality.MANY,
+            identity=HeapObjectIdentity.SUMMARY,
             escape=HeapEscapeState.ESCAPED,
         )
 
@@ -1019,6 +1084,7 @@ class HeapAbstraction:
         *,
         state: object | None = None,
         program_point_states: dict[int, tuple[object, object]] | None = None,
+        program_point_outcomes: dict[int, dict[str, object]] | None = None,
     ) -> "PointsToGraph":
         """Export heap state as a reusable :class:`PointsToGraph`.
 
@@ -1028,7 +1094,7 @@ class HeapAbstraction:
         resulting graph is consumed by optimization passes and the
         semantic query API.
         """
-        from .points_to_graph import PointsToEntry, PointsToGraph
+        from .points_to_graph import HeapValueSnapshot, PointsToEntry, PointsToGraph
 
         entries: dict[HeapLocation, PointsToEntry] = {}
         for obj_key, obj in self._objects.items():
@@ -1053,6 +1119,8 @@ class HeapAbstraction:
                 is_escaped=escaped,
                 is_singleton=obj.is_singleton(),
                 update_policy=self.update_policy_for_location(location),
+                cardinality=obj.cardinality,
+                identity=obj.identity,
             )
         values = getattr(state, "values", {}) if state is not None else {}
         contaminants = (
@@ -1060,28 +1128,115 @@ class HeapAbstraction:
         )
         point_values: dict[int, tuple[dict, dict]] = {}
         point_contaminants: dict[int, tuple[dict, dict]] = {}
+        point_absent: dict[int, tuple[frozenset, frozenset]] = {}
+        point_scalar_present: dict[int, tuple[frozenset, frozenset]] = {}
+        point_complete_roots: dict[int, tuple[frozenset, frozenset]] = {}
+        point_locals: dict[int, tuple[dict, dict]] = {}
+        point_outcomes: dict[int, dict[str, HeapValueSnapshot]] = {}
+
+        def heap_state(flow):
+            return getattr(flow, "heap_state", flow)
+
+        def local_values(flow) -> dict[tuple[int, str], frozenset[HeapLocation]]:
+            environment = getattr(flow, "environment", None)
+            if environment is None:
+                return {}
+            keys = set(environment.storage_overrides) | set(
+                environment.allocation_sites
+            )
+            result: dict[tuple[int, str], set[HeapLocation]] = {}
+            for key in keys:
+                name = environment.local_names.get(key)
+                if not name:
+                    continue
+                storage = self._environment_storage(environment, key)
+                result.setdefault((key[0], name), set()).update(
+                    self.location_for_raw(raw) for raw in storage
+                )
+            return {
+                key: frozenset(locations)
+                for key, locations in result.items()
+            }
+
+        def payloads(mapping) -> dict[int, frozenset[HeapLocation]]:
+            return {
+                id(procedure): frozenset(locations)
+                for procedure, locations in mapping.items()
+            }
+
+        def return_payloads(mapping) -> dict[int, tuple[frozenset[HeapLocation], ...]]:
+            return {
+                id(procedure): tuple(frozenset(slot) for slot in slots)
+                for procedure, slots in mapping.items()
+            }
         for key, pair in (program_point_states or {}).items():
             before, after = pair
+            before_heap = heap_state(before)
+            after_heap = heap_state(after)
             point_values[key] = (
                 {
                     location: frozenset(stored)
-                    for location, stored in getattr(before, "values", {}).items()
+                    for location, stored in getattr(before_heap, "values", {}).items()
                 },
                 {
                     location: frozenset(stored)
-                    for location, stored in getattr(after, "values", {}).items()
+                    for location, stored in getattr(after_heap, "values", {}).items()
                 },
             )
             point_contaminants[key] = (
                 {
                     location: frozenset(stored)
-                    for location, stored in getattr(before, "contaminants", {}).items()
+                    for location, stored in getattr(before_heap, "contaminants", {}).items()
                 },
                 {
                     location: frozenset(stored)
-                    for location, stored in getattr(after, "contaminants", {}).items()
+                    for location, stored in getattr(after_heap, "contaminants", {}).items()
                 },
             )
+            point_absent[key] = (
+                frozenset(getattr(before_heap, "absent", ())),
+                frozenset(getattr(after_heap, "absent", ())),
+            )
+            point_scalar_present[key] = (
+                frozenset(getattr(before_heap, "scalar_present", ())),
+                frozenset(getattr(after_heap, "scalar_present", ())),
+            )
+            point_complete_roots[key] = (
+                frozenset(getattr(before_heap, "complete_roots", ())),
+                frozenset(getattr(after_heap, "complete_roots", ())),
+            )
+            point_locals[key] = (local_values(before), local_values(after))
+        for key, outcomes in (program_point_outcomes or {}).items():
+            point_outcomes[key] = {
+                label: HeapValueSnapshot(
+                    values={
+                        location: frozenset(stored)
+                        for location, stored in getattr(heap_state(outcome), "values", {}).items()
+                    },
+                    contaminants={
+                        location: frozenset(stored)
+                        for location, stored in getattr(
+                            heap_state(outcome),
+                            "contaminants",
+                            {},
+                        ).items()
+                    },
+                    absent=frozenset(getattr(heap_state(outcome), "absent", ())),
+                    complete_roots=frozenset(
+                        getattr(heap_state(outcome), "complete_roots", ())
+                    ),
+                    scalar_present=frozenset(
+                        getattr(heap_state(outcome), "scalar_present", ())
+                    ),
+                    locals=local_values(outcome),
+                    returns=return_payloads(
+                        getattr(heap_state(outcome), "return_slots", {})
+                    ),
+                    yields=payloads(getattr(heap_state(outcome), "yields", {})),
+                    raised=payloads(getattr(heap_state(outcome), "raised", {})),
+                )
+                for label, outcome in outcomes.items()
+            }
         return PointsToGraph(
             entries=entries,
             allow_strong_nested_fresh=self.policy.allow_strong_nested_fresh,
@@ -1095,6 +1250,16 @@ class HeapAbstraction:
             },
             program_point_values=point_values,
             program_point_contaminants=point_contaminants,
+            heap_absent=frozenset(getattr(state, "absent", ())),
+            heap_scalar_present=frozenset(
+                getattr(state, "scalar_present", ())
+            ),
+            complete_roots=frozenset(getattr(state, "complete_roots", ())),
+            program_point_absent=point_absent,
+            program_point_scalar_present=point_scalar_present,
+            program_point_complete_roots=point_complete_roots,
+            program_point_outcomes=point_outcomes,
+            program_point_locals=point_locals,
         )
 
     def to_dict(self) -> dict:
@@ -1142,6 +1307,8 @@ class HeapAbstraction:
         allocation_site: object | None = None,
         context: tuple[object, ...] = (),
         freshness: HeapObjectFreshness = HeapObjectFreshness.FRESH,
+        cardinality: HeapObjectCardinality = HeapObjectCardinality.UNKNOWN,
+        identity: HeapObjectIdentity = HeapObjectIdentity.SUMMARY,
         escape: HeapEscapeState = HeapEscapeState.LOCAL,
     ) -> HeapObject:
         object_key = (
@@ -1152,6 +1319,8 @@ class HeapAbstraction:
             allocation_site,
             context,
             freshness.value,
+            cardinality.value,
+            identity.value,
             escape.value,
         )
         obj = self._objects.get(object_key)
@@ -1164,6 +1333,8 @@ class HeapAbstraction:
                 allocation_site=allocation_site,
                 context=context,
                 freshness=freshness,
+                cardinality=cardinality,
+                identity=identity,
                 escape=escape,
             )
             self._objects[object_key] = obj
@@ -1183,6 +1354,8 @@ class HeapAbstraction:
                     ("slot-local", id(slot_name), label),
                     label,
                     freshness=HeapObjectFreshness.FRESH,
+                    cardinality=HeapObjectCardinality.ONE,
+                    identity=HeapObjectIdentity.SYMBOLIC,
                     escape=HeapEscapeState.LOCAL,
                 )
             if hasattr(slot_name, "isExisting") and slot_name.isExisting():
@@ -1193,6 +1366,8 @@ class HeapAbstraction:
                     ("slot-existing", id(obj), id(slot_name)),
                     label,
                     freshness=HeapObjectFreshness.FRESH,
+                    cardinality=HeapObjectCardinality.ONE,
+                    identity=HeapObjectIdentity.SYMBOLIC,
                     escape=HeapEscapeState.EXTERNAL,
                 )
         label = self._describe_raw_storage(raw)
@@ -1201,6 +1376,8 @@ class HeapAbstraction:
             ("raw", id(raw)),
             label,
             freshness=HeapObjectFreshness.FRESH,
+            cardinality=HeapObjectCardinality.ONE,
+            identity=HeapObjectIdentity.SYMBOLIC,
             escape=HeapEscapeState.LOCAL,
         )
 

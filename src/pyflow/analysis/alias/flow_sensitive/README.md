@@ -15,13 +15,20 @@ roots, escape state, and live-reference metadata before subsequent operations.
 Abrupt exits (`return`, `raise`, `break`, and `continue`) are carried separately
 from normal successors, including through `try`/`except`/`finally`.
 
-For bounded, closed-world IR, resolved direct calls preserve per-result return
-slots, short-circuit expressions join skipped and executed side effects, and
+For bounded, closed-world IR, direct calls and finite fully known indirect or
+virtual target sets preserve per-result return slots, short-circuit expressions
+join skipped and executed side effects, and
 nested collection/function values retain their element, default, and closure
 reachability. Calls are analyzed against the caller's current heap, call-site
 allocation contexts distinguish repeated callee allocations, and dead callee
 locals do not leak into caller reference counts. Unconstrained parameters and
 unknown return roots conservatively may alias live value objects.
+
+Finite dispatch covers nested calls, ``MakeFunction``/lambda values, stored
+bound methods, callable instances, class aliases, recognized builtin method
+decorators, known definition decorators, and callbacks used by modeled native
+operations. Known class lookup includes descriptors, ``super()``, construction
+hooks, and root-based rather than text-only constructor recognition.
 
 The transfer follows Python evaluation order for assignments, calls, dynamic
 attributes/subscripts, short-circuit expressions, annotations, yields, awaits,
@@ -38,6 +45,9 @@ model. The points-to domain tracks reference-bearing heap objects; scalar
 values such as integers and strings are evaluated for ordering and effects but
 are not represented as mutable heap roots.
 
+The precise bounded contract, abstract domains, and supported-IR matrix are in
+[`SOUNDNESS.md`](SOUNDNESS.md).
+
 ## flow_sensitive vs kcfa
 
 `pyflow.analysis.alias.flow_sensitive` and `pyflow.analysis.alias.kcfa` both answer points-to style
@@ -49,7 +59,7 @@ questions, but they target different consumers.
 | Flow model | Flow-sensitive over PyFlow IR, path-insensitive at joins | Effectively flow-insensitive points-to solving: constraints and pointer-flow edges are solved to a monotone union fixpoint |
 | Context model | Optional allocation/context sensitivity through `HeapPolicy` | k-CFA context sensitivity, configured by `k` / `context_policy` |
 | Updates | Tracks strong vs weak writes, deletes, local unaliasing, and wildcard contamination | Points-to sets only grow; stores add flow edges from source variables to fields |
-| Query surface | `PointsToGraph` with `may_alias`, `aliased`, escape, ref-count, and update-policy queries | `PointerAnalysisResult.points_to(name)` and call edges, with raw PythonStAn result access |
+| Query surface | `PointsToGraph` with `may_alias`, `must_alias`, escape, cardinality, and update-policy queries | `PointerAnalysisResult.points_to(name)` and call edges, with raw PythonStAn result access |
 | Integration | Uses PyFlow program/code objects and feeds optimization/query APIs | Starts from source text and runs the PythonStAn lowering pipeline |
 
 Use the analysis when a PyFlow pass needs order-aware heap state, escape facts,
@@ -102,11 +112,22 @@ if graph.strong_update_possible(loc):
     ...
 
 # Final-state heap contents.
-values = graph.values_at(object_field)
+values = graph.possible_values_at(object_field)
+known_locations = values.locations
+if values.includes_unknown:
+    ...  # no closed enumeration is available
 
 # Operation-specific pre/post state.
-before = graph.values_at(object_field, operation, before=True)
-after = graph.values_at(object_field, operation)
+before = graph.possible_values_at(object_field, operation, before=True)
+after = graph.possible_values_at(object_field, operation)
+
+# Outcome-specific post-state (labels include normal/raise/return/yield).
+raised = graph.possible_values_at(object_field, operation, outcome="raise")
+
+# Outcome-specific local and payload queries.
+local_values = graph.possible_local_values_at(code, local, operation,
+                                              outcome="normal")
+yielded = graph.yielded_values_at(code, operation)
 ```
 
 The application pass registers the result under the `"heap"` analysis key:
@@ -122,7 +143,8 @@ CLI-oriented inspection lives in `pyflow.cli.alias`.
 The heap model separates storage roots from access paths:
 
 - `HeapObject` is an abstract root such as a local, global, parameter,
-  allocation, return value, or external object.
+  allocation, return value, or external object. Roots separately record
+  cardinality and singleton/symbolic/summary identity.
 - `HeapLocation` is a root plus zero or more selectors.
 - `HeapSelector` represents an attribute, item, index, or wildcard path segment.
 - `HeapWrite` records the target location and whether the write is strong or
@@ -158,6 +180,11 @@ and context sensitivity.
 - Unknown locations are conservative for `may_alias()`, escape, and
   reference-count queries; callers that require proof should first check
   membership in the graph.
+- Repeated unknown reads from one path share a versioned symbolic identity
+  relation until an overlapping heap mutation changes that version. Dynamic
+  reads do not use that relation as a ``must_alias`` proof.
+- Heap snapshots distinguish a present scalar/non-reference value from both a
+  missing location and an unknown reference.
 - Dynamic attribute/subscript writes use wildcard selectors and can contaminate
   overlapping precise paths.
 - Control-flow joins must combine both `HeapState` values and the corresponding

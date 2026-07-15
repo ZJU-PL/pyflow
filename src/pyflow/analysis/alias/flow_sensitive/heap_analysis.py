@@ -19,8 +19,9 @@ from .model import (
     HeapWrite,
     RawStorageProvider,
 )
-from .points_to_graph import PointsToGraph
+from .points_to_graph import PointsToGraph, PossibleValues
 from .transfer import HeapTransferEngine
+from .heap_summary import ProcedureHeapSummary
 
 
 class HeapAnalysis:
@@ -40,7 +41,7 @@ class HeapAnalysis:
         graph = program.heap_analysis
         if graph.never_escapes(location):
             ...  # safe to stack-allocate / eliminate
-        if graph.aliased(a, b):
+        if graph.must_alias(a, b):
             ...  # must-alias: load elimination can reuse dominating store
     """
 
@@ -57,6 +58,7 @@ class HeapAnalysis:
         self._intrinsics = intrinsics
         self._heap: HeapAbstraction | None = None
         self._graph: PointsToGraph | None = None
+        self._procedure_summaries: dict[object, ProcedureHeapSummary] = {}
 
     # ── core analysis ──────────────────────────────────────────────────
 
@@ -88,9 +90,11 @@ class HeapAnalysis:
         )
         engine = HeapTransferEngine(self._heap, intrinsics=self._intrinsics)
         engine.analyze_program(program)
+        self._procedure_summaries = dict(engine.procedure_summaries)
         graph = self._heap.to_points_to_graph(
             state=engine.state,
             program_point_states=engine.program_point_states,
+            program_point_outcomes=engine.program_point_outcomes,
         )
         self._graph = graph
         return graph
@@ -119,6 +123,11 @@ class HeapAnalysis:
         """Clear internal state so :meth:`analyze` can be called again."""
         self._heap = None
         self._graph = None
+        self._procedure_summaries = {}
+
+    @property
+    def procedure_summaries(self) -> dict[object, ProcedureHeapSummary]:
+        return dict(self._procedure_summaries)
 
     # ── live heap queries (delegated to HeapAbstraction) ────────────────
 
@@ -168,19 +177,41 @@ class HeapAnalysis:
         """Return all locations in the same alias class as *location*."""
         return self._require_graph().points_to(location)
 
-    def values_at(
+    def possible_values_at(
         self,
         location: "HeapLocation",
         operation: object | None = None,
         *,
         before: bool = False,
-    ) -> "frozenset[HeapLocation]":
-        """Return possible heap values at the final or selected program point."""
-        return self._require_graph().values_at(
+        outcome: str | None = None,
+    ) -> PossibleValues:
+        """Return values plus unknown/absence state at a program point."""
+        return self._require_graph().possible_values_at(
             location,
             operation,
             before=before,
+            outcome=outcome,
         )
+
+    def possible_local_values_at(
+        self,
+        procedure: object,
+        local: object,
+        operation: object,
+        *,
+        before: bool = False,
+        outcome: str | None = None,
+    ) -> PossibleValues:
+        return self._require_graph().possible_local_values_at(
+            procedure,
+            local,
+            operation,
+            before=before,
+            outcome=outcome,
+        )
+
+    def outcome_snapshot(self, operation: object, outcome: str):
+        return self._require_graph().outcome_snapshot(operation, outcome)
 
     def never_escapes(self, location: "HeapLocation") -> bool:
         """Return ``True`` if *location* has not been marked escaped."""
@@ -202,9 +233,9 @@ class HeapAnalysis:
         """Return ``True`` if strong updates are safe for *location*."""
         return self._require_graph().strong_update_possible(location)
 
-    def aliased(self, a: "HeapLocation", b: "HeapLocation") -> bool:
+    def must_alias(self, a: "HeapLocation", b: "HeapLocation") -> bool:
         """Return ``True`` if *a* and *b* are must-aliases."""
-        return self._require_graph().aliased(a, b)
+        return self._require_graph().must_alias(a, b)
 
     def may_alias(self, a: "HeapLocation", b: "HeapLocation") -> bool:
         """Return ``True`` if *a* and *b* may alias."""

@@ -504,7 +504,7 @@ def test_function_defaults_are_evaluated_at_definition_and_reused():
     heap = analysis.heap
     assert heap is not None
 
-    assert graph.aliased(
+    assert graph.must_alias(
         heap.locations_for_local(module, result)[0],
         heap.locations_for_local(module, default_loaded)[0],
     )
@@ -574,7 +574,7 @@ def test_store_evaluates_rhs_before_rebound_target_base():
     heap = analysis.heap
     assert heap is not None
 
-    assert graph.aliased(
+    assert graph.must_alias(
         heap.locations_for_local(code, loaded)[0],
         heap.locations_for_local(code, replacement)[0],
     )
@@ -621,7 +621,7 @@ def test_returned_collection_literal_retains_element_edges():
     heap = analysis.heap
     assert heap is not None
 
-    assert graph.aliased(
+    assert graph.must_alias(
         heap.locations_for_local(caller, loaded)[0],
         heap.locations_for_local(caller, actual)[0],
     )
@@ -675,7 +675,7 @@ def test_returned_function_retains_default_value_edges():
     heap = analysis.heap
     assert heap is not None
 
-    assert graph.aliased(
+    assert graph.must_alias(
         heap.locations_for_local(caller, loaded)[0],
         heap.locations_for_local(caller, actual)[0],
     )

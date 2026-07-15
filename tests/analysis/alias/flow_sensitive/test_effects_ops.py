@@ -99,3 +99,17 @@ def test_make_function_creates_allocation():
     assert len(effect.allocations) == 1
     assert effect.allocations[0].kind is HeapObjectKind.ALLOCATION
     assert effect.allocations[0].label == "function"
+
+
+def test_operation_semantics_shares_effect_and_stored_value_description():
+    heap = HeapAbstraction(lambda _procedure, _local: ())
+    builder = HeapEffectBuilder(heap, heap.locations_for_local)
+    obj = py_ast.Local("obj")
+    value = py_ast.Local("value")
+    heap.bind_allocation_targets(None, (obj,), object(), label="obj")
+    operation = py_ast.SetAttr(value, obj, _existing("payload"))
+
+    semantics = builder.operation_semantics(None, operation)
+
+    assert semantics.effect.writes
+    assert semantics.stored_value is value

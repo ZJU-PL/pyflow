@@ -458,6 +458,7 @@ class CFGSupergraphAdapter:
         *,
         call_resolver: CallResolver | None = None,
         include_exceptional_edges: bool = True,
+        procedure_heap_summaries: dict[object, object] | None = None,
     ) -> None:
         self.cfgs = tuple(cfgs)
         self.call_resolver = call_resolver or composite_cfg_resolver(
@@ -466,6 +467,7 @@ class CFGSupergraphAdapter:
             named_call_cfg_resolver,
         )
         self.include_exceptional_edges = include_exceptional_edges
+        self.procedure_heap_summaries = dict(procedure_heap_summaries or {})
         self.cfg_by_ast_code = {
             cfg.code: cfg for cfg in self.cfgs if getattr(cfg, "code", None) is not None
         }
@@ -523,6 +525,19 @@ class CFGSupergraphAdapter:
 
     def procedure_semantics(self, procedure: cfg_graph.Code) -> ProcedureSemantics:
         return self._procedure_semantics.get(procedure, ProcedureSemantics())
+
+    def procedure_heap_summary(self, procedure: cfg_graph.Code):
+        """Return a flow-sensitive heap summary supplied by the alias pass."""
+        try:
+            summary = self.procedure_heap_summaries.get(procedure)
+        except TypeError:
+            summary = None
+        if summary is not None:
+            return summary
+        code = getattr(procedure, "code", None)
+        if code is not None:
+            return self.procedure_heap_summaries.get(code)
+        return None
 
     def suspension_effects_of(self, node: CFGNode) -> tuple[SuspensionEffect, ...]:
         """Return every suspension boundary evaluated by ``node``."""

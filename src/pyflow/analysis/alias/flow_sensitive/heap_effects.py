@@ -109,6 +109,15 @@ class HeapEffect:
         )
 
 
+@dataclass(frozen=True)
+class HeapOperationSemantics:
+    """Shared operation description for transfer, summaries, and IFDS."""
+
+    effect: HeapEffect
+    stored_value: object | None = None
+    call_expression: object | None = None
+
+
 class HeapEffectBuilder:
     """Build heap effects for Python IR operations."""
 
@@ -250,6 +259,30 @@ class HeapEffectBuilder:
             allocations=self._allocation_objects_for_operation(procedure, operation),
         )
 
+    def operation_semantics(
+        self,
+        procedure: object,
+        operation: object,
+        *,
+        collection_mutator_names: frozenset[str] = frozenset(),
+    ) -> HeapOperationSemantics:
+        """Return the canonical semantic descriptor for one operation."""
+        stored_values = self._stored_value_expressions(operation)
+        stored_value = stored_values[0] if stored_values else None
+        if stored_value is None:
+            stored_value = self.dynamic_subscript_value(operation)
+        if stored_value is None:
+            stored_value = self._dynamic_setattr_value(operation)
+        return HeapOperationSemantics(
+            effect=self.operation_effect(
+                procedure,
+                operation,
+                collection_mutator_names=collection_mutator_names,
+            ),
+            stored_value=stored_value,
+            call_expression=self._call_from_expression_or_statement(operation),
+        )
+
     def unresolved_call_effect(
         self,
         procedure: object,
@@ -272,6 +305,10 @@ class HeapEffectBuilder:
         candidate = operation
         if isinstance(operation, py_ast.Discard):
             candidate = operation.expr
+        elif isinstance(operation, py_ast.Assign):
+            candidate = operation.expr
+        elif isinstance(operation, py_ast.AnnAssign):
+            candidate = operation.value
         if isinstance(candidate, (py_ast.Yield, py_ast.YieldFrom, py_ast.AsyncYield)):
             return candidate.expr
         return None

@@ -59,7 +59,7 @@ def test_keeps_literal_dict_keys_precise():
     va_location = heap.locations_for_local(code, va)[0]
     vb_location = heap.locations_for_local(code, vb)[0]
 
-    assert graph.aliased(loaded_location, va_location)
+    assert graph.must_alias(loaded_location, va_location)
     assert not graph.may_alias(loaded_location, vb_location)
 
 

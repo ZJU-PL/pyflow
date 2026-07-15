@@ -232,7 +232,7 @@ def test_returned_function_escapes_default_values():
 
     assert graph.is_escaped(fn_location)
     assert graph.is_escaped(default_location)
-    assert graph.aliased(ret_location, fn_location)
+    assert graph.must_alias(ret_location, fn_location)
 
 
 def test_single_return_expression_preserves_all_possible_locations():

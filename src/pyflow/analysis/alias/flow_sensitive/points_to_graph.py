@@ -12,17 +12,52 @@ Typical usage::
     True
     >>> graph.single_reference(location)
     False
-    >>> graph.aliased(loc_a, loc_b)
+    >>> graph.must_alias(loc_a, loc_b)
     True
 """
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from .model import HeapLocation, UpdatePolicy
+    from .model import (
+        HeapLocation,
+        HeapObjectCardinality,
+        HeapObjectIdentity,
+        UpdatePolicy,
+    )
+
+
+@dataclass(frozen=True)
+class PossibleValues:
+    """Possible reference values stored at one heap location."""
+
+    locations: "frozenset[HeapLocation]"
+    includes_unknown: bool = False
+    definitely_absent: bool = False
+    includes_non_reference: bool = False
+
+
+@dataclass(frozen=True)
+class HeapValueSnapshot:
+    """Heap value domain for one labeled program-point outcome."""
+
+    values: "dict[HeapLocation, frozenset[HeapLocation]]"
+    contaminants: "dict[HeapLocation, frozenset[HeapLocation]]"
+    absent: "frozenset[HeapLocation]"
+    complete_roots: "frozenset[object]"
+    scalar_present: "frozenset[HeapLocation]" = frozenset()
+    locals: "dict[tuple[int, str], frozenset[HeapLocation]]" = field(
+        default_factory=dict
+    )
+    returns: "dict[int, tuple[frozenset[HeapLocation], ...]]" = field(
+        default_factory=dict
+    )
+    yields: "dict[int, frozenset[HeapLocation]]" = field(default_factory=dict)
+    raised: "dict[int, frozenset[HeapLocation]]" = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -50,10 +85,16 @@ class PointsToEntry:
     """Whether the root has been marked as escaped."""
 
     is_singleton: bool
-    """Whether the root is eligible for strong updates (fresh + local + not escaped)."""
+    """Whether the root has cardinality ONE and a local object identity."""
 
     update_policy: "UpdatePolicy"
     """Default update policy for writes to this location."""
+
+    cardinality: "HeapObjectCardinality"
+    """Concrete-object cardinality represented by this root."""
+
+    identity: "HeapObjectIdentity"
+    """Whether the abstract root denotes one stable symbolic identity."""
 
     @property
     def is_strong(self) -> bool:
@@ -72,6 +113,8 @@ class PointsToEntry:
             "ref_count": self.ref_count,
             "is_escaped": self.is_escaped,
             "is_singleton": self.is_singleton,
+            "cardinality": self.cardinality.value,
+            "identity": self.identity.value,
             "update_policy": self.update_policy.value,
         }
 
@@ -106,6 +149,24 @@ class PointsToGraph:
     program_point_contaminants: "dict[int, tuple[dict[HeapLocation, frozenset[HeapLocation]], dict[HeapLocation, frozenset[HeapLocation]]]]" = field(
         default_factory=dict
     )
+    heap_absent: "frozenset[HeapLocation]" = frozenset()
+    heap_scalar_present: "frozenset[HeapLocation]" = frozenset()
+    complete_roots: "frozenset[object]" = frozenset()
+    program_point_absent: "dict[int, tuple[frozenset[HeapLocation], frozenset[HeapLocation]]]" = field(
+        default_factory=dict
+    )
+    program_point_scalar_present: "dict[int, tuple[frozenset[HeapLocation], frozenset[HeapLocation]]]" = field(
+        default_factory=dict
+    )
+    program_point_complete_roots: "dict[int, tuple[frozenset[object], frozenset[object]]]" = field(
+        default_factory=dict
+    )
+    program_point_outcomes: "dict[int, dict[str, HeapValueSnapshot]]" = field(
+        default_factory=dict
+    )
+    program_point_locals: "dict[int, tuple[dict[tuple[int, str], frozenset[HeapLocation]], dict[tuple[int, str], frozenset[HeapLocation]]]]" = field(
+        default_factory=dict
+    )
 
     # ── query methods ──────────────────────────────────────────────────
 
@@ -134,13 +195,14 @@ class PointsToGraph:
             return frozenset({location})
         return entry.aliases
 
-    def values_at(
+    def possible_values_at(
         self,
         location: "HeapLocation",
         operation: object | None = None,
         *,
         before: bool = False,
-    ) -> "frozenset[HeapLocation]":
+        outcome: str | None = None,
+    ) -> PossibleValues:
         """Return possible values stored at *location*.
 
         When *operation* is supplied, query the state immediately before or
@@ -149,21 +211,164 @@ class PointsToGraph:
         """
         values = self.heap_values
         contaminants = self.heap_contaminants
+        absent = self.heap_absent
+        scalar_present = self.heap_scalar_present
+        complete_roots = self.complete_roots
+        if before and outcome is not None:
+            raise ValueError("outcome is only valid for post-state queries")
         if operation is not None:
-            index = 0 if before else 1
-            point_values = self.program_point_values.get(id(operation))
-            point_contaminants = self.program_point_contaminants.get(id(operation))
-            if point_values is not None:
-                values = point_values[index]
-            if point_contaminants is not None:
-                contaminants = point_contaminants[index]
+            if outcome is not None:
+                snapshot = self.program_point_outcomes.get(id(operation), {}).get(
+                    outcome
+                )
+                if snapshot is None:
+                    return PossibleValues(
+                        frozenset(),
+                        definitely_absent=True,
+                    )
+                values = snapshot.values
+                contaminants = snapshot.contaminants
+                absent = snapshot.absent
+                scalar_present = snapshot.scalar_present
+                complete_roots = snapshot.complete_roots
+            else:
+                index = 0 if before else 1
+                point_values = self.program_point_values.get(id(operation))
+                point_contaminants = self.program_point_contaminants.get(id(operation))
+                if point_values is not None:
+                    values = point_values[index]
+                if point_contaminants is not None:
+                    contaminants = point_contaminants[index]
+                point_absent = self.program_point_absent.get(id(operation))
+                point_complete = self.program_point_complete_roots.get(id(operation))
+                point_scalar = self.program_point_scalar_present.get(id(operation))
+                if point_absent is not None:
+                    absent = point_absent[index]
+                if point_complete is not None:
+                    complete_roots = point_complete[index]
+                if point_scalar is not None:
+                    scalar_present = point_scalar[index]
         result = list(values.get(location, ()))
         from .heap_state import HeapState
 
         for contaminant, stored in contaminants.items():
             if HeapState.locations_may_overlap(location, contaminant):
                 result.extend(stored)
-        return frozenset(result)
+        locations = frozenset(result)
+        from .model import HeapObjectKind
+
+        has_overlapping_contaminant = any(
+            HeapState.locations_may_overlap(location, contaminant)
+            for contaminant in contaminants
+        )
+        definitely_absent = (
+            location in absent
+            or (
+                location.root in complete_roots
+                and not locations
+                and location not in scalar_present
+            )
+        ) and not has_overlapping_contaminant
+        includes_unknown = any(
+            value.root.kind
+            in {
+                HeapObjectKind.UNKNOWN,
+                HeapObjectKind.CALL_RESULT,
+                HeapObjectKind.RETURN,
+            }
+            for value in locations
+        ) or (
+            not locations
+            and not definitely_absent
+            and location not in scalar_present
+            and location.root not in complete_roots
+        )
+        return PossibleValues(
+            locations,
+            includes_unknown=includes_unknown,
+            definitely_absent=definitely_absent,
+            includes_non_reference=location in scalar_present,
+        )
+
+    def possible_local_values_at(
+        self,
+        procedure: object,
+        local: object,
+        operation: object,
+        *,
+        before: bool = False,
+        outcome: str | None = None,
+    ) -> PossibleValues:
+        """Return the local binding at one program point/outcome."""
+        if before and outcome is not None:
+            raise ValueError("outcome is only valid for post-state queries")
+        name = getattr(local, "name", local)
+        key = (id(procedure), str(name))
+        if outcome is not None:
+            snapshot = self.program_point_outcomes.get(id(operation), {}).get(
+                outcome
+            )
+            if snapshot is None:
+                return PossibleValues(frozenset(), definitely_absent=True)
+            locations = snapshot.locals.get(key, frozenset())
+        else:
+            pair = self.program_point_locals.get(id(operation))
+            if pair is None:
+                return PossibleValues(frozenset(), definitely_absent=True)
+            locations = pair[0 if before else 1].get(key, frozenset())
+        return PossibleValues(
+            locations,
+            includes_unknown=any(
+                location.root.kind.value in {"unknown", "summary", "call_result"}
+                for location in locations
+            ),
+            definitely_absent=not locations,
+        )
+
+    def outcome_snapshot(
+        self,
+        operation: object,
+        outcome: str,
+    ) -> HeapValueSnapshot | None:
+        return self.program_point_outcomes.get(id(operation), {}).get(outcome)
+
+    def returned_values_at(
+        self,
+        procedure: object,
+        operation: object,
+        *,
+        outcome: str = "return",
+    ) -> tuple[frozenset[HeapLocation], ...]:
+        snapshot = self.outcome_snapshot(operation, outcome)
+        return () if snapshot is None else snapshot.returns.get(id(procedure), ())
+
+    def yielded_values_at(
+        self,
+        procedure: object,
+        operation: object,
+        *,
+        outcome: str = "yield",
+    ) -> frozenset[HeapLocation]:
+        snapshot = self.outcome_snapshot(operation, outcome)
+        return (
+            frozenset()
+            if snapshot is None
+            else snapshot.yields.get(id(procedure), frozenset())
+        )
+
+    def raised_values_at(
+        self,
+        procedure: object,
+        operation: object,
+        *,
+        outcome: str = "raise",
+    ) -> frozenset[HeapLocation]:
+        snapshot = self.outcome_snapshot(operation, outcome)
+        return (
+            frozenset()
+            if snapshot is None
+            else snapshot.raised.get(id(procedure), frozenset())
+        )
 
     def never_escapes(self, location: "HeapLocation") -> bool:
         """Return ``True`` if *location*'s root has **not** been marked escaped.
@@ -216,23 +421,60 @@ class PointsToGraph:
             return self.allow_strong_nested_fresh and entry.is_singleton
         return entry.update_policy is UpdatePolicy.STRONG
 
-    def aliased(self, a: "HeapLocation", b: "HeapLocation") -> bool:
+    def receiver_cardinality(
+        self,
+        location: "HeapLocation",
+    ) -> "HeapObjectCardinality":
+        from .model import HeapObjectCardinality
+
+        entry = self.get(location)
+        if entry is None:
+            return HeapObjectCardinality.UNKNOWN
+        return entry.cardinality
+
+    def must_alias(self, a: "HeapLocation", b: "HeapLocation") -> bool:
         """Return ``True`` if *a* and *b* belong to the same alias class.
 
-        Two locations are aliased when their roots share an equivalence
+        Two locations must-alias when their roots share an equivalence
         class (union-find canonical root is the same) and their selector
         paths are identical.  This is must-alias for known roots and
         conservative for unknown roots.
         """
-        if a == b:
-            return True
         entry_a = self.get(a)
         entry_b = self.get(b)
         if entry_a is None or entry_b is None:
-            return a == b
+            return (
+                a == b
+                and a.root.has_stable_identity()
+                and a.is_precise()
+            )
+        if not a.root.has_stable_identity() or not b.root.has_stable_identity():
+            return False
         if entry_a.aliases.isdisjoint(entry_b.aliases):
             return False
-        return a.selectors == b.selectors
+        return (
+            a.selectors == b.selectors
+            and a.is_precise()
+            and b.is_precise()
+        )
+
+    def symbolically_related(
+        self,
+        a: "HeapLocation",
+        b: "HeapLocation",
+    ) -> bool:
+        """Whether two values share one provenance/version relation.
+
+        Unlike :meth:`must_alias`, this does not assert one concrete identity.
+        It is suitable for repeated dynamic reads whose provenance is stable
+        while the produced object may be fresh on each evaluation.
+        """
+        return (
+            a.root == b.root
+            and a.selectors == b.selectors
+            and a.is_precise()
+            and b.is_precise()
+        )
 
     def may_alias(self, a: "HeapLocation", b: "HeapLocation") -> bool:
         """Return ``True`` if *a* and *b* **may** refer to the same storage.
@@ -241,7 +483,7 @@ class PointsToGraph:
         equivalence classes when selector paths may overlap, including
         wildcard/summary selectors.
         """
-        if self.aliased(a, b):
+        if self.must_alias(a, b):
             return True
         entry_a = self.get(a)
         entry_b = self.get(b)
@@ -351,7 +593,7 @@ class PointsToGraph:
             "same_alias_class": same_alias_class,
             "same_path": a.selectors == b.selectors,
             "selector_overlap": selector_overlap,
-            "aliased": self.aliased(a, b),
+            "must_alias": self.must_alias(a, b),
             "may_alias": self.may_alias(a, b),
         }
 
@@ -373,7 +615,7 @@ class PointsToGraph:
 
     # ── bulk queries ───────────────────────────────────────────────────
 
-    def iter_entries(self):
+    def iter_entries(self) -> Iterator[PointsToEntry]:
         """Yield every :class:`PointsToEntry` in the graph."""
         yield from self.entries.values()
 
@@ -391,6 +633,9 @@ class PointsToGraph:
             "singleton_count": len(self.singleton_locations()),
             "heap_value_location_count": len(self.heap_values),
             "program_point_count": len(self.program_point_values),
+            "program_point_outcome_count": sum(
+                len(outcomes) for outcomes in self.program_point_outcomes.values()
+            ),
             "entries": [entry.to_dict() for entry in self.entries.values()],
         }
 

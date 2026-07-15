@@ -278,7 +278,7 @@ class SemanticQueryService:
                 return not entry.is_escaped
         return True
 
-    def heap_aliased(self, var_a: str, var_b: str) -> bool:
+    def heap_must_alias(self, var_a: str, var_b: str) -> bool:
         """Check whether two named variables are must-aliases."""
         graph = self._require_heap_graph()
         loc_a = None
@@ -290,7 +290,7 @@ class SemanticQueryService:
                 loc_b = entry.location
         if loc_a is None or loc_b is None:
             return False
-        return graph.aliased(loc_a, loc_b)
+        return graph.must_alias(loc_a, loc_b)
 
     def heap_single_reference(self, variable: str) -> bool:
         """Check whether a variable's heap location has ≤ 1 reference."""

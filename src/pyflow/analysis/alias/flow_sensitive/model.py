@@ -42,6 +42,22 @@ class HeapObjectFreshness(str, Enum):
     UNKNOWN = "unknown"
 
 
+class HeapObjectCardinality(str, Enum):
+    """Number of concrete objects represented by an abstract root."""
+
+    ONE = "one"
+    MANY = "many"
+    UNKNOWN = "unknown"
+
+
+class HeapObjectIdentity(str, Enum):
+    """Whether repeated uses of a root denote one symbolic identity."""
+
+    SINGLETON = "singleton"
+    SYMBOLIC = "symbolic"
+    SUMMARY = "summary"
+
+
 class HeapEscapeState(str, Enum):
     """Coarse escape state for update-policy decisions."""
 
@@ -262,6 +278,8 @@ class HeapObject:
     allocation_site: object | None = None
     context: tuple[object, ...] = ()
     freshness: HeapObjectFreshness = HeapObjectFreshness.FRESH
+    cardinality: HeapObjectCardinality = HeapObjectCardinality.UNKNOWN
+    identity: HeapObjectIdentity = HeapObjectIdentity.SUMMARY
     escape: HeapEscapeState = HeapEscapeState.LOCAL
 
     def is_singleton(self) -> bool:
@@ -271,9 +289,15 @@ class HeapObject:
             HeapObjectKind.UNKNOWN,
         }:
             return False
-        if self.freshness is not HeapObjectFreshness.FRESH:
+        if self.cardinality is not HeapObjectCardinality.ONE:
             return False
         return self.escape is HeapEscapeState.LOCAL
+
+    def has_stable_identity(self) -> bool:
+        return self.identity in {
+            HeapObjectIdentity.SINGLETON,
+            HeapObjectIdentity.SYMBOLIC,
+        }
 
     def __repr__(self) -> str:
         return f"HeapObject({self.kind.value}:{self.label})"
@@ -287,6 +311,8 @@ class HeapObject:
             "allocation_site": repr(self.allocation_site) if self.allocation_site is not None else None,
             "context": [repr(c) for c in self.context],
             "freshness": self.freshness.value,
+            "cardinality": self.cardinality.value,
+            "identity": self.identity.value,
             "escape": self.escape.value,
         }
 

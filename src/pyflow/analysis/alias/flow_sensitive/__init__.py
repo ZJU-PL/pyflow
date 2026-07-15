@@ -48,6 +48,8 @@ from .model import (
     HeapEscapeState,
     HeapLocation,
     HeapObject,
+    HeapObjectCardinality,
+    HeapObjectIdentity,
     HeapObjectFreshness,
     HeapObjectKind,
     HeapPolicy,
@@ -72,6 +74,7 @@ from .heap_effects import (
     DEFAULT_COLLECTION_MUTATOR_NAMES,
     HeapEffect,
     HeapEffectBuilder,
+    HeapOperationSemantics,
 )
 
 from .intrinsics import (
@@ -85,9 +88,12 @@ from .heap_state import HeapState
 from .heap_summary import (
     HeapSummary,
     HeapSummaryBuilder,
+    ProcedureHeapSummary,
 )
 
 from .points_to_graph import (
+    HeapValueSnapshot,
+    PossibleValues,
     PointsToEntry,
     PointsToGraph,
 )
@@ -115,10 +121,13 @@ __all__ = [
     "HeapAnalysis",
     "HeapEffect",
     "HeapEffectBuilder",
+    "HeapOperationSemantics",
     "HeapEnvironment",
     "HeapEscapeState",
     "HeapLocation",
     "HeapObject",
+    "HeapObjectCardinality",
+    "HeapObjectIdentity",
     "HeapObjectFreshness",
     "HeapObjectKind",
     "HeapPolicy",
@@ -128,9 +137,12 @@ __all__ = [
     "HeapTransferEngine",
     "HeapIntrinsicModels",
     "HeapSummaryBuilder",
+    "ProcedureHeapSummary",
     "HeapWrite",
+    "HeapValueSnapshot",
     "PointsToEntry",
     "PointsToGraph",
+    "PossibleValues",
     "RawStorageProvider",
     "UpdatePolicy",
 ]

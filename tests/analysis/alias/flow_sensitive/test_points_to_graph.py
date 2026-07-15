@@ -5,13 +5,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from pyflow.analysis.alias.flow_sensitive import (
+    AllocationSensitivity,
     HeapAbstraction,
+    HeapObjectCardinality,
     HeapPolicy,
     HeapSelector,
     UpdatePolicy,
-    PointsToEntry,
-    PointsToGraph,
 )
+from pyflow.analysis.alias.flow_sensitive.transfer import HeapTransferEngine
 from pyflow.language.python import ast as py_ast
 
 
@@ -106,7 +107,7 @@ def test_may_alias_accounts_for_nested_selector_overlap():
     assert graph.may_alias(exact, wildcard)
     assert graph.may_alias(wildcard, other)
     assert not graph.may_alias(exact, other)
-    assert not graph.aliased(exact, wildcard)
+    assert not graph.must_alias(exact, wildcard)
     assert wildcard.selectors == (HeapSelector.unknown_element(),)
 
 
@@ -158,13 +159,13 @@ def test_aliased_two_unrelated_objects():
     graph = _build_graph_with_two_objects()
     entries = list(graph.iter_entries())
     if len(entries) >= 2:
-        assert not graph.aliased(entries[0].location, entries[1].location)
+        assert not graph.must_alias(entries[0].location, entries[1].location)
 
 
 def test_aliased_same_object():
     graph = _build_graph_with_two_objects()
     entries = list(graph.iter_entries())
-    assert graph.aliased(entries[0].location, entries[0].location)
+    assert graph.must_alias(entries[0].location, entries[0].location)
 
 
 def test_aliased_after_alias_locals():
@@ -176,7 +177,7 @@ def test_aliased_after_alias_locals():
     graph = heap.to_points_to_graph()
     loc_a = heap.locations_for_local(None, a)[0]
     loc_b = heap.locations_for_local(None, b)[0]
-    assert graph.aliased(loc_a, loc_b)
+    assert graph.must_alias(loc_a, loc_b)
 
 
 def test_may_alias_for_aliased_pair_is_true():
@@ -267,7 +268,7 @@ def test_alias_evidence_explains_selector_overlap():
 
     assert evidence["same_alias_class"]
     assert evidence["selector_overlap"]
-    assert not evidence["aliased"]
+    assert not evidence["must_alias"]
     assert evidence["may_alias"]
 
 
@@ -324,3 +325,51 @@ def test_get_returns_none_for_unknown():
         HeapObject(HeapObjectKind.UNKNOWN, "unknown", "unknown")
     )
     assert graph.get(unknown) is None
+
+
+def test_possible_values_distinguishes_unknown_from_absent():
+    heap = _heap()
+    external = heap.unknown_object("input", label="input")
+    unknown_field = heap.dynamic_attribute_location(external, "field")
+    graph = heap.to_points_to_graph()
+
+    result = graph.possible_values_at(unknown_field)
+
+    assert result.includes_unknown
+    assert not result.definitely_absent
+    assert not result.locations
+
+
+def test_unknown_reads_share_identity_until_overlapping_heap_version_changes():
+    heap = _heap()
+    engine = HeapTransferEngine(heap)
+    root = heap.location_for_raw(heap.unknown_object("root", label="root"))
+    field = heap.dynamic_attribute_location(root, "payload")
+
+    first = engine._read_heap_locations((field,))[0]
+    repeated = engine._read_heap_locations((field,))[0]
+
+    wildcard = heap.dynamic_attribute_location(root, "*")
+    engine.state.delete(wildcard)
+    after_mutation = engine._read_heap_locations((field,))[0]
+    graph = heap.to_points_to_graph(state=engine.state)
+
+    assert graph.symbolically_related(first, repeated)
+    assert not graph.must_alias(first, repeated)
+    assert not graph.must_alias(first, after_mutation)
+
+
+def test_allocation_insensitive_root_has_many_cardinality():
+    heap = HeapAbstraction(
+        lambda _p, _l: (),
+        policy=HeapPolicy(
+            allocation_sensitivity=AllocationSensitivity.NONE,
+        ),
+    )
+    local = py_ast.Local("value")
+    heap.bind_allocation_targets(None, (local,), object(), label="value")
+    location = heap.locations_for_local(None, local)[0]
+    graph = heap.to_points_to_graph()
+
+    assert graph.receiver_cardinality(location) is HeapObjectCardinality.MANY
+    assert not graph.strong_update_possible(location)

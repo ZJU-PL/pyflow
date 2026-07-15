@@ -20,7 +20,12 @@ from .heap_effects import (
     DYNAMIC_SUBSCRIPT_WILDCARD,
 )
 from .intrinsics import CALL_RETURN_NONE
-from .model import HeapLocation, HeapObjectKind, UpdatePolicy
+from .model import (
+    HeapLocation,
+    HeapObjectIdentity,
+    HeapObjectKind,
+    UpdatePolicy,
+)
 
 
 class _TransferOpsMixin:
@@ -202,6 +207,8 @@ class _TransferOpsMixin:
             return ()
         if isinstance(expression, HeapLocation):
             return (expression,)
+        if isinstance(expression, py_ast.DoNotCare):
+            return ()
         if isinstance(expression, py_ast.Input):
             return self.locations_for_expression(procedure, expression.lcl)
         if isinstance(expression, py_ast.Cell):
@@ -249,10 +256,20 @@ class _TransferOpsMixin:
         if isinstance(expression, py_ast.Local):
             declared = self._declared_location(procedure, expression)
             if declared is not None:
-                return self.state.read(declared)
+                return self._read_heap_locations((declared,))
             locations = self.heap.locations_for_local(procedure, expression)
             if locations:
                 return locations
+            definition_local = self._definition_locals.get(
+                (id(procedure), expression.name)
+            )
+            if definition_local is not None:
+                locations = self.heap.locations_for_local(
+                    procedure,
+                    definition_local,
+                )
+                if locations:
+                    return locations
             if isinstance(procedure, py_ast.ClassDef):
                 outer_locations = self._outer_local_locations(expression)
                 if outer_locations:
@@ -262,13 +279,16 @@ class _TransferOpsMixin:
             return self.heap.locations_for_local(procedure, expression)
         if isinstance(expression, py_ast.GetGlobal):
             location = self.effect_builder.global_location(procedure, expression.name)
-            return self.state.read(location)
+            return self._read_heap_locations((location,))
         if isinstance(expression, (py_ast.GetCell, py_ast.GetCellDeref)):
             location = self.effect_builder.cell_location(expression.cell, procedure)
-            return self.state.read(location)
+            return self._read_heap_locations((location,))
         if isinstance(expression, (py_ast.GetAttr, py_ast.Load)):
             bases = self.locations_for_expression(procedure, expression.expr)
-            self.locations_for_expression(procedure, expression.name)
+            name_locations = self.locations_for_expression(
+                procedure,
+                expression.name,
+            )
             attribute = (
                 self.effect_builder._path_component(expression.name)
                 if isinstance(expression, py_ast.Load)
@@ -287,6 +307,68 @@ class _TransferOpsMixin:
                     (attribute,),
                 )
             values = list(self._read_heap_locations(locations))
+            super_members: list[HeapLocation] = []
+            super_receivers: list[HeapLocation] = []
+            for base in bases:
+                current_classes = self.state.read(
+                    self.heap.dynamic_attribute_location(
+                        base,
+                        "__super_class__",
+                    ),
+                    fallback=(),
+                )
+                receivers = self.state.read(
+                    self.heap.dynamic_attribute_location(base, "__super_self__"),
+                    fallback=(),
+                )
+                for current_class in current_classes:
+                    mro = self._known_class_mro(current_class)
+                    for next_class in mro[1:]:
+                        stored = self.state.read(
+                            self.heap.dynamic_attribute_location(
+                                next_class,
+                                attribute,
+                            ),
+                            fallback=(),
+                        )
+                        if stored:
+                            super_members.extend(stored)
+                            super_receivers.extend(receivers)
+                            break
+            values.extend(super_members)
+            for member in super_members:
+                code = self._function_codes_by_root.get(member.root)
+                if code is None:
+                    continue
+                bound = HeapLocation(
+                    self.heap.allocation_object(
+                        procedure,
+                        ("super-bound-method", expression, member),
+                        label=f"bound super method {attribute}",
+                        context=self._current_context,
+                    )
+                )
+                self._bound_methods_by_root[bound.root] = (
+                    code,
+                    tuple(dict.fromkeys(super_receivers)),
+                )
+                values.append(bound)
+            values.extend(
+                self._evaluate_known_protocol(
+                    procedure,
+                    bases,
+                    "__getattribute__",
+                    (name_locations,),
+                )
+            )
+            values.extend(
+                self._evaluate_known_protocol(
+                    procedure,
+                    bases,
+                    "__getattr__",
+                    (name_locations,),
+                )
+            )
             if attribute != "*":
                 classes = tuple(
                     dict.fromkeys(
@@ -298,11 +380,74 @@ class _TransferOpsMixin:
                         )
                     )
                 )
-                values.extend(self._class_attribute_values(classes, attribute))
+                class_values = self._class_attribute_values(classes, attribute)
+                bound_values: list[HeapLocation] = []
+                ordinary_class_values: list[HeapLocation] = []
+                for member in class_values:
+                    code = self._function_codes_by_root.get(member.root)
+                    if code is None:
+                        ordinary_class_values.append(member)
+                        continue
+                    kind = self._function_binding_kinds.get(
+                        member.root,
+                        "instance",
+                    )
+                    if kind == "property":
+                        values.extend(
+                            self._evaluate_known_code(
+                                procedure,
+                                code,
+                                (bases,),
+                            )
+                        )
+                        continue
+                    if kind == "staticmethod":
+                        ordinary_class_values.append(member)
+                        continue
+                    receivers = classes if kind == "classmethod" else bases
+                    bound = HeapLocation(
+                        self.heap.allocation_object(
+                            procedure,
+                            ("bound-method", expression, member, receivers),
+                            label=f"bound method {attribute}",
+                            context=self._current_context,
+                        )
+                    )
+                    self._bound_methods_by_root[bound.root] = (code, receivers)
+                    self.state.write(
+                        self.heap.dynamic_attribute_location(bound, "__func__"),
+                        (member,),
+                        UpdatePolicy.STRONG,
+                    )
+                    self.state.write(
+                        self.heap.dynamic_attribute_location(bound, "__self__"),
+                        receivers,
+                        UpdatePolicy.STRONG,
+                    )
+                    bound_values.append(bound)
+                values.extend(ordinary_class_values)
+                values.extend(bound_values)
+                values.extend(
+                    self._evaluate_known_protocol(
+                        procedure,
+                        tuple(ordinary_class_values),
+                        "__get__",
+                        (bases, classes),
+                    )
+                )
             return tuple(dict.fromkeys(values))
         if isinstance(expression, py_ast.GetSubscript):
             bases = self.locations_for_expression(procedure, expression.expr)
-            self.locations_for_expression(procedure, expression.subscript)
+            subscript_locations = self.locations_for_expression(
+                procedure,
+                expression.subscript,
+            )
+            protocol_values = self._evaluate_known_protocol(
+                procedure,
+                bases,
+                "__getitem__",
+                (subscript_locations,),
+            )
             subscript = self.effect_builder._constant_subscript(expression.subscript)
             if subscript is None:
                 values: list[HeapLocation] = []
@@ -313,7 +458,9 @@ class _TransferOpsMixin:
                     )
                     values.extend(self.state.read_contained(wildcard))
                 if values:
-                    return tuple(dict.fromkeys(values))
+                    return tuple(dict.fromkeys((*values, *protocol_values)))
+                if protocol_values:
+                    return protocol_values
                 return self.heap.dynamic_subscript_locations(
                     bases,
                     (DYNAMIC_SUBSCRIPT_WILDCARD,),
@@ -322,17 +469,42 @@ class _TransferOpsMixin:
                 bases,
                 (subscript, DYNAMIC_SUBSCRIPT_WILDCARD),
             )
-            return self._read_heap_locations(locations)
+            return tuple(
+                dict.fromkeys(
+                    (*self._read_heap_locations(locations), *protocol_values)
+                )
+            )
         if isinstance(expression, py_ast.DirectCall) and isinstance(
             expression.code,
             py_ast.Code,
         ):
             return self._evaluate_direct_call_expression(procedure, expression)
         if isinstance(expression, (py_ast.Call, py_ast.DirectCall, py_ast.MethodCall)):
+            # Calls are expressions in Python, so their control-flow and heap
+            # effects must be applied even when nested inside another
+            # expression rather than materialized by an Assign/Discard node.
+            self._apply_call_transfer(procedure, expression)
+            application_key = self._call_application_key(expression)
+            finite_values = self._finite_call_results.get(application_key)
+            if finite_values is not None:
+                return finite_values
             operand_locations = self._evaluate_call_operands(
                 procedure,
                 expression,
             )
+            known_classes = self._known_class_locations(
+                procedure,
+                expression,
+                operand_locations,
+            )
+            if known_classes:
+                return self._evaluate_known_class_targets(
+                    procedure,
+                    expression,
+                    known_classes,
+                    operand_locations,
+                    self.effect_builder._call_result_label(expression),
+                )
             kind = self.effect_builder.call_return_kind(expression)
             if kind == CALL_RETURN_NONE:
                 return ()
@@ -344,7 +516,14 @@ class _TransferOpsMixin:
             )
             if modeled:
                 self._attach_known_class(procedure, expression, modeled)
-                return modeled
+                return tuple(
+                    dict.fromkeys(
+                        (
+                            *modeled,
+                            *self._protocol_call_results.get(application_key, ()),
+                        )
+                    )
+                )
             result = (
                 HeapLocation(
                     self.effect_builder.call_return_object(procedure, expression)
@@ -373,7 +552,14 @@ class _TransferOpsMixin:
                     result,
                 )
             self._attach_known_class(procedure, expression, result)
-            return result
+            return tuple(
+                dict.fromkeys(
+                    (
+                        *result,
+                        *self._protocol_call_results.get(application_key, ()),
+                    )
+                )
+            )
         if isinstance(
             expression,
             (
@@ -464,9 +650,31 @@ class _TransferOpsMixin:
                     closure_locations,
                     UpdatePolicy.STRONG,
                 )
+            if isinstance(expression.code, py_ast.Code):
+                self._function_codes_by_root[function.root] = expression.code
+                self._function_binding_kinds[function.root] = "instance"
+                self._lexical_parents.setdefault(id(expression.code), procedure)
+                self._module_owners.setdefault(
+                    id(expression.code),
+                    self._module_owner(procedure),
+                )
             return (function,)
         if isinstance(expression, (py_ast.GetIter, py_ast.AsyncGetIter)):
             sources = self.locations_for_expression(procedure, expression.expr)
+            protocol_values = self._evaluate_known_protocol(
+                procedure,
+                sources,
+                "__aiter__"
+                if isinstance(expression, py_ast.AsyncGetIter)
+                else "__iter__",
+            )
+            if not protocol_values and isinstance(expression, py_ast.GetIter):
+                protocol_values = self._evaluate_known_protocol(
+                    procedure,
+                    sources,
+                    "__getitem__",
+                    ((self._external_value_location(procedure),),),
+                )
             iterator = HeapLocation(
                 self.heap.allocation_object(
                     procedure,
@@ -484,16 +692,27 @@ class _TransferOpsMixin:
             return tuple(
                 dict.fromkeys(
                     (iterator, *sources, self._external_value_location(procedure))
+                    if not protocol_values
+                    else (iterator, *sources, *protocol_values)
                 )
             )
         if isinstance(expression, py_ast.GetSlice):
             bases = self.locations_for_expression(procedure, expression.expr)
+            components: list[HeapLocation] = []
             for component in (
                 expression.start,
                 expression.stop,
                 expression.step,
             ):
-                self.locations_for_expression(procedure, component)
+                components.extend(
+                    self.locations_for_expression(procedure, component)
+                )
+            protocol_values = self._evaluate_known_protocol(
+                procedure,
+                bases,
+                "__getitem__",
+                (tuple(dict.fromkeys(components)),),
+            )
             sliced = HeapLocation(
                 self.heap.allocation_object(
                     procedure,
@@ -505,24 +724,95 @@ class _TransferOpsMixin:
             self._copy_locations(bases, (sliced,))
             return tuple(
                 dict.fromkeys(
-                    (*bases, sliced, self._external_value_location(procedure))
+                    (
+                        *bases,
+                        sliced,
+                        *protocol_values,
+                        self._external_value_location(procedure),
+                    )
                 )
             )
         if isinstance(expression, (py_ast.UnaryPrefixOp,)):
-            return self._merge_expression_locations(
-                procedure,
-                expression.expr,
-                self._external_value_location(procedure),
+            operand = self.locations_for_expression(procedure, expression.expr)
+            protocol = {
+                "+": "__pos__",
+                "-": "__neg__",
+                "~": "__invert__",
+            }.get(expression.op)
+            protocol_values = (
+                self._evaluate_known_protocol(procedure, operand, protocol)
+                if protocol is not None
+                else ()
+            )
+            return tuple(
+                dict.fromkeys(
+                    (
+                        *operand,
+                        *protocol_values,
+                        self._external_value_location(procedure),
+                    )
+                )
             )
         if isinstance(expression, py_ast.BinaryOp):
-            return self._merge_expression_locations(
-                procedure,
-                expression.left,
-                expression.right,
-                self._external_value_location(procedure),
+            left = self.locations_for_expression(procedure, expression.left)
+            right = self.locations_for_expression(procedure, expression.right)
+            if expression.op in {"in", "not in"}:
+                protocol_values = self._evaluate_known_protocol(
+                    procedure,
+                    right,
+                    "__contains__",
+                    (left,),
+                )
+            else:
+                protocol = self._binary_protocol_name(expression.op)
+                reflected = self._reflected_binary_protocol_name(expression.op)
+                if reflected is None:
+                    reflected = self._reflected_comparison_protocol_name(
+                        expression.op
+                    )
+                protocol_values = tuple(
+                    dict.fromkeys(
+                        (
+                            *(
+                                self._evaluate_known_protocol(
+                                    procedure, left, protocol, (right,)
+                                )
+                                if protocol is not None
+                                else ()
+                            ),
+                            *(
+                                self._evaluate_known_protocol(
+                                    procedure, right, reflected, (left,)
+                                )
+                                if reflected is not None
+                                else ()
+                            ),
+                        )
+                    )
+                )
+            return tuple(
+                dict.fromkeys(
+                    (
+                        *left,
+                        *right,
+                        *protocol_values,
+                        self._external_value_location(procedure),
+                    )
+                )
             )
         if isinstance(expression, (py_ast.ConvertToBool, py_ast.Not)):
-            self.locations_for_expression(procedure, expression.expr)
+            operand = self.locations_for_expression(procedure, expression.expr)
+            bool_values = self._evaluate_known_protocol(
+                procedure,
+                operand,
+                "__bool__",
+            )
+            if not bool_values:
+                self._evaluate_known_protocol(
+                    procedure,
+                    operand,
+                    "__len__",
+                )
             return ()
         if isinstance(expression, (py_ast.Is, py_ast.Check)):
             self.locations_for_expression(procedure, expression.left if isinstance(expression, py_ast.Is) else expression.expr)
@@ -533,6 +823,11 @@ class _TransferOpsMixin:
             return ()
         if isinstance(expression, py_ast.Await):
             awaitable = self.locations_for_expression(procedure, expression.expr)
+            protocol_values = self._evaluate_known_protocol(
+                procedure,
+                awaitable,
+                "__await__",
+            )
             resumed = self._resume_deferred_activations(
                 procedure,
                 awaitable,
@@ -544,6 +839,7 @@ class _TransferOpsMixin:
                 dict.fromkeys(
                     (
                         *resumed,
+                        *protocol_values,
                         *awaitable,
                         self._external_value_location(procedure),
                     )
@@ -555,14 +851,24 @@ class _TransferOpsMixin:
             self.heap.mark_all_escaped(yielded)
             self.state.mark_escaped(yielded)
             if self._yield_state_stack:
-                self._yield_state_stack[-1].append(
-                    (self._capture_flow_state(), yielded)
-                )
-            if self._resume_input_stack and self._resume_input_stack[-1]:
-                return self._resume_input_stack[-1]
+                event_state = self._capture_flow_state()
+                for depth in self.state.current_yield_depths(procedure):
+                    self._yield_state_stack[-1].append(
+                        (depth, event_state, yielded)
+                    )
+            self.state.advance_yield_depths(procedure)
+            if self._resume_input_stack:
+                target_depth, sent = self._resume_input_stack[-1]
+                if target_depth in self.state.current_yield_depths(procedure):
+                    return sent
             return (self._external_value_location(procedure),)
         if isinstance(expression, py_ast.YieldFrom):
             yielded = self.locations_for_expression(procedure, expression.expr)
+            protocol_values = self._evaluate_known_protocol(
+                procedure,
+                yielded,
+                "__iter__",
+            )
             resumed = self._resume_deferred_activations(
                 procedure,
                 yielded,
@@ -578,15 +884,19 @@ class _TransferOpsMixin:
             self.heap.mark_all_escaped(yielded)
             self.state.mark_escaped(yielded)
             if self._yield_state_stack:
-                self._yield_state_stack[-1].append(
-                    (
-                        self._capture_flow_state(),
-                        expanded or yielded,
+                event_state = self._capture_flow_state()
+                for depth in self.state.current_yield_depths(procedure):
+                    self._yield_state_stack[-1].append(
+                        (depth, event_state, expanded or yielded)
                     )
-                )
+            self.state.advance_yield_depths(procedure)
             return tuple(
                 dict.fromkeys(
-                    (*yielded, self._external_value_location(procedure))
+                    (
+                        *yielded,
+                        *protocol_values,
+                        self._external_value_location(procedure),
+                    )
                 )
             )
         if isinstance(expression, (py_ast.ShortCircutAnd, py_ast.ShortCircutOr)):
@@ -594,7 +904,7 @@ class _TransferOpsMixin:
             if not terms:
                 return ()
             possible_locations: list[HeapLocation] = []
-            prefix_states: list[_FlowState] = []
+            prefix_states: list[object] = []
             for term in terms:
                 possible_locations.extend(
                     self.locations_for_expression(procedure, term)
@@ -649,6 +959,28 @@ class _TransferOpsMixin:
                     self.heap.external_object(
                         ("existing", id(expression.object)),
                         label=repr(value),
+                        stable_identity=True,
+                    )
+                ),
+            )
+        if isinstance(expression, py_ast.Expression):
+            # The IR is extensible. A newly introduced reference-producing
+            # expression must never silently become "no reference" merely
+            # because this dispatcher has not gained a precision rule yet.
+            if hasattr(expression, "visitChildren"):
+                children: list[object] = []
+                expression.visitChildren(children.append)
+                for child in children:
+                    self.locations_for_expression(procedure, child)
+            return (
+                HeapLocation(
+                    self.heap.unknown_object(
+                        (
+                            "unsupported-expression",
+                            type(expression).__name__,
+                            self._context_token(expression),
+                        ),
+                        label=f"unknown {type(expression).__name__} result",
                     )
                 ),
             )
@@ -660,36 +992,25 @@ class _TransferOpsMixin:
         attribute: str,
     ) -> tuple[HeapLocation, ...]:
         values: list[HeapLocation] = []
-        pending = list(classes)
-        seen: set[HeapLocation] = set()
-        while pending:
-            class_location = pending.pop()
-            if class_location in seen:
-                continue
-            seen.add(class_location)
-            values.extend(
-                self.state.read(
+        for root_class in classes:
+            for class_location in self._known_class_mro(root_class):
+                stored = self.state.read(
                     self.heap.dynamic_attribute_location(
                         class_location,
                         attribute,
                     ),
                     fallback=(),
                 )
-            )
-            pending.extend(
-                self.state.read(
-                    self.heap.dynamic_attribute_location(
-                        class_location,
-                        "__bases__",
-                    ),
-                    fallback=(),
-                )
-            )
+                if stored:
+                    values.extend(stored)
+                    # Python attribute resolution stops at the first class in
+                    # the MRO defining the attribute.
+                    break
         return tuple(dict.fromkeys(values))
 
     def _external_value_location(self, procedure: object) -> HeapLocation:
         return HeapLocation(
-            self.heap.summary_object(
+            self.heap.unknown_object(
                 ("external-value", id(procedure)),
                 label="external value",
             )
@@ -708,7 +1029,23 @@ class _TransferOpsMixin:
                 not self.state.definitely_absent(location)
                 and location.root not in self.state.complete_roots
             ):
-                values.append(location)
+                values.append(
+                    HeapLocation(
+                        self.heap.unknown_object(
+                            (
+                                "read",
+                                location,
+                                tuple(sorted(self.state.version_for(location))),
+                            ),
+                            label=f"unknown value at {location!r}",
+                            identity=(
+                                HeapObjectIdentity.SYMBOLIC
+                                if not location.is_nested()
+                                else HeapObjectIdentity.SUMMARY
+                            ),
+                        )
+                    )
+                )
         return tuple(dict.fromkeys(values))
 
     def _outer_local_locations(
@@ -752,13 +1089,89 @@ class _TransferOpsMixin:
         if name in self._global_declarations.get(id(procedure), set()):
             return self.effect_builder.global_location(procedure, name)
         if name in self._nonlocal_declarations.get(id(procedure), set()):
-            return HeapLocation(
-                self.heap.summary_object(
-                    ("nonlocal-cell", name),
-                    label=f"nonlocal {name}",
-                )
-            )
+            owner = self._nonlocal_owners.get((id(procedure), name))
+            if owner is None:
+                owner = self._register_nonlocal_binding(procedure, name)
+            return self._lexical_cell_location(owner, name)
+        if name in self._captured_names_by_scope.get(id(procedure), set()):
+            return self._lexical_cell_location(procedure, name)
         return None
+
+    def _register_nonlocal_binding(self, procedure: object, name: str) -> object:
+        owner = self._nearest_lexical_binding(procedure, name)
+        self._nonlocal_owners[(id(procedure), name)] = owner
+        self._captured_names_by_scope.setdefault(id(owner), set()).add(name)
+        cell = self._lexical_cell_location(owner, name)
+        existing = self._scope_name_locations(owner, name)
+        if existing:
+            current = self.state.read(cell, fallback=())
+            self.state.write(
+                cell,
+                tuple(dict.fromkeys((*current, *existing))),
+                UpdatePolicy.STRONG,
+            )
+        return owner
+
+    def _nearest_lexical_binding(self, procedure: object, name: str) -> object:
+        parent = self._lexical_parents.get(id(procedure))
+        fallback = parent if parent is not None else procedure
+        while parent is not None:
+            if self._scope_defines_name(parent, name):
+                return parent
+            parent = self._lexical_parents.get(id(parent))
+        return fallback
+
+    def _scope_defines_name(self, procedure: object, name: str) -> bool:
+        parameters = getattr(procedure, "codeparameters", None)
+        if parameters is not None:
+            for formal in self._callee_formals(procedure):
+                if getattr(formal, "name", None) == name:
+                    return True
+        if (id(procedure), name) in self._definition_locals:
+            return True
+        if self._scope_name_locations(procedure, name):
+            return True
+        body = getattr(procedure, "ast", None)
+        for operation in self.iter_operations(body):
+            if isinstance(operation, (py_ast.FunctionDef, py_ast.ClassDef)):
+                if operation.name == name:
+                    return True
+                continue
+            if any(
+                getattr(local, "name", None) == name
+                for local in assigned_locals(operation)
+            ):
+                return True
+        return False
+
+    def _scope_name_locations(
+        self,
+        procedure: object,
+        name: str,
+    ) -> tuple[HeapLocation, ...]:
+        locations: list[HeapLocation] = []
+        keys = set(self.heap.storage_overrides) | set(self.heap.allocation_sites)
+        for key in keys:
+            if key[0] != id(procedure) or self.heap._local_names.get(key) != name:
+                continue
+            storage = self.heap.storage_overrides.get(key)
+            if storage is None:
+                site = self.heap.allocation_sites.get(key)
+                storage = self.heap.site_storage.get(site, ()) if site is not None else ()
+            locations.extend(self.heap.location_for_raw(raw) for raw in storage)
+        return tuple(dict.fromkeys(locations))
+
+    def _lexical_cell_location(
+        self,
+        owner: object,
+        name: str,
+    ) -> HeapLocation:
+        key = (id(owner), name)
+        cell = self._lexical_cells.get(key)
+        if cell is None:
+            cell = py_ast.Cell(name)
+            self._lexical_cells[key] = cell
+        return self.effect_builder.cell_location(cell, owner)
 
     def _bind_runtime_local(
         self,
@@ -899,19 +1312,39 @@ class _TransferOpsMixin:
                 self._bind_runtime_local(procedure, target, allocations)
             return
         if isinstance(expr, py_ast.Import):
-            module = self.effect_builder.import_object(expr, procedure)
+            module_name = self._resolved_import_module_name(procedure, expr)
+            module = self.heap.module_object(module_name, label=module_name)
             imported = [HeapLocation(module)]
             if not getattr(expr, "fromlist", None) and "." in expr.name:
-                imported.append(
-                    HeapLocation(
-                        self.heap.module_object(
-                            expr.name.split(".", 1)[0],
-                            label=expr.name.split(".", 1)[0],
+                top_level = expr.name.split(".", 1)[0]
+                if all(
+                    getattr(target, "name", None) == top_level
+                    for target in targets
+                ):
+                    imported = [
+                        HeapLocation(
+                            self.heap.module_object(top_level, label=top_level)
                         )
-                    )
-                )
+                    ]
+                else:
+                    imported = [HeapLocation(module)]
             if getattr(expr, "fromlist", None):
-                imported.append(self._external_value_location(procedure))
+                for imported_name in getattr(expr, "fromlist", ()):
+                    name = getattr(imported_name, "name", imported_name)
+                    if name == "*":
+                        self.precision_degradations.append(
+                            (expr, "star-import-namespace")
+                        )
+                        unknown = self._external_value_location(procedure)
+                        self.state.write(
+                            self.heap.dynamic_attribute_location(
+                                HeapLocation(module),
+                                "*",
+                            ),
+                            (unknown,),
+                            UpdatePolicy.WEAK,
+                        )
+                        break
             for target in targets:
                 self._bind_runtime_local(
                     procedure,
@@ -955,6 +1388,24 @@ class _TransferOpsMixin:
                 self._bind_runtime_local(procedure, target, source_locations)
             return
         self.heap.update_assignment_aliases(procedure, targets, expr)
+
+    def _resolved_import_module_name(
+        self,
+        procedure: object,
+        expression: py_ast.Import,
+    ) -> str:
+        if not getattr(expression, "level", 0):
+            return expression.name
+        owner_name = self._module_name_for_owner(self._module_owner(procedure))
+        if not owner_name:
+            return expression.name or f"relative:{expression.level}"
+        package = owner_name.split(".")[:-1]
+        climb = max(int(expression.level) - 1, 0)
+        if climb:
+            package = package[:-climb] if climb < len(package) else []
+        if expression.name:
+            package.extend(expression.name.split("."))
+        return ".".join(package) or expression.name or owner_name
 
     @staticmethod
     def _direct_assigned_locals(operation: object) -> tuple[py_ast.Local, ...]:
@@ -1078,8 +1529,10 @@ class _TransferOpsMixin:
         procedure: object,
         operation: object,
         writes: tuple[object, ...],
+        *,
+        stored_value: object | None = None,
     ) -> None:
-        value = self._stored_value_expression(operation)
+        value = stored_value
         if value is not None:
             value_locations = self.locations_for_expression(procedure, value)
             if isinstance(operation, py_ast.SetSlice):
@@ -1115,7 +1568,25 @@ class _TransferOpsMixin:
                     if isinstance(policy, UpdatePolicy)
                     else UpdatePolicy.WEAK
                 ),
+                has_non_reference=value is not None and not value_locations,
             )
+            if isinstance(operation, py_ast.SetGlobal):
+                module = self._module_locations_by_owner.get(
+                    self._module_owner(procedure)
+                )
+                if module is not None:
+                    self.state.write(
+                        self.heap.dynamic_attribute_location(
+                            module,
+                            self.effect_builder._constant_string(operation.name)
+                            or self.effect_builder._path_component(operation.name),
+                        ),
+                        tuple(dict.fromkeys(value_locations)),
+                        UpdatePolicy.STRONG,
+                        has_non_reference=(
+                            value is not None and not value_locations
+                        ),
+                    )
         if isinstance(operation, py_ast.SetSubscript):
             key_locations = self.locations_for_expression(
                 procedure,
@@ -1424,17 +1895,58 @@ class _TransferOpsMixin:
             return tuple(expr.args[1::2])
         return tuple(getattr(expr, "args", ()))
 
-    def _stored_value_expression(self, operation: object) -> object | None:
-        values = self.effect_builder._stored_value_expressions(operation)
-        if values:
-            return values[0]
-        collection_value = self.effect_builder.dynamic_subscript_value(operation)
-        if collection_value is not None:
-            return collection_value
-        dynamic_attr_value = self.effect_builder._dynamic_setattr_value(operation)
-        if dynamic_attr_value is not None:
-            return dynamic_attr_value
-        return None
+    @staticmethod
+    def _binary_protocol_name(operator: str) -> str | None:
+        return {
+            "+": "__add__",
+            "-": "__sub__",
+            "*": "__mul__",
+            "@": "__matmul__",
+            "/": "__truediv__",
+            "//": "__floordiv__",
+            "%": "__mod__",
+            "**": "__pow__",
+            "<<": "__lshift__",
+            ">>": "__rshift__",
+            "&": "__and__",
+            "|": "__or__",
+            "^": "__xor__",
+            "<": "__lt__",
+            "<=": "__le__",
+            ">": "__gt__",
+            ">=": "__ge__",
+            "==": "__eq__",
+            "!=": "__ne__",
+        }.get(operator)
+
+    @staticmethod
+    def _reflected_binary_protocol_name(operator: str) -> str | None:
+        return {
+            "+": "__radd__",
+            "-": "__rsub__",
+            "*": "__rmul__",
+            "@": "__rmatmul__",
+            "/": "__rtruediv__",
+            "//": "__rfloordiv__",
+            "%": "__rmod__",
+            "**": "__rpow__",
+            "<<": "__rlshift__",
+            ">>": "__rrshift__",
+            "&": "__rand__",
+            "|": "__ror__",
+            "^": "__rxor__",
+        }.get(operator)
+
+    @staticmethod
+    def _reflected_comparison_protocol_name(operator: str) -> str | None:
+        return {
+            "<": "__gt__",
+            "<=": "__ge__",
+            ">": "__lt__",
+            ">=": "__le__",
+            "==": "__eq__",
+            "!=": "__ne__",
+        }.get(operator)
 
     @staticmethod
     def _assigned_expression(operation: object) -> object | None:
@@ -1455,4 +1967,3 @@ class _TransferOpsMixin:
         if isinstance(operation, (py_ast.Call, py_ast.DirectCall, py_ast.MethodCall)):
             return operation
         return None
-

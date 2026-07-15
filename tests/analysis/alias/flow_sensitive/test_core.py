@@ -66,10 +66,10 @@ def test_applies_standalone_transfers_for_alias_escape_and_return():
     value_location = heap.locations_for_local(code, value)[0]
     ret_location = heap.locations_for_local(code, ret)[0]
 
-    assert graph.aliased(x_location, y_location)
+    assert graph.must_alias(x_location, y_location)
     assert graph.is_escaped(x_location)
     assert graph.is_escaped(value_location)
-    assert graph.aliased(ret_location, x_location)
+    assert graph.must_alias(ret_location, x_location)
 
 
 def test_instantiates_direct_call_formals_and_returns():
@@ -103,7 +103,7 @@ def test_instantiates_direct_call_formals_and_returns():
 
     arg_location = heap.locations_for_local(caller, arg)[0]
     result_location = heap.locations_for_local(caller, result)[0]
-    assert graph.aliased(result_location, arg_location)
+    assert graph.must_alias(result_location, arg_location)
     assert not heap.locations_for_local(callee, formal)
     assert not heap.locations_for_local(callee, callee_ret)
 
@@ -149,7 +149,7 @@ def test_rebound_callee_formal_is_not_treated_as_param_return_or_escape():
     result_location = heap.locations_for_local(caller, result)[0]
     assert not graph.is_escaped(actual_location)
     assert graph.is_escaped(result_location)
-    assert not graph.aliased(result_location, actual_location)
+    assert not graph.must_alias(result_location, actual_location)
     assert not heap.locations_for_local(callee, formal)
     assert not heap.locations_for_local(callee, callee_ret)
 
@@ -253,7 +253,7 @@ def test_replays_cached_direct_call_summary_side_effects():
     loaded_location = heap.locations_for_local(caller, loaded)[0]
     value_location = heap.locations_for_local(caller, value)[0]
 
-    assert graph.aliased(loaded_location, value_location)
+    assert graph.must_alias(loaded_location, value_location)
 
 
 def test_replays_cached_direct_call_summary_deletes():
@@ -322,6 +322,77 @@ def test_binds_assigned_import_to_module_object():
     assert graph.get(module_location) is not None
 
 
+def test_dotted_import_binds_top_package_without_as_alias():
+    package = py_ast.Local("pkg")
+    code = _code(
+        "main",
+        py_ast.Suite(
+            [py_ast.Assign(py_ast.Import("pkg.submodule", [], 0), [package])]
+        ),
+    )
+
+    analysis = HeapAnalysis()
+    analysis.analyze(None, code)
+    heap = analysis.heap
+    assert heap is not None
+
+    location = heap.locations_for_local(code, package)[0]
+    assert location.root.label == "pkg"
+
+
+def test_dotted_import_as_alias_binds_full_module():
+    alias = py_ast.Local("alias")
+    code = _code(
+        "main",
+        py_ast.Suite(
+            [py_ast.Assign(py_ast.Import("pkg.submodule", [], 0), [alias])]
+        ),
+    )
+
+    analysis = HeapAnalysis()
+    analysis.analyze(None, code)
+    heap = analysis.heap
+    assert heap is not None
+
+    location = heap.locations_for_local(code, alias)[0]
+    assert location.root.label == "pkg.submodule"
+
+
+def test_from_import_temporary_remains_the_module_object():
+    module = py_ast.Local("module")
+    imported_module = py_ast.Local("imported_module")
+    value = py_ast.Local("value")
+    loaded = py_ast.Local("loaded")
+    code = _code(
+        "main",
+        py_ast.Suite(
+            [
+                py_ast.Assign(py_ast.Import("pkg", [], 0), [module]),
+                py_ast.Assign(py_ast.BuildList([]), [value]),
+                py_ast.SetAttr(value, module, _existing("exported")),
+                py_ast.Assign(
+                    py_ast.Import("pkg", ["exported"], 0),
+                    [imported_module],
+                ),
+                py_ast.Assign(
+                    py_ast.GetAttr(imported_module, _existing("exported")),
+                    [loaded],
+                ),
+            ]
+        ),
+    )
+
+    analysis = HeapAnalysis()
+    graph = analysis.analyze(None, code)
+    heap = analysis.heap
+    assert heap is not None
+
+    assert graph.must_alias(
+        heap.locations_for_local(code, value)[0],
+        heap.locations_for_local(code, loaded)[0],
+    )
+
+
 def test_tracks_instance_field_store_and_load_values():
     self_local = py_ast.Local("self")
     value = py_ast.Local("value")
@@ -352,8 +423,8 @@ def test_tracks_instance_field_store_and_load_values():
     loaded_location = heap.locations_for_local(code, loaded)[0]
     return_location = heap.locations_for_local(code, ret)[0]
 
-    assert graph.aliased(loaded_location, value_location)
-    assert graph.aliased(return_location, value_location)
+    assert graph.must_alias(loaded_location, value_location)
+    assert graph.must_alias(return_location, value_location)
 
 
 def test_keeps_distinct_instance_fields_separate():
@@ -470,7 +541,7 @@ def test_param_return_preserves_alias_through_direct_call():
 
     arg_location = heap.locations_for_local(caller, arg)[0]
     result_location = heap.locations_for_local(caller, result)[0]
-    assert graph.aliased(result_location, arg_location), (
+    assert graph.must_alias(result_location, arg_location), (
         "Call result from identity function should alias the argument"
     )
 
@@ -517,7 +588,7 @@ def test_direct_call_keyword_arguments_bind_by_name():
     result_location = heap.locations_for_local(caller, result)[0]
     left_location = heap.locations_for_local(caller, left)[0]
     right_location = heap.locations_for_local(caller, right)[0]
-    assert graph.aliased(result_location, left_location)
+    assert graph.must_alias(result_location, left_location)
     assert not graph.may_alias(result_location, right_location)
 
 
@@ -565,7 +636,7 @@ def test_direct_call_evaluates_keywords_in_source_order():
     heap = analysis.heap
     assert heap is not None
 
-    assert graph.aliased(
+    assert graph.must_alias(
         heap.locations_for_local(caller, result)[0],
         heap.locations_for_local(caller, replacement)[0],
     )
@@ -678,7 +749,7 @@ def test_direct_call_preserves_early_return_when_other_path_falls_through():
     heap = analysis.heap
     assert heap is not None
 
-    assert graph.aliased(
+    assert graph.must_alias(
         heap.locations_for_local(caller, result)[0],
         heap.locations_for_local(caller, actual_payload)[0],
     )
@@ -815,7 +886,7 @@ def test_direct_call_binds_self_argument_to_self_parameter():
     heap = analysis.heap
     assert heap is not None
 
-    assert graph.aliased(
+    assert graph.must_alias(
         heap.locations_for_local(caller, receiver)[0],
         heap.locations_for_local(caller, result)[0],
     )
@@ -864,7 +935,7 @@ def test_default_object_is_shared_across_resolved_calls():
     heap = analysis.heap
     assert heap is not None
 
-    assert graph.aliased(
+    assert graph.must_alias(
         heap.locations_for_local(caller, first)[0],
         heap.locations_for_local(caller, second)[0],
     )

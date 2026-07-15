@@ -201,11 +201,11 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
         procedure: cfg_graph.Code,
         operation: object,
     ) -> HeapEffect:
-        return self._heap_effect_builder().operation_effect(
+        return self._heap_effect_builder().operation_semantics(
             procedure,
             operation,
             collection_mutator_names=self._collection_mutator_names(),
-        )
+        ).effect
 
     def _heap_summary_for_procedure(self, procedure: cfg_graph.Code) -> HeapSummary:
         key = id(procedure)
@@ -215,10 +215,13 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
             self._heap_summaries = summaries
         summary = summaries.get(key)
         if summary is None:
-            summary = HeapSummaryBuilder(
-                self._heap_effect_builder(),
-                collection_mutator_names=self._collection_mutator_names(),
-            ).summarize(procedure)
+            flow_sensitive_summary = self.adapter.procedure_heap_summary(procedure)
+            summary = getattr(flow_sensitive_summary, "effects", None)
+            if not isinstance(summary, HeapSummary):
+                summary = HeapSummaryBuilder(
+                    self._heap_effect_builder(),
+                    collection_mutator_names=self._collection_mutator_names(),
+                ).summarize(procedure)
             summaries[key] = summary
         return summary
 

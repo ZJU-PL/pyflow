@@ -98,12 +98,17 @@ The transfer engine owns a ``HeapState`` value map layered on top of
   paths instead of flattening unrelated fields or keys
 * reads from an exact path return exact values plus any overlapping wildcard
   contamination
-* direct calls bind actuals to formals and route return locations back to
-  assignment targets when a concrete ``Code`` object is available; multiple
-  result positions remain separate across control-flow joins
+* direct calls and finite, fully known function or virtual target sets bind
+  actuals to formals and route return locations back to assignment targets;
+  multiple result positions remain separate across control-flow joins
+* nested calls, lambdas, bound methods, callable instances, recognized method
+  decorators, class aliases, and known native callbacks use the same finite
+  call evaluator
 * collection literals retain element/key-to-value edges even when they are
   nested directly in a return or another expression
 * function values retain default and closure-cell reachability
+* incomplete reads produce explicit unknown-reference roots rather than
+  silently empty sets
 
 Compound control flow is joined path-insensitively:
 
@@ -119,8 +124,13 @@ Compound control flow is joined path-insensitively:
 * short-circuit expressions join the states where evaluation stops with states
   where later terms execute, preserving conditional calls and named-expression
   assignments
-* direct-call summaries are cached by callee and coarse actual root bindings;
-  recursive call cycles fall back to conservative return roots
+* expression evaluation carries normal and exceptional exits explicitly,
+  including calls used directly in conditions and assertions
+* generator resumptions join alternative branch yields at the same suspension
+  depth and rebase only the delta after the preceding suspension frontier onto
+  the caller heap; frame environments and allocation identities persist across
+  resumes
+* recursive call cycles fall back to conservative return roots
 
 This improves recall for common Python heap flows such as ``obj.x = v`` followed
 by ``return obj.x`` and improves precision for unrelated fields or literal
@@ -135,14 +145,18 @@ The intended soundness contract is a may-analysis over bounded, closed-world
 Python IR.  Within that contract, the transfer engine conservatively handles
 ordinary assignments and deletes, fields/cells/globals, literal and dynamic
 container accesses, unpacking and phi nodes, synchronous and asynchronous
-expression forms, definitions, exceptions/finally, and resolved direct calls.
-Unconstrained parameters share an external summary root so distinct parameters
-are allowed to alias.
+expression forms, definitions, exceptions/finally, direct calls, finite known
+indirect/virtual calls, known implicit special-method implementations,
+descriptor binding, root-based constructors, ``super()``, and known definition
+decorators.
+Unconstrained parameters share an explicit unknown root so distinct parameters
+are allowed to alias. Heap value queries return a ``PossibleValues`` result
+that separates enumerated locations, unknown inclusion, and definite absence.
 
 The contract deliberately excludes unresolved or reflective call targets,
 recursive call cycles, and loops that do not converge within the configured
-iteration bound.  Native code, descriptors/metaclasses, monkey-patching, and
-other mutations not represented in the IR likewise require an explicit model.
+iteration bound. Native code, unknown descriptors/metaclasses, monkey-patching,
+and other mutations not represented in the IR likewise require an explicit model.
 For those features the result should be treated as a useful conservative model,
 not as a proof of whole-Python soundness.
 
@@ -150,9 +164,10 @@ Update Policy
 -------------
 
 Writes are represented as ``HeapWrite(location, policy)``.  A write is strong
-only when the target is singleton-like, precise, fresh, and not escaped.
-Nested field and element writes are strong only when
-``allow_strong_nested_fresh`` is enabled.
+only when the selector is precise, evaluation produced one receiver root, and
+that root has cardinality ``ONE``. Allocation-insensitive roots have
+cardinality ``MANY`` even when recency is enabled. Nested field and element
+writes additionally require ``allow_strong_nested_fresh``.
 
 Escapes are tracked for:
 
@@ -161,7 +176,8 @@ Escapes are tracked for:
 * values returned from procedures
 * values passed to unresolved calls
 
-Escaped roots use weak updates.
+Escape and cardinality are independent: escaping a known singleton does not
+turn it into multiple concrete objects.
 
 Alias Tracking
 --------------
@@ -169,7 +185,8 @@ Alias Tracking
 ``HeapAbstraction`` maintains union-find equivalence classes over allocation
 sites.  When two locals are aliased (e.g., ``y = x``), their sites are
 unified.  Reference counts per equivalence class gate strong updates:
-singleton classes allow strong updates; aliased classes force weak updates.
+reference counts describe live local bindings, while root cardinality and the
+number of possible receivers determine strong-update safety.
 
 Calls and Constructors
 ----------------------
@@ -185,6 +202,16 @@ heap-owned intrinsic table:
   copy roots
 * other direct call results remain opaque call-result roots
 
+Known class construction resolves ``__new__`` and ``__init__`` through the
+recorded C3 base order. A resolved ``__new__`` controls result identity instead
+of being joined with an invented fresh instance, and ``__init__`` is applied
+only to results that may be instances of the constructed class.
+
+Program-point snapshots contain the complete flow value rather than heap maps
+alone: local bindings, reference values, scalar presence, return slots, yielded
+values, and raised values are retained for each labeled outcome. The standalone
+engine also publishes outcome-sensitive ``ProcedureHeapSummary`` values.
+
 Collection mutators are also modeled in the heap package.  Value-writing
 mutators such as ``append``, ``insert``, ``extend``, ``update``, and
 ``setdefault`` write wildcard element paths and escape inserted values.
@@ -194,12 +221,11 @@ paths without treating removed keys as stored values.
 Heap Effects and Summaries
 --------------------------
 
-``HeapEffect`` (from :mod:`pyflow.analysis.alias.flow_sensitive.heap_effects`) is the
-operation-level heap contract shared by analysis clients.  It records reads,
-writes, deletes, escapes, returns, and allocations without encoding
+``HeapOperationSemantics`` is the shared operation descriptor consumed by the
+standalone transfer, summaries, and IFDS clients. Its ``HeapEffect`` records
+reads, writes, deletes, escapes, returns, and allocations without encoding
 taint/nullness/typestate-specific facts.
 
 ``HeapSummary`` (from :mod:`pyflow.analysis.alias.flow_sensitive.heap_summary`) joins those
 effects over a procedure body.  It is a monotone, fixed summary intended for
 client reuse and future interprocedural heap-effect composition.
-

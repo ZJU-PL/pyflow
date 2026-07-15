@@ -145,7 +145,11 @@ def _build_alias_group_lines(all_entries, graph, verbose: bool) -> list[str]:
             if graph.may_alias(a_entry.location, b_entry.location):
                 a_labels = ", ".join(sorted(e.label for e in groups[group_keys[i]]))
                 b_labels = ", ".join(sorted(e.label for e in groups[group_keys[j]]))
-                exact = "≡" if graph.aliased(a_entry.location, b_entry.location) else "~"
+                exact = (
+                    "≡"
+                    if graph.must_alias(a_entry.location, b_entry.location)
+                    else "~"
+                )
                 may_pairs.append((f"{{{a_labels}}}", f"{{{b_labels}}}", exact))
 
     if may_pairs:
@@ -220,19 +224,19 @@ def _analyze_file_flow_sensitive(filepath: Path, verbose: bool) -> None:
 
 
 def _to_json_entry_flow_sensitive(entry, graph) -> dict:
-    loc = entry.location
     must_aliases = sorted(
         e.label for e in graph.iter_entries()
-        if graph.aliased(e.location, entry.location)
+        if graph.must_alias(e.location, entry.location)
     )
     may_aliases = sorted(
         e.label for e in graph.iter_entries()
         if graph.may_alias(e.location, entry.location)
-        and not graph.aliased(e.location, entry.location)
+        and not graph.must_alias(e.location, entry.location)
     )
     return {
         "label": entry.label,
         "is_singleton": entry.is_singleton,
+        "cardinality": entry.cardinality.value,
         "is_escaped": entry.is_escaped,
         "is_strong": entry.is_strong,
         "ref_count": entry.ref_count,

@@ -141,6 +141,52 @@ def test_switch_join_preserves_incoming_binding_on_unchanged_branch():
     assert heap.locations_for_local(code, replacement)[0] in loaded_locations
 
 
+def test_identity_guard_narrows_aliases_in_each_branch():
+    cond = py_ast.Local("cond")
+    left = py_ast.Local("left")
+    right = py_ast.Local("right")
+    selected = py_ast.Local("selected")
+    true_loaded = py_ast.Local("true_loaded")
+    false_loaded = py_ast.Local("false_loaded")
+    code = _code(
+        "main",
+        py_ast.Suite(
+            [
+                py_ast.Assign(py_ast.BuildList([]), [left]),
+                py_ast.Assign(py_ast.BuildList([]), [right]),
+                py_ast.Switch(
+                    py_ast.Condition(py_ast.Suite([]), cond),
+                    py_ast.Suite([py_ast.Assign(left, [selected])]),
+                    py_ast.Suite([py_ast.Assign(right, [selected])]),
+                ),
+                py_ast.Switch(
+                    py_ast.Condition(
+                        py_ast.Suite([]),
+                        py_ast.Is(selected, left),
+                    ),
+                    py_ast.Suite([py_ast.Assign(selected, [true_loaded])]),
+                    py_ast.Suite([py_ast.Assign(selected, [false_loaded])]),
+                ),
+            ]
+        ),
+        params=(cond,),
+    )
+
+    analysis = HeapAnalysis()
+    analysis.analyze(None, code)
+    heap = analysis.heap
+    assert heap is not None
+
+    assert heap.locations_for_local(code, true_loaded) == heap.locations_for_local(
+        code,
+        left,
+    )
+    assert heap.locations_for_local(code, false_loaded) == heap.locations_for_local(
+        code,
+        right,
+    )
+
+
 def test_joined_roots_remain_individually_singleton():
     cond = py_ast.Local("cond")
     left = py_ast.Local("left")

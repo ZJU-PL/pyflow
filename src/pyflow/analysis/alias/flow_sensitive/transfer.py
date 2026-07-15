@@ -10,15 +10,18 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from pyflow.analysis.ir_utils import actual_argument_expressions, resolve_call_name
 from pyflow.language.python import ast as py_ast
 
 from .abstraction import HeapAbstraction, HeapEnvironment
 from .heap_effects import (
     DEFAULT_HEAP_INTRINSICS,
+    DYNAMIC_ATTRIBUTE_WILDCARD,
     DYNAMIC_SUBSCRIPT_WILDCARD,
     HeapEffectBuilder,
 )
 from .heap_state import HeapState
+from .heap_summary import ProcedureHeapSummary
 from .intrinsics import HeapIntrinsicModels
 from .model import HeapLocation, UpdatePolicy
 
@@ -63,12 +66,33 @@ class _FlowOutcome:
     normal: _FlowState | None
     abrupt: dict[str, _FlowState] = field(default_factory=dict)
 
+
+@dataclass(frozen=True)
+class _ExpressionOutcome:
+    """Values and control-flow exits produced by expression evaluation."""
+
+    values: tuple[HeapLocation, ...]
+    normal: _FlowState | None
+    raises: _FlowState | None = None
+
+
+@dataclass(frozen=True)
+class _CallBindingResult:
+    """Resolved actual/formal bindings plus Python call feasibility."""
+
+    bindings: dict[int, tuple[HeapLocation, ...]]
+    definitely_invalid: bool = False
+    maybe_invalid: bool = False
+    reasons: frozenset[str] = frozenset()
+
+
 @dataclass
 class _DeferredActivation:
     callee: py_ast.Code
     actual_bindings: dict[int, tuple[HeapLocation, ...]]
     resume_index: int = 0
     summary: _CallSummary | None = None
+    frame_environment: HeapEnvironment | None = None
 
 
 from ._transfer_ops import _TransferOpsMixin
@@ -94,10 +118,33 @@ class HeapTransferEngine(_TransferOpsMixin, _TransferCallsMixin):
         )
         self.max_loop_iterations = max_loop_iterations
         self._module_owners: dict[int, object] = {}
+        self._module_locations_by_owner: dict[object, HeapLocation] = {}
         self._class_definitions: dict[tuple[object, str], HeapLocation] = {}
+        self._class_locations_by_root: dict[object, HeapLocation] = {}
+        self._class_locations_by_definition: dict[int, HeapLocation] = {}
+        self._class_bases_by_root: dict[
+            object, tuple[HeapLocation, ...]
+        ] = {}
         self._class_initializers: dict[tuple[object, str], py_ast.Code] = {}
-        self._initialized_class_calls: set[int] = set()
-        self.program_point_states: dict[int, tuple[HeapState, HeapState]] = {}
+        self._class_initializers_by_root: dict[object, py_ast.Code] = {}
+        self._class_allocators_by_root: dict[object, py_ast.Code] = {}
+        self._class_methods_by_root: dict[object, dict[str, py_ast.Code]] = {}
+        self._class_method_kinds_by_root: dict[object, dict[str, str]] = {}
+        self._function_codes_by_root: dict[object, py_ast.Code] = {}
+        self._function_binding_kinds: dict[object, str] = {}
+        self._bound_methods_by_root: dict[
+            object, tuple[py_ast.Code, tuple[HeapLocation, ...]]
+        ] = {}
+        self._super_methods_by_root: dict[
+            object,
+            dict[str, tuple[py_ast.Code, tuple[HeapLocation, ...]]],
+        ] = {}
+        self._super_dispatch_by_class_root: dict[
+            object, dict[str, py_ast.Code]
+        ] = {}
+        self._initialized_class_calls: set[tuple[int, object]] = set()
+        self.program_point_states: dict[int, tuple[_FlowState, _FlowState]] = {}
+        self.program_point_outcomes: dict[int, dict[str, _FlowState]] = {}
         self.effect_builder = HeapEffectBuilder(
             heap,
             self.locations_for_expression,
@@ -106,19 +153,32 @@ class HeapTransferEngine(_TransferOpsMixin, _TransferCallsMixin):
         )
         self._active_codes: set[int] = set()
         self._summary_in_progress: set[object] = set()
+        self.procedure_summaries: dict[py_ast.Code, ProcedureHeapSummary] = {}
         self._summary_delete_stack: list[list[HeapLocation]] = []
+        self._summary_effect_stack: list[list[object]] = []
         self._exception_prefix_stack: list[list[_FlowState]] = []
         self._yield_state_stack: list[
-            list[tuple[_FlowState, tuple[HeapLocation, ...]]]
+            list[tuple[int, _FlowState, tuple[HeapLocation, ...]]]
         ] = []
-        self._resume_input_stack: list[tuple[HeapLocation, ...]] = []
+        self._resume_input_stack: list[
+            tuple[int, tuple[HeapLocation, ...]]
+        ] = []
         self._direct_call_evaluation_cache: dict[
             tuple[object, ...], tuple[HeapLocation, ...]
         ] = {}
-        self._direct_call_summary_cache: dict[tuple[object, ...], _CallSummary] = {}
         self._last_direct_call_summary: dict[int, _CallSummary] = {}
         self._last_call_operands: dict[
             int, dict[int, tuple[HeapLocation, ...]]
+        ] = {}
+        self._applied_calls: set[tuple[object, ...]] = set()
+        self._finite_call_results: dict[
+            tuple[object, ...], tuple[HeapLocation, ...]
+        ] = {}
+        self._protocol_call_results: dict[
+            tuple[object, ...], tuple[HeapLocation, ...]
+        ] = {}
+        self._callback_call_results: dict[
+            tuple[object, ...], tuple[HeapLocation, ...]
         ] = {}
         self._operation_expression_caches: list[
             dict[int, tuple[HeapLocation, ...]]
@@ -132,6 +192,7 @@ class HeapTransferEngine(_TransferOpsMixin, _TransferCallsMixin):
                 tuple[tuple[HeapLocation, ...], ...],
             ],
         ] = {}
+        self.precision_degradations: list[tuple[object, str]] = []
         self._deferred_activations: dict[object, _DeferredActivation] = {}
         self._evaluation_epoch = 0
         self._current_context: tuple[object, ...] = ()
@@ -142,6 +203,9 @@ class HeapTransferEngine(_TransferOpsMixin, _TransferCallsMixin):
         self._lexical_parents: dict[int, object] = {}
         self._global_declarations: dict[int, set[str]] = {}
         self._nonlocal_declarations: dict[int, set[str]] = {}
+        self._nonlocal_owners: dict[tuple[int, str], object] = {}
+        self._captured_names_by_scope: dict[int, set[str]] = {}
+        self._lexical_cells: dict[tuple[int, str], py_ast.Cell] = {}
         self.state = HeapState()
 
     def analyze_program(self, program: object) -> None:
@@ -173,6 +237,12 @@ class HeapTransferEngine(_TransferOpsMixin, _TransferCallsMixin):
         previous_context = self._current_context
         if not previous_context:
             self._current_context = (self._context_token(code),)
+        owner = self._module_owner(code)
+        module_name = self._module_name_for_owner(owner)
+        if module_name is not None:
+            self._module_locations_by_owner[owner] = HeapLocation(
+                self.heap.module_object(module_name, label=module_name)
+            )
         self.bind_parameters(code)
         try:
             outcome = self.analyze_node(code, getattr(code, "ast", None))
@@ -182,14 +252,36 @@ class HeapTransferEngine(_TransferOpsMixin, _TransferCallsMixin):
             self._current_context = previous_context
             self._active_codes.discard(code_id)
 
+    @staticmethod
+    def _module_name_for_owner(owner: object) -> str | None:
+        if isinstance(owner, str):
+            return owner.rsplit(".", 1)[-1]
+        if (
+            isinstance(owner, tuple)
+            and len(owner) == 2
+            and owner[0] == "source-module"
+            and isinstance(owner[1], str)
+        ):
+            filename = owner[1].rsplit("/", 1)[-1]
+            return filename.rsplit(".", 1)[0]
+        return None
+
     def analyze_node(self, procedure: object, node: object) -> _FlowOutcome:
-        entry_state = self.state.copy()
+        entry_state = self._capture_flow_state()
         outcome = self._analyze_node(procedure, node)
         if node is not None and not isinstance(node, py_ast.leafTypes):
             self.program_point_states[id(node)] = (
                 entry_state,
-                self._joined_outcome_state(outcome).heap_state.copy(),
+                self._joined_outcome_state(outcome),
             )
+            labeled: dict[str, _FlowState] = {}
+            if outcome.normal is not None:
+                labeled["normal"] = outcome.normal
+            labeled.update(outcome.abrupt)
+            if self.effect_builder._yield_expression(node) is not None:
+                yielded_state = outcome.normal or self._joined_outcome_state(outcome)
+                labeled["yield"] = yielded_state
+            self.program_point_outcomes[id(node)] = labeled
         self._position_outcome(outcome)
         return outcome
 
@@ -222,22 +314,16 @@ class HeapTransferEngine(_TransferOpsMixin, _TransferCallsMixin):
             return self.apply_operation(procedure, node)
         if isinstance(node, py_ast.ClassDef):
             self._module_owners[id(node)] = self._module_owner(procedure)
-            self._evaluation_epoch += 1
-            self._operation_expression_caches.append({})
-            self._operation_call_raises.append([])
-            self._operation_normal_possible.append(True)
-            self._record_exception_prefix()
-            header_locations = self._merge_expression_locations(
+            header = self._evaluate_expressions_outcome(
                 procedure,
                 *self._definition_header_expressions(node),
             )
-            self._record_exception_prefix()
-            header_outcome = self._finish_operation_outcome(
-                normal_possible=self._operation_normal_possible[-1]
-            )
-            if header_outcome.normal is None:
-                return header_outcome
-            self._restore_flow_state(header_outcome.normal)
+            if header.normal is None:
+                return _FlowOutcome(
+                    None,
+                    {"raise": header.raises} if header.raises is not None else {},
+                )
+            self._restore_flow_state(header.normal)
             outer_environment = self.heap.snapshot_environment()
             body_outcome = self.analyze_node(node, node.body)
             if body_outcome.normal is None:
@@ -258,7 +344,7 @@ class HeapTransferEngine(_TransferOpsMixin, _TransferCallsMixin):
             definition = self._apply_definition_transfer(
                 procedure,
                 node,
-                related_locations=header_locations,
+                related_locations=header.values,
             )
             if definition is not None:
                 for name, locations in class_members.items():
@@ -268,18 +354,49 @@ class HeapTransferEngine(_TransferOpsMixin, _TransferCallsMixin):
                         UpdatePolicy.STRONG,
                     )
                 for operation in self.iter_operations(node.body):
-                    if (
-                        isinstance(operation, py_ast.FunctionDef)
-                        and operation.name == "__init__"
-                    ):
+                    if not isinstance(operation, py_ast.FunctionDef):
+                        continue
+                    self._class_methods_by_root.setdefault(
+                        definition.root,
+                        {},
+                    )[operation.name] = operation.code
+                    self._class_method_kinds_by_root.setdefault(
+                        definition.root,
+                        {},
+                    )[operation.name] = self._definition_decorator_kind(operation)
+                    if operation.name == "__init__":
                         self._class_initializers[
                             (self._module_owner(procedure), node.name)
                         ] = operation.code
+                        self._class_initializers_by_root[
+                            definition.root
+                        ] = operation.code
+                    elif operation.name == "__new__":
+                        self._class_allocators_by_root[
+                            definition.root
+                        ] = operation.code
+                self._apply_known_class_creation_hooks(
+                    procedure,
+                    node,
+                    definition,
+                    class_members,
+                )
+                if getattr(node, "decorators", ()):
+                    decorated = self._apply_known_definition_decorators(
+                        procedure,
+                        node,
+                        (definition,),
+                    )
+                    self._rebind_definition_value(
+                        procedure,
+                        node.name,
+                        decorated,
+                    )
             self._record_exception_prefix()
             return _FlowOutcome(
                 self._capture_flow_state(),
                 self._merge_abrupt_maps(
-                    header_outcome.abrupt,
+                    {"raise": header.raises} if header.raises is not None else {},
                     body_outcome.abrupt,
                 ),
             )
@@ -288,8 +405,17 @@ class HeapTransferEngine(_TransferOpsMixin, _TransferCallsMixin):
             if outcome.normal is not None:
                 conditional = getattr(node, "conditional", None)
                 if conditional is not None:
-                    self._evaluation_epoch += 1
-                    self.locations_for_expression(procedure, conditional)
+                    expression_outcome = self._evaluate_expressions_outcome(
+                        procedure,
+                        conditional,
+                    )
+                    abrupt = dict(outcome.abrupt)
+                    if expression_outcome.raises is not None:
+                        abrupt = self._merge_abrupt_maps(
+                            abrupt,
+                            {"raise": expression_outcome.raises},
+                        )
+                    return _FlowOutcome(expression_outcome.normal, abrupt)
                 return _FlowOutcome(self._capture_flow_state(), outcome.abrupt)
             return outcome
         if isinstance(node, py_ast.Break):
@@ -299,6 +425,8 @@ class HeapTransferEngine(_TransferOpsMixin, _TransferCallsMixin):
         if isinstance(node, py_ast.Assert):
             return self._analyze_assert(procedure, node)
         if isinstance(node, py_ast.PythonASTNode):
+            if not self._is_supported_operation(node):
+                return self._analyze_unsupported_node(procedure, node)
             operation_outcome = self.apply_operation(procedure, node)
             if isinstance(node, py_ast.Return):
                 abrupt = dict(operation_outcome.abrupt)
@@ -319,28 +447,198 @@ class HeapTransferEngine(_TransferOpsMixin, _TransferCallsMixin):
             return operation_outcome
         return self._normal_outcome()
 
+    @staticmethod
+    def _is_supported_operation(operation: py_ast.PythonASTNode) -> bool:
+        if isinstance(operation, py_ast.Expression):
+            # Expression transfer has its own conservative unknown-result rule.
+            return True
+        return type(operation) in {
+            py_ast.InputBlock,
+            py_ast.Output,
+            py_ast.OutputBlock,
+            py_ast.SetGlobal,
+            py_ast.DeleteGlobal,
+            py_ast.SetCellDeref,
+            py_ast.SetSubscript,
+            py_ast.DeleteSubscript,
+            py_ast.SetSlice,
+            py_ast.DeleteSlice,
+            py_ast.SetAttr,
+            py_ast.DeleteAttr,
+            py_ast.UnpackSequence,
+            py_ast.Assign,
+            py_ast.Discard,
+            py_ast.Delete,
+            py_ast.Print,
+            py_ast.Return,
+            py_ast.Raise,
+            py_ast.EndFinally,
+            py_ast.GlobalDecl,
+            py_ast.NonlocalDecl,
+            py_ast.AnnAssign,
+            py_ast.TypeAlias,
+            py_ast.Store,
+            py_ast.Phi,
+        }
+
+    def _analyze_unsupported_node(
+        self,
+        procedure: object,
+        node: py_ast.PythonASTNode,
+    ) -> _FlowOutcome:
+        """Traverse unknown IR and conservatively expose its heap effects.
+
+        PyFlow's IR is extensible.  Silently treating a new statement as a
+        no-op loses nested calls and mutations, which is especially harmful
+        to bug finders.  Evaluate every visible child in source order, retain
+        exceptional exits, and contaminate only objects reachable through the
+        unsupported node rather than the entire heap.
+        """
+        self.precision_degradations.append(
+            (node, f"unsupported-{type(node).__name__}")
+        )
+        related: list[HeapLocation] = []
+        abrupt: dict[str, _FlowState] = {}
+        children: list[object] = []
+        node.visitChildren(children.append)
+
+        def analyze_child(child: object) -> bool:
+            if child is None or isinstance(child, py_ast.leafTypes):
+                return True
+            if isinstance(child, py_ast.Code):
+                return True
+            if isinstance(child, (tuple, list)):
+                for nested in child:
+                    if not analyze_child(nested):
+                        return False
+                return True
+            if isinstance(child, py_ast.Expression):
+                result = self._evaluate_expressions_outcome(procedure, child)
+                related.extend(result.values)
+                if result.raises is not None:
+                    abrupt.update(
+                        self._merge_abrupt_maps(
+                            abrupt,
+                            {"raise": result.raises},
+                        )
+                    )
+                if result.normal is None:
+                    return False
+                self._restore_flow_state(result.normal)
+                return True
+            if isinstance(child, py_ast.Statement):
+                result = self.analyze_node(procedure, child)
+                abrupt.update(self._merge_abrupt_maps(abrupt, result.abrupt))
+                if result.normal is None:
+                    return False
+                self._restore_flow_state(result.normal)
+                return True
+            if isinstance(child, py_ast.PythonASTNode):
+                result = self._analyze_unsupported_node(procedure, child)
+                abrupt.update(self._merge_abrupt_maps(abrupt, result.abrupt))
+                if result.normal is None:
+                    return False
+                self._restore_flow_state(result.normal)
+            return True
+
+        for child in children:
+            if not analyze_child(child):
+                return _FlowOutcome(None, abrupt)
+
+        related_locations = tuple(dict.fromkeys(related))
+        unknown = HeapLocation(
+            self.heap.unknown_object(
+                (
+                    "unsupported-statement-effect",
+                    type(node).__name__,
+                    self._context_token(node),
+                ),
+                label=f"unknown effect of {type(node).__name__}",
+            )
+        )
+        for root in related_locations:
+            self.state.write(
+                self.heap.dynamic_attribute_location(
+                    root,
+                    DYNAMIC_ATTRIBUTE_WILDCARD,
+                ),
+                (unknown,),
+                UpdatePolicy.WEAK,
+            )
+            self.state.write(
+                self.heap.dynamic_subscript_location(
+                    root,
+                    DYNAMIC_SUBSCRIPT_WILDCARD,
+                ),
+                (unknown,),
+                UpdatePolicy.WEAK,
+            )
+        if related_locations:
+            self.heap.mark_all_escaped(related_locations)
+            self.state.mark_escaped(related_locations)
+
+        targets: list[py_ast.Local] = []
+        for field_name in ("target", "targets", "lcls", "index"):
+            candidate = getattr(node, field_name, None)
+            candidates = candidate if isinstance(candidate, (tuple, list)) else (candidate,)
+            targets.extend(
+                target for target in candidates if isinstance(target, py_ast.Local)
+            )
+        for target in dict.fromkeys(targets):
+            self._bind_runtime_local(procedure, target, (unknown,))
+        return _FlowOutcome(self._capture_flow_state(), abrupt)
+
     def _analyze_assert(
         self,
         procedure: object,
         node: py_ast.Assert,
     ) -> _FlowOutcome:
-        self._evaluation_epoch += 1
-        self._operation_expression_caches.append({})
-        self._record_exception_prefix()
-        self.locations_for_expression(procedure, node.test)
-        normal = self._capture_flow_state()
-
+        test = self._evaluate_expressions_outcome(procedure, node.test)
+        if test.normal is None:
+            return _FlowOutcome(
+                None,
+                {"raise": test.raises} if test.raises is not None else {},
+            )
+        normal = test.normal
         self._restore_flow_state(normal)
-        message_locations = self.locations_for_expression(
+        self._refine_identity_condition(procedure, node.test, truth=True)
+        normal = self._capture_flow_state()
+        message = self._evaluate_expressions_outcome(
             procedure,
             node.message,
         )
-        self.heap.mark_all_escaped(message_locations)
-        self.state.mark_escaped(message_locations)
-        raised = self._capture_flow_state()
-        self._operation_expression_caches.pop()
+        self.heap.mark_all_escaped(message.values)
+        self.state.mark_escaped(message.values)
+        raised = message.normal
+        abrupt: dict[str, _FlowState] = {}
+        for exceptional in (test.raises, message.raises, raised):
+            if exceptional is not None:
+                abrupt = self._merge_abrupt_maps(
+                    abrupt,
+                    {"raise": exceptional},
+                )
         self._restore_flow_state(normal)
-        return _FlowOutcome(normal, {"raise": raised})
+        return _FlowOutcome(normal, abrupt)
+
+    def _evaluate_expressions_outcome(
+        self,
+        procedure: object,
+        *expressions: object,
+    ) -> _ExpressionOutcome:
+        """Evaluate expressions with explicit normal and exceptional exits."""
+        self._evaluation_epoch += 1
+        self._operation_expression_caches.append({})
+        self._operation_call_raises.append([])
+        self._operation_normal_possible.append(True)
+        values = self._merge_expression_locations(procedure, *expressions)
+        outcome = self._finish_operation_outcome(
+            normal_possible=self._operation_normal_possible[-1]
+        )
+        return _ExpressionOutcome(
+            values,
+            outcome.normal,
+            outcome.abrupt.get("raise"),
+        )
 
     def bind_parameters(self, procedure: object) -> None:
         code_parameters = getattr(procedure, "codeparameters", None)
@@ -391,6 +689,7 @@ class HeapTransferEngine(_TransferOpsMixin, _TransferCallsMixin):
             name = getattr(operation.name, "name", None)
             if name:
                 self._nonlocal_declarations.setdefault(id(procedure), set()).add(name)
+                self._register_nonlocal_binding(procedure, name)
         self._record_exception_prefix()
         if isinstance(operation, py_ast.Discard):
             self.locations_for_expression(procedure, operation.expr)
@@ -420,13 +719,22 @@ class HeapTransferEngine(_TransferOpsMixin, _TransferCallsMixin):
             return self._finish_operation_outcome(normal_possible=False)
         prepared_writes = self._prepared_target_writes(procedure, operation)
         prepared_deletes = self._prepared_delete_locations(procedure, operation)
-        effect = self.effect_builder.operation_effect(
+        semantics = self.effect_builder.operation_semantics(
             procedure,
             operation,
             collection_mutator_names=self.collection_mutator_names,
         )
+        effect = semantics.effect
+        if self._summary_effect_stack:
+            self._summary_effect_stack[-1].append(effect)
+        self._apply_implicit_protocol_transfer(procedure, operation)
         writes = prepared_writes if prepared_writes is not None else effect.writes
-        self._apply_writes(procedure, operation, writes)
+        self._apply_writes(
+            procedure,
+            operation,
+            writes,
+            stored_value=semantics.stored_value,
+        )
         raw_deletes = (
             prepared_deletes
             if prepared_deletes is not None
@@ -435,6 +743,18 @@ class HeapTransferEngine(_TransferOpsMixin, _TransferCallsMixin):
         deletes = self._effective_deletes(operation, raw_deletes)
         self._record_summary_deletes(deletes)
         self._apply_deletes(deletes)
+        if isinstance(operation, py_ast.DeleteGlobal):
+            module = self._module_locations_by_owner.get(
+                self._module_owner(procedure)
+            )
+            if module is not None:
+                self.state.delete(
+                    self.heap.dynamic_attribute_location(
+                        module,
+                        self.effect_builder._constant_string(operation.name)
+                        or self.effect_builder._path_component(operation.name),
+                    )
+                )
         immediate_escapes = self._immediate_escape_locations(operation, effect)
         self.heap.mark_all_escaped(immediate_escapes)
         self.state.mark_escaped(immediate_escapes)
@@ -515,8 +835,15 @@ class HeapTransferEngine(_TransferOpsMixin, _TransferCallsMixin):
         if condition.normal is None:
             return condition
         base = condition.normal
-        true_outcome = self._outcome_after(procedure, node.t, base)
-        false_outcome = self._outcome_after(procedure, node.f, base)
+        conditional = getattr(node.condition, "conditional", None)
+        self._restore_flow_state(base)
+        self._refine_identity_condition(procedure, conditional, truth=True)
+        true_entry = self._capture_flow_state()
+        self._restore_flow_state(base)
+        self._refine_identity_condition(procedure, conditional, truth=False)
+        false_entry = self._capture_flow_state()
+        true_outcome = self._outcome_after(procedure, node.t, true_entry)
+        false_outcome = self._outcome_after(procedure, node.f, false_entry)
         normal = self._join_optional_flow_states(
             (true_outcome.normal, false_outcome.normal)
         )
@@ -526,6 +853,66 @@ class HeapTransferEngine(_TransferOpsMixin, _TransferCallsMixin):
             false_outcome.abrupt,
         )
         return _FlowOutcome(normal, abrupt)
+
+    def _refine_identity_condition(
+        self,
+        procedure: object,
+        expression: object,
+        *,
+        truth: bool,
+    ) -> None:
+        operands = self._identity_condition_operands(expression)
+        if operands is None:
+            return
+        left, right, identity_when_true = operands
+        identity_holds = truth is identity_when_true
+        if not isinstance(left, py_ast.Local) or not isinstance(right, py_ast.Local):
+            return
+        left_locations = self.locations_for_expression(procedure, left)
+        right_locations = self.locations_for_expression(procedure, right)
+        if not left_locations or not right_locations:
+            return
+        shared = tuple(
+            location for location in left_locations if location in right_locations
+        )
+        if identity_holds:
+            if shared:
+                self._bind_runtime_local(procedure, left, shared)
+                self._bind_runtime_local(procedure, right, shared)
+            return
+        if len(left_locations) == 1 and left_locations[0].root.has_stable_identity():
+            narrowed = tuple(
+                location for location in right_locations if location != left_locations[0]
+            )
+            if narrowed:
+                self._bind_runtime_local(procedure, right, narrowed)
+        if len(right_locations) == 1 and right_locations[0].root.has_stable_identity():
+            narrowed = tuple(
+                location for location in left_locations if location != right_locations[0]
+            )
+            if narrowed:
+                self._bind_runtime_local(procedure, left, narrowed)
+
+    def _identity_condition_operands(
+        self,
+        expression: object,
+    ) -> tuple[object, object, bool] | None:
+        if isinstance(expression, py_ast.Not):
+            nested = self._identity_condition_operands(expression.expr)
+            if nested is None:
+                return None
+            return nested[0], nested[1], not nested[2]
+        if isinstance(expression, py_ast.Is):
+            return expression.left, expression.right, True
+        if isinstance(expression, (py_ast.Call, py_ast.DirectCall, py_ast.MethodCall)):
+            name = resolve_call_name(expression)
+            if name not in {"interpreter__is__", "interpreter__is_not__"}:
+                return None
+            actuals = actual_argument_expressions(expression)
+            if len(actuals) != 2:
+                return None
+            return actuals[0], actuals[1], name == "interpreter__is__"
+        return None
 
     def _analyze_while(
         self,
@@ -582,7 +969,19 @@ class HeapTransferEngine(_TransferOpsMixin, _TransferCallsMixin):
         preamble = self.analyze_node(procedure, node.loopPreamble)
         if preamble.normal is None:
             return preamble
-        self.locations_for_expression(procedure, node.iterator)
+        iterator_outcome = self._evaluate_expressions_outcome(
+            procedure,
+            node.iterator,
+        )
+        if iterator_outcome.normal is None:
+            abrupt = dict(preamble.abrupt)
+            if iterator_outcome.raises is not None:
+                abrupt = self._merge_abrupt_maps(
+                    abrupt,
+                    {"raise": iterator_outcome.raises},
+                )
+            return _FlowOutcome(None, abrupt)
+        self._restore_flow_state(iterator_outcome.normal)
         entry = self._capture_flow_state()
         current = entry
         breaks: list[_FlowState] = []
@@ -741,13 +1140,30 @@ class HeapTransferEngine(_TransferOpsMixin, _TransferCallsMixin):
         node: py_ast.TypeSwitch,
     ) -> _FlowOutcome:
         conditional_locs: tuple[HeapLocation, ...] = ()
+        conditional_raise: _FlowState | None = None
         cond_ref = getattr(node, "conditional", None)
         if cond_ref is not None:
-            self._evaluation_epoch += 1
-            conditional_locs = self.locations_for_expression(procedure, cond_ref)
+            conditional_outcome = self._evaluate_expressions_outcome(
+                procedure,
+                cond_ref,
+            )
+            conditional_locs = conditional_outcome.values
+            conditional_raise = conditional_outcome.raises
+            if conditional_outcome.normal is None:
+                return _FlowOutcome(
+                    None,
+                    {"raise": conditional_raise}
+                    if conditional_raise is not None
+                    else {},
+                )
+            self._restore_flow_state(conditional_outcome.normal)
         base = self._capture_flow_state()
         normal_states: list[_FlowState] = [base]
-        abrupt: dict[str, _FlowState] = {}
+        abrupt: dict[str, _FlowState] = (
+            {"raise": conditional_raise}
+            if conditional_raise is not None
+            else {}
+        )
         for case in getattr(node, "cases", ()):
             self._restore_flow_state(base)
             if conditional_locs and case.expr is not None:
@@ -1065,4 +1481,3 @@ class HeapTransferEngine(_TransferOpsMixin, _TransferCallsMixin):
             and a.environment.escaped_objects == b.environment.escaped_objects
             and a.definition_defaults == b.definition_defaults
         )
-
