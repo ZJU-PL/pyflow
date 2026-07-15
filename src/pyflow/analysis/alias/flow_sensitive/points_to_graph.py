@@ -167,6 +167,9 @@ class PointsToGraph:
     program_point_locals: "dict[int, tuple[dict[tuple[int, str], frozenset[HeapLocation]], dict[tuple[int, str], frozenset[HeapLocation]]]]" = field(
         default_factory=dict
     )
+    precision_degradations: "dict[int, frozenset[str]]" = field(
+        default_factory=dict
+    )
 
     # ── query methods ──────────────────────────────────────────────────
 
@@ -576,6 +579,7 @@ class PointsToGraph:
         self,
         a: "HeapLocation",
         b: "HeapLocation",
+        operation: object | None = None,
     ) -> dict[str, object]:
         """Explain the graph evidence behind an alias query."""
         entry_a = self.get(a)
@@ -590,11 +594,53 @@ class PointsToGraph:
             "b": self.label_for(b),
             "known_a": entry_a is not None,
             "known_b": entry_b is not None,
+            "a_kind": getattr(a.root.kind, "value", str(a.root.kind)),
+            "b_kind": getattr(b.root.kind, "value", str(b.root.kind)),
+            "a_identity": getattr(a.root.identity, "value", str(a.root.identity)),
+            "b_identity": getattr(b.root.identity, "value", str(b.root.identity)),
+            "a_escaped": entry_a.is_escaped if entry_a is not None else None,
+            "b_escaped": entry_b.is_escaped if entry_b is not None else None,
             "same_alias_class": same_alias_class,
             "same_path": a.selectors == b.selectors,
             "selector_overlap": selector_overlap,
             "must_alias": self.must_alias(a, b),
             "may_alias": self.may_alias(a, b),
+            "precision_degradations": sorted(
+                self.degradations_at(operation) if operation is not None else ()
+            ),
+        }
+
+    def degradations_at(self, operation: object) -> "frozenset[str]":
+        """Return reasons this program point was conservatively degraded."""
+        return self.precision_degradations.get(id(operation), frozenset())
+
+    def has_precision_degradation(self, operation: object | None = None) -> bool:
+        if operation is None:
+            return bool(self.precision_degradations)
+        return bool(self.degradations_at(operation))
+
+    def analysis_metrics(self) -> dict[str, object]:
+        """Return compact quality/scalability counters for bug-finding runs."""
+        from .model import HeapObjectKind
+
+        reason_counts: dict[str, int] = {}
+        for reasons in self.precision_degradations.values():
+            for reason in reasons:
+                reason_counts[reason] = reason_counts.get(reason, 0) + 1
+        return {
+            "root_count": len(self.entries),
+            "unknown_root_count": sum(
+                entry.location.root.kind is HeapObjectKind.UNKNOWN
+                for entry in self.entries.values()
+            ),
+            "summary_root_count": sum(
+                entry.location.root.kind is HeapObjectKind.SUMMARY
+                for entry in self.entries.values()
+            ),
+            "escaped_root_count": len(self.escaped_locations()),
+            "program_point_count": len(self.program_point_values),
+            "degraded_program_point_count": len(self.precision_degradations),
+            "degradation_reason_counts": dict(sorted(reason_counts.items())),
         }
 
     def escaped_locations(self) -> "frozenset[HeapLocation]":
@@ -628,6 +674,7 @@ class PointsToGraph:
     def to_dict(self) -> dict[str, object]:
         """Serialize the full graph for inspection / JSON output."""
         return {
+            "metrics": self.analysis_metrics(),
             "entry_count": len(self.entries),
             "escaped_count": len(self.escaped_locations()),
             "singleton_count": len(self.singleton_locations()),
@@ -636,6 +683,13 @@ class PointsToGraph:
             "program_point_outcome_count": sum(
                 len(outcomes) for outcomes in self.program_point_outcomes.values()
             ),
+            "precision_degradation_count": sum(
+                len(reasons) for reasons in self.precision_degradations.values()
+            ),
+            "precision_degradations": {
+                str(operation_id): sorted(reasons)
+                for operation_id, reasons in self.precision_degradations.items()
+            },
             "entries": [entry.to_dict() for entry in self.entries.values()],
         }
 

@@ -59,6 +59,7 @@ class HeapAnalysis:
         self._heap: HeapAbstraction | None = None
         self._graph: PointsToGraph | None = None
         self._procedure_summaries: dict[object, ProcedureHeapSummary] = {}
+        self._precision_degradations: dict[int, frozenset[str]] = {}
 
     # ── core analysis ──────────────────────────────────────────────────
 
@@ -91,10 +92,18 @@ class HeapAnalysis:
         engine = HeapTransferEngine(self._heap, intrinsics=self._intrinsics)
         engine.analyze_program(program)
         self._procedure_summaries = dict(engine.procedure_summaries)
+        degradations: dict[int, set[str]] = {}
+        for operation, reason in engine.precision_degradations:
+            degradations.setdefault(id(operation), set()).add(reason)
+        self._precision_degradations = {
+            operation_id: frozenset(reasons)
+            for operation_id, reasons in degradations.items()
+        }
         graph = self._heap.to_points_to_graph(
             state=engine.state,
             program_point_states=engine.program_point_states,
             program_point_outcomes=engine.program_point_outcomes,
+            precision_degradations=self._precision_degradations,
         )
         self._graph = graph
         return graph
@@ -124,10 +133,15 @@ class HeapAnalysis:
         self._heap = None
         self._graph = None
         self._procedure_summaries = {}
+        self._precision_degradations = {}
 
     @property
     def procedure_summaries(self) -> dict[object, ProcedureHeapSummary]:
         return dict(self._procedure_summaries)
+
+    @property
+    def precision_degradations(self) -> dict[int, frozenset[str]]:
+        return dict(self._precision_degradations)
 
     # ── live heap queries (delegated to HeapAbstraction) ────────────────
 

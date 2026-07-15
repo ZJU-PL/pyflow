@@ -751,7 +751,46 @@ DEFAULT_HEAP_INTRINSICS = HeapIntrinsicModels(
         "anext": FunctionModel(return_kind=CALL_RETURN_OPAQUE),
         "builtins.anext": FunctionModel(return_kind=CALL_RETURN_OPAQUE),
         "__anext__": FunctionModel(return_kind=CALL_RETURN_OPAQUE),
-        "close": FunctionModel(return_kind=CALL_RETURN_NONE, reads_self=True),
+        "close": FunctionModel(
+            return_kind=CALL_RETURN_NONE,
+            reads_self=True,
+            mutates_self=True,
+        ),
+        "flush": FunctionModel(
+            return_kind=CALL_RETURN_NONE,
+            reads_self=True,
+            mutates_self=True,
+        ),
+        "acquire": FunctionModel(
+            return_kind=CALL_RETURN_FRESH,
+            reads_self=True,
+            mutates_self=True,
+        ),
+        "release": FunctionModel(
+            return_kind=CALL_RETURN_NONE,
+            reads_self=True,
+            mutates_self=True,
+        ),
+        "commit": FunctionModel(
+            return_kind=CALL_RETURN_NONE,
+            reads_self=True,
+            mutates_self=True,
+        ),
+        "rollback": FunctionModel(
+            return_kind=CALL_RETURN_NONE,
+            reads_self=True,
+            mutates_self=True,
+        ),
+        "cancel": FunctionModel(
+            return_kind=CALL_RETURN_FRESH,
+            reads_self=True,
+            mutates_self=True,
+        ),
+        "shutdown": FunctionModel(
+            return_kind=CALL_RETURN_NONE,
+            reads_self=True,
+            mutates_self=True,
+        ),
         # ── descriptors ────────────────────────────────────────────────
         "__get__": FunctionModel(return_kind=CALL_RETURN_OPAQUE),
         # ── `open()` returns a fresh file object that wraps arg[0] ─────

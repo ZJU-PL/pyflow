@@ -1085,6 +1085,7 @@ class HeapAbstraction:
         state: object | None = None,
         program_point_states: dict[int, tuple[object, object]] | None = None,
         program_point_outcomes: dict[int, dict[str, object]] | None = None,
+        precision_degradations: dict[int, frozenset[str]] | None = None,
     ) -> "PointsToGraph":
         """Export heap state as a reusable :class:`PointsToGraph`.
 
@@ -1260,6 +1261,7 @@ class HeapAbstraction:
             program_point_complete_roots=point_complete_roots,
             program_point_outcomes=point_outcomes,
             program_point_locals=point_locals,
+            precision_degradations=dict(precision_degradations or {}),
         )
 
     def to_dict(self) -> dict:

@@ -4,7 +4,14 @@
 points-to model. It is used by optimization passes, semantic queries, CLI
 debugging, and IFDS-style clients that need operation-level heap effects.
 
-The analysis is flow-sensitive and path-insensitive. It preserves precise
+Its product goal is bug finding. It models a useful closed-world Python IR
+fragment precisely enough for dataflow, typestate, resource, and protocol
+detectors; it does not attempt to be a complete Python interpreter. Unsupported
+IR is traversed conservatively and reported through precision-degradation
+metadata so detectors can lower confidence instead of silently losing flows.
+
+The analysis is flow-sensitive and mostly path-insensitive, with limited
+identity-guard narrowing. It preserves precise
 attribute and literal container paths when possible, falls back to wildcard
 selectors for dynamic accesses, and uses abstract cardinality, path precision,
 and receiver ambiguity to decide whether writes can be strong or must be weak.
@@ -37,6 +44,12 @@ global/nonlocal declarations, packed and spread arguments, exception prefixes,
 and the lifetime of exception-handler targets. Exact writes to one singleton
 root are strong even when that object escapes; writes through a branch-joined
 set of possible receivers are weak.
+
+Resolved call binding distinguishes definite success, definite `TypeError`,
+and dynamic-spread calls that may either succeed or fail. Lexical `nonlocal`
+bindings use the nearest enclosing scope and stable cell identities rather than
+merging unrelated variables by name. Known stateful native models expose their
+receiver/argument mutations as wildcard heap effects shared with IFDS.
 
 The soundness scope excludes unknown or reflective calls, recursive cycles, and
 loops that fail to converge within the configured iteration bound. Native or
@@ -94,6 +107,9 @@ flow_sensitive/
   extraction.
 - `HeapEffectBuilder`: converts Python IR operations into analysis-neutral heap
   effects for IFDS clients.
+- `ProcedureHeapSummary`: outcome-sensitive return/raise/yield information plus
+  execution-derived heap effects. `CFGSupergraphAdapter` can accept these
+  summaries so IFDS clients consume the same mutation facts.
 - `HeapPolicy`: precision and conservatism knobs for allocation, field,
   container, context, recency, and escape behavior.
 
@@ -128,6 +144,11 @@ raised = graph.possible_values_at(object_field, operation, outcome="raise")
 local_values = graph.possible_local_values_at(code, local, operation,
                                               outcome="normal")
 yielded = graph.yielded_values_at(code, operation)
+
+# Explain and rank imprecise findings.
+reasons = graph.degradations_at(operation)
+evidence = graph.alias_evidence(loc_a, loc_b, operation)
+metrics = graph.analysis_metrics()
 ```
 
 The application pass registers the result under the `"heap"` analysis key:

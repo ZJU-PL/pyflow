@@ -393,6 +393,22 @@ def test_from_import_temporary_remains_the_module_object():
     )
 
 
+def test_star_import_records_precision_degradation():
+    target = py_ast.Local("star_import")
+    operation = py_ast.Assign(
+        py_ast.Import("pkg", ["*"], 0),
+        [target],
+    )
+    code = _code("main", py_ast.Suite([operation]))
+
+    analysis = HeapAnalysis()
+    graph = analysis.analyze(None, code)
+
+    assert graph.degradations_at(operation.expr) == frozenset(
+        {"star-import-namespace"}
+    )
+
+
 def test_tracks_instance_field_store_and_load_values():
     self_local = py_ast.Local("self")
     value = py_ast.Local("value")

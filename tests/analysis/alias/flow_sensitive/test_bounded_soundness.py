@@ -3080,6 +3080,20 @@ def test_unsupported_statement_contaminates_only_reachable_objects():
     assert graph.is_escaped(value_location)
     assert heap.locations_for_local(caller, target)
     assert heap.locations_for_local(caller, loaded)
+    assert graph.degradations_at(operation) == frozenset(
+        {"unsupported-_OpaqueStatement"}
+    )
+    assert graph.has_precision_degradation(operation)
+    metrics = graph.analysis_metrics()
+    assert metrics["degraded_program_point_count"] == 1
+    assert metrics["degradation_reason_counts"] == {
+        "unsupported-_OpaqueStatement": 1
+    }
+    evidence = graph.alias_evidence(value_location, value_location, operation)
+    assert evidence["must_alias"]
+    assert evidence["precision_degradations"] == [
+        "unsupported-_OpaqueStatement"
+    ]
 
 
 def _outer_with_nonlocal_setter(name):

@@ -201,7 +201,78 @@ class HeapEffectBuilder:
             self.heap.write_for_location(location) for location in collection_locations
         )
 
-        escape_exprs = list(self._stored_value_expressions(operation))
+        model_escape_exprs: list[object] = []
+        call = self._call_from_expression_or_statement(operation)
+        call_name = resolve_call_name(call) if call is not None else None
+        function_model = self.intrinsics.function_model(call_name)
+        collection_model = self.intrinsics.collection_mutator(call_name)
+        if call is not None and function_model is not None:
+            actuals = actual_argument_expressions(call)
+            if isinstance(call, py_ast.MethodCall):
+                if function_model.reads_self:
+                    reads.extend(
+                        self._locations_for_expressions(procedure, (call.expr,))
+                    )
+                if function_model.escapes_self:
+                    model_escape_exprs.append(call.expr)
+            reads.extend(
+                self._locations_for_expressions(
+                    procedure,
+                    tuple(
+                        actuals[index]
+                        for index in function_model.read_arg_indices
+                        if index < len(actuals)
+                    ),
+                )
+            )
+            model_escape_exprs.extend(
+                actuals[index]
+                for index in function_model.escape_arg_indices
+                if index < len(actuals)
+            )
+            # Collection mutators already expose their precise element/key
+            # writes.  Other known stateful APIs expose bounded wildcard
+            # writes so IFDS and standalone summaries agree on mutation.
+            if collection_model is None:
+                mutated_roots: list[HeapLocation] = []
+                if function_model.mutates_self and isinstance(call, py_ast.MethodCall):
+                    mutated_roots.extend(
+                        self._locations_for_expressions(procedure, (call.expr,))
+                    )
+                mutated_roots.extend(
+                    self._locations_for_expressions(
+                        procedure,
+                        tuple(
+                            actuals[index]
+                            for index in function_model.write_arg_indices
+                            if index < len(actuals)
+                        ),
+                    )
+                )
+                for root in dict.fromkeys(mutated_roots):
+                    writes.append(
+                        self.heap.write_for_location(
+                            self.heap.dynamic_attribute_location(
+                                root,
+                                DYNAMIC_ATTRIBUTE_WILDCARD,
+                            ),
+                            policy=UpdatePolicy.WEAK,
+                        )
+                    )
+                    writes.append(
+                        self.heap.write_for_location(
+                            self.heap.dynamic_subscript_location(
+                                root,
+                                DYNAMIC_SUBSCRIPT_WILDCARD,
+                            ),
+                            policy=UpdatePolicy.WEAK,
+                        )
+                    )
+
+        escape_exprs = [
+            *model_escape_exprs,
+            *self._stored_value_expressions(operation),
+        ]
         if collection_locations:
             escape_exprs.extend(collection_values)
 

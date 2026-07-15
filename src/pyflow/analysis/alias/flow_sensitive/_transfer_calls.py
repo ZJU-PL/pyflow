@@ -545,10 +545,63 @@ class _TransferCallsMixin:
             escaped_locations = tuple(dict.fromkeys(escaped))
             self.heap.mark_all_escaped(escaped_locations)
             self.state.mark_escaped(escaped_locations)
+            if function_model is not None and collection_model is None:
+                mutated: list[HeapLocation] = []
+                if function_model.mutates_self and isinstance(call, py_ast.MethodCall):
+                    mutated.extend(
+                        self.locations_for_expression(procedure, call.expr)
+                    )
+                for index in function_model.write_arg_indices:
+                    if index < len(actuals):
+                        mutated.extend(
+                            self.locations_for_expression(
+                                procedure,
+                                actuals[index],
+                            )
+                        )
+                self._contaminate_modeled_mutations(
+                    procedure,
+                    tuple(dict.fromkeys(mutated)),
+                    call_name,
+                )
             return
         effect = self.effect_builder.unresolved_call_effect(procedure, call)
         self.heap.mark_all_escaped(effect.escapes)
         self.state.mark_escaped(effect.escapes)
+
+    def _contaminate_modeled_mutations(
+        self,
+        procedure: object,
+        roots: tuple[HeapLocation, ...],
+        call_name: str | None,
+    ) -> None:
+        if not roots:
+            return
+        unknown = HeapLocation(
+            self.heap.unknown_object(
+                (
+                    "modeled-mutation",
+                    call_name,
+                    self._evaluation_epoch,
+                    self._current_context,
+                ),
+                label=f"unknown mutation by {call_name or 'known call'}",
+            )
+        )
+        for root in roots:
+            self.state.write(
+                self.heap.dynamic_attribute_location(root, "*"),
+                (unknown,),
+                UpdatePolicy.WEAK,
+            )
+            self.state.write(
+                self.heap.dynamic_subscript_location(
+                    root,
+                    DYNAMIC_SUBSCRIPT_WILDCARD,
+                ),
+                (unknown,),
+                UpdatePolicy.WEAK,
+            )
 
     def _apply_known_callback_calls(
         self,
@@ -1195,8 +1248,18 @@ class _TransferCallsMixin:
                 reasons.add("unexpected-keyword")
         if len(keyword_names) != len(set(keyword_names)):
             reasons.add("duplicate-keyword")
-        if keyword_spread:
+        keyword_spread_count = len(call_keyword_spreads(call)) + (
+            1 if getattr(call, "kargs", None) is not None else 0
+        )
+        if keyword_spread and (
+            getattr(params, "kparam", None) is None
+            or bool(keyword_names)
+            or bool(definitely_positional.intersection(keyword_bindable.values()))
+            or keyword_spread_count > 1
+        ):
             uncertain_reasons.add("keyword-spread-collision")
+        if positional_spread and definitely_keyword:
+            uncertain_reasons.add("positional-spread-keyword-collision")
 
         defaultable = [formal for _name, formal in positional_entries]
         defaultable.extend(formal for _name, formal in keyword_only_entries)
@@ -1210,9 +1273,11 @@ class _TransferCallsMixin:
                 ):
                     defaulted.add(formal)
 
-        possibly_positional = set(positional_entries and (
-            formal for _name, formal in positional_entries
-        ) if positional_spread else ())
+        possibly_positional = (
+            {formal for _name, formal in positional_entries}
+            if positional_spread
+            else set()
+        )
         possibly_keyword = set(keyword_bindable.values()) if keyword_spread else set()
         for _name, formal in (*positional_entries, *keyword_only_entries):
             if formal in defaulted:

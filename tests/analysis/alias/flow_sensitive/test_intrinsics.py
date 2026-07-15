@@ -8,6 +8,10 @@ from pyflow.analysis.alias.flow_sensitive import (
     HeapIntrinsicModels,
     HeapObjectKind,
 )
+from pyflow.analysis.alias.flow_sensitive.intrinsics import (
+    CALL_RETURN_NONE,
+    FunctionModel,
+)
 from pyflow.language.python import ast as py_ast
 
 
@@ -71,3 +75,53 @@ def test_intrinsic_table_describes_collection_and_copy_models():
     assert insert.value_args(("index", "value")) == ("value",)
     assert pop is not None
     assert pop.deletes_value
+    close = DEFAULT_HEAP_INTRINSICS.function_model("close")
+    assert close is not None
+    assert close.mutates_self
+
+
+def test_function_model_mutation_contaminates_receiver_heap():
+    receiver = py_ast.Local("receiver")
+    loaded = py_ast.Local("loaded")
+    code = _code(
+        "main",
+        py_ast.Suite(
+            [
+                py_ast.Assign(py_ast.BuildList([]), [receiver]),
+                py_ast.Discard(
+                    py_ast.MethodCall(
+                        receiver,
+                        _existing("mutate"),
+                        [],
+                        [],
+                        None,
+                        None,
+                    )
+                ),
+                py_ast.Assign(
+                    py_ast.GetAttr(receiver, _existing("state")),
+                    [loaded],
+                ),
+            ]
+        ),
+    )
+    intrinsics = HeapIntrinsicModels(
+        function_models={
+            "mutate": FunctionModel(
+                return_kind=CALL_RETURN_NONE,
+                mutates_self=True,
+            )
+        }
+    )
+
+    analysis = HeapAnalysis(intrinsics=intrinsics)
+    analysis.analyze(None, code)
+    heap = analysis.heap
+    assert heap is not None
+
+    loaded_locations = heap.locations_for_local(code, loaded)
+    assert loaded_locations
+    assert any(
+        location.root.kind is HeapObjectKind.UNKNOWN
+        for location in loaded_locations
+    )
