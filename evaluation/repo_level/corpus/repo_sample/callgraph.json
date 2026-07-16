@@ -1,0 +1,70 @@
+{
+  "repo_sample.main": [
+    "repo_sample.main.run"
+  ],
+  "repo_sample.main.run": [
+    "repo_sample.worker.process_queue"
+  ],
+  "repo_sample.worker": [],
+  "repo_sample.worker.process_queue": [
+    "repo_sample.auth.issue_token",
+    "repo_sample.config.load_settings",
+    "repo_sample.utils.retry"
+  ],
+  "repo_sample.worker.process_queue.run_once": [
+    "repo_sample.api.create_order"
+  ],
+  "repo_sample.utils": [],
+  "repo_sample.utils.retry": [],
+  "repo_sample.api": [],
+  "repo_sample.api.create_order": [
+    "repo_sample.auth.verify_token",
+    "repo_sample.config.load_settings",
+    "repo_sample.domain.inventory.InventoryItem.__init__",
+    "repo_sample.domain.orders.LineItem.__init__",
+    "repo_sample.domain.orders.Order.__init__",
+    "repo_sample.domain.orders.allocate",
+    "repo_sample.domain.orders.total_units",
+    "repo_sample.storage.JsonStore.__init__",
+    "repo_sample.storage.JsonStore.read",
+    "repo_sample.storage.JsonStore.write"
+  ],
+  "repo_sample.config": [],
+  "repo_sample.config.Settings": [],
+  "repo_sample.config.Settings.__init__": [],
+  "repo_sample.config.load_settings": [
+    "repo_sample.config.Settings.__init__"
+  ],
+  "repo_sample.auth": [],
+  "repo_sample.auth._digest": [],
+  "repo_sample.auth.issue_token": [
+    "repo_sample.auth._digest"
+  ],
+  "repo_sample.auth.verify_token": [
+    "repo_sample.auth._digest"
+  ],
+  "repo_sample.storage": [],
+  "repo_sample.storage.JsonStore.__init__": [],
+  "repo_sample.storage.JsonStore._path": [],
+  "repo_sample.storage.JsonStore.read": [
+    "repo_sample.storage.JsonStore._path"
+  ],
+  "repo_sample.storage.JsonStore.write": [
+    "repo_sample.storage.JsonStore._path"
+  ],
+  "repo_sample.domain.inventory": [],
+  "repo_sample.domain.inventory.InventoryItem": [],
+  "repo_sample.domain.inventory.InventoryItem.__init__": [],
+  "repo_sample.domain.inventory.reserve": [],
+  "repo_sample.domain.orders": [],
+  "repo_sample.domain.orders.LineItem": [],
+  "repo_sample.domain.orders.LineItem.__init__": [],
+  "repo_sample.domain.orders.Order": [],
+  "repo_sample.domain.orders.Order.__init__": [],
+  "repo_sample.domain.orders.allocate": [
+    "repo_sample.domain.inventory.reserve"
+  ],
+  "repo_sample.domain.orders.total_units": [],
+  "repo_sample.plugins": [],
+  "repo_sample.plugins.supported_exports": []
+}
