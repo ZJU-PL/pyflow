@@ -154,23 +154,20 @@ def _resolve_entry_file(
 def _normalize_graph_for_project(
     graph: Dict[str, Iterable[str]], project_name: str
 ) -> Dict[str, List[str]]:
-    print(f"Normalizing {project_name}")
+    # print(f"Normalizing {project_name}")
     BUILTIN_PREFIXES = (
         "<builtin>", "typing.", "abc.", "itertools.", "functools.",
-        "collections.", "pathlib.", "json.", "threading.", "queue.",
-        "math.", "os.", "sys.", "io.", "re.",
+        "collections.", "pathlib.", "argparse.", "json.", "threading.", "queue.",
+        "math.", "os.", "sys.", "io.", "re.", "hmac."
     )
-    MODULE_NODES = {"typing", "abc", "itertools", "functools", "collections",
-                    "pathlib", "json", "threading", "queue", "os", "sys"}
 
     normalized: Dict[str, List[str]] = {}
     for caller, callees in graph.items():
         if caller.startswith("<builtin>") or caller.startswith("<"):
             continue
-        # if caller in MODULE_NODES:
-        #     continue
-
-        if not caller.startswith(project_name):
+        if any(caller.startswith(prefix) for prefix in BUILTIN_PREFIXES):
+            normalized_caller = caller
+        elif not caller.startswith(project_name):
             normalized_caller = f"{project_name}.{caller}"
         else:
             normalized_caller = caller
@@ -179,11 +176,12 @@ def _normalize_graph_for_project(
         for callee in callees:
             if callee.startswith("<builtin>") or callee.startswith("<"):
                 continue
-            if callee in MODULE_NODES:
-                continue
-            if not callee.startswith(project_name):
-                callee = f"{project_name}.{callee}"
-            normalized_callees.append(callee)
+            if any(callee.startswith(prefix) for prefix in BUILTIN_PREFIXES):
+                normalized_callees.append(callee)
+            else:
+                if not callee.startswith(project_name):
+                    callee = f"{project_name}.{callee}"
+                normalized_callees.append(callee)
 
         normalized[normalized_caller] = normalized_callees
 
@@ -197,7 +195,22 @@ def _score(predicted: Set[Edge], expected: Set[Edge]) -> Tuple[float, float, int
     recall = tp / (tp + fn) if (tp + fn) else 1.0
     return precision, recall, tp, fp, fn
 
-def _run_constraint_engine(project: Project, repeats: int) -> EngineResult:
+def _dump_missing_edges(predicted: Set[Edge], project: Project, engine_name: str, dump_dir: Path) -> None:
+    # print(f"Dump {project.name} for {engine_name}")
+    gt_edges = _adjacency_to_edges(project.ground_truth)
+    missing = gt_edges - predicted
+    if not missing:
+        return
+    out_dir = dump_dir / project.name
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_file = out_dir / f"{engine_name}_missing.json"
+    missing_dict: Dict[str, List[str]] = {}
+    for caller, callee in sorted(missing):
+        missing_dict.setdefault(caller, []).append(callee)
+    _write_callgraph_json(missing_dict, out_file)
+    # print(f"[{engine_name}] {project.name}: {len(missing)} missing edges dumped to {out_file}")
+
+def _run_constraint_engine(project: Project, repeats: int, dump_missing: Optional[Path] = None) -> EngineResult:
     source = project.entry_file.read_text(encoding="utf-8")
     runtimes: List[float] = []
     predicted_edges: Set[Edge] = set()  # type: ignore[no-redef]
@@ -212,11 +225,15 @@ def _run_constraint_engine(project: Project, repeats: int) -> EngineResult:
             )
             elapsed = (time.perf_counter() - start) * 1000.0
             runtimes.append(elapsed)
-            predicted_edges = _adjacency_to_edges(graph.get())
+            normalized_graph = _normalize_graph_for_project(graph.get(), project.name)
+            predicted_edges = _adjacency_to_edges(normalized_graph)
+            # predicted_edges = _adjacency_to_edges(graph.get())
 
         precision, recall, tp, fp, fn = _score(
             predicted_edges, _adjacency_to_edges(project.ground_truth)
         )
+        if dump_missing:
+            _dump_missing_edges(predicted_edges, project, "constraint", dump_missing)
         return EngineResult(
             engine="constraint",
             project=project.name,
@@ -240,7 +257,7 @@ def _run_constraint_engine(project: Project, repeats: int) -> EngineResult:
             error=str(exc),
         )
 
-def _run_pycg_engine(project: Project, repeats: int) -> EngineResult:
+def _run_pycg_engine(project: Project, repeats: int, dump_missing: Optional[Path] = None) -> EngineResult:
     source = project.entry_file.read_text(encoding="utf-8")
     runtimes: List[float] = []
     predicted_edges: Set[Edge] = set()
@@ -262,6 +279,8 @@ def _run_pycg_engine(project: Project, repeats: int) -> EngineResult:
         precision, recall, tp, fp, fn = _score(
             predicted_edges, _adjacency_to_edges(project.ground_truth)
         )
+        if dump_missing:
+            _dump_missing_edges(predicted_edges, project, "pycg", dump_missing)
         return EngineResult(
             engine="pycg",
             project=project.name,
@@ -510,6 +529,12 @@ def main() -> int:
         help="Write each engine's call-graph JSON to a directory for inspection",
     )
     parser.add_argument(
+        "--dump-missing",
+        type=Path,
+        default=None,
+        help="Dump edges missing from engine output (present in GT but not predicted) to directory",
+    )
+    parser.add_argument(
         "--external-result-dir",
         type=Path,
         default=None,
@@ -552,11 +577,11 @@ def main() -> int:
         print(f"Processing {project.name} (entry: {project.entry_file.name}) ...")
         if "constraint" in engines:
             results.append(
-                _run_constraint_engine(project, repeats=args.repeat)
+                _run_constraint_engine(project, repeats=args.repeat, dump_missing=args.dump_missing)
             )
         if "pycg" in engines and PYCG_AVAILABLE:
             results.append(
-                _run_pycg_engine(project, repeats=args.repeat)
+                _run_pycg_engine(project, repeats=args.repeat, dump_missing=args.dump_missing)
             )
 
         if args.dump_outputs:
@@ -596,7 +621,9 @@ def _dump_project_graphs(project: Project, dump_dir: Path) -> None:
             source_path=str(project.entry_file),
             allow_fixture_graph_loading=False,
         )
-        _write_callgraph_json(cg.get(), out_dir / "constraint.json")
+        normalized_graph = _normalize_graph_for_project(cg.get(), project.name)
+        predicted_edges = _adjacency_to_edges(normalized_graph)
+        _write_callgraph_json(normalized_graph, out_dir / "constraint.json")
     except Exception:
         pass
 
@@ -607,7 +634,9 @@ def _dump_project_graphs(project: Project, dump_dir: Path) -> None:
                 source_path=str(project.entry_file),
                 use_fixture_fallback=False,
             )
-            _write_callgraph_json(cg.get(), out_dir / "pycg.json")
+            normalized_graph = _normalize_graph_for_project(cg.get(), project.name)
+            predicted_edges = _adjacency_to_edges(normalized_graph)
+            _write_callgraph_json(normalized_graph, out_dir / "pycg.json")
         except Exception:
             pass
 

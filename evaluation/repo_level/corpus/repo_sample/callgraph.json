@@ -3,6 +3,7 @@
     "repo_sample.main.run"
   ],
   "repo_sample.main.run": [
+    "asyncio.run",
     "repo_sample.worker.process_queue"
   ],
   "repo_sample.worker": [],
@@ -20,9 +21,6 @@
   "repo_sample.api.create_order": [
     "repo_sample.auth.verify_token",
     "repo_sample.config.load_settings",
-    "repo_sample.domain.inventory.InventoryItem.__init__",
-    "repo_sample.domain.orders.LineItem.__init__",
-    "repo_sample.domain.orders.Order.__init__",
     "repo_sample.domain.orders.allocate",
     "repo_sample.domain.orders.total_units",
     "repo_sample.storage.JsonStore.__init__",
@@ -32,11 +30,11 @@
   "repo_sample.config": [],
   "repo_sample.config.Settings": [],
   "repo_sample.config.Settings.__init__": [],
-  "repo_sample.config.load_settings": [
-    "repo_sample.config.Settings.__init__"
-  ],
+  "repo_sample.config.load_settings": [],
   "repo_sample.auth": [],
-  "repo_sample.auth._digest": [],
+  "repo_sample.auth._digest": [
+    "hmac.new"
+  ],
   "repo_sample.auth.issue_token": [
     "repo_sample.auth._digest"
   ],

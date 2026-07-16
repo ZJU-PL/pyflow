@@ -17,7 +17,6 @@
   "web_framework.app.App.after_request": [],
   "web_framework.app.App.handle": [
     "web_framework.app.Router.match",
-    "web_framework.response.Response.__init__",
     "web_framework.middleware.base.Middleware.process_request",
     "web_framework.middleware.base.Middleware.process_response"
   ],
@@ -27,11 +26,9 @@
   "web_framework.app.TestClient": [],
   "web_framework.app.TestClient.__init__": [],
   "web_framework.app.TestClient.get": [
-    "web_framework.request.Request.__init__",
     "web_framework.app.App.handle"
   ],
   "web_framework.app.TestClient.post": [
-    "web_framework.request.Request.__init__",
     "web_framework.app.App.handle"
   ],
   "web_framework.request": [],
@@ -53,46 +50,21 @@
   "web_framework.response.Response.get_header": [],
   "web_framework.response.Response.to_bytes": [],
   "web_framework.response.JSONResponse": [],
-  "web_framework.response.JSONResponse.__init__": [
-    "web_framework.response.Response.__init__"
-  ],
   "web_framework.response.HTMLResponse": [],
-  "web_framework.response.HTMLResponse.__init__": [
-    "web_framework.response.Response.__init__"
-  ],
   "web_framework.response.RedirectResponse": [],
-  "web_framework.response.RedirectResponse.__init__": [
-    "web_framework.response.Response.__init__"
-  ],
   "web_framework.response.StreamResponse": [],
   "web_framework.response.StreamResponse.__init__": [],
   "web_framework.response.StreamResponse.write": [],
   "web_framework.response.StreamResponse.to_bytes": [],
   "web_framework.response.TemplateResponse": [],
   "web_framework.response.TemplateResponse.__init__": [
-    "web_framework.response.TemplateResponse._render",
-    "web_framework.response.Response.__init__"
+    "web_framework.response.TemplateResponse._render"
   ],
   "web_framework.response.TemplateResponse._render": [],
   "web_framework.views": [],
   "web_framework.views.View": [],
   "web_framework.views.View.__init__": [],
-  "web_framework.views.View.dispatch": [
-    "web_framework.response.Response.__init__"
-  ],
   "web_framework.views.View.get": [],
-  "web_framework.views.View.post": [
-    "web_framework.response.Response.__init__"
-  ],
-  "web_framework.views.View.put": [
-    "web_framework.response.Response.__init__"
-  ],
-  "web_framework.views.View.delete": [
-    "web_framework.response.Response.__init__"
-  ],
-  "web_framework.views.View.patch": [
-    "web_framework.response.Response.__init__"
-  ],
   "web_framework.views.TemplateView": [],
   "web_framework.views.TemplateView.get_template": [],
   "web_framework.views.TemplateView.get_context": [],
@@ -144,8 +116,7 @@
   "web_framework.middleware.base.Middleware.process_response": [],
   "web_framework.middleware.base.Middleware.__call__": [
     "web_framework.middleware.base.Middleware.process_request",
-    "web_framework.middleware.base.Middleware.process_response",
-    "web_framework.response.Response.__init__"
+    "web_framework.middleware.base.Middleware.process_response"
   ],
   "web_framework.middleware.base.MiddlewareStack": [],
   "web_framework.middleware.base.MiddlewareStack.__init__": [],
@@ -167,7 +138,6 @@
   "web_framework.middleware.auth.AuthMiddleware.add_validator": [],
   "web_framework.middleware.auth.AuthMiddleware.process_request": [
     "web_framework.middleware.auth.AuthMiddleware._extract_token",
-    "web_framework.response.Response.__init__",
     "web_framework.middleware.auth.AuthMiddleware._get_user"
   ],
   "web_framework.middleware.auth.AuthMiddleware.process_response": [],
@@ -178,9 +148,6 @@
   "web_framework.middleware.auth.RateLimitMiddleware": [],
   "web_framework.middleware.auth.RateLimitMiddleware.__init__": [
     "web_framework.middleware.base.Middleware.__init__"
-  ],
-  "web_framework.middleware.auth.RateLimitMiddleware.process_request": [
-    "web_framework.response.Response.__init__"
   ],
   "web_framework.middleware.auth.RateLimitMiddleware.process_response": [],
   "web_framework.middleware.auth.SessionMiddleware": [],
@@ -220,7 +187,6 @@
     "web_framework.middleware.base.Middleware.__init__"
   ],
   "web_framework.middleware.logging.CORSMiddleware.process_request": [
-    "web_framework.response.Response.__init__",
     "web_framework.middleware.logging.CORSMiddleware._add_cors_headers"
   ],
   "web_framework.middleware.logging.CORSMiddleware.process_response": [
