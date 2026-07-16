@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from typing import (
     DefaultDict,
     Dict,
+    FrozenSet,
     List,
     Literal,
     Mapping,
@@ -180,6 +181,20 @@ class ScopeResult:
     singledispatch_changed: bool
 
 
+@dataclass(frozen=True)
+class ConstraintCallSite:
+    """Source-level call site with context and stable per-scope ordinal."""
+
+    caller_scope: str
+    caller_context: ContextKey
+    line: int
+    column: int
+    ordinal: int
+
+
+CallSiteEdgeIndex: TypeAlias = Mapping[ConstraintCallSite, FrozenSet[str]]
+
+
 def make_value(kind: str, name: str) -> AbstractValue:
     return AbstractValue(kind, name)
 
@@ -286,11 +301,3 @@ def join_envs(
     return dict(out)
 
 
-def decorator_id(expr: ast.expr) -> Optional[str]:
-    if isinstance(expr, ast.Name):
-        return expr.id
-    if isinstance(expr, ast.Attribute):
-        if isinstance(expr.value, ast.Name):
-            return f"{expr.value.id}.{expr.attr}"
-        return expr.attr
-    return None

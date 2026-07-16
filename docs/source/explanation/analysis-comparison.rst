@@ -143,7 +143,7 @@ Use with Type Checkers
    pyright input.py
 
    # Then run PyFlow for deeper analysis
-   pyflow analyze input.py
+   pyflow optimize input.py
 
 Use with Linters
 ----------------
@@ -154,7 +154,7 @@ Use with Linters
    pylint input.py
 
    # Then run PyFlow for analysis
-   pyflow analyze input.py
+   pyflow optimize input.py
 
 Use in CI/CD
 ------------
@@ -184,7 +184,7 @@ Use in CI/CD
        steps:
          - uses: actions/checkout@v3
          - name: Run PyFlow
-           run: pip install pyflow && pyflow analyze input.py
+           run: pip install pyflow && pyflow optimize input.py
 
 Recommendation Matrix
 =====================

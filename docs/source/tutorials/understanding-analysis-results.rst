@@ -31,7 +31,7 @@ Text format is designed for human readability:
 
 .. code-block:: bash
 
-   pyflow callgraph example.py --format text
+   pyflow callgraph example.py
 
 Output:
 
@@ -52,42 +52,32 @@ Output:
 JSON Format
 -----------
 
-JSON format is suitable for programmatic processing:
+The callgraph command outputs text by default, suitable for inspection:
 
 .. code-block:: bash
 
-   pyflow callgraph example.py --format json
+   pyflow callgraph example.py
 
-Output:
+The constraint algorithm can also produce a JSON value-flow graph:
 
-.. code-block:: json
+.. code-block:: bash
 
-   {
-     "nodes": [
-       {"name": "fibonacci", "signature": "fibonacci(n)"},
-       {"name": "factorial", "signature": "factorial(n)"},
-       {"name": "main", "signature": "main()"}
-     ],
-     "edges": [
-       {"from": "main", "to": "fibonacci", "line": 21},
-       {"from": "main", "to": "factorial", "line": 22}
-     ]
-   }
+   pyflow callgraph example.py --algorithm constraint --as-graph-output callgraph.json
 
 DOT Format
 ----------
 
-DOT format is for visualization with Graphviz:
+DOT format is available for IR dumps via ``pyflow ir``:
 
 .. code-block:: bash
 
-   pyflow callgraph example.py --format dot --output callgraph.dot
+   pyflow ir example.py --dump-cfg main --dump-format dot --output cfg.dot
 
 Then render to an image:
 
 .. code-block:: bash
 
-   dot -Tpng callgraph.dot -o callgraph.png
+   dot -Tpng cfg.dot -o cfg.png
 
 Interpreting Call Graph Results
 ===============================
@@ -385,7 +375,7 @@ Use DOT format with Graphviz for professional visualizations:
 
 .. code-block:: bash
 
-   pyflow callgraph example.py --format dot --output callgraph.dot
+   pyflow callgraph example.py --output callgraph.txt
 
 Customize the visualization:
 

@@ -9,12 +9,30 @@ from pyflow.application.errors import TemporaryLimitation
 from pyflow.analysis.cfg import graph as cfg_graph
 from pyflow.language.python import ast as py_ast
 
+from ...alias.flow_sensitive.abstraction import HeapAbstraction
+from ...alias.flow_sensitive.model import HeapLocation
+from ...alias.flow_sensitive.heap_effects import (
+    CALL_RETURN_COPY,
+    CALL_RETURN_FRESH,
+    CALL_RETURN_OPAQUE,
+    CALL_RETURN_SUMMARY,
+    HeapEffect,
+    HeapEffectBuilder,
+)
+from ...alias.flow_sensitive.heap_summary import HeapSummary, HeapSummaryBuilder
 from ..cfg_adapter import CFGNode, CFGSupergraphAdapter, CallEffect, GuardEffect, assigned_locals
-from ..transfers import collect_locals, resolve_call_name
+from ..transfers import (
+    actual_argument_expressions,
+    bind_call_arguments,
+    collect_locals,
+    formal_parameters,
+    resolve_call_name,
+)
 from ._call_model import CallModelRegistry
 
 
 FactT = TypeVar("FactT")
+DYNAMIC_SUBSCRIPT_WILDCARD = "[*]"
 
 
 def build_entry_seeds(entry_nodes: Sequence[CFGNode], zero_fact: object):
@@ -23,7 +41,7 @@ def build_entry_seeds(entry_nodes: Sequence[CFGNode], zero_fact: object):
 
 
 class AnnotatedFactProblemBase(Generic[FactT], ABC):
-    """Reusable slot/call/annotation helpers for IFDS clients."""
+    """Reusable location/call/annotation helpers for IFDS clients."""
 
     analysis_name = "IFDS analysis"
 
@@ -35,10 +53,92 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
     ) -> None:
         self.adapter = adapter
         self.call_models = call_models or CallModelRegistry()
+        self._storage_overrides: dict[tuple, tuple[object, ...]] = {}
+        self._site_counter: int = 0
+        self._allocation_sites: dict[tuple, int] = {}
+        self._site_storage: dict[int, tuple[object, ...]] = {}
+        self._heap_summaries: dict[int, HeapSummary] = {}
+        self.heap = HeapAbstraction(
+            self._locations_for_local_raw,
+            storage_overrides=self._storage_overrides,
+            allocation_sites=self._allocation_sites,
+            site_storage=self._site_storage,
+            next_site=self._site_counter,
+        )
         self._require_complete_annotations()
 
+    def _heap(self) -> HeapAbstraction:
+        heap = getattr(self, "heap", None)
+        if heap is None:
+            heap = HeapAbstraction(
+                self._locations_for_local_raw,
+                storage_overrides=getattr(self, "_storage_overrides", None),
+                allocation_sites=getattr(self, "_allocation_sites", None),
+                site_storage=getattr(self, "_site_storage", None),
+                next_site=getattr(self, "_site_counter", 0),
+            )
+            self.heap = heap
+            self._storage_overrides = heap.storage_overrides
+            self._allocation_sites = heap.allocation_sites
+            self._site_storage = heap.site_storage
+        self._site_counter = heap.next_site
+        return heap
+
+    def _alias_locals(
+        self, procedure: cfg_graph.Code, target: object, source: object
+    ) -> None:
+        """Make *target* share location identity and allocation site with *source*."""
+        heap = self._heap()
+        heap.alias_locals(procedure, target, source)
+        self._site_counter = heap.next_site
+
+    def _unalias_locals(self, procedure: cfg_graph.Code, local: object) -> None:
+        """Break any location alias for *local*, restoring its own identity."""
+        heap = self._heap()
+        heap.unalias_local(procedure, local)
+        self._site_counter = heap.next_site
+
+    def _update_aliases_for_assignment(
+        self,
+        procedure: cfg_graph.Code,
+        targets: tuple[object, ...],
+        expr: object,
+    ) -> None:
+        """Handle alias tracking for ``targets = expr``.
+
+        Strong updates break any existing aliases and assign fresh
+        allocation sites on *targets*.  When *expr* is a plain local
+        reference the targets are aliased to it, sharing both locations and
+        allocation site.
+        """
+        heap = self._heap()
+        if self._is_allocation_expression(expr):
+            heap.bind_allocation_targets(
+                procedure,
+                targets,
+                expr,
+                label=self._allocation_label(expr),
+                type_hint=self._allocation_type_hint(expr),
+            )
+        elif heap.policy.bind_call_results and self._is_call_expression(expr):
+            return
+        else:
+            heap.update_assignment_aliases(procedure, targets, expr)
+        self._site_counter = heap.next_site
+
+    def _locations_for_local(self, procedure: cfg_graph.Code, local: object) -> tuple[object, ...]:
+        heap = self._heap()
+        locations = heap.locations_for_local(procedure, local)
+        self._site_counter = heap.next_site
+        return locations
+
+    def _locations_for_local_raw(self, procedure: cfg_graph.Code, local: object) -> tuple[object, ...]:
+        del procedure
+        refs = getattr(getattr(local, "annotation", None), "references", None)
+        return self._annotation_locations(refs)
+
     @abstractmethod
-    def _make_slot_fact(self, slot: object) -> FactT:
+    def _make_location_fact(self, location: object) -> FactT:
         raise NotImplementedError
 
     @abstractmethod
@@ -51,8 +151,21 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def _slot_from_fact(self, fact: FactT) -> object | None:
+    def _location_from_fact(self, fact: FactT) -> object | None:
         raise NotImplementedError
+
+    def _access_path_from_fact(self, fact: FactT) -> tuple[str, ...]:
+        return getattr(fact, "access_path", ())
+
+    @staticmethod
+    def _fact_prefix_matches(stored: object, query: object) -> bool:
+        """True when *stored* implies *query* via access-path prefix."""
+        return HeapAbstraction.access_path_prefix_matches(stored, query)
+
+    def _make_location_fact_with_path(
+        self, location: object, access_path: tuple[str, ...]
+    ) -> FactT:
+        return self._make_location_fact(location)
 
     @abstractmethod
     def _expression_fact_result(
@@ -60,8 +173,13 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
     ) -> tuple[cfg_graph.Code, py_ast.PythonASTNode, int] | None:
         raise NotImplementedError
 
-    def local_slots(self, procedure: cfg_graph.Code, local: py_ast.Local) -> tuple[object, ...]:
-        return tuple(self._slot_from_fact(fact) for fact in self._facts_for_locals(procedure, (local,)))
+    def local_locations(
+        self, procedure: cfg_graph.Code, local: py_ast.Local
+    ) -> tuple[object, ...]:
+        return tuple(
+            self._location_from_fact(fact)
+            for fact in self._facts_for_locals(procedure, (local,))
+        )
 
     def _call_effect(self, node: CFGNode) -> CallEffect | None:
         effect = self.adapter.effect_of(node)
@@ -75,15 +193,274 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
             return effect
         return None
 
-    def _killed_slots_for_node(self, node: CFGNode) -> tuple[object, ...]:
+    def _heap_effect_builder(self) -> HeapEffectBuilder:
+        return HeapEffectBuilder(self._heap(), self._locations_read_by_node)
+
+    def _heap_effect_for_operation(
+        self,
+        procedure: cfg_graph.Code,
+        operation: object,
+    ) -> HeapEffect:
+        return self._heap_effect_builder().operation_semantics(
+            procedure,
+            operation,
+            collection_mutator_names=self._collection_mutator_names(),
+        ).effect
+
+    def _heap_summary_for_procedure(self, procedure: cfg_graph.Code) -> HeapSummary:
+        key = id(procedure)
+        summaries = getattr(self, "_heap_summaries", None)
+        if summaries is None:
+            summaries = {}
+            self._heap_summaries = summaries
+        summary = summaries.get(key)
+        if summary is None:
+            flow_sensitive_summary = self.adapter.procedure_heap_summary(procedure)
+            summary = getattr(flow_sensitive_summary, "effects", None)
+            if not isinstance(summary, HeapSummary):
+                summary = HeapSummaryBuilder(
+                    self._heap_effect_builder(),
+                    collection_mutator_names=self._collection_mutator_names(),
+                ).summarize(procedure)
+            summaries[key] = summary
+        return summary
+
+    def _killed_locations_for_node(
+        self,
+        node: CFGNode,
+        *,
+        include_semantic: bool = True,
+    ) -> tuple[object, ...]:
         effect = self.adapter.effect_of(node)
+        operation = getattr(effect, "operation", self.adapter.operation_of(node))
+        if include_semantic:
+            self._mark_escaped_values_for_operation(node.procedure, operation)
+        semantic_kills = (
+            self._killed_locations_for_operation(node.procedure, operation)
+            if include_semantic
+            else ()
+        )
+        strong_dynamic_kills = (
+            self._strong_dynamic_write_locations_for_operation(node.procedure, operation)
+            if include_semantic
+            else ()
+        )
+        dynamic_kills = self._dynamic_delete_locations(node.procedure, operation)
         strong_update_slots = getattr(effect, "strong_update_slots", None)
         if strong_update_slots:
-            return tuple(strong_update_slots)
-        kill_slots = getattr(effect, "kill_slots", None)
-        if kill_slots:
-            return tuple(kill_slots)
-        return ()
+            kills = tuple(
+                dict.fromkeys(
+                    (
+                        *self._canonical_locations(strong_update_slots),
+                        *semantic_kills,
+                        *strong_dynamic_kills,
+                        *dynamic_kills,
+                    )
+                )
+            )
+        else:
+            kill_slots = getattr(effect, "kill_slots", None)
+            if kill_slots:
+                kills = tuple(
+                    dict.fromkeys(
+                        (
+                            *self._canonical_locations(kill_slots),
+                            *semantic_kills,
+                            *strong_dynamic_kills,
+                            *dynamic_kills,
+                        )
+                    )
+                )
+            else:
+                kills = tuple(
+                    dict.fromkeys(
+                        (*semantic_kills, *strong_dynamic_kills, *dynamic_kills)
+                    )
+                )
+        return self._expand_kills_through_aliases(kills)
+
+    def _expand_kills_through_aliases(
+        self, kills: tuple[object, ...]
+    ) -> tuple[object, ...]:
+        heap = self._heap()
+        expanded: list[object] = list(kills)
+        seen: set[object] = set(kills)
+        for kill in kills:
+            if not isinstance(kill, HeapLocation):
+                continue
+            if kill.is_nested():
+                continue
+            for aliased in heap.aliased_locations(kill):
+                if aliased not in seen:
+                    seen.add(aliased)
+                    expanded.append(aliased)
+        return tuple(expanded)
+
+    def _mark_escaped_values_for_operation(
+        self,
+        procedure: cfg_graph.Code,
+        operation: object,
+    ) -> None:
+        if operation is None or not self._heap().policy.track_escapes:
+            return
+        self._heap().mark_all_escaped(
+            self._heap_effect_for_operation(procedure, operation).escapes
+        )
+
+    def _mark_unresolved_call_arguments_escaped(
+        self,
+        node: CFGNode,
+        call_expression: py_ast.PythonASTNode | None,
+    ) -> None:
+        """Mark arguments passed to no-body calls as escaped."""
+        heap = self._heap()
+        if (
+            call_expression is None
+            or not heap.policy.track_escapes
+            or not heap.policy.escape_on_unresolved_call
+        ):
+            return
+        call_effect = self._call_effect(node)
+        if call_effect is None or call_effect.callees:
+            return
+
+        effect = self._heap_effect_builder().unresolved_call_effect(
+            node.procedure,
+            call_expression,
+        )
+        heap.mark_all_escaped(effect.escapes)
+
+    def _bind_callee_formals(self, call_node: CFGNode, callee: cfg_graph.Code) -> None:
+        """Bind callee parameters to caller heap roots before call-flow queries."""
+        call_effect = self._call_effect(call_node)
+        call = call_effect.call_expression if call_effect is not None else None
+        if call is None:
+            return
+        self._materialize_call_result_location(
+            call_node.procedure,
+            call_effect.operation if call_effect is not None else None,
+            call,
+            0,
+        )
+        heap = self._heap()
+        formals = formal_parameters(callee.code.codeparameters)
+        formal_indices = {formal: index for index, formal in enumerate(formals)}
+        bound_formals: set[py_ast.Local] = set()
+        for actual, formal in self._bind_call_arguments_for_callee(call_node, callee):
+            actual_locations = tuple(
+                location
+                for location in self._locations_read_by_node(call_node.procedure, actual)
+                if location is not None
+            )
+            heap.bind_parameter(
+                callee,
+                formal,
+                formal_indices.get(formal, 0),
+                actual_locations,
+            )
+            bound_formals.add(formal)
+        self._bind_constructor_self_formal(call_node, callee, bound_formals)
+        self._site_counter = heap.next_site
+
+    def _bind_call_arguments_for_callee(
+        self,
+        call_node: CFGNode,
+        callee: cfg_graph.Code,
+    ) -> tuple[tuple[object, py_ast.Local], ...]:
+        call_effect = self._call_effect(call_node)
+        call = call_effect.call_expression if call_effect is not None else None
+        if call is None:
+            return ()
+        params = callee.code.codeparameters
+        if self._should_bind_constructor_self_to_result(call_node, callee):
+            params = py_ast.CodeParameters(
+                selfparam=None,
+                posonlyparams=params.posonlyparams,
+                posonlynames=params.posonlynames,
+                params=params.params,
+                paramnames=params.paramnames,
+                defaults=params.defaults,
+                vparam=params.vparam,
+                kparam=params.kparam,
+                returnparams=params.returnparams,
+                type_params=getattr(params, "type_params", None),
+            )
+        return bind_call_arguments(call, params)
+
+    def _should_bind_constructor_self_to_result(
+        self,
+        call_node: CFGNode,
+        callee: cfg_graph.Code,
+    ) -> bool:
+        call_effect = self._call_effect(call_node)
+        call = call_effect.call_expression if call_effect is not None else None
+        if call is None:
+            return False
+        selfparam = getattr(callee.code.codeparameters, "selfparam", None)
+        if not isinstance(selfparam, py_ast.Local):
+            return False
+        if getattr(call, "selfarg", None) is not None:
+            return False
+        return self._heap_effect_builder().call_return_kind(call) in {
+            CALL_RETURN_FRESH,
+            CALL_RETURN_COPY,
+        }
+
+    def _bind_constructor_self_formal(
+        self,
+        call_node: CFGNode,
+        callee: cfg_graph.Code,
+        bound_formals: set[py_ast.Local],
+    ) -> None:
+        """Bind an unbound constructor ``self`` formal to the fresh call result."""
+        call_effect = self._call_effect(call_node)
+        call = call_effect.call_expression if call_effect is not None else None
+        if call is None:
+            return
+        selfparam = getattr(callee.code.codeparameters, "selfparam", None)
+        if not isinstance(selfparam, py_ast.Local) or selfparam in bound_formals:
+            return
+        builder = self._heap_effect_builder()
+        if not self._should_bind_constructor_self_to_result(call_node, callee):
+            return
+        obj = builder.call_return_object(
+            call_node.procedure,
+            call,
+            label=self._call_result_label(call),
+        )
+        self._heap().bind_local_to_object(
+            callee,
+            selfparam,
+            obj,
+            include_raw_fallback=True,
+        )
+
+    def _project_constructor_heap_fact_to_caller(
+        self,
+        call_node: CFGNode,
+        exit_fact: FactT,
+    ) -> FactT | None:
+        """Keep facts written through constructor self on the caller result root."""
+        location = self._location_from_fact(exit_fact)
+        if not isinstance(location, HeapLocation):
+            return None
+        call_effect = self._call_effect(call_node)
+        call = call_effect.call_expression if call_effect is not None else None
+        if call is None:
+            return None
+        builder = self._heap_effect_builder()
+        if builder.call_return_kind(call) not in {CALL_RETURN_FRESH, CALL_RETURN_COPY}:
+            return None
+        result = HeapLocation(
+            builder.call_return_object(
+                call_node.procedure,
+                call,
+                label=self._call_result_label(call),
+            )
+        )
+        if location.root != result.root:
+            return None
+        return exit_fact
 
     def _call_model_for_node(self, node: CFGNode):
         return self.call_models.model_for_name(self._call_name(node))
@@ -104,14 +481,42 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
             return None
         return result
 
-    def _facts_for_locals(self, procedure: cfg_graph.Code, locals_: Iterable[object]) -> set[FactT]:
+    def _facts_for_locals(
+        self, procedure: cfg_graph.Code, locals_: Iterable[object]
+    ) -> set[FactT]:
         facts: set[FactT] = set()
         for local in locals_:
             if not isinstance(local, py_ast.Local) or local.name is None:
                 continue
-            slots = self._slots_for_local(procedure, local)
-            facts.update(self._make_slot_fact(slot) for slot in slots)
+            locations = self._locations_for_local(procedure, local)
+            facts.update(self._make_location_fact(location) for location in locations)
         return facts
+
+    def _facts_for_locals_with_path(
+        self,
+        procedure: cfg_graph.Code,
+        locals_: Iterable[object],
+        access_path: tuple[str, ...],
+    ) -> set[FactT]:
+        facts: set[FactT] = set()
+        for local in locals_:
+            if not isinstance(local, py_ast.Local) or local.name is None:
+                continue
+            locations = self._locations_for_local(procedure, local)
+            facts.update(
+                self._make_location_fact_with_path(location, access_path)
+                for location in locations
+            )
+        return facts
+
+    def _access_path_for_expression(self, expr: object) -> tuple[str, ...]:
+        path: list[str] = []
+        current = expr
+        while isinstance(current, py_ast.GetAttr):
+            path.append(self._path_component(current.name))
+            current = current.expr
+        path.reverse()
+        return tuple(path)
 
     def _facts_for_assigned_locals(
         self,
@@ -123,22 +528,55 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
             return set()
         return self._facts_for_locals(procedure, (locals_[result_index],))
 
-    def _facts_for_return_slot(self, procedure: cfg_graph.Code, index: int) -> set[FactT]:
+    def _facts_for_return_location(
+        self, procedure: cfg_graph.Code, index: int,
+        access_path: tuple[str, ...] = (),
+    ) -> set[FactT]:
         returnparams = tuple(procedure.code.codeparameters.returnparams)
         if index >= len(returnparams):
             return set()
-        return self._facts_for_locals(procedure, (returnparams[index],))
+        if not access_path:
+            return self._facts_for_locals(procedure, (returnparams[index],))
+        return self._facts_for_locals_with_path(
+            procedure, (returnparams[index],), access_path,
+        )
 
     def _facts_for_expression_node(
-        self, procedure: cfg_graph.Code, current: object
+        self, procedure: cfg_graph.Code, current: object,
+        extend_paths: bool = False,
     ) -> tuple[FactT, ...]:
         if current is None or isinstance(current, py_ast.leafTypes):
             return ()
+        if extend_paths and isinstance(current, py_ast.GetAttr):
+            attr = self._path_component(current.name)
+            base = self._facts_for_expression_node(
+                procedure, current.expr, extend_paths=True,
+            )
+            return tuple(
+                self._make_location_fact_with_path(
+                    self._location_from_fact(f),
+                    (*self._access_path_from_fact(f), attr),
+                )
+                for f in base
+                if self._location_from_fact(f) is not None
+            )
         if isinstance(current, (py_ast.DirectCall, py_ast.Call, py_ast.MethodCall)):
-            return (self._make_expression_fact(procedure, current),)
+            dynamic_facts = tuple(
+                self._make_location_fact(location)
+                for location in (
+                    *self._dynamic_getattr_locations(procedure, current),
+                    *self._dynamic_subscript_read_locations(procedure, current),
+                    *self._collection_access_locations(
+                        procedure,
+                        current,
+                        self._collection_accessor_names(),
+                    ),
+                )
+            )
+            return (*dynamic_facts, self._make_expression_fact(procedure, current))
         return tuple(
-            self._make_slot_fact(slot)
-            for slot in self._slots_read_by_node(procedure, current)
+            self._make_location_fact(location)
+            for location in self._locations_read_by_node(procedure, current)
         )
 
     def _facts_for_nested_call_result(
@@ -152,10 +590,32 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
     ) -> set[FactT]:
         if operation is None or call_expression is None:
             return set()
+        self._materialize_call_result_location(
+            procedure,
+            operation,
+            call_expression,
+            return_index,
+        )
 
-        if isinstance(operation, (py_ast.Assign, py_ast.UnpackSequence)) and operation.expr is call_expression:
+        if (
+            isinstance(operation, (py_ast.Assign, py_ast.UnpackSequence))
+            and operation.expr is call_expression
+        ):
             if not nested:
-                return {self._make_expression_fact(procedure, call_expression, return_index)}
+                facts = {
+                    self._make_expression_fact(
+                        procedure, call_expression, return_index
+                    )
+                }
+                if self._heap().policy.bind_call_results:
+                    facts.update(
+                        self._facts_for_assigned_locals(
+                            procedure,
+                            assigned_locals(operation),
+                            return_index,
+                        )
+                    )
+                return facts
             return self._facts_for_assigned_locals(
                 procedure,
                 assigned_locals(operation),
@@ -163,7 +623,20 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
             )
         if isinstance(operation, py_ast.AnnAssign) and operation.value is call_expression:
             if not nested:
-                return {self._make_expression_fact(procedure, call_expression, return_index)}
+                facts = {
+                    self._make_expression_fact(
+                        procedure, call_expression, return_index
+                    )
+                }
+                if self._heap().policy.bind_call_results:
+                    facts.update(
+                        self._facts_for_assigned_locals(
+                            procedure,
+                            assigned_locals(operation),
+                            return_index,
+                        )
+                    )
+                return facts
             return self._facts_for_assigned_locals(
                 procedure,
                 assigned_locals(operation),
@@ -177,7 +650,7 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
                 operation, call_expression, return_index
             )
             if target_index is not None:
-                return self._facts_for_return_slot(procedure, target_index)
+                return self._facts_for_return_location(procedure, target_index)
 
         if isinstance(
             operation,
@@ -192,7 +665,7 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
         ) and getattr(operation, "value", None) is call_expression:
             if not nested:
                 return {self._make_expression_fact(procedure, call_expression, return_index)}
-            return self._facts_for_modified_operation(operation)
+            return self._facts_for_modified_operation(operation, procedure=procedure)
 
         for child in self._nested_operations(operation):
             child_result = self._facts_for_nested_call_result(
@@ -207,12 +680,106 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
 
         return {self._make_expression_fact(procedure, call_expression, return_index)}
 
+    def _materialize_call_result_location(
+        self,
+        procedure: cfg_graph.Code,
+        operation: object,
+        call_expression: py_ast.PythonASTNode | None,
+        return_index: int,
+    ) -> None:
+        """Bind direct call-assignment targets to fixed call-result roots."""
+        if call_expression is None or not self._heap().policy.bind_call_results:
+            return
+        if (
+            isinstance(operation, (py_ast.Assign, py_ast.UnpackSequence))
+            and operation.expr is call_expression
+        ):
+            targets = assigned_locals(operation)
+        elif isinstance(operation, py_ast.AnnAssign) and operation.value is call_expression:
+            targets = assigned_locals(operation)
+        else:
+            return
+        if return_index >= len(targets):
+            return
+        target = targets[return_index]
+        if not isinstance(target, py_ast.Local) or target.name is None:
+            return
+        self._bind_call_return_target(
+            procedure,
+            target,
+            call_expression,
+            return_index,
+            default_to_summary=False,
+        )
+
+    def _bind_call_return_target(
+        self,
+        procedure: cfg_graph.Code,
+        target: py_ast.Local,
+        call_expression: py_ast.PythonASTNode,
+        return_index: int,
+        *,
+        default_to_summary: bool,
+    ) -> None:
+        heap = self._heap()
+        builder = self._heap_effect_builder()
+        kind = builder.call_return_kind(call_expression)
+        site = builder.call_return_site(call_expression, return_index, kind)
+        label = self._call_result_label(call_expression)
+        if kind in {CALL_RETURN_FRESH, CALL_RETURN_COPY}:
+            heap.bind_fresh_return_targets(procedure, (target,), site, label=label)
+        elif kind == CALL_RETURN_SUMMARY or default_to_summary:
+            heap.bind_summary_targets(procedure, (target,), site, label=label)
+        elif kind == CALL_RETURN_OPAQUE:
+            heap.bind_call_result_targets(
+                procedure,
+                (target,),
+                (call_expression, return_index),
+                label=label,
+            )
+        self._site_counter = heap.next_site
+
+    def _materialize_unresolved_call_summary(
+        self,
+        node: CFGNode,
+        operation: object,
+        call_expression: py_ast.PythonASTNode | None,
+    ) -> None:
+        """Bind no-body call assignment targets to a fixed summary object."""
+        call_effect = self._call_effect(node)
+        if (
+            call_expression is None
+            or not self._heap().policy.bind_call_results
+            or call_effect is None
+            or call_effect.callees
+        ):
+            return
+        if (
+            isinstance(operation, (py_ast.Assign, py_ast.UnpackSequence))
+            and operation.expr is call_expression
+        ):
+            targets = assigned_locals(operation)
+        elif isinstance(operation, py_ast.AnnAssign) and operation.value is call_expression:
+            targets = assigned_locals(operation)
+        else:
+            return
+        for index, target in enumerate(targets):
+            if not isinstance(target, py_ast.Local) or target.name is None:
+                continue
+            self._bind_call_return_target(
+                node.procedure,
+                target,
+                call_expression,
+                index,
+                default_to_summary=True,
+            )
+
     def _return_fact_index(self, procedure: cfg_graph.Code, fact: FactT) -> int | None:
-        slot = self._slot_from_fact(fact)
-        if slot is None:
+        location = self._location_from_fact(fact)
+        if location is None:
             return None
         for index, local in enumerate(procedure.code.codeparameters.returnparams):
-            if any(candidate == slot for candidate in self._slots_for_local(procedure, local)):
+            if any(candidate == location for candidate in self._locations_for_local(procedure, local)):
                 return index
         return None
 
@@ -231,24 +798,24 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
                 return index
         return None
 
-    def _killed_slots_for_operation(
+    def _killed_locations_for_operation(
         self, procedure: cfg_graph.Code, operation: object
     ) -> tuple[object, ...]:
         if operation is None:
             return ()
         if isinstance(operation, (py_ast.Assign, py_ast.UnpackSequence, py_ast.AnnAssign)):
             return tuple(
-                slot
+                location
                 for fact in self._facts_for_locals(procedure, assigned_locals(operation))
-                for slot in (self._slot_from_fact(fact),)
-                if slot is not None
+                for location in (self._location_from_fact(fact),)
+                if location is not None
             )
         if isinstance(operation, py_ast.Delete):
             return tuple(
-                slot
+                location
                 for fact in self._facts_for_locals(procedure, (operation.lcl,))
-                for slot in (self._slot_from_fact(fact),)
-                if slot is not None
+                for location in (self._location_from_fact(fact),)
+                if location is not None
             )
         if isinstance(operation, py_ast.InputBlock):
             locals_ = []
@@ -257,24 +824,27 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
                 if isinstance(lcl, py_ast.Local):
                     locals_.append(lcl)
             return tuple(
-                slot
+                location
                 for fact in self._facts_for_locals(procedure, locals_)
-                for slot in (self._slot_from_fact(fact),)
-                if slot is not None
+                for location in (self._location_from_fact(fact),)
+                if location is not None
             )
         if isinstance(
             operation,
             (py_ast.SetGlobal, py_ast.DeleteGlobal, py_ast.SetCellDeref),
         ):
             return tuple(
-                slot
-                for fact in self._facts_for_modified_operation(operation)
-                for slot in (self._slot_from_fact(fact),)
-                if slot is not None
+                location
+                for fact in self._facts_for_modified_operation(
+                    operation,
+                    procedure=procedure,
+                )
+                for location in (self._location_from_fact(fact),)
+                if location is not None
             )
         return ()
 
-    def _killed_slots_for_call_expression(
+    def _killed_locations_for_call_expression(
         self,
         procedure: cfg_graph.Code,
         operation: object,
@@ -283,31 +853,40 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
         if operation is None or call_expression is None:
             return ()
 
-        if isinstance(operation, (py_ast.Assign, py_ast.UnpackSequence)) and operation.expr is call_expression:
+        if (
+            isinstance(operation, (py_ast.Assign, py_ast.UnpackSequence))
+            and operation.expr is call_expression
+        ):
             return tuple(
-                slot
+                location
                 for fact in self._facts_for_locals(procedure, assigned_locals(operation))
-                for slot in (self._slot_from_fact(fact),)
-                if slot is not None
+                for location in (self._location_from_fact(fact),)
+                if location is not None
             )
         if isinstance(operation, py_ast.AnnAssign) and operation.value is call_expression:
             return tuple(
-                slot
+                location
                 for fact in self._facts_for_locals(procedure, assigned_locals(operation))
-                for slot in (self._slot_from_fact(fact),)
-                if slot is not None
+                for location in (self._location_from_fact(fact),)
+                if location is not None
             )
 
-        if isinstance(operation, (py_ast.SetGlobal, py_ast.SetCellDeref)) and operation.value is call_expression:
+        if (
+            isinstance(operation, (py_ast.SetGlobal, py_ast.SetCellDeref))
+            and operation.value is call_expression
+        ):
             return tuple(
-                slot
-                for fact in self._facts_for_modified_operation(operation)
-                for slot in (self._slot_from_fact(fact),)
-                if slot is not None
+                location
+                for fact in self._facts_for_modified_operation(
+                    operation,
+                    procedure=procedure,
+                )
+                for location in (self._location_from_fact(fact),)
+                if location is not None
             )
 
         for child in self._nested_operations(operation):
-            child_kills = self._killed_slots_for_call_expression(
+            child_kills = self._killed_locations_for_call_expression(
                 procedure, child, call_expression
             )
             if child_kills:
@@ -344,46 +923,477 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
             return tuple(nested)
         return ()
 
-    def _facts_for_modified_operation(self, operation: object) -> set[FactT]:
-        slots = self._annotation_slots(getattr(getattr(operation, "annotation", None), "opModifies", None))
-        return {self._make_slot_fact(slot) for slot in slots}
+    def _facts_for_modified_operation(
+        self,
+        operation: object,
+        access_path: tuple[str, ...] = (),
+        *,
+        procedure: cfg_graph.Code | None = None,
+    ) -> set[FactT]:
+        locations = tuple(
+            dict.fromkeys(
+                (
+                    *self._annotation_locations(
+                        getattr(getattr(operation, "annotation", None), "opModifies", None)
+                    ),
+                    *self._static_attribute_write_locations(procedure, operation),
+                )
+            )
+        )
+        if not access_path:
+            return {self._make_location_fact(location) for location in locations}
+        return {
+            self._make_location_fact_with_path(location, access_path)
+            for location in locations
+        }
 
-    def _slots_for_local(self, procedure: cfg_graph.Code, local: object) -> tuple[object, ...]:
-        del procedure
-        refs = getattr(getattr(local, "annotation", None), "references", None)
-        return self._annotation_slots(refs)
+    def _dynamic_getattr_locations(
+        self, procedure: cfg_graph.Code, expr: object
+    ) -> tuple[HeapLocation, ...]:
+        return self._heap_effect_builder().dynamic_getattr_locations(procedure, expr)
 
-    def _slots_read_by_node(
+    def _dynamic_setattr_locations(
+        self, procedure: cfg_graph.Code, operation: object
+    ) -> tuple[HeapLocation, ...]:
+        return self._heap_effect_builder().dynamic_setattr_locations(
+            procedure,
+            operation,
+        )
+
+    def _dynamic_attribute_locations(
+        self,
+        procedure: cfg_graph.Code,
+        base_expr: object,
+        attributes: tuple[str, ...],
+    ) -> tuple[HeapLocation, ...]:
+        return self._heap().dynamic_attribute_locations(
+            self._locations_read_by_node(procedure, base_expr),
+            attributes,
+        )
+
+    def _static_attribute_read_locations(
+        self,
+        procedure: cfg_graph.Code,
+        expr: object,
+    ) -> tuple[HeapLocation, ...]:
+        return self._heap_effect_builder().static_attribute_read_locations(
+            procedure,
+            expr,
+        )
+
+    def _static_attribute_write_locations(
+        self,
+        procedure: cfg_graph.Code,
+        operation: object,
+    ) -> tuple[HeapLocation, ...]:
+        return self._heap_effect_builder().static_attribute_write_locations(
+            procedure,
+            operation,
+        )
+
+    def _dynamic_subscript_read_locations(
+        self, procedure: cfg_graph.Code, expr: object
+    ) -> tuple[HeapLocation, ...]:
+        return self._heap_effect_builder().dynamic_subscript_read_locations(
+            procedure,
+            expr,
+        )
+
+    def _dynamic_subscript_write_locations(
+        self, procedure: cfg_graph.Code, operation: object
+    ) -> tuple[HeapLocation, ...]:
+        return self._heap_effect_builder().dynamic_subscript_write_locations(
+            procedure,
+            operation,
+        )
+
+    def _dynamic_subscript_locations_for_key(
+        self,
+        procedure: cfg_graph.Code,
+        container: object,
+        key: object,
+    ) -> tuple[HeapLocation, ...]:
+        return self._heap_effect_builder().dynamic_subscript_locations_for_key(
+            procedure,
+            container,
+            key,
+        )
+
+    def _dynamic_subscript_value(self, operation: object) -> object | None:
+        return self._heap_effect_builder().dynamic_subscript_value(operation)
+
+    def _dynamic_delete_locations(
+        self,
+        procedure: cfg_graph.Code,
+        operation: object,
+    ) -> tuple[object, ...]:
+        return self._heap_effect_for_operation(procedure, operation).deletes
+
+    def _strong_dynamic_write_locations_for_operation(
+        self,
+        procedure: cfg_graph.Code,
+        operation: object,
+    ) -> tuple[HeapLocation, ...]:
+        """Return dynamic write targets that are singleton enough to kill."""
+        return self._heap_effect_for_operation(
+            procedure,
+            operation,
+        ).strong_write_locations()
+
+    def _dynamic_subscript_delete_locations(
+        self,
+        procedure: cfg_graph.Code,
+        operation: object,
+    ) -> tuple[HeapLocation, ...]:
+        return self._heap_effect_builder().dynamic_subscript_delete_locations(
+            procedure,
+            operation,
+        )
+
+    def _dynamic_attribute_delete_locations(
+        self,
+        procedure: cfg_graph.Code,
+        operation: object,
+    ) -> tuple[HeapLocation, ...]:
+        return self._heap_effect_builder().dynamic_attribute_delete_locations(
+            procedure,
+            operation,
+        )
+
+    def _dynamic_subscript_write_target(
+        self, operation: object
+    ) -> tuple[object, object, object] | None:
+        return self._heap_effect_builder().dynamic_subscript_write_target(operation)
+
+    def _dynamic_subscript_locations(
+        self,
+        procedure: cfg_graph.Code,
+        base_expr: object,
+        subscripts: tuple[str, ...],
+    ) -> tuple[HeapLocation, ...]:
+        return self._heap_effect_builder().dynamic_subscript_locations(
+            procedure,
+            base_expr,
+            subscripts,
+        )
+
+    def _collection_mutation(
+        self,
+        procedure: cfg_graph.Code,
+        operation: object,
+        mutator_names: frozenset[str],
+    ) -> tuple[tuple[HeapLocation, ...], tuple[object, ...]]:
+        return self._heap_effect_builder().collection_mutation(
+            procedure,
+            operation,
+            mutator_names,
+        )
+
+    def _collection_copy_mutation(
+        self,
+        procedure: cfg_graph.Code,
+        operation: object,
+        mutator_names: frozenset[str],
+    ) -> tuple[tuple[HeapLocation, ...], tuple[HeapLocation, ...]]:
+        call = self._call_from_expression_or_statement(operation)
+        call_name = resolve_call_name(call) if call is not None else None
+        if call is None or call_name not in mutator_names:
+            return (), ()
+        if call_name not in {"extend", "update"}:
+            return (), ()
+
+        actuals = actual_argument_expressions(call)
+        if isinstance(call, py_ast.MethodCall):
+            container = call.expr
+            sources = actuals
+        else:
+            if len(actuals) < 2:
+                return (), ()
+            container = actuals[0]
+            sources = actuals[1:]
+
+        destination_locations = self._dynamic_subscript_locations(
+            procedure,
+            container,
+            (DYNAMIC_SUBSCRIPT_WILDCARD,),
+        )
+        source_locations = tuple(
+            location
+            for source in sources
+            for location in self._dynamic_subscript_locations(
+                procedure,
+                source,
+                (DYNAMIC_SUBSCRIPT_WILDCARD,),
+            )
+        )
+        return destination_locations, tuple(dict.fromkeys(source_locations))
+
+    def _collection_constructor_writes(
+        self,
+        procedure: cfg_graph.Code,
+        operation: object,
+    ) -> tuple[tuple[tuple[HeapLocation, ...], object], ...]:
+        expr = None
+        if isinstance(operation, (py_ast.Assign, py_ast.UnpackSequence)):
+            expr = operation.expr
+        elif isinstance(operation, py_ast.AnnAssign):
+            expr = operation.value
+        if expr is None:
+            return ()
+
+        target_locations = tuple(
+            location
+            for target in assigned_locals(operation)
+            for location in self._locations_for_local(procedure, target)
+        )
+        if not target_locations:
+            return ()
+
+        writes: list[tuple[tuple[HeapLocation, ...], object]] = []
+        if isinstance(expr, py_ast.BuildTuple):
+            for index, value in enumerate(expr.args):
+                writes.append(
+                    (
+                        self._collection_constructor_locations(
+                            target_locations,
+                            (f"[{index!r}]", DYNAMIC_SUBSCRIPT_WILDCARD),
+                        ),
+                        value,
+                    )
+                )
+        elif isinstance(expr, (py_ast.BuildList, py_ast.BuildSet)):
+            for value in expr.args:
+                writes.append(
+                    (
+                        self._collection_constructor_locations(
+                            target_locations,
+                            (DYNAMIC_SUBSCRIPT_WILDCARD,),
+                        ),
+                        value,
+                    )
+                )
+        elif isinstance(expr, py_ast.BuildMap):
+            pairs = zip(expr.args[0::2], expr.args[1::2])
+            for key, value in pairs:
+                subscript = self._constant_subscript(key)
+                subscripts = (DYNAMIC_SUBSCRIPT_WILDCARD,)
+                if subscript is not None:
+                    subscripts = (subscript, DYNAMIC_SUBSCRIPT_WILDCARD)
+                writes.append(
+                    (
+                        self._collection_constructor_locations(target_locations, subscripts),
+                        value,
+                    )
+                )
+        return tuple(writes)
+
+    def _collection_constructor_locations(
+        self,
+        bases: tuple[object, ...],
+        subscripts: tuple[str, ...],
+    ) -> tuple[HeapLocation, ...]:
+        return self._heap().dynamic_subscript_locations(bases, subscripts)
+
+    def _aliased_dynamic_locations_for_assignment(
+        self,
+        procedure: cfg_graph.Code,
+        operation: object,
+        fact: FactT,
+    ) -> tuple[object, ...]:
+        if isinstance(operation, (py_ast.Assign, py_ast.UnpackSequence)):
+            expr = operation.expr
+        elif isinstance(operation, py_ast.AnnAssign):
+            expr = operation.value
+        else:
+            return ()
+
+        source_location = self._location_from_fact(fact)
+        if not isinstance(source_location, HeapLocation) or not source_location.is_nested():
+            return ()
+
+        expr_bases = self._locations_read_by_node(procedure, expr)
+        if not any(base == source_location.root_location() for base in expr_bases):
+            return ()
+
+        target_bases = tuple(
+            location
+            for target in assigned_locals(operation)
+            for location in self._locations_for_local(procedure, target)
+        )
+        return tuple(
+            self._heap().extend_location(base, source_location.selectors)
+            for base in target_bases
+        )
+
+    def _collection_copy_result_locations_for_assignment(
+        self,
+        procedure: cfg_graph.Code,
+        operation: object,
+        fact: FactT,
+    ) -> tuple[HeapLocation, ...]:
+        if isinstance(operation, (py_ast.Assign, py_ast.UnpackSequence)):
+            expr = operation.expr
+        elif isinstance(operation, py_ast.AnnAssign):
+            expr = operation.value
+        else:
+            return ()
+
+        source_location = self._location_from_fact(fact)
+        if not (
+            isinstance(source_location, HeapLocation)
+            and source_location.selectors
+        ):
+            return ()
+
+        source_exprs = self._collection_copy_result_sources(expr)
+        if not source_exprs:
+            return ()
+        source_roots = tuple(
+            location
+            for source_expr in source_exprs
+            for location in self._locations_read_by_node(procedure, source_expr)
+        )
+        if not any(root == source_location.root_location() for root in source_roots):
+            return ()
+
+        target_bases = tuple(
+            location
+            for target in assigned_locals(operation)
+            for location in self._locations_for_local(procedure, target)
+        )
+        return tuple(
+            self._heap().extend_location(base, source_location.selectors)
+            for base in target_bases
+        )
+
+    def _collection_copy_result_sources(self, expr: object) -> tuple[object, ...]:
+        call = self._call_from_expression_or_statement(expr)
+        if call is None:
+            return ()
+        call_name = resolve_call_name(call)
+        actuals = actual_argument_expressions(call)
+        if isinstance(call, py_ast.MethodCall) and call_name == "copy":
+            return (call.expr,)
+        if call_name in {"copy", "list", "tuple", "set", "dict"} and actuals:
+            return (actuals[0],)
+        return ()
+
+    def _collection_accessor_names(self) -> frozenset[str]:
+        configuration = getattr(self, "configuration", None)
+        return getattr(configuration, "collection_accessor_names", frozenset())
+
+    def _collection_mutator_names(self) -> frozenset[str]:
+        configuration = getattr(self, "configuration", None)
+        return getattr(configuration, "collection_mutator_names", frozenset())
+
+    def _collection_access_locations(
+        self,
+        procedure: cfg_graph.Code,
+        expr: object,
+        accessor_names: frozenset[str],
+    ) -> tuple[HeapLocation, ...]:
+        call = self._call_from_expression_or_statement(expr)
+        if call is None or resolve_call_name(call) not in accessor_names:
+            return ()
+
+        actuals = actual_argument_expressions(call)
+        if isinstance(call, py_ast.MethodCall):
+            container = call.expr
+            key = actuals[0] if actuals else None
+        else:
+            if len(actuals) < 1:
+                return ()
+            container = actuals[0]
+            key = actuals[1] if len(actuals) > 1 else None
+
+        subscript = (
+            self._constant_subscript(key)
+            if key is not None
+            else None
+        )
+        subscripts = (DYNAMIC_SUBSCRIPT_WILDCARD,)
+        if subscript is not None:
+            subscripts = (subscript, DYNAMIC_SUBSCRIPT_WILDCARD)
+        return self._dynamic_subscript_locations(procedure, container, subscripts)
+
+    def _dynamic_setattr_value(self, operation: object) -> object | None:
+        call = self._dynamic_attribute_call(operation, {"setattr", "builtins.setattr"})
+        if call is None:
+            return None
+        actuals = actual_argument_expressions(call)
+        if len(actuals) < 3:
+            return None
+        return actuals[2]
+
+    def _dynamic_attribute_call(
+        self, expr: object, names: set[str]
+    ) -> py_ast.PythonASTNode | None:
+        candidate = self._call_from_expression_or_statement(expr)
+        if candidate is None:
+            return None
+        if resolve_call_name(candidate) not in names:
+            return None
+        return candidate
+
+    def _call_from_expression_or_statement(
+        self, expr: object
+    ) -> py_ast.PythonASTNode | None:
+        candidate = expr
+        if not isinstance(candidate, (py_ast.DirectCall, py_ast.Call, py_ast.MethodCall)):
+            wrapped = getattr(expr, "expr", None)
+            if isinstance(wrapped, (py_ast.DirectCall, py_ast.Call, py_ast.MethodCall)):
+                candidate = wrapped
+        if not isinstance(candidate, (py_ast.DirectCall, py_ast.Call, py_ast.MethodCall)):
+            return None
+        return candidate
+
+    def _constant_string(self, expr: object) -> str | None:
+        if not isinstance(expr, py_ast.Existing):
+            return None
+        value = getattr(expr.object, "pyobj", None)
+        return value if isinstance(value, str) else None
+
+    def _constant_subscript(self, expr: object) -> str | None:
+        if not isinstance(expr, py_ast.Existing):
+            return None
+        value = getattr(expr.object, "pyobj", None)
+        return f"[{value!r}]"
+
+    def _locations_read_by_node(
         self, procedure: cfg_graph.Code, node: object
     ) -> tuple[object, ...]:
         if isinstance(node, py_ast.Local):
-            return self._slots_for_local(procedure, node)
+            return self._locations_for_local(procedure, node)
         if isinstance(node, (py_ast.GetGlobal, py_ast.GetCellDeref)):
-            return self._annotation_slots(getattr(node.annotation, "opReads", None))
+            return self._annotation_locations(getattr(node.annotation, "opReads", None))
         annotation = getattr(node, "annotation", None)
-        return self._annotation_slots(getattr(annotation, "opReads", None))
+        locations = list(self._annotation_locations(getattr(annotation, "opReads", None)))
+        locations.extend(self._static_attribute_read_locations(procedure, node))
+        locations.extend(self._dynamic_getattr_locations(procedure, node))
+        locations.extend(self._dynamic_subscript_read_locations(procedure, node))
+        return tuple(dict.fromkeys(locations))
 
-    def _annotation_slots(self, annotation) -> tuple[object, ...]:
+    def _annotation_locations(self, annotation) -> tuple[object, ...]:
         if annotation is None:
             return ()
         merged = getattr(annotation, "merged", None)
         if merged is None:
             # Some pipelines may store a plain annotationSet/tuple here rather
             # than a ContextualAnnotation. In that case, treat the entire
-            # iterable as the slot list (not just annotation[0]).
+            # iterable as the location list (not just annotation[0]).
             if isinstance(annotation, (str, bytes)):
                 return ()
             if isinstance(annotation, (list, tuple, set, frozenset)):
                 merged = tuple(annotation)
             else:
                 return ()
-        return tuple(self._canonical_slot(slot) for slot in merged)
+        return tuple(self._canonical_locations(merged))
 
-    def _canonical_slot(self, slot: object) -> object:
-        get_forward = getattr(slot, "getForward", None)
-        if callable(get_forward):
-            return get_forward()
-        return slot
+    def _canonical_location(self, location: object) -> object:
+        return self._heap().location_for_raw(location)
+
+    def _canonical_locations(self, locations: Iterable[object]) -> tuple[HeapLocation, ...]:
+        return tuple(self._heap().location_for_raw(location) for location in locations)
 
     def _call_name(self, node: CFGNode) -> str | None:
         call = self.adapter.call_expression_of(node)
@@ -401,11 +1411,55 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
             return resolve_call_name(expr)
         return None
 
-    def describe_slot(self, slot: object) -> str:
-        label = getattr(slot, "label", None)
+    def _is_allocation_expression(self, expr: object) -> bool:
+        return isinstance(
+            expr,
+            (
+                py_ast.BuildTuple,
+                py_ast.BuildList,
+                py_ast.BuildSet,
+                py_ast.BuildMap,
+            ),
+        )
+
+    def _is_call_expression(self, expr: object) -> bool:
+        return isinstance(expr, (py_ast.DirectCall, py_ast.Call, py_ast.MethodCall))
+
+    def _allocation_label(self, expr: object) -> str:
+        if isinstance(expr, py_ast.BuildTuple):
+            return "tuple literal"
+        if isinstance(expr, py_ast.BuildList):
+            return "list literal"
+        if isinstance(expr, py_ast.BuildSet):
+            return "set literal"
+        if isinstance(expr, py_ast.BuildMap):
+            return "dict literal"
+        return f"allocation:{type(expr).__name__}"
+
+    def _allocation_type_hint(self, expr: object) -> str | None:
+        if isinstance(expr, py_ast.BuildTuple):
+            return "tuple"
+        if isinstance(expr, py_ast.BuildList):
+            return "list"
+        if isinstance(expr, py_ast.BuildSet):
+            return "set"
+        if isinstance(expr, py_ast.BuildMap):
+            return "dict"
+        return None
+
+    def _call_result_label(self, expr: object) -> str:
+        call_name = self._call_name_from_expression(expr)
+        if call_name is not None:
+            return f"{call_name}()"
+        return f"call:{type(expr).__name__}"
+
+    def describe_location(self, location: object) -> str:
+        if isinstance(location, HeapLocation):
+            return self._heap().display_label_for_location(location)
+        label = getattr(location, "label", None)
         if isinstance(label, str):
             return label
-        slot_name = getattr(slot, "slotName", None)
+        slot_name = getattr(location, "slotName", None)
         if slot_name is not None:
             if hasattr(slot_name, "isLocal") and slot_name.isLocal():
                 local = getattr(slot_name, "local", None)
@@ -417,18 +1471,21 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
                 name = self._object_name(obj)
                 if name is not None:
                     return name
-        return repr(slot)
+        return repr(location)
 
     def describe_expression(self, expr: object) -> str:
         call_name = self._call_name_from_expression(expr)
         if call_name is not None:
             return f"{call_name}()"
         if isinstance(expr, py_ast.GetAttr):
-            return f"{self.describe_expression(expr.expr)}.{self._path_component(expr.name)}"
+            base = self.describe_expression(expr.expr)
+            return f"{base}.{self._path_component(expr.name)}"
         if isinstance(expr, py_ast.Load):
-            return f"{self.describe_expression(expr.expr)}.{self._path_component(expr.name)}"
+            base = self.describe_expression(expr.expr)
+            return f"{base}.{self._path_component(expr.name)}"
         if isinstance(expr, py_ast.GetSubscript):
-            return f"{self.describe_expression(expr.expr)}{self._subscript_component(expr.subscript)}"
+            base = self.describe_expression(expr.expr)
+            return f"{base}{self._subscript_component(expr.subscript)}"
         if isinstance(expr, py_ast.GetGlobal):
             return self._global_name(expr.name) or "<global>"
         if isinstance(expr, py_ast.GetCellDeref):
@@ -496,18 +1553,30 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
                 annotation = getattr(node, "annotation", None)
                 if annotation is None:
                     continue
-                if hasattr(annotation, "opReads") and getattr(annotation, "opReads", None) is None:
-                    problems.append(f"{code.codeName()}: {type(node).__name__} missing opReads")
+                if (
+                    hasattr(annotation, "opReads")
+                    and getattr(annotation, "opReads", None) is None
+                ):
+                    problems.append(
+                        f"{code.codeName()}: {type(node).__name__} missing opReads"
+                    )
                     break
-                if hasattr(annotation, "opModifies") and getattr(annotation, "opModifies", None) is None:
+                if (
+                    hasattr(annotation, "opModifies")
+                    and getattr(annotation, "opModifies", None) is None
+                ):
                     problems.append(
                         f"{code.codeName()}: {type(node).__name__} missing opModifies"
                     )
                     break
-                if hasattr(annotation, "references") and getattr(annotation, "references", None) is None:
+                if (
+                    hasattr(annotation, "references")
+                    and getattr(annotation, "references", None) is None
+                ):
                     name = getattr(node, "name", None)
+                    label = name if name is not None else "<anon>"
                     problems.append(
-                        f"{code.codeName()}: local {name if name is not None else '<anon>'} missing references"
+                        f"{code.codeName()}: local {label} missing references"
                     )
                     break
 

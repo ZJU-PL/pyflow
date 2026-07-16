@@ -645,6 +645,7 @@ class PassManager:
             "cpa_path_sensitive": "cpa_analysis",
             "lifetime": "lifetime_analysis",
             "lifetime_refresh": "lifetime_analysis",
+            "heap": "heap_analysis",
         }
         cleared = False
         for pass_name in analysis_pass_names:

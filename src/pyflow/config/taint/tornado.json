@@ -1,0 +1,151 @@
+{
+  "schema_version": 1,
+  "framework": "tornado",
+  "version": "1.0",
+  "description": "Tornado taint models (extracted from root rule pack)",
+  "detection": {
+    "imports": [
+      "tornado",
+      "from tornado",
+      "import tornado"
+    ]
+  },
+  "models": [
+    {
+      "call": "tornado.httputil.HTTPServerRequest.cookies",
+      "category": "user_input",
+      "taint_source": true
+    },
+    {
+      "call": "tornado.web.RequestHandler.get_argument",
+      "category": "user_input",
+      "taint_source": true
+    },
+    {
+      "call": "tornado.web.RequestHandler.get_arguments",
+      "category": "user_input",
+      "taint_source": true
+    },
+    {
+      "call": "tornado.web.RequestHandler.get_body_argument",
+      "category": "user_input",
+      "taint_source": true
+    },
+    {
+      "call": "tornado.web.RequestHandler.get_body_arguments",
+      "category": "user_input",
+      "taint_source": true
+    },
+    {
+      "call": "tornado.web.RequestHandler.get_query_argument",
+      "category": "user_input",
+      "taint_source": true
+    },
+    {
+      "call": "tornado.web.RequestHandler.get_query_arguments",
+      "category": "user_input",
+      "taint_source": true
+    },
+    {
+      "call": "tornado.web.RequestHandler.add_header",
+      "category": "user_input",
+      "sink_arg_positions": [
+        1,
+        2
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "tornado.web.RequestHandler.redirect",
+      "category": "redirect",
+      "sink_arg_positions": [
+        1
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "tornado.web.RequestHandler.set_header",
+      "category": "user_input",
+      "sink_arg_positions": [
+        1,
+        2
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "tornado.web.RequestHandler.write",
+      "category": "xss",
+      "sink_arg_positions": [
+        1
+      ],
+      "taint_sink": true
+    }
+  ],
+  "rules": [
+    {
+      "categories": [
+        "user_input"
+      ],
+      "id": "tornado/user_input/tornado_web_RequestHandler_add_header",
+      "pattern_type": "taint_sink",
+      "severity": "medium",
+      "sink_arg_positions": [
+        1,
+        2
+      ],
+      "sinks": [
+        "tornado.web.RequestHandler.add_header"
+      ],
+      "title": "Tainted data reaches add_header"
+    },
+    {
+      "categories": [
+        "redirect"
+      ],
+      "cwe": "CWE-601",
+      "id": "tornado/redirect/tornado_web_RequestHandler_redirect",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        1
+      ],
+      "sinks": [
+        "tornado.web.RequestHandler.redirect"
+      ],
+      "title": "Tainted data reaches redirect"
+    },
+    {
+      "categories": [
+        "user_input"
+      ],
+      "id": "tornado/user_input/tornado_web_RequestHandler_set_header",
+      "pattern_type": "taint_sink",
+      "severity": "medium",
+      "sink_arg_positions": [
+        1,
+        2
+      ],
+      "sinks": [
+        "tornado.web.RequestHandler.set_header"
+      ],
+      "title": "Tainted data reaches set_header"
+    },
+    {
+      "categories": [
+        "xss"
+      ],
+      "cwe": "CWE-79",
+      "id": "tornado/xss/tornado_web_RequestHandler_write",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        1
+      ],
+      "sinks": [
+        "tornado.web.RequestHandler.write"
+      ],
+      "title": "Tainted data reaches write"
+    }
+  ],
+  "type": "taint"
+}

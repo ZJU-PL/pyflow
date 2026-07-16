@@ -1,0 +1,161 @@
+{
+  "schema_version": 1,
+  "framework": "stdlib",
+  "version": "1.0",
+  "description": "Built-in nullable-return models for the IFDS nullness analysis",
+  "detection": {
+    "imports": [],
+    "patterns": []
+  },
+  "models": [
+    {
+      "call": "re.match",
+      "nullness_nullable_return": true
+    },
+    {
+      "call": "re.search",
+      "nullness_nullable_return": true
+    },
+    {
+      "call": "re.fullmatch",
+      "nullness_nullable_return": true
+    },
+    {
+      "call": "re.compile",
+      "nullness_nullable_return": true
+    },
+    {
+      "call": "next",
+      "nullness_nullable_return": true
+    },
+    {
+      "call": "iter",
+      "nullness_nullable_return": true
+    },
+    {
+      "call": "json.loads",
+      "nullness_nullable_return": true
+    },
+    {
+      "call": "yaml.safe_load",
+      "nullness_nullable_return": true
+    },
+    {
+      "call": "pickle.loads",
+      "nullness_nullable_return": true
+    },
+    {
+      "call": "pickle.load",
+      "nullness_nullable_return": true
+    },
+    {
+      "call": "ast.literal_eval",
+      "nullness_nullable_return": true
+    },
+    {
+      "call": "ast.parse",
+      "nullness_nullable_return": true
+    },
+    {
+      "call": "struct.unpack",
+      "nullness_nullable_return": true
+    },
+    {
+      "call": "base64.b64decode",
+      "nullness_nullable_return": true
+    },
+    {
+      "call": "base64.b32decode",
+      "nullness_nullable_return": true
+    },
+    {
+      "call": "binascii.unhexlify",
+      "nullness_nullable_return": true
+    },
+    {
+      "call": "binascii.a2b_base64",
+      "nullness_nullable_return": true
+    },
+    {
+      "call": "getattr",
+      "nullness_nullable_return": true
+    },
+    {
+      "call": "os.environ.get",
+      "nullness_nullable_return": true
+    },
+    {
+      "call": "os.getenv",
+      "nullness_nullable_return": true
+    },
+    {
+      "call": "get",
+      "nullness_nullable_return": true
+    },
+    {
+      "call": "pop",
+      "nullness_nullable_return": true
+    },
+    {
+      "call": "setdefault",
+      "nullness_nullable_return": true
+    },
+    {
+      "call": "configparser.ConfigParser.get",
+      "nullness_nullable_return": true
+    },
+    {
+      "call": "configparser.ConfigParser.getint",
+      "nullness_nullable_return": true
+    },
+    {
+      "call": "configparser.ConfigParser.getfloat",
+      "nullness_nullable_return": true
+    },
+    {
+      "call": "configparser.ConfigParser.getboolean",
+      "nullness_nullable_return": true
+    },
+    {
+      "call": "configparser.SectionProxy.get",
+      "nullness_nullable_return": true
+    },
+    {
+      "call": "tomllib.load",
+      "nullness_nullable_return": true
+    },
+    {
+      "call": "tomli.load",
+      "nullness_nullable_return": true
+    },
+    {
+      "call": "toml.load",
+      "nullness_nullable_return": true
+    },
+    {
+      "call": "fetchone",
+      "nullness_nullable_return": true
+    },
+    {
+      "call": "fetchmany",
+      "nullness_nullable_return": true
+    },
+    {
+      "call": "first",
+      "nullness_nullable_return": true
+    },
+    {
+      "call": "one_or_none",
+      "nullness_nullable_return": true
+    },
+    {
+      "call": "scalar",
+      "nullness_nullable_return": true
+    },
+    {
+      "call": "scalar_one_or_none",
+      "nullness_nullable_return": true
+    }
+  ],
+  "type": "nullness"
+}

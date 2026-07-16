@@ -9,8 +9,12 @@ cli_main = importlib.import_module("pyflow.cli.main")
 def test_main_lists_opt_passes_without_input(monkeypatch):
     called = []
 
-    monkeypatch.setattr(cli_main, "list_optimization_passes", lambda: called.append(True))
-    monkeypatch.setattr(cli_main.sys, "argv", ["pyflow", "optimize", "--list-opt-passes"])
+    monkeypatch.setattr(
+        cli_main, "list_optimization_passes", lambda: called.append(True)
+    )
+    monkeypatch.setattr(
+        cli_main.sys, "argv", ["pyflow", "optimize", "--list-opt-passes"]
+    )
 
     assert cli_main.main() == 0
     assert called == [True]
@@ -26,9 +30,7 @@ def test_main_dispatches_optimize(monkeypatch, tmp_path):
         seen["command"] = args.command
 
     monkeypatch.setattr(cli_main, "run_analysis", fake_run_analysis)
-    monkeypatch.setattr(
-        cli_main.sys, "argv", ["pyflow", "optimize", str(sample)]
-    )
+    monkeypatch.setattr(cli_main.sys, "argv", ["pyflow", "optimize", str(sample)])
 
     assert cli_main.main() == 0
     assert seen["path"] == Path(sample)
@@ -47,12 +49,34 @@ def test_main_dispatches_callgraph(monkeypatch, tmp_path):
 
     monkeypatch.setattr(cli_main.callgraph, "run_callgraph", fake_run_callgraph)
     monkeypatch.setattr(
-        cli_main.sys, "argv", ["pyflow", "callgraph", str(sample), "--algorithm", "simple"]
+        cli_main.sys,
+        "argv",
+        ["pyflow", "callgraph", str(sample), "--algorithm", "simple"],
     )
 
     assert cli_main.main() == 7
     assert seen["path"] == Path(sample)
     assert seen["algorithm"] == "simple"
+
+
+def test_main_dispatches_supply_chain(monkeypatch, tmp_path):
+    seen = {}
+
+    def fake_run_supply_chain(args):
+        seen["command"] = args.command
+        seen["supply_chain_command"] = args.supply_chain_command
+        seen["targets"] = args.targets
+        return 3
+
+    monkeypatch.setattr(cli_main, "run_supply_chain", fake_run_supply_chain)
+    monkeypatch.setattr(
+        cli_main.sys, "argv", ["pyflow", "supply-chain", "sbom", str(tmp_path)]
+    )
+
+    assert cli_main.main() == 3
+    assert seen["command"] == "supply-chain"
+    assert seen["supply_chain_command"] == "sbom"
+    assert seen["targets"] == [str(tmp_path)]
 
 
 def test_main_returns_error_for_missing_input(monkeypatch, capsys):

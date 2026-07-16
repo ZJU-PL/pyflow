@@ -7,8 +7,8 @@ This document matches the current `pyflow` command surface.
 - `optimize`: Run the analysis and optimization pipeline
 - `callgraph`: Build a call graph from a single Python file
 - `ir`: Dump AST, CFG, SSA, CDG, or DDG forms for specific functions
-- `security`: Run pattern-based or semantic security checks
-- `dataflow`: Run IFDS/IDE-backed dataflow analyses
+- `alias`: Run alias analysis (flow-sensitive heap or k-CFA pointer)
+- `security`: Unified security analysis (dispatches to any of four engines)
 
 ## Optimize
 
@@ -38,7 +38,7 @@ Key options:
 
 Available optimization passes:
 `methodcall`, `lifetime`, `simplify`, `clone`, `argument_normalization`,
-`cull_program`, `inlining`, `load_elimination`, `store_elimination`, `dce`
+`cull_program`, `inlining` *(experimental, disabled by default)*, `load_elimination`, `store_elimination`, `dce`
 
 ## IR
 
@@ -83,38 +83,92 @@ Key options:
 
 `--as-graph-output` is only supported with `--algorithm constraint`.
 
+## Alias
+
+```bash
+pyflow alias [OPTIONS] INPUT_PATH
+```
+
+`INPUT_PATH` may be a Python file or directory.
+
+Key options:
+- `--engine {flow-sensitive,kcfa}`: Analysis engine (default: flow-sensitive).
+  `flow-sensitive` runs heap alias/escape analysis; `kcfa` runs k-CFA pointer analysis.
+- `--k N`: k-CFA context sensitivity depth (kcfa engine only, default: 1)
+- `--recursive`, `-r`: Recursively analyze Python files in a directory
+- `--json`: Output machine-readable JSON instead of human-friendly text
+- `--verbose`, `-v`: Include per-entry details
+
+## Supply Chain
+
+```bash
+pyflow supply-chain <sbom|audit> [TARGETS ...]
+```
+
+Local-only supply-chain analysis for Python packages. Works offline — no
+package index queries. Scans package metadata (METADATA, RECORD,
+pyproject.toml, poetry.lock, requirements.txt), archives (wheel, zip, tar),
+and distribution metadata for structural issues.
+
+### Commands
+
+- \`sbom\`: Generate a CycloneDX 1.3 SBOM document from local metadata
+- \`audit\`: Report structural anomalies in archives and distribution metadata
+
+### Common options
+
+- \`--recursive\`, \`-r\`: Scan directories recursively
+- \`--exclude PATH1,PATH2,...\`: Comma-separated paths to exclude
+- \`--output\`, \`-o FILE\`: Output file (default: stdout)
+
+### Audit-specific options
+
+- \`--format\`: \`text\` (default) or \`json\`
+
 ## Security
 
 ```bash
 pyflow security [OPTIONS] [TARGET ...]
 ```
 
-Key options:
-- `--engine`: `pattern` or `semantic`
-- `--taint-engine`: `ast`, `ipa`, or `both`
-- `--micro-bench PATH`
-- `--format`: `text`, `json`, or `sarif`
-- `--output`, `-o`
-- `--exclude PATH1,PATH2,...`
-- `--recursive`, `-r`
-- `--verbose`, `-v`
-- `--debug`, `-d`
+Unified security analysis frontend. Dispatches to one of four engines depending on
+``--engine``. ``TARGET`` may be one or more Python files or directories.
 
-## Dataflow
+### Engine selection
 
-```bash
-pyflow dataflow [OPTIONS] INPUT_PATH
-```
+- ``--engine ast-scanner`` — fast AST pattern matching (Bandit-style), no
+  analysis pipeline required (default).
+- ``--engine cpa`` — CPA-backed taint propagation on the AST using PyFlow's
+  analysis pipeline (IPA/CPA/StoreGraph).
+- ``--engine ifds`` — IFDS solver over CFG supergraphs.  Interprocedural,
+  flow-sensitive.  **Requires ``--function``.**
+- ``--engine cpg`` — CPG-based context-sensitive taint analysis with heap-aware
+  alias tracking.
 
-Key options:
-- `--function FUNCTION`
-- `--analysis`: currently `taint`
-- `--sources NAME [NAME ...]`
-- `--sinks NAME [NAME ...]`
-- `--sanitizers NAME [NAME ...]`
-- `--format`: `text` or `json`
-- `--recursive`, `-r`
-- `--dependency-strategy`: `auto`, `stubs`, `noop`, `strict`, or `ast_only`
-- `--verbose`, `-v`
+### Common options
 
-`dataflow` exits with `1` when taint findings are reported and `0` otherwise.
+- ``--sources NAME [NAME ...]`` — taint source function names
+- ``--sinks NAME [NAME ...]`` — taint sink function names
+- ``--sanitizers NAME [NAME ...]`` — taint sanitizer function names
+- ``--format``: ``text``, ``json``, or ``sarif``
+- ``--output``, ``-o FILE``
+- ``--recursive``, ``-r``
+- ``--exclude PATH1,PATH2,...``
+- ``--verbose``, ``-v``
+- ``--debug``, ``-d``
+
+### Engine-specific options
+
+- ``--analysis`` (IFDS only): ``taint`` (default) or ``typestate`` — selects the
+  IFDS analysis to run
+- ``--function FUNCTION`` — entry function (required for ``--engine ifds``)
+- ``--framework FRAMEWORK [FRAMEWORK ...]`` — framework rule pack(s) for CPG
+  (choices: ``django``, ``flask``, ``fastapi``, ``sqlalchemy``, ``stdlib``,
+  ``cloud``, ``injection``, ``network``, ``nosql``, ``requests``, ``sql``)
+- ``--registry`` — activate all framework rule packs (only for ``--engine ifds``)
+- ``--typestate-protocol PROTOCOLS`` — typestate protocols for
+  ``--analysis typestate``. May be repeated; supports ``resource``,
+  ``python-builtins``, ``file``, ``socket``, ``lock``, ``transaction``
+
+The ``security`` command exits with ``1`` when findings are reported and ``0``
+otherwise.

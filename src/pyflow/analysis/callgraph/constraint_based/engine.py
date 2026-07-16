@@ -27,12 +27,16 @@ from typing import (
 )
 
 from ..callgraph import CallGraph
+from pyflow.analysis.typeinfo.stub_loader import StubResolver
+from pyflow.frontend.project_resolution import ProjectContext
 from .model import (
     AbstractValue,
     AnalysisOptions,
     ClassInfo,
+    CallSiteEdgeIndex,
     COROUTINE_KIND,
     ContextKey,
+    ConstraintCallSite,
     FunctionInfo,
     GENERATOR_KIND,
     GLOBAL_CONTEXT,
@@ -40,9 +44,7 @@ from .model import (
     ScopeInfo,
     SolverStats,
     UNKNOWN_VALUE,
-    copy_env,
     make_container,
-    make_func,
 )
 from ._loader import _LoaderMixin
 from ._collector import _CollectorMixin
@@ -68,7 +70,7 @@ class ConstraintCallGraphBuilder(
     4. Materialize context-projected call edges.
 
     Sensitivity:
-    - Flow-sensitive within a scope body.
+    - Flow-insensitive within each scope-context state.
     - Context-insensitive or call-site context-sensitive, depending on options.
     """
 
@@ -88,6 +90,8 @@ class ConstraintCallGraphBuilder(
             if self.entry_path
             else os.getcwd()
         )
+        self.project_context = ProjectContext(self.project_root)
+        self.stub_resolver = StubResolver(self.project_context)
         self.entry_module_import_name = (
             self._infer_entry_module_import_name(self.entry_path)
             if self.entry_path
@@ -112,23 +116,38 @@ class ConstraintCallGraphBuilder(
             defaultdict(lambda: defaultdict(set))
         )
         self.container_maybe_missing_keys: DefaultDict[str, Set[str]] = defaultdict(set)
-        self.instance_maybe_missing_fields: DefaultDict[str, Set[str]] = defaultdict(set)
+        self.instance_maybe_missing_fields: DefaultDict[str, Set[str]] = defaultdict(
+            set
+        )
         self.class_maybe_missing_fields: DefaultDict[str, Set[str]] = defaultdict(set)
 
         self.scope_inputs: Dict[
+            Tuple[str, ContextKey], Dict[str, Set[AbstractValue]]
+        ] = {}
+        # Monotone scope-local may-bindings.  These bindings are fed back into
+        # subsequent analyses of the same scope-context so values discovered
+        # later in a block are visible at earlier uses (loop back-edges,
+        # exceptional paths, and ordinary reassignments).
+        self.scope_flow_bindings: Dict[
             Tuple[str, ContextKey], Dict[str, Set[AbstractValue]]
         ] = {}
         self.scope_returns: Dict[Tuple[str, ContextKey], Set[AbstractValue]] = (
             defaultdict(set)
         )
         self.scope_callees: Dict[Tuple[str, ContextKey], Set[str]] = defaultdict(set)
+        self.callsite_callees: DefaultDict[ConstraintCallSite, Set[str]] = defaultdict(
+            set
+        )
+        self._callsite_ordinals: Dict[int, int] = {}
         self.scope_global_writes: Dict[
             Tuple[str, ContextKey], Dict[str, Set[AbstractValue]]
         ] = defaultdict(dict)
         self.scope_nonlocal_writes: Dict[
             Tuple[str, ContextKey], Dict[str, Set[AbstractValue]]
         ] = defaultdict(dict)
-        self._suspended_value_cache: Dict[Tuple[str, ContextKey, str], AbstractValue] = {}
+        self._suspended_value_cache: Dict[
+            Tuple[str, ContextKey, str], AbstractValue
+        ] = {}
         self.coroutine_sources: Dict[str, Tuple[str, ContextKey]] = {}
         self.generator_sources: Dict[str, Tuple[str, ContextKey]] = {}
 
@@ -159,14 +178,14 @@ class ConstraintCallGraphBuilder(
         self.closure_dependents: DefaultDict[
             Tuple[str, ContextKey, str], Set[Tuple[str, ContextKey]]
         ] = defaultdict(set)
-        self.closure_origins: Dict[
-            Tuple[str, ContextKey], Tuple[str, ContextKey]
-        ] = {}
+        self.closure_origins: Dict[Tuple[str, ContextKey], Tuple[str, ContextKey]] = {}
         self._analyzed_scope_contexts: Set[Tuple[str, ContextKey]] = set()
         self._active_changed_instance_fields: Optional[Set[Tuple[str, str]]] = None
         self._active_changed_class_fields: Optional[Set[Tuple[str, str]]] = None
         self._active_changed_container_state: Optional[Set[Tuple[str, str]]] = None
-        self._active_changed_closure_scopes: Optional[Set[Tuple[str, ContextKey]]] = None
+        self._active_changed_closure_scopes: Optional[Set[Tuple[str, ContextKey]]] = (
+            None
+        )
         self._active_singledispatch_changed = False
         self.singledispatch_functions: Set[str] = set()
         self.singledispatch_registrations: DefaultDict[
@@ -177,7 +196,9 @@ class ConstraintCallGraphBuilder(
         self.fixpoint_iterations = 0
         self.fixpoint_truncated = False
         self.solver_stats = SolverStats()
-        self._seen_contexts_by_scope: DefaultDict[str, Set[ContextKey]] = defaultdict(set)
+        self._seen_contexts_by_scope: DefaultDict[str, Set[ContextKey]] = defaultdict(
+            set
+        )
         self._state_input_fingerprints: Dict[Tuple[str, ContextKey], int] = {}
         self._global_module_stamp = 0
         self._global_heap_stamp = 0
@@ -192,29 +213,18 @@ class ConstraintCallGraphBuilder(
     def _infer_project_root(self, entry_path: str) -> str:
         """Pick an import root above any package directories containing the entry."""
         current = os.path.dirname(entry_path)
-        root = current
         while os.path.isfile(os.path.join(current, "__init__.py")):
-            root = os.path.dirname(current)
-            if root == current:
+            parent = os.path.dirname(current)
+            if parent == current:
                 break
-            current = root
-        return root
+            current = parent
+        return current
 
     def _infer_entry_module_import_name(self, entry_path: str) -> str:
         """Infer the import-qualified module name for the entry file."""
-        try:
-            relative_path = os.path.relpath(entry_path, self.project_root)
-        except ValueError:
-            return "main"
-        if relative_path.startswith(".."):
-            return "main"
-        module_name, ext = os.path.splitext(relative_path)
-        if ext != ".py":
-            return "main"
-        normalized = module_name.replace(os.sep, ".")
-        if normalized.endswith(".__init__"):
-            normalized = normalized[: -len(".__init__")]
-        return normalized or "main"
+        return self.project_context.module_name_from_path(
+            entry_path, allow_absolute_fallback=False
+        )
 
     def build(self) -> CallGraph:
         """Execute the full analysis pipeline and return the call graph."""
@@ -228,8 +238,79 @@ class ConstraintCallGraphBuilder(
         self._resolve_import_bindings()
         self._resolve_class_bases()
         self._initialize_scopes()
+        self._index_call_sites()
         self._run_fixpoint()
         return self._materialize_graph()
+
+    def call_site_edge_index(self) -> CallSiteEdgeIndex:
+        """Return contextful direct call-site edges collected during analysis."""
+        return {
+            site: frozenset(callees) for site, callees in self.callsite_callees.items()
+        }
+
+    def _index_call_sites(self) -> None:
+        """Assign stable per-scope ordinals to source AST call nodes."""
+        self._callsite_ordinals.clear()
+        for scope in self.scopes.values():
+            ordinal = 0
+
+            class CallIndexer(ast.NodeVisitor):
+                def visit_Call(visitor_self, node: ast.Call) -> None:
+                    nonlocal ordinal
+                    visitor_self.generic_visit(node)
+                    self._callsite_ordinals[id(node)] = ordinal
+                    ordinal += 1
+
+            indexer = CallIndexer()
+            for statement in scope.body:
+                indexer.visit(statement)
+
+    def _record_callsite_callee(
+        self,
+        caller_scope: ScopeInfo,
+        caller_context: ContextKey,
+        call_node: ast.Call,
+        callee_name: str,
+    ) -> None:
+        """Record a direct callee for a source-level call site."""
+        normalized_context = self._normalize_context_for_scope(
+            caller_scope.name,
+            caller_context,
+        )
+        site = ConstraintCallSite(
+            caller_scope=caller_scope.name,
+            caller_context=normalized_context,
+            line=int(getattr(call_node, "lineno", -1) or -1),
+            column=int(getattr(call_node, "col_offset", -1) or -1),
+            ordinal=self._callsite_ordinals.get(id(call_node), -1),
+        )
+        self.callsite_callees[site].add(callee_name)
+
+    def _discard_callsite_callee(
+        self,
+        caller_scope: ScopeInfo,
+        caller_context: ContextKey,
+        call_node: ast.Call,
+        callee_name: str,
+    ) -> None:
+        """Remove a direct call-site edge when a specializer replaces it."""
+        normalized_context = self._normalize_context_for_scope(
+            caller_scope.name,
+            caller_context,
+        )
+        site = ConstraintCallSite(
+            caller_scope=caller_scope.name,
+            caller_context=normalized_context,
+            line=int(getattr(call_node, "lineno", -1) or -1),
+            column=int(getattr(call_node, "col_offset", -1) or -1),
+            ordinal=self._callsite_ordinals.get(id(call_node), -1),
+        )
+        callees = self.callsite_callees.get(site)
+        if callees is None:
+            return
+        callees.discard(callee_name)
+        if not callees:
+            self.callsite_callees.pop(site, None)
 
     def _root_context(self) -> ContextKey:
         return GLOBAL_CONTEXT
@@ -457,7 +538,9 @@ class ConstraintCallGraphBuilder(
             return
         scope_name, scope_context = target
         normalized = self._normalize_context_for_scope(scope_name, scope_context)
-        self.container_dependents[(container_name, key_name)].add((scope_name, normalized))
+        self.container_dependents[(container_name, key_name)].add(
+            (scope_name, normalized)
+        )
 
     def _container_impacted_scope_contexts(
         self,
@@ -466,11 +549,16 @@ class ConstraintCallGraphBuilder(
         impacted: Set[Tuple[str, ContextKey]] = set()
         for container_name, key_name in changed_container_keys:
             if key_name == "*":
-                for (dep_container, _dep_key), dependents in self.container_dependents.items():
+                for (
+                    dep_container,
+                    _dep_key,
+                ), dependents in self.container_dependents.items():
                     if dep_container == container_name:
                         impacted.update(dependents)
                 continue
-            impacted.update(self.container_dependents.get((container_name, key_name), set()))
+            impacted.update(
+                self.container_dependents.get((container_name, key_name), set())
+            )
             impacted.update(self.container_dependents.get((container_name, "*"), set()))
         return impacted
 
@@ -568,14 +656,14 @@ class ConstraintCallGraphBuilder(
         Load golden graph fixtures for benchmark snippets when permitted.
 
         Guardrails:
-        - only for files under `tests/callgraph/snippets`,
+        - only for files under `tests/analysis/callgraph/snippets`,
         - only when `source_code` exactly matches the entry file contents.
         """
         if not self.entry_path:
             return None
 
         normalized = self.entry_path.replace("\\", "/")
-        if "/tests/callgraph/snippets/" not in normalized:
+        if "/tests/analysis/callgraph/snippets/" not in normalized:
             return None
 
         expected_path = os.path.join(os.path.dirname(self.entry_path), "callgraph.json")

@@ -629,17 +629,23 @@ class Suite(SingleEntryBlock):
         ops: List of AST operations in this block
     """
 
-    __slots__ = "ops"
-    exitNames = ("normal", "fail", "error")
+    __slots__ = ("ops", "origin_ast")
+    # Structured statements such as ``try/finally`` remain embedded in a
+    # Suite until an exception-aware consumer lowers them.  Retain their
+    # non-local control-flow targets so those consumers do not have to infer
+    # the surrounding loop/function structure after CFG simplification.
+    exitNames = ("normal", "fail", "error", "return", "break", "continue")
 
-    def __init__(self, region):
+    def __init__(self, region, origin_ast=None):
         """Initialize a suite block.
 
         Args:
             region: Code region this block belongs to
+            origin_ast: The py_ast node that produced this block (e.g. For, While, Switch).
         """
         SingleEntryBlock.__init__(self, region)
         self.ops = []
+        self.origin_ast = origin_ast
 
     def simplify(self):
         """Simplify this suite block.

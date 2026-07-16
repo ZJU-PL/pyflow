@@ -1,0 +1,107 @@
+{
+  "schema_version": 1,
+  "framework": "sql",
+  "version": "1.0",
+  "description": "Sql typestate models (extracted from root rule pack)",
+  "detection": {
+    "imports": [],
+    "patterns": []
+  },
+  "models": [
+    {
+      "call": "sqlite3.connect",
+      "resource_arg_positions": [],
+      "typestate_action": "open",
+      "typestate_protocol": "resource"
+    },
+    {
+      "call": "psycopg2.connect",
+      "resource_arg_positions": [],
+      "typestate_action": "open",
+      "typestate_protocol": "resource"
+    },
+    {
+      "call": "MySQLdb.connect",
+      "resource_arg_positions": [],
+      "typestate_action": "open",
+      "typestate_protocol": "resource"
+    },
+    {
+      "call": "pymysql.connect",
+      "resource_arg_positions": [],
+      "typestate_action": "open",
+      "typestate_protocol": "resource"
+    },
+    {
+      "call": "close",
+      "typestate_action": "close",
+      "typestate_protocol": "resource"
+    },
+    {
+      "call": "cursor",
+      "typestate_action": "use",
+      "typestate_protocol": "resource"
+    },
+    {
+      "call": "execute",
+      "typestate_action": "use",
+      "typestate_protocol": "resource"
+    },
+    {
+      "call": "executemany",
+      "typestate_action": "use",
+      "typestate_protocol": "resource"
+    },
+    {
+      "call": "executescript",
+      "typestate_action": "use",
+      "typestate_protocol": "resource"
+    },
+    {
+      "call": "fetchone",
+      "typestate_action": "use",
+      "typestate_protocol": "resource"
+    },
+    {
+      "call": "fetchmany",
+      "typestate_action": "use",
+      "typestate_protocol": "resource"
+    },
+    {
+      "call": "fetchall",
+      "typestate_action": "use",
+      "typestate_protocol": "resource"
+    },
+    {
+      "call": "sqlite3.Connection.cursor",
+      "resource_arg_positions": [],
+      "typestate_action": "open",
+      "typestate_protocol": "resource"
+    },
+    {
+      "call": "psycopg2.connection.cursor",
+      "resource_arg_positions": [],
+      "typestate_action": "open",
+      "typestate_protocol": "resource"
+    },
+    {
+      "call": "MySQLdb.connection.cursor",
+      "resource_arg_positions": [],
+      "typestate_action": "open",
+      "typestate_protocol": "resource"
+    },
+    {
+      "call": "pymysql.connection.cursor",
+      "resource_arg_positions": [],
+      "typestate_action": "open",
+      "typestate_protocol": "resource"
+    },
+    {
+      "call": "sqlalchemy.create_engine",
+      "resource_arg_positions": [],
+      "typestate_action": "open",
+      "typestate_protocol": "resource"
+    }
+  ],
+  "type": "typestate"
+}

@@ -1,0 +1,730 @@
+{
+  "schema_version": 1,
+  "framework": "sql",
+  "version": "1.0",
+  "description": "Sql taint models (extracted from root rule pack)",
+  "detection": {
+    "imports": [
+      "sqlite3",
+      "psycopg2",
+      "MySQLdb",
+      "pymysql",
+      "import sqlite3",
+      "import psycopg2",
+      "import MySQLdb",
+      "import pymysql"
+    ],
+    "patterns": [
+      "cursor.execute(",
+      "conn.execute(",
+      ".execute(",
+      ".executemany(",
+      ".executescript("
+    ]
+  },
+  "models": [
+    {
+      "call": "sqlite3.Cursor.execute",
+      "taint_sink": true
+    },
+    {
+      "call": "sqlite3.Cursor.executemany",
+      "taint_sink": true
+    },
+    {
+      "call": "sqlite3.Cursor.executescript",
+      "taint_sink": true
+    },
+    {
+      "call": "sqlite3.Connection.execute",
+      "taint_sink": true
+    },
+    {
+      "call": "sqlite3.connect",
+      "taint_sink": true
+    },
+    {
+      "call": "psycopg2.cursor.execute",
+      "taint_sink": true
+    },
+    {
+      "call": "psycopg2.cursor.executemany",
+      "taint_sink": true
+    },
+    {
+      "call": "psycopg2.connect",
+      "taint_sink": true
+    },
+    {
+      "call": "MySQLdb.cursor.execute",
+      "taint_sink": true
+    },
+    {
+      "call": "MySQLdb.connect",
+      "taint_sink": true
+    },
+    {
+      "call": "pymysql.cursor.execute",
+      "taint_sink": true
+    },
+    {
+      "call": "pymysql.connect",
+      "taint_sink": true
+    },
+    {
+      "call": "sqlalchemy.create_engine",
+      "taint_sink": true
+    },
+    {
+      "call": "MySQLdb.cursors.BaseCursor.callproc",
+      "category": "sql",
+      "sink_arg_positions": [
+        1
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "MySQLdb.cursors.BaseCursor.execute",
+      "category": "sql",
+      "sink_arg_positions": [
+        1
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "MySQLdb.cursors.BaseCursor.executemany",
+      "category": "sql",
+      "sink_arg_positions": [
+        1
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "mysql.connector.abstracts.MySQLConnectionAbstract.cmd_query",
+      "category": "sql",
+      "sink_arg_positions": [
+        1
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "mysql.connector.abstracts.MySQLConnectionAbstract.cmd_query_iter",
+      "category": "sql",
+      "sink_arg_positions": [
+        1
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "mysql.connector.abstracts.MySQLConnectionAbstract.cmd_stmt_prepare",
+      "category": "sql",
+      "sink_arg_positions": [
+        1
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "mysql.connector.abstracts.MySQLConnectionAbstract.info_query",
+      "category": "sql",
+      "sink_arg_positions": [
+        1
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "mysql.connector.abstracts.MySQLCursorAbstract.execute",
+      "category": "sql",
+      "sink_arg_positions": [
+        1
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "mysql.connector.abstracts.MySQLCursorAbstract.executemany",
+      "category": "sql",
+      "sink_arg_positions": [
+        1
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "mysql.connector.connection.MySQLConnection.cmd_query",
+      "category": "sql",
+      "sink_arg_positions": [
+        1
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "mysql.connector.connection.MySQLConnection.cmd_query_iter",
+      "category": "sql",
+      "sink_arg_positions": [
+        1
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "mysql.connector.connection.MySQLConnection.cmd_stmt_prepare",
+      "category": "sql",
+      "sink_arg_positions": [
+        1
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "mysql.connector.connection.MySQLConnection.info_query",
+      "category": "sql",
+      "sink_arg_positions": [
+        1
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "mysql.connector.connection_cext.CMySQLConnection.cmd_query",
+      "category": "sql",
+      "sink_arg_positions": [
+        1
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "mysql.connector.connection_cext.CMySQLConnection.info_query",
+      "category": "sql",
+      "sink_arg_positions": [
+        1
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "psycopg2._psycopg.cursor.execute",
+      "category": "sql",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "psycopg2._psycopg.cursor.executemany",
+      "category": "sql",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "pymssql.Cursor.execute",
+      "category": "sql",
+      "sink_arg_positions": [
+        1
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "pymssql.Cursor.executemany",
+      "category": "sql",
+      "sink_arg_positions": [
+        1
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "pymysql.cursors.Cursor.execute",
+      "category": "sql",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "pymysql.cursors.Cursor.executemany",
+      "category": "sql",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "sqlite3.dbapi2.Connection.execute",
+      "category": "sql",
+      "sink_arg_positions": [
+        1
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "sqlite3.dbapi2.Connection.executemany",
+      "category": "sql",
+      "sink_arg_positions": [
+        1
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "sqlite3.dbapi2.Connection.executescript",
+      "category": "sql",
+      "sink_arg_positions": [
+        1
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "sqlite3.dbapi2.Cursor.execute",
+      "category": "sql",
+      "sink_arg_positions": [
+        1
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "sqlite3.dbapi2.Cursor.executemany",
+      "category": "sql",
+      "sink_arg_positions": [
+        1
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "sqlite3.dbapi2.Cursor.executescript",
+      "category": "sql",
+      "sink_arg_positions": [
+        1
+      ],
+      "taint_sink": true
+    }
+  ],
+  "rules": [
+    {
+      "categories": [
+        "sql"
+      ],
+      "cwe": "CWE-89",
+      "id": "sql/sql/MySQLdb_cursors_BaseCursor_callproc",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        1
+      ],
+      "sinks": [
+        "MySQLdb.cursors.BaseCursor.callproc"
+      ],
+      "title": "Tainted data reaches callproc"
+    },
+    {
+      "categories": [
+        "sql"
+      ],
+      "cwe": "CWE-89",
+      "id": "sql/sql/MySQLdb_cursors_BaseCursor_execute",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        1
+      ],
+      "sinks": [
+        "MySQLdb.cursors.BaseCursor.execute"
+      ],
+      "title": "Tainted data reaches execute"
+    },
+    {
+      "categories": [
+        "sql"
+      ],
+      "cwe": "CWE-89",
+      "id": "sql/sql/MySQLdb_cursors_BaseCursor_executemany",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        1
+      ],
+      "sinks": [
+        "MySQLdb.cursors.BaseCursor.executemany"
+      ],
+      "title": "Tainted data reaches executemany"
+    },
+    {
+      "categories": [
+        "sql"
+      ],
+      "cwe": "CWE-89",
+      "id": "sql/sql/mysql_connector_abstracts_MySQLConnectionAbstract_cmd_query",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        1
+      ],
+      "sinks": [
+        "mysql.connector.abstracts.MySQLConnectionAbstract.cmd_query"
+      ],
+      "title": "Tainted data reaches cmd_query"
+    },
+    {
+      "categories": [
+        "sql"
+      ],
+      "cwe": "CWE-89",
+      "id": "sql/sql/mysql_connector_abstracts_MySQLConnectionAbstract_cmd_query_iter",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        1
+      ],
+      "sinks": [
+        "mysql.connector.abstracts.MySQLConnectionAbstract.cmd_query_iter"
+      ],
+      "title": "Tainted data reaches cmd_query_iter"
+    },
+    {
+      "categories": [
+        "sql"
+      ],
+      "cwe": "CWE-89",
+      "id": "sql/sql/mysql_connector_abstracts_MySQLConnectionAbstract_cmd_stmt_prepare",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        1
+      ],
+      "sinks": [
+        "mysql.connector.abstracts.MySQLConnectionAbstract.cmd_stmt_prepare"
+      ],
+      "title": "Tainted data reaches cmd_stmt_prepare"
+    },
+    {
+      "categories": [
+        "sql"
+      ],
+      "cwe": "CWE-89",
+      "id": "sql/sql/mysql_connector_abstracts_MySQLConnectionAbstract_info_query",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        1
+      ],
+      "sinks": [
+        "mysql.connector.abstracts.MySQLConnectionAbstract.info_query"
+      ],
+      "title": "Tainted data reaches info_query"
+    },
+    {
+      "categories": [
+        "sql"
+      ],
+      "cwe": "CWE-89",
+      "id": "sql/sql/mysql_connector_abstracts_MySQLCursorAbstract_execute",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        1
+      ],
+      "sinks": [
+        "mysql.connector.abstracts.MySQLCursorAbstract.execute"
+      ],
+      "title": "Tainted data reaches execute"
+    },
+    {
+      "categories": [
+        "sql"
+      ],
+      "cwe": "CWE-89",
+      "id": "sql/sql/mysql_connector_abstracts_MySQLCursorAbstract_executemany",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        1
+      ],
+      "sinks": [
+        "mysql.connector.abstracts.MySQLCursorAbstract.executemany"
+      ],
+      "title": "Tainted data reaches executemany"
+    },
+    {
+      "categories": [
+        "sql"
+      ],
+      "cwe": "CWE-89",
+      "id": "sql/sql/mysql_connector_connection_MySQLConnection_cmd_query",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        1
+      ],
+      "sinks": [
+        "mysql.connector.connection.MySQLConnection.cmd_query"
+      ],
+      "title": "Tainted data reaches cmd_query"
+    },
+    {
+      "categories": [
+        "sql"
+      ],
+      "cwe": "CWE-89",
+      "id": "sql/sql/mysql_connector_connection_MySQLConnection_cmd_query_iter",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        1
+      ],
+      "sinks": [
+        "mysql.connector.connection.MySQLConnection.cmd_query_iter"
+      ],
+      "title": "Tainted data reaches cmd_query_iter"
+    },
+    {
+      "categories": [
+        "sql"
+      ],
+      "cwe": "CWE-89",
+      "id": "sql/sql/mysql_connector_connection_MySQLConnection_cmd_stmt_prepare",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        1
+      ],
+      "sinks": [
+        "mysql.connector.connection.MySQLConnection.cmd_stmt_prepare"
+      ],
+      "title": "Tainted data reaches cmd_stmt_prepare"
+    },
+    {
+      "categories": [
+        "sql"
+      ],
+      "cwe": "CWE-89",
+      "id": "sql/sql/mysql_connector_connection_MySQLConnection_info_query",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        1
+      ],
+      "sinks": [
+        "mysql.connector.connection.MySQLConnection.info_query"
+      ],
+      "title": "Tainted data reaches info_query"
+    },
+    {
+      "categories": [
+        "sql"
+      ],
+      "cwe": "CWE-89",
+      "id": "sql/sql/mysql_connector_connection_cext_CMySQLConnection_cmd_query",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        1
+      ],
+      "sinks": [
+        "mysql.connector.connection_cext.CMySQLConnection.cmd_query"
+      ],
+      "title": "Tainted data reaches cmd_query"
+    },
+    {
+      "categories": [
+        "sql"
+      ],
+      "cwe": "CWE-89",
+      "id": "sql/sql/mysql_connector_connection_cext_CMySQLConnection_info_query",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        1
+      ],
+      "sinks": [
+        "mysql.connector.connection_cext.CMySQLConnection.info_query"
+      ],
+      "title": "Tainted data reaches info_query"
+    },
+    {
+      "categories": [
+        "sql"
+      ],
+      "cwe": "CWE-89",
+      "id": "sql/sql/psycopg2__psycopg_cursor_execute",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "psycopg2._psycopg.cursor.execute"
+      ],
+      "title": "Tainted data reaches execute"
+    },
+    {
+      "categories": [
+        "sql"
+      ],
+      "cwe": "CWE-89",
+      "id": "sql/sql/psycopg2__psycopg_cursor_executemany",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "psycopg2._psycopg.cursor.executemany"
+      ],
+      "title": "Tainted data reaches executemany"
+    },
+    {
+      "categories": [
+        "sql"
+      ],
+      "cwe": "CWE-89",
+      "id": "sql/sql/pymssql_Cursor_execute",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        1
+      ],
+      "sinks": [
+        "pymssql.Cursor.execute"
+      ],
+      "title": "Tainted data reaches execute"
+    },
+    {
+      "categories": [
+        "sql"
+      ],
+      "cwe": "CWE-89",
+      "id": "sql/sql/pymssql_Cursor_executemany",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        1
+      ],
+      "sinks": [
+        "pymssql.Cursor.executemany"
+      ],
+      "title": "Tainted data reaches executemany"
+    },
+    {
+      "categories": [
+        "sql"
+      ],
+      "cwe": "CWE-89",
+      "id": "sql/sql/pymysql_cursors_Cursor_execute",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "pymysql.cursors.Cursor.execute"
+      ],
+      "title": "Tainted data reaches execute"
+    },
+    {
+      "categories": [
+        "sql"
+      ],
+      "cwe": "CWE-89",
+      "id": "sql/sql/pymysql_cursors_Cursor_executemany",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "pymysql.cursors.Cursor.executemany"
+      ],
+      "title": "Tainted data reaches executemany"
+    },
+    {
+      "categories": [
+        "sql"
+      ],
+      "cwe": "CWE-89",
+      "id": "sql/sql/sqlite3_dbapi2_Connection_execute",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        1
+      ],
+      "sinks": [
+        "sqlite3.dbapi2.Connection.execute"
+      ],
+      "title": "Tainted data reaches execute"
+    },
+    {
+      "categories": [
+        "sql"
+      ],
+      "cwe": "CWE-89",
+      "id": "sql/sql/sqlite3_dbapi2_Connection_executemany",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        1
+      ],
+      "sinks": [
+        "sqlite3.dbapi2.Connection.executemany"
+      ],
+      "title": "Tainted data reaches executemany"
+    },
+    {
+      "categories": [
+        "sql"
+      ],
+      "cwe": "CWE-89",
+      "id": "sql/sql/sqlite3_dbapi2_Connection_executescript",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        1
+      ],
+      "sinks": [
+        "sqlite3.dbapi2.Connection.executescript"
+      ],
+      "title": "Tainted data reaches executescript"
+    },
+    {
+      "categories": [
+        "sql"
+      ],
+      "cwe": "CWE-89",
+      "id": "sql/sql/sqlite3_dbapi2_Cursor_execute",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        1
+      ],
+      "sinks": [
+        "sqlite3.dbapi2.Cursor.execute"
+      ],
+      "title": "Tainted data reaches execute"
+    },
+    {
+      "categories": [
+        "sql"
+      ],
+      "cwe": "CWE-89",
+      "id": "sql/sql/sqlite3_dbapi2_Cursor_executemany",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        1
+      ],
+      "sinks": [
+        "sqlite3.dbapi2.Cursor.executemany"
+      ],
+      "title": "Tainted data reaches executemany"
+    },
+    {
+      "categories": [
+        "sql"
+      ],
+      "cwe": "CWE-89",
+      "id": "sql/sql/sqlite3_dbapi2_Cursor_executescript",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        1
+      ],
+      "sinks": [
+        "sqlite3.dbapi2.Cursor.executescript"
+      ],
+      "title": "Tainted data reaches executescript"
+    }
+  ],
+  "type": "taint"
+}

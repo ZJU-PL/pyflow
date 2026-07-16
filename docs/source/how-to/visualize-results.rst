@@ -12,43 +12,34 @@ Visualization Formats
 
 PyFlow supports multiple visualization formats:
 
-Text Diagrams
--------------
+Call Graph Text Output
+----------------------
 
 For quick inspection in terminal:
 
 .. code-block:: bash
 
-   pyflow callgraph input.py --format text
+   pyflow callgraph input.py
 
-Graphviz DOT
-------------
+IR Dumps with DOT
+------------------
 
-For professional vector graphics:
-
-.. code-block:: bash
-
-   pyflow callgraph input.py --format dot --output graph.dot
-   dot -Tpng graph.dot -o graph.png
-
-Mermaid
--------
-
-For markdown documentation:
+For professional vector graphics, use the IR dump command:
 
 .. code-block:: bash
 
-   pyflow callgraph input.py --format mermaid --output graph.md
+   pyflow ir input.py --dump-cfg main --dump-format dot --output cfg.dot
+   dot -Tpng cfg.dot -o cfg.png
 
 Visualizing Call Graphs
-========================
+=======================
 
 Basic call graph
 ----------------
 
 .. code-block:: bash
 
-   pyflow callgraph input.py --format dot --output callgraph.dot
+   pyflow callgraph input.py --output callgraph.txt
 
 Custom styling
 --------------

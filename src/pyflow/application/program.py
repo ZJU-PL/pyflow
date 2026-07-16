@@ -35,6 +35,7 @@ class Program(object):
         "cpa_path_sensitive": "cpa_analysis",
         "lifetime": "lifetime_analysis",
         "lifetime_refresh": "lifetime_analysis",
+        "heap": "heap_analysis",
     }
 
     __slots__ = (
@@ -47,6 +48,7 @@ class Program(object):
         "ipa_analysis",
         "cpa_analysis",
         "lifetime_analysis",
+        "heap_analysis",
         "semantic_queries",
         "semantic_queries_mode",
         "class_hierarchy",
@@ -76,6 +78,7 @@ class Program(object):
         self.ipa_analysis = None
         self.cpa_analysis = None
         self.lifetime_analysis = None
+        self.heap_analysis = None
         self.semantic_queries = None
         self.semantic_queries_mode = None
         self.class_hierarchy = None
@@ -85,6 +88,7 @@ class Program(object):
             "ipa_analysis": None,
             "cpa_analysis": None,
             "lifetime_analysis": None,
+            "heap_analysis": None,
         }
 
     def set_analysis_result(self, pass_name: str, result) -> None:

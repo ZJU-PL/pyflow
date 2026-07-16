@@ -34,6 +34,7 @@ except ModuleNotFoundError:
 from .pycg_based import extract_call_graph_pycg, analyze_file_pycg
 from .constraint_based import (
     extract_call_graph_constraint,
+    extract_call_site_edge_index_constraint,
     analyze_file_constraint,
     extract_value_flow_graph_constraint,
 )
@@ -44,6 +45,7 @@ __all__ = [
     "extract_call_graph",
     "analyze_file",
     "extract_call_graph_constraint",
+    "extract_call_site_edge_index_constraint",
     "analyze_file_constraint",
     "extract_value_flow_graph_constraint",
     "extract_call_graph_pycg",

@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pyflow.dev/schemas/ifds-rule-pack-v1.json",
+  "title": "PyFlow IFDS Rule Pack",
+  "type": "object",
+  "required": ["schema_version", "framework", "version", "type"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "framework": {"type": "string", "minLength": 1},
+    "version": {"type": "string", "minLength": 1},
+    "type": {
+      "type": "string",
+      "enum": ["taint", "typestate", "nullness"],
+      "description": "Required. Analysis domain this pack targets."
+    },
+    "description": {"type": "string"},
+    "detection": {
+      "type": "object",
+      "properties": {
+        "imports": {"type": "array", "items": {"type": "string"}},
+        "patterns": {"type": "array", "items": {"type": "string"}}
+      },
+      "additionalProperties": false
+    },
+    "models": {"type": "array", "items": {"$ref": "#/$defs/model"}},
+    "rules": {"type": "array", "items": {"$ref": "#/$defs/rule"}}
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "model": {
+      "type": "object",
+      "required": ["call"],
+      "properties": {
+        "call": {"type": "string", "minLength": 1},
+        "severity": {"type": "string", "pattern": "^(?i:info|low|medium|high|critical)$"},
+        "sink_arg_positions": {"type": "array", "items": {"type": "integer", "minimum": 0}},
+        "resource_arg_positions": {"type": "array", "items": {"type": "integer", "minimum": 0}}
+      },
+      "additionalProperties": true
+    },
+    "rule": {
+      "type": "object",
+      "required": ["id", "title", "pattern_type"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "title": {"type": "string", "minLength": 1},
+        "pattern_type": {"type": "string", "minLength": 1},
+        "severity": {"type": "string", "pattern": "^(?i:info|low|medium|high|critical)$"},
+        "cwe": {"type": "string", "pattern": "^CWE-[0-9]+$"}
+      },
+      "additionalProperties": true
+    }
+  }
+}

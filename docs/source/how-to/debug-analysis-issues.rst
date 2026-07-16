@@ -39,7 +39,7 @@ Solution
 
    .. code-block:: bash
 
-      pyflow analyze input.py --verbose
+      pyflow optimize input.py --verbose
 
 Example error and fix:
 
@@ -87,7 +87,7 @@ Solution
 
    .. code-block:: bash
 
-      pyflow analyze input.py --exclude "test_*"
+      pyflow optimize input.py --recursive
 
 Incomplete Analysis
 ===================
@@ -100,17 +100,17 @@ Analysis completes but misses some functions or produces incomplete results.
 Solution
 --------
 
-1. Increase analysis depth:
+1. Increase call graph depth:
 
    .. code-block:: bash
 
-      pyflow callgraph input.py --max-depth 20
+      pyflow callgraph input.py --context-depth 20
 
 2. Enable all analyses:
 
    .. code-block:: bash
 
-      pyflow analyze input.py --analysis all
+      pyflow optimize input.py --analysis all
 
 3. Check for unhandled language features:
 
@@ -122,7 +122,7 @@ Solution
 
    .. code-block:: bash
 
-      pyflow analyze input.py --analysis cpa --cpa-config context_sensitive=true
+      pyflow callgraph input.py --algorithm constraint --context-sensitive
 
 Incorrect Results
 =================
@@ -139,7 +139,7 @@ Solution
 
    .. code-block:: bash
 
-      pyflow analyze input.py --analysis cpa,ipa,shape
+      pyflow optimize input.py --analysis cpa,ipa,shape
 
 2. Compare with expected behavior:
 
@@ -153,15 +153,13 @@ Solution
 
    .. code-block:: bash
 
-      pyflow analyze input.py \
-          --analysis cpa \
-          --cpa-config flow_sensitive=true,field_sensitive=true
+      pyflow callgraph input.py --algorithm constraint --context-sensitive
 
 4. Report false positives/negatives:
 
    .. code-block:: bash
 
-      pyflow security input.py --report-false-positive --details "..."
+      pyflow security input.py --verbose
 
 Performance Issues
 ==================
@@ -178,33 +176,33 @@ Solution
 
    .. code-block:: bash
 
-      pyflow analyze input.py --exclude "test_*","*_test.py"
+      pyflow optimize input.py --recursive --exclude "test_*"
 
 2. Reduce context depth:
 
    .. code-block:: bash
 
-      pyflow analyze input.py --cpa-config max_context_depth=2
+      pyflow callgraph input.py --algorithm constraint --context-depth 2
 
 3. Use faster analysis algorithms:
 
    .. code-block:: bash
 
-      pyflow callgraph input.py --algorithm cha
+      pyflow callgraph input.py --algorithm simple
 
 4. Process files incrementally:
 
    .. code-block:: bash
 
-      pyflow analyze file1.py --output results1.json
-      pyflow analyze file2.py --output results2.json
+      pyflow optimize file1.py
+      pyflow optimize file2.py
       # Combine results programmatically
 
-5. Use streaming mode for large files:
+5. For large codebases, use targeted analysis:
 
    .. code-block:: bash
 
-      pyflow analyze large_file.py --streaming
+      pyflow ir input.py --dump-cfg main --dump-format json
 
 Debugging Techniques
 ====================
@@ -216,16 +214,16 @@ Get detailed information about analysis progress:
 
 .. code-block:: bash
 
-   pyflow analyze input.py --verbose --log-level debug
+   pyflow optimize input.py --verbose
 
-Log to File
------------
+Log Output
+----------
 
-Capture detailed logs for later analysis:
+Capture detailed output for later analysis:
 
 .. code-block:: bash
 
-   pyflow analyze input.py --log-file analysis.log
+   pyflow optimize input.py --verbose 2>&1 | tee analysis.log
 
 Dump Intermediate Representations
 ---------------------------------
@@ -251,7 +249,7 @@ Run analysis in debug mode for maximum information:
 
 .. code-block:: bash
 
-   pyflow analyze input.py --debug --verbose
+   pyflow optimize input.py --verbose --debug
 
 Common Error Messages
 ======================
@@ -265,9 +263,9 @@ Solution:
 
 .. code-block:: bash
 
-   pip install missing_module
-   # or
-   PYTHONPATH=/path/to/module pyflow analyze input.py
+    pip install missing_module
+    # or set PYTHONPATH before running
+    PYTHONPATH=/path/to/module pyflow optimize input.py
 
 Error: "Function not found"
 ---------------------------
@@ -290,7 +288,8 @@ Solution:
 
 .. code-block:: bash
 
-   pyflow analyze input.py --timeout 300  # 5 minute timeout
+   # For very large codebases, use targeted analysis
+   pyflow optimize input.py --analysis cpa  # Run only one analysis at a time
 
 Error: "Memory exhausted"
 -------------------------
@@ -301,8 +300,8 @@ Solution:
 
 .. code-block:: bash
 
-   pyflow analyze input.py --memory-limit 4G
-   # or analyze smaller subsets
+   # Limit scope or run on smaller subsets of code
+   pyflow optimize input.py --include "*.py" --exclude "test_*,*_test.py"
 
 Getting Help
 ============

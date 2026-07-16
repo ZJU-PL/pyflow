@@ -5,7 +5,8 @@ from types import SimpleNamespace
 
 import pytest
 
-import pyflow.cli.dataflow as dataflow_cli
+import pyflow.analysis.ifds.api as ifds_api
+import pyflow.cli.security as security_cli
 
 
 class _DummyCode:
@@ -44,10 +45,26 @@ class _DummyResult:
         return {}
 
 
+class _EmptyResult:
+    findings = ()
+    statistics = SimpleNamespace(
+        processed_path_edges=1,
+        propagated_path_edges=2,
+        normal_flow_steps=3,
+        call_flow_steps=4,
+        return_flow_steps=5,
+        call_to_return_steps=6,
+        incoming_records=7,
+        summary_updates=8,
+    )
+
+
 def _make_args(output_format: str) -> SimpleNamespace:
     return SimpleNamespace(
         function="main",
         analysis="taint",
+        engine="ifds",
+        targets=None,
         sources=["source"],
         sinks=["sink"],
         sanitizers=["sanitize"],
@@ -59,7 +76,7 @@ def _make_args(output_format: str) -> SimpleNamespace:
 
 
 @pytest.mark.parametrize("output_format", ["text", "json"])
-def test_dataflow_cli_uses_single_taint_result_path(
+def test_security_cli_uses_single_taint_result_path(
     monkeypatch, tmp_path, capsys, output_format
 ):
     target = tmp_path / "sample.py"
@@ -91,11 +108,13 @@ def main():
                 )
             ),
         )
-        return session, fake_result
+        return session, fake_result, None
 
-    monkeypatch.setattr(dataflow_cli, "run_taint_analysis", fake_run_taint_analysis)
+    monkeypatch.setattr(ifds_api, "run_taint_analysis", fake_run_taint_analysis)
 
-    exit_code = dataflow_cli.run_dataflow_analysis(target, _make_args(output_format))
+    args = _make_args(output_format)
+    args.targets = [target]
+    exit_code = security_cli.run_security(args)
     out = capsys.readouterr().out
 
     assert exit_code == 1
@@ -111,7 +130,7 @@ def main():
         assert "sink=sink procedure=sinkproc args=[b]" in out
 
 
-def test_dataflow_cli_falls_back_to_tainted_argument_labels(
+def test_security_cli_falls_back_to_tainted_argument_labels(
     monkeypatch, tmp_path, capsys
 ):
     target = tmp_path / "sample.py"
@@ -141,11 +160,13 @@ def main():
                 )
             ),
         )
-        return session, fake_result
+        return session, fake_result, None
 
-    monkeypatch.setattr(dataflow_cli, "run_taint_analysis", fake_run_taint_analysis)
+    monkeypatch.setattr(ifds_api, "run_taint_analysis", fake_run_taint_analysis)
 
-    exit_code = dataflow_cli.run_dataflow_analysis(target, _make_args("json"))
+    args = _make_args("json")
+    args.targets = [target]
+    exit_code = security_cli.run_security(args)
     payload = json.loads(capsys.readouterr().out)
 
     assert exit_code == 1
@@ -153,8 +174,88 @@ def main():
     assert payload["findings"][0]["tainted_arguments"] == ["source()"]
 
 
+def test_security_cli_forwards_dynamic_model_options(monkeypatch, tmp_path, capsys):
+    target = tmp_path / "sample.py"
+    target.write_text("def main():\n    return 0\n", encoding="utf-8")
+
+    captured = {}
+    fake_result = _EmptyResult()
+
+    def fake_run_taint_analysis(*_args, **kwargs):
+        captured.update(kwargs)
+        session = SimpleNamespace(compiler=object(), diagnostics=())
+        return session, fake_result, None
+
+    monkeypatch.setattr(ifds_api, "run_taint_analysis", fake_run_taint_analysis)
+
+    args = _make_args("json")
+    args.collection_mutators = ["append_safe"]
+    args.collection_accessors = ["fetch"]
+    args.conservative_unresolved_calls = True
+
+    args.targets = [target]
+    exit_code = security_cli.run_security(args)
+    payload = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 0
+    assert payload["findings"] == []
+    assert captured["collection_mutator_names"] == ["append_safe"]
+    assert captured["collection_accessor_names"] == ["fetch"]
+    assert captured["conservative_unresolved_call_side_effects"] is True
+
+
+def test_security_cli_forwards_typestate_protocol_options(
+    monkeypatch, tmp_path, capsys
+):
+    target = tmp_path / "sample.py"
+    target.write_text("def main():\n    return 0\n", encoding="utf-8")
+
+    captured = {}
+    fake_finding = SimpleNamespace(
+        kind="lock_leak",
+        operation_name="main",
+        resource_label="lock",
+        protocol="lock",
+        state="locked",
+        node=SimpleNamespace(
+            kind="exit",
+            procedure=SimpleNamespace(code=SimpleNamespace(name="main")),
+        ),
+    )
+    fake_result = SimpleNamespace(
+        findings=(fake_finding,),
+        statistics=SimpleNamespace(processed_path_edges=1),
+    )
+
+    def fake_run_typestate_analysis(*_args, **kwargs):
+        captured.update(kwargs)
+        session = SimpleNamespace(compiler=object(), diagnostics=())
+        return session, fake_result
+
+    monkeypatch.setattr(ifds_api, "run_typestate_analysis", fake_run_typestate_analysis)
+
+    args = _make_args("json")
+    args.analysis = "typestate"
+    args.typestate_protocol = ["python-builtins", "lock"]
+    args.framework = ["network"]
+    args.collection_mutators = ["append_safe"]
+    args.collection_accessors = ["fetch"]
+
+    args.targets = [target]
+    exit_code = security_cli.run_security(args)
+    payload = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 1
+    assert payload["analysis"] == "typestate"
+    assert payload["findings"][0]["protocol"] == "lock"
+    assert captured["enabled_protocols"] == ["python-builtins", "lock"]
+    assert captured["registry_frameworks"] == ["network"]
+    assert captured["collection_mutator_names"] == ["append_safe"]
+    assert captured["collection_accessor_names"] == ["fetch"]
+
+
 @pytest.mark.parametrize("output_format", ["text", "json"])
-def test_dataflow_cli_emits_session_diagnostics(
+def test_security_cli_emits_session_diagnostics(
     monkeypatch, tmp_path, capsys, output_format
 ):
     target = tmp_path / "sample.py"
@@ -172,11 +273,13 @@ def test_dataflow_cli_emits_session_diagnostics(
                 )
             ),
         )
-        return session, fake_result
+        return session, fake_result, None
 
-    monkeypatch.setattr(dataflow_cli, "run_taint_analysis", fake_run_taint_analysis)
+    monkeypatch.setattr(ifds_api, "run_taint_analysis", fake_run_taint_analysis)
 
-    exit_code = dataflow_cli.run_dataflow_analysis(target, _make_args(output_format))
+    args = _make_args(output_format)
+    args.targets = [target]
+    exit_code = security_cli.run_security(args)
     out = capsys.readouterr().out
 
     assert exit_code == 1

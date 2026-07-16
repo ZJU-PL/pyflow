@@ -1,0 +1,88 @@
+{
+  "schema_version": 1,
+  "framework": "requests",
+  "version": "1.0",
+  "description": "Requests typestate models (extracted from root rule pack)",
+  "detection": {
+    "imports": [],
+    "patterns": []
+  },
+  "models": [
+    {
+      "call": "requests.Session",
+      "track_method_receiver": false,
+      "typestate_action": "open",
+      "typestate_protocol": "resource"
+    },
+    {
+      "call": "httpx.Client",
+      "track_method_receiver": false,
+      "typestate_action": "open",
+      "typestate_protocol": "resource"
+    },
+    {
+      "call": "httpx.AsyncClient",
+      "track_method_receiver": false,
+      "typestate_action": "open",
+      "typestate_protocol": "resource"
+    },
+    {
+      "call": "aiohttp.ClientSession",
+      "track_method_receiver": false,
+      "typestate_action": "open",
+      "typestate_protocol": "resource"
+    },
+    {
+      "call": "urllib3.PoolManager",
+      "track_method_receiver": false,
+      "typestate_action": "open",
+      "typestate_protocol": "resource"
+    },
+    {
+      "call": "close",
+      "typestate_action": "close",
+      "typestate_protocol": "resource"
+    },
+    {
+      "call": "get",
+      "typestate_action": "use",
+      "typestate_protocol": "resource"
+    },
+    {
+      "call": "post",
+      "typestate_action": "use",
+      "typestate_protocol": "resource"
+    },
+    {
+      "call": "put",
+      "typestate_action": "use",
+      "typestate_protocol": "resource"
+    },
+    {
+      "call": "patch",
+      "typestate_action": "use",
+      "typestate_protocol": "resource"
+    },
+    {
+      "call": "delete",
+      "typestate_action": "use",
+      "typestate_protocol": "resource"
+    },
+    {
+      "call": "head",
+      "typestate_action": "use",
+      "typestate_protocol": "resource"
+    },
+    {
+      "call": "request",
+      "typestate_action": "use",
+      "typestate_protocol": "resource"
+    },
+    {
+      "call": "send",
+      "typestate_action": "use",
+      "typestate_protocol": "resource"
+    }
+  ],
+  "type": "typestate"
+}

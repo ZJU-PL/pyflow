@@ -4,11 +4,15 @@ import pytest
 
 from pyflow.api.entrypoints import ExistingWrapper, InterfaceDeclaration, nullWrapper
 from pyflow.application.errors import TemporaryLimitation
+from pyflow.analysis.typeinfo import TypeInfoService
+from pyflow.analysis.typeinfo.typesystem import Instance
 from pyflow.api.queries.call_graph import CallGraphQueries
 from pyflow.api.queries.context import QueryContext
 from pyflow.api.queries.engine import GraphQueryEngine
 from pyflow.api.queries.localization import LocalizationCandidate, LocalizationQueries
+from pyflow.api.queries.service import SemanticQueryService
 from pyflow.api.queries.test_generation import TestGenerationQueries as _TestGenerationQueries
+from pyflow.frontend.project_resolution import ProjectContext
 
 
 class DummyCode:
@@ -82,6 +86,72 @@ def test_test_scenarios_do_not_break_on_cfg_cycles():
     scenarios = queries.get_test_scenarios("f")
     assert scenarios
     assert all(s.path_description for s in scenarios)
+
+
+def test_function_test_profile_prefers_source_complexity(tmp_path):
+    source = """
+def f(x):
+    if x > 0:
+        return 1
+    elif x == 0:
+        return 0
+    return -1
+"""
+    source_path = tmp_path / "sample.py"
+    source_path.write_text(source, encoding="utf-8")
+
+    entry = DummyBlock(1)
+    tail = DummyBlock(2)
+    entry.next = tail
+
+    cfg = SimpleNamespace(entryTerminal=entry)
+    code = DummyCode("f", str(source_path), 2)
+    context = QueryContext(
+        compiler=object(),
+        program=SimpleNamespace(liveCode=[code], interface=None),
+    )
+    queries = _TestGenerationQueries(
+        context=context,
+        graph_engine=None,
+        call_graph_queries=SimpleNamespace(
+            get_callees=lambda _: [],
+            get_callers=lambda _: [],
+        ),
+        control_flow_queries=SimpleNamespace(get_cfg=lambda _: cfg),
+        data_flow_queries=SimpleNamespace(get_ipa_function_summaries=lambda *_: []),
+    )
+
+    profile = queries.get_function_test_profile("f")
+    assert profile.complexity == 3
+
+
+def test_function_test_profile_falls_back_to_cfg_complexity():
+    entry = DummyBlock(1)
+    left = DummyBlock(2)
+    right = DummyBlock(3)
+    entry.next = {"left": left, "right": right}
+    left.next = {}
+    right.next = {}
+
+    cfg = SimpleNamespace(entryTerminal=entry)
+    code = DummyCode("f", "/path/does/not/exist.py", 1)
+    context = QueryContext(
+        compiler=object(),
+        program=SimpleNamespace(liveCode=[code], interface=None),
+    )
+    queries = _TestGenerationQueries(
+        context=context,
+        graph_engine=None,
+        call_graph_queries=SimpleNamespace(
+            get_callees=lambda _: [],
+            get_callers=lambda _: [],
+        ),
+        control_flow_queries=SimpleNamespace(get_cfg=lambda _: cfg),
+        data_flow_queries=SimpleNamespace(get_ipa_function_summaries=lambda *_: []),
+    )
+
+    profile = queries.get_function_test_profile("f")
+    assert profile.complexity == 2
 
 
 def test_callgraph_uses_disambiguated_node_ids():
@@ -362,3 +432,22 @@ def test_get_ifds_supergraph_rebuilds_after_reset_cache(monkeypatch):
     assert first is second
     assert third is not first
     assert len(calls) == 2
+
+
+def test_semantic_query_service_exposes_typeinfo_service():
+    type_info = TypeInfoService(ProjectContext(None))
+    type_info.collect_module("pkg.mod", source="value: int\n")
+    service = SemanticQueryService(
+        compiler=object(),
+        program=SimpleNamespace(liveCode=[], interface=None),
+        type_info_service=type_info,
+    )
+
+    typ = service.get_symbol_type("pkg.mod", "value")
+    fact = service.get_type_fact("pkg.mod", "value")
+
+    assert isinstance(typ, Instance)
+    assert typ.type.raw_type is int
+    assert fact is not None
+    assert fact.raw_annotation == "int"
+    assert service.capabilities()["type_info"]["available"] is True

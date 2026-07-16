@@ -1,0 +1,109 @@
+{
+  "schema_version": 1,
+  "framework": "serialization",
+  "version": "1.0",
+  "description": "Serialization taint models (extracted from root rule pack)",
+  "detection": {
+    "imports": [
+      "dill",
+      "import dill"
+    ]
+  },
+  "models": [
+    {
+      "call": "dill._dill.Unpickler.__init__",
+      "category": "execdeserializationsink",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "dill._dill.load",
+      "category": "execdeserializationsink",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "dill._dill.load_session",
+      "category": "execdeserializationsink",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "dill._dill.loads",
+      "category": "execdeserializationsink",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    }
+  ],
+  "rules": [
+    {
+      "categories": [
+        "execdeserializationsink"
+      ],
+      "id": "serialization/execdeserializationsink/dill__dill_Unpickler___init__",
+      "pattern_type": "taint_sink",
+      "severity": "medium",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "dill._dill.Unpickler.__init__"
+      ],
+      "title": "Tainted data reaches __init__"
+    },
+    {
+      "categories": [
+        "execdeserializationsink"
+      ],
+      "id": "serialization/execdeserializationsink/dill__dill_load",
+      "pattern_type": "taint_sink",
+      "severity": "medium",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "dill._dill.load"
+      ],
+      "title": "Tainted data reaches load"
+    },
+    {
+      "categories": [
+        "execdeserializationsink"
+      ],
+      "id": "serialization/execdeserializationsink/dill__dill_load_session",
+      "pattern_type": "taint_sink",
+      "severity": "medium",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "dill._dill.load_session"
+      ],
+      "title": "Tainted data reaches load_session"
+    },
+    {
+      "categories": [
+        "execdeserializationsink"
+      ],
+      "id": "serialization/execdeserializationsink/dill__dill_loads",
+      "pattern_type": "taint_sink",
+      "severity": "medium",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "dill._dill.loads"
+      ],
+      "title": "Tainted data reaches loads"
+    }
+  ],
+  "type": "taint"
+}

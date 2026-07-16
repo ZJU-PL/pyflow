@@ -13,6 +13,7 @@ Key functions:
 
 import os
 
+from pyflow.frontend.project_resolution import ProjectContext
 
 # Bug K fix: the original code used a module-level mutable list ``_local_modules``
 # as a cache.  The cache was never cleared between calls, so if
@@ -73,30 +74,24 @@ def get_modules(path, prepend_module_root=True):
             Example: [('test_project.utils', 'example/test_project/utils.py'), ...]
     """
     module_root = os.path.split(path)[1]
+    project = ProjectContext(os.path.dirname(os.path.abspath(path)) or os.curdir)
     modules = list()
     for root, directories, filenames in os.walk(path):
         for filename in filenames:
             if _is_python_file(filename):
-                directory = (
-                    os.path.dirname(os.path.realpath(os.path.join(root, filename)))
-                    .split(module_root)[-1]
-                    .replace(os.sep, ".")  # e.g. '/'
-                )
-                directory = directory.replace(".", "", 1)
-
-                module_name_parts = []
-                if prepend_module_root:
-                    module_name_parts.append(module_root)
-                if directory:
-                    module_name_parts.append(directory)
-
+                file_path = os.path.join(root, filename)
+                qualified_name = project.module_name_from_path(file_path)
                 if filename == "__init__.py":
-                    path = root
+                    module_path = root
                 else:
-                    module_name_parts.append(os.path.splitext(filename)[0])
-                    path = os.path.join(root, filename)
+                    module_path = file_path
 
-                modules.append((".".join(module_name_parts), path))
+                if not prepend_module_root and qualified_name.startswith(
+                    module_root + "."
+                ):
+                    qualified_name = qualified_name[len(module_root) + 1 :]
+
+                modules.append((qualified_name, module_path))
 
     return modules
 

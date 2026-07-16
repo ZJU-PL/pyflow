@@ -48,7 +48,7 @@ All available optimizations:
 
 .. code-block:: bash
 
-   pyflow optimize input.py --opt-passes all
+   pyflow optimize input.py
 
 Inlining remains experimental and must be enabled explicitly when requested.
 

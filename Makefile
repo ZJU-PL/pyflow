@@ -1,4 +1,6 @@
-.PHONY: help install install-dev test test-integration clean format lint type-check docs
+PYTHON ?= python3
+
+.PHONY: help install install-dev test test-integration clean format lint type-check docs ifds-validate-rules ifds-benchmark
 
 help:  ## Show this help message
 	@echo "Available commands:"
@@ -25,6 +27,12 @@ test-integration:  ## Run integration tests
 
 test-cov:  ## Run tests with coverage
 	pytest --cov=pyflow --cov-report=html --cov-report=term
+
+ifds-validate-rules:  ## Validate all IFDS registry rule packs
+	$(PYTHON) -m pyflow.analysis.ifds.clients.registry.validate
+
+ifds-benchmark:  ## Run the synthetic IFDS solver benchmark
+	$(PYTHON) benchmarks/ifds_solver_benchmark.py
 
 clean:  ## Clean up build artifacts
 	rm -rf build/

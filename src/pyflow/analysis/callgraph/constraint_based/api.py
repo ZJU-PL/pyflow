@@ -9,7 +9,7 @@ from typing import Dict, Optional, List
 from ..callgraph import CallGraph
 from ..formats import generate_text_output
 from .engine import ConstraintCallGraphBuilder
-from .model import AnalysisOptions
+from .model import AnalysisOptions, CallSiteEdgeIndex
 
 
 def _discover_entry_path_from_stack() -> Optional[str]:
@@ -186,3 +186,48 @@ def extract_value_flow_graph_constraint(
             for key, value in sorted(builder.solver_stats.__dict__.items())
         ]
     return out
+
+
+def extract_call_site_edge_index_constraint(
+    source_code: str,
+    source_path: Optional[str] = None,
+    verbose: bool = False,
+    context_sensitive: bool = True,
+    context_depth: int = 1,
+    fixpoint_max_iterations: Optional[int] = None,
+    warn_on_fixpoint_truncation: bool = True,
+    allocation_site_sensitive_instances: bool = True,
+    use_type_hints: bool = True,
+    refine_type_guards: bool = True,
+    allow_fixture_graph_loading: bool = False,
+    max_values_per_binding: int = 128,
+    max_contexts_per_scope: int = 64,
+    requeue_policy: str = "priority",
+    emit_solver_stats: bool = False,
+    strict_precision_mode: bool = False,
+) -> CallSiteEdgeIndex:
+    """Extract direct call-site edges from the constraint analyser."""
+    entry_path = source_path or _discover_entry_path_from_stack()
+    options = AnalysisOptions(
+        context_sensitive=context_sensitive,
+        context_depth=max(0, int(context_depth)),
+        fixpoint_max_iterations=fixpoint_max_iterations,
+        warn_on_fixpoint_truncation=warn_on_fixpoint_truncation,
+        allocation_site_sensitive_instances=allocation_site_sensitive_instances,
+        use_type_hints=use_type_hints,
+        refine_type_guards=refine_type_guards,
+        allow_fixture_graph_loading=allow_fixture_graph_loading,
+        max_values_per_binding=max(1, int(max_values_per_binding)),
+        max_contexts_per_scope=max(1, int(max_contexts_per_scope)),
+        requeue_policy="fifo" if requeue_policy == "fifo" else "priority",
+        emit_solver_stats=emit_solver_stats,
+        strict_precision_mode=strict_precision_mode,
+    )
+    builder = ConstraintCallGraphBuilder(
+        source_code,
+        entry_path=entry_path,
+        verbose=verbose,
+        options=options,
+    )
+    builder.build()
+    return builder.call_site_edge_index()

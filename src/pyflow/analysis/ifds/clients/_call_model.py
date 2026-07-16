@@ -11,6 +11,13 @@ STATE_CLOSE = "close"
 STATE_USE = "use"
 
 
+def _sanitizer_categories_for(configuration, name: str) -> FrozenSet[str]:
+    categories = getattr(configuration, "sanitizer_categories", {})
+    if not hasattr(categories, "get"):
+        return frozenset()
+    return frozenset(categories.get(name, ()))
+
+
 @dataclass(frozen=True)
 class CallModel:
     """Unified semantic model for a symbolic call target."""
@@ -19,10 +26,21 @@ class CallModel:
     taint_source: bool = False
     taint_sink: bool = False
     taint_sanitizer: bool = False
+    taint_categories: FrozenSet[str] = frozenset()
+    sanitizer_categories: FrozenSet[str] = frozenset()
+    sink_arg_positions: FrozenSet[int] = frozenset({0})
+    rule_id: str | None = None
+    cwe: str | None = None
+    severity: str | None = None
+    suggestion: str | None = None
     nullness_nullable_return: bool = False
     typestate_actions: FrozenSet[str] = frozenset()
+    typestate_action_protocols: FrozenSet[tuple[str, str]] = frozenset()
     resource_arg_positions: FrozenSet[int] = frozenset({0})
     track_method_receiver: bool = True
+    receiver_types: FrozenSet[str] = frozenset()
+    callee_qualnames: FrozenSet[str] = frozenset()
+    module_prefixes: FrozenSet[str] = frozenset()
 
     def merged(self, other: "CallModel") -> "CallModel":
         if self.name != other.name:
@@ -32,14 +50,31 @@ class CallModel:
             taint_source=self.taint_source or other.taint_source,
             taint_sink=self.taint_sink or other.taint_sink,
             taint_sanitizer=self.taint_sanitizer or other.taint_sanitizer,
+            taint_categories=self.taint_categories | other.taint_categories,
+            sanitizer_categories=(
+                self.sanitizer_categories | other.sanitizer_categories
+            ),
+            sink_arg_positions=self.sink_arg_positions | other.sink_arg_positions,
+            rule_id=self.rule_id or other.rule_id,
+            cwe=self.cwe or other.cwe,
+            severity=self.severity or other.severity,
+            suggestion=self.suggestion or other.suggestion,
             nullness_nullable_return=(
                 self.nullness_nullable_return or other.nullness_nullable_return
             ),
             typestate_actions=self.typestate_actions | other.typestate_actions,
-            resource_arg_positions=self.resource_arg_positions | other.resource_arg_positions,
+            typestate_action_protocols=(
+                self.typestate_action_protocols | other.typestate_action_protocols
+            ),
+            resource_arg_positions=(
+                self.resource_arg_positions | other.resource_arg_positions
+            ),
             track_method_receiver=(
                 self.track_method_receiver or other.track_method_receiver
             ),
+            receiver_types=self.receiver_types | other.receiver_types,
+            callee_qualnames=self.callee_qualnames | other.callee_qualnames,
+            module_prefixes=self.module_prefixes | other.module_prefixes,
         )
 
 
@@ -61,11 +96,14 @@ class CallModelRegistry:
             for name in configuration.source_names
         )
         models.extend(
-            CallModel(name=name, taint_sink=True)
-            for name in configuration.sink_names
+            CallModel(name=name, taint_sink=True) for name in configuration.sink_names
         )
         models.extend(
-            CallModel(name=name, taint_sanitizer=True)
+            CallModel(
+                name=name,
+                taint_sanitizer=True,
+                sanitizer_categories=_sanitizer_categories_for(configuration, name),
+            )
             for name in configuration.sanitizer_names
         )
         return cls(models)
@@ -77,6 +115,7 @@ class CallModelRegistry:
             CallModel(
                 name=name,
                 typestate_actions=frozenset({STATE_OPEN}),
+                typestate_action_protocols=frozenset({(STATE_OPEN, "resource")}),
                 resource_arg_positions=configuration.resource_arg_positions,
                 track_method_receiver=configuration.track_method_receiver,
             )
@@ -86,6 +125,7 @@ class CallModelRegistry:
             CallModel(
                 name=name,
                 typestate_actions=frozenset({STATE_CLOSE}),
+                typestate_action_protocols=frozenset({(STATE_CLOSE, "resource")}),
                 resource_arg_positions=configuration.resource_arg_positions,
                 track_method_receiver=configuration.track_method_receiver,
             )
@@ -95,11 +135,20 @@ class CallModelRegistry:
             CallModel(
                 name=name,
                 typestate_actions=frozenset({STATE_USE}),
+                typestate_action_protocols=frozenset({(STATE_USE, "resource")}),
                 resource_arg_positions=configuration.resource_arg_positions,
                 track_method_receiver=configuration.track_method_receiver,
             )
             for name in configuration.use_names
         )
+        return cls(models)
+
+    @classmethod
+    def from_nullness_configuration(cls, configuration) -> "CallModelRegistry":
+        models = [
+            CallModel(name=name, nullness_nullable_return=True)
+            for name in configuration.nullable_return_names
+        ]
         return cls(models)
 
     def merged(self, *others: "CallModelRegistry") -> "CallModelRegistry":

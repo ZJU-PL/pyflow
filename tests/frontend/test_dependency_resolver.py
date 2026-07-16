@@ -3,7 +3,6 @@
 import ast
 import sys
 import unittest
-from unittest.mock import Mock, patch
 import inspect
 
 from pyflow.frontend.dependency_resolver import DependencyResolver, DependencyStrategy
@@ -604,6 +603,86 @@ def func2(x, y):
                 strategy="ast_only", verbose=False, search_paths=[d]
             )
             self.assertIsNone(resolver._find_module_source("pkg.missing"))
+
+    def test_stub_module_uses_pyi_signatures_and_classes(self):
+        """Stub-backed modules should expose typed function and class proxies."""
+        import inspect
+        import os
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as d:
+            with open(os.path.join(d, "lib.py"), "w", encoding="utf-8") as f:
+                f.write("def factory(name):\n    raise RuntimeError('source')\n")
+            with open(os.path.join(d, "lib.pyi"), "w", encoding="utf-8") as f:
+                f.write(
+                    "class Client:\n"
+                    "    def ping(self, *, timeout: int) -> str: ...\n"
+                    "def factory(name: str, *, retries: int) -> Client: ...\n"
+                )
+
+            resolver = DependencyResolver(
+                strategy="stubs",
+                verbose=False,
+                search_paths=[d],
+                allow_runtime_execution=False,
+            )
+            module = resolver._load_stub_module("lib", "app.py", {})
+
+            factory_sig = inspect.signature(module.factory)
+            self.assertEqual(
+                factory_sig.parameters["retries"].kind,
+                inspect.Parameter.KEYWORD_ONLY,
+            )
+            self.assertTrue(hasattr(module, "Client"))
+            methods = resolver.get_public_method_specs(module.Client)
+            self.assertIn("ping", methods)
+            self.assertEqual(
+                methods["ping"]["signature"].parameters["timeout"].kind,
+                inspect.Parameter.KEYWORD_ONLY,
+            )
+
+    def test_star_import_expands_stub_exports(self):
+        """Wildcard imports should include names declared only in .pyi files."""
+        import os
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as d:
+            with open(os.path.join(d, "lib.py"), "w", encoding="utf-8") as f:
+                f.write("")
+            with open(os.path.join(d, "lib.pyi"), "w", encoding="utf-8") as f:
+                f.write("class Client: ...\nvalue: Client\ndef make() -> Client: ...\n")
+
+            resolver = DependencyResolver(
+                strategy="ast_only",
+                verbose=False,
+                search_paths=[d],
+            )
+
+            self.assertEqual(
+                resolver._expand_star_import_names("lib"),
+                ["Client", "make", "value"],
+            )
+
+    def test_stub_diagnostics_can_be_returned_as_dicts(self):
+        """Structured stub diagnostics should also support API-friendly dict output."""
+        import os
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as d:
+            with open(os.path.join(d, "bad.py"), "w", encoding="utf-8") as f:
+                f.write("")
+            with open(os.path.join(d, "bad.pyi"), "w", encoding="utf-8") as f:
+                f.write("def broken(: ...\n")
+
+            resolver = DependencyResolver(
+                strategy="ast_only",
+                verbose=False,
+                search_paths=[d],
+            )
+            self.assertIsNone(resolver.stub_resolver.resolve("bad"))
+
+            diagnostics = resolver.get_stub_diagnostics(as_dict=True)
+            self.assertEqual(diagnostics[0]["code"], "stub_parse_failed")
 
 
 if __name__ == "__main__":

@@ -22,6 +22,8 @@ class BugFinderConfig:
     include: Iterable[str] = field(default_factory=lambda: ("*.py",))
     exclude: Iterable[str] = field(default_factory=tuple)
     taint_engine: str = "semantic"  # Uses comprehensive semantic taint analysis
+    sources: Iterable[str] = field(default_factory=tuple)
+    sinks: Iterable[str] = field(default_factory=tuple)
 
 
 class StaticBugFinder:
@@ -32,10 +34,15 @@ class StaticBugFinder:
         self.detectors = self._create_detectors()
 
     def _create_detectors(self) -> List:
+        sources = set(self.config.sources or ())
+        sinks = set(self.config.sinks or ())
         detectors = [
             NullDereferenceDetector(),
             LeakDetector(),
-            SemanticTaintDetector(),  # Comprehensive semantic taint analysis
+            SemanticTaintDetector(
+                sources=sources or None,
+                sinks=sinks or None,
+            ),
         ]
         return detectors
 

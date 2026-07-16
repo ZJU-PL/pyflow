@@ -1,0 +1,485 @@
+{
+  "schema_version": 1,
+  "framework": "cloud",
+  "version": "1.0",
+  "description": "Cloud taint models (extracted from root rule pack)",
+  "detection": {
+    "imports": [
+      "boto3",
+      "google.cloud",
+      "azure.storage",
+      "azure.cosmos",
+      "import boto3",
+      "from google.cloud",
+      "from azure"
+    ],
+    "patterns": [
+      "boto3.client(",
+      "boto3.resource(",
+      "storage.Client(",
+      "BlobServiceClient("
+    ]
+  },
+  "models": [
+    {
+      "call": "boto3.client.s3.upload_file",
+      "taint_sink": true
+    },
+    {
+      "call": "boto3.client.s3.upload_fileobj",
+      "taint_sink": true
+    },
+    {
+      "call": "boto3.client.s3.put_object",
+      "taint_sink": true
+    },
+    {
+      "call": "boto3.resource.s3.Object.put",
+      "taint_sink": true
+    },
+    {
+      "call": "boto3.client.dynamodb.put_item",
+      "taint_sink": true
+    },
+    {
+      "call": "boto3.client.dynamodb.update_item",
+      "taint_sink": true
+    },
+    {
+      "call": "boto3.client.dynamodb.batch_write_item",
+      "taint_sink": true
+    },
+    {
+      "call": "boto3.client.dynamodb.query",
+      "taint_sink": true
+    },
+    {
+      "call": "boto3.client.sqs.send_message",
+      "taint_sink": true
+    },
+    {
+      "call": "boto3.client.sqs.send_message_batch",
+      "taint_sink": true
+    },
+    {
+      "call": "boto3.client.sns.publish",
+      "taint_sink": true
+    },
+    {
+      "call": "boto3.client.sns.publish_batch",
+      "taint_sink": true
+    },
+    {
+      "call": "google.cloud.storage.Client.bucket",
+      "taint_sink": true
+    },
+    {
+      "call": "google.cloud.storage.Bucket.blob",
+      "taint_sink": true
+    },
+    {
+      "call": "google.cloud.storage.Blob.upload_from_string",
+      "taint_sink": true
+    },
+    {
+      "call": "google.cloud.storage.Blob.upload_from_filename",
+      "taint_sink": true
+    },
+    {
+      "call": "google.cloud.datastore.Client.put",
+      "taint_sink": true
+    },
+    {
+      "call": "google.cloud.firestore.Client.collection",
+      "taint_sink": true
+    },
+    {
+      "call": "google.cloud.firestore.CollectionReference.add",
+      "taint_sink": true
+    },
+    {
+      "call": "google.cloud.firestore.CollectionReference.document",
+      "taint_sink": true
+    },
+    {
+      "call": "google.cloud.firestore.DocumentReference.set",
+      "taint_sink": true
+    },
+    {
+      "call": "google.cloud.firestore.DocumentReference.update",
+      "taint_sink": true
+    },
+    {
+      "call": "azure.storage.blob.BlobServiceClient.get_blob_client",
+      "taint_sink": true
+    },
+    {
+      "call": "azure.storage.blob.BlobClient.upload_blob",
+      "taint_sink": true
+    },
+    {
+      "call": "azure.cosmos.CosmosClient.get_database_client",
+      "taint_sink": true
+    },
+    {
+      "call": "azure.cosmos.DatabaseProxy.get_container_client",
+      "taint_sink": true
+    },
+    {
+      "call": "azure.cosmos.ContainerProxy.create_item",
+      "taint_sink": true
+    },
+    {
+      "call": "google.cloud.pubsub_v1.SubscriberClient.pull",
+      "taint_source": true,
+      "category": "network"
+    },
+    {
+      "call": "google.cloud.pubsub_v1.PublisherClient.publish",
+      "taint_sink": true
+    },
+    {
+      "call": "mypy_boto3_acm.client.ACMClient.export_certificate",
+      "category": "secrets",
+      "taint_source": true
+    },
+    {
+      "call": "mypy_boto3_amplifybackend.client.AmplifyBackendClient.create_token",
+      "category": "secrets",
+      "taint_source": true
+    },
+    {
+      "call": "mypy_boto3_amplifybackend.client.AmplifyBackendClient.get_backend_auth",
+      "category": "secrets",
+      "taint_source": true
+    },
+    {
+      "call": "mypy_boto3_amplifybackend.client.AmplifyBackendClient.get_token",
+      "category": "secrets",
+      "taint_source": true
+    },
+    {
+      "call": "mypy_boto3_apigateway.client.APIGatewayClient.create_api_key",
+      "category": "secrets",
+      "taint_source": true
+    },
+    {
+      "call": "mypy_boto3_apigateway.client.APIGatewayClient.get_api_key",
+      "category": "secrets",
+      "taint_source": true
+    },
+    {
+      "call": "mypy_boto3_apigateway.client.APIGatewayClient.get_api_keys",
+      "category": "secrets",
+      "taint_source": true
+    },
+    {
+      "call": "mypy_boto3_apigateway.client.APIGatewayClient.get_authorizer",
+      "category": "secrets",
+      "taint_source": true
+    },
+    {
+      "call": "mypy_boto3_apigateway.client.APIGatewayClient.get_client_certificate",
+      "category": "secrets",
+      "taint_source": true
+    },
+    {
+      "call": "mypy_boto3_apigateway.client.APIGatewayClient.get_client_certificates",
+      "category": "secrets",
+      "taint_source": true
+    },
+    {
+      "call": "mypy_boto3_application_insights.client.ApplicationInsightsClient.list_configuration_history",
+      "category": "exception",
+      "taint_source": true
+    },
+    {
+      "call": "mypy_boto3_application_insights.client.ApplicationInsightsClient.list_log_pattern_sets",
+      "category": "exception",
+      "taint_source": true
+    },
+    {
+      "call": "mypy_boto3_application_insights.client.ApplicationInsightsClient.list_log_patterns",
+      "category": "exception",
+      "taint_source": true
+    },
+    {
+      "call": "mypy_boto3_application_insights.client.ApplicationInsightsClient.list_problems",
+      "category": "exception",
+      "taint_source": true
+    },
+    {
+      "call": "mypy_boto3_apprunner.client.AppRunnerClient.create_service",
+      "category": "rce",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "mypy_boto3_athena.client.AthenaClient.create_named_query",
+      "category": "sql",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "mypy_boto3_athena.client.AthenaClient.create_prepared_statement",
+      "category": "sql",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "mypy_boto3_braket.client.BraketClient.create_quantum_task",
+      "category": "rce",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "mypy_boto3_lambda.client.LambdaClient.create_function",
+      "category": "rce",
+      "sink_arg_positions": [
+        0,
+        1
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "mypy_boto3_lambda.client.LambdaClient.update_function_code",
+      "category": "rce",
+      "sink_arg_positions": [
+        0,
+        1,
+        2
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "mypy_boto3_rds_data.client.RDSDataServiceClient.batch_execute_statement",
+      "category": "sql",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "mypy_boto3_rds_data.client.RDSDataServiceClient.execute_sql",
+      "category": "sql",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "mypy_boto3_rds_data.client.RDSDataServiceClient.execute_statement",
+      "category": "sql",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "mypy_boto3_redshift_data.client.RedshiftDataAPIServiceClient.batch_execute_statement",
+      "category": "sql",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "mypy_boto3_redshift_data.client.RedshiftDataAPIServiceClient.execute_statement",
+      "category": "sql",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    }
+  ],
+  "rules": [
+    {
+      "categories": [
+        "rce"
+      ],
+      "cwe": "CWE-78",
+      "id": "cloud/rce/mypy_boto3_apprunner_client_AppRunnerClient_create_service",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "mypy_boto3_apprunner.client.AppRunnerClient.create_service"
+      ],
+      "title": "Tainted data reaches create_service"
+    },
+    {
+      "categories": [
+        "sql"
+      ],
+      "cwe": "CWE-89",
+      "id": "cloud/sql/mypy_boto3_athena_client_AthenaClient_create_named_query",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "mypy_boto3_athena.client.AthenaClient.create_named_query"
+      ],
+      "title": "Tainted data reaches create_named_query"
+    },
+    {
+      "categories": [
+        "sql"
+      ],
+      "cwe": "CWE-89",
+      "id": "cloud/sql/mypy_boto3_athena_client_AthenaClient_create_prepared_statement",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "mypy_boto3_athena.client.AthenaClient.create_prepared_statement"
+      ],
+      "title": "Tainted data reaches create_prepared_statement"
+    },
+    {
+      "categories": [
+        "rce"
+      ],
+      "cwe": "CWE-78",
+      "id": "cloud/rce/mypy_boto3_braket_client_BraketClient_create_quantum_task",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "mypy_boto3_braket.client.BraketClient.create_quantum_task"
+      ],
+      "title": "Tainted data reaches create_quantum_task"
+    },
+    {
+      "categories": [
+        "rce"
+      ],
+      "cwe": "CWE-78",
+      "id": "cloud/rce/mypy_boto3_lambda_client_LambdaClient_create_function",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0,
+        1
+      ],
+      "sinks": [
+        "mypy_boto3_lambda.client.LambdaClient.create_function"
+      ],
+      "title": "Tainted data reaches create_function"
+    },
+    {
+      "categories": [
+        "rce"
+      ],
+      "cwe": "CWE-78",
+      "id": "cloud/rce/mypy_boto3_lambda_client_LambdaClient_update_function_code",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0,
+        1,
+        2
+      ],
+      "sinks": [
+        "mypy_boto3_lambda.client.LambdaClient.update_function_code"
+      ],
+      "title": "Tainted data reaches update_function_code"
+    },
+    {
+      "categories": [
+        "sql"
+      ],
+      "cwe": "CWE-89",
+      "id": "cloud/sql/mypy_boto3_rds_data_client_RDSDataServiceClient_batch_execute_statement",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "mypy_boto3_rds_data.client.RDSDataServiceClient.batch_execute_statement"
+      ],
+      "title": "Tainted data reaches batch_execute_statement"
+    },
+    {
+      "categories": [
+        "sql"
+      ],
+      "cwe": "CWE-89",
+      "id": "cloud/sql/mypy_boto3_rds_data_client_RDSDataServiceClient_execute_sql",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "mypy_boto3_rds_data.client.RDSDataServiceClient.execute_sql"
+      ],
+      "title": "Tainted data reaches execute_sql"
+    },
+    {
+      "categories": [
+        "sql"
+      ],
+      "cwe": "CWE-89",
+      "id": "cloud/sql/mypy_boto3_rds_data_client_RDSDataServiceClient_execute_statement",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "mypy_boto3_rds_data.client.RDSDataServiceClient.execute_statement"
+      ],
+      "title": "Tainted data reaches execute_statement"
+    },
+    {
+      "categories": [
+        "sql"
+      ],
+      "cwe": "CWE-89",
+      "id": "cloud/sql/mypy_boto3_redshift_data_client_RedshiftDataAPIServiceClient_batch_execute_statement",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "mypy_boto3_redshift_data.client.RedshiftDataAPIServiceClient.batch_execute_statement"
+      ],
+      "title": "Tainted data reaches batch_execute_statement"
+    },
+    {
+      "categories": [
+        "sql"
+      ],
+      "cwe": "CWE-89",
+      "id": "cloud/sql/mypy_boto3_redshift_data_client_RedshiftDataAPIServiceClient_execute_statement",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "mypy_boto3_redshift_data.client.RedshiftDataAPIServiceClient.execute_statement"
+      ],
+      "title": "Tainted data reaches execute_statement"
+    }
+  ],
+  "type": "taint"
+}

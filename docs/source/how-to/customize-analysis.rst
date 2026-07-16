@@ -89,7 +89,7 @@ Running Custom Analysis
 
 .. code-block:: bash
 
-   pyflow analyze input.py --analysis my_custom
+   pyflow optimize input.py --analysis cpa
 
 Custom Optimization Passes
 ===========================
@@ -206,16 +206,14 @@ Override configuration from the command line:
 
 .. code-block:: bash
 
-   # Override specific settings
-   pyflow analyze input.py \
-       --analysis cpa \
-       --cpa-config context_sensitive=true,max_context_depth=10
+   # Run with specific analysis
+   pyflow optimize input.py --analysis cpa
 
    # Disable optimizations
    pyflow optimize input.py --no-opt-passes
 
    # Set output format
-   pyflow callgraph input.py --format json --output result.json
+   pyflow callgraph input.py --output result.txt
 
 Environment Variables
 =====================

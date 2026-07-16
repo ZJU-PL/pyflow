@@ -90,14 +90,15 @@ def test_security_cli_threads_pattern_excludes_into_discover_files(
         verbose=False,
         debug=False,
         exclude=" foo.py , bar.py ",
-        engine="pattern",
+        engine="ast-scanner",
         taint_engine="ast",
         micro_bench=None,
         format="text",
         output=None,
+        targets=["sample.py"],
     )
 
-    exit_code = security_cli.run_security_analysis(["sample.py"], args)
+    exit_code = security_cli.run_security(args)
 
     assert exit_code == 0
     assert captured["targets"] == ["sample.py"]
@@ -113,6 +114,8 @@ def test_security_cli_threads_semantic_excludes_into_config(monkeypatch):
         def __init__(self, config, debug=False, verbose=False, quiet=False):
             captured["exclude"] = config.exclude
             captured["taint_engine"] = config.taint_engine
+            captured["sources"] = config.sources
+            captured["sinks"] = config.sinks
 
         def analyze(self, targets):
             captured["targets"] = list(targets)
@@ -136,16 +139,138 @@ def test_security_cli_threads_semantic_excludes_into_config(monkeypatch):
         verbose=False,
         debug=False,
         exclude=" foo.py , bar.py ",
-        engine="semantic",
-        taint_engine="both",
+        engine="cpa",
+        sources=["input"],
+        sinks=["eval"],
+        taint_engine="ast",
         micro_bench=None,
         format="text",
         output=None,
+        targets=["sample.py"],
     )
 
-    exit_code = security_cli.run_security_analysis(["sample.py"], args)
+    exit_code = security_cli.run_security(args)
 
     assert exit_code == 0
     assert captured["targets"] == ["sample.py"]
     assert captured["exclude"] == ("foo.py", "bar.py")
     assert captured["taint_engine"] == "ast"
+    assert captured["sources"] == ("input",)
+    assert captured["sinks"] == ("eval",)
+
+
+def test_security_cli_cpa_completes_on_semantic_taint_file(tmp_path, capsys):
+    sample = tmp_path / "cpa_taint.py"
+    sample.write_text(
+        """
+import os
+
+
+def command_from_input():
+    cmd = input("cmd> ")
+    os.system(cmd)
+
+
+def eval_from_input():
+    expr = input("expr> ")
+    return eval(expr)
+""",
+        encoding="utf-8",
+    )
+
+    args = SimpleNamespace(
+        recursive=False,
+        verbose=False,
+        debug=False,
+        exclude="",
+        engine="cpa",
+        taint_engine="ast",
+        format="text",
+        output=None,
+        targets=[str(sample)],
+    )
+
+    exit_code = security_cli.run_security(args)
+
+    out = capsys.readouterr().out
+    assert exit_code == 1
+    assert "Untrusted data can reach sink 'os.system'" in out
+    assert "Untrusted data can reach sink 'eval'" in out
+    assert "Traceback" not in out
+
+
+def test_security_cli_cpg_reports_nested_source_to_sink_flow(tmp_path):
+    sample = tmp_path / "cpg_flow.py"
+    sample.write_text(
+        """
+import os
+
+
+class Box:
+    def __init__(self):
+        self.value = None
+
+
+def source():
+    return input("cmd> ")
+
+
+def passthrough(value):
+    return value
+
+
+def run_from_field():
+    box = Box()
+    box.value = passthrough(source())
+    os.system(box.value)
+
+
+def run_from_dict():
+    payload = {"cmd": source()}
+    cmd = f"{payload['cmd']}"
+    eval(cmd)
+""",
+        encoding="utf-8",
+    )
+
+    args = SimpleNamespace(
+        recursive=False,
+        sources=["source", "input"],
+        sinks=["os.system", "eval"],
+        sanitizers=[],
+        framework=[],
+    )
+
+    findings = security_cli._run_cpg([str(sample)], args)
+
+    sink_labels = {finding["sink_label"] for finding in findings}
+    assert "os.system" in sink_labels
+    assert "eval" in sink_labels
+
+
+def test_security_cli_cpg_reports_flask_framework_flow(tmp_path):
+    sample = tmp_path / "cpg_flask.py"
+    sample.write_text(
+        """
+import os
+from flask import request
+
+
+def route_handler():
+    cmd = request.args.get("cmd")
+    os.system(cmd)
+""",
+        encoding="utf-8",
+    )
+
+    args = SimpleNamespace(
+        recursive=False,
+        sources=[],
+        sinks=[],
+        sanitizers=[],
+        framework=["flask"],
+    )
+
+    findings = security_cli._run_cpg([str(sample)], args)
+
+    assert any(finding["sink_label"] == "os.system" for finding in findings)

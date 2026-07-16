@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "framework": "fastapi",
+  "version": "1.0",
+  "description": "Fastapi nullable-return models for the IFDS nullness analysis",
+  "detection": {
+    "imports": [],
+    "patterns": []
+  },
+  "models": [
+    {
+      "call": "fastapi.Request.query_params.get",
+      "nullness_nullable_return": true
+    }
+  ],
+  "type": "nullness"
+}

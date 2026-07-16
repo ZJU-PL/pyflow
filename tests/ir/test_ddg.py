@@ -20,11 +20,9 @@ from pyflow.application.pipeline import evaluate as pipeline_evaluate
 from pyflow.frontend.programextractor import Extractor
 from pyflow.frontend.programextractor import extractProgram
 from pyflow.analysis.dataflowIR import convert
-from pyflow.analysis.dataflowIR.convert import UnsupportedDataflowConstructError
 from pyflow.analysis.ddg import construct_ddg
 from pyflow.analysis.ddg.graph import DataDependenceGraph, DDGNode, DDGEdge
 from pyflow.util.application.console import Console
-from pyflow.util.typedispatch import TypeDispatchError
 
 
 def simple_assignment(x):
@@ -184,12 +182,7 @@ class TestDDG(unittest.TestCase):
 
     def test_loop_with_assignment_ddg(self):
         """Test DDG construction for loop with assignments."""
-        try:
-            ddg = self.build_ddg(loop_with_assignment)
-        except (TypeDispatchError, UnsupportedDataflowConstructError) as e:
-            if "ast.While" in str(e) or "While" in str(e):
-                raise unittest.SkipTest("dataflowIR converter does not yet support ast.While nodes") from e
-            raise
+        ddg = self.build_ddg(loop_with_assignment)
         
         stats = ddg.stats()
         self.assertGreater(stats['nodes'], 0)

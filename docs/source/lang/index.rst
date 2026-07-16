@@ -10,6 +10,8 @@ Overview
 The Language module (`src/pyflow/language/`) contains Python language support:
 
 - :doc:`ast` - Abstract Syntax Tree node definitions for PyFlow's IR
+- :doc:`frontend` - Source extraction and dependency resolution
+- :doc:`asttools` - AST utilities: McCabe complexity, decorator detection, visitor patterns
 - Program representation - Object model and type system
 - AST transformations - Collapsing, folding, and def-use analysis
 - Code generation - Output and simple code generation
@@ -31,9 +33,9 @@ The AST system (`pyflow.language.python.ast`) provides node types:
 
 **Reference Nodes**: ``Existing`` (constants), ``Local`` (variables), ``DoNotCare`` (wildcards)
 
-**Expression Nodes**: ``Call``, ``DirectCall``, ``MethodCall``, ``BinaryOp``, ``UnaryPrefixOp``, ``GetAttr``, ``SetAttr``, ``GetSubscript``, ``SetSubscript``, ``BuildTuple``, ``BuildList``, ``BuildMap``
+**Expression Nodes**: ``Call``, ``DirectCall``, ``MethodCall``, ``BinaryOp``, ``UnaryPrefixOp``, ``ConditionalExpr``, ``GetAttr``, ``SetAttr``, ``GetSubscript``, ``SetSubscript``, ``BuildTuple``, ``BuildList``, ``BuildMap``
 
-**Statement Nodes**: ``Assign``, ``Return``, ``Discard``, ``Delete``
+**Statement Nodes**: ``Assign``, ``AnnAssign``, ``Return``, ``Discard``, ``Delete``
 
 **Control Flow Nodes**: ``Switch``, ``While``, ``For``, ``TryExceptFinally``, ``Break``, ``Continue``
 
@@ -82,18 +84,19 @@ The Language module is primarily used internally by PyFlow's analysis pipeline. 
 Module Structure
 ===============
 
-QT|.. toctree::
-NQ|   :maxdepth: 2
-XB|
-YY|   ast
-BR|   frontend
-QT|   api
-QT|
+.. toctree::
+   :maxdepth: 2
+
+   ast
+   frontend
+   asttools
+   api
+
 ===============
 See Also
-YT|===============
-MS|
-RR|- :doc:`api` - PyFlow programmatic API
-RR|- :doc:`../analysis/index` - Analysis modules using the language IR
-RS|- :doc:`../optimization/index` - Optimization passes transforming the AST
-XP|- :doc:`../overview` - Overall PyFlow architecture
+===============
+
+- :doc:`api` - PyFlow programmatic API
+- :doc:`../analysis/index` - Analysis modules using the language IR
+- :doc:`../optimization/index` - Optimization passes transforming the AST
+- :doc:`../overview` - Overall PyFlow architecture

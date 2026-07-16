@@ -31,37 +31,27 @@ Complex analysis takes longer and may be harder to interpret.
    # Good: Start simple
    pyflow callgraph input.py
 
-   # Then add options as needed
-   pyflow callgraph input.py --format json --max-depth 5
+    # Then pass specific options as needed
+   pyflow callgraph input.py --algorithm constraint
 
-Use Appropriate Output Formats
--------------------------------
+Choose the right tools for your task.
 
-**Do**: Choose the right output format for your task.
-
-- Use ``text`` for quick inspection
-- Use ``json`` for programmatic processing
-- Use ``dot`` for visualization
-- Use ``sarif`` for CI/CD integration
-
-**Why**: Text is easiest to read. JSON enables automation. DOT creates graphs.
-SARIF integrates with CI/CD.
+- Use ``pyflow callgraph`` for textual call graph analysis
+- Use ``pyflow ir --dump-format dot`` for IR visualization
+- Use ``pyflow security --format sarif`` for CI/CD security integration
 
 **Example**:
 
 .. code-block:: bash
 
    # For quick check
-   pyflow callgraph input.py --format text
+   pyflow callgraph input.py
 
-   # For scripting
-   pyflow callgraph input.py --format json --output graph.json
+   # For constraint-based analysis
+   pyflow callgraph input.py --algorithm constraint
 
-   # For visualization
-   pyflow callgraph input.py --format dot --output graph.dot
-
-   # For CI/CD
-   pyflow callgraph input.py --format sarif --output results.sarif
+   # For visualization, use ir dump with DOT format
+   pyflow ir input.py --dump-cfg main --dump-format dot --output cfg.dot
 
 Check Configuration
 -------------------
@@ -75,10 +65,7 @@ Check Configuration
 .. code-block:: bash
 
    # Verify configuration
-   pyflow analyze input.py --verbose
-
-   # Check specific settings
-   pyflow analyze input.py --dump-config
+   pyflow optimize input.py --verbose
 
 Intermediate Best Practices
 ============================
@@ -96,10 +83,10 @@ complete picture.
 .. code-block:: bash
 
    # Run multiple analyses
-   pyflow analyze input.py --analysis cpa,ipa,shape
+   pyflow optimize input.py --analysis cpa,ipa,shape
 
    # Or run all analyses
-   pyflow analyze input.py --analysis all
+   pyflow optimize input.py --analysis all
 
 Profile Before Optimizing
 --------------------------
@@ -160,13 +147,14 @@ Use Incremental Analysis
 
 **Example**:
 
-.. code-block:: bash
+.. code-block:: python
 
-   # After initial full analysis
-   pyflow analyze project/ --output baseline.json
+   # Use Python API for incremental analysis
+   from pyflow.application.cache import IncrementalAnalysisCache
 
-   # After making changes
-   pyflow analyze changed_file.py --incremental baseline.json --output updated.json
+   cache = IncrementalAnalysisCache()
+   cache.store(program, results)
+   # Later: re-analyze only changed files
 
 Advanced Best Practices
 ========================
@@ -180,16 +168,18 @@ Configure Context Sensitivity
 
 **Example**:
 
-.. code-block:: bash
+.. code-block:: python
 
    # Fast, context-insensitive
-   pyflow analyze input.py --cpa-config context_sensitive=false
+   context.set_config("cpa.context_sensitive", False)
 
    # Balanced, k-limiting
-   pyflow analyze input.py --cpa-config context_sensitive=true,k_value=3
+   context.set_config("cpa.context_sensitive", True)
+   context.set_config("cpa.k_value", 3)
 
    # Precise, full context
-   pyflow analyze input.py --cpa-config context_sensitive=true,max_depth=10
+   context.set_config("cpa.context_sensitive", True)
+   context.set_config("cpa.max_context_depth", 10)
 
 Customize for Your Codebase
 ----------------------------
@@ -244,16 +234,14 @@ Integrate with Development Workflow
              python-version: '3.10'
          - name: Install PyFlow
            run: pip install pyflow
-         - name: Run Analysis
-           run: |
-             pyflow callgraph . --format sarif --output callgraph.sarif
-             pyflow security . --format sarif --output security.sarif
-         - name: Upload SARIF
-           uses: github/codeql-action/upload-sarif@v2
-           with:
-             sarif_file: |
-               callgraph.sarif
-               security.sarif
+          - name: Run Analysis
+            run: |
+              pyflow callgraph . --output callgraph.txt
+              pyflow security . --format sarif --output security.sarif
+          - name: Upload SARIF
+            uses: github/codeql-action/upload-sarif@v2
+            with:
+              sarif_file: security.sarif
 
 Security Analysis Best Practices
 =================================
@@ -270,7 +258,7 @@ Scan Early and Often
 .. code-block:: bash
 
    # In pre-commit hook
-   pyflow security input.py --fail-on high
+   pyflow security input.py
 
    # In CI/CD
    pyflow security . --format sarif --output security.sarif
@@ -303,11 +291,11 @@ Prioritize Remediation
 
 .. code-block:: bash
 
-   # Focus on high severity
-   pyflow security input.py --severity high,critical
+   # Focus on specific checks
+   pyflow security input.py --verbose
 
-   # Get remediation guidance
-   pyflow security input.py --explain
+   # Get detailed output
+   pyflow security input.py --debug
 
 Performance Best Practices
 ===========================
@@ -327,31 +315,31 @@ Choose Appropriate Analysis Depth
 
 .. code-block:: bash
 
-   # Quick check (shallow)
-   pyflow analyze input.py --depth shallow
+   # Quick check — use simple callgraph
+   pyflow callgraph input.py --algorithm simple
 
-   # Standard analysis (medium)
-   pyflow analyze input.py --depth medium
+   # Standard analysis — default optimization
+   pyflow optimize input.py
 
-   # Security analysis (deep)
-   pyflow analyze input.py --depth deep
+   # Security analysis — use IFDS engine
+   pyflow security input.py --engine ifds --function main
 
 Use Caching
------------
+----------
 
-**Do**: Use PyFlow's caching capabilities for repeated analysis.
+**Do**: Use PyFlow's internal caching capabilities for repeated analysis.
 
 **Why**: Caching avoids re-analyzing unchanged code.
 
 **Example**:
 
-.. code-block:: bash
+.. code-block:: python
 
-   # Create baseline
-   pyflow analyze project/ --output baseline.json
+   from pyflow.application.cache import IncrementalAnalysisCache
 
-   # Subsequent analyses use baseline
-   pyflow analyze project/ --incremental baseline.json
+   cache = IncrementalAnalysisCache()
+   cache.store(program, results)
+   # Later: re-analyze only changed files
 
 Parallel Analysis
 -----------------
@@ -364,8 +352,8 @@ Parallel Analysis
 
 .. code-block:: bash
 
-   # Use multiple cores
-   pyflow analyze project/ --jobs 4
+   # Use recursive mode for large projects
+   pyflow optimize project/ --recursive
 
 Documentation Best Practices
 =============================
@@ -437,7 +425,7 @@ Start with Verbose Output
 
 .. code-block:: bash
 
-   pyflow analyze input.py --verbose --log-level debug
+   pyflow optimize input.py --verbose --debug
 
 Reproduce with Minimal Example
 -------------------------------
@@ -471,4 +459,4 @@ Check Existing Issues
    gh issue list --repo ZJU-PL/pyflow --search "context"
 
    # Check documentation
-   pyflow analyze --help
+   pyflow optimize --help
