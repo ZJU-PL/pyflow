@@ -341,5 +341,4 @@ Issue: Circular edges in visualization
 ---------------------------------------
 
 - Recursive functions naturally have circular edges
-- Use ``--max-depth`` to limit recursion depth
 - This is expected behavior, not an error

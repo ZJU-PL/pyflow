@@ -1,0 +1,145 @@
+{
+  "schema_version": 1,
+  "framework": "concurrency",
+  "version": "1.0",
+  "description": "Concurrency typestate models (extracted from root rule pack)",
+  "detection": {
+    "imports": [],
+    "patterns": []
+  },
+  "models": [
+    {
+      "call": "threading.Lock",
+      "resource_arg_positions": [],
+      "typestate_action": "create",
+      "typestate_protocol": "lock"
+    },
+    {
+      "call": "threading.RLock",
+      "resource_arg_positions": [],
+      "typestate_action": "create",
+      "typestate_protocol": "lock"
+    },
+    {
+      "call": "threading.Semaphore",
+      "resource_arg_positions": [],
+      "typestate_action": "create",
+      "typestate_protocol": "lock"
+    },
+    {
+      "call": "threading.BoundedSemaphore",
+      "resource_arg_positions": [],
+      "typestate_action": "create",
+      "typestate_protocol": "lock"
+    },
+    {
+      "call": "multiprocessing.Lock",
+      "resource_arg_positions": [],
+      "typestate_action": "create",
+      "typestate_protocol": "lock"
+    },
+    {
+      "call": "asyncio.Lock",
+      "resource_arg_positions": [],
+      "typestate_action": "create",
+      "typestate_protocol": "lock"
+    },
+    {
+      "call": "release",
+      "resource_arg_positions": [],
+      "typestate_action": "release",
+      "typestate_protocol": "lock"
+    },
+    {
+      "call": "acquire",
+      "resource_arg_positions": [],
+      "typestate_action": "acquire",
+      "typestate_protocol": "lock"
+    },
+    {
+      "call": "subprocess.Popen",
+      "resource_arg_positions": [],
+      "typestate_action": "open",
+      "typestate_protocol": "resource"
+    },
+    {
+      "call": "asyncio.subprocess.create_subprocess_exec",
+      "resource_arg_positions": [],
+      "typestate_action": "open",
+      "typestate_protocol": "resource"
+    },
+    {
+      "call": "asyncio.subprocess.create_subprocess_shell",
+      "resource_arg_positions": [],
+      "typestate_action": "open",
+      "typestate_protocol": "resource"
+    },
+    {
+      "call": "terminate",
+      "resource_arg_positions": [],
+      "typestate_action": "close",
+      "typestate_protocol": "resource"
+    },
+    {
+      "call": "kill",
+      "resource_arg_positions": [],
+      "typestate_action": "close",
+      "typestate_protocol": "resource"
+    },
+    {
+      "call": "wait",
+      "resource_arg_positions": [],
+      "typestate_action": "close",
+      "typestate_protocol": "resource"
+    },
+    {
+      "call": "communicate",
+      "resource_arg_positions": [],
+      "typestate_action": "close",
+      "typestate_protocol": "resource"
+    },
+    {
+      "call": "poll",
+      "resource_arg_positions": [],
+      "typestate_action": "use",
+      "typestate_protocol": "resource"
+    },
+    {
+      "call": "tempfile.NamedTemporaryFile",
+      "resource_arg_positions": [],
+      "typestate_action": "open",
+      "typestate_protocol": "file"
+    },
+    {
+      "call": "tempfile.TemporaryFile",
+      "resource_arg_positions": [],
+      "typestate_action": "open",
+      "typestate_protocol": "file"
+    },
+    {
+      "call": "tempfile.mkstemp",
+      "resource_arg_positions": [],
+      "typestate_action": "open",
+      "typestate_protocol": "file"
+    },
+    {
+      "call": "tempfile.TemporaryDirectory",
+      "resource_arg_positions": [],
+      "typestate_action": "open",
+      "typestate_protocol": "file"
+    },
+    {
+      "call": "tempfile.mkdtemp",
+      "resource_arg_positions": [],
+      "typestate_action": "open",
+      "typestate_protocol": "file"
+    },
+    {
+      "call": "cleanup",
+      "resource_arg_positions": [],
+      "typestate_action": "close",
+      "typestate_protocol": "file"
+    }
+  ],
+  "type": "typestate"
+}

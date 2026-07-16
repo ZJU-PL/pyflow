@@ -1,0 +1,91 @@
+{
+  "schema_version": 1,
+  "framework": "stdlib",
+  "version": "1.0",
+  "description": "Stdlib typestate models (extracted from root rule pack)",
+  "detection": {
+    "imports": [],
+    "patterns": []
+  },
+  "models": [
+    {
+      "call": "open",
+      "resource_arg_positions": [],
+      "typestate_action": "open",
+      "typestate_protocol": "file"
+    },
+    {
+      "call": "io.open",
+      "resource_arg_positions": [],
+      "typestate_action": "open",
+      "typestate_protocol": "file"
+    },
+    {
+      "call": "subprocess.Popen",
+      "resource_arg_positions": [],
+      "typestate_action": "open",
+      "typestate_protocol": "resource"
+    },
+    {
+      "call": "close",
+      "typestate_action": "close",
+      "typestate_protocol": "resource"
+    },
+    {
+      "call": "read",
+      "typestate_action": "use",
+      "typestate_protocol": "file"
+    },
+    {
+      "call": "readline",
+      "typestate_action": "use",
+      "typestate_protocol": "file"
+    },
+    {
+      "call": "readlines",
+      "typestate_action": "use",
+      "typestate_protocol": "file"
+    },
+    {
+      "call": "write",
+      "typestate_action": "use",
+      "typestate_protocol": "file"
+    },
+    {
+      "call": "writelines",
+      "typestate_action": "use",
+      "typestate_protocol": "file"
+    },
+    {
+      "call": "seek",
+      "typestate_action": "use",
+      "typestate_protocol": "file"
+    },
+    {
+      "call": "tell",
+      "typestate_action": "use",
+      "typestate_protocol": "file"
+    },
+    {
+      "call": "truncate",
+      "typestate_action": "use",
+      "typestate_protocol": "file"
+    },
+    {
+      "call": "flush",
+      "typestate_action": "use",
+      "typestate_protocol": "file"
+    },
+    {
+      "call": "send",
+      "typestate_action": "use",
+      "typestate_protocol": "socket"
+    },
+    {
+      "call": "recv",
+      "typestate_action": "use",
+      "typestate_protocol": "socket"
+    }
+  ],
+  "type": "typestate"
+}

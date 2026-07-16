@@ -22,6 +22,8 @@ IR Construction
 * :doc:`cfg` - Control Flow Graph construction and analysis
 * :doc:`cdg` - Control Dependence Graph analysis
 * :doc:`pdg` - Program Dependence Graph construction and queries
+* :doc:`ddg` - Data Dependence Graph construction and analysis
+* :doc:`cpg` - Code Property Graph (unified CFG + PDG + call graph)
 * :doc:`callgraph` - Call Graph construction and analysis
 
 Data Flow Analysis
@@ -29,21 +31,35 @@ Data Flow Analysis
 
 * :doc:`dataflowIR` - Data Flow Intermediate Representation
 * :doc:`fsdf` - Flow-Sensitive Data Flow analysis
+* :doc:`ifds` - IFDS/IDE interprocedural data flow engine (taint, nullness, typestate)
 * :doc:`ipa` - Inter-procedural Analysis
 * :doc:`cpa` - Constraint-based Analysis
 
-Shape and Type Analysis
+Alias and Type Analysis
 -----------------------
 
-* :doc:`shape` - Shape analysis for data structures
-* :doc:`storegraph` - Store graph analysis for object relationships
+* :doc:`alias/index` - Flow-sensitive and k-CFA alias analyses
+* :doc:`typeinfo` - Type-information collection and inference
+
+Shape and Object Analysis
+------------------------
+
+* :doc:`storegraph` - Store graph analysis for object relationships (foundational data model for CPA/shape)
+* :doc:`shape` - Region-based shape analysis for data structures (reference counts, path info)
+* :doc:`lifetimeanalysis` - Variable lifetime analysis (read/modify tracking, post-shape pipeline)
+
+.. seealso::
+
+   :doc:`/explanation/memory-reasoning` — Comprehensive comparison of all six
+   memory/heap reasoning systems in PyFlow, including when to use each one.
 
 Specialized Analysis
 --------------------
 
 * :doc:`numbering` - Program point numbering
-* :doc:`lifetimeanalysis` - Variable lifetime analysis
 * :doc:`dump` - Analysis result dumping and visualization
+* :doc:`stats` - Statistics collection and LaTeX report generation
+* :doc:`incremental` - Incremental analysis caching with BLAKE2b + SQLite
 
 Analysis Configuration
 ======================
@@ -58,25 +74,29 @@ context-sensitive analysis for more precise results:
 
 .. code-block:: bash
 
-   pyflow analyze input.py --analysis cpa --cpa-config context_sensitive=true
+   pyflow optimize input.py --analysis cpa
+
+.. code-block:: python
+
+   context.set_config("cpa.context_sensitive", True)
 
 Flow-Sensitive Analysis
 -----------------------
 
 Enable flow-sensitive analysis for statement-by-statement precision:
 
-.. code-block:: bash
+.. code-block:: python
 
-   pyflow analyze input.py --analysis cpa --cpa-config flow_sensitive=true
+   context.set_config("cpa.flow_sensitive", True)
 
 Field-Sensitive Analysis
 ------------------------
 
 Enable field-sensitive analysis to track individual object fields:
 
-.. code-block:: bash
+.. code-block:: python
 
-   pyflow analyze input.py --analysis cpa --cpa-config field_sensitive=true
+   context.set_config("cpa.field_sensitive", True)
 
 Running Analyses
 ================
@@ -84,21 +104,15 @@ Running Analyses
 Command Line
 ------------
 
-Use the ``analyze`` command for general analysis:
+PyFlow provides several CLI commands for running analyses:
 
-.. code-block:: bash
-
-   pyflow analyze input.py --analysis all
-   pyflow analyze input.py --analysis cpa,ipa
-   pyflow analyze input.py --analysis cpa --cpa-config context_sensitive=true
-
-Specific Commands
------------------
-
+* ``pyflow optimize`` - Run analysis and optimization pipeline
 * ``pyflow callgraph`` - Build and analyze call graphs
-* ``pyflow ir`` - Dump intermediate representations
-* ``pyflow security`` - Run security analysis
-* ``pyflow optimize`` - Run analysis and optimization
+* ``pyflow ir`` - Dump intermediate representations (AST, CFG, SSA, CDG, DDG)
+* ``pyflow alias`` - Run alias analysis (flow-sensitive heap or k-CFA pointer)
+* ``pyflow security`` - Unified security analysis dispatching to
+  ast-scanner, CPA, IFDS, or CPG engines
+* ``pyflow supply-chain`` - Generate CycloneDX SBOMs and audit distribution metadata
 
 Programmatic Usage
 ------------------
@@ -130,25 +144,25 @@ Human-readable text output for terminal:
 
 .. code-block:: bash
 
-   pyflow analyze input.py --format text
+   pyflow ir input.py --dump-cfg main --dump-format text
 
 JSON Output
------------
+----------
 
 Machine-readable JSON for programmatic processing:
 
 .. code-block:: bash
 
-   pyflow analyze input.py --format json --output results.json
+   pyflow ir input.py --dump-cfg main --dump-format json --dump-output ./out
 
 SARIF Output
-------------
+-----------
 
 Standard SARIF format for CI/CD integration:
 
 .. code-block:: bash
 
-   pyflow analyze input.py --format sarif --output results.sarif
+   pyflow security input.py --format sarif --output results.sarif
 
 .. toctree::
     :maxdepth: 2
@@ -156,13 +170,21 @@ Standard SARIF format for CI/CD integration:
 
     cfg
     cdg
+    pdg
+    ddg
+    cpg
     callgraph
     dataflowIR
     fsdf
     ipa
     cpa
-    shape
+    alias/index
     storegraph
-    numbering
+    shape
     lifetimeanalysis
+    ifds
+    typeinfo
+    numbering
     dump
+    stats
+    incremental

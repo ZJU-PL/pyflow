@@ -87,6 +87,14 @@ class PDGNode:
     def __repr__(self) -> str:
         return f"PDGNode({self.node_id},{self.kind})"
 
+    def to_dict(self) -> Dict[str, Any]:
+        """Serialize this PDGNode to a JSON-compatible dict."""
+        return {
+            "id": self.node_id,
+            "kind": self.kind,
+            "label": self.label,
+        }
+
     def __hash__(self) -> int:
         return self.node_id
 

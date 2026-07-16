@@ -97,13 +97,21 @@ def _collect_local_defs_uses(
     return set(duv.lcldef.keys()), set(duv.lcluse.keys())
 
 
+def _flatten_children(child: Any, into: List[Any]) -> None:
+    """Recursively flatten nested tuples/lists into *into*, skipping Nones."""
+    if child is None:
+        return
+    if isinstance(child, (list, tuple)):
+        for item in child:
+            _flatten_children(item, into)
+    else:
+        into.append(child)
+
+
 def _iter_ast_children(node: Any) -> List[Any]:
     children: List[Any] = []
     for child in node.children():
-        if isinstance(child, (list, tuple)):
-            children.extend(item for item in child if item is not None)
-        elif child is not None:
-            children.append(child)
+        _flatten_children(child, children)
     return children
 
 
@@ -386,6 +394,8 @@ class PDGConstructor:
             if node.ast_node is None:
                 continue
             defs, uses = _collect_local_defs_uses(node.ast_node, root_code=root_code)
+            defs = {d for d in defs if isinstance(d, py_ast.Local)}
+            uses = {u for u in uses if isinstance(u, py_ast.Local)}
             node_uses[node] = uses
             for d in defs:
                 var_to_defs.setdefault(key_for_local(d), []).append(node)

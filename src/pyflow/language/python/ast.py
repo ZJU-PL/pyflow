@@ -464,6 +464,12 @@ class ShortCircutOr(Expression):
     __fields__ = "terms*"
 
 
+class ConditionalExpr(Expression):
+    """Expression-level conditional: ``body if test else orelse``."""
+
+    __fields__ = "test:Expression body:Expression orelse:Expression"
+
+
 ### Control flow ###
 class Return(ControlFlow):
     __fields__ = "exprs:Expression*"
@@ -505,7 +511,10 @@ class NonlocalDecl(Statement):
 
 class AnnAssign(Statement):
     """Annotated assignment: x: int = 5 or just x: int."""
-    __fields__ = "target:Local annotation:Expression value:Expression?"
+    # ``annotation`` is reserved by PythonASTNode for per-node analysis
+    # metadata.  Keep the source expression under a distinct field so it is
+    # not overwritten during node construction.
+    __fields__ = "target:Local annotation_expr:Expression value:Expression?"
 
 
 class TypeAlias(Statement):
@@ -520,18 +529,23 @@ class TypeAlias(Statement):
 
 class Suite(PythonASTNode):
     __fields__ = "blocks:Statement*"
+    __slots__ = ("blocks", "_origin_tag")
     __mutable__ = (
         True  # HACK not really mutable, just need to be able to assign to blocks.
     )
 
     def __init__(self, blocks=None):
         self.blocks = []
+        self._origin_tag = None
         self.append(blocks)
         self.annotation = self.__emptyAnnotation__
 
     def insertHead(self, block):
         if block != None:
             if isinstance(block, Suite):
+                if block._origin_tag is not None:
+                    self.blocks.insert(0, block)
+                    return
                 # Flatten hierachial suites
                 self.blocks[0:0] = block.blocks
             elif isinstance(block, (list, tuple)):
@@ -543,6 +557,9 @@ class Suite(PythonASTNode):
     def append(self, block):
         if block != None:
             if isinstance(block, Suite):
+                if block._origin_tag is not None:
+                    self.blocks.append(block)
+                    return
                 # Flatten hierachial suites
                 self.blocks.extend(block.blocks)
             elif isinstance(block, (list, tuple)):

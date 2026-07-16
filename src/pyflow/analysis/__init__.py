@@ -10,4 +10,5 @@ from . import shape
 from . import ipa
 from . import cpa
 from . import fsdf
+from . import alias
 from . import ifds

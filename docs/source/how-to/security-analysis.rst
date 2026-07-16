@@ -33,16 +33,19 @@ Full security analysis
 
 .. code-block:: bash
 
-   pyflow security input.py --analysis all
+   pyflow security input.py --engine cpa
 
-Specific security checks
-------------------------
+Specific security engines
+-------------------------
 
-Run only specific checks:
+Run with a specific analysis engine:
 
 .. code-block:: bash
 
-   pyflow security input.py --checks injection,credentials,deprecated
+   pyflow security input.py --engine ast-scanner
+   pyflow security input.py --engine cpa
+   pyflow security input.py --engine ifds --function main --sources input --sinks eval
+   pyflow security input.py --engine cpg --framework flask
 
 Available Security Checks
 ==========================

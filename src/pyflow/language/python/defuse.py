@@ -414,7 +414,7 @@ class DefUseVisitor(TypeDispatcher):
         # Annotated assignment defines the target; the annotation/value may
         # contain Local leaves that need explicit use recording.
         self.define(node, node.target)
-        self.use(node, node.annotation)
+        self.use(node, node.annotation_expr)
         self.use(node, node.value)
 
     @dispatch(ast.Discard)

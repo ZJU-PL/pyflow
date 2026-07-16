@@ -43,10 +43,10 @@ Decision: Default to Sound, Possibly Imprecise Analysis
 .. code-block:: bash
 
    # Sound but potentially slow
-   pyflow analyze input.py --analysis all
+   pyflow optimize input.py --analysis all
 
    # Faster but may miss issues
-   pyflow analyze input.py --analysis cha
+   pyflow optimize input.py --analysis cpa
 
 Context Sensitivity
 ===================
@@ -75,10 +75,10 @@ forcing a single approach.
 .. code-block:: bash
 
    # Fast but insensitive
-   pyflow analyze input.py --cpa-config context_sensitive=false
+   pyflow callgraph input.py --algorithm simple
 
    # Slower but context-sensitive
-   pyflow analyze input.py --cpa-config context_sensitive=true,max_context_depth=5
+   pyflow callgraph input.py --algorithm constraint --context-sensitive
 
 IR Design
 =========
@@ -225,11 +225,12 @@ Decision: Subcommand-Based CLI
 
 **Subcommands**:
 
-- ``pyflow analyze``: Run static analysis
+- ``pyflow optimize``: Run analysis and optimization pipeline
 - ``pyflow callgraph``: Build call graphs
 - ``pyflow ir``: Dump intermediate representations
-- ``pyflow optimize``: Optimize code
-- ``pyflow security``: Security analysis
+- ``pyflow alias``: Run alias analysis (flow-sensitive heap or k-CFA pointer)
+- ``pyflow security``: Run security analysis
+- ``pyflow supply-chain``: Generate SBOMs and audit distribution metadata
 
 **Rationale**:
 
@@ -300,7 +301,7 @@ needs.
 .. code-block:: bash
 
    # Fast analysis
-   pyflow analyze input.py --depth shallow
+   pyflow callgraph input.py --algorithm simple
 
    # Comprehensive analysis
-   pyflow analyze input.py --depth deep
+   pyflow security input.py --engine ifds --function main

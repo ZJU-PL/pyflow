@@ -18,6 +18,7 @@ from pyflow.language.python import ast
 from pyflow.language.python import annotations
 
 from pyflow.analysis import tools
+from pyflow.analysis.ir_utils import copy_call_argument_metadata
 from pyflow.optimization import dataflow
 
 from pyflow.optimization import simplify
@@ -467,6 +468,7 @@ class MethodRewrite(TypeDispatcher):
         rewrite = ast.MethodCall(
             expr, name, node.args, node.kwds, node.vargs, node.kargs
         )
+        copy_call_argument_metadata(node, rewrite)
         self.transferOpInfo(node, rewrite)
         self.rewritten.add(id(node))
         return rewrite

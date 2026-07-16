@@ -1,11 +1,12 @@
-"""
-Task-oriented test generation queries built on analysis facts.
-"""
+"""Task-oriented test generation queries built on analysis facts."""
 
+import ast
 from collections import deque
+from pathlib import Path
 from typing import Any, Dict, List, Union
 
 from pyflow.application.errors import TemporaryLimitation
+from pyflow.language.asttools import mccabe_complexity
 
 from .._models import FunctionTestProfile, TestScenario
 from ..context import QueryContext
@@ -37,6 +38,7 @@ class TestGenerationQueries:
         callers = self.call_graph.get_callers(function)
         cfg = self.control_flow.get_cfg(function)
         has_branches, has_loops, complexity = self._analyze_cfg_structure(cfg)
+        complexity = self._source_complexity(code) or complexity
         signature_info = self._extract_signature_info(code)
 
         return FunctionTestProfile(
@@ -107,6 +109,96 @@ class TestGenerationQueries:
                         queue.append(target)
 
         return has_branches, has_loops, complexity
+
+    def _source_complexity(self, code) -> int | None:
+        location = self._source_location(code)
+        if location is None:
+            return None
+
+        filename, lineno = location
+        try:
+            source = Path(filename).read_text(encoding="utf-8")
+            tree = ast.parse(source, filename=filename)
+        except (OSError, SyntaxError, ValueError):
+            return None
+
+        function_node = self._find_source_function_node(tree, code, lineno)
+        if function_node is None:
+            return None
+        return mccabe_complexity(function_node)
+
+    def _source_location(self, code) -> tuple[str, int | None] | None:
+        if hasattr(self.context, "_origin_location"):
+            filename, lineno = self.context._origin_location(code)
+            if filename:
+                return str(filename), self._coerce_lineno(lineno)
+
+        annotation = getattr(code, "annotation", None)
+        origin = getattr(annotation, "origin", None)
+        filename = getattr(origin, "filename", None)
+        if filename:
+            return str(filename), self._coerce_lineno(getattr(origin, "lineno", None))
+
+        if isinstance(origin, (tuple, list)):
+            for item in origin:
+                parsed = self._parse_source_origin(item)
+                if parsed is not None:
+                    return parsed
+
+        return None
+
+    @staticmethod
+    def _parse_source_origin(origin_item) -> tuple[str, int | None] | None:
+        if not isinstance(origin_item, str):
+            return None
+        if not (origin_item.startswith("source(") and origin_item.endswith(")")):
+            return None
+        payload = origin_item[len("source(") : -1]
+        filename, _sep, lineno = payload.rpartition(":")
+        if not filename:
+            return None
+        return filename, TestGenerationQueries._coerce_lineno(lineno)
+
+    @staticmethod
+    def _coerce_lineno(lineno) -> int | None:
+        try:
+            value = int(lineno)
+        except (TypeError, ValueError):
+            return None
+        return value if value > 0 else None
+
+    def _find_source_function_node(self, tree: ast.AST, code, lineno: int | None):
+        name = (
+            self.context.code_name(code)
+            if hasattr(self.context, "code_name")
+            else None
+        )
+        if name is None:
+            name = getattr(code, "name", None)
+        short_name = str(name).rsplit(".", 1)[-1] if name else None
+
+        candidates = [
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        ]
+
+        if lineno is not None:
+            line_matches = [
+                node
+                for node in candidates
+                if getattr(node, "lineno", None) == lineno
+                and (short_name is None or node.name == short_name)
+            ]
+            if line_matches:
+                return line_matches[0]
+
+        if short_name is not None:
+            name_matches = [node for node in candidates if node.name == short_name]
+            if len(name_matches) == 1:
+                return name_matches[0]
+
+        return None
 
     def _extract_signature_info(self, code) -> Dict[str, Any]:
         info = {"signature": None, "parameters": [], "return_type": None}

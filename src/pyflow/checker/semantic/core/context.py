@@ -71,7 +71,14 @@ class AnalysisSession:
         pipeline = Pipeline(use_pass_manager=use_pass_manager)
         compiler.program = program
         with console.scope("analysis"):
-            pipeline.run(program, compiler=compiler, name="semantic")
+            if use_pass_manager:
+                pipeline.run_custom_pipeline(
+                    compiler,
+                    program,
+                    AnalysisSession._semantic_pass_names(),
+                )
+            else:
+                pipeline.run(program, compiler=compiler, name="semantic")
 
         queries = program.get_semantic_queries(compiler)
         store_graph = cls._maybe_get_store_graph(queries)
@@ -158,7 +165,11 @@ class AnalysisSession:
 
         interface = getattr(program, "interface", None)
         funcs = getattr(interface, "func", []) if interface else []
-        for func_obj, _ in funcs:
+        for entry in funcs:
+            if isinstance(entry, tuple):
+                func_obj = entry[0]
+            else:
+                func_obj = entry
             name = getattr(func_obj, "__name__", None)
             if not name:
                 continue
@@ -212,8 +223,6 @@ class AnalysisSession:
             ]
             if func_nodes:
                 for node in func_nodes:
-                    if node.name in name_to_source:
-                        continue
                     if getattr(node, "lineno", None) and getattr(
                         node, "end_lineno", None
                     ):
@@ -225,6 +234,17 @@ class AnalysisSession:
                     func_to_file[node.name] = filename
 
         return name_to_source, func_to_file, file_imports
+
+    @staticmethod
+    def _semantic_pass_names() -> List[str]:
+        """Return the analysis-only pass set needed by semantic detectors.
+
+        The security checker consumes IPA/CPA/lifetime facts but should not run
+        optimization cleanup passes. Those passes can mutate the program and
+        invalidate lifetime state after it has been computed, which is useful
+        for optimization but not for read-only bug finding.
+        """
+        return ["ipa", "cpa", "lifetime"]
 
     # --------------------------------------------------------------- analysis
     @staticmethod

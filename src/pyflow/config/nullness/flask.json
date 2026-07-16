@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "framework": "flask",
+  "version": "1.0",
+  "description": "Flask nullable-return models for the IFDS nullness analysis",
+  "detection": {
+    "imports": [],
+    "patterns": []
+  },
+  "models": [
+    {
+      "call": "flask.request.args.get",
+      "nullness_nullable_return": true
+    },
+    {
+      "call": "flask.request.form.get",
+      "nullness_nullable_return": true
+    },
+    {
+      "call": "flask.request.headers.get",
+      "nullness_nullable_return": true
+    },
+    {
+      "call": "flask.request.cookies.get",
+      "nullness_nullable_return": true
+    },
+    {
+      "call": "flask.request.files.get",
+      "nullness_nullable_return": true
+    },
+    {
+      "call": "flask.request.values.get",
+      "nullness_nullable_return": true
+    }
+  ],
+  "type": "nullness"
+}

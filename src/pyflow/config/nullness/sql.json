@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "framework": "sql",
+  "version": "1.0",
+  "description": "Sql nullable-return models",
+  "detection": {
+    "imports": [],
+    "patterns": []
+  },
+  "models": [
+    {
+      "call": "fetchone",
+      "nullness_nullable_return": true
+    },
+    {
+      "call": "fetchmany",
+      "nullness_nullable_return": true
+    }
+  ],
+  "type": "nullness"
+}

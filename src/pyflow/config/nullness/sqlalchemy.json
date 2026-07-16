@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "framework": "sqlalchemy",
+  "version": "1.0",
+  "description": "Sqlalchemy nullable-return models for the IFDS nullness analysis",
+  "detection": {
+    "imports": [],
+    "patterns": []
+  },
+  "models": [
+    {
+      "call": "sqlalchemy.orm.query.Query.get",
+      "nullness_nullable_return": true
+    },
+    {
+      "call": "sqlalchemy.orm.query.Query.first",
+      "nullness_nullable_return": true
+    },
+    {
+      "call": "sqlalchemy.orm.query.Query.one_or_none",
+      "nullness_nullable_return": true
+    },
+    {
+      "call": "sqlalchemy.orm.query.Query.scalar",
+      "nullness_nullable_return": true
+    },
+    {
+      "call": "sqlalchemy.orm.query.Query.scalar_one_or_none",
+      "nullness_nullable_return": true
+    }
+  ],
+  "type": "nullness"
+}

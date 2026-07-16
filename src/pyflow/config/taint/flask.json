@@ -1,0 +1,504 @@
+{
+  "schema_version": 1,
+  "framework": "flask",
+  "version": "1.0",
+  "description": "Flask taint models (extracted from root rule pack)",
+  "detection": {
+    "imports": [
+      "flask",
+      "Flask(",
+      "@app.route",
+      "@blueprint.route",
+      "flask_login"
+    ],
+    "patterns": [
+      "render_template",
+      "flask.request",
+      "flask.redirect",
+      "flask.abort"
+    ]
+  },
+  "models": [
+    {
+      "call": "flask.request.args",
+      "taint_source": true,
+      "category": "user_input"
+    },
+    {
+      "call": "flask.request.form",
+      "taint_source": true,
+      "category": "user_input"
+    },
+    {
+      "call": "flask.request.json",
+      "taint_source": true,
+      "category": "user_input"
+    },
+    {
+      "call": "flask.request.data",
+      "taint_source": true,
+      "category": "user_input"
+    },
+    {
+      "call": "flask.request.headers",
+      "taint_source": true,
+      "category": "user_input"
+    },
+    {
+      "call": "flask.request.cookies",
+      "taint_source": true,
+      "category": "user_input"
+    },
+    {
+      "call": "flask.request.files",
+      "taint_source": true,
+      "category": "user_input"
+    },
+    {
+      "call": "flask.request.values",
+      "taint_source": true,
+      "category": "user_input"
+    },
+    {
+      "call": "flask.request.get_json",
+      "taint_source": true,
+      "category": "user_input"
+    },
+    {
+      "call": "flask.request.args.get",
+      "taint_source": true,
+      "category": "user_input"
+    },
+    {
+      "call": "flask.request.form.get",
+      "taint_source": true,
+      "category": "user_input"
+    },
+    {
+      "call": "flask.request.headers.get",
+      "taint_source": true,
+      "category": "user_input"
+    },
+    {
+      "call": "flask.request.cookies.get",
+      "taint_source": true,
+      "category": "user_input"
+    },
+    {
+      "call": "flask.request.files.get",
+      "taint_source": true,
+      "category": "user_input"
+    },
+    {
+      "call": "flask.request.values.get",
+      "taint_source": true,
+      "category": "user_input"
+    },
+    {
+      "call": "werkzeug.datastructures.MultiDict.get",
+      "taint_source": true,
+      "category": "user_input"
+    },
+    {
+      "call": "werkzeug.datastructures.ImmutableMultiDict.get",
+      "taint_source": true,
+      "category": "user_input"
+    },
+    {
+      "call": "flask.render_template_string",
+      "taint_sink": true
+    },
+    {
+      "call": "flask.redirect",
+      "taint_sink": true
+    },
+    {
+      "call": "flask.url_for",
+      "taint_sink": true
+    },
+    {
+      "call": "flask.make_response",
+      "taint_sink": true
+    },
+    {
+      "call": "flask.jsonify",
+      "taint_sink": true
+    },
+    {
+      "call": "flask.escape",
+      "taint_sanitizer": true
+    },
+    {
+      "call": "markupsafe.escape",
+      "taint_sanitizer": true
+    },
+    {
+      "call": "markupsafe.Markup",
+      "taint_sanitizer": true
+    },
+    {
+      "call": "werkzeug.security.generate_password_hash",
+      "taint_sanitizer": true
+    },
+    {
+      "call": "flask.current_app.logger.info",
+      "taint_sink": true
+    },
+    {
+      "call": "flask.current_app.logger.warning",
+      "taint_sink": true
+    },
+    {
+      "call": "flask.current_app.logger.error",
+      "taint_sink": true
+    },
+    {
+      "call": "flask.send_file",
+      "taint_sink": true
+    },
+    {
+      "call": "flask.send_from_directory",
+      "taint_sink": true
+    },
+    {
+      "call": "flask.globals.session",
+      "category": "user_input",
+      "taint_source": true
+    },
+    {
+      "call": "flask.wrappers.JSONMixin.get_json",
+      "category": "user_input",
+      "taint_source": true
+    },
+    {
+      "call": "flask.wrappers.Request.view_args",
+      "category": "user_input",
+      "taint_source": true
+    },
+    {
+      "call": "werkzeug.datastructures.Headers.get",
+      "category": "user_input",
+      "taint_source": true
+    },
+    {
+      "call": "werkzeug.wrappers.BaseRequest.args",
+      "category": "user_input",
+      "taint_source": true
+    },
+    {
+      "call": "werkzeug.wrappers.BaseRequest.base_url",
+      "category": "user_input",
+      "taint_source": true
+    },
+    {
+      "call": "werkzeug.wrappers.BaseRequest.cookies",
+      "category": "user_input",
+      "taint_source": true
+    },
+    {
+      "call": "werkzeug.wrappers.BaseRequest.data",
+      "category": "user_input",
+      "taint_source": true
+    },
+    {
+      "call": "werkzeug.wrappers.BaseRequest.files",
+      "category": "user_input",
+      "taint_source": true
+    },
+    {
+      "call": "werkzeug.wrappers.BaseRequest.form",
+      "category": "user_input",
+      "taint_source": true
+    },
+    {
+      "call": "werkzeug.wrappers.BaseRequest.full_path",
+      "category": "user_input",
+      "taint_source": true
+    },
+    {
+      "call": "werkzeug.wrappers.BaseRequest.get_data",
+      "category": "user_input",
+      "taint_source": true
+    },
+    {
+      "call": "werkzeug.wrappers.BaseRequest.headers",
+      "category": "user_input",
+      "taint_source": true
+    },
+    {
+      "call": "werkzeug.wrappers.BaseRequest.method",
+      "category": "user_input",
+      "taint_source": true
+    },
+    {
+      "call": "werkzeug.wrappers.BaseRequest.path",
+      "category": "user_input",
+      "taint_source": true
+    },
+    {
+      "call": "werkzeug.wrappers.BaseRequest.query_string",
+      "category": "user_input",
+      "taint_source": true
+    },
+    {
+      "call": "werkzeug.wrappers.BaseRequest.url",
+      "category": "user_input",
+      "taint_source": true
+    },
+    {
+      "call": "werkzeug.wrappers.BaseRequest.values",
+      "category": "user_input",
+      "taint_source": true
+    },
+    {
+      "call": "werkzeug.wrappers.BaseResponse.get_data",
+      "category": "user_input",
+      "taint_source": true
+    },
+    {
+      "call": "werkzeug.wrappers.CommonRequestDescriptorsMixin.content_type",
+      "category": "user_input",
+      "taint_source": true
+    },
+    {
+      "call": "werkzeug.wrappers.CommonRequestDescriptorsMixin.referrer",
+      "category": "user_input",
+      "taint_source": true
+    },
+    {
+      "call": "werkzeug.wrappers.CommonResponseDescriptorsMixin.location",
+      "category": "user_input",
+      "taint_source": true
+    },
+    {
+      "call": "werkzeug.wrappers.UserAgentMixin.user_agent",
+      "category": "user_input",
+      "taint_source": true
+    },
+    {
+      "call": "flask.helpers.make_response",
+      "category": "xss",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "flask.helpers.send_file",
+      "category": "file",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "flask.json.jsonify",
+      "category": "xss",
+      "sink_arg_positions": [
+        0,
+        1
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "flask.templating.render_template",
+      "category": "xss",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "flask.templating.render_template_string",
+      "categories": [
+        "ssti",
+        "xss"
+      ],
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "werkzeug.utils.redirect",
+      "category": "redirect",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "werkzeug.wrappers.BaseResponse.__init__",
+      "category": "xss",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "werkzeug.wrappers.BaseResponse.set_cookie",
+      "category": "xss",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "werkzeug.wrappers.BaseResponse.set_data",
+      "category": "xss",
+      "sink_arg_positions": [
+        0
+      ],
+      "taint_sink": true
+    }
+  ],
+  "rules": [
+    {
+      "categories": [
+        "xss"
+      ],
+      "cwe": "CWE-79",
+      "id": "flask/xss/flask_helpers_make_response",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "flask.helpers.make_response"
+      ],
+      "title": "Tainted data reaches make_response"
+    },
+    {
+      "categories": [
+        "file"
+      ],
+      "cwe": "CWE-22",
+      "id": "flask/file/flask_helpers_send_file",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "flask.helpers.send_file"
+      ],
+      "title": "Tainted data reaches send_file"
+    },
+    {
+      "categories": [
+        "xss"
+      ],
+      "cwe": "CWE-79",
+      "id": "flask/xss/flask_json_jsonify",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0,
+        1
+      ],
+      "sinks": [
+        "flask.json.jsonify"
+      ],
+      "title": "Tainted data reaches jsonify"
+    },
+    {
+      "categories": [
+        "xss"
+      ],
+      "cwe": "CWE-79",
+      "id": "flask/xss/flask_templating_render_template",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "flask.templating.render_template"
+      ],
+      "title": "Tainted data reaches render_template"
+    },
+    {
+      "categories": [
+        "ssti",
+        "xss"
+      ],
+      "cwe": "CWE-94",
+      "id": "flask/ssti_xss/flask_templating_render_template_string",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "flask.templating.render_template_string"
+      ],
+      "title": "Tainted data reaches render_template_string"
+    },
+    {
+      "categories": [
+        "redirect"
+      ],
+      "cwe": "CWE-601",
+      "id": "flask/redirect/werkzeug_utils_redirect",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "werkzeug.utils.redirect"
+      ],
+      "title": "Tainted data reaches redirect"
+    },
+    {
+      "categories": [
+        "xss"
+      ],
+      "cwe": "CWE-79",
+      "id": "flask/xss/werkzeug_wrappers_BaseResponse___init__",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "werkzeug.wrappers.BaseResponse.__init__"
+      ],
+      "title": "Tainted data reaches __init__"
+    },
+    {
+      "categories": [
+        "xss"
+      ],
+      "cwe": "CWE-79",
+      "id": "flask/xss/werkzeug_wrappers_BaseResponse_set_cookie",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "werkzeug.wrappers.BaseResponse.set_cookie"
+      ],
+      "title": "Tainted data reaches set_cookie"
+    },
+    {
+      "categories": [
+        "xss"
+      ],
+      "cwe": "CWE-79",
+      "id": "flask/xss/werkzeug_wrappers_BaseResponse_set_data",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        0
+      ],
+      "sinks": [
+        "werkzeug.wrappers.BaseResponse.set_data"
+      ],
+      "title": "Tainted data reaches set_data"
+    }
+  ],
+  "type": "taint"
+}

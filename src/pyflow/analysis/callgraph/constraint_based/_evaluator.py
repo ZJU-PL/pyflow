@@ -194,6 +194,46 @@ class _EvaluatorMixin:
                 input_changed_scope_contexts,
             )
             resolved = self._resolve_attribute(base_values, expr.attr)
+            instance_values = {
+                value for value in base_values if value.kind == INSTANCE_KIND
+            }
+            if instance_values:
+                # Attribute access itself is dynamically dispatchable in
+                # Python.  Preserve ordinary lookup results, but also include
+                # values returned by a user-defined __getattribute__.  A
+                # user-defined __getattr__ participates when ordinary lookup
+                # may fail.  This is deliberately additive: the call graph is
+                # a may-graph, so hooks never remove statically known targets.
+                hook_names = ["__getattribute__"]
+                if not resolved or self._attribute_maybe_missing(
+                    instance_values, expr.attr
+                ):
+                    hook_names.append("__getattr__")
+                for hook_name in hook_names:
+                    hook_targets = self._resolve_attribute(
+                        instance_values, hook_name
+                    )
+                    if not hook_targets:
+                        continue
+                    hook_call = ast.copy_location(
+                        ast.Call(
+                            func=expr,
+                            args=[ast.Constant(value=expr.attr)],
+                            keywords=[],
+                        ),
+                        expr,
+                    )
+                    resolved.update(
+                        self._invoke_targets(
+                            caller_scope=scope,
+                            caller_context=scope_context,
+                            target_values=hook_targets,
+                            call_node=hook_call,
+                            env=env,
+                            callees=callees,
+                            input_changed_scope_contexts=input_changed_scope_contexts,
+                        )
+                    )
             if (
                 isinstance(expr.value, ast.Name)
                 and expr.value.id == scope.method_self_param

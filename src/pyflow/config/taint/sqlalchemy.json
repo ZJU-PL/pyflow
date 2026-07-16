@@ -1,0 +1,235 @@
+{
+  "schema_version": 1,
+  "framework": "sqlalchemy",
+  "version": "1.0",
+  "description": "Sqlalchemy taint models (extracted from root rule pack)",
+  "detection": {
+    "imports": [
+      "sqlalchemy",
+      "from sqlalchemy",
+      "import sqlalchemy",
+      "create_engine(",
+      "declarative_base",
+      "sessionmaker("
+    ],
+    "patterns": [
+      "Column(",
+      "relationship(",
+      "Session(",
+      "scoped_session"
+    ]
+  },
+  "models": [
+    {
+      "call": "sqlalchemy.engine.Engine.execute",
+      "taint_sink": true
+    },
+    {
+      "call": "sqlalchemy.orm.Session.execute",
+      "taint_sink": true
+    },
+    {
+      "call": "sqlalchemy.orm.Session.query",
+      "taint_sink": true
+    },
+    {
+      "call": "sqlalchemy.engine.base.Connection.execute",
+      "category": "sql",
+      "sink_arg_positions": [
+        1
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "sqlalchemy.engine.base.Connection.run_callable",
+      "category": "sql",
+      "sink_arg_positions": [
+        1
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "sqlalchemy.engine.base.Connection.scalar",
+      "category": "sql",
+      "sink_arg_positions": [
+        1
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "sqlalchemy.engine.base.Engine.execute",
+      "category": "sql",
+      "sink_arg_positions": [
+        1,
+        3,
+        4
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "sqlalchemy.engine.base.Engine.run_callable",
+      "category": "sql",
+      "sink_arg_positions": [
+        1
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "sqlalchemy.engine.base.Engine.scalar",
+      "category": "sql",
+      "sink_arg_positions": [
+        1
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "sqlalchemy.engine.interfaces.Connectable.execute",
+      "category": "sql",
+      "sink_arg_positions": [
+        1
+      ],
+      "taint_sink": true
+    },
+    {
+      "call": "sqlalchemy.engine.interfaces.Connectable.scalar",
+      "category": "sql",
+      "sink_arg_positions": [
+        1
+      ],
+      "taint_sink": true
+    }
+  ],
+  "rules": [
+    {
+      "categories": [
+        "sql"
+      ],
+      "cwe": "CWE-89",
+      "id": "sqlalchemy/sql/sqlalchemy_engine_base_Connection_execute",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        1
+      ],
+      "sinks": [
+        "sqlalchemy.engine.base.Connection.execute"
+      ],
+      "title": "Tainted data reaches execute"
+    },
+    {
+      "categories": [
+        "sql"
+      ],
+      "cwe": "CWE-89",
+      "id": "sqlalchemy/sql/sqlalchemy_engine_base_Connection_run_callable",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        1
+      ],
+      "sinks": [
+        "sqlalchemy.engine.base.Connection.run_callable"
+      ],
+      "title": "Tainted data reaches run_callable"
+    },
+    {
+      "categories": [
+        "sql"
+      ],
+      "cwe": "CWE-89",
+      "id": "sqlalchemy/sql/sqlalchemy_engine_base_Connection_scalar",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        1
+      ],
+      "sinks": [
+        "sqlalchemy.engine.base.Connection.scalar"
+      ],
+      "title": "Tainted data reaches scalar"
+    },
+    {
+      "categories": [
+        "sql"
+      ],
+      "cwe": "CWE-89",
+      "id": "sqlalchemy/sql/sqlalchemy_engine_base_Engine_execute",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        1,
+        3,
+        4
+      ],
+      "sinks": [
+        "sqlalchemy.engine.base.Engine.execute"
+      ],
+      "title": "Tainted data reaches execute"
+    },
+    {
+      "categories": [
+        "sql"
+      ],
+      "cwe": "CWE-89",
+      "id": "sqlalchemy/sql/sqlalchemy_engine_base_Engine_run_callable",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        1
+      ],
+      "sinks": [
+        "sqlalchemy.engine.base.Engine.run_callable"
+      ],
+      "title": "Tainted data reaches run_callable"
+    },
+    {
+      "categories": [
+        "sql"
+      ],
+      "cwe": "CWE-89",
+      "id": "sqlalchemy/sql/sqlalchemy_engine_base_Engine_scalar",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        1
+      ],
+      "sinks": [
+        "sqlalchemy.engine.base.Engine.scalar"
+      ],
+      "title": "Tainted data reaches scalar"
+    },
+    {
+      "categories": [
+        "sql"
+      ],
+      "cwe": "CWE-89",
+      "id": "sqlalchemy/sql/sqlalchemy_engine_interfaces_Connectable_execute",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        1
+      ],
+      "sinks": [
+        "sqlalchemy.engine.interfaces.Connectable.execute"
+      ],
+      "title": "Tainted data reaches execute"
+    },
+    {
+      "categories": [
+        "sql"
+      ],
+      "cwe": "CWE-89",
+      "id": "sqlalchemy/sql/sqlalchemy_engine_interfaces_Connectable_scalar",
+      "pattern_type": "taint_sink",
+      "severity": "high",
+      "sink_arg_positions": [
+        1
+      ],
+      "sinks": [
+        "sqlalchemy.engine.interfaces.Connectable.scalar"
+      ],
+      "title": "Tainted data reaches scalar"
+    }
+  ],
+  "type": "taint"
+}

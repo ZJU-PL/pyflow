@@ -7,7 +7,7 @@ security checking for Python programs without executing them.
 
 .. note::
 
-   PyFlow is currently an **alpha-stage** project. The architecture is already
+   PyFlow is currently in **alpha** stage. The architecture is already
    substantial and the test suite is broad, but parts of the public interface
    and documentation are still evolving.
 
@@ -18,6 +18,7 @@ If you are new to PyFlow, start with the :ref:`tutorials`.
     :caption: Getting Started
 
     tutorials/index
+    overview
 
 .. toctree::
     :maxdepth: 2
@@ -45,6 +46,7 @@ If you are new to PyFlow, start with the :ref:`tutorials`.
     api
     analysis/index
     optimization/index
+    lang/index
     checker/sec
 
 ================================================================================
@@ -98,6 +100,9 @@ After installation, use PyFlow's command-line interface:
    # Visualize intermediate representations
    pyflow ir input.py --dump-cfg function_name
 
+   # Run alias analysis (flow-sensitive heap or k-CFA pointer)
+   pyflow alias input.py
+
    # Explore available optimization passes
    pyflow optimize --list-opt-passes
 
@@ -129,12 +134,15 @@ Static Analysis
 
 PyFlow provides comprehensive static analysis:
 
-* **Control Flow Analysis**: CFG construction, dominance analysis, loop detection
-* **Data Flow Analysis**: Forward/backward analysis, constant propagation, live variables
+* **Control Flow Analysis**: CFG, CDG, PDG, DDG construction, dominance analysis, loop detection
+* **Data Flow Analysis**: Forward/backward analysis, data flow IR, IFDS/IDE interprocedural engine
 * **Inter-procedural Analysis**: Context-sensitive analysis across function boundaries
+* **Pointer Analysis**: k-CFA constraint-based points-to analysis for Python objects
 * **Constraint-based Analysis**: Constraint solving for precise object relationship modeling
 * **Shape Analysis**: Data structure shape and property analysis
+* **Alias Analysis**: Flow-sensitive heap analysis (alias/escape) and k-CFA pointer analysis
 * **Call Graph Analysis**: Function call relationship analysis with multiple algorithms
+* **Type Information**: Lightweight type-information collection and inference
 
 Code Optimization
 -----------------

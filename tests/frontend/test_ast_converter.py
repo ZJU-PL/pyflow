@@ -5,6 +5,7 @@ import ast as python_ast
 from unittest.mock import Mock, patch
 
 from pyflow.frontend.ast_converter import ASTConverter
+from pyflow.analysis.ir_utils import call_argument_evaluation_order
 from pyflow.language.python import ast as pyflow_ast
 from pyflow.language.python.default_markers import MISSING_DEFAULT
 from pyflow.language.python.program import Object
@@ -222,6 +223,17 @@ while x > 0:
         self.assertIsNotNone(result.vargs)
         self.assertIsNotNone(result.kargs)
 
+    def test_call_metadata_preserves_source_evaluation_order(self):
+        tree = python_ast.parse(
+            "func(first(), *spread(), third())",
+            mode="eval",
+        )
+        result = self.converter._convert_expression(tree.body)
+        order = call_argument_evaluation_order(result)
+        self.assertIsNotNone(order)
+        names = [item.expr.name for item in order]
+        self.assertEqual(names, ["first", "spread", "third"])
+
     def test_convert_call_with_multiple_kwargs_uses_merge_helper(self):
         """Repeated **kwargs should be represented with merge helper calls."""
         tree = python_ast.parse("func(**a, **b)", mode="eval")
@@ -295,21 +307,13 @@ while x > 0:
         self.assertEqual(len(result.terms), 3)
 
     def test_convert_ifexp(self):
-        """Ternary expressions are modelled as a Call to interpreter_ifexp.
-
-        Bug fix: IfExp cannot return a Suite because it appears in expression
-        position.  The converter returns a Call node so that downstream
-        analyses see a single expression node.
-        """
+        """Ternary expressions retain explicit branch structure."""
         tree = python_ast.parse("x if c else y", mode="eval")
         result = self.converter._convert_expression(tree.body)
-        # Must be an expression node (Call), not a Suite.
-        self.assertIsInstance(result, pyflow_ast.Call)
-        # The call must reference the synthetic helper.
-        self.assertIsInstance(result.expr, pyflow_ast.Existing)
-        self.assertEqual(result.expr.object.pyobj, "interpreter_ifexp")
-        # Three arguments: test, body, orelse
-        self.assertEqual(len(result.args), 3)
+        self.assertIsInstance(result, pyflow_ast.ConditionalExpr)
+        self.assertEqual(result.test.name, "c")
+        self.assertEqual(result.body.name, "x")
+        self.assertEqual(result.orelse.name, "y")
 
     def test_convert_attribute_expression(self):
         """Test converting attribute expression."""
@@ -386,15 +390,14 @@ while x > 0:
         """Comprehensions should lower to callable expression preserving loop body."""
         tree = python_ast.parse("[x for x in xs if x]", mode="eval")
         result = self.converter._convert_expression(tree.body)
-        self.assertIsInstance(result, pyflow_ast.Call)
-        self.assertIsInstance(result.expr, pyflow_ast.MakeFunction)
+        self.assertIsInstance(result, pyflow_ast.DirectCall)
 
     def test_comprehension_destructuring_happens_before_guard(self):
         """Destructuring targets in comprehensions must be available to guard expressions."""
         tree = python_ast.parse("[(a, b) for (a, b) in items if a]", mode="eval")
         result = self.converter._convert_expression(tree.body)
-        self.assertIsInstance(result, pyflow_ast.Call)
-        loop = result.expr.code.ast.blocks[1]
+        self.assertIsInstance(result, pyflow_ast.DirectCall)
+        loop = result.code.ast.blocks[1]
         self.assertIsInstance(loop, pyflow_ast.For)
         self.assertTrue(loop.bodyPreamble.blocks)
         self.assertTrue(
@@ -406,7 +409,7 @@ while x > 0:
         """Generator guards should also see destructured target bindings."""
         tree = python_ast.parse("((a, b) for (a, b) in items if a)", mode="eval")
         result = self.converter._convert_expression(tree.body)
-        self.assertIsInstance(result, pyflow_ast.MakeFunction)
+        self.assertIsInstance(result, pyflow_ast.DirectCall)
         loop = result.code.ast.blocks[0]
         self.assertIsInstance(loop, pyflow_ast.For)
         self.assertTrue(loop.bodyPreamble.blocks)
@@ -506,27 +509,26 @@ finally:
         result = self.converter._convert_node(node)
         self.assertIsInstance(result, pyflow_ast.Suite)
 
-    def test_convert_annassign_with_value_lowers_to_assign(self):
-        """Annotated assignments should preserve runtime assignment semantics."""
+    def test_convert_annassign_with_value_updates_annotations(self):
+        """Annotated assignments preserve value and annotation storage."""
         source = "x: int = 1"
         tree = python_ast.parse(source)
         node = tree.body[0]
 
         result = self.converter._convert_node(node)
-        self.assertIsInstance(result, pyflow_ast.Assign)
-        self.assertEqual(len(result.lcls), 1)
-        self.assertEqual(result.lcls[0].name, "x")
-        self.assertIsInstance(result.expr, pyflow_ast.Existing)
+        self.assertIsInstance(result, pyflow_ast.AnnAssign)
+        self.assertEqual(result.target.name, "x")
+        self.assertIsInstance(result.value, pyflow_ast.Existing)
 
-    def test_convert_annassign_without_value_lowers_to_noop(self):
-        """Annotation-only assignment should not introduce a broken AnnAssign node."""
+    def test_convert_annassign_without_value_updates_annotations(self):
+        """Annotation-only assignment still updates ``__annotations__``."""
         source = "x: int"
         tree = python_ast.parse(source)
         node = tree.body[0]
 
         result = self.converter._convert_node(node)
-        self.assertIsInstance(result, pyflow_ast.Suite)
-        self.assertFalse(result.blocks)
+        self.assertIsInstance(result, pyflow_ast.AnnAssign)
+        self.assertIsNone(result.value)
 
     @unittest.skipIf(not hasattr(python_ast, "TypeAlias"), "Requires Python 3.12+")
     def test_convert_type_alias_preserves_alias_and_binding(self):

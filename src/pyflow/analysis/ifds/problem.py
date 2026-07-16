@@ -293,3 +293,71 @@ class IDEProblem(Generic[ProcT, NodeT, FactT, ValueT], ABC):
         self, call_node: NodeT, return_site: NodeT, fact: FactT
     ) -> tuple[ValueTransition[FactT, ValueT], ...]:
         return ()
+
+
+class ZeroFact:
+    """The ⊥ element — carries no dataflow information and is NOT a domain fact.
+
+    In IFDS theory, ⊥ is distinct from every fact d ∈ D.  Using a dedicated
+    sentinel rather than a string constant or ``None`` makes the distinction
+    explicit, prevents accidental collisions with domain facts, and enables
+    type-checkable ``fact is ZERO`` guards.
+
+    ``ZeroFact`` is a singleton: ``ZeroFact()`` always returns the same object.
+    """
+
+    _instance: "ZeroFact | None" = None
+
+    def __new__(cls) -> "ZeroFact":
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+
+    def __hash__(self) -> int:
+        return 0
+
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, ZeroFact) or other is self
+
+    def __repr__(self) -> str:
+        return "⊥"
+
+
+ZERO = ZeroFact()
+
+
+@dataclass(frozen=True)
+class IdentityFlow(Generic[FactT]):
+    """Pass-through combinator for IFDS flow functions.
+
+    ``{fact} → {ZERO}`` when *fact* is the zero fact, otherwise
+    ``{fact} → {fact}``.
+    """
+
+    zero: FactT
+
+    def __call__(self, fact: FactT) -> tuple[FactT, ...]:
+        if fact == self.zero or fact is self.zero:
+            return (self.zero,)
+        return (fact,)
+
+
+@dataclass(frozen=True)
+class KillFlow(Generic[FactT]):
+    """Kill combinator: ``{fact} → ∅`` for strong updates."""
+
+    def __call__(self, fact: FactT) -> tuple[FactT, ...]:
+        return ()
+
+
+@dataclass(frozen=True)
+class GenFlow(Generic[FactT]):
+    """Generate combinator: ``{⊥} → {generated}``, otherwise ``{fact, generated}``."""
+
+    generated: FactT
+    zero: FactT
+
+    def __call__(self, fact: FactT) -> tuple[FactT, ...]:
+        if fact == self.zero or fact is self.zero:
+            return (self.generated,)
+        return (fact, self.generated)

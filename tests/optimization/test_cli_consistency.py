@@ -169,7 +169,7 @@ def test_cli_help_text_matches_registered_passes():
         assert (
             pass_name in OPTIMIZATION_PASSES or
             normalized in OPTIMIZATION_PASSES or
-            pass_name in ["ipa", "cpa", "lifetime"]  # Analysis passes
+            pass_name in ["ipa", "cpa", "lifetime", "heap"]  # Analysis passes
         ), f"Pass '{pass_name}' not exposed in CLI"
 
 

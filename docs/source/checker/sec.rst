@@ -218,15 +218,98 @@ Output Formatters
 LLM Integration
 ---------------
 
-**llm/check.py**: LLM-assisted security checking
-- Uses language models for vulnerability detection
-- Pattern recognition beyond rule-based checking
-- Contextual vulnerability assessment
+**llm/llm_utils.py**: LLM API infrastructure (framework-independent)
+
+- ``LLMClient`` — OpenAI-compatible chat-completion client with automatic retry and exponential backoff
+- ``LLMConfig`` — Configuration dataclass (API key, model, temperature, max tokens, base URL)
+- ``retry_llm_call`` — Decorator for retrying LLM API calls with configurable attempts
+- ``format_bug_report`` / ``format_code_snippet`` — Formatting helpers for LLM input
+
+**llm/judge.py**: LLM-based bug report classification
+
+- ``BugReportJudge`` — Analyzes checker issues to determine whether they are genuine security vulnerabilities, assigning severity, CWE ID, confidence, and remediation guidance
+- ``BugJudgment`` — Result dataclass (is_security_issue, severity, CWE ID, confidence, category, explanation, remediation)
+- ``is_false_positive`` — Quick false-positive detection using configurable confidence thresholds
 
 **llm/exploit.py**: Exploit generation and testing
 - Generates potential exploit payloads
 - Tests vulnerability hypotheses
 - Validates security issue impact
+
+Finding Quality
+---------------
+
+**quality.py**: Post-processing helpers for security findings (framework-independent)
+
+Inline Suppression
+~~~~~~~~~~~~~~~~~~
+
+Suppress individual findings with ``# pyflow: ignore`` comments:
+
+.. code-block:: python
+
+   user_input = request.args.get("q")  # pyflow: ignore B608 -- validated above
+
+- ``parse_suppressions(source)`` — Parse ``# pyflow: ignore`` directives by line number. Supports per-rule suppression (``# pyflow: ignore B608``) and bare suppression (``# pyflow: ignore``).
+- ``is_suppressed(issue, suppressions)`` — Check whether an issue is covered by parsed suppressions.
+- Bare suppressions (no rule ID) emit a ``BareSuppressionWarning`` when ``warn_bare=True``.
+
+Baseline Management
+~~~~~~~~~~~~~~~~~~~
+
+Freeze known findings and only report new ones:
+
+- ``BaselineStore`` — Persistent set of issue fingerprints (BLAKE2b-based). ``generate(issues)`` creates a baseline; ``load(path)`` / ``save(path)`` persist to JSON; ``filter_new(issues)`` returns only issues not in the baseline.
+- ``issue_fingerprint(issue)`` — Stable BLAKE2b fingerprint from rule ID, file path, line number, and source text.
+
+Confidence Scoring
+~~~~~~~~~~~~~~~~~~
+
+- ``score_confidence(issue, has_taint_trace=…)`` — Normalized confidence score (0.0–1.0) combining severity, base confidence, and taint evidence. Injection/auth issues without taint traces are penalized.
+- ``confidence_level(score)`` — Map a numeric score to HIGH/MEDIUM/LOW.
+- ``apply_taint_aware_demotion(issue, has_taint_trace=…)`` — Demote injection/auth issues when no semantic taint evidence backs them up.
+
+Security Guard Detection
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+- ``find_security_guards(source)`` — Extract auth-check and input-validation guards from ``if`` conditions and decorators (e.g., ``@login_required``, ``isinstance()`` checks).
+- ``is_guarded(issue, guards)`` — Check whether an issue's line is protected by a recognized guard.
+- ``apply_guard_aware_demotion(issue, guards)`` — Demote severity when a finding is structurally guarded.
+
+Local Supply-Chain Analysis
+----------------------------
+
+**supply_chain.py**: Local-only supply-chain analysis for Python packages.
+
+SBOM Generation
+~~~~~~~~~~~~~~~
+
+- ``scan_targets(targets, recursive, exclude)`` — Scan local paths for
+  package metadata and produce ``SupplyChainScan`` containing components and
+  findings
+- ``build_cyclonedx_document(scan)`` — Build a CycloneDX 1.3 JSON document
+  from a scan result
+- Scans ``METADATA`` (PEP 566), ``pyproject.toml``, ``poetry.lock``, and
+  ``requirements.txt`` files for dependency metadata
+
+Distribution Auditing
+~~~~~~~~~~~~~~~~~~~~~
+
+- ``RECORD`` integrity verification: validates file existence, hash
+  consistency, and detects unlisted files in ``.dist-info`` directories
+- Archive safety: detects absolute paths, parent-directory traversal
+  (``../``), and oversized members in zip, tar, and wheel files
+- Remote requirement detection: flags ``requirements.txt`` entries using
+  remote URLs
+
+Output
+~~~~~~
+
+- ``format_findings_text(scan)`` — Human-readable text output for findings
+- ``build_cyclonedx_document(scan)`` — CycloneDX JSON for SBOM
+- ``SupplyChainFinding.to_dict()`` — Structured dict for JSON serialization
+
+All operations work offline from local files.
 
 Configuration and Testing
 -------------------------
@@ -249,7 +332,7 @@ Command Line
 
 ::
 
-  pyflow check input.py --format json --severity high
+  pyflow security input.py --format json
 
 Configuration File
 ------------------

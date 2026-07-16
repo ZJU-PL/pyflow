@@ -14,6 +14,8 @@ The cloning optimization:
 This is a whole-program optimization that requires inter-procedural analysis.
 """
 
+from pyflow.analysis.ir_utils import copy_call_argument_metadata
+
 # Split contexts unless types match
 # Add type-switched dispatch where cloning does not work?
 
@@ -587,6 +589,7 @@ class FunctionCloner(TypeDispatcher):
             func = None
 
         result = ast.DirectCall(func, *tempresult.children()[1:])
+        copy_call_argument_metadata(node, result)
         self.transferAnalysisData(node, result)
 
         return result

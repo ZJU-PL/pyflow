@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "framework": "concurrency",
+  "version": "1.0",
+  "description": "Concurrency framework detection (no taint models — see typestate/concurrency.json)",
+  "type": "taint",
+  "detection": {
+    "imports": [
+      "threading",
+      "multiprocessing",
+      "asyncio",
+      "tempfile",
+      "subprocess",
+      "import threading",
+      "import asyncio"
+    ],
+    "patterns": [
+      "Lock()",
+      "RLock()",
+      "TemporaryFile(",
+      "TemporaryDirectory("
+    ]
+  },
+  "models": []
+}

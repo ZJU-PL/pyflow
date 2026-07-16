@@ -11,6 +11,7 @@ from pyflow.optimization.dataflow.forward import *
 from pyflow.optimization.dataflow.base import top, undefined, MutateCode
 from pyflow.language.python import fold
 from pyflow.analysis import tools
+from pyflow.analysis.ir_utils import copy_call_argument_metadata
 from pyflow.optimization import termrewrite
 from pyflow.optimization.termrewrite import DirectCallRewriter
 
@@ -157,6 +158,7 @@ class FoldRewrite(TypeDispatcher):
             result = ast.DirectCall(
                 func, node.expr, node.args, node.kwds, node.vargs, node.kargs
             )
+            copy_call_argument_metadata(node, result)
             result.annotation = node.annotation
             return self(result)
 
@@ -352,6 +354,7 @@ class FoldRewrite(TypeDispatcher):
             result = ast.DirectCall(
                 func, funcobj, newargs, node.kwds, node.vargs, node.kargs
             )
+            copy_call_argument_metadata(node, result)
             result.annotation = node.annotation
             return self(result)
         return node
@@ -492,6 +495,7 @@ class FoldRewrite(TypeDispatcher):
                     node.vargs,
                     node.kargs,
                 )
+                copy_call_argument_metadata(node, result)
                 result.annotation = node.annotation
                 return result
         return node

@@ -32,8 +32,12 @@ classifiers = [
 ]
 requires-python = ">=3.10"
 dependencies = [
+    "asciitree",
     "graphviz",
     "networkx",
+    "packaging",
+    "rstr",
+    "typing_inspect"
 ]
 
 [project.optional-dependencies]
@@ -44,7 +48,7 @@ dev = [
     "black",
     "flake8",
     "mypy",
-    "tomli; python_version < '3.11'",
+    "tomli; python_version < '3.11'"
 ]
 # a3-python is a standalone third-party package at third-party/a3_python/.
 # Install it separately: pip install -e third-party/a3_python
@@ -65,7 +69,7 @@ pyflow = "pyflow.cli.main:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-pyflow = ["lib/**/*", "stubs/**/*"]
+pyflow = ["lib/**/*", "stubs/**/*", "config/**/*", "analysis/alias/kcfa/_pythonstan/stubs/**/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
