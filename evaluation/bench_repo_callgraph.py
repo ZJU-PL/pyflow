@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import statistics
 import time
 from dataclasses import dataclass
@@ -53,17 +54,11 @@ def _adjacency_to_edges(graph: Dict[str, Iterable[str]]) -> Set[Edge]:
     return edges
 
 
-def _load_callgraph_json(path: Path) -> Dict[str, List[str]]:
+def _load_callgraph_json(path: Path) -> Dict[str, object]:
     payload = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
         raise ValueError(f"Expected mapping in {path}")
-    result: Dict[str, List[str]] = {}
-    for key, values in payload.items():
-        if key.startswith("_"):
-            continue
-        if isinstance(values, list):
-            result[str(key)] = [str(v) for v in values]
-    return result
+    return payload
 
 def _write_callgraph_json(graph: Dict[str, Iterable[str]], path: Path) -> None:
     serialized = {
@@ -380,8 +375,7 @@ def _aggregate(results: Sequence[EngineResult]) -> Dict[Tuple[str, str], Dict[st
             "precision": statistics.mean(item.precision for item in rows),
             "recall": statistics.mean(item.recall for item in rows),
             "runtime_ms": statistics.mean(item.runtime_ms for item in rows) if all(
-                not (isinstance(item.runtime_ms, float) and item.runtime_ms != item.runtime_ms)
-                for item in rows
+                not math.isnan(item.runtime_ms) for item in rows
             ) else float("nan"),
         }
     return summary
