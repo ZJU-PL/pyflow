@@ -39,7 +39,8 @@ def main():
         description="PyFlow - A static compiler for Python", prog="pyflow"
     )
 
-    parser.add_argument("--version", action="version", version="PyFlow 0.1.0")
+    from pyflow import __version__
+    parser.add_argument("--version", action="version", version=f"PyFlow {__version__}")
 
     subparsers = parser.add_subparsers(
         dest="command", help="Available commands", required=True

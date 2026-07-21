@@ -5,8 +5,8 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "pyflow"
-version = "0.1.0"
+name = "pyflow-analysis"
+dynamic = ["version"]
 description = "A static compiler for Python"
 readme = "README.md"
 license = {text = "Apache-2.0"}
@@ -67,6 +67,9 @@ pyflow = "pyflow.cli.main:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.dynamic]
+version = {attr = "pyflow.__version__"}
 
 [tool.setuptools.package-data]
 pyflow = ["lib/**/*", "stubs/**/*", "config/**/*", "analysis/alias/kcfa/_pythonstan/stubs/**/*"]

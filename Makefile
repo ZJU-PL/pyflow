@@ -59,4 +59,13 @@ docs:  ## Build documentation
 docs-serve:  ## Serve documentation locally
 	cd docs && python -m http.server 8000 --directory _build/html
 
+dist: clean  ## Build source distribution and wheel
+	python -m build
+
+publish: dist  ## Upload to PyPI (requires twine)
+	twine upload dist/*
+
+publish-test: dist  ## Upload to TestPyPI
+	twine upload --repository testpypi dist/*
+
 all-checks: format lint type-check test  ## Run all checks

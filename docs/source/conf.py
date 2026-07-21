@@ -20,7 +20,7 @@ copyright = "2025, rainoftime"
 author = "rainoftime"
 
 # The full version, including alpha/beta/rc tags
-release = "0.1.0"
+from pyflow import __version__ as release
 
 # -- General configuration ---------------------------------------------------
 
