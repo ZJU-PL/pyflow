@@ -1,0 +1,221 @@
+{
+  "web_framework": [],
+  "web_framework.app": [],
+  "web_framework.app.RouteMeta": [],
+  "web_framework.app.RouteMeta.__new__": [],
+  "web_framework.app.Router": [],
+  "web_framework.app.Router.route": [],
+  "web_framework.app.Router.route.decorator": [],
+  "web_framework.app.Router.match": [],
+  "web_framework.app.App": [],
+  "web_framework.app.App.__init__": [],
+  "web_framework.app.App.route": [
+    "web_framework.app.Router.route"
+  ],
+  "web_framework.app.App.use": [],
+  "web_framework.app.App.before_request": [],
+  "web_framework.app.App.after_request": [],
+  "web_framework.app.App.handle": [
+    "web_framework.app.Router.match",
+    "web_framework.middleware.base.Middleware.process_request",
+    "web_framework.middleware.base.Middleware.process_response"
+  ],
+  "web_framework.app.App.test_client": [
+    "web_framework.app.TestClient.__init__"
+  ],
+  "web_framework.app.TestClient": [],
+  "web_framework.app.TestClient.__init__": [],
+  "web_framework.app.TestClient.get": [
+    "web_framework.app.App.handle"
+  ],
+  "web_framework.app.TestClient.post": [
+    "web_framework.app.App.handle"
+  ],
+  "web_framework.request": [],
+  "web_framework.request.Request": [],
+  "web_framework.request.Request.__init__": [],
+  "web_framework.request.Request.json": [],
+  "web_framework.request.Request.form": [],
+  "web_framework.request.Request.content_type": [],
+  "web_framework.request.Request.content_length": [],
+  "web_framework.request.Request.query_string": [],
+  "web_framework.request.Request.query_params": [],
+  "web_framework.request.Request.path_without_query": [],
+  "web_framework.request.Request.get_header": [],
+  "web_framework.response": [],
+  "web_framework.response.Response": [],
+  "web_framework.response.Response.__init__": [],
+  "web_framework.response.Response.status_code": [],
+  "web_framework.response.Response.set_header": [],
+  "web_framework.response.Response.get_header": [],
+  "web_framework.response.Response.to_bytes": [],
+  "web_framework.response.JSONResponse": [],
+  "web_framework.response.HTMLResponse": [],
+  "web_framework.response.RedirectResponse": [],
+  "web_framework.response.StreamResponse": [],
+  "web_framework.response.StreamResponse.__init__": [],
+  "web_framework.response.StreamResponse.write": [],
+  "web_framework.response.StreamResponse.to_bytes": [],
+  "web_framework.response.TemplateResponse": [],
+  "web_framework.response.TemplateResponse.__init__": [
+    "web_framework.response.TemplateResponse._render"
+  ],
+  "web_framework.response.TemplateResponse._render": [],
+  "web_framework.views": [],
+  "web_framework.views.View": [],
+  "web_framework.views.View.__init__": [],
+  "web_framework.views.View.get": [],
+  "web_framework.views.TemplateView": [],
+  "web_framework.views.TemplateView.get_template": [],
+  "web_framework.views.TemplateView.get_context": [],
+  "web_framework.views.TemplateView.get": [
+    "web_framework.views.TemplateView.get_template",
+    "web_framework.views.TemplateView.get_context",
+    "web_framework.response.TemplateResponse.__init__"
+  ],
+  "web_framework.views.FormView": [],
+  "web_framework.views.FormView.get_form": [],
+  "web_framework.views.FormView.form_valid": [
+    "web_framework.response.RedirectResponse.__init__"
+  ],
+  "web_framework.views.FormView.form_invalid": [
+    "web_framework.response.TemplateResponse.__init__"
+  ],
+  "web_framework.views.FormView.get": [
+    "web_framework.views.FormView.get_form",
+    "web_framework.response.TemplateResponse.__init__"
+  ],
+  "web_framework.views.FormView.post": [
+    "web_framework.views.FormView.get_form",
+    "web_framework.views.FormView.form_valid",
+    "web_framework.views.FormView.form_invalid"
+  ],
+  "web_framework.views.ListView": [],
+  "web_framework.views.ListView.get_queryset": [],
+  "web_framework.views.ListView.get_context": [
+    "web_framework.views.ListView.get_queryset"
+  ],
+  "web_framework.views.ListView.get": [
+    "web_framework.views.ListView.get_context",
+    "web_framework.response.TemplateResponse.__init__"
+  ],
+  "web_framework.views.DetailView": [],
+  "web_framework.views.DetailView.get_object": [],
+  "web_framework.views.DetailView.get_context": [
+    "web_framework.views.DetailView.get_object"
+  ],
+  "web_framework.views.DetailView.get": [
+    "web_framework.views.DetailView.get_context",
+    "web_framework.response.TemplateResponse.__init__"
+  ],
+  "web_framework.middleware": [],
+  "web_framework.middleware.base": [],
+  "web_framework.middleware.base.Middleware": [],
+  "web_framework.middleware.base.Middleware.__init__": [],
+  "web_framework.middleware.base.Middleware.process_request": [],
+  "web_framework.middleware.base.Middleware.process_response": [],
+  "web_framework.middleware.base.Middleware.__call__": [
+    "web_framework.middleware.base.Middleware.process_request",
+    "web_framework.middleware.base.Middleware.process_response"
+  ],
+  "web_framework.middleware.base.MiddlewareStack": [],
+  "web_framework.middleware.base.MiddlewareStack.__init__": [],
+  "web_framework.middleware.base.MiddlewareStack.add": [],
+  "web_framework.middleware.base.MiddlewareStack.apply": [
+    "web_framework.middleware.base.MiddlewareStack.apply.build_chain"
+  ],
+  "web_framework.middleware.base.MiddlewareStack.apply.build_chain": [],
+  "web_framework.middleware.base.MiddlewareStack.apply.build_chain.handler": [
+    "web_framework.middleware.base.Middleware.process_request",
+    "web_framework.middleware.base.MiddlewareStack.apply.build_chain",
+    "web_framework.middleware.base.Middleware.process_response"
+  ],
+  "web_framework.middleware.auth": [],
+  "web_framework.middleware.auth.AuthMiddleware": [],
+  "web_framework.middleware.auth.AuthMiddleware.__init__": [
+    "web_framework.middleware.base.Middleware.__init__"
+  ],
+  "web_framework.middleware.auth.AuthMiddleware.add_validator": [],
+  "web_framework.middleware.auth.AuthMiddleware.process_request": [
+    "web_framework.middleware.auth.AuthMiddleware._extract_token",
+    "web_framework.middleware.auth.AuthMiddleware._get_user"
+  ],
+  "web_framework.middleware.auth.AuthMiddleware.process_response": [],
+  "web_framework.middleware.auth.AuthMiddleware._extract_token": [
+    "web_framework.request.Request.get_header"
+  ],
+  "web_framework.middleware.auth.AuthMiddleware._get_user": [],
+  "web_framework.middleware.auth.RateLimitMiddleware": [],
+  "web_framework.middleware.auth.RateLimitMiddleware.__init__": [
+    "web_framework.middleware.base.Middleware.__init__"
+  ],
+  "web_framework.middleware.auth.RateLimitMiddleware.process_response": [],
+  "web_framework.middleware.auth.SessionMiddleware": [],
+  "web_framework.middleware.auth.SessionMiddleware.__init__": [
+    "web_framework.middleware.base.Middleware.__init__"
+  ],
+  "web_framework.middleware.auth.SessionMiddleware.process_request": [
+    "web_framework.request.Request.get_header"
+  ],
+  "web_framework.middleware.auth.SessionMiddleware.process_response": [
+    "web_framework.response.Response.get_header",
+    "web_framework.response.Response.set_header"
+  ],
+  "web_framework.middleware.logging": [],
+  "web_framework.middleware.logging.LoggingMiddleware": [],
+  "web_framework.middleware.logging.LoggingMiddleware.__init__": [
+    "web_framework.middleware.base.Middleware.__init__"
+  ],
+  "web_framework.middleware.logging.LoggingMiddleware.process_request": [
+    "web_framework.middleware.logging.LoggingMiddleware._log"
+  ],
+  "web_framework.middleware.logging.LoggingMiddleware.process_response": [
+    "web_framework.middleware.logging.LoggingMiddleware._log"
+  ],
+  "web_framework.middleware.logging.LoggingMiddleware._log": [],
+  "web_framework.middleware.logging.LoggingMiddleware.get_logs": [],
+  "web_framework.middleware.logging.TimingMiddleware": [],
+  "web_framework.middleware.logging.TimingMiddleware.__init__": [
+    "web_framework.middleware.base.Middleware.__init__"
+  ],
+  "web_framework.middleware.logging.TimingMiddleware.process_request": [],
+  "web_framework.middleware.logging.TimingMiddleware.process_response": [
+    "web_framework.response.Response.set_header"
+  ],
+  "web_framework.middleware.logging.CORSMiddleware": [],
+  "web_framework.middleware.logging.CORSMiddleware.__init__": [
+    "web_framework.middleware.base.Middleware.__init__"
+  ],
+  "web_framework.middleware.logging.CORSMiddleware.process_request": [
+    "web_framework.middleware.logging.CORSMiddleware._add_cors_headers"
+  ],
+  "web_framework.middleware.logging.CORSMiddleware.process_response": [
+    "web_framework.middleware.logging.CORSMiddleware._add_cors_headers"
+  ],
+  "web_framework.middleware.logging.CORSMiddleware._add_cors_headers": [
+    "web_framework.response.Response.set_header"
+  ],
+  "web_framework.context": [],
+  "web_framework.context.request_context": [],
+  "web_framework.context._Globals": [],
+  "web_framework.context._Globals.__getattr__": [],
+  "web_framework.context._Globals.__setattr__": [],
+  "web_framework.context._Globals.get": [],
+  "web_framework.context._Globals.set": [],
+  "web_framework.context._Globals.clear": [],
+  "web_framework.context.RequestContext": [],
+  "web_framework.context.RequestContext.__init__": [],
+  "web_framework.context.RequestContext.__enter__": [],
+  "web_framework.context.RequestContext.__exit__": [],
+  "web_framework.context.RequestContext.get": [],
+  "web_framework.context.RequestContext.set": [],
+  "web_framework.context.LocalProxy": [],
+  "web_framework.context.LocalProxy.__init__": [],
+  "web_framework.context.LocalProxy._get_current_object": [],
+  "web_framework.context.LocalProxy.__getattr__": [
+    "web_framework.context.LocalProxy._get_current_object"
+  ],
+  "web_framework.context.LocalProxy.__setattr__": [
+    "web_framework.context.LocalProxy._get_current_object"
+  ]
+}
