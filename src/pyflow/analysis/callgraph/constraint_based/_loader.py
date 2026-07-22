@@ -3,10 +3,22 @@
 from __future__ import annotations
 
 import ast
+import os
+import sys
 from collections import deque
 from typing import Iterable, Optional, Set
 
 from .model import ModuleInfo
+
+
+def _is_stdlib_path(path: str) -> bool:
+    """Check whether *path* lives inside the Python standard library."""
+    stdlib_dir = os.path.dirname(os.__file__)
+    try:
+        common = os.path.commonpath([os.path.abspath(path), os.path.abspath(stdlib_dir)])
+    except ValueError:
+        return False
+    return common == stdlib_dir
 
 
 class _LoaderMixin:
@@ -61,6 +73,11 @@ class _LoaderMixin:
                         )
                         if stub_path is not None:
                             imported_path = stub_path
+                if (
+                    self.options.skip_stdlib_modules
+                    and _is_stdlib_path(str(imported_path))
+                ):
+                    continue
                 try:
                     with open(imported_path, "r", encoding="utf-8") as handle:
                         src = handle.read()

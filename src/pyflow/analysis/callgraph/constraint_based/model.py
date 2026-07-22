@@ -69,6 +69,7 @@ class AnalysisOptions:
     requeue_policy: Literal["fifo", "priority"] = "priority"
     emit_solver_stats: bool = False
     strict_precision_mode: bool = False
+    skip_stdlib_modules: bool = True
 
 
 @dataclass

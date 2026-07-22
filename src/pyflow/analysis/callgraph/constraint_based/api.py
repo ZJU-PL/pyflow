@@ -25,7 +25,7 @@ def extract_call_graph_constraint(
     source_code: str,
     source_path: Optional[str] = None,
     verbose: bool = False,
-    context_sensitive: bool = True,
+    context_sensitive: bool = False,
     context_depth: int = 1,
     fixpoint_max_iterations: Optional[int] = None,
     warn_on_fixpoint_truncation: bool = True,
@@ -38,6 +38,7 @@ def extract_call_graph_constraint(
     requeue_policy: str = "priority",
     emit_solver_stats: bool = False,
     strict_precision_mode: bool = False,
+    skip_stdlib_modules: bool = True,
 ) -> CallGraph:
     """
     Extract call graph from source code using the constraint-style analyser.
@@ -77,6 +78,7 @@ def extract_call_graph_constraint(
         requeue_policy="fifo" if requeue_policy == "fifo" else "priority",
         emit_solver_stats=emit_solver_stats,
         strict_precision_mode=strict_precision_mode,
+        skip_stdlib_modules=skip_stdlib_modules,
     )
     builder = ConstraintCallGraphBuilder(
         source_code,
@@ -103,6 +105,7 @@ def analyze_file_constraint(
     requeue_policy: str = "priority",
     emit_solver_stats: bool = False,
     strict_precision_mode: bool = False,
+    skip_stdlib_modules: bool = True,
 ) -> str:
     """Analyze a Python file and return a text rendering of the call graph."""
     try:
@@ -125,6 +128,7 @@ def analyze_file_constraint(
             requeue_policy=requeue_policy,
             emit_solver_stats=emit_solver_stats,
             strict_precision_mode=strict_precision_mode,
+            skip_stdlib_modules=skip_stdlib_modules,
         )
         return generate_text_output(graph, None)
     except Exception as exc:
@@ -148,6 +152,7 @@ def extract_value_flow_graph_constraint(
     requeue_policy: str = "priority",
     emit_solver_stats: bool = False,
     strict_precision_mode: bool = False,
+    skip_stdlib_modules: bool = True,
 ) -> Dict[str, List[str]]:
     """
     Extract a debug value-flow graph from the constraint analyser.
@@ -170,6 +175,7 @@ def extract_value_flow_graph_constraint(
         requeue_policy="fifo" if requeue_policy == "fifo" else "priority",
         emit_solver_stats=emit_solver_stats,
         strict_precision_mode=strict_precision_mode,
+        skip_stdlib_modules=skip_stdlib_modules,
     )
     builder = ConstraintCallGraphBuilder(
         source_code,
@@ -192,7 +198,7 @@ def extract_call_site_edge_index_constraint(
     source_code: str,
     source_path: Optional[str] = None,
     verbose: bool = False,
-    context_sensitive: bool = True,
+    context_sensitive: bool = False,
     context_depth: int = 1,
     fixpoint_max_iterations: Optional[int] = None,
     warn_on_fixpoint_truncation: bool = True,
@@ -205,6 +211,7 @@ def extract_call_site_edge_index_constraint(
     requeue_policy: str = "priority",
     emit_solver_stats: bool = False,
     strict_precision_mode: bool = False,
+    skip_stdlib_modules: bool = True,
 ) -> CallSiteEdgeIndex:
     """Extract direct call-site edges from the constraint analyser."""
     entry_path = source_path or _discover_entry_path_from_stack()
@@ -222,6 +229,7 @@ def extract_call_site_edge_index_constraint(
         requeue_policy="fifo" if requeue_policy == "fifo" else "priority",
         emit_solver_stats=emit_solver_stats,
         strict_precision_mode=strict_precision_mode,
+        skip_stdlib_modules=skip_stdlib_modules,
     )
     builder = ConstraintCallGraphBuilder(
         source_code,
