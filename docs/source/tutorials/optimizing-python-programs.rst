@@ -380,6 +380,6 @@ Pattern 3: Eliminate Dead Branches
 Next Steps
 ==========
 
-- Learn more about :ref:`understanding-analysis-results`
+- Learn more about :ref:`tutorial-understanding-analysis-results`
 - Explore detailed :doc:`../optimization/index` documentation
 - Understand the :doc:`../explanation/architecture` behind optimizations

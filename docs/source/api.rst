@@ -174,23 +174,74 @@ The ``GraphQueryEngine`` provides graph-based querying capabilities.
    nodes = engine.get_nodes(function_name)
    edges = engine.get_edges(function_name)
 
+Query Helper Classes
+~~~~~~~~~~~~~~~~~~~~
+
+PyFlow provides dedicated query classes for each analysis domain:
+
+.. code-block:: python
+
+   from pyflow.api.queries import (
+       CallGraphQueries,
+       ControlFlowQueries,
+       DataFlowQueries,
+   )
+
+   call_queries = CallGraphQueries(context, engine)
+   callers = call_queries.get_callers("function_name")
+
+   ctrl_queries = ControlFlowQueries(context, engine)
+   cfg = ctrl_queries.get_cfg("function_name")
+
+   data_queries = DataFlowQueries(context, engine)
+   reaching_defs = data_queries.get_reaching_defs("function_name")
+
+Analysis Result Models
+~~~~~~~~~~~~~~~~~~~~~~
+
+The API exposes typed result models for programmatic consumption:
+
+.. code-block:: python
+
+   from pyflow.api.queries import (
+       ReachingDef,
+       AliasInfo,
+       PointsToInfo,
+       TaintFlowReport,
+       IpaFunctionSummary,
+   )
+
+   # ReachingDef: captures a reaching definition with source location
+   # AliasInfo: alias relationship with confidence and evidence
+   # PointsToInfo: points-to set with allocation sites
+   # TaintFlowReport: taint flow from source to sink with code flow
+   # IpaFunctionSummary: inter-procedural function summary
+
 Server Modes
 ~~~~~~~~~~~~
 
 PyFlow supports different server modes for different use cases:
 
 - ``DEFAULT_MODE``: Standard analysis
-- ``MCPServerMode``: Mode optimized for MCP tooling
+- ``MCPServerMode``: Mode optimized for MCP tooling (supports ``BASIC``, ``FULL``, ``ADVANCED`` levels)
 
 .. code-block:: python
 
    from pyflow.api.queries import MCPServerMode, DEFAULT_MODE
+   from pyflow.api.queries.capabilities import (
+       get_server_mode_description,
+       resolve_capabilities,
+   )
 
    # Set server mode
-   service = SemanticQueryService(compiler, program, server_mode=MCPServerMode)
+   service = SemanticQueryService(compiler, program, server_mode=DEFAULT_MODE)
    
    # Check capabilities
    caps = service.capabilities()
+
+   # Resolve and describe server mode capabilities
+   resolved = resolve_capabilities(MCPServerMode)
+   description = get_server_mode_description(MCPServerMode)
 
 Localization Queries
 ~~~~~~~~~~~~~~~~~~~

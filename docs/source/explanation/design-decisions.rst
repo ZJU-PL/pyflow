@@ -202,18 +202,14 @@ analyses and optimizations.
 
 .. code-block:: python
 
-   from pyflow.analysis import AnalysisPass
+   from pyflow.application.passes import register_standard_passes
 
-   class MyCustomAnalysis(AnalysisPass):
-       name = "my_custom"
+   class MyCustomPass:
+       """Custom pass example. Passes are registered through the pass manager."""
+       pass
 
-       def analyze(self, program):
-           # Custom analysis logic
-           pass
-
-   # Register the pass
-   from pyflow.analysis.registry import registry
-   registry.register("my_custom", MyCustomAnalysis)
+   # Register the pass through the pass manager pipeline
+   # See pyflow.application.passes for the standard pass registration pattern
 
 CLI Design
 ==========

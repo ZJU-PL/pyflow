@@ -7,47 +7,6 @@ How to Customize Analysis
 This guide explains how to configure and customize PyFlow's analysis behavior
 for your specific needs.
 
-Configuration File
-==================
-
-Create a configuration file to customize analysis:
-
-.. code-block:: toml
-   :caption: pyflow.toml
-
-   [analysis]
-   # Enable/disable specific analyses
-   enable_cpa = true
-   enable_ipa = true
-   enable_shape = true
-
-   [analysis.cpa]
-   # CPA configuration
-   context_sensitive = true
-   flow_sensitive = true
-   field_sensitive = true
-
-   [analysis.callgraph]
-   # Call graph configuration
-   algorithm = "cha"  # "cha", "rapid", or "opa"
-   max_depth = 10
-
-   [optimization]
-   # Optimization configuration
-   default_passes = ["simplify", "methodcall"]
-   max_inline_size = 20
-
-   [output]
-   # Output configuration
-   format = "text"
-   verbose = false
-
-Loading Configuration
----------------------
-
-PyFlow automatically loads configuration from ``pyflow.toml`` in the current
-directory or project root.
-
 Custom Analysis Passes
 ======================
 
@@ -55,10 +14,9 @@ Create custom analysis passes by extending PyFlow's base classes:
 
 .. code-block:: python
 
-   from pyflow.analysis import AnalysisPass
-   from pyflow.analysis.cfg import CFG
+   from pyflow.analysis.cfg.graph import CFGBlock
 
-   class MyCustomAnalysis(AnalysisPass):
+   class MyCustomAnalysis:
        """Custom analysis pass for specific needs."""
 
        def __init__(self):
@@ -80,9 +38,8 @@ Create custom analysis passes by extending PyFlow's base classes:
                "num_edges": len(cfg.edges),
            }
 
-   # Register the pass
-   from pyflow.analysis.registry import AnalysisRegistry
-   AnalysisRegistry.register("my_custom", MyCustomAnalysis)
+   # Register the pass via the pass manager pipeline
+   # See pyflow.application.passes for the standard pass registration pattern
 
 Running Custom Analysis
 -----------------------
@@ -215,22 +172,6 @@ Override configuration from the command line:
    # Set output format
    pyflow callgraph input.py --output result.txt
 
-Environment Variables
-=====================
-
-Configure via environment variables:
-
-.. code-block:: bash
-
-   # Set output format
-   export PYFLOW_FORMAT=json
-
-   # Set verbosity
-   export PYFLOW_VERBOSE=true
-
-   # Set configuration file path
-   export PYFLOW_CONFIG=/path/to/pyflow.toml
-
 Programmatic Usage
 ==================
 
@@ -238,31 +179,32 @@ Use PyFlow programmatically for fine-grained control:
 
 .. code-block:: python
 
-   from pyflow import Program, AnalysisContext
-   from pyflow.analysis.cpa import CPA
-   from pyflow.analysis.callgraph import CallGraphAnalysis
+   from pyflow import Context
+   from pyflow.frontend.programextractor import Extractor
+   from pyflow.analysis.cpa import InterproceduralDataflow
+   from pyflow.analysis.callgraph.constraint_based.api import extract_call_graph_constraint
 
-   # Create program representation
-   program = Program.from_file("input.py")
+   # Set up compiler and extractor
+   context = Context()
+   extractor = Extractor(context)
+   extractor.process(["input.py"])
+   program = context.program
 
    # Create analysis context
-   context = AnalysisContext()
-   context.set_config({
-       "context_sensitive": True,
-       "flow_sensitive": True,
-   })
+   context = Context()
+   context.slots["context_sensitive"] = True
+   context.slots["flow_sensitive"] = True
 
    # Run specific analyses
-   cpa = CPA(context)
-   cpa_results = cpa.analyze(program)
+   cpa = InterproceduralDataflow()
+   cpa.run(program)
 
-   callgraph = CallGraphAnalysis()
-   callgraph_results = callgraph.analyze(program)
+   graph = extract_call_graph_constraint(open("input.py").read())
 
    # Combine results
    combined_results = {
-       "cpa": cpa_results,
-       "callgraph": callgraph_results,
+       "cpa": cpa,
+       "callgraph": graph,
    }
 
 Troubleshooting
@@ -271,9 +213,9 @@ Troubleshooting
 Issue: Configuration not applied
 ---------------------------------
 
-- Ensure pyflow.toml is in the project root
-- Check file permissions
-- Verify TOML syntax
+- Verify CLI flags are correct with ``pyflow optimize --help``
+- Ensure pass names match available passes with ``pyflow optimize --list-opt-passes``
+- Check that the analysis engine is supported by the requested pass
 
 Issue: Custom pass not found
 ----------------------------

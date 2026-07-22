@@ -29,10 +29,10 @@ slots are consumed by subsequent operations.
 
 .. code-block:: python
 
-   from pyflow.analysis.dataflowIR import DataFlowIRBuilder
+   from pyflow.analysis.dataflowIR.convert import CodeToDataflow
 
-   builder = DataFlowIRBuilder()
-   dataflow_graph = builder.build_from_ast(function_ast)
+   converter = CodeToDataflow()
+   dataflow_graph = converter.convert(cfg_block)
 
 Usage
 -----

@@ -139,7 +139,7 @@ Solution
 
    .. code-block:: bash
 
-      pyflow optimize input.py --analysis cpa,ipa,shape
+      pyflow optimize input.py --analysis all
 
 2. Compare with expected behavior:
 
@@ -235,12 +235,12 @@ Inspect intermediate representations:
    pyflow ir input.py \
        --dump-ast function_name \
        --dump-format json \
-       --output ast.json
+       --dump-output ast.json
 
    pyflow ir input.py \
        --dump-cfg function_name \
        --dump-format json \
-       --output cfg.json
+       --dump-output cfg.json
 
 Debug Mode
 ----------
@@ -276,8 +276,8 @@ Solution:
 
 .. code-block:: bash
 
-   # List all functions in file
-   pyflow ir input.py --dump-ast all --format json | grep '"name"'
+   # Dump AST for a specific function to inspect its structure
+   pyflow ir input.py --dump-ast function_name --dump-format json
 
 Error: "Analysis timeout"
 -------------------------

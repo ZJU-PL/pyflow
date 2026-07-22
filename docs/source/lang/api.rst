@@ -46,8 +46,8 @@ AST Transformations
 .. code-block:: python
 
    from pyflow.language.python.collapser import Collapser
-   from pyflow.language.python.fold import Fold
-   from pyflow.language.python.defuse import DefUse
+   from pyflow.language.python.fold import apply as fold_apply
+   from pyflow.language.python.defuse import DefUseVisitor
 
 See Also
 --------

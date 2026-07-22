@@ -71,7 +71,7 @@ DOT format is available for IR dumps via ``pyflow ir``:
 
 .. code-block:: bash
 
-   pyflow ir example.py --dump-cfg main --dump-format dot --output cfg.dot
+   pyflow ir example.py --dump-cfg main --dump-format dot --dump-output cfg.dot
 
 Then render to an image:
 
@@ -405,6 +405,6 @@ Best Practices
 Next Steps
 ==========
 
-- Explore :doc:`../how-to/index` for task-specific guides
-- Learn about the :doc:`../explanation/algorithms` behind the analyses
-- Check out the :doc:`../reference/index` for complete API documentation
+- Explore :doc:`/how-to/index` for task-specific guides
+- Learn about the :doc:`/explanation/algorithms` behind the analyses
+- Check out the :doc:`/api` for complete API documentation
