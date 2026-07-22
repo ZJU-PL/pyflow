@@ -333,7 +333,7 @@ x = )  # Missing operand
 <h3>Solution<a class="headerlink" href="#id7" title="Link to this heading"></a></h3>
 <ol class="arabic">
 <li><p>Verify with multiple analysis passes:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>optimize<span class="w"> </span>input.py<span class="w"> </span>--analysis<span class="w"> </span>cpa,ipa,shape
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>optimize<span class="w"> </span>input.py<span class="w"> </span>--analysis<span class="w"> </span>all
 </pre></div>
 </div>
 </li>
@@ -418,12 +418,12 @@ pyflow<span class="w"> </span>optimize<span class="w"> </span>file2.py
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>ir<span class="w"> </span>input.py<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--dump-ast<span class="w"> </span>function_name<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--dump-format<span class="w"> </span>json<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--output<span class="w"> </span>ast.json
+<span class="w">    </span>--dump-output<span class="w"> </span>ast.json
 
 pyflow<span class="w"> </span>ir<span class="w"> </span>input.py<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--dump-cfg<span class="w"> </span>function_name<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--dump-format<span class="w"> </span>json<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--output<span class="w"> </span>cfg.json
+<span class="w">    </span>--dump-output<span class="w"> </span>cfg.json
 </pre></div>
 </div>
 </section>
@@ -451,8 +451,8 @@ pyflow<span class="w"> </span>ir<span class="w"> </span>input.py<span class="w">
 <h3>Error: “Function not found”<a class="headerlink" href="#error-function-not-found" title="Link to this heading"></a></h3>
 <p>The specified function does not exist in the source file.</p>
 <p>Solution:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># List all functions in file</span>
-pyflow<span class="w"> </span>ir<span class="w"> </span>input.py<span class="w"> </span>--dump-ast<span class="w"> </span>all<span class="w"> </span>--format<span class="w"> </span>json<span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span><span class="s1">&#39;&quot;name&quot;&#39;</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Dump AST for a specific function to inspect its structure</span>
+pyflow<span class="w"> </span>ir<span class="w"> </span>input.py<span class="w"> </span>--dump-ast<span class="w"> </span>function_name<span class="w"> </span>--dump-format<span class="w"> </span>json
 </pre></div>
 </div>
 </section>

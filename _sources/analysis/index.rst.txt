@@ -121,16 +121,15 @@ Use the Python API for programmatic analysis:
 
 .. code-block:: python
 
-   from pyflow.analysis.cpa import CPA
-   from pyflow.analysis.callgraph import CallGraphAnalysis
+   from pyflow.analysis.cpa import InterproceduralDataflow
+   from pyflow.analysis.callgraph.constraint_based.api import extract_call_graph_constraint
 
    # Run CPA
-   cpa = CPA()
-   cpa_results = cpa.analyze(program)
+   cpa = InterproceduralDataflow()
+   cpa.run(program)
 
    # Build call graph
-   callgraph = CallGraphAnalysis()
-   graph = callgraph.build(program)
+   graph = extract_call_graph_constraint(source_code)
 
 Analysis Results
 ================

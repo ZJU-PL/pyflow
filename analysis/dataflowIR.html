@@ -169,10 +169,10 @@ program slicing and optimization</p></li>
 <p>The data flow graph represents a function as a sequence of operations connected
 by data dependencies.  Each operation produces a result stored in a slot, and
 slots are consumed by subsequent operations.</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.analysis.dataflowIR</span><span class="w"> </span><span class="kn">import</span> <span class="n">DataFlowIRBuilder</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.analysis.dataflowIR.convert</span><span class="w"> </span><span class="kn">import</span> <span class="n">CodeToDataflow</span>
 
-<span class="n">builder</span> <span class="o">=</span> <span class="n">DataFlowIRBuilder</span><span class="p">()</span>
-<span class="n">dataflow_graph</span> <span class="o">=</span> <span class="n">builder</span><span class="o">.</span><span class="n">build_from_ast</span><span class="p">(</span><span class="n">function_ast</span><span class="p">)</span>
+<span class="n">converter</span> <span class="o">=</span> <span class="n">CodeToDataflow</span><span class="p">()</span>
+<span class="n">dataflow_graph</span> <span class="o">=</span> <span class="n">converter</span><span class="o">.</span><span class="n">convert</span><span class="p">(</span><span class="n">cfg_block</span><span class="p">)</span>
 </pre></div>
 </div>
 </section>

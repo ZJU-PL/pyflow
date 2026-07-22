@@ -367,18 +367,14 @@ analyses and optimizations.</p>
 <li><p><strong>Constraint Types</strong>: Add domain-specific constraints</p></li>
 </ol>
 <p><strong>Example</strong>:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.analysis</span><span class="w"> </span><span class="kn">import</span> <span class="n">AnalysisPass</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.application.passes</span><span class="w"> </span><span class="kn">import</span> <span class="n">register_standard_passes</span>
 
-<span class="k">class</span><span class="w"> </span><span class="nc">MyCustomAnalysis</span><span class="p">(</span><span class="n">AnalysisPass</span><span class="p">):</span>
-    <span class="n">name</span> <span class="o">=</span> <span class="s2">&quot;my_custom&quot;</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">MyCustomPass</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Custom pass example. Passes are registered through the pass manager.&quot;&quot;&quot;</span>
+    <span class="k">pass</span>
 
-    <span class="k">def</span><span class="w"> </span><span class="nf">analyze</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">program</span><span class="p">):</span>
-        <span class="c1"># Custom analysis logic</span>
-        <span class="k">pass</span>
-
-<span class="c1"># Register the pass</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.analysis.registry</span><span class="w"> </span><span class="kn">import</span> <span class="n">registry</span>
-<span class="n">registry</span><span class="o">.</span><span class="n">register</span><span class="p">(</span><span class="s2">&quot;my_custom&quot;</span><span class="p">,</span> <span class="n">MyCustomAnalysis</span><span class="p">)</span>
+<span class="c1"># Register the pass through the pass manager pipeline</span>
+<span class="c1"># See pyflow.application.passes for the standard pass registration pattern</span>
 </pre></div>
 </div>
 </section>

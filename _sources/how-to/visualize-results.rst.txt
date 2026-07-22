@@ -28,7 +28,7 @@ For professional vector graphics, use the IR dump command:
 
 .. code-block:: bash
 
-   pyflow ir input.py --dump-cfg main --dump-format dot --output cfg.dot
+   pyflow ir input.py --dump-cfg main --dump-format dot --dump-output cfg.dot
    dot -Tpng cfg.dot -o cfg.png
 
 Visualizing Call Graphs
@@ -108,7 +108,7 @@ Basic CFG visualization
 
 .. code-block:: bash
 
-   pyflow ir input.py --dump-cfg function_name --format dot --output cfg.dot
+   pyflow ir input.py --dump-cfg function_name --dump-format dot --dump-output cfg.dot
 
 Complex CFG visualization
 -------------------------
@@ -226,7 +226,7 @@ Export for Jupyter notebooks:
    from IPython.display import Image, display
 
    # Generate and display
-   !pyflow callgraph input.py --format dot --output temp.dot
+   !pyflow callgraph input.py --output temp.dot
    !dot -Tpng temp.dot -o temp.png
    display(Image("temp.png"))
 

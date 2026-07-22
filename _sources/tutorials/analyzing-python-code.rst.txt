@@ -95,7 +95,7 @@ Running Data Flow Analysis
 
 .. code-block:: bash
 
-   pyflow optimize example.py --analysis cpa,ipa
+   pyflow optimize example.py --analysis cpa
 
 This runs forward and backward data flow analysis, computing:
 
@@ -278,19 +278,19 @@ Or run specific combinations:
 
 .. code-block:: bash
 
-   pyflow optimize example.py --analysis cpa,ipa,shape
+   pyflow optimize example.py --analysis all
 
 Dump intermediate representations:
 
 .. code-block:: bash
 
-   pyflow ir example.py --dump-ast fibonacci --dump-format json --output ast.json
+   pyflow ir example.py --dump-ast fibonacci --dump-format json --dump-output ast.json
 
 Next Steps
 ==========
 
 Now that you understand the basic analysis capabilities, you can:
 
-- Learn about :ref:`optimizing-python-programs`
-- Explore :ref:`understanding-analysis-results`
+- Learn about :ref:`tutorial-optimizing-python-programs`
+- Explore :ref:`tutorial-understanding-analysis-results`
 - Dive into :doc:`../explanation/architecture` for detailed architecture information

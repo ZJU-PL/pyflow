@@ -51,7 +51,7 @@ Choose the right tools for your task.
    pyflow callgraph input.py --algorithm constraint
 
    # For visualization, use ir dump with DOT format
-   pyflow ir input.py --dump-cfg main --dump-format dot --output cfg.dot
+   pyflow ir input.py --dump-cfg main --dump-format dot --dump-output ./out
 
 Check Configuration
 -------------------
@@ -82,8 +82,8 @@ complete picture.
 
 .. code-block:: bash
 
-   # Run multiple analyses
-   pyflow optimize input.py --analysis cpa,ipa,shape
+   # Run analysis with CPA
+   pyflow optimize input.py --analysis cpa
 
    # Or run all analyses
    pyflow optimize input.py --analysis all
@@ -150,9 +150,9 @@ Use Incremental Analysis
 .. code-block:: python
 
    # Use Python API for incremental analysis
-   from pyflow.application.cache import IncrementalAnalysisCache
+   from pyflow.analysis.cache.incremental import IncrementalCache
 
-   cache = IncrementalAnalysisCache()
+   cache = IncrementalCache()
    cache.store(program, results)
    # Later: re-analyze only changed files
 
@@ -190,17 +190,13 @@ Customize for Your Codebase
 
 **Example**:
 
-.. code-block:: toml
-   :caption: pyflow.toml
+.. code-block:: python
 
-   [analysis.cpa]
-   # Custom thresholds for your codebase
-   max_context_depth = 5
-   field_sensitive = true
+   from pyflow import Context
 
-   [analysis.callgraph]
-   # Use precise algorithm for your codebase
-   algorithm = "opa"
+   context = Context()
+   context.slots["cpa.field_sensitive"] = True
+   context.slots["cpa.max_context_depth"] = 5
 
    [optimization]
    # Custom optimization settings
@@ -278,7 +274,7 @@ Understand Findings
    pyflow security input.py --verbose
 
    # Check context of finding
-   pyflow ir input.py --line 15 --dump-ast
+   pyflow ir input.py --dump-ast function_name --verbose
 
 Prioritize Remediation
 -----------------------
@@ -335,9 +331,9 @@ Use Caching
 
 .. code-block:: python
 
-   from pyflow.application.cache import IncrementalAnalysisCache
+   from pyflow.analysis.cache.incremental import IncrementalCache
 
-   cache = IncrementalAnalysisCache()
+   cache = IncrementalCache()
    cache.store(program, results)
    # Later: re-analyze only changed files
 
@@ -409,7 +405,7 @@ Include Analysis Results in Documentation
    ![Call Graph](docs/callgraph.png)
 
    Generated: 2024-01-15
-   Command: `pyflow callgraph src/ --format dot --output docs/callgraph.png`
+   Command: `pyflow callgraph src/ --output docs/callgraph.png`
 
 Troubleshooting Best Practices
 ===============================

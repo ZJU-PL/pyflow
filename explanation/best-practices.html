@@ -248,7 +248,7 @@ pyflow<span class="w"> </span>callgraph<span class="w"> </span>input.py
 pyflow<span class="w"> </span>callgraph<span class="w"> </span>input.py<span class="w"> </span>--algorithm<span class="w"> </span>constraint
 
 <span class="c1"># For visualization, use ir dump with DOT format</span>
-pyflow<span class="w"> </span>ir<span class="w"> </span>input.py<span class="w"> </span>--dump-cfg<span class="w"> </span>main<span class="w"> </span>--dump-format<span class="w"> </span>dot<span class="w"> </span>--output<span class="w"> </span>cfg.dot
+pyflow<span class="w"> </span>ir<span class="w"> </span>input.py<span class="w"> </span>--dump-cfg<span class="w"> </span>main<span class="w"> </span>--dump-format<span class="w"> </span>dot<span class="w"> </span>--dump-output<span class="w"> </span>./out
 </pre></div>
 </div>
 </section>
@@ -271,8 +271,8 @@ pyflow<span class="w"> </span>optimize<span class="w"> </span>input.py<span clas
 <p><strong>Why</strong>: Different analyses provide different insights. Combining them gives a
 complete picture.</p>
 <p><strong>Example</strong>:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Run multiple analyses</span>
-pyflow<span class="w"> </span>optimize<span class="w"> </span>input.py<span class="w"> </span>--analysis<span class="w"> </span>cpa,ipa,shape
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Run analysis with CPA</span>
+pyflow<span class="w"> </span>optimize<span class="w"> </span>input.py<span class="w"> </span>--analysis<span class="w"> </span>cpa
 
 <span class="c1"># Or run all analyses</span>
 pyflow<span class="w"> </span>optimize<span class="w"> </span>input.py<span class="w"> </span>--analysis<span class="w"> </span>all
@@ -327,9 +327,9 @@ pyflow<span class="w"> </span>optimize<span class="w"> </span>input.py<span clas
 <p><strong>Why</strong>: Analyzing only changed files is much faster than full analysis.</p>
 <p><strong>Example</strong>:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Use Python API for incremental analysis</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.application.cache</span><span class="w"> </span><span class="kn">import</span> <span class="n">IncrementalAnalysisCache</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.analysis.cache.incremental</span><span class="w"> </span><span class="kn">import</span> <span class="n">IncrementalCache</span>
 
-<span class="n">cache</span> <span class="o">=</span> <span class="n">IncrementalAnalysisCache</span><span class="p">()</span>
+<span class="n">cache</span> <span class="o">=</span> <span class="n">IncrementalCache</span><span class="p">()</span>
 <span class="n">cache</span><span class="o">.</span><span class="n">store</span><span class="p">(</span><span class="n">program</span><span class="p">,</span> <span class="n">results</span><span class="p">)</span>
 <span class="c1"># Later: re-analyze only changed files</span>
 </pre></div>
@@ -361,23 +361,17 @@ pyflow<span class="w"> </span>optimize<span class="w"> </span>input.py<span clas
 <p><strong>Do</strong>: Create custom configurations for your specific codebase.</p>
 <p><strong>Why</strong>: Default settings may not be optimal for your code patterns.</p>
 <p><strong>Example</strong>:</p>
-<div class="literal-block-wrapper docutils container" id="id1">
-<div class="code-block-caption"><span class="caption-text">pyflow.toml</span><a class="headerlink" href="#id1" title="Link to this code"></a></div>
-<div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[analysis.cpa]</span>
-<span class="c1"># Custom thresholds for your codebase</span>
-<span class="n">max_context_depth</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">5</span>
-<span class="n">field_sensitive</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow</span><span class="w"> </span><span class="kn">import</span> <span class="n">Context</span>
 
-<span class="k">[analysis.callgraph]</span>
-<span class="c1"># Use precise algorithm for your codebase</span>
-<span class="n">algorithm</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;opa&quot;</span>
+<span class="n">context</span> <span class="o">=</span> <span class="n">Context</span><span class="p">()</span>
+<span class="n">context</span><span class="o">.</span><span class="n">slots</span><span class="p">[</span><span class="s2">&quot;cpa.field_sensitive&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="kc">True</span>
+<span class="n">context</span><span class="o">.</span><span class="n">slots</span><span class="p">[</span><span class="s2">&quot;cpa.max_context_depth&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="mi">5</span>
 
-<span class="k">[optimization]</span>
+<span class="p">[</span><span class="n">optimization</span><span class="p">]</span>
 <span class="c1"># Custom optimization settings</span>
-<span class="n">max_inline_size</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">15</span>
-<span class="n">enable_dce</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span>
+<span class="n">max_inline_size</span> <span class="o">=</span> <span class="mi">15</span>
+<span class="n">enable_dce</span> <span class="o">=</span> <span class="n">true</span>
 </pre></div>
-</div>
 </div>
 </section>
 <section id="integrate-with-development-workflow">
@@ -385,8 +379,8 @@ pyflow<span class="w"> </span>optimize<span class="w"> </span>input.py<span clas
 <p><strong>Do</strong>: Integrate PyFlow into your development and CI/CD workflows.</p>
 <p><strong>Why</strong>: Early detection of issues is cheaper than late detection.</p>
 <p><strong>Example</strong>:</p>
-<div class="literal-block-wrapper docutils container" id="id2">
-<div class="code-block-caption"><span class="caption-text">.github/workflows/pyflow.yml</span><a class="headerlink" href="#id2" title="Link to this code"></a></div>
+<div class="literal-block-wrapper docutils container" id="id1">
+<div class="code-block-caption"><span class="caption-text">.github/workflows/pyflow.yml</span><a class="headerlink" href="#id1" title="Link to this code"></a></div>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">PyFlow Analysis</span>
 
 <span class="nt">on</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">push</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">pull_request</span><span class="p p-Indicator">]</span>
@@ -439,7 +433,7 @@ pyflow<span class="w"> </span>security<span class="w"> </span>.<span class="w"> 
 pyflow<span class="w"> </span>security<span class="w"> </span>input.py<span class="w"> </span>--verbose
 
 <span class="c1"># Check context of finding</span>
-pyflow<span class="w"> </span>ir<span class="w"> </span>input.py<span class="w"> </span>--line<span class="w"> </span><span class="m">15</span><span class="w"> </span>--dump-ast
+pyflow<span class="w"> </span>ir<span class="w"> </span>input.py<span class="w"> </span>--dump-ast<span class="w"> </span>function_name<span class="w"> </span>--verbose
 </pre></div>
 </div>
 </section>
@@ -485,9 +479,9 @@ pyflow<span class="w"> </span>security<span class="w"> </span>input.py<span clas
 <p><strong>Do</strong>: Use PyFlow’s internal caching capabilities for repeated analysis.</p>
 <p><strong>Why</strong>: Caching avoids re-analyzing unchanged code.</p>
 <p><strong>Example</strong>:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.application.cache</span><span class="w"> </span><span class="kn">import</span> <span class="n">IncrementalAnalysisCache</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.analysis.cache.incremental</span><span class="w"> </span><span class="kn">import</span> <span class="n">IncrementalCache</span>
 
-<span class="n">cache</span> <span class="o">=</span> <span class="n">IncrementalAnalysisCache</span><span class="p">()</span>
+<span class="n">cache</span> <span class="o">=</span> <span class="n">IncrementalCache</span><span class="p">()</span>
 <span class="n">cache</span><span class="o">.</span><span class="n">store</span><span class="p">(</span><span class="n">program</span><span class="p">,</span> <span class="n">results</span><span class="p">)</span>
 <span class="c1"># Later: re-analyze only changed files</span>
 </pre></div>
@@ -511,8 +505,8 @@ pyflow<span class="w"> </span>optimize<span class="w"> </span>project/<span clas
 <p><strong>Do</strong>: Document your PyFlow configuration and the rationale behind it.</p>
 <p><strong>Why</strong>: Helps team members understand and reproduce analyses.</p>
 <p><strong>Example</strong>:</p>
-<div class="literal-block-wrapper docutils container" id="id3">
-<div class="code-block-caption"><span class="caption-text">ANALYSIS.md</span><a class="headerlink" href="#id3" title="Link to this code"></a></div>
+<div class="literal-block-wrapper docutils container" id="id2">
+<div class="code-block-caption"><span class="caption-text">ANALYSIS.md</span><a class="headerlink" href="#id2" title="Link to this code"></a></div>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># PyFlow Analysis Configuration</span>
 
 <span class="gu">## Purpose</span>
@@ -543,14 +537,14 @@ This document describes our PyFlow analysis configuration and rationale.
 <p><strong>Do</strong>: Include relevant analysis results in project documentation.</p>
 <p><strong>Why</strong>: Documents current state and helps track improvements.</p>
 <p><strong>Example</strong>:</p>
-<div class="literal-block-wrapper docutils container" id="id4">
-<div class="code-block-caption"><span class="caption-text">ARCHITECTURE.md</span><a class="headerlink" href="#id4" title="Link to this code"></a></div>
+<div class="literal-block-wrapper docutils container" id="id3">
+<div class="code-block-caption"><span class="caption-text">ARCHITECTURE.md</span><a class="headerlink" href="#id3" title="Link to this code"></a></div>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gu">## Call Graph</span>
 
 ![<span class="nt">Call Graph</span>](<span class="na">docs/callgraph.png</span>)
 
 Generated: 2024-01-15
-Command: <span class="sb">`pyflow callgraph src/ --format dot --output docs/callgraph.png`</span>
+Command: <span class="sb">`pyflow callgraph src/ --output docs/callgraph.png`</span>
 </pre></div>
 </div>
 </div>
@@ -572,8 +566,8 @@ Command: <span class="sb">`pyflow callgraph src/ --format dot --output docs/call
 <p><strong>Do</strong>: Create minimal examples when reporting issues.</p>
 <p><strong>Why</strong>: Minimal examples are easier to debug and faster to fix.</p>
 <p><strong>Example</strong>:</p>
-<div class="literal-block-wrapper docutils container" id="id5">
-<div class="code-block-caption"><span class="caption-text">minimal_example.py</span><a class="headerlink" href="#id5" title="Link to this code"></a></div>
+<div class="literal-block-wrapper docutils container" id="id4">
+<div class="code-block-caption"><span class="caption-text">minimal_example.py</span><a class="headerlink" href="#id4" title="Link to this code"></a></div>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Minimal example demonstrating the issue</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">problematic_function</span><span class="p">():</span>
     <span class="c1"># Only include code related to the issue</span>

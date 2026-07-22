@@ -58,10 +58,10 @@ Extracts the complete program structure from source files:
 
 .. code-block:: python
 
-   from pyflow.frontend.programextractor import ProgramExtractor
+   from pyflow.frontend.programextractor import Extractor
 
-   extractor = ProgramExtractor()
-   program = extractor.extract("input.py")
+   extractor = Extractor()
+   program = extractor.process(["input.py"])
 
 Key responsibilities:
 
@@ -118,12 +118,11 @@ The CFG represents the control flow structure of a function:
 
 .. code-block:: python
 
-   from pyflow.analysis.cfg import CFG, BasicBlock
+   from pyflow.analysis.cfg.graph import CFGBlock
 
-   cfg = CFG()
-   cfg.add_block(BasicBlock("entry"))
-   cfg.add_block(BasicBlock("loop_body"))
-   cfg.add_edge("entry", "loop_body")
+   entry = CFGBlock("entry")
+   loop_body = CFGBlock("loop_body")
+   entry.add_successor(loop_body)
 
 Key components:
 
@@ -138,10 +137,10 @@ Represents data flow information for analysis:
 
 .. code-block:: python
 
-   from pyflow.analysis.dataflowIR import DataFlowAnalysis
+   from pyflow.analysis.dataflowIR.convert import CodeToDataflow
 
-   analysis = DataFlowAnalysis()
-   results = analysis.analyze(cfg)
+   converter = CodeToDataflow()
+   df_graph = converter.convert(cfg_block)
 
 Key components:
 
@@ -156,10 +155,10 @@ Represents object allocation and field access:
 
 .. code-block:: python
 
-   from pyflow.analysis.storegraph import StoreGraph
+   from pyflow.analysis.storegraph.storegraph import StoreGraph, ObjectNode
 
    graph = StoreGraph()
-   node = graph.add_node(AllocationSite("Object()"))
+   node = ObjectNode("obj", "Object()")
 
 Key components:
 
@@ -179,10 +178,10 @@ CPA uses constraint solving for precise analysis:
 
 .. code-block:: python
 
-   from pyflow.analysis.cpa import CPA
+   from pyflow.analysis.cpa import InterproceduralDataflow
 
-   cpa = CPA()
-   results = cpa.analyze(program)
+   cpa = InterproceduralDataflow()
+   cpa.run(program)
 
 Key concepts:
 
@@ -204,10 +203,10 @@ Extends analysis across function boundaries:
 
 .. code-block:: python
 
-   from pyflow.analysis.ipa import IPA
+   from pyflow.analysis.ipa import IPAnalysis
 
-   ipa = IPA()
-   results = ipa.analyze(program)
+   ipa = IPAnalysis()
+   ipa.analyze(program)
 
 Key concepts:
 
@@ -222,10 +221,10 @@ Analyzes data structure shapes:
 
 .. code-block:: python
 
-   from pyflow.analysis.shape import ShapeAnalysis
+   from pyflow.analysis.shape import RegionBasedShapeAnalysis
 
-   shape = ShapeAnalysis()
-   results = shape.analyze(program)
+   shape = RegionBasedShapeAnalysis()
+   shape.analyze(program)
 
 Key concepts:
 
@@ -240,16 +239,9 @@ Builds function call relationships:
 
 .. code-block:: python
 
-   from pyflow.analysis.callgraph import CallGraphAnalysis
+   from pyflow.analysis.callgraph.constraint_based.api import extract_call_graph_constraint
 
-   callgraph = CallGraphAnalysis()
-   graph = callgraph.build(program)
-
-Algorithms:
-
-- **CHA**: Class Hierarchy Analysis (fast, less precise)
-- **Rapid Type Analysis**: Faster for Java-like languages
-- **OPA**: Object Sensitivity Analysis (more precise)
+   graph = extract_call_graph_constraint(source_code)
 
 Optimization Layer
 ==================
@@ -264,14 +256,12 @@ PyFlow implements various optimization passes:
 Constant Folding
 ^^^^^^^^^^^^^^^^
 
-Evaluates constant expressions at compile time:
+Evaluates constant expressions at analysis time:
 
 .. code-block:: python
 
-   from pyflow.optimization import ConstantFolding
-
-   folder = ConstantFolding()
-   optimized = folder.optimize(program)
+   from pyflow.optimization.fold import evaluateCode
+   from pyflow.optimization.simplify import evaluate
 
 Dead Code Elimination
 ^^^^^^^^^^^^^^^^^^^^^
@@ -280,10 +270,7 @@ Removes unreachable and unused code:
 
 .. code-block:: python
 
-   from pyflow.optimization import DeadCodeElimination
-
-   dce = DeadCodeElimination()
-   optimized = dce.optimize(program)
+   from pyflow.optimization.dce import evaluate
 
 Function Inlining
 ^^^^^^^^^^^^^^^^^
@@ -292,10 +279,7 @@ Replaces function calls with function body:
 
 .. code-block:: python
 
-   from pyflow.optimization import FunctionInlining
-
-   inliner = FunctionInlining()
-   optimized = inliner.optimize(program)
+   from pyflow.optimization.codeinlining import evaluate
 
 Pass Manager
 ------------
@@ -329,10 +313,10 @@ Coordinates the overall analysis process:
 
 .. code-block:: python
 
-   from pyflow.application.pipeline import AnalysisPipeline
+   from pyflow.application.pipeline import Pipeline
 
-   pipeline = AnalysisPipeline()
-   results = pipeline.run(program, config)
+   pipeline = Pipeline()
+   results = pipeline.run(program)
 
 Analysis Context
 ----------------
@@ -341,11 +325,11 @@ Manages analysis configuration and state:
 
 .. code-block:: python
 
-   from pyflow.application.context import AnalysisContext
+   from pyflow import Context
 
-   context = AnalysisContext()
-   context.set_config("cpa.context_sensitive", True)
-   context.set_config("callgraph.algorithm", "opa")
+   context = Context()
+   context.slots["cpa.context_sensitive"] = True
+   context.slots["callgraph.algorithm"] = "constraint"
 
 Data Flow
 =========

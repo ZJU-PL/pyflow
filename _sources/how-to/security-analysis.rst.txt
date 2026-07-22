@@ -309,7 +309,7 @@ Issue: False positives
 
 - Use ``--exclude`` to skip known safe patterns
 - Add comments to suppress specific warnings
-- Configure custom rules in pyflow.toml
+- Configure sources/sinks/sanitizers with ``--sources``, ``--sinks``, ``--sanitizers`` flags
 
 Issue: Missing findings
 -----------------------

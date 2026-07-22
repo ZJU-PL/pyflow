@@ -233,10 +233,10 @@ distinct layers:</p>
 <section id="program-extractor">
 <h4>Program Extractor<a class="headerlink" href="#program-extractor" title="Link to this heading"></a></h4>
 <p>Extracts the complete program structure from source files:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.frontend.programextractor</span><span class="w"> </span><span class="kn">import</span> <span class="n">ProgramExtractor</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.frontend.programextractor</span><span class="w"> </span><span class="kn">import</span> <span class="n">Extractor</span>
 
-<span class="n">extractor</span> <span class="o">=</span> <span class="n">ProgramExtractor</span><span class="p">()</span>
-<span class="n">program</span> <span class="o">=</span> <span class="n">extractor</span><span class="o">.</span><span class="n">extract</span><span class="p">(</span><span class="s2">&quot;input.py&quot;</span><span class="p">)</span>
+<span class="n">extractor</span> <span class="o">=</span> <span class="n">Extractor</span><span class="p">()</span>
+<span class="n">program</span> <span class="o">=</span> <span class="n">extractor</span><span class="o">.</span><span class="n">process</span><span class="p">([</span><span class="s2">&quot;input.py&quot;</span><span class="p">])</span>
 </pre></div>
 </div>
 <p>Key responsibilities:</p>
@@ -287,12 +287,11 @@ representing program structure and analysis results.</p>
 <section id="control-flow-graph-cfg">
 <h3>Control Flow Graph (CFG)<a class="headerlink" href="#control-flow-graph-cfg" title="Link to this heading"></a></h3>
 <p>The CFG represents the control flow structure of a function:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.analysis.cfg</span><span class="w"> </span><span class="kn">import</span> <span class="n">CFG</span><span class="p">,</span> <span class="n">BasicBlock</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.analysis.cfg.graph</span><span class="w"> </span><span class="kn">import</span> <span class="n">CFGBlock</span>
 
-<span class="n">cfg</span> <span class="o">=</span> <span class="n">CFG</span><span class="p">()</span>
-<span class="n">cfg</span><span class="o">.</span><span class="n">add_block</span><span class="p">(</span><span class="n">BasicBlock</span><span class="p">(</span><span class="s2">&quot;entry&quot;</span><span class="p">))</span>
-<span class="n">cfg</span><span class="o">.</span><span class="n">add_block</span><span class="p">(</span><span class="n">BasicBlock</span><span class="p">(</span><span class="s2">&quot;loop_body&quot;</span><span class="p">))</span>
-<span class="n">cfg</span><span class="o">.</span><span class="n">add_edge</span><span class="p">(</span><span class="s2">&quot;entry&quot;</span><span class="p">,</span> <span class="s2">&quot;loop_body&quot;</span><span class="p">)</span>
+<span class="n">entry</span> <span class="o">=</span> <span class="n">CFGBlock</span><span class="p">(</span><span class="s2">&quot;entry&quot;</span><span class="p">)</span>
+<span class="n">loop_body</span> <span class="o">=</span> <span class="n">CFGBlock</span><span class="p">(</span><span class="s2">&quot;loop_body&quot;</span><span class="p">)</span>
+<span class="n">entry</span><span class="o">.</span><span class="n">add_successor</span><span class="p">(</span><span class="n">loop_body</span><span class="p">)</span>
 </pre></div>
 </div>
 <p>Key components:</p>
@@ -305,10 +304,10 @@ representing program structure and analysis results.</p>
 <section id="data-flow-ir">
 <h3>Data Flow IR<a class="headerlink" href="#data-flow-ir" title="Link to this heading"></a></h3>
 <p>Represents data flow information for analysis:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.analysis.dataflowIR</span><span class="w"> </span><span class="kn">import</span> <span class="n">DataFlowAnalysis</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.analysis.dataflowIR.convert</span><span class="w"> </span><span class="kn">import</span> <span class="n">CodeToDataflow</span>
 
-<span class="n">analysis</span> <span class="o">=</span> <span class="n">DataFlowAnalysis</span><span class="p">()</span>
-<span class="n">results</span> <span class="o">=</span> <span class="n">analysis</span><span class="o">.</span><span class="n">analyze</span><span class="p">(</span><span class="n">cfg</span><span class="p">)</span>
+<span class="n">converter</span> <span class="o">=</span> <span class="n">CodeToDataflow</span><span class="p">()</span>
+<span class="n">df_graph</span> <span class="o">=</span> <span class="n">converter</span><span class="o">.</span><span class="n">convert</span><span class="p">(</span><span class="n">cfg_block</span><span class="p">)</span>
 </pre></div>
 </div>
 <p>Key components:</p>
@@ -321,10 +320,10 @@ representing program structure and analysis results.</p>
 <section id="store-graph">
 <h3>Store Graph<a class="headerlink" href="#store-graph" title="Link to this heading"></a></h3>
 <p>Represents object allocation and field access:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.analysis.storegraph</span><span class="w"> </span><span class="kn">import</span> <span class="n">StoreGraph</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.analysis.storegraph.storegraph</span><span class="w"> </span><span class="kn">import</span> <span class="n">StoreGraph</span><span class="p">,</span> <span class="n">ObjectNode</span>
 
 <span class="n">graph</span> <span class="o">=</span> <span class="n">StoreGraph</span><span class="p">()</span>
-<span class="n">node</span> <span class="o">=</span> <span class="n">graph</span><span class="o">.</span><span class="n">add_node</span><span class="p">(</span><span class="n">AllocationSite</span><span class="p">(</span><span class="s2">&quot;Object()&quot;</span><span class="p">))</span>
+<span class="n">node</span> <span class="o">=</span> <span class="n">ObjectNode</span><span class="p">(</span><span class="s2">&quot;obj&quot;</span><span class="p">,</span> <span class="s2">&quot;Object()&quot;</span><span class="p">)</span>
 </pre></div>
 </div>
 <p>Key components:</p>
@@ -341,10 +340,10 @@ representing program structure and analysis results.</p>
 <section id="constraint-based-analysis-cpa">
 <h3>Constraint-Based Analysis (CPA)<a class="headerlink" href="#constraint-based-analysis-cpa" title="Link to this heading"></a></h3>
 <p>CPA uses constraint solving for precise analysis:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.analysis.cpa</span><span class="w"> </span><span class="kn">import</span> <span class="n">CPA</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.analysis.cpa</span><span class="w"> </span><span class="kn">import</span> <span class="n">InterproceduralDataflow</span>
 
-<span class="n">cpa</span> <span class="o">=</span> <span class="n">CPA</span><span class="p">()</span>
-<span class="n">results</span> <span class="o">=</span> <span class="n">cpa</span><span class="o">.</span><span class="n">analyze</span><span class="p">(</span><span class="n">program</span><span class="p">)</span>
+<span class="n">cpa</span> <span class="o">=</span> <span class="n">InterproceduralDataflow</span><span class="p">()</span>
+<span class="n">cpa</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">program</span><span class="p">)</span>
 </pre></div>
 </div>
 <p>Key concepts:</p>
@@ -364,10 +363,10 @@ representing program structure and analysis results.</p>
 <section id="inter-procedural-analysis-ipa">
 <h3>Inter-Procedural Analysis (IPA)<a class="headerlink" href="#inter-procedural-analysis-ipa" title="Link to this heading"></a></h3>
 <p>Extends analysis across function boundaries:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.analysis.ipa</span><span class="w"> </span><span class="kn">import</span> <span class="n">IPA</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.analysis.ipa</span><span class="w"> </span><span class="kn">import</span> <span class="n">IPAnalysis</span>
 
-<span class="n">ipa</span> <span class="o">=</span> <span class="n">IPA</span><span class="p">()</span>
-<span class="n">results</span> <span class="o">=</span> <span class="n">ipa</span><span class="o">.</span><span class="n">analyze</span><span class="p">(</span><span class="n">program</span><span class="p">)</span>
+<span class="n">ipa</span> <span class="o">=</span> <span class="n">IPAnalysis</span><span class="p">()</span>
+<span class="n">ipa</span><span class="o">.</span><span class="n">analyze</span><span class="p">(</span><span class="n">program</span><span class="p">)</span>
 </pre></div>
 </div>
 <p>Key concepts:</p>
@@ -380,10 +379,10 @@ representing program structure and analysis results.</p>
 <section id="shape-analysis">
 <h3>Shape Analysis<a class="headerlink" href="#shape-analysis" title="Link to this heading"></a></h3>
 <p>Analyzes data structure shapes:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.analysis.shape</span><span class="w"> </span><span class="kn">import</span> <span class="n">ShapeAnalysis</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.analysis.shape</span><span class="w"> </span><span class="kn">import</span> <span class="n">RegionBasedShapeAnalysis</span>
 
-<span class="n">shape</span> <span class="o">=</span> <span class="n">ShapeAnalysis</span><span class="p">()</span>
-<span class="n">results</span> <span class="o">=</span> <span class="n">shape</span><span class="o">.</span><span class="n">analyze</span><span class="p">(</span><span class="n">program</span><span class="p">)</span>
+<span class="n">shape</span> <span class="o">=</span> <span class="n">RegionBasedShapeAnalysis</span><span class="p">()</span>
+<span class="n">shape</span><span class="o">.</span><span class="n">analyze</span><span class="p">(</span><span class="n">program</span><span class="p">)</span>
 </pre></div>
 </div>
 <p>Key concepts:</p>
@@ -396,18 +395,11 @@ representing program structure and analysis results.</p>
 <section id="call-graph-analysis">
 <h3>Call Graph Analysis<a class="headerlink" href="#call-graph-analysis" title="Link to this heading"></a></h3>
 <p>Builds function call relationships:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.analysis.callgraph</span><span class="w"> </span><span class="kn">import</span> <span class="n">CallGraphAnalysis</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.analysis.callgraph.constraint_based.api</span><span class="w"> </span><span class="kn">import</span> <span class="n">extract_call_graph_constraint</span>
 
-<span class="n">callgraph</span> <span class="o">=</span> <span class="n">CallGraphAnalysis</span><span class="p">()</span>
-<span class="n">graph</span> <span class="o">=</span> <span class="n">callgraph</span><span class="o">.</span><span class="n">build</span><span class="p">(</span><span class="n">program</span><span class="p">)</span>
+<span class="n">graph</span> <span class="o">=</span> <span class="n">extract_call_graph_constraint</span><span class="p">(</span><span class="n">source_code</span><span class="p">)</span>
 </pre></div>
 </div>
-<p>Algorithms:</p>
-<ul class="simple">
-<li><p><strong>CHA</strong>: Class Hierarchy Analysis (fast, less precise)</p></li>
-<li><p><strong>Rapid Type Analysis</strong>: Faster for Java-like languages</p></li>
-<li><p><strong>OPA</strong>: Object Sensitivity Analysis (more precise)</p></li>
-</ul>
 </section>
 </section>
 <section id="optimization-layer">
@@ -418,31 +410,23 @@ representing program structure and analysis results.</p>
 <p>PyFlow implements various optimization passes:</p>
 <section id="constant-folding">
 <h4>Constant Folding<a class="headerlink" href="#constant-folding" title="Link to this heading"></a></h4>
-<p>Evaluates constant expressions at compile time:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.optimization</span><span class="w"> </span><span class="kn">import</span> <span class="n">ConstantFolding</span>
-
-<span class="n">folder</span> <span class="o">=</span> <span class="n">ConstantFolding</span><span class="p">()</span>
-<span class="n">optimized</span> <span class="o">=</span> <span class="n">folder</span><span class="o">.</span><span class="n">optimize</span><span class="p">(</span><span class="n">program</span><span class="p">)</span>
+<p>Evaluates constant expressions at analysis time:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.optimization.fold</span><span class="w"> </span><span class="kn">import</span> <span class="n">evaluateCode</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.optimization.simplify</span><span class="w"> </span><span class="kn">import</span> <span class="n">evaluate</span>
 </pre></div>
 </div>
 </section>
 <section id="dead-code-elimination">
 <h4>Dead Code Elimination<a class="headerlink" href="#dead-code-elimination" title="Link to this heading"></a></h4>
 <p>Removes unreachable and unused code:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.optimization</span><span class="w"> </span><span class="kn">import</span> <span class="n">DeadCodeElimination</span>
-
-<span class="n">dce</span> <span class="o">=</span> <span class="n">DeadCodeElimination</span><span class="p">()</span>
-<span class="n">optimized</span> <span class="o">=</span> <span class="n">dce</span><span class="o">.</span><span class="n">optimize</span><span class="p">(</span><span class="n">program</span><span class="p">)</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.optimization.dce</span><span class="w"> </span><span class="kn">import</span> <span class="n">evaluate</span>
 </pre></div>
 </div>
 </section>
 <section id="function-inlining">
 <h4>Function Inlining<a class="headerlink" href="#function-inlining" title="Link to this heading"></a></h4>
 <p>Replaces function calls with function body:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.optimization</span><span class="w"> </span><span class="kn">import</span> <span class="n">FunctionInlining</span>
-
-<span class="n">inliner</span> <span class="o">=</span> <span class="n">FunctionInlining</span><span class="p">()</span>
-<span class="n">optimized</span> <span class="o">=</span> <span class="n">inliner</span><span class="o">.</span><span class="n">optimize</span><span class="p">(</span><span class="n">program</span><span class="p">)</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.optimization.codeinlining</span><span class="w"> </span><span class="kn">import</span> <span class="n">evaluate</span>
 </pre></div>
 </div>
 </section>
@@ -472,21 +456,21 @@ representing program structure and analysis results.</p>
 <section id="analysis-pipeline">
 <h3>Analysis Pipeline<a class="headerlink" href="#analysis-pipeline" title="Link to this heading"></a></h3>
 <p>Coordinates the overall analysis process:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.application.pipeline</span><span class="w"> </span><span class="kn">import</span> <span class="n">AnalysisPipeline</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.application.pipeline</span><span class="w"> </span><span class="kn">import</span> <span class="n">Pipeline</span>
 
-<span class="n">pipeline</span> <span class="o">=</span> <span class="n">AnalysisPipeline</span><span class="p">()</span>
-<span class="n">results</span> <span class="o">=</span> <span class="n">pipeline</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">program</span><span class="p">,</span> <span class="n">config</span><span class="p">)</span>
+<span class="n">pipeline</span> <span class="o">=</span> <span class="n">Pipeline</span><span class="p">()</span>
+<span class="n">results</span> <span class="o">=</span> <span class="n">pipeline</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">program</span><span class="p">)</span>
 </pre></div>
 </div>
 </section>
 <section id="analysis-context">
 <h3>Analysis Context<a class="headerlink" href="#analysis-context" title="Link to this heading"></a></h3>
 <p>Manages analysis configuration and state:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.application.context</span><span class="w"> </span><span class="kn">import</span> <span class="n">AnalysisContext</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow</span><span class="w"> </span><span class="kn">import</span> <span class="n">Context</span>
 
-<span class="n">context</span> <span class="o">=</span> <span class="n">AnalysisContext</span><span class="p">()</span>
-<span class="n">context</span><span class="o">.</span><span class="n">set_config</span><span class="p">(</span><span class="s2">&quot;cpa.context_sensitive&quot;</span><span class="p">,</span> <span class="kc">True</span><span class="p">)</span>
-<span class="n">context</span><span class="o">.</span><span class="n">set_config</span><span class="p">(</span><span class="s2">&quot;callgraph.algorithm&quot;</span><span class="p">,</span> <span class="s2">&quot;opa&quot;</span><span class="p">)</span>
+<span class="n">context</span> <span class="o">=</span> <span class="n">Context</span><span class="p">()</span>
+<span class="n">context</span><span class="o">.</span><span class="n">slots</span><span class="p">[</span><span class="s2">&quot;cpa.context_sensitive&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="kc">True</span>
+<span class="n">context</span><span class="o">.</span><span class="n">slots</span><span class="p">[</span><span class="s2">&quot;callgraph.algorithm&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;constraint&quot;</span>
 </pre></div>
 </div>
 </section>

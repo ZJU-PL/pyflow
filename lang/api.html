@@ -165,8 +165,8 @@ model:</p>
 <section id="ast-transformations">
 <h3>AST Transformations<a class="headerlink" href="#ast-transformations" title="Link to this heading"></a></h3>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.language.python.collapser</span><span class="w"> </span><span class="kn">import</span> <span class="n">Collapser</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.language.python.fold</span><span class="w"> </span><span class="kn">import</span> <span class="n">Fold</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.language.python.defuse</span><span class="w"> </span><span class="kn">import</span> <span class="n">DefUse</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.language.python.fold</span><span class="w"> </span><span class="kn">import</span> <span class="n">apply</span> <span class="k">as</span> <span class="n">fold_apply</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.language.python.defuse</span><span class="w"> </span><span class="kn">import</span> <span class="n">DefUseVisitor</span>
 </pre></div>
 </div>
 </section>

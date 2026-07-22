@@ -118,8 +118,8 @@ The CPG can be built from the command line:
     # Build CPG from a Python file and run CPG-backed security analysis
     pyflow security input.py --engine cpg
 
-    # Export CPG as DOT for visualization
-    pyflow ir input.py --dump-cpg
+    # Export CPG representation via IR dump (see pyflow ir for available dump options)
+
 
 Related Modules
 ---------------

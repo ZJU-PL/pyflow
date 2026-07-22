@@ -80,6 +80,8 @@
 <li class="toctree-l3"><a class="reference internal" href="#semanticqueryservice">SemanticQueryService</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#query-context">Query Context</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#graph-query-engine">Graph Query Engine</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#query-helper-classes">Query Helper Classes</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#analysis-result-models">Analysis Result Models</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#server-modes">Server Modes</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#localization-queries">Localization Queries</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#test-generation-queries">Test Generation Queries</a></li>
@@ -291,20 +293,67 @@ analysis results.</p>
 </pre></div>
 </div>
 </section>
+<section id="query-helper-classes">
+<h3>Query Helper Classes<a class="headerlink" href="#query-helper-classes" title="Link to this heading"></a></h3>
+<p>PyFlow provides dedicated query classes for each analysis domain:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.api.queries</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">CallGraphQueries</span><span class="p">,</span>
+    <span class="n">ControlFlowQueries</span><span class="p">,</span>
+    <span class="n">DataFlowQueries</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="n">call_queries</span> <span class="o">=</span> <span class="n">CallGraphQueries</span><span class="p">(</span><span class="n">context</span><span class="p">,</span> <span class="n">engine</span><span class="p">)</span>
+<span class="n">callers</span> <span class="o">=</span> <span class="n">call_queries</span><span class="o">.</span><span class="n">get_callers</span><span class="p">(</span><span class="s2">&quot;function_name&quot;</span><span class="p">)</span>
+
+<span class="n">ctrl_queries</span> <span class="o">=</span> <span class="n">ControlFlowQueries</span><span class="p">(</span><span class="n">context</span><span class="p">,</span> <span class="n">engine</span><span class="p">)</span>
+<span class="n">cfg</span> <span class="o">=</span> <span class="n">ctrl_queries</span><span class="o">.</span><span class="n">get_cfg</span><span class="p">(</span><span class="s2">&quot;function_name&quot;</span><span class="p">)</span>
+
+<span class="n">data_queries</span> <span class="o">=</span> <span class="n">DataFlowQueries</span><span class="p">(</span><span class="n">context</span><span class="p">,</span> <span class="n">engine</span><span class="p">)</span>
+<span class="n">reaching_defs</span> <span class="o">=</span> <span class="n">data_queries</span><span class="o">.</span><span class="n">get_reaching_defs</span><span class="p">(</span><span class="s2">&quot;function_name&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="analysis-result-models">
+<h3>Analysis Result Models<a class="headerlink" href="#analysis-result-models" title="Link to this heading"></a></h3>
+<p>The API exposes typed result models for programmatic consumption:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.api.queries</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">ReachingDef</span><span class="p">,</span>
+    <span class="n">AliasInfo</span><span class="p">,</span>
+    <span class="n">PointsToInfo</span><span class="p">,</span>
+    <span class="n">TaintFlowReport</span><span class="p">,</span>
+    <span class="n">IpaFunctionSummary</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="c1"># ReachingDef: captures a reaching definition with source location</span>
+<span class="c1"># AliasInfo: alias relationship with confidence and evidence</span>
+<span class="c1"># PointsToInfo: points-to set with allocation sites</span>
+<span class="c1"># TaintFlowReport: taint flow from source to sink with code flow</span>
+<span class="c1"># IpaFunctionSummary: inter-procedural function summary</span>
+</pre></div>
+</div>
+</section>
 <section id="server-modes">
 <h3>Server Modes<a class="headerlink" href="#server-modes" title="Link to this heading"></a></h3>
 <p>PyFlow supports different server modes for different use cases:</p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">DEFAULT_MODE</span></code>: Standard analysis</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">MCPServerMode</span></code>: Mode optimized for MCP tooling</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">MCPServerMode</span></code>: Mode optimized for MCP tooling (supports <code class="docutils literal notranslate"><span class="pre">BASIC</span></code>, <code class="docutils literal notranslate"><span class="pre">FULL</span></code>, <code class="docutils literal notranslate"><span class="pre">ADVANCED</span></code> levels)</p></li>
 </ul>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.api.queries</span><span class="w"> </span><span class="kn">import</span> <span class="n">MCPServerMode</span><span class="p">,</span> <span class="n">DEFAULT_MODE</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.api.queries.capabilities</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">get_server_mode_description</span><span class="p">,</span>
+    <span class="n">resolve_capabilities</span><span class="p">,</span>
+<span class="p">)</span>
 
 <span class="c1"># Set server mode</span>
-<span class="n">service</span> <span class="o">=</span> <span class="n">SemanticQueryService</span><span class="p">(</span><span class="n">compiler</span><span class="p">,</span> <span class="n">program</span><span class="p">,</span> <span class="n">server_mode</span><span class="o">=</span><span class="n">MCPServerMode</span><span class="p">)</span>
+<span class="n">service</span> <span class="o">=</span> <span class="n">SemanticQueryService</span><span class="p">(</span><span class="n">compiler</span><span class="p">,</span> <span class="n">program</span><span class="p">,</span> <span class="n">server_mode</span><span class="o">=</span><span class="n">DEFAULT_MODE</span><span class="p">)</span>
 
 <span class="c1"># Check capabilities</span>
 <span class="n">caps</span> <span class="o">=</span> <span class="n">service</span><span class="o">.</span><span class="n">capabilities</span><span class="p">()</span>
+
+<span class="c1"># Resolve and describe server mode capabilities</span>
+<span class="n">resolved</span> <span class="o">=</span> <span class="n">resolve_capabilities</span><span class="p">(</span><span class="n">MCPServerMode</span><span class="p">)</span>
+<span class="n">description</span> <span class="o">=</span> <span class="n">get_server_mode_description</span><span class="p">(</span><span class="n">MCPServerMode</span><span class="p">)</span>
 </pre></div>
 </div>
 </section>

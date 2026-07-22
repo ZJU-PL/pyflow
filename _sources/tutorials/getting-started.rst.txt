@@ -178,7 +178,7 @@ For more visual output, generate the CFG in DOT format:
 
 .. code-block:: bash
 
-   pyflow ir example.py --dump-cfg fibonacci --dump-format dot --output fibonacci.dot
+   pyflow ir example.py --dump-cfg fibonacci --dump-format dot --dump-output fibonacci.dot
 
 Then convert it to an image:
 
@@ -221,8 +221,8 @@ Next Steps
 
 Now that you've completed the getting started tutorial, you can:
 
-- Learn more about :ref:`analyzing-python-code`
-- Explore :ref:`optimizing-python-programs`
-- Dive deeper into :ref:`understanding-analysis-results`
+- Learn more about :ref:`tutorial-analyzing-python-code`
+- Explore :ref:`tutorial-optimizing-python-programs`
+- Dive deeper into :ref:`tutorial-understanding-analysis-results`
 
 For a complete reference of all commands and options, see the :doc:`../cli` documentation.

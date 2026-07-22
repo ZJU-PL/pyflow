@@ -266,16 +266,15 @@ ast-scanner, CPA, IFDS, or CPG engines</p></li>
 <section id="programmatic-usage">
 <h2>Programmatic Usage<a class="headerlink" href="#programmatic-usage" title="Link to this heading"></a></h2>
 <p>Use the Python API for programmatic analysis:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.analysis.cpa</span><span class="w"> </span><span class="kn">import</span> <span class="n">CPA</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.analysis.callgraph</span><span class="w"> </span><span class="kn">import</span> <span class="n">CallGraphAnalysis</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.analysis.cpa</span><span class="w"> </span><span class="kn">import</span> <span class="n">InterproceduralDataflow</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.analysis.callgraph.constraint_based.api</span><span class="w"> </span><span class="kn">import</span> <span class="n">extract_call_graph_constraint</span>
 
 <span class="c1"># Run CPA</span>
-<span class="n">cpa</span> <span class="o">=</span> <span class="n">CPA</span><span class="p">()</span>
-<span class="n">cpa_results</span> <span class="o">=</span> <span class="n">cpa</span><span class="o">.</span><span class="n">analyze</span><span class="p">(</span><span class="n">program</span><span class="p">)</span>
+<span class="n">cpa</span> <span class="o">=</span> <span class="n">InterproceduralDataflow</span><span class="p">()</span>
+<span class="n">cpa</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">program</span><span class="p">)</span>
 
 <span class="c1"># Build call graph</span>
-<span class="n">callgraph</span> <span class="o">=</span> <span class="n">CallGraphAnalysis</span><span class="p">()</span>
-<span class="n">graph</span> <span class="o">=</span> <span class="n">callgraph</span><span class="o">.</span><span class="n">build</span><span class="p">(</span><span class="n">program</span><span class="p">)</span>
+<span class="n">graph</span> <span class="o">=</span> <span class="n">extract_call_graph_constraint</span><span class="p">(</span><span class="n">source_code</span><span class="p">)</span>
 </pre></div>
 </div>
 </section>

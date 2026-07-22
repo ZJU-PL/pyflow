@@ -269,7 +269,7 @@ point. Control flow can only enter at the beginning and exit at the end.</p>
 provides several data flow analyses.</p>
 <section id="running-data-flow-analysis">
 <h3>Running Data Flow Analysis<a class="headerlink" href="#running-data-flow-analysis" title="Link to this heading"></a></h3>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>optimize<span class="w"> </span>example.py<span class="w"> </span>--analysis<span class="w"> </span>cpa,ipa
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>optimize<span class="w"> </span>example.py<span class="w"> </span>--analysis<span class="w"> </span>cpa
 </pre></div>
 </div>
 <p>This runs forward and backward data flow analysis, computing:</p>
@@ -429,11 +429,11 @@ pyflow<span class="w"> </span>callgraph<span class="w"> </span>src/<span class="
 </pre></div>
 </div>
 <p>Or run specific combinations:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>optimize<span class="w"> </span>example.py<span class="w"> </span>--analysis<span class="w"> </span>cpa,ipa,shape
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>optimize<span class="w"> </span>example.py<span class="w"> </span>--analysis<span class="w"> </span>all
 </pre></div>
 </div>
 <p>Dump intermediate representations:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>ir<span class="w"> </span>example.py<span class="w"> </span>--dump-ast<span class="w"> </span>fibonacci<span class="w"> </span>--dump-format<span class="w"> </span>json<span class="w"> </span>--output<span class="w"> </span>ast.json
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>ir<span class="w"> </span>example.py<span class="w"> </span>--dump-ast<span class="w"> </span>fibonacci<span class="w"> </span>--dump-format<span class="w"> </span>json<span class="w"> </span>--dump-output<span class="w"> </span>ast.json
 </pre></div>
 </div>
 </section>
@@ -441,8 +441,8 @@ pyflow<span class="w"> </span>callgraph<span class="w"> </span>src/<span class="
 <h2>Next Steps<a class="headerlink" href="#next-steps" title="Link to this heading"></a></h2>
 <p>Now that you understand the basic analysis capabilities, you can:</p>
 <ul class="simple">
-<li><p>Learn about <span class="xref std std-ref">optimizing-python-programs</span></p></li>
-<li><p>Explore <span class="xref std std-ref">understanding-analysis-results</span></p></li>
+<li><p>Learn about <a class="reference internal" href="optimizing-python-programs.html#tutorial-optimizing-python-programs"><span class="std std-ref">Optimizing Python Programs</span></a></p></li>
+<li><p>Explore <a class="reference internal" href="understanding-analysis-results.html#tutorial-understanding-analysis-results"><span class="std std-ref">Understanding Analysis Results</span></a></p></li>
 <li><p>Dive into <a class="reference internal" href="../explanation/architecture.html"><span class="doc">Architecture</span></a> for detailed architecture information</p></li>
 </ul>
 </section>
