@@ -9,6 +9,7 @@ import textwrap
 from types import SimpleNamespace
 import pytest
 
+import pyflow.analysis.ifds.core.solver as solver_module
 from pyflow.analysis.ifds import (
     AnalysisStatus,
     AnalysisFinding,
@@ -179,6 +180,23 @@ def test_solver_enforces_resource_budgets(options, reason):
 
     assert result.status is AnalysisStatus.PARTIAL
     assert reason in result.termination_reason
+
+
+def test_solver_enforces_sub_resolution_time_budget(monkeypatch):
+    clock_reading = 10_000_000.0
+    assert clock_reading + 1e-12 == clock_reading
+    monkeypatch.setattr(
+        solver_module,
+        "time",
+        SimpleNamespace(monotonic=lambda: clock_reading),
+    )
+
+    result = IFDSSolver(
+        options=SolverOptions(max_seconds=1e-12, budget_check_interval=1)
+    ).solve(_linear_problem())
+
+    assert result.status is AnalysisStatus.PARTIAL
+    assert "max_seconds=1e-12" in result.termination_reason
 
 
 def test_solver_can_raise_on_budget_exhaustion():

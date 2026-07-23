@@ -228,6 +228,11 @@ class _SolverBookkeeping(Generic[NodeT, FactT]):
         self.record_predecessors = options.trace_mode in {"findings", "all"}
         self.limit_label = limit_label
         self.started_at = time.monotonic()
+        self.deadline = (
+            self.started_at + options.max_seconds
+            if options.max_seconds is not None
+            else None
+        )
         self.status = AnalysisStatus.COMPLETE
         self.termination_reason: str | None = None
         self._last_budget_check_at = 0
@@ -317,9 +322,10 @@ class _SolverBookkeeping(Generic[NodeT, FactT]):
             return
 
         self.increment("budget_checks")
-        elapsed = time.monotonic() - self.started_at
+        now = time.monotonic()
+        elapsed = now - self.started_at
         self.stats["elapsed_seconds"] = elapsed
-        if self.options.max_seconds is not None and elapsed > self.options.max_seconds:
+        if self.deadline is not None and now >= self.deadline:
             self.stop(
                 AnalysisStatus.PARTIAL,
                 f"{self.limit_label} exceeded max_seconds={self.options.max_seconds}",
