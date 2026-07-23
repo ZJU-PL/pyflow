@@ -22,11 +22,13 @@ from ..semantics.effects import (
 )
 from ..semantics.intrinsics import HeapIntrinsicModels
 from ..model import HeapLocation, UpdatePolicy
+from .bindings import _BindingTransferMixin
 from .calls import _CallTransferMixin
 from .classes import _ClassTransferMixin
 from .deferred import _DeferredTransferMixin
 from .definitions import _DefinitionTransferMixin
-from .operations import _TransferOpsMixin
+from .expression_resolution import _ExpressionResolverMixin
+from .mutations import _HeapMutationMixin
 from .state import (
     _CallSummary,
     _DeferredActivation,
@@ -37,7 +39,9 @@ from .state import (
 
 
 class HeapTransferEngine(
-    _TransferOpsMixin,
+    _ExpressionResolverMixin,
+    _BindingTransferMixin,
+    _HeapMutationMixin,
     _DefinitionTransferMixin,
     _CallTransferMixin,
     _ClassTransferMixin,
