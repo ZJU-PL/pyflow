@@ -17,7 +17,7 @@ Quick Start
        ClassDeclaration,
        SemanticQueryService,
    )
-   from pyflow.frontend.programextractor import Extractor
+   from pyflow.frontend.extractor import Extractor
    from pyflow.application.context import CompilerContext
 
    # Set up the compiler and extractor

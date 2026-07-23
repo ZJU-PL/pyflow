@@ -144,8 +144,18 @@
 <li><p><strong>AST Conversion</strong>: Transforming Python AST to PyFlow AST</p></li>
 <li><p><strong>Function Extraction</strong>: Extracting functions and classes</p></li>
 <li><p><strong>Object Management</strong>: Managing Python objects and representations</p></li>
-<li><p><strong>Stub Management</strong>: Providing stubs for built-in operations</p></li>
+<li><p><strong>Intrinsic Models</strong>: Providing IR models for built-in interpreter operations</p></li>
 </ul>
+<p>The implementation is grouped by responsibility:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">pyflow.frontend.conversion</span></code> converts source AST into PyFlow IR.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">pyflow.frontend.resolution</span></code> coordinates dependency and hierarchy resolution.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">pyflow.frontend.runtime</span></code> manages object representations and intrinsic models.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">pyflow.frontend.interface_builder</span></code> discovers analysis entry points from paths.</p></li>
+</ul>
+<p>New code should import supported classes from <code class="docutils literal notranslate"><span class="pre">pyflow.frontend</span></code>. Historical
+The package does not retain forwarding modules for its previous flat layout;
+imports should use the canonical locations shown below.</p>
 </section>
 <section id="key-components">
 <h2>Key Components<a class="headerlink" href="#key-components" title="Link to this heading"></a></h2>
@@ -161,7 +171,7 @@
 </dd>
 </dl>
 <p><strong>Example:</strong></p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.frontend.ast_converter</span><span class="w"> </span><span class="kn">import</span> <span class="n">ASTConverter</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.frontend.conversion.ast</span><span class="w"> </span><span class="kn">import</span> <span class="n">ASTConverter</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">ast</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">python_ast</span>
 
 <span class="n">source</span> <span class="o">=</span> <span class="s2">&quot;def add(x, y): return x + y&quot;</span>
@@ -175,7 +185,7 @@
 <h3>Program Extractor<a class="headerlink" href="#program-extractor" title="Link to this heading"></a></h3>
 <p>The <code class="docutils literal notranslate"><span class="pre">Extractor</span></code> class orchestrates program extraction from Python source.</p>
 <p><strong>Usage:</strong></p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.frontend.programextractor</span><span class="w"> </span><span class="kn">import</span> <span class="n">Extractor</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.frontend.extractor</span><span class="w"> </span><span class="kn">import</span> <span class="n">Extractor</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.application.context</span><span class="w"> </span><span class="kn">import</span> <span class="n">CompilerContext</span>
 
 <span class="n">compiler</span> <span class="o">=</span> <span class="n">CompilerContext</span><span class="p">()</span>
@@ -200,7 +210,7 @@
 <h3>Function Extractor<a class="headerlink" href="#function-extractor" title="Link to this heading"></a></h3>
 <p>The <code class="docutils literal notranslate"><span class="pre">FunctionExtractor</span></code> class extracts and converts individual Python functions.</p>
 <p><strong>Usage:</strong></p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.frontend.function_extractor</span><span class="w"> </span><span class="kn">import</span> <span class="n">FunctionExtractor</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.frontend.conversion.functions</span><span class="w"> </span><span class="kn">import</span> <span class="n">FunctionExtractor</span>
 
 <span class="n">extractor</span> <span class="o">=</span> <span class="n">FunctionExtractor</span><span class="p">(</span><span class="n">verbose</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 <span class="n">pyflow_code</span> <span class="o">=</span> <span class="n">extractor</span><span class="o">.</span><span class="n">convert_function</span><span class="p">(</span>
@@ -229,7 +239,7 @@ gates:</p>
 <li><p><code class="docutils literal notranslate"><span class="pre">max_runtime_fallback_ratio</span></code>: fail when runtime-to-AST fallback ratio exceeds a threshold</p></li>
 </ul>
 <p><strong>Usage:</strong></p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.frontend.dependency_resolver</span><span class="w"> </span><span class="kn">import</span> <span class="n">DependencyResolver</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.frontend.resolution.dependencies</span><span class="w"> </span><span class="kn">import</span> <span class="n">DependencyResolver</span>
 
 <span class="n">resolver</span> <span class="o">=</span> <span class="n">DependencyResolver</span><span class="p">(</span><span class="n">strategy</span><span class="o">=</span><span class="s2">&quot;auto&quot;</span><span class="p">,</span> <span class="n">verbose</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 <span class="n">functions</span> <span class="o">=</span> <span class="n">resolver</span><span class="o">.</span><span class="n">extract_functions</span><span class="p">(</span><span class="n">source_code</span><span class="p">,</span> <span class="s2">&quot;example.py&quot;</span><span class="p">)</span>
@@ -240,7 +250,7 @@ gates:</p>
 <h3>Object Manager<a class="headerlink" href="#object-manager" title="Link to this heading"></a></h3>
 <p>The <code class="docutils literal notranslate"><span class="pre">ObjectManager</span></code> class manages Python objects and their PyFlow representations.</p>
 <p><strong>Usage:</strong></p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.frontend.object_manager</span><span class="w"> </span><span class="kn">import</span> <span class="n">ObjectManager</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.frontend.runtime.objects</span><span class="w"> </span><span class="kn">import</span> <span class="n">ObjectManager</span>
 
 <span class="n">manager</span> <span class="o">=</span> <span class="n">ObjectManager</span><span class="p">(</span><span class="n">verbose</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 <span class="n">obj</span> <span class="o">=</span> <span class="n">manager</span><span class="o">.</span><span class="n">get_object</span><span class="p">(</span><span class="n">some_python_object</span><span class="p">)</span>
@@ -255,13 +265,14 @@ gates:</p>
 </dd>
 </dl>
 </section>
-<section id="stub-manager">
-<h3>Stub Manager<a class="headerlink" href="#stub-manager" title="Link to this heading"></a></h3>
-<p>The <code class="docutils literal notranslate"><span class="pre">StubManager</span></code> class manages stub functions for built-in Python operations (arithmetic, comparison, attribute access, function calls).</p>
+<section id="intrinsic-manager">
+<h3>Intrinsic Manager<a class="headerlink" href="#intrinsic-manager" title="Link to this heading"></a></h3>
+<p>The <code class="docutils literal notranslate"><span class="pre">IntrinsicManager</span></code> class manages IR models for built-in Python operations
+such as arithmetic, comparison, attribute access, and function calls.</p>
 <p><strong>Usage:</strong></p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.frontend.stub_manager</span><span class="w"> </span><span class="kn">import</span> <span class="n">StubManager</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.frontend.runtime.intrinsics</span><span class="w"> </span><span class="kn">import</span> <span class="n">IntrinsicManager</span>
 
-<span class="n">manager</span> <span class="o">=</span> <span class="n">StubManager</span><span class="p">(</span><span class="n">compiler</span><span class="p">)</span>
+<span class="n">manager</span> <span class="o">=</span> <span class="n">IntrinsicManager</span><span class="p">(</span><span class="n">compiler</span><span class="p">)</span>
 <span class="n">add_stub</span> <span class="o">=</span> <span class="n">manager</span><span class="o">.</span><span class="n">stubs</span><span class="o">.</span><span class="n">exports</span><span class="p">[</span><span class="s2">&quot;interpreter__add__&quot;</span><span class="p">]</span>
 </pre></div>
 </div>
@@ -278,7 +289,7 @@ gates:</p>
 <li><p>Pass to analysis pipeline</p></li>
 </ol>
 <p><strong>Example:</strong></p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.frontend.programextractor</span><span class="w"> </span><span class="kn">import</span> <span class="n">Extractor</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.frontend.extractor</span><span class="w"> </span><span class="kn">import</span> <span class="n">Extractor</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.application.context</span><span class="w"> </span><span class="kn">import</span> <span class="n">CompilerContext</span>
 
 <span class="n">compiler</span> <span class="o">=</span> <span class="n">CompilerContext</span><span class="p">()</span>

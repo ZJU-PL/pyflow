@@ -217,7 +217,7 @@ distinct layers:</p>
 <section id="ast-converter">
 <h4>AST Converter<a class="headerlink" href="#ast-converter" title="Link to this heading"></a></h4>
 <p>Converts Python’s AST into PyFlow’s internal representation:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.frontend.ast_converter</span><span class="w"> </span><span class="kn">import</span> <span class="n">ASTConverter</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.frontend.conversion.ast</span><span class="w"> </span><span class="kn">import</span> <span class="n">ASTConverter</span>
 
 <span class="n">converter</span> <span class="o">=</span> <span class="n">ASTConverter</span><span class="p">()</span>
 <span class="n">pyflow_ir</span> <span class="o">=</span> <span class="n">converter</span><span class="o">.</span><span class="n">convert</span><span class="p">(</span><span class="n">python_ast</span><span class="p">)</span>
@@ -233,7 +233,7 @@ distinct layers:</p>
 <section id="program-extractor">
 <h4>Program Extractor<a class="headerlink" href="#program-extractor" title="Link to this heading"></a></h4>
 <p>Extracts the complete program structure from source files:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.frontend.programextractor</span><span class="w"> </span><span class="kn">import</span> <span class="n">Extractor</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.frontend.extractor</span><span class="w"> </span><span class="kn">import</span> <span class="n">Extractor</span>
 
 <span class="n">extractor</span> <span class="o">=</span> <span class="n">Extractor</span><span class="p">()</span>
 <span class="n">program</span> <span class="o">=</span> <span class="n">extractor</span><span class="o">.</span><span class="n">process</span><span class="p">([</span><span class="s2">&quot;input.py&quot;</span><span class="p">])</span>
@@ -249,7 +249,7 @@ distinct layers:</p>
 <section id="dependency-resolver">
 <h4>Dependency Resolver<a class="headerlink" href="#dependency-resolver" title="Link to this heading"></a></h4>
 <p>Resolves module and import dependencies:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.frontend.dependency_resolver</span><span class="w"> </span><span class="kn">import</span> <span class="n">DependencyResolver</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.frontend.resolution.dependencies</span><span class="w"> </span><span class="kn">import</span> <span class="n">DependencyResolver</span>
 
 <span class="n">resolver</span> <span class="o">=</span> <span class="n">DependencyResolver</span><span class="p">()</span>
 <span class="n">dependencies</span> <span class="o">=</span> <span class="n">resolver</span><span class="o">.</span><span class="n">resolve</span><span class="p">(</span><span class="n">program</span><span class="p">)</span>
@@ -262,18 +262,18 @@ distinct layers:</p>
 <li><p>Build import graph</p></li>
 </ul>
 </section>
-<section id="stub-manager">
-<h4>Stub Manager<a class="headerlink" href="#stub-manager" title="Link to this heading"></a></h4>
-<p>Manages type stubs for standard library modules:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.frontend.stub_manager</span><span class="w"> </span><span class="kn">import</span> <span class="n">StubManager</span>
+<section id="type-stub-resolution">
+<h4>Type Stub Resolution<a class="headerlink" href="#type-stub-resolution" title="Link to this heading"></a></h4>
+<p>Resolves project, PEP 561, and typeshed <code class="docutils literal notranslate"><span class="pre">.pyi</span></code> files:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.language.modules.type_stubs</span><span class="w"> </span><span class="kn">import</span> <span class="n">StubResolver</span>
 
-<span class="n">stub_manager</span> <span class="o">=</span> <span class="n">StubManager</span><span class="p">()</span>
-<span class="n">stubs</span> <span class="o">=</span> <span class="n">stub_manager</span><span class="o">.</span><span class="n">load_stubs</span><span class="p">(</span><span class="s2">&quot;os&quot;</span><span class="p">)</span>
+<span class="n">resolver</span> <span class="o">=</span> <span class="n">StubResolver</span><span class="p">()</span>
+<span class="n">os_stub</span> <span class="o">=</span> <span class="n">resolver</span><span class="o">.</span><span class="n">resolve</span><span class="p">(</span><span class="s2">&quot;os&quot;</span><span class="p">)</span>
 </pre></div>
 </div>
 <p>Key responsibilities:</p>
 <ul class="simple">
-<li><p>Load type stubs for built-in modules</p></li>
+<li><p>Locate and parse type stubs without executing analyzed modules</p></li>
 <li><p>Provide analysis information for library code</p></li>
 <li><p>Handle stub versioning</p></li>
 </ul>

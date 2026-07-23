@@ -180,7 +180,7 @@ Use PyFlow programmatically for fine-grained control:
 .. code-block:: python
 
    from pyflow import Context
-   from pyflow.frontend.programextractor import Extractor
+   from pyflow.frontend.extractor import Extractor
    from pyflow.analysis.cpa import InterproceduralDataflow
    from pyflow.analysis.callgraph.constraint_based.api import extract_call_graph_constraint
 

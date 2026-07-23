@@ -154,7 +154,7 @@ lifetime), the heap layer operates on the CFG supergraph and expresses
 facts over fixed <code class="xref py py-class docutils literal notranslate"><span class="pre">HeapLocation</span></code> values.</p>
 <p>The package was originally part of <code class="docutils literal notranslate"><span class="pre">pyflow.analysis.ifds</span></code> and was
 extracted into an independent module.  It now has zero IFDS imports:
-shared IR utilities live in <code class="xref py py-mod docutils literal notranslate"><span class="pre">pyflow.analysis.ir_utils</span></code>, which both the
+shared IR utilities live in <code class="xref py py-mod docutils literal notranslate"><span class="pre">pyflow.language.python.ir_metadata</span></code>, which both the
 flow-sensitive alias analysis and <code class="docutils literal notranslate"><span class="pre">ifds</span></code> import from.</p>
 <p>The implementation is optimized for bug finding rather than whole-language
 verification. Unsupported operations preserve visible nested effects, locally

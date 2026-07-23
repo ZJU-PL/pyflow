@@ -11,7 +11,7 @@ facts over fixed :class:`HeapLocation` values.
 
 The package was originally part of ``pyflow.analysis.ifds`` and was
 extracted into an independent module.  It now has zero IFDS imports:
-shared IR utilities live in :mod:`pyflow.analysis.ir_utils`, which both the
+shared IR utilities live in :mod:`pyflow.language.python.ir_metadata`, which both the
 flow-sensitive alias analysis and ``ifds`` import from.
 
 The implementation is optimized for bug finding rather than whole-language

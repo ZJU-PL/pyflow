@@ -40,7 +40,7 @@ Converts Python's AST into PyFlow's internal representation:
 
 .. code-block:: python
 
-   from pyflow.frontend.ast_converter import ASTConverter
+   from pyflow.frontend.conversion.ast import ASTConverter
 
    converter = ASTConverter()
    pyflow_ir = converter.convert(python_ast)
@@ -58,7 +58,7 @@ Extracts the complete program structure from source files:
 
 .. code-block:: python
 
-   from pyflow.frontend.programextractor import Extractor
+   from pyflow.frontend.extractor import Extractor
 
    extractor = Extractor()
    program = extractor.process(["input.py"])
@@ -76,7 +76,7 @@ Resolves module and import dependencies:
 
 .. code-block:: python
 
-   from pyflow.frontend.dependency_resolver import DependencyResolver
+   from pyflow.frontend.resolution.dependencies import DependencyResolver
 
    resolver = DependencyResolver()
    dependencies = resolver.resolve(program)
@@ -87,21 +87,21 @@ Key responsibilities:
 - Handle circular imports
 - Build import graph
 
-Stub Manager
-^^^^^^^^^^^^
+Type Stub Resolution
+^^^^^^^^^^^^^^^^^^^^
 
-Manages type stubs for standard library modules:
+Resolves project, PEP 561, and typeshed ``.pyi`` files:
 
 .. code-block:: python
 
-   from pyflow.frontend.stub_manager import StubManager
+   from pyflow.language.modules.type_stubs import StubResolver
 
-   stub_manager = StubManager()
-   stubs = stub_manager.load_stubs("os")
+   resolver = StubResolver()
+   os_stub = resolver.resolve("os")
 
 Key responsibilities:
 
-- Load type stubs for built-in modules
+- Locate and parse type stubs without executing analyzed modules
 - Provide analysis information for library code
 - Handle stub versioning
 
