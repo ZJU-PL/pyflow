@@ -1,4 +1,4 @@
-"""Integration tests for repo-level regression corpus tooling."""
+"""Integration tests for frontend regression corpus tooling."""
 
 from __future__ import annotations
 
@@ -11,10 +11,10 @@ import pytest
 
 
 ROOT = Path(__file__).resolve().parents[2]
-REPO_LEVEL_SCRIPT = ROOT / "evaluation" / "repo_level_regression.py"
+FRONTEND_REGRESSION_SCRIPT = ROOT / "evaluation" / "frontend_regression.py"
 CORPUS_ROOT = ROOT / "evaluation" / "repo_level"
 
-REPO_LEVEL_SCRIPT_MISSING = not REPO_LEVEL_SCRIPT.exists()
+FRONTEND_REGRESSION_SCRIPT_MISSING = not FRONTEND_REGRESSION_SCRIPT.exists()
 
 
 @pytest.mark.integration
@@ -29,13 +29,13 @@ class TestRepoLevelCorpus:
         actual_projects = {p["name"] for p in manifest["projects"]}
         assert actual_projects == expected_projects
 
-    @pytest.mark.skipif(REPO_LEVEL_SCRIPT_MISSING, reason="repo_level_regression.py not found")
-    def test_run_repo_level_regression_on_all_projects(self, tmp_path: Path) -> None:
+    @pytest.mark.skipif(FRONTEND_REGRESSION_SCRIPT_MISSING, reason="frontend_regression.py not found")
+    def test_run_frontend_regression_on_all_projects(self, tmp_path: Path) -> None:
         report_path = tmp_path / "report.json"
         subprocess.run(
             [
                 sys.executable,
-                str(REPO_LEVEL_SCRIPT),
+                str(FRONTEND_REGRESSION_SCRIPT),
                 "run",
                 "--corpus",
                 str(CORPUS_ROOT),
@@ -61,13 +61,13 @@ class TestRepoLevelCorpus:
             telemetry = project.get("frontend_telemetry", {})
             assert isinstance(telemetry, dict)
 
-    @pytest.mark.skipif(REPO_LEVEL_SCRIPT_MISSING, reason="repo_level_regression.py not found")
+    @pytest.mark.skipif(FRONTEND_REGRESSION_SCRIPT_MISSING, reason="frontend_regression.py not found")
     def test_build_corpus_from_single_project(self, tmp_path: Path) -> None:
         out = tmp_path / "repo_level"
         project_path = CORPUS_ROOT / "corpus" / "repo_sample"
         cmd = [
             sys.executable,
-            str(REPO_LEVEL_SCRIPT),
+            str(FRONTEND_REGRESSION_SCRIPT),
             "build",
             "--output",
             str(out),
