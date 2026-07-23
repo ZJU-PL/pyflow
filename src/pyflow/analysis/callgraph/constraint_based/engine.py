@@ -46,19 +46,27 @@ from .model import (
     UNKNOWN_VALUE,
     make_container,
 )
-from ._loader import _LoaderMixin
-from ._collector import _CollectorMixin
-from ._analyzer import _AnalyzerMixin
-from ._evaluator import _EvaluatorMixin
-from ._resolver import _ResolverMixin
+from ._call_binding import _CallBindingMixin
+from ._call_targets import _CallTargetMixin
+from ._expressions import _ExpressionAnalysisMixin
+from ._modules import _ModuleAnalysisMixin
+from ._solver import _FixpointSolverMixin
+from ._state import _StateAnalysisMixin
+from ._statements import _StatementAnalysisMixin
+from ._symbols import _SymbolAnalysisMixin
+from ._types import _TypeAnalysisMixin
 
 
 class ConstraintCallGraphBuilder(
-    _LoaderMixin,
-    _CollectorMixin,
-    _AnalyzerMixin,
-    _EvaluatorMixin,
-    _ResolverMixin,
+    _ModuleAnalysisMixin,
+    _SymbolAnalysisMixin,
+    _FixpointSolverMixin,
+    _StatementAnalysisMixin,
+    _ExpressionAnalysisMixin,
+    _TypeAnalysisMixin,
+    _CallBindingMixin,
+    _StateAnalysisMixin,
+    _CallTargetMixin,
 ):
     """
     Interprocedural call-graph builder using abstract value propagation.

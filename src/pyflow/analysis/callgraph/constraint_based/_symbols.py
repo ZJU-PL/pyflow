@@ -1,4 +1,4 @@
-"""Symbol collection and scope initialization for constraint-based call graph analysis."""
+"""Symbol discovery and scope initialization for constraint call analysis."""
 
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ from .model import (
 )
 
 
-class _CollectorMixin:
+class _SymbolAnalysisMixin:
     """Collects functions, classes, and scopes from loaded modules."""
 
     def _iter_statement_bodies(self, stmt: ast.stmt):
@@ -285,7 +285,11 @@ class _CollectorMixin:
             closure_vars=self._infer_class_closure_vars(node),
             bases_raw=list(node.bases),
             metaclass_raw=next(
-                (keyword.value for keyword in node.keywords if keyword.arg == "metaclass"),
+                (
+                    keyword.value
+                    for keyword in node.keywords
+                    if keyword.arg == "metaclass"
+                ),
                 None,
             ),
             bases=[],
@@ -314,7 +318,9 @@ class _CollectorMixin:
             if not isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 continue
             method_qualname = f"{class_qualname}.{child.name}"
-            decorator_names = {extract_decorator_name(deco) for deco in child.decorator_list}
+            decorator_names = {
+                extract_decorator_name(deco) for deco in child.decorator_list
+            }
             is_staticmethod = (
                 "staticmethod" in decorator_names
                 or "builtins.staticmethod" in decorator_names
@@ -594,11 +600,7 @@ class _CollectorMixin:
                 else set()
             )
             resolved_metaclass = next(
-                (
-                    value.name
-                    for value in metaclass_values
-                    if value.kind == CLASS_KIND
-                ),
+                (value.name for value in metaclass_values if value.kind == CLASS_KIND),
                 None,
             )
             if resolved_metaclass is None:

@@ -1,4 +1,4 @@
-"""Expression evaluation for constraint-based call graph analysis."""
+"""Expression semantics for constraint-based call graph analysis."""
 
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ from .model import (
 )
 
 
-class _EvaluatorMixin:
+class _ExpressionAnalysisMixin:
     """Evaluates AST expressions to sets of abstract values."""
 
     def _iterable_members(
@@ -77,7 +77,9 @@ class _EvaluatorMixin:
         """Build concrete string abstractions when both operands are string-like."""
         left_strings = self._string_constants(left)
         right_strings = self._string_constants(right)
-        return {make_string(f"{lhs}{rhs}") for lhs in left_strings for rhs in right_strings}
+        return {
+            make_string(f"{lhs}{rhs}") for lhs in left_strings for rhs in right_strings
+        }
 
     def _subscript_keys(self, subscript: ast.Subscript) -> Set[str]:
         """Return normalized key tokens used in container key-value maps."""
@@ -210,9 +212,7 @@ class _EvaluatorMixin:
                 ):
                     hook_names.append("__getattr__")
                 for hook_name in hook_names:
-                    hook_targets = self._resolve_attribute(
-                        instance_values, hook_name
-                    )
+                    hook_targets = self._resolve_attribute(instance_values, hook_name)
                     if not hook_targets:
                         continue
                     hook_call = ast.copy_location(
@@ -284,7 +284,9 @@ class _EvaluatorMixin:
                         callees,
                         input_changed_scope_contexts,
                     )
-                    candidate_classes = [value.name for value in type_values if value.kind == "class"]
+                    candidate_classes = [
+                        value.name for value in type_values if value.kind == "class"
+                    ]
                     if obj_values:
                         for candidate in candidate_classes:
                             receiver = self._super_receiver_value(candidate, obj_values)
@@ -394,13 +396,15 @@ class _EvaluatorMixin:
                 return cast_values or {UNKNOWN_VALUE}
 
             if isinstance(expr.func, ast.Call) and expr.args:
-                generic_names, dispatch_types = self._singledispatch_registration_payload(
-                    expr.func,
-                    scope,
-                    scope_context,
-                    env,
-                    callees,
-                    input_changed_scope_contexts,
+                generic_names, dispatch_types = (
+                    self._singledispatch_registration_payload(
+                        expr.func,
+                        scope,
+                        scope_context,
+                        env,
+                        callees,
+                        input_changed_scope_contexts,
+                    )
                 )
                 if generic_names:
                     callback_values = self._eval_expr(
@@ -415,8 +419,11 @@ class _EvaluatorMixin:
                         for callback in callback_values:
                             if callback.kind != "func":
                                 continue
-                            resolved_types = dispatch_types or self._singledispatch_registration_types(
-                                callback.name
+                            resolved_types = (
+                                dispatch_types
+                                or self._singledispatch_registration_types(
+                                    callback.name
+                                )
                             )
                             self._register_singledispatch_implementation(
                                 generic_name,
@@ -883,7 +890,9 @@ class _EvaluatorMixin:
                             preserve_callables=True,
                         )
                         self._merge_value_set(
-                            self.container_key_values[slice_container.name][f"#{index}"],
+                            self.container_key_values[slice_container.name][
+                                f"#{index}"
+                            ],
                             set(values),
                             preserve_callables=True,
                         )
