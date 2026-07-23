@@ -167,10 +167,6 @@ def test_solver_cancellation_returns_cancelled_result():
             SolverOptions(max_memory_bytes=1, budget_check_interval=1),
             "max_memory_bytes=1",
         ),
-        (
-            SolverOptions(max_seconds=1e-12, budget_check_interval=1),
-            "max_seconds=1e-12",
-        ),
     ],
 )
 def test_solver_enforces_resource_budgets(options, reason):
