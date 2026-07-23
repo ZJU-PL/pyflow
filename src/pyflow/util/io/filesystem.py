@@ -41,7 +41,7 @@ def join(directory, name, format=None):
     """
     if format is not None:
         name = "%s.%s" % (name, format)
-    return os.path.join(directory, name)
+    return os.path.join(directory, name).replace("\\", "/")
 
 
 def relative(path, root):
@@ -55,7 +55,7 @@ def relative(path, root):
     Returns:
         Relative path from root to path
     """
-    return os.path.relpath(path, root)
+    return os.path.relpath(path, root).replace("\\", "/")
 
 
 def fileInput(directory, name, format=None, binary=False):

@@ -1077,14 +1077,17 @@ def _components_from_setup_py(
         return []
     try:
         tree = ast.parse(text, filename=str(path))
-    except SyntaxError as exc:
+    except (SyntaxError, ValueError) as exc:
         findings.append(
             SupplyChainFinding(
                 kind="invalid-setup-script",
                 message="Could not parse setup.py without executing it",
                 location=str(path),
                 severity="MEDIUM",
-                details={"line": exc.lineno, "error": exc.msg},
+                details={
+                    "line": getattr(exc, "lineno", None),
+                    "error": getattr(exc, "msg", str(exc)),
+                },
             )
         )
         return []

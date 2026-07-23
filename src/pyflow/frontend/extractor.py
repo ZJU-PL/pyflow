@@ -300,9 +300,10 @@ class Extractor:
         # Strip .py extension
         if rel.endswith(".py"):
             rel = rel[:-3]
-        # Convert path separators to dots; drop leading ".." components that
-        # can't be represented as a valid dotted name.
-        parts = rel.replace(os.sep, ".").split(".")
+        # Source maps commonly use POSIX-style paths even when analysis runs
+        # on Windows. Accept both separator styles instead of only the host
+        # separator so module identities remain platform-independent.
+        parts = re.split(r"[\\/]+", rel)
         parts = [p for p in parts if p and p != ".."]
         if parts and parts[-1] == "__init__":
             parts = parts[:-1]

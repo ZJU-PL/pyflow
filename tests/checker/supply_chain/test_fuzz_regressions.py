@@ -40,3 +40,16 @@ def test_malformed_manifest_corpus_fails_closed_without_crashing(tmp_path):
         assert not scan.metadata["inventoryComplete"]
 
     assert observed & expected_failure_kinds
+
+
+def test_setup_script_with_null_byte_fails_closed(tmp_path):
+    setup = tmp_path / "setup.py"
+    setup.write_bytes(b"setup(name='demo')\x00")
+
+    scan = scan_targets([setup])
+
+    assert not scan.components
+    assert not scan.metadata["inventoryComplete"]
+    assert any(
+        finding.kind == "invalid-setup-script" for finding in scan.findings
+    )
