@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from pyflow.checker.supply_chain import (
@@ -11,6 +13,7 @@ from pyflow.checker.supply_chain import (
     build_spdx_document,
     scan_targets,
     validate_cyclonedx_document,
+    validate_json_schema,
     validate_spdx_document,
 )
 from pyflow.checker.supply_chain.validation import SbomValidationError
@@ -157,6 +160,42 @@ def test_sbom_semantic_validation_rejects_broken_references():
                 "dependencies": [{"ref": "demo", "dependsOn": ["missing"]}],
             }
         )
+
+
+def test_schema_validation_is_local_and_resolves_pinned_siblings(tmp_path):
+    pytest.importorskip("jsonschema")
+    child = tmp_path / "child.json"
+    child.write_text(
+        json.dumps(
+            {
+                "$id": "https://schemas.example/child.json",
+                "type": "string",
+                "const": "safe",
+            }
+        ),
+        encoding="utf-8",
+    )
+    root = tmp_path / "root.json"
+    root.write_text(
+        json.dumps(
+            {
+                "$id": "https://schemas.example/root.json",
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {"value": {"$ref": "child.json"}},
+                "required": ["value"],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    validate_json_schema({"value": "safe"}, root)
+    with pytest.raises(SbomValidationError):
+        validate_json_schema({"value": "unsafe"}, root)
+
+    child.unlink()
+    with pytest.raises(SbomValidationError, match="pinned local bundle"):
+        validate_json_schema({"value": "safe"}, root)
     with pytest.raises(SbomValidationError):
         validate_spdx_document(
             {

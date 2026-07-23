@@ -71,9 +71,16 @@ def analyze_reachability(
     reachable: set[str] = set()
     for component in scan.components:
         name = canonicalize_name(str(component.get("name", "")))
-        candidates = modules_by_distribution.get(
-            name, {name.replace("-", "_"), name.replace("-", "")}
-        )
+        declared_imports = {
+            str(prop.get("value", "")).split(".", 1)[0]
+            for prop in component.get("properties", ())
+            if isinstance(prop, dict)
+            and prop.get("name") == "pyflow:import-name"
+            and prop.get("value")
+        }
+        candidates = modules_by_distribution.get(name) or declared_imports
+        if not candidates:
+            candidates = {name.replace("-", "_"), name.replace("-", "")}
         if candidates & imports:
             reachable.add(str(component.get("purl") or name))
 

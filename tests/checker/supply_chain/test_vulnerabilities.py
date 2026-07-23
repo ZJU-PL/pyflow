@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import time
+import hashlib
 
 import pyflow.checker.supply_chain.vulnerabilities as vulnerability_module
 from pyflow.checker.supply_chain import (
@@ -171,6 +172,27 @@ def test_osv_database_freshness_and_checksum_are_audited(tmp_path):
     assert "vulnerability-database-checksum-mismatch" in kinds
 
 
+def test_osv_database_can_be_pinned_to_an_external_trusted_digest(tmp_path):
+    requirements = tmp_path / "requirements.txt"
+    requirements.write_text("demo==1.0\n", encoding="utf-8")
+    osv = tmp_path / "osv.json"
+    osv.write_text("[]\n", encoding="utf-8")
+    digest = hashlib.sha256(osv.read_bytes()).hexdigest()
+
+    accepted = audit_vulnerabilities(
+        scan_targets([requirements]), [osv], trusted_hashes={str(osv): digest}
+    )
+    rejected = audit_vulnerabilities(
+        scan_targets([requirements]), [osv], trusted_hashes={str(osv): "0" * 64}
+    )
+
+    assert not any("trusted-digest" in finding.kind for finding in accepted)
+    assert any(
+        finding.kind == "vulnerability-database-trusted-digest-mismatch"
+        for finding in rejected
+    )
+
+
 def test_vex_not_affected_suppresses_vulnerability(tmp_path):
     requirements = tmp_path / "requirements.txt"
     requirements.write_text("demo==1.0\n", encoding="utf-8")
@@ -261,6 +283,51 @@ def test_vex_requires_justification_before_suppressing(tmp_path):
     assert "known-vulnerability" in kinds
 
 
+def test_vex_product_substring_cannot_suppress_another_component(tmp_path):
+    requirements = tmp_path / "requirements.txt"
+    requirements.write_text("requests==1.0\n", encoding="utf-8")
+    osv = tmp_path / "osv.json"
+    osv.write_text(
+        json.dumps(
+            {
+                "id": "CVE-TEST-SUBSTRING",
+                "affected": [
+                    {
+                        "package": {"ecosystem": "PyPI", "name": "requests"},
+                        "versions": ["1.0"],
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    vex = tmp_path / "vex.json"
+    vex.write_text(
+        json.dumps(
+            {
+                "statements": [
+                    {
+                        "vulnerability": {"name": "CVE-TEST-SUBSTRING"},
+                        "products": [{"@id": "pkg:pypi/notrequests@1.0"}],
+                        "status": "not_affected",
+                        "justification": "component_not_present",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    findings = audit_vulnerabilities(
+        scan_targets([requirements]), [osv], vex_documents=[vex]
+    )
+
+    assert any(finding.kind == "known-vulnerability" for finding in findings)
+    assert not any(
+        finding.kind == "vulnerability-suppressed-by-vex" for finding in findings
+    )
+
+
 def test_reachability_adds_non_conclusive_vulnerability_evidence(tmp_path):
     requirements = tmp_path / "requirements.txt"
     requirements.write_text("requests==1.0\nunrelated==1.0\n", encoding="utf-8")
@@ -311,3 +378,20 @@ def test_reachability_adds_non_conclusive_vulnerability_evidence(tmp_path):
         for finding in findings
         if finding.kind == "known-vulnerability"
     )
+
+
+def test_reachability_uses_distribution_top_level_metadata(tmp_path):
+    dist_info = tmp_path / "beautifulsoup4-4.0.dist-info"
+    dist_info.mkdir()
+    (dist_info / "METADATA").write_text(
+        "Name: beautifulsoup4\nVersion: 4.0\n", encoding="utf-8"
+    )
+    (dist_info / "top_level.txt").write_text("bs4\n", encoding="utf-8")
+    (dist_info / "RECORD").write_text("", encoding="utf-8")
+    (tmp_path / "app.py").write_text("import bs4\n", encoding="utf-8")
+
+    scan = scan_targets([tmp_path], recursive=True)
+    reachable, findings = analyze_reachability(scan, [tmp_path])
+
+    assert not findings
+    assert "pkg:pypi/beautifulsoup4@4.0" in reachable

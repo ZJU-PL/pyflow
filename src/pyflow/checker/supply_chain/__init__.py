@@ -29,7 +29,11 @@ from .policy import (
     load_finding_policy,
     write_baseline,
 )
-from .provenance import audit_provenance, audit_sigstore_bundles
+from .provenance import (
+    audit_provenance,
+    audit_sigstore_bundles,
+    verify_sigstore_bundles,
+)
 from .reachability import analyze_reachability, load_import_map
 from .validation import (
     SbomValidationError,
@@ -51,6 +55,7 @@ __all__ = [
     "audit_package_names",
     "audit_provenance",
     "audit_sigstore_bundles",
+    "verify_sigstore_bundles",
     "audit_vulnerabilities",
     "build_cyclonedx_document",
     "build_requirements_text",

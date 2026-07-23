@@ -54,6 +54,10 @@ def build_cyclonedx_document(
                         bool(scan.metadata.get("inventoryComplete", True))
                     ).lower(),
                 }
+            ]
+            + [
+                {"name": "pyflow:inventory-limitation", "value": str(value)}
+                for value in scan.metadata.get("inventoryLimitations", ())
             ],
         },
         "components": components,
@@ -141,6 +145,12 @@ def build_spdx_document(
         "comment": (
             "PyFlow inventory complete: "
             f"{str(bool(scan.metadata.get('inventoryComplete', True))).lower()}"
+            + (
+                "; limitations: "
+                + ", ".join(scan.metadata.get("inventoryLimitations", ()))
+                if scan.metadata.get("inventoryLimitations")
+                else ""
+            )
         ),
         "packages": packages,
     }

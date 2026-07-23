@@ -96,6 +96,7 @@ def scan_targets(
             archive_depth=0,
             scan_entries=scan_entries,
             artifacts=artifacts,
+            report_unsupported=True,
         )
 
     final_findings = tuple(dedupe_findings(findings))
@@ -124,7 +125,21 @@ def scan_targets(
         "archive-member-limit",
         "archive-expanded-size-limit",
         "archive-nesting-limit",
+        "unsupported-supply-chain-target",
     }
+    inventory_limitations = sorted(
+        {finding.kind for finding in final_findings if finding.kind in incomplete_kinds}
+    )
+    inventory_evidence = sorted(
+        {
+            str(prop.get("value"))
+            for component in components
+            for prop in component.get("properties", ())
+            if isinstance(prop, dict)
+            and prop.get("name") == "pyflow:source-file"
+            and prop.get("value")
+        }
+    )
     return SupplyChainScan(
         components=tuple(dedupe_components(components)),
         findings=final_findings,
@@ -132,9 +147,9 @@ def scan_targets(
         metadata={
             "targets": target_values,
             "artifacts": sorted(set(artifacts)),
-            "inventoryComplete": not any(
-                finding.kind in incomplete_kinds for finding in final_findings
-            ),
+            "inventoryComplete": not inventory_limitations,
+            "inventoryEvidence": inventory_evidence,
+            "inventoryLimitations": inventory_limitations,
         },
     )
 
@@ -152,6 +167,7 @@ def _scan_path(
     archive_depth: int,
     scan_entries: list[int],
     artifacts: list[str],
+    report_unsupported: bool,
 ) -> None:
     if _is_excluded(path, excluded):
         return
@@ -179,6 +195,7 @@ def _scan_path(
                 archive_depth=archive_depth,
                 scan_entries=scan_entries,
                 artifacts=artifacts,
+                report_unsupported=False,
             )
         return
     try:
@@ -201,7 +218,9 @@ def _scan_path(
     name = path.name
     component_start = len(components)
     scanned_archive = False
+    recognized_input = False
     if name == "METADATA" and path.parent.name.endswith(".dist-info"):
+        recognized_input = True
         component = component_from_metadata(path, findings, limits)
         if component is not None:
             components.append(component)
@@ -212,32 +231,40 @@ def _scan_path(
             dependencies.extend(metadata_edges)
         findings.extend(audit_distribution_record(path.parent, limits))
     elif _is_requirements_file(path):
+        recognized_input = True
         components.extend(components_from_requirements(path, findings, limits))
     elif name == "pyproject.toml":
+        recognized_input = True
         parsed_components, parsed_dependencies = components_from_pyproject(
             path, findings, limits
         )
         components.extend(parsed_components)
         dependencies.extend(parsed_dependencies)
     elif name in {"poetry.lock", "pdm.lock", "uv.lock"}:
+        recognized_input = True
         parsed_components, parsed_dependencies = components_from_toml_lock(
             path, findings, limits
         )
         components.extend(parsed_components)
         dependencies.extend(parsed_dependencies)
     elif name == "Pipfile.lock":
+        recognized_input = True
         components.extend(components_from_pipfile_lock(path, findings, limits))
     elif name == "pylock.toml" or name.endswith(".pylock.toml"):
+        recognized_input = True
         parsed_components, parsed_dependencies = components_from_pylock(
             path, findings, limits
         )
         components.extend(parsed_components)
         dependencies.extend(parsed_dependencies)
     elif name == "setup.cfg":
+        recognized_input = True
         components.extend(components_from_setup_cfg(path, findings, limits))
     elif name == "setup.py":
+        recognized_input = True
         components.extend(components_from_setup_py(path, findings, limits))
     elif looks_like_archive(path):
+        recognized_input = True
         scanned_archive = True
         artifacts.append(str(path))
         _scan_archive(
@@ -254,6 +281,15 @@ def _scan_path(
         )
     if not scanned_archive:
         _tag_component_sources(components[component_start:], str(path))
+    if report_unsupported and not recognized_input:
+        findings.append(
+            SupplyChainFinding(
+                kind="unsupported-supply-chain-target",
+                message="Target is not a supported Python package, manifest, or archive",
+                location=str(path),
+                severity="HIGH",
+            )
+        )
 
 
 def _scan_archive(
@@ -300,6 +336,7 @@ def _scan_archive(
             archive_depth=archive_depth + 1,
             scan_entries=scan_entries,
             artifacts=artifacts,
+            report_unsupported=False,
         )
         _remap_archive_findings(findings, finding_start, destination, path)
         _remap_archive_component_sources(

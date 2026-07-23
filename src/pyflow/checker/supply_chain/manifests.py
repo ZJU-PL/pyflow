@@ -81,6 +81,16 @@ def _component_from_metadata(
         component["externalReferences"] = [
             {"type": "website", "url": _redacted_url(homepage.strip())}
         ]
+    top_level = metadata_path.parent / "top_level.txt"
+    if top_level.is_file() and not top_level.is_symlink():
+        import_text = _read_text(
+            top_level, findings, limits, "top-level module metadata"
+        )
+        if import_text is not None:
+            for module in import_text.splitlines():
+                module = module.strip().split(".", 1)[0]
+                if module and module.isidentifier():
+                    _add_property(component, "pyflow:import-name", module)
     return component
 
 
@@ -830,11 +840,13 @@ def _components_from_toml_lock(
         elif isinstance(raw_dependencies, list):
             names = (
                 (
-                    value.get("name"),
-                    value.get("version") or value.get("specifier"),
+                    (
+                        value.get("name"),
+                        value.get("version") or value.get("specifier"),
+                    )
+                    if isinstance(value, dict)
+                    else (str(value).split()[0], None)
                 )
-                if isinstance(value, dict)
-                else (str(value).split()[0], None)
                 for value in raw_dependencies
             )
         else:
@@ -998,7 +1010,9 @@ def _components_from_pylock(
             if dependency_name:
                 constraint = None
                 if isinstance(dependency, dict):
-                    constraint = dependency.get("version") or dependency.get("specifier")
+                    constraint = dependency.get("version") or dependency.get(
+                        "specifier"
+                    )
                 unresolved_edges.append(
                     (
                         str(component["purl"]),

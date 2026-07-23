@@ -193,13 +193,20 @@ Audit format:
 - ``--osv-database`` with ``--osv-max-age-days`` and
   ``--require-osv-checksum``: use freshness- and integrity-governed offline OSV
   data
+- ``--osv-trusted-digest PATH=SHA256``: bind database files to digests supplied
+  by trusted CI configuration; colocated checksum sidecars alone do not prove
+  database origin
 - ``--vex``: apply CycloneDX VEX or OpenVEX status
 - ``--policy`` / ``--baseline`` / ``--write-baseline``: manage reviewed,
   expiring finding exceptions
 - ``--attestation`` / ``--trusted-builder`` / ``--require-provenance``:
-  verify digest-bound in-toto or SLSA provenance
+  require digest-bound in-toto or SLSA provenance. An attestation establishes
+  trust only when that exact file passes an independent Sigstore identity check
 - ``--sigstore-bundle`` with certificate identity and issuer options: invoke
   the official Sigstore verifier for a local bundle
+- ``--require-schema-validation``: fail SBOM generation unless a pinned local
+  official schema bundle is supplied with ``--schema``; network reference
+  resolution is disabled
 - ``--reachability``: annotate vulnerabilities with conservative import
   evidence; absence of an import is explicitly not treated as proof of safety
 

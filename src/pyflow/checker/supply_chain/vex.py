@@ -107,6 +107,20 @@ def vex_status_for(
     for (vulnerability, product), status in statuses.items():
         if vulnerability != identifier:
             continue
-        if canonical and canonical in canonicalize_name(product):
+        product_name = _exact_product_name(product)
+        if canonical and product_name == canonical:
             return status
     return None
+
+
+def _exact_product_name(product: str) -> str | None:
+    """Extract only exact package identities; never use substring matching."""
+
+    value = product.strip()
+    if value.startswith("pkg:pypi/"):
+        value = value[len("pkg:pypi/") :].split("?", 1)[0].split("#", 1)[0]
+        value = value.split("@", 1)[0]
+        return str(canonicalize_name(value)) if value else None
+    if not value or any(character in value for character in "/:@?#"):
+        return None
+    return str(canonicalize_name(value))

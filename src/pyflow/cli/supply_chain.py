@@ -23,7 +23,6 @@ from pyflow.checker.supply_chain import (
     audit_license_policy,
     audit_package_names,
     audit_provenance,
-    audit_sigstore_bundles,
     audit_vulnerabilities,
     build_cyclonedx_document,
     build_requirements_text,
@@ -36,6 +35,7 @@ from pyflow.checker.supply_chain import (
     resolve_environment,
     scan_targets,
     validate_json_schema,
+    verify_sigstore_bundles,
     write_baseline,
 )
 from pyflow.checker.supply_chain.input_safety import load_json_file
@@ -76,6 +76,11 @@ def add_supply_chain_parser(subparsers: Any) -> None:
         "--schema",
         type=Path,
         help="Validate JSON output against a pinned local CycloneDX or SPDX schema",
+    )
+    sbom.add_argument(
+        "--require-schema-validation",
+        action="store_true",
+        help="Fail unless --schema is supplied for standards-level validation",
     )
 
     audit = child.add_parser(
@@ -127,6 +132,16 @@ def add_supply_chain_parser(subparsers: Any) -> None:
         "--require-osv-checksum",
         action="store_true",
         help="Require a FILE.sha256 sidecar for every local OSV database file",
+    )
+    audit.add_argument(
+        "--osv-trusted-digest",
+        action="append",
+        default=[],
+        metavar="PATH=SHA256",
+        help=(
+            "Pin a vulnerability database file to a trusted SHA-256 digest "
+            "(repeatable; stronger than a colocated sidecar)"
+        ),
     )
     audit.add_argument(
         "--vex",
@@ -248,6 +263,17 @@ def run_supply_chain(args: Any) -> int:
 
         if args.supply_chain_command == "sbom":
             fmt = args.format
+            if (
+                getattr(args, "require_schema_validation", False)
+                and fmt != "requirements"
+                and not getattr(args, "schema", None)
+            ):
+                print(
+                    "Supply-chain command failed: --require-schema-validation "
+                    "requires --schema",
+                    file=sys.stderr,
+                )
+                return 2
             if fmt == "requirements":
                 output.write(build_requirements_text(scan))
             elif fmt == "spdx-json":
@@ -300,6 +326,13 @@ def run_supply_chain(args: Any) -> int:
                 findings.extend(audit_package_names(scan, protected_packages))
             osv_databases = getattr(args, "osv_database", ()) or ()
             if osv_databases:
+                try:
+                    trusted_osv_hashes = _parse_trusted_digests(
+                        getattr(args, "osv_trusted_digest", ()) or ()
+                    )
+                except ValueError as exc:
+                    findings.append(_configuration_finding(str(exc)))
+                    trusted_osv_hashes = {}
                 reachable_refs = None
                 if getattr(args, "reachability", False):
                     try:
@@ -326,6 +359,7 @@ def run_supply_chain(args: Any) -> int:
                         require_hashes=getattr(args, "require_osv_checksum", False),
                         vex_documents=getattr(args, "vex", ()) or (),
                         reachable_refs=reachable_refs,
+                        trusted_hashes=trusted_osv_hashes,
                     )
                 )
             artifacts = [
@@ -333,17 +367,7 @@ def run_supply_chain(args: Any) -> int:
                 for value in scan.metadata.get("artifacts", ())
                 if Path(value).is_file()
             ]
-            attestations = getattr(args, "attestation", ()) or ()
-            if attestations or getattr(args, "require_provenance", False):
-                findings.extend(
-                    audit_provenance(
-                        artifacts,
-                        attestations,
-                        trusted_builders=getattr(args, "trusted_builder", ()) or (),
-                        require_provenance=getattr(args, "require_provenance", False),
-                        require_dsse=getattr(args, "require_dsse", False),
-                    )
-                )
+            authenticated_inputs: frozenset[Path] = frozenset()
             sigstore_bundles = getattr(args, "sigstore_bundle", ()) or ()
             if sigstore_bundles:
                 identity = getattr(args, "cert_identity", None)
@@ -356,13 +380,25 @@ def run_supply_chain(args: Any) -> int:
                         )
                     )
                 else:
-                    findings.extend(
-                        audit_sigstore_bundles(
-                            sigstore_bundles,
-                            certificate_identity=identity,
-                            certificate_oidc_issuer=issuer,
-                        )
+                    authenticated_inputs, sigstore_findings = verify_sigstore_bundles(
+                        sigstore_bundles,
+                        certificate_identity=identity,
+                        certificate_oidc_issuer=issuer,
                     )
+                    findings.extend(sigstore_findings)
+
+            attestations = getattr(args, "attestation", ()) or ()
+            if attestations or getattr(args, "require_provenance", False):
+                findings.extend(
+                    audit_provenance(
+                        artifacts,
+                        attestations,
+                        trusted_builders=getattr(args, "trusted_builder", ()) or (),
+                        require_provenance=getattr(args, "require_provenance", False),
+                        require_dsse=getattr(args, "require_dsse", False),
+                        authenticated_attestations=authenticated_inputs,
+                    )
+                )
 
             if getattr(args, "write_baseline", None):
                 try:
@@ -577,6 +613,24 @@ def _add_common_args(parser: Any) -> None:
 
 def _parse_exclude(exclude: str) -> tuple[str, ...]:
     return tuple(item.strip() for item in exclude.split(",") if item.strip())
+
+
+def _parse_trusted_digests(values: Any) -> dict[str, str]:
+    trusted: dict[str, str] = {}
+    for value in values:
+        path_text, separator, digest = str(value).rpartition("=")
+        digest = digest.strip().lower()
+        if (
+            not separator
+            or not path_text.strip()
+            or len(digest) != 64
+            or any(character not in "0123456789abcdef" for character in digest)
+        ):
+            raise ValueError("--osv-trusted-digest must use PATH=64_HEX_SHA256")
+        path = Path(path_text.strip())
+        trusted[str(path)] = digest
+        trusted[str(path.resolve(strict=False))] = digest
+    return trusted
 
 
 def _load_license_policy(path: Path) -> tuple[list[str], list[str] | None]:

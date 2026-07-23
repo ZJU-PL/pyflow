@@ -76,6 +76,7 @@ def test_provenance_verifies_subject_digest_and_builder(tmp_path):
         [attestation],
         trusted_builders=["https://builder.example/ci"],
         require_provenance=True,
+        authenticated_attestations=[attestation],
     )
 
     assert not findings
@@ -88,6 +89,7 @@ def test_provenance_policy_and_sigstore_failure_paths(tmp_path, monkeypatch):
     attestation.write_text(
         json.dumps(
             {
+                "_type": "https://in-toto.io/Statement/v1",
                 "subject": [
                     {
                         "name": artifact.name,
@@ -110,6 +112,8 @@ def test_provenance_policy_and_sigstore_failure_paths(tmp_path, monkeypatch):
     assert {finding.kind for finding in findings} == {
         "untrusted-provenance-builder",
         "provenance-not-dsse",
+        "provenance-authenticity-unverified",
+        "untrusted-provenance",
     }
 
     bundle = tmp_path / "demo.sigstore.json"
@@ -127,6 +131,7 @@ def test_dsse_and_sigstore_success_paths(tmp_path, monkeypatch):
     artifact = tmp_path / "demo.whl"
     artifact.write_bytes(b"artifact")
     statement = {
+        "_type": "https://in-toto.io/Statement/v1",
         "subject": [
             {
                 "name": artifact.name,
@@ -142,7 +147,7 @@ def test_dsse_and_sigstore_success_paths(tmp_path, monkeypatch):
             {
                 "payloadType": "application/vnd.in-toto+json",
                 "payload": base64.b64encode(json.dumps(statement).encode()).decode(),
-                "signatures": [],
+                "signatures": [{"keyid": "test", "sig": "signed-externally"}],
             }
         ),
         encoding="utf-8",
@@ -153,6 +158,7 @@ def test_dsse_and_sigstore_success_paths(tmp_path, monkeypatch):
         trusted_builders=["trusted"],
         require_provenance=True,
         require_dsse=True,
+        authenticated_attestations=[envelope],
     )
 
     bundle = tmp_path / "bundle.json"
@@ -177,3 +183,53 @@ def test_dsse_and_sigstore_success_paths(tmp_path, monkeypatch):
     )
     assert captured[0][0][:3] == ["/sigstore", "verify", "identity"]
     assert captured[0][1]["timeout"] == 30.0
+
+
+def test_unsigned_or_empty_dsse_provenance_never_establishes_trust(tmp_path):
+    artifact = tmp_path / "demo.whl"
+    artifact.write_bytes(b"artifact")
+    statement = {
+        "_type": "https://in-toto.io/Statement/v1",
+        "subject": [
+            {
+                "name": artifact.name,
+                "digest": {"sha256": hashlib.sha256(b"artifact").hexdigest()},
+            }
+        ],
+        "predicateType": "https://slsa.dev/provenance/v1",
+        "predicate": {"builder": {"id": "trusted"}},
+    }
+    unsigned = tmp_path / "unsigned.json"
+    unsigned.write_text(json.dumps(statement), encoding="utf-8")
+    empty_dsse = tmp_path / "empty.dsse.json"
+    empty_dsse.write_text(
+        json.dumps(
+            {
+                "payloadType": "application/vnd.in-toto+json",
+                "payload": base64.b64encode(json.dumps(statement).encode()).decode(),
+                "signatures": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    unsigned_findings = audit_provenance(
+        [artifact], [unsigned], trusted_builders=["trusted"], require_provenance=True
+    )
+    empty_findings = audit_provenance(
+        [artifact],
+        [empty_dsse],
+        trusted_builders=["trusted"],
+        require_provenance=True,
+        require_dsse=True,
+        authenticated_attestations=[empty_dsse],
+    )
+
+    assert "provenance-authenticity-unverified" in {
+        finding.kind for finding in unsigned_findings
+    }
+    assert "untrusted-provenance" in {finding.kind for finding in unsigned_findings}
+    assert "provenance-dsse-signature-missing" in {
+        finding.kind for finding in empty_findings
+    }
+    assert "untrusted-provenance" in {finding.kind for finding in empty_findings}

@@ -32,6 +32,29 @@ def test_supply_chain_sbom_outputs_cyclonedx(tmp_path, capsys):
     assert out["components"][0]["purl"] == "pkg:pypi/demo@1.0.0"
 
 
+def test_supply_chain_can_require_external_schema_validation(tmp_path, capsys):
+    requirements = tmp_path / "requirements.txt"
+    requirements.write_text("demo==1\n", encoding="utf-8")
+
+    exit_code = run_supply_chain(
+        SimpleNamespace(
+            supply_chain_command="sbom",
+            targets=[str(requirements)],
+            recursive=False,
+            exclude="",
+            output=None,
+            format="cyclonedx-json",
+            deterministic=True,
+            schema=None,
+            require_schema_validation=True,
+            allow_incomplete=True,
+        )
+    )
+
+    assert exit_code == 2
+    assert "requires --schema" in capsys.readouterr().err
+
+
 def test_supply_chain_audit_returns_nonzero_for_findings(tmp_path, capsys):
     dist_info = tmp_path / "demo-1.0.0.dist-info"
     dist_info.mkdir()

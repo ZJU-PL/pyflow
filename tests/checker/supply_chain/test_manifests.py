@@ -28,6 +28,19 @@ def test_non_recursive_scan_does_not_descend(tmp_path):
     assert {item["name"] for item in recursive.components} == {"hidden", "top"}
 
 
+def test_unsupported_direct_target_cannot_claim_a_complete_inventory(tmp_path):
+    target = tmp_path / "package.json"
+    target.write_text('{"dependencies": {"demo": "1"}}', encoding="utf-8")
+
+    scan = scan_targets([target])
+
+    assert not scan.metadata["inventoryComplete"]
+    assert scan.metadata["inventoryLimitations"] == ["unsupported-supply-chain-target"]
+    assert any(
+        finding.kind == "unsupported-supply-chain-target" for finding in scan.findings
+    )
+
+
 def test_directory_and_archive_input_limits_are_enforced(tmp_path):
     for index in range(3):
         (tmp_path / f"requirements-{index}.txt").write_text(

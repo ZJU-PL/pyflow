@@ -182,3 +182,27 @@ def test_record_audit_reports_duplicate_external_and_missing_entries(tmp_path):
         "duplicate-record-entry",
         "invalid-record-entry",
     } <= kinds
+
+
+def test_record_audit_uses_top_level_metadata_for_owned_files(tmp_path):
+    package = tmp_path / "demo"
+    package.mkdir()
+    listed = package / "__init__.py"
+    listed.write_text("", encoding="utf-8")
+    unlisted = package / "injected.py"
+    unlisted.write_text("payload = True\n", encoding="utf-8")
+    dist_info = tmp_path / "demo-1.0.dist-info"
+    dist_info.mkdir()
+    metadata = dist_info / "METADATA"
+    metadata.write_text("Name: demo\nVersion: 1.0\n", encoding="utf-8")
+    top_level = dist_info / "top_level.txt"
+    top_level.write_text("demo\n", encoding="utf-8")
+    _write_record(dist_info, [metadata, top_level, listed])
+
+    findings = scan_targets([tmp_path], recursive=True).findings
+
+    assert any(
+        finding.kind == "record-unlisted-owned-file"
+        and finding.location.endswith("demo/injected.py")
+        for finding in findings
+    )

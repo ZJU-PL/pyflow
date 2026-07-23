@@ -14,7 +14,7 @@ import os
 import time
 from collections import defaultdict
 from pathlib import Path
-from typing import Any, Iterable, Iterator
+from typing import Any, Iterable, Iterator, Mapping
 
 from packaging.utils import canonicalize_name
 from packaging.version import InvalidVersion, Version
@@ -37,6 +37,7 @@ def audit_vulnerabilities(
     require_hashes: bool = False,
     vex_documents: Iterable[str | os.PathLike[str]] = (),
     reachable_refs: frozenset[str] | None = None,
+    trusted_hashes: Mapping[str, str] | None = None,
 ) -> tuple[SupplyChainFinding, ...]:
     """Match exact-version PyPI components against local OSV records."""
 
@@ -54,6 +55,7 @@ def audit_vulnerabilities(
             findings,
             max_age_days=max_database_age_days,
             require_hash=require_hashes,
+            trusted_hashes=trusted_hashes or {},
         )
         for record, source in _load_osv_records(path, findings):
             identifier = str(record.get("id", "")).strip()
@@ -419,6 +421,7 @@ def _audit_database_source(
     *,
     max_age_days: float | None,
     require_hash: bool,
+    trusted_hashes: Mapping[str, str],
 ) -> None:
     """Audit freshness and optional SHA-256 sidecars for local OSV data."""
 
@@ -463,6 +466,24 @@ def _audit_database_source(
             )
 
     for source in files:
+        trusted = _trusted_digest_for(source, trusted_hashes)
+        if trusted is not None:
+            try:
+                actual = _sha256_file(source)
+            except OSError as exc:
+                findings.append(_database_read_error(source, exc))
+                continue
+            if not _is_sha256(trusted) or actual != trusted:
+                findings.append(
+                    SupplyChainFinding(
+                        kind="vulnerability-database-trusted-digest-mismatch",
+                        message="Vulnerability database does not match its trusted SHA-256 digest",
+                        location=str(source),
+                        severity="CRITICAL",
+                        details={"expected": trusted, "actual": actual},
+                    )
+                )
+            continue
         sidecar = Path(str(source) + ".sha256")
         if not sidecar.is_file():
             if require_hash:
@@ -501,6 +522,15 @@ def _audit_database_source(
                     details={"expected": expected, "actual": actual},
                 )
             )
+
+
+def _trusted_digest_for(path: Path, trusted_hashes: Mapping[str, str]) -> str | None:
+    candidates = (str(path), str(path.resolve(strict=False)), path.name)
+    for candidate in candidates:
+        value = trusted_hashes.get(candidate)
+        if value is not None:
+            return str(value).strip().lower()
+    return None
 
 
 def _is_sha256(value: str) -> bool:

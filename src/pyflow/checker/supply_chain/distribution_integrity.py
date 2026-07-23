@@ -142,6 +142,54 @@ def audit_distribution_record(
                 severity="LOW",
             )
 
+    # top_level.txt is the packaging ecosystem's explicit ownership hint.  Use
+    # it to inspect package/module roots without claiming unrelated namespace
+    # packages in a shared site-packages directory.
+    top_level = dist_info / "top_level.txt"
+    if top_level.is_file() and not top_level.is_symlink():
+        top_level_findings: list[SupplyChainFinding] = []
+        names = read_text(top_level, top_level_findings, limits, "top-level metadata")
+        yield from top_level_findings
+        if names is not None:
+            inspected = 0
+            for name in names.splitlines():
+                name = name.strip()
+                if not name.isidentifier():
+                    continue
+                candidates = (root / name, root / f"{name}.py")
+                for owned_root in candidates:
+                    if not owned_root.exists() or owned_root.is_symlink():
+                        continue
+                    paths = (
+                        [owned_root] if owned_root.is_file() else owned_root.rglob("*")
+                    )
+                    try:
+                        for file_path in paths:
+                            inspected += 1
+                            if inspected > limits.max_scan_entries:
+                                yield SupplyChainFinding(
+                                    kind="record-owned-file-limit",
+                                    message="Installed-file integrity audit exceeded its entry limit",
+                                    location=str(owned_root),
+                                    severity="HIGH",
+                                    details={"limit": limits.max_scan_entries},
+                                )
+                                return
+                            if (
+                                file_path.is_file()
+                                and not file_path.is_symlink()
+                                and file_path.resolve(strict=False) not in listed
+                            ):
+                                yield SupplyChainFinding(
+                                    kind="record-unlisted-owned-file",
+                                    message="Installed package contains a file not listed in RECORD",
+                                    location=str(file_path),
+                                    severity="HIGH",
+                                    details={"top_level": name},
+                                )
+                    except OSError as exc:
+                        yield read_error(owned_root, exc)
+
 
 def _audit_record_hash(
     target: Path,
