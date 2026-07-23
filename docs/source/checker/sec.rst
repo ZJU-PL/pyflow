@@ -286,10 +286,15 @@ SBOM Generation
 - ``scan_targets(targets, recursive, exclude)`` — Scan local paths for
   package metadata and produce ``SupplyChainScan`` containing components and
   findings
-- ``build_cyclonedx_document(scan)`` — Build a CycloneDX 1.3 JSON document
-  from a scan result
-- Scans ``METADATA`` (PEP 566), ``pyproject.toml``, ``poetry.lock``, and
-  ``requirements.txt`` files for dependency metadata
+- ``build_cyclonedx_document(scan)`` — Build and semantically validate a
+  CycloneDX 1.7 JSON document
+- ``build_spdx_document(scan)`` — Build and semantically validate SPDX 2.3
+- Supports ``METADATA``, requirements/constraints includes, ``pyproject.toml``,
+  Poetry/PDM/uv locks, ``Pipfile.lock``, ``pylock.toml``, ``setup.cfg``, and
+  statically inspected ``setup.py``
+- Records source evidence and whether the discovered inventory is complete
+- Resolves PEP 508 markers for a caller-selected runtime and can produce
+  content-deterministic SBOM identifiers
 
 Distribution Auditing
 ~~~~~~~~~~~~~~~~~~~~~
@@ -297,18 +302,31 @@ Distribution Auditing
 - ``RECORD`` integrity verification: validates file existence, hash
   consistency, and detects unlisted files in ``.dist-info`` directories
 - Archive safety: detects absolute paths, parent-directory traversal
-  (``../``), and oversized members in zip, tar, and wheel files
+  (``../``), links, special files, collisions, compression bombs, nested
+  archives, and oversized members in zip, tar, and wheel files
 - Remote requirement detection: flags ``requirements.txt`` entries using
   remote URLs
+- Offline OSV matching includes disjoint range handling, package indexing,
+  snapshot freshness and SHA-256 sidecar enforcement
+- SPDX-aware license policy evaluates ``AND``, ``OR``, ``WITH``, parentheses,
+  and allowed exceptions
+- CycloneDX/OpenVEX, in-toto/SLSA provenance, optional Sigstore verification,
+  typosquatting checks, expiring exceptions, baselines, and conservative
+  source-import reachability evidence are supported
 
 Output
 ~~~~~~
 
 - ``format_findings_text(scan)`` — Human-readable text output for findings
 - ``build_cyclonedx_document(scan)`` — CycloneDX JSON for SBOM
+- ``build_spdx_document(scan)`` — SPDX JSON for SBOM
+- ``build_sarif_document(scan)`` — SARIF 2.1.0 audit results
 - ``SupplyChainFinding.to_dict()`` — Structured dict for JSON serialization
 
-All operations work offline from local files.
+Scanning and OSV/VEX/provenance ingestion work offline from local files.
+Production pipelines should pin official SBOM schemas, refresh OSV snapshots,
+require checksum sidecars, and use Sigstore identity verification where signed
+artifacts are expected.
 
 Configuration and Testing
 -------------------------

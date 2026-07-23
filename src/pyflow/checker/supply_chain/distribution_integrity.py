@@ -8,7 +8,7 @@ import hashlib
 from pathlib import Path
 from typing import Iterator
 
-from .common import is_relative_to, read_error, read_text
+from .input_safety import is_relative_to, read_error, read_text
 from .models import ScanLimits, SupplyChainFinding
 
 _RECORD_HASH_ALGORITHMS = frozenset(
@@ -243,7 +243,9 @@ def _record_hash(path: Path, expected: str) -> str | None:
     if normalized not in hashlib.algorithms_available:
         return None
     hasher = hashlib.new(normalized)
-    hasher.update(path.read_bytes())
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            hasher.update(chunk)
     digest = base64.urlsafe_b64encode(hasher.digest()).decode("ascii").rstrip("=")
     return f"{algorithm}={digest}"
 

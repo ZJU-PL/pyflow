@@ -154,9 +154,10 @@ Supply Chain Command
 **pyflow supply-chain**
 ~~~~~~~~~~~~~~~~~~~~~~~
 
-Local supply-chain analysis for Python packages. Works on local files and
-archives — no package index queries. Generates CycloneDX SBOMs and audits
-distribution metadata for structural issues.
+Offline supply-chain analysis for Python packages. It generates CycloneDX 1.7,
+SPDX 2.3, or requirements inventories and audits dependency metadata,
+archives, installed distributions, licenses, vulnerabilities, VEX, and
+provenance.
 
 ::
 
@@ -168,23 +169,39 @@ distribution metadata for structural issues.
 Subcommands:
 
 ``sbom``
-  Generate a CycloneDX 1.3 SBOM JSON document from local package metadata
-  (METADATA, RECORD, pyproject.toml, poetry.lock, requirements.txt).
+  Generate CycloneDX 1.7, SPDX 2.3, or requirements output. ``--deterministic``
+  derives document IDs from content and uses ``SOURCE_DATE_EPOCH``.
+  ``--schema`` validates JSON output against a pinned local official schema.
 
 ``audit``
-  Report structural anomalies in archives (zip/traversal, absolute paths,
-  oversized members) and distribution metadata (missing RECORD, hash
-  mismatches, unlisted files).
+  Report structural anomalies, unsafe dependency sources, license-policy
+  violations, local OSV matches, VEX status, provenance failures, and
+  possible typosquatting. JSON, text, and SARIF output are supported.
 
 Common options:
 
 - ``--recursive, -r``: Scan directories recursively
 - ``--exclude``: Comma-separated list of paths to exclude
 - ``--output, -o``: Output file (default: stdout)
+- ``--python-version``, ``--platform``, ``--implementation``: resolve PEP 508
+  markers for the target runtime
+- ``--extra``: select dependency extras during marker evaluation
 
 Audit format:
 
-- ``--format text`` (default) or ``--format json``
+- ``--format text`` (default), ``json``, or ``sarif``
+- ``--osv-database`` with ``--osv-max-age-days`` and
+  ``--require-osv-checksum``: use freshness- and integrity-governed offline OSV
+  data
+- ``--vex``: apply CycloneDX VEX or OpenVEX status
+- ``--policy`` / ``--baseline`` / ``--write-baseline``: manage reviewed,
+  expiring finding exceptions
+- ``--attestation`` / ``--trusted-builder`` / ``--require-provenance``:
+  verify digest-bound in-toto or SLSA provenance
+- ``--sigstore-bundle`` with certificate identity and issuer options: invoke
+  the official Sigstore verifier for a local bundle
+- ``--reachability``: annotate vulnerabilities with conservative import
+  evidence; absence of an import is explicitly not treated as proof of safety
 
 Alias Command
 --------------

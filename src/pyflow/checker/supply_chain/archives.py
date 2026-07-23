@@ -29,6 +29,18 @@ def extract_archive(
     """Safely extract inspectable regular files under configured budgets."""
 
     try:
+        archive_size = path.stat().st_size
+        if archive_size > limits.max_archive_size:
+            findings.append(
+                SupplyChainFinding(
+                    kind="archive-file-size-limit",
+                    message="Archive exceeds the configured input-size limit",
+                    location=str(path),
+                    severity="HIGH",
+                    details={"size": archive_size, "limit": limits.max_archive_size},
+                )
+            )
+            return False
         if zipfile.is_zipfile(path):
             return _extract_zip(path, destination, findings, limits)
         if tarfile.is_tarfile(path):
@@ -43,6 +55,18 @@ def extract_archive(
                 details={"error": str(exc)},
             )
         )
+        return False
+    findings.append(
+        SupplyChainFinding(
+            kind="archive-unrecognized-format",
+            message=(
+                "File extension indicates an archive but content is not a "
+                "supported archive"
+            ),
+            location=str(path),
+            severity="HIGH",
+        )
+    )
     return False
 
 
@@ -181,27 +205,26 @@ def _extract_tar(
     limits: ScanLimits,
 ) -> bool:
     try:
+        compressed_size = max(path.stat().st_size, 1)
         with tarfile.open(path, mode="r:*") as archive:
-            members = archive.getmembers()
-            if len(members) > limits.max_archive_members:
-                findings.append(
-                    SupplyChainFinding(
-                        kind="archive-member-limit",
-                        message="Archive exceeds the configured member-count limit",
-                        location=str(path),
-                        severity="HIGH",
-                        details={
-                            "members": len(members),
-                            "limit": limits.max_archive_members,
-                        },
-                    )
-                )
-                return False
-
             total_size = 0
             seen_entries: set[str] = set()
             seen_casefolded: dict[str, str] = {}
-            for member in members:
+            for member_count, member in enumerate(archive, start=1):
+                if member_count > limits.max_archive_members:
+                    findings.append(
+                        SupplyChainFinding(
+                            kind="archive-member-limit",
+                            message="Archive exceeds the configured member-count limit",
+                            location=str(path),
+                            severity="HIGH",
+                            details={
+                                "members": member_count,
+                                "limit": limits.max_archive_members,
+                            },
+                        )
+                    )
+                    return False
                 normalized = _normalized_archive_entry(member.name)
                 issue = _archive_entry_issue(path, member.name, member.size, limits)
                 if issue is not None:
@@ -245,6 +268,21 @@ def _extract_tar(
                             details={
                                 "size": total_size,
                                 "limit": limits.max_archive_uncompressed_size,
+                            },
+                        )
+                    )
+                    return False
+                ratio = total_size / compressed_size
+                if total_size and ratio > limits.max_compression_ratio:
+                    findings.append(
+                        SupplyChainFinding(
+                            kind="archive-suspicious-compression-ratio",
+                            message="Tar archive has a suspicious compression ratio",
+                            location=str(path),
+                            severity="HIGH",
+                            details={
+                                "ratio": round(ratio, 2),
+                                "limit": limits.max_compression_ratio,
                             },
                         )
                     )
@@ -456,6 +494,17 @@ def audit_archive_identity(
     expected_name = canonicalize_name(parsed_name)
     expected_version = str(parsed_version)
     candidates = list(components)
+    if not candidates:
+        findings.append(
+            SupplyChainFinding(
+                kind="archive-missing-package-metadata",
+                message="Package archive contains no inspectable distribution metadata",
+                location=str(path),
+                severity="HIGH",
+                details={"filename": path.name},
+            )
+        )
+        return
     matching = [
         component
         for component in candidates

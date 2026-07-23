@@ -14,9 +14,14 @@ from pathlib import Path
 from typing import Any, Iterable, Iterator
 
 from .archives import audit_archive_identity, extract_archive, looks_like_archive
-from .common import read_error
-from .components import dedupe_components, dedupe_dependencies, dedupe_findings
-from .integrity import audit_distribution_record
+from .distribution_integrity import audit_distribution_record
+from .input_safety import read_error
+from .inventory import (
+    add_property,
+    dedupe_components,
+    dedupe_dependencies,
+    dedupe_findings,
+)
 from .licenses import audit_license_policy as audit_license_policy
 from .manifests import (
     component_from_metadata,
@@ -61,8 +66,11 @@ def scan_targets(
     findings: list[SupplyChainFinding] = []
     dependencies: list[tuple[str, str]] = []
     seen_files: set[Path] = set()
+    scan_entries = [0]
+    artifacts: list[str] = []
 
-    for target in targets:
+    target_values = [str(target) for target in targets]
+    for target in target_values:
         path = Path(target)
         if _is_excluded(path, excluded):
             continue
@@ -86,12 +94,48 @@ def scan_targets(
             seen_files=seen_files,
             limits=effective_limits,
             archive_depth=0,
+            scan_entries=scan_entries,
+            artifacts=artifacts,
         )
 
+    final_findings = tuple(dedupe_findings(findings))
+    incomplete_kinds = {
+        "missing-target",
+        "file-read-error",
+        "manifest-size-limit",
+        "scan-entry-limit",
+        "invalid-requirement",
+        "invalid-lockfile",
+        "invalid-pyproject",
+        "invalid-pylock",
+        "invalid-setup-config",
+        "invalid-setup-script",
+        "dynamic-dependency-metadata",
+        "unpinned-requirement",
+        "remote-requirement",
+        "local-path-requirement",
+        "missing-requirement-include",
+        "requirement-include-symlink",
+        "unversioned-lock-package",
+        "archive-read-error",
+        "archive-unrecognized-format",
+        "archive-missing-package-metadata",
+        "archive-file-size-limit",
+        "archive-member-limit",
+        "archive-expanded-size-limit",
+        "archive-nesting-limit",
+    }
     return SupplyChainScan(
         components=tuple(dedupe_components(components)),
-        findings=tuple(dedupe_findings(findings)),
+        findings=final_findings,
         dependencies=tuple(dedupe_dependencies(dependencies)),
+        metadata={
+            "targets": target_values,
+            "artifacts": sorted(set(artifacts)),
+            "inventoryComplete": not any(
+                finding.kind in incomplete_kinds for finding in final_findings
+            ),
+        },
     )
 
 
@@ -106,6 +150,8 @@ def _scan_path(
     seen_files: set[Path],
     limits: ScanLimits,
     archive_depth: int,
+    scan_entries: list[int],
+    artifacts: list[str],
 ) -> None:
     if _is_excluded(path, excluded):
         return
@@ -113,7 +159,14 @@ def _scan_path(
         _audit_filesystem_symlink(path, findings)
         return
     if path.is_dir():
-        for child in _iter_directory_files(path, recursive, excluded, findings):
+        for child in _iter_directory_files(
+            path,
+            recursive,
+            excluded,
+            findings,
+            limits,
+            scan_entries,
+        ):
             _scan_path(
                 child,
                 recursive=False,
@@ -124,6 +177,8 @@ def _scan_path(
                 seen_files=seen_files,
                 limits=limits,
                 archive_depth=archive_depth,
+                scan_entries=scan_entries,
+                artifacts=artifacts,
             )
         return
     try:
@@ -144,6 +199,8 @@ def _scan_path(
     seen_files.add(resolved)
 
     name = path.name
+    component_start = len(components)
+    scanned_archive = False
     if name == "METADATA" and path.parent.name.endswith(".dist-info"):
         component = component_from_metadata(path, findings, limits)
         if component is not None:
@@ -181,6 +238,8 @@ def _scan_path(
     elif name == "setup.py":
         components.extend(components_from_setup_py(path, findings, limits))
     elif looks_like_archive(path):
+        scanned_archive = True
+        artifacts.append(str(path))
         _scan_archive(
             path,
             excluded=excluded,
@@ -190,7 +249,11 @@ def _scan_path(
             seen_files=seen_files,
             limits=limits,
             archive_depth=archive_depth,
+            scan_entries=scan_entries,
+            artifacts=artifacts,
         )
+    if not scanned_archive:
+        _tag_component_sources(components[component_start:], str(path))
 
 
 def _scan_archive(
@@ -203,6 +266,8 @@ def _scan_archive(
     seen_files: set[Path],
     limits: ScanLimits,
     archive_depth: int,
+    scan_entries: list[int],
+    artifacts: list[str],
 ) -> None:
     if archive_depth >= limits.max_archive_depth:
         findings.append(
@@ -233,8 +298,13 @@ def _scan_archive(
             seen_files=seen_files,
             limits=limits,
             archive_depth=archive_depth + 1,
+            scan_entries=scan_entries,
+            artifacts=artifacts,
         )
         _remap_archive_findings(findings, finding_start, destination, path)
+        _remap_archive_component_sources(
+            components[component_start:], destination, path
+        )
         audit_archive_identity(path, components[component_start:], findings)
 
 
@@ -261,21 +331,59 @@ def _remap_archive_findings(
         )
 
 
+def _tag_component_sources(components: Iterable[dict[str, Any]], source: str) -> None:
+    for component in components:
+        add_property(component, "pyflow:source-file", source)
+
+
+def _remap_archive_component_sources(
+    components: Iterable[dict[str, Any]], destination: Path, archive_path: Path
+) -> None:
+    destination_text = str(destination)
+    for component in components:
+        for prop in component.get("properties", ()):
+            if not isinstance(prop, dict) or prop.get("name") != "pyflow:source-file":
+                continue
+            value = str(prop.get("value", ""))
+            if not value.startswith(destination_text):
+                continue
+            try:
+                relative = Path(value).relative_to(destination)
+            except ValueError:
+                continue
+            prop["value"] = f"{archive_path}!/{relative.as_posix()}"
+
+
 def _iter_directory_files(
     root: Path,
     recursive: bool,
     excluded: tuple[str, ...],
     findings: list[SupplyChainFinding],
+    limits: ScanLimits,
+    scan_entries: list[int],
 ) -> Iterator[Path]:
     """Yield directory files once, without following symlinked directories."""
 
     try:
-        children = sorted(root.iterdir())
+        children = root.iterdir()
     except OSError as exc:
         findings.append(read_error(root, exc))
         return
 
     for child in children:
+        scan_entries[0] += 1
+        if scan_entries[0] > limits.max_scan_entries:
+            if not any(finding.kind == "scan-entry-limit" for finding in findings):
+                findings.append(
+                    SupplyChainFinding(
+                        kind="scan-entry-limit",
+                        message="Directory traversal exceeded the configured entry limit",
+                        location=str(root),
+                        severity="HIGH",
+                        details={"limit": limits.max_scan_entries},
+                    )
+                )
+            return
         if _is_excluded(child, excluded):
             continue
         if child.is_symlink():
@@ -285,7 +393,14 @@ def _iter_directory_files(
             if child.is_file():
                 yield child
             elif recursive and child.is_dir():
-                yield from _iter_directory_files(child, True, excluded, findings)
+                yield from _iter_directory_files(
+                    child,
+                    True,
+                    excluded,
+                    findings,
+                    limits,
+                    scan_entries,
+                )
         except OSError as exc:
             findings.append(read_error(child, exc))
 

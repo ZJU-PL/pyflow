@@ -7,7 +7,9 @@ from typing import Any, Iterable
 from urllib.parse import quote
 
 from packaging.requirements import Requirement
+from packaging.specifiers import InvalidSpecifier, SpecifierSet
 from packaging.utils import canonicalize_name
+from packaging.version import InvalidVersion, Version
 
 from .models import SEVERITY_RANK, SupplyChainFinding
 
@@ -30,7 +32,7 @@ def component(name: str, *, version: str | None = None) -> dict[str, Any]:
 def exact_version(requirement: Requirement) -> str | None:
     for specifier in requirement.specifier:
         if specifier.operator in {"==", "==="} and "*" not in specifier.version:
-            return specifier.version
+            return str(specifier.version)
     return None
 
 
@@ -63,12 +65,40 @@ def dedupe_hashes(hashes: Iterable[dict[str, str]]) -> list[dict[str, str]]:
     return [unique[key] for key in sorted(unique)]
 
 
-def best_dependency_ref(name: str, refs_by_name: dict[str, list[str]]) -> str:
+def best_dependency_ref(
+    name: str,
+    refs_by_name: dict[str, list[str]],
+    constraint: str | None = None,
+) -> str:
     canonical = canonicalize_name(name)
     refs = sorted(set(refs_by_name.get(canonical, ())))
+    if constraint and len(refs) > 1:
+        try:
+            specifier = SpecifierSet(constraint)
+        except InvalidSpecifier:
+            specifier = None
+        if specifier is not None:
+            matching = [
+                reference
+                for reference in refs
+                if _purl_version_matches(reference, specifier)
+            ]
+            if len(matching) == 1:
+                return matching[0]
     if refs:
         return refs[0]
     return f"pkg:pypi/{canonical}"
+
+
+def _purl_version_matches(reference: str, specifier: SpecifierSet) -> bool:
+    _prefix, separator, version_text = reference.rpartition("@")
+    if not separator:
+        return False
+    version_text = version_text.split("?", 1)[0].split("#", 1)[0]
+    try:
+        return Version(version_text) in specifier
+    except InvalidVersion:
+        return False
 
 
 def dedupe_components(
@@ -85,7 +115,17 @@ def dedupe_components(
             deduped[key] = component_data
         else:
             _merge_component(existing, component_data)
-    return [deduped[key] for key in sorted(deduped)]
+    result = [deduped[key] for key in sorted(deduped)]
+    for component_data in result:
+        for field in {"hashes", "licenses", "properties", "externalReferences"}:
+            values = component_data.get(field)
+            if isinstance(values, list):
+                values.sort(
+                    key=lambda item: json.dumps(
+                        item, sort_keys=True, separators=(",", ":"), default=str
+                    )
+                )
+    return result
 
 
 def _merge_component(target: dict[str, Any], source: dict[str, Any]) -> None:

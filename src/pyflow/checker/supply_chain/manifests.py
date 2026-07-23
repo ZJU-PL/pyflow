@@ -22,15 +22,16 @@ from packaging.utils import (
 )
 from packaging.version import InvalidVersion, Version
 
-from .common import read_text as _read_text
-from .common import redacted_url as _redacted_url
-from .components import add_property as _add_property
-from .components import best_dependency_ref as _best_dependency_ref
-from .components import component as _component
-from .components import cyclonedx_hash_name as _cyclonedx_hash_name
-from .components import dedupe_hashes as _dedupe_hashes
-from .components import exact_version as _exact_version
-from .components import string_or_none as _string_or_none
+from .input_safety import read_text as _read_text
+from .input_safety import redacted_url as _redacted_url
+from .input_safety import contains_credentials as _contains_credentials
+from .inventory import add_property as _add_property
+from .inventory import best_dependency_ref as _best_dependency_ref
+from .inventory import component as _component
+from .inventory import cyclonedx_hash_name as _cyclonedx_hash_name
+from .inventory import dedupe_hashes as _dedupe_hashes
+from .inventory import exact_version as _exact_version
+from .inventory import string_or_none as _string_or_none
 from .licenses import license_entry as _license_entry
 from .licenses import licenses_from_metadata as _licenses_from_metadata
 from .models import ScanLimits, SupplyChainFinding
@@ -148,9 +149,29 @@ def _components_from_requirements(
                 )
                 continue
             included_path = Path(include)
+            if included_path.is_absolute() or ".." in included_path.parts:
+                findings.append(
+                    SupplyChainFinding(
+                        kind="external-requirement-include",
+                        message="Requirement include escapes the manifest directory",
+                        location=str(path),
+                        severity="MEDIUM",
+                        details={"line": line_no, "include": include},
+                    )
+                )
             if not included_path.is_absolute():
                 included_path = path.parent / included_path
-            if not included_path.exists():
+            if included_path.is_symlink():
+                findings.append(
+                    SupplyChainFinding(
+                        kind="requirement-include-symlink",
+                        message="Requirement include is a symbolic link and was not followed",
+                        location=str(path),
+                        severity="HIGH",
+                        details={"line": line_no, "include": include},
+                    )
+                )
+            elif not included_path.exists():
                 findings.append(
                     SupplyChainFinding(
                         kind="missing-requirement-include",
@@ -449,7 +470,7 @@ def _parse_requirement(
                 details=url_details,
             )
         )
-        if urlparse(requirement.url).username or urlparse(requirement.url).password:
+        if _contains_credentials(requirement.url):
             findings.append(
                 SupplyChainFinding(
                     kind="embedded-credentials",
@@ -536,6 +557,50 @@ def _components_from_pyproject(
     components: list[dict[str, Any]] = []
     edges: list[tuple[str, str]] = []
     project = data.get("project", {}) or {}
+    dynamic_fields = {str(value) for value in project.get("dynamic", ()) or ()}
+    if "dependencies" in dynamic_fields or "optional-dependencies" in dynamic_fields:
+        findings.append(
+            SupplyChainFinding(
+                kind="dynamic-dependency-metadata",
+                message="Project dependencies are computed dynamically and cannot be inventoried statically",
+                location=str(path),
+                severity="HIGH",
+                details={"fields": sorted(dynamic_fields)},
+            )
+        )
+    build_system = data.get("build-system", {}) or {}
+    backend_path = build_system.get("backend-path", ()) or ()
+    if backend_path:
+        findings.append(
+            SupplyChainFinding(
+                kind="local-build-backend",
+                message="Project loads build-backend code from the source tree",
+                location=str(path),
+                severity="HIGH",
+                details={"backend_path": [str(item) for item in backend_path]},
+            )
+        )
+    backend = str(build_system.get("build-backend", ""))
+    trusted_backends = {
+        "setuptools.build_meta",
+        "setuptools.build_meta:__legacy__",
+        "flit_core.buildapi",
+        "hatchling.build",
+        "poetry.core.masonry.api",
+        "pdm.backend",
+        "maturin",
+        "mesonpy",
+    }
+    if backend and backend not in trusted_backends:
+        findings.append(
+            SupplyChainFinding(
+                kind="unrecognized-build-backend",
+                message="Project uses a build backend outside the built-in policy set",
+                location=str(path),
+                severity="MEDIUM",
+                details={"backend": backend},
+            )
+        )
     root: dict[str, Any] | None = None
     if project.get("name"):
         root = _component(
@@ -559,7 +624,7 @@ def _components_from_pyproject(
         for value in values or ():
             if isinstance(value, str):
                 declared.append((value, f"group:{group}"))
-    for value in (data.get("build-system", {}) or {}).get("requires", ()) or ():
+    for value in build_system.get("requires", ()) or ():
         declared.append((str(value), "build"))
 
     poetry = (data.get("tool", {}) or {}).get("poetry", {}) or {}
@@ -601,6 +666,35 @@ def _components_from_pyproject(
                 str(source.get("url", "")),
                 findings,
                 source.get("priority"),
+            )
+    uv_sources = ((data.get("tool", {}) or {}).get("uv", {}) or {}).get(
+        "sources", {}
+    ) or {}
+    for name, source in uv_sources.items():
+        if not isinstance(source, dict):
+            continue
+        source_url = source.get("git") or source.get("url")
+        if source_url:
+            _audit_embedded_credentials(path, str(source_url), findings, str(name))
+        if source.get("git") and not source.get("rev"):
+            findings.append(
+                SupplyChainFinding(
+                    kind="unpinned-vcs-dependency",
+                    message="uv dependency source is not pinned to a revision",
+                    location=str(path),
+                    severity="HIGH",
+                    details={"component": name},
+                )
+            )
+        if source.get("path") or source.get("workspace"):
+            findings.append(
+                SupplyChainFinding(
+                    kind="local-path-requirement",
+                    message="uv dependency references mutable local workspace content",
+                    location=str(path),
+                    severity="MEDIUM",
+                    details={"component": name},
+                )
             )
     return components, edges
 
@@ -680,7 +774,7 @@ def _components_from_toml_lock(
         return [], []
     raw_packages = data.get("package", ()) or data.get("packages", ()) or ()
     components: list[dict[str, Any]] = []
-    dependency_names: list[tuple[str, str]] = []
+    dependency_names: list[tuple[str, str, str | None]] = []
     refs_by_name: dict[str, list[str]] = {}
 
     for package in raw_packages:
@@ -730,23 +824,35 @@ def _components_from_toml_lock(
         )
 
         raw_dependencies = package.get("dependencies", {}) or {}
-        names: Iterable[Any]
+        names: Iterable[tuple[Any, Any]]
         if isinstance(raw_dependencies, dict):
-            names = raw_dependencies.keys()
+            names = raw_dependencies.items()
         elif isinstance(raw_dependencies, list):
             names = (
-                value.get("name") if isinstance(value, dict) else str(value).split()[0]
+                (
+                    value.get("name"),
+                    value.get("version") or value.get("specifier"),
+                )
+                if isinstance(value, dict)
+                else (str(value).split()[0], None)
                 for value in raw_dependencies
             )
         else:
             names = ()
-        for dependency_name in names:
+        for dependency_name, constraint in names:
             if dependency_name:
-                dependency_names.append((str(component["purl"]), str(dependency_name)))
+                constraint_text = (
+                    _normalize_poetry_constraint(str(constraint))
+                    if isinstance(constraint, str)
+                    else None
+                )
+                dependency_names.append(
+                    (str(component["purl"]), str(dependency_name), constraint_text)
+                )
 
     edges = [
-        (source_ref, _best_dependency_ref(name, refs_by_name))
-        for source_ref, name in dependency_names
+        (source_ref, _best_dependency_ref(name, refs_by_name, constraint))
+        for source_ref, name, constraint in dependency_names
     ]
     return components, edges
 
@@ -838,7 +944,7 @@ def _components_from_pylock(
 
     components: list[dict[str, Any]] = []
     refs_by_name: dict[str, list[str]] = {}
-    unresolved_edges: list[tuple[str, str]] = []
+    unresolved_edges: list[tuple[str, str, str | None]] = []
     for package in data.get("packages", ()) or ():
         if not isinstance(package, dict) or not package.get("name"):
             continue
@@ -890,11 +996,20 @@ def _components_from_pylock(
                 dependency.get("name") if isinstance(dependency, dict) else dependency
             )
             if dependency_name:
-                unresolved_edges.append((str(component["purl"]), str(dependency_name)))
+                constraint = None
+                if isinstance(dependency, dict):
+                    constraint = dependency.get("version") or dependency.get("specifier")
+                unresolved_edges.append(
+                    (
+                        str(component["purl"]),
+                        str(dependency_name),
+                        str(constraint) if constraint else None,
+                    )
+                )
 
     edges = [
-        (source, _best_dependency_ref(name, refs_by_name))
-        for source, name in unresolved_edges
+        (source, _best_dependency_ref(name, refs_by_name, constraint))
+        for source, name, constraint in unresolved_edges
     ]
     return components, edges
 
@@ -1001,7 +1116,7 @@ def _audit_setup_behavior(
     findings: list[SupplyChainFinding],
 ) -> None:
     aliases: dict[str, str] = {}
-    for node in getattr(tree, "body", ()):
+    for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
                 aliases[alias.asname or alias.name] = alias.name
@@ -1019,35 +1134,107 @@ def _audit_setup_behavior(
         "requests.get": "performs a network request",
         "requests.post": "performs a network request",
         "socket.socket": "opens a network socket",
+        "http.client.HTTPConnection": "opens a network connection",
+        "http.client.HTTPSConnection": "opens a network connection",
+        "ftplib.FTP": "opens a network connection",
+        "shutil.rmtree": "recursively deletes files",
+        "pathlib.Path.write_text": "writes files during installation",
+        "pathlib.Path.write_bytes": "writes files during installation",
+        "ctypes.CDLL": "loads native code",
+        "ctypes.PyDLL": "loads native code",
+        "importlib.import_module": "imports a module dynamically",
+        "builtins.compile": "compiles dynamic code",
+        "compile": "compiles dynamic code",
         "builtins.eval": "evaluates dynamic code",
         "builtins.exec": "executes dynamic code",
         "eval": "evaluates dynamic code",
         "exec": "executes dynamic code",
     }
-    for node in getattr(tree, "body", ()):
-        for descendant in ast.walk(node):
-            if not isinstance(descendant, ast.Call):
-                continue
-            name = _call_name(descendant.func)
-            first, dot, rest = name.partition(".")
-            resolved = aliases.get(first, first) + (dot + rest if dot else "")
-            action = dangerous.get(resolved)
-            if action is None:
-                continue
-            findings.append(
-                SupplyChainFinding(
-                    kind="install-script-dangerous-behavior",
-                    message=f"Package installation script {action}",
-                    location=str(path),
-                    severity=(
-                        "CRITICAL" if resolved.endswith(("eval", "exec")) else "HIGH"
-                    ),
-                    details={
-                        "line": getattr(descendant, "lineno", None),
-                        "call": resolved,
-                    },
-                )
+    for descendant in _executed_setup_calls(tree):
+        name = _call_name(descendant.func)
+        first, dot, rest = name.partition(".")
+        resolved = aliases.get(first, first) + (dot + rest if dot else "")
+        action = dangerous.get(resolved)
+        if action is None:
+            continue
+        findings.append(
+            SupplyChainFinding(
+                kind="install-script-dangerous-behavior",
+                message=f"Package installation script {action}",
+                location=str(path),
+                severity=(
+                    "CRITICAL"
+                    if resolved.endswith(("eval", "exec", "compile"))
+                    else "HIGH"
+                ),
+                details={
+                    "line": getattr(descendant, "lineno", None),
+                    "call": resolved,
+                },
             )
+        )
+
+
+def _executed_setup_calls(tree: ast.AST) -> list[ast.Call]:
+    """Return calls reachable from module execution without running setup.py."""
+
+    functions = {
+        node.name: node
+        for node in getattr(tree, "body", ())
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+    calls: list[ast.Call] = []
+    queued_functions: list[str] = []
+    visited_functions: set[str] = set()
+
+    class Visitor(ast.NodeVisitor):
+        def visit_Call(self, node: ast.Call) -> None:
+            calls.append(node)
+            call_name = _call_name(node.func)
+            if call_name in functions and call_name not in visited_functions:
+                queued_functions.append(call_name)
+            self.generic_visit(node)
+
+        def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+            for decorator in node.decorator_list:
+                self.visit(decorator)
+            for default in (*node.args.defaults, *node.args.kw_defaults):
+                if default is not None:
+                    self.visit(default)
+
+        def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
+            for decorator in node.decorator_list:
+                self.visit(decorator)
+            for default in (*node.args.defaults, *node.args.kw_defaults):
+                if default is not None:
+                    self.visit(default)
+
+        def visit_Lambda(self, node: ast.Lambda) -> None:
+            for default in (*node.args.defaults, *node.args.kw_defaults):
+                if default is not None:
+                    self.visit(default)
+
+        def visit_If(self, node: ast.If) -> None:
+            self.visit(node.test)
+            if isinstance(node.test, ast.Constant):
+                branch = node.body if bool(node.test.value) else node.orelse
+                for child in branch:
+                    self.visit(child)
+                return
+            for child in (*node.body, *node.orelse):
+                self.visit(child)
+
+    visitor = Visitor()
+    for node in getattr(tree, "body", ()):
+        visitor.visit(node)
+    while queued_functions:
+        name = queued_functions.pop()
+        if name in visited_functions:
+            continue
+        visited_functions.add(name)
+        for node in functions[name].body:
+            visitor.visit(node)
+    return calls
 
 
 def _call_name(node: ast.AST) -> str:
@@ -1275,7 +1462,7 @@ def _audit_locked_artifact(
                 details={"component": component_name, "url": _redacted_url(url)},
             )
         )
-    if urlparse(url).username or urlparse(url).password:
+    if _contains_credentials(url):
         findings.append(
             SupplyChainFinding(
                 kind="embedded-credentials",
@@ -1305,7 +1492,7 @@ def _audit_index_url(
                 details={"url": _redacted_url(url)},
             )
         )
-    if urlparse(url).username or urlparse(url).password:
+    if _contains_credentials(url):
         findings.append(
             SupplyChainFinding(
                 kind="embedded-credentials",
@@ -1333,8 +1520,7 @@ def _audit_embedded_credentials(
     findings: list[SupplyChainFinding],
     component_name: str,
 ) -> None:
-    parsed = urlparse(url)
-    if parsed.username is None and parsed.password is None:
+    if not _contains_credentials(url):
         return
     findings.append(
         SupplyChainFinding(

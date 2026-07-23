@@ -8,8 +8,11 @@ the caller controls database freshness and trust.
 from __future__ import annotations
 
 import json
+import hashlib
 import math
 import os
+import time
+from collections import defaultdict
 from pathlib import Path
 from typing import Any, Iterable, Iterator
 
@@ -17,21 +20,41 @@ from packaging.utils import canonicalize_name
 from packaging.version import InvalidVersion, Version
 
 from .models import SupplyChainFinding, SupplyChainScan
+from .vex import load_vex, vex_status_for
 
 
 MAX_VULNERABILITY_DATABASE_FILE_SIZE = 512 * 1024 * 1024
+MAX_VULNERABILITY_JSON_FILE_SIZE = 64 * 1024 * 1024
+MAX_VULNERABILITY_DATABASE_FILES = 100_000
+MAX_VULNERABILITY_RECORD_SIZE = 10 * 1024 * 1024
 
 
 def audit_vulnerabilities(
     scan: SupplyChainScan,
     databases: Iterable[str | os.PathLike[str]],
+    *,
+    max_database_age_days: float | None = None,
+    require_hashes: bool = False,
+    vex_documents: Iterable[str | os.PathLike[str]] = (),
+    reachable_refs: frozenset[str] | None = None,
 ) -> tuple[SupplyChainFinding, ...]:
     """Match exact-version PyPI components against local OSV records."""
 
+    if max_database_age_days is not None and (
+        not math.isfinite(max_database_age_days) or max_database_age_days < 0
+    ):
+        raise ValueError("max_database_age_days must be finite and non-negative")
     findings: list[SupplyChainFinding] = []
+    vex_statuses = load_vex(vex_documents, findings)
     records: dict[str, dict[str, Any]] = {}
     for database in databases:
         path = Path(database)
+        _audit_database_source(
+            path,
+            findings,
+            max_age_days=max_database_age_days,
+            require_hash=require_hashes,
+        )
         for record, source in _load_osv_records(path, findings):
             identifier = str(record.get("id", "")).strip()
             if not identifier:
@@ -51,6 +74,19 @@ def audit_vulnerabilities(
                 previous.get("modified", "")
             ):
                 records[identifier] = record
+
+    records_by_package: dict[str, list[tuple[str, dict[str, Any], dict[str, Any]]]] = (
+        defaultdict(list)
+    )
+    for identifier, record in records.items():
+        for affected in record.get("affected", ()) or ():
+            if not isinstance(affected, dict):
+                continue
+            package = affected.get("package", {}) or {}
+            ecosystem = str(package.get("ecosystem", "")).casefold()
+            package_name = canonicalize_name(str(package.get("name", "")))
+            if ecosystem in {"pypi", "python"} and package_name:
+                records_by_package[package_name].append((identifier, record, affected))
 
     matched: set[tuple[str, str]] = set()
     unresolved: set[str] = set()
@@ -74,23 +110,64 @@ def audit_vulnerabilities(
                 unresolved.add(purl)
             continue
 
-        for identifier, record in records.items():
+        for identifier, record, affected in records_by_package.get(name, ()):
             if (identifier, purl) in matched:
                 continue
-            affected_entries = record.get("affected", ()) or ()
-            for affected in affected_entries:
-                if not isinstance(affected, dict):
+            if not _affected_version(version_text, affected):
+                continue
+            vex = vex_status_for(vex_statuses, identifier, purl, name)
+            if vex and vex.get("status") in {
+                "not-affected",
+                "resolved",
+                "fixed",
+                "false-positive",
+            }:
+                if not str(vex.get("justification", "")).strip():
+                    findings.append(
+                        SupplyChainFinding(
+                            kind="vex-missing-justification",
+                            message=(
+                                f"{identifier} has a suppressing VEX status without "
+                                "a justification"
+                            ),
+                            location=purl,
+                            severity="MEDIUM",
+                            details={
+                                "vulnerability": identifier,
+                                "component": name,
+                                "status": vex.get("status"),
+                            },
+                        )
+                    )
+                else:
+                    findings.append(
+                        SupplyChainFinding(
+                            kind="vulnerability-suppressed-by-vex",
+                            message=(
+                                f"{identifier} is suppressed by an applicable "
+                                "VEX statement"
+                            ),
+                            location=purl,
+                            severity="LOW",
+                            details={
+                                "vulnerability": identifier,
+                                "component": name,
+                                "status": vex.get("status"),
+                                "justification": vex.get("justification", ""),
+                            },
+                        )
+                    )
+                    matched.add((identifier, purl))
                     continue
-                package = affected.get("package", {}) or {}
-                ecosystem = str(package.get("ecosystem", "")).casefold()
-                package_name = canonicalize_name(str(package.get("name", "")))
-                if ecosystem not in {"pypi", "python"} or package_name != name:
-                    continue
-                if not _affected_version(version_text, affected):
-                    continue
-                findings.append(_vulnerability_finding(record, affected, component))
-                matched.add((identifier, purl))
-                break
+            reachability = None
+            if reachable_refs is not None:
+                reachability = "observed" if purl in reachable_refs else "not-observed"
+            findings.append(
+                _vulnerability_finding(
+                    record, affected, component, reachability=reachability
+                )
+            )
+            matched.add((identifier, purl))
 
     return tuple(
         sorted(
@@ -109,6 +186,16 @@ def _load_osv_records(
     path: Path,
     findings: list[SupplyChainFinding],
 ) -> Iterator[tuple[dict[str, Any], Path]]:
+    if path.is_symlink():
+        findings.append(
+            SupplyChainFinding(
+                kind="vulnerability-database-symlink",
+                message="Vulnerability database symlinks are not followed",
+                location=str(path),
+                severity="HIGH",
+            )
+        )
+        return
     if not path.exists():
         findings.append(
             SupplyChainFinding(
@@ -121,11 +208,27 @@ def _load_osv_records(
         return
     if path.is_dir():
         try:
-            children = sorted(
-                child
-                for child in path.rglob("*")
-                if child.suffix.casefold() in {".json", ".jsonl", ".ndjson"}
-            )
+            children: list[Path] = []
+            for child in path.rglob("*"):
+                if child.is_symlink() or child.suffix.casefold() not in {
+                    ".json",
+                    ".jsonl",
+                    ".ndjson",
+                }:
+                    continue
+                children.append(child)
+                if len(children) > MAX_VULNERABILITY_DATABASE_FILES:
+                    findings.append(
+                        SupplyChainFinding(
+                            kind="vulnerability-database-file-limit",
+                            message="Vulnerability database exceeds the file-count limit",
+                            location=str(path),
+                            severity="HIGH",
+                            details={"limit": MAX_VULNERABILITY_DATABASE_FILES},
+                        )
+                    )
+                    return
+            children.sort()
         except OSError as exc:
             findings.append(_database_read_error(path, exc))
             return
@@ -147,7 +250,13 @@ def _load_osv_records(
     except OSError as exc:
         findings.append(_database_read_error(path, exc))
         return
-    if size > MAX_VULNERABILITY_DATABASE_FILE_SIZE:
+    is_json_lines = path.suffix.casefold() in {".jsonl", ".ndjson"}
+    size_limit = (
+        MAX_VULNERABILITY_DATABASE_FILE_SIZE
+        if is_json_lines
+        else MAX_VULNERABILITY_JSON_FILE_SIZE
+    )
+    if size > size_limit:
         findings.append(
             SupplyChainFinding(
                 kind="vulnerability-database-size-limit",
@@ -156,13 +265,13 @@ def _load_osv_records(
                 severity="HIGH",
                 details={
                     "size": size,
-                    "limit": MAX_VULNERABILITY_DATABASE_FILE_SIZE,
+                    "limit": size_limit,
                 },
             )
         )
         return
 
-    if path.suffix.casefold() in {".jsonl", ".ndjson"}:
+    if is_json_lines:
         yield from _load_json_lines(path, findings)
         return
     try:
@@ -209,7 +318,28 @@ def _load_json_lines(
 ) -> Iterator[tuple[dict[str, Any], Path]]:
     try:
         with path.open("r", encoding="utf-8") as handle:
-            for line_no, line in enumerate(handle, start=1):
+            line_no = 0
+            while True:
+                line = handle.readline(MAX_VULNERABILITY_RECORD_SIZE + 1)
+                if not line:
+                    break
+                line_no += 1
+                if len(line) > MAX_VULNERABILITY_RECORD_SIZE:
+                    findings.append(
+                        SupplyChainFinding(
+                            kind="vulnerability-record-size-limit",
+                            message="OSV JSONL record exceeds the safety limit",
+                            location=str(path),
+                            severity="HIGH",
+                            details={
+                                "line": line_no,
+                                "limit": MAX_VULNERABILITY_RECORD_SIZE,
+                            },
+                        )
+                    )
+                    while line and not line.endswith("\n"):
+                        line = handle.readline(MAX_VULNERABILITY_RECORD_SIZE + 1)
+                    continue
                 if not line.strip():
                     continue
                 try:
@@ -268,7 +398,10 @@ def _events_match(version_text: str, events: Iterable[Any]) -> bool:
             continue
         if "introduced" in event:
             introduced = str(event["introduced"])
-            vulnerable = introduced == "0" or _version_at_least(comparable, introduced)
+            # A future introduced event starts another interval; it must not
+            # erase a match from an earlier still-open interval.
+            if introduced == "0" or _version_at_least(comparable, introduced):
+                vulnerable = True
         elif "fixed" in event and _version_at_least(comparable, str(event["fixed"])):
             vulnerable = False
         elif "last_affected" in event:
@@ -280,12 +413,116 @@ def _events_match(version_text: str, events: Iterable[Any]) -> bool:
     return vulnerable
 
 
+def _audit_database_source(
+    path: Path,
+    findings: list[SupplyChainFinding],
+    *,
+    max_age_days: float | None,
+    require_hash: bool,
+) -> None:
+    """Audit freshness and optional SHA-256 sidecars for local OSV data."""
+
+    if not path.exists():
+        return
+    files: list[Path]
+    if path.is_dir():
+        try:
+            files = []
+            for child in path.rglob("*"):
+                if (
+                    child.is_file()
+                    and not child.is_symlink()
+                    and child.suffix.casefold() in {".json", ".jsonl", ".ndjson"}
+                ):
+                    files.append(child)
+                    if len(files) > MAX_VULNERABILITY_DATABASE_FILES:
+                        return
+        except OSError:
+            return
+    else:
+        files = [path]
+
+    if max_age_days is not None:
+        threshold = time.time() - max_age_days * 86400
+        stale: list[str] = []
+        for source in files:
+            try:
+                if source.stat().st_mtime < threshold:
+                    stale.append(str(source))
+            except OSError:
+                continue
+        if stale:
+            findings.append(
+                SupplyChainFinding(
+                    kind="stale-vulnerability-database",
+                    message="Local vulnerability data exceeds the configured maximum age",
+                    location=str(path),
+                    severity="HIGH",
+                    details={"max_age_days": max_age_days, "stale_files": stale[:20]},
+                )
+            )
+
+    for source in files:
+        sidecar = Path(str(source) + ".sha256")
+        if not sidecar.is_file():
+            if require_hash:
+                findings.append(
+                    SupplyChainFinding(
+                        kind="vulnerability-database-missing-checksum",
+                        message="Vulnerability database has no SHA-256 sidecar",
+                        location=str(source),
+                        severity="HIGH",
+                    )
+                )
+            continue
+        try:
+            expected = sidecar.read_text(encoding="utf-8").split()[0].lower()
+            actual = _sha256_file(source)
+        except OSError as exc:
+            findings.append(_database_read_error(sidecar, exc))
+            continue
+        except IndexError:
+            findings.append(
+                SupplyChainFinding(
+                    kind="invalid-vulnerability-database-checksum",
+                    message="Vulnerability database checksum sidecar is empty",
+                    location=str(sidecar),
+                    severity="HIGH",
+                )
+            )
+            continue
+        if not _is_sha256(expected) or actual != expected:
+            findings.append(
+                SupplyChainFinding(
+                    kind="vulnerability-database-checksum-mismatch",
+                    message="Vulnerability database SHA-256 verification failed",
+                    location=str(source),
+                    severity="CRITICAL",
+                    details={"expected": expected, "actual": actual},
+                )
+            )
+
+
+def _is_sha256(value: str) -> bool:
+    return len(value) == 64 and all(
+        character in "0123456789abcdef" for character in value
+    )
+
+
+def _sha256_file(path: Path) -> str:
+    hasher = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            hasher.update(chunk)
+    return hasher.hexdigest()
+
+
 def _versions_equal(left: str, right: str) -> bool:
     parsed_left = _parse_version(left)
     parsed_right = _parse_version(right)
     if parsed_left is None or parsed_right is None:
         return left == right
-    return parsed_left == parsed_right
+    return bool(parsed_left == parsed_right)
 
 
 def _version_at_least(version: Version, lower_text: str) -> bool:
@@ -304,6 +541,8 @@ def _vulnerability_finding(
     record: dict[str, Any],
     affected: dict[str, Any],
     component: dict[str, Any],
+    *,
+    reachability: str | None = None,
 ) -> SupplyChainFinding:
     identifier = str(record.get("id", "UNKNOWN"))
     fixed_versions = sorted(
@@ -323,6 +562,9 @@ def _vulnerability_finding(
     }
     if fixed_versions:
         details["fixed_versions"] = fixed_versions
+    if reachability is not None:
+        details["reachability"] = reachability
+        details["reachability_is_conclusive"] = False
     if record.get("published"):
         details["published"] = record["published"]
     if record.get("modified"):

@@ -138,21 +138,51 @@ or directory snapshots.
 - \`--exclude PATH1,PATH2,...\`: Comma-separated paths to exclude
 - \`--output\`, \`-o FILE\`: Output file (default: stdout)
 - \`--max-archive-depth N\`: Limit nested archive inspection (default: 3)
+- \`--max-archive-mb N\`: Limit compressed archive input size (default: 5000)
 - \`--max-archive-members N\`: Limit entries per archive (default: 10000)
 - \`--max-archive-member-mb N\`: Limit one expanded archive member
 - \`--max-archive-expanded-mb N\`: Limit total expanded archive content
 - \`--max-compression-ratio N\`: Reject suspiciously compressed members
 - \`--max-manifest-mb N\`: Limit metadata and manifest input size
+- \`--max-scan-entries N\`: Limit total directory entries inspected
+- \`--python-version\`, \`--platform\`, \`--implementation\`: Target PEP 508
+  marker environment
+- \`--extra NAME\`: Select a dependency extra; repeatable
+
+### SBOM-specific options
+
+- \`--format\`: `cyclonedx-json`, `spdx-json`, or `requirements`
+- \`--deterministic\`: Derive IDs from content and use `SOURCE_DATE_EPOCH`
+- \`--schema FILE\`: Validate JSON against a pinned local official schema
+- \`--allow-incomplete\`: Do not return exit code 2 for high-severity scan
+  errors that may make the inventory incomplete
 
 ### Audit-specific options
 
-- \`--format\`: \`text\` (default) or \`json\`
+- \`--format\`: \`text\` (default), \`json\`, or \`sarif\`
 - \`--license-policy FILE\`: JSON license allowlist, either an array or an
-  object with an `allowed_licenses` array
+  object with `allowed_licenses` and optional `allowed_exceptions` arrays
 - \`--skip-license-audit\`: Disable missing/disallowed license findings
 - \`--osv-database PATH\`: Local OSV JSON, JSONL, or directory; repeatable
+- \`--osv-max-age-days N\`: Enforce vulnerability snapshot freshness
+- \`--require-osv-checksum\`: Require SHA-256 sidecars for OSV files
+- \`--vex FILE\`: Apply CycloneDX VEX or OpenVEX; repeatable
+- \`--reachability\`: Add conservative source-import evidence without treating
+  absent imports as proof of non-reachability
+- \`--import-map FILE\`: Distribution-to-import-name mapping for reachability
+- \`--policy FILE\`: Apply reviewed exceptions with mandatory reason and expiry
+- \`--baseline FILE\`, \`--write-baseline FILE\`: Read or create finding-ID
+  baselines
+- \`--protected-package NAME\`: Detect edit-distance typosquatting; repeatable
+- \`--attestation FILE\`, \`--trusted-builder ID\`: Verify digest-bound
+  in-toto/SLSA provenance
+- \`--require-provenance\`, \`--require-dsse\`: Enforce provenance presence
+  and envelope policy. Cryptographic identity verification is performed by the
+  Sigstore options below.
+- \`--sigstore-bundle ARTIFACT=BUNDLE\`, \`--cert-identity\`,
+  \`--cert-oidc-issuer\`: Verify local Sigstore bundles with the official CLI
 - \`--fail-on LEVEL\`: Lowest severity producing a non-zero exit; one of
-  `low`, `medium`, `high`, `critical`, or `none` (default: `low`)
+  `low`, `medium`, `high`, `critical`, or `none` (default: `high`)
 
 ## Security
 

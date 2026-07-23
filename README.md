@@ -99,7 +99,22 @@ pyflow supply-chain audit . --recursive --osv-database osv-data/
 
 # Use a CI failure threshold while retaining lower-severity findings
 pyflow supply-chain audit . --recursive --fail-on high --format json
+
+# Enforce fresh, checksum-pinned OSV data and apply VEX
+pyflow supply-chain audit . -r --osv-database osv-data/ \
+  --osv-max-age-days 2 --require-osv-checksum --vex product.vex.json
+
+# Generate reproducible output and validate against a pinned official schema
+pyflow supply-chain sbom . -r --deterministic --schema bom-1.7.schema.json
+
+# Emit SARIF and use expiring policy exceptions or a reviewed baseline
+pyflow supply-chain audit . -r --format sarif --policy supply-chain-policy.json
 ```
+
+The scanner is offline by design. Production CI is responsible for refreshing
+and authenticating OSV snapshots; ``--osv-max-age-days`` and
+``--require-osv-checksum`` enforce that contract. Install the optional
+``supply-chain`` dependency group for JSON Schema and Sigstore tooling.
 
 See [CLI.md](CLI.md) for the command reference and `docs/` for broader project
 documentation.
