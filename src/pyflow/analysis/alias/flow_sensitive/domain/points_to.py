@@ -23,7 +23,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from .model import (
+    from ..model import (
         HeapLocation,
         HeapObjectCardinality,
         HeapObjectIdentity,
@@ -99,7 +99,7 @@ class PointsToEntry:
     @property
     def is_strong(self) -> bool:
         """Shorthand: can this location receive strong updates?"""
-        from .model import UpdatePolicy
+        from ..model import UpdatePolicy
 
         return self.update_policy is UpdatePolicy.STRONG
 
@@ -143,33 +143,31 @@ class PointsToGraph:
     heap_contaminants: "dict[HeapLocation, frozenset[HeapLocation]]" = field(
         default_factory=dict
     )
-    program_point_values: "dict[int, tuple[dict[HeapLocation, frozenset[HeapLocation]], dict[HeapLocation, frozenset[HeapLocation]]]]" = field(
-        default_factory=dict
-    )
-    program_point_contaminants: "dict[int, tuple[dict[HeapLocation, frozenset[HeapLocation]], dict[HeapLocation, frozenset[HeapLocation]]]]" = field(
-        default_factory=dict
-    )
+    program_point_values: (
+        "dict[int, tuple[dict[HeapLocation, frozenset[HeapLocation]], dict[HeapLocation, frozenset[HeapLocation]]]]"
+    ) = field(default_factory=dict)
+    program_point_contaminants: (
+        "dict[int, tuple[dict[HeapLocation, frozenset[HeapLocation]], dict[HeapLocation, frozenset[HeapLocation]]]]"
+    ) = field(default_factory=dict)
     heap_absent: "frozenset[HeapLocation]" = frozenset()
     heap_scalar_present: "frozenset[HeapLocation]" = frozenset()
     complete_roots: "frozenset[object]" = frozenset()
-    program_point_absent: "dict[int, tuple[frozenset[HeapLocation], frozenset[HeapLocation]]]" = field(
-        default_factory=dict
-    )
-    program_point_scalar_present: "dict[int, tuple[frozenset[HeapLocation], frozenset[HeapLocation]]]" = field(
-        default_factory=dict
-    )
-    program_point_complete_roots: "dict[int, tuple[frozenset[object], frozenset[object]]]" = field(
-        default_factory=dict
-    )
+    program_point_absent: (
+        "dict[int, tuple[frozenset[HeapLocation], frozenset[HeapLocation]]]"
+    ) = field(default_factory=dict)
+    program_point_scalar_present: (
+        "dict[int, tuple[frozenset[HeapLocation], frozenset[HeapLocation]]]"
+    ) = field(default_factory=dict)
+    program_point_complete_roots: (
+        "dict[int, tuple[frozenset[object], frozenset[object]]]"
+    ) = field(default_factory=dict)
     program_point_outcomes: "dict[int, dict[str, HeapValueSnapshot]]" = field(
         default_factory=dict
     )
-    program_point_locals: "dict[int, tuple[dict[tuple[int, str], frozenset[HeapLocation]], dict[tuple[int, str], frozenset[HeapLocation]]]]" = field(
-        default_factory=dict
-    )
-    precision_degradations: "dict[int, frozenset[str]]" = field(
-        default_factory=dict
-    )
+    program_point_locals: (
+        "dict[int, tuple[dict[tuple[int, str], frozenset[HeapLocation]], dict[tuple[int, str], frozenset[HeapLocation]]]]"
+    ) = field(default_factory=dict)
+    precision_degradations: "dict[int, frozenset[str]]" = field(default_factory=dict)
 
     # ── query methods ──────────────────────────────────────────────────
 
@@ -252,13 +250,13 @@ class PointsToGraph:
                 if point_scalar is not None:
                     scalar_present = point_scalar[index]
         result = list(values.get(location, ()))
-        from .heap_state import HeapState
+        from .state import HeapState
 
         for contaminant, stored in contaminants.items():
             if HeapState.locations_may_overlap(location, contaminant):
                 result.extend(stored)
         locations = frozenset(result)
-        from .model import HeapObjectKind
+        from ..model import HeapObjectKind
 
         has_overlapping_contaminant = any(
             HeapState.locations_may_overlap(location, contaminant)
@@ -308,9 +306,7 @@ class PointsToGraph:
         name = getattr(local, "name", local)
         key = (id(procedure), str(name))
         if outcome is not None:
-            snapshot = self.program_point_outcomes.get(id(operation), {}).get(
-                outcome
-            )
+            snapshot = self.program_point_outcomes.get(id(operation), {}).get(outcome)
             if snapshot is None:
                 return PossibleValues(frozenset(), definitely_absent=True)
             locations = snapshot.locals.get(key, frozenset())
@@ -415,7 +411,7 @@ class PointsToGraph:
         cardinality; escape and the number of aliases do not change the fact
         that a precise write overwrites a field of one concrete object.
         """
-        from .model import UpdatePolicy
+        from ..model import UpdatePolicy
 
         entry = self.get(location)
         if entry is None:
@@ -428,7 +424,7 @@ class PointsToGraph:
         self,
         location: "HeapLocation",
     ) -> "HeapObjectCardinality":
-        from .model import HeapObjectCardinality
+        from ..model import HeapObjectCardinality
 
         entry = self.get(location)
         if entry is None:
@@ -446,20 +442,12 @@ class PointsToGraph:
         entry_a = self.get(a)
         entry_b = self.get(b)
         if entry_a is None or entry_b is None:
-            return (
-                a == b
-                and a.root.has_stable_identity()
-                and a.is_precise()
-            )
+            return a == b and a.root.has_stable_identity() and a.is_precise()
         if not a.root.has_stable_identity() or not b.root.has_stable_identity():
             return False
         if entry_a.aliases.isdisjoint(entry_b.aliases):
             return False
-        return (
-            a.selectors == b.selectors
-            and a.is_precise()
-            and b.is_precise()
-        )
+        return a.selectors == b.selectors and a.is_precise() and b.is_precise()
 
     def symbolically_related(
         self,
@@ -500,7 +488,7 @@ class PointsToGraph:
 
     @staticmethod
     def _roots_may_overlap(a: object, b: object) -> bool:
-        from .model import HeapObjectKind
+        from ..model import HeapObjectKind
 
         kind_a = getattr(a, "kind", None)
         kind_b = getattr(b, "kind", None)
@@ -570,10 +558,7 @@ class PointsToGraph:
             root_label = entry.location.root.label
             if root_label:
                 grouped.setdefault(root_label, set()).add(entry.location)
-        return {
-            label: frozenset(locations)
-            for label, locations in grouped.items()
-        }
+        return {label: frozenset(locations) for label, locations in grouped.items()}
 
     def alias_evidence(
         self,
@@ -621,7 +606,7 @@ class PointsToGraph:
 
     def analysis_metrics(self) -> dict[str, object]:
         """Return compact quality/scalability counters for bug-finding runs."""
-        from .model import HeapObjectKind
+        from ..model import HeapObjectKind
 
         reason_counts: dict[str, int] = {}
         for reasons in self.precision_degradations.values():
@@ -646,17 +631,13 @@ class PointsToGraph:
     def escaped_locations(self) -> "frozenset[HeapLocation]":
         """Return all root locations that have been marked escaped."""
         return frozenset(
-            entry.location
-            for entry in self.entries.values()
-            if entry.is_escaped
+            entry.location for entry in self.entries.values() if entry.is_escaped
         )
 
     def singleton_locations(self) -> "frozenset[HeapLocation]":
         """Return all root locations eligible for strong updates."""
         return frozenset(
-            entry.location
-            for entry in self.entries.values()
-            if entry.is_singleton
+            entry.location for entry in self.entries.values() if entry.is_singleton
         )
 
     # ── bulk queries ───────────────────────────────────────────────────

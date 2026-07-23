@@ -8,9 +8,7 @@ from typing import Iterable, List, Optional, Sequence, Union
 
 from .context import AnalysisSession
 from .base import run_detectors
-from ..detectors.null_dereference import NullDereferenceDetector
 from ..detectors.semantic_taint import SemanticTaintDetector
-from ..detectors.leak import LeakDetector
 from .issue import Issue
 
 
@@ -36,15 +34,12 @@ class StaticBugFinder:
     def _create_detectors(self) -> List:
         sources = set(self.config.sources or ())
         sinks = set(self.config.sinks or ())
-        detectors = [
-            NullDereferenceDetector(),
-            LeakDetector(),
+        return [
             SemanticTaintDetector(
                 sources=sources or None,
                 sinks=sinks or None,
-            ),
+            )
         ]
-        return detectors
 
     def analyze(self, paths: Sequence[Union[str, Path]]) -> List[Issue]:
         session = AnalysisSession.from_paths(

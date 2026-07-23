@@ -172,9 +172,7 @@ class HeapIntrinsicModels:
     """
 
     return_kinds: dict[str, str] = field(default_factory=dict)
-    collection_mutators: dict[str, CollectionMutatorModel] = field(
-        default_factory=dict
-    )
+    collection_mutators: dict[str, CollectionMutatorModel] = field(default_factory=dict)
     function_models: dict[str, FunctionModel] = field(default_factory=dict)
 
     # ── return-kind lookup ────────────────────────────────────────────
@@ -201,9 +199,7 @@ class HeapIntrinsicModels:
 
     # ── collection-mutator lookup ─────────────────────────────────────
 
-    def collection_mutator(
-        self, name: str | None
-    ) -> CollectionMutatorModel | None:
+    def collection_mutator(self, name: str | None) -> CollectionMutatorModel | None:
         """Resolve a method name to its ``CollectionMutatorModel``."""
         if name is None:
             return None
@@ -693,18 +689,12 @@ DEFAULT_HEAP_INTRINSICS = HeapIntrinsicModels(
     function_models={
         # ── return one of the arguments ────────────────────────────────
         "max": FunctionModel(return_kind=CALL_RETURN_ARG, return_arg_index=-1),
-        "builtins.max": FunctionModel(
-            return_kind=CALL_RETURN_ARG, return_arg_index=-1
-        ),
+        "builtins.max": FunctionModel(return_kind=CALL_RETURN_ARG, return_arg_index=-1),
         "min": FunctionModel(return_kind=CALL_RETURN_ARG, return_arg_index=-1),
-        "builtins.min": FunctionModel(
-            return_kind=CALL_RETURN_ARG, return_arg_index=-1
-        ),
+        "builtins.min": FunctionModel(return_kind=CALL_RETURN_ARG, return_arg_index=-1),
         # next(it) → returns elements from the iterator
         "next": FunctionModel(return_kind=CALL_RETURN_ARG, return_arg_index=0),
-        "builtins.next": FunctionModel(
-            return_kind=CALL_RETURN_ARG, return_arg_index=0
-        ),
+        "builtins.next": FunctionModel(return_kind=CALL_RETURN_ARG, return_arg_index=0),
         # getattr(obj, attr) → returns the attribute from obj
         "getattr": FunctionModel(return_kind=CALL_RETURN_OPAQUE),
         "builtins.getattr": FunctionModel(return_kind=CALL_RETURN_OPAQUE),
@@ -896,9 +886,7 @@ DEFAULT_HEAP_INTRINSICS = HeapIntrinsicModels(
         "enqueue": CollectionMutatorModel(writes_value=True),
         "put": CollectionMutatorModel(writes_value=True),
         "offer": CollectionMutatorModel(writes_value=True),
-        "symmetric_difference_update": CollectionMutatorModel(
-            writes_value=True
-        ),
+        "symmetric_difference_update": CollectionMutatorModel(writes_value=True),
         "intersection_update": CollectionMutatorModel(writes_value=True),
         "difference_update": CollectionMutatorModel(writes_value=True),
         # ── deleting mutators ─────────────────────────────────────────
@@ -919,9 +907,7 @@ DEFAULT_HEAP_INTRINSICS = HeapIntrinsicModels(
         ),
         "discard": CollectionMutatorModel(deletes_value=True),
         "popfirst": CollectionMutatorModel(deletes_value=True),
-        "get_and_del": CollectionMutatorModel(
-            deletes_value=True, key_arg_index=0
-        ),
+        "get_and_del": CollectionMutatorModel(deletes_value=True, key_arg_index=0),
         # ── in-place reordering (escape existing elements) ────────────
         "sort": CollectionMutatorModel(reorders_values=True),
         "reverse": CollectionMutatorModel(reorders_values=True),

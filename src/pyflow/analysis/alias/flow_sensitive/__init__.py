@@ -59,12 +59,12 @@ from .model import (
     UpdatePolicy,
 )
 
-from .abstraction import (
+from .domain.abstraction import (
     HeapAbstraction,
     HeapEnvironment,
 )
 
-from .heap_effects import (
+from .semantics.effects import (
     CALL_RETURN_COPY,
     CALL_RETURN_FRESH,
     CALL_RETURN_OPAQUE,
@@ -77,21 +77,21 @@ from .heap_effects import (
     HeapOperationSemantics,
 )
 
-from .intrinsics import (
+from .semantics.intrinsics import (
     CollectionMutatorModel,
     DEFAULT_HEAP_INTRINSICS,
     HeapIntrinsicModels,
 )
 
-from .heap_state import HeapState
+from .domain.state import HeapState
 
-from .heap_summary import (
+from .domain.summary import (
     HeapSummary,
     HeapSummaryBuilder,
     ProcedureHeapSummary,
 )
 
-from .points_to_graph import (
+from .domain.points_to import (
     HeapValueSnapshot,
     PossibleValues,
     PointsToEntry,
@@ -103,6 +103,30 @@ from .heap_analysis import (
 )
 
 from .transfer import HeapTransferEngine
+
+
+# Preserve the historical module paths while keeping implementation files in
+# responsibility-focused subpackages.
+import sys as _sys
+
+from .domain import abstraction as _abstraction_module
+from .domain import points_to as _points_to_module
+from .domain import state as _state_module
+from .domain import summary as _summary_module
+from .semantics import effects as _effects_module
+from .semantics import intrinsics as _intrinsics_module
+
+_LEGACY_MODULES = {
+    "abstraction": _abstraction_module,
+    "heap_effects": _effects_module,
+    "heap_state": _state_module,
+    "heap_summary": _summary_module,
+    "intrinsics": _intrinsics_module,
+    "points_to_graph": _points_to_module,
+}
+for _legacy_name, _legacy_module in _LEGACY_MODULES.items():
+    _sys.modules[f"{__name__}.{_legacy_name}"] = _legacy_module
+    globals()[_legacy_name] = _legacy_module
 
 __all__ = [
     "AllocationSensitivity",

@@ -18,7 +18,7 @@ from pyflow.analysis.ir_utils import (
     resolve_call_name,
 )
 
-from .abstraction import HeapAbstraction
+from ..domain.abstraction import HeapAbstraction
 from .intrinsics import (  # noqa: F401 - selected names are public re-exports
     CALL_RETURN_COPY,
     CALL_RETURN_FRESH,
@@ -30,7 +30,7 @@ from .intrinsics import (  # noqa: F401 - selected names are public re-exports
     DEFAULT_HEAP_INTRINSICS,
     HeapIntrinsicModels,
 )
-from .model import HeapLocation, HeapObject, HeapWrite, UpdatePolicy
+from ..model import HeapLocation, HeapObject, HeapWrite, UpdatePolicy
 
 
 DYNAMIC_ATTRIBUTE_WILDCARD = "*"
@@ -60,10 +60,14 @@ class HeapEffect:
 
     def __repr__(self) -> str:
         nz = {
-            k: len(v) for k, v in (
-                ("r", self.reads), ("w", self.writes),
-                ("d", self.deletes), ("e", self.escapes),
-            ) if v
+            k: len(v)
+            for k, v in (
+                ("r", self.reads),
+                ("w", self.writes),
+                ("d", self.deletes),
+                ("e", self.escapes),
+            )
+            if v
         }
         detail = " ".join(f"{k}={c}" for k, c in sorted(nz.items()))
         n_alloc = len(self.allocations)
@@ -103,9 +107,7 @@ class HeapEffect:
             deletes=tuple(dict.fromkeys((*self.deletes, *other.deletes))),
             escapes=tuple(dict.fromkeys((*self.escapes, *other.escapes))),
             returns=tuple(dict.fromkeys((*self.returns, *other.returns))),
-            allocations=tuple(
-                dict.fromkeys((*self.allocations, *other.allocations))
-            ),
+            allocations=tuple(dict.fromkeys((*self.allocations, *other.allocations))),
         )
 
 
@@ -165,9 +167,10 @@ class HeapEffectBuilder:
             *self.dynamic_subscript_write_locations(procedure, operation),
             *self.dynamic_slice_write_locations(procedure, operation),
         )
-        ambiguous_write_roots = len(
-            {location.root for location in write_locations if location.is_nested()}
-        ) > 1
+        ambiguous_write_roots = (
+            len({location.root for location in write_locations if location.is_nested()})
+            > 1
+        )
         writes = [
             self.heap.write_for_location(
                 location,
@@ -287,9 +290,7 @@ class HeapEffectBuilder:
             escape_exprs.append(yield_expr)
 
         if isinstance(operation, py_ast.Await) and operation.expr is not None:
-            reads.extend(
-                self._locations_for_expressions(procedure, (operation.expr,))
-            )
+            reads.extend(self._locations_for_expressions(procedure, (operation.expr,)))
             escape_exprs.append(operation.expr)
 
         if isinstance(operation, py_ast.Raise):
@@ -323,9 +324,11 @@ class HeapEffectBuilder:
             reads=tuple(dict.fromkeys(reads)),
             writes=tuple(dict.fromkeys(writes)),
             deletes=tuple(dict.fromkeys(deletes)),
-            escapes=tuple(dict.fromkeys(
-                self._locations_for_expressions(procedure, tuple(escape_exprs))
-            )),
+            escapes=tuple(
+                dict.fromkeys(
+                    self._locations_for_expressions(procedure, tuple(escape_exprs))
+                )
+            ),
             returns=self._locations_for_expressions(procedure, return_exprs),
             allocations=self._allocation_objects_for_operation(procedure, operation),
         )
@@ -693,7 +696,9 @@ class HeapEffectBuilder:
         actuals = actual_argument_expressions(call)
         if len(actuals) < 2:
             return ()
-        return self.dynamic_subscript_locations_for_key(procedure, actuals[0], actuals[1])
+        return self.dynamic_subscript_locations_for_key(
+            procedure, actuals[0], actuals[1]
+        )
 
     def dynamic_attribute_delete_locations(
         self,
@@ -940,11 +945,15 @@ class HeapEffectBuilder:
         expr: object,
     ) -> py_ast.PythonASTNode | None:
         candidate = expr
-        if not isinstance(candidate, (py_ast.DirectCall, py_ast.Call, py_ast.MethodCall)):
+        if not isinstance(
+            candidate, (py_ast.DirectCall, py_ast.Call, py_ast.MethodCall)
+        ):
             wrapped = getattr(expr, "expr", None)
             if isinstance(wrapped, (py_ast.DirectCall, py_ast.Call, py_ast.MethodCall)):
                 candidate = wrapped
-        if not isinstance(candidate, (py_ast.DirectCall, py_ast.Call, py_ast.MethodCall)):
+        if not isinstance(
+            candidate, (py_ast.DirectCall, py_ast.Call, py_ast.MethodCall)
+        ):
             return None
         return candidate
 
@@ -1159,9 +1168,11 @@ class HeapEffectBuilder:
             else:
                 expressions.extend(getattr(operation, "bases", ()))
                 expressions.extend(
-                    keyword[1]
-                    if isinstance(keyword, tuple) and len(keyword) == 2
-                    else keyword
+                    (
+                        keyword[1]
+                        if isinstance(keyword, tuple) and len(keyword) == 2
+                        else keyword
+                    )
                     for keyword in getattr(operation, "keywords", ())
                 )
         return self._locations_for_expressions(procedure, tuple(expressions))

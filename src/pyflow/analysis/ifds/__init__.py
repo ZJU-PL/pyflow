@@ -32,10 +32,10 @@ from ..alias.flow_sensitive.model import (
     HeapWrite,
     UpdatePolicy,
 )
-from ..alias.flow_sensitive.abstraction import (
+from ..alias.flow_sensitive.domain.abstraction import (
     HeapAbstraction,
 )
-from ..alias.flow_sensitive.heap_effects import (
+from ..alias.flow_sensitive.semantics.effects import (
     CALL_RETURN_COPY,
     CALL_RETURN_FRESH,
     CALL_RETURN_OPAQUE,
@@ -43,7 +43,7 @@ from ..alias.flow_sensitive.heap_effects import (
     HeapEffect,
     HeapEffectBuilder,
 )
-from ..alias.flow_sensitive.heap_summary import (
+from ..alias.flow_sensitive.domain.summary import (
     HeapSummary,
     HeapSummaryBuilder,
 )

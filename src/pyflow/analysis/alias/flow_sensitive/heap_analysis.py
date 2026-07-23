@@ -9,19 +9,19 @@ optimization passes and the semantic query API.
 
 from __future__ import annotations
 
-from .abstraction import (
+from .domain.abstraction import (
     HeapAbstraction,
 )
-from .intrinsics import DEFAULT_HEAP_INTRINSICS, HeapIntrinsicModels
+from .domain.points_to import PointsToGraph, PossibleValues
+from .domain.summary import ProcedureHeapSummary
 from .model import (
     HeapLocation,
     HeapPolicy,
     HeapWrite,
     RawStorageProvider,
 )
-from .points_to_graph import PointsToGraph, PossibleValues
+from .semantics.intrinsics import DEFAULT_HEAP_INTRINSICS, HeapIntrinsicModels
 from .transfer import HeapTransferEngine
-from .heap_summary import ProcedureHeapSummary
 
 
 class HeapAnalysis:
@@ -168,9 +168,7 @@ class HeapAnalysis:
         """Mark multiple locations as escaped."""
         self._require_heap().mark_all_escaped(locations)
 
-    def alias_locals(
-        self, procedure: object, target: object, source: object
-    ) -> None:
+    def alias_locals(self, procedure: object, target: object, source: object) -> None:
         """Declare that two named locals share the same storage."""
         self._require_heap().alias_locals(procedure, target, source)
 

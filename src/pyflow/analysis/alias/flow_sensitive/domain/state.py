@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from itertools import count
 
-from .model import HeapLocation, UpdatePolicy
+from ..model import HeapLocation, UpdatePolicy
 
 
 _HEAP_VERSION_IDS = count(1)
@@ -35,9 +35,9 @@ class HeapState:
     versions: dict[HeapLocation, frozenset[int]] = field(default_factory=dict)
     escaped: set[HeapLocation] = field(default_factory=set)
     returns: dict[object, tuple[HeapLocation, ...]] = field(default_factory=dict)
-    return_slots: dict[
-        object, tuple[tuple[HeapLocation, ...], ...]
-    ] = field(default_factory=dict)
+    return_slots: dict[object, tuple[tuple[HeapLocation, ...], ...]] = field(
+        default_factory=dict
+    )
     yields: dict[object, tuple[HeapLocation, ...]] = field(default_factory=dict)
     # Possible suspension ordinal(s) reached on the current path. Branches
     # may reach the same syntactic yield at different resume depths, so this
@@ -159,9 +159,7 @@ class HeapState:
                 self.scalar_present.add(location)
                 self.absent.discard(location)
             return  # Weak update with nothing to add is a no-op.
-        target[location] = tuple(
-            dict.fromkeys((*target.get(location, ()), *values))
-        )
+        target[location] = tuple(dict.fromkeys((*target.get(location, ()), *values)))
         if location.is_precise():
             self.absent.discard(location)
 
@@ -341,16 +339,14 @@ class HeapState:
     def equivalent(self, other: "HeapState") -> bool:
         def set_map_equal(left, right):
             return left.keys() == right.keys() and all(
-                frozenset(left[key]) == frozenset(right[key])
-                for key in left
+                frozenset(left[key]) == frozenset(right[key]) for key in left
             )
 
         def slot_map_equal(left, right):
             return left.keys() == right.keys() and all(
                 len(left[key]) == len(right[key])
                 and all(
-                    frozenset(left[key][index])
-                    == frozenset(right[key][index])
+                    frozenset(left[key][index]) == frozenset(right[key][index])
                     for index in range(len(left[key]))
                 )
                 for key in left
@@ -376,6 +372,6 @@ class HeapState:
     def locations_may_overlap(a: HeapLocation, b: HeapLocation) -> bool:
         if a.root != b.root:
             return False
-        from .points_to_graph import PointsToGraph
+        from .points_to import PointsToGraph
 
         return PointsToGraph._selectors_may_overlap(a.selectors, b.selectors)

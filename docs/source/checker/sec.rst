@@ -201,9 +201,8 @@ Semantic Checker Infrastructure
 - Feeds analysis results to detectors
 
 **semantic/detectors/**: Semantic-based detectors
-- **taint.py** and **taint2.py**: Taint analysis detectors
-- **null_dereference.py**: Null dereference detection
-- **leak.py**: Leak detection (resource leaks, scope leaks)
+- **semantic_taint.py**: Public semantic taint detector API
+- **_semantic_taint.py**: Taint propagation implementation
 - Uses semantic facts from PyFlow analyses rather than AST patterns
 
 Output Formatters

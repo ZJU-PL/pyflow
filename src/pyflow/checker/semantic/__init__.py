@@ -2,7 +2,7 @@
 Static bug finder built on PyFlow analyses.
 
   core/     - session, runner, manager, issue, detector base
-  detectors/- taint, leak, null_dereference, etc.
+  detectors/ - semantic taint detection
 """
 
 from .core import (

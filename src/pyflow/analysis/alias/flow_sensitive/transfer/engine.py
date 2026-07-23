@@ -8,97 +8,41 @@ or collection literals allocate fresh heap roots.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-
 from pyflow.analysis.ir_utils import actual_argument_expressions, resolve_call_name
 from pyflow.language.python import ast as py_ast
 
-from .abstraction import HeapAbstraction, HeapEnvironment
-from .heap_effects import (
+from ..domain.abstraction import HeapAbstraction
+from ..domain.state import HeapState
+from ..domain.summary import ProcedureHeapSummary
+from ..semantics.effects import (
     DEFAULT_HEAP_INTRINSICS,
     DYNAMIC_ATTRIBUTE_WILDCARD,
     DYNAMIC_SUBSCRIPT_WILDCARD,
     HeapEffectBuilder,
 )
-from .heap_state import HeapState
-from .heap_summary import ProcedureHeapSummary
-from .intrinsics import HeapIntrinsicModels
-from .model import HeapLocation, UpdatePolicy
-
-@dataclass(frozen=True)
-class _CallSummary:
-    state: HeapState
-    returns: tuple[tuple[HeapLocation, ...], ...]
-    environment: HeapEnvironment | None = None
-    normal_state: HeapState | None = None
-    normal_environment: HeapEnvironment | None = None
-    raise_state: HeapState | None = None
-    raise_environment: HeapEnvironment | None = None
-    deletes: tuple[HeapLocation, ...] = ()
-    raises: tuple[HeapLocation, ...] = ()
-    yields: tuple[HeapLocation, ...] = ()
-    yield_steps: tuple[
-        tuple[HeapState, HeapEnvironment, tuple[HeapLocation, ...]], ...
-    ] = ()
-
-    # Maps return index -> formal parameter index when the callee directly
-    # returns a formal parameter without modification (e.g., "def id(x): return x").
-    # The caller can use this to bind the actual argument's location directly.
-    param_returns: dict[int, frozenset[int]] = field(default_factory=dict)
-
-    # Set of formal parameter indices whose locations escape the callee.
-    # Callers can use this to precisely mark actual arguments as escaped
-    # without relying solely on the merged escaped set in summary.state.
-    param_escapes: frozenset[int] = field(default_factory=frozenset)
-
-@dataclass(frozen=True)
-class _FlowState:
-    """Complete flow value: heap contents plus local binding environment."""
-
-    heap_state: HeapState
-    environment: HeapEnvironment
-    definition_defaults: dict[tuple[int, int], tuple[HeapLocation, ...]]
-
-@dataclass(frozen=True)
-class _FlowOutcome:
-    """Normal successor plus path-insensitive abrupt control-flow exits."""
-
-    normal: _FlowState | None
-    abrupt: dict[str, _FlowState] = field(default_factory=dict)
+from ..semantics.intrinsics import HeapIntrinsicModels
+from ..model import HeapLocation, UpdatePolicy
+from .calls import _CallTransferMixin
+from .classes import _ClassTransferMixin
+from .deferred import _DeferredTransferMixin
+from .definitions import _DefinitionTransferMixin
+from .operations import _TransferOpsMixin
+from .state import (
+    _CallSummary,
+    _DeferredActivation,
+    _ExpressionOutcome,
+    _FlowOutcome,
+    _FlowState,
+)
 
 
-@dataclass(frozen=True)
-class _ExpressionOutcome:
-    """Values and control-flow exits produced by expression evaluation."""
-
-    values: tuple[HeapLocation, ...]
-    normal: _FlowState | None
-    raises: _FlowState | None = None
-
-
-@dataclass(frozen=True)
-class _CallBindingResult:
-    """Resolved actual/formal bindings plus Python call feasibility."""
-
-    bindings: dict[int, tuple[HeapLocation, ...]]
-    definitely_invalid: bool = False
-    maybe_invalid: bool = False
-    reasons: frozenset[str] = frozenset()
-
-
-@dataclass
-class _DeferredActivation:
-    callee: py_ast.Code
-    actual_bindings: dict[int, tuple[HeapLocation, ...]]
-    resume_index: int = 0
-    summary: _CallSummary | None = None
-    frame_environment: HeapEnvironment | None = None
-
-
-from ._transfer_ops import _TransferOpsMixin
-from ._transfer_calls import _TransferCallsMixin
-
-class HeapTransferEngine(_TransferOpsMixin, _TransferCallsMixin):
+class HeapTransferEngine(
+    _TransferOpsMixin,
+    _DefinitionTransferMixin,
+    _CallTransferMixin,
+    _ClassTransferMixin,
+    _DeferredTransferMixin,
+):
     """Apply Python IR operations to a heap abstraction."""
 
     def __init__(
@@ -122,9 +66,7 @@ class HeapTransferEngine(_TransferOpsMixin, _TransferCallsMixin):
         self._class_definitions: dict[tuple[object, str], HeapLocation] = {}
         self._class_locations_by_root: dict[object, HeapLocation] = {}
         self._class_locations_by_definition: dict[int, HeapLocation] = {}
-        self._class_bases_by_root: dict[
-            object, tuple[HeapLocation, ...]
-        ] = {}
+        self._class_bases_by_root: dict[object, tuple[HeapLocation, ...]] = {}
         self._class_initializers: dict[tuple[object, str], py_ast.Code] = {}
         self._class_initializers_by_root: dict[object, py_ast.Code] = {}
         self._class_allocators_by_root: dict[object, py_ast.Code] = {}
@@ -139,9 +81,7 @@ class HeapTransferEngine(_TransferOpsMixin, _TransferCallsMixin):
             object,
             dict[str, tuple[py_ast.Code, tuple[HeapLocation, ...]]],
         ] = {}
-        self._super_dispatch_by_class_root: dict[
-            object, dict[str, py_ast.Code]
-        ] = {}
+        self._super_dispatch_by_class_root: dict[object, dict[str, py_ast.Code]] = {}
         self._initialized_class_calls: set[tuple[int, object]] = set()
         self.program_point_states: dict[int, tuple[_FlowState, _FlowState]] = {}
         self.program_point_outcomes: dict[int, dict[str, _FlowState]] = {}
@@ -160,16 +100,12 @@ class HeapTransferEngine(_TransferOpsMixin, _TransferCallsMixin):
         self._yield_state_stack: list[
             list[tuple[int, _FlowState, tuple[HeapLocation, ...]]]
         ] = []
-        self._resume_input_stack: list[
-            tuple[int, tuple[HeapLocation, ...]]
-        ] = []
+        self._resume_input_stack: list[tuple[int, tuple[HeapLocation, ...]]] = []
         self._direct_call_evaluation_cache: dict[
             tuple[object, ...], tuple[HeapLocation, ...]
         ] = {}
         self._last_direct_call_summary: dict[int, _CallSummary] = {}
-        self._last_call_operands: dict[
-            int, dict[int, tuple[HeapLocation, ...]]
-        ] = {}
+        self._last_call_operands: dict[int, dict[int, tuple[HeapLocation, ...]]] = {}
         self._applied_calls: set[tuple[object, ...]] = set()
         self._finite_call_results: dict[
             tuple[object, ...], tuple[HeapLocation, ...]
@@ -180,9 +116,9 @@ class HeapTransferEngine(_TransferOpsMixin, _TransferCallsMixin):
         self._callback_call_results: dict[
             tuple[object, ...], tuple[HeapLocation, ...]
         ] = {}
-        self._operation_expression_caches: list[
-            dict[int, tuple[HeapLocation, ...]]
-        ] = []
+        self._operation_expression_caches: list[dict[int, tuple[HeapLocation, ...]]] = (
+            []
+        )
         self._operation_call_raises: list[list[_FlowState]] = []
         self._operation_normal_possible: list[bool] = []
         self._pending_call_results: dict[
@@ -212,9 +148,7 @@ class HeapTransferEngine(_TransferOpsMixin, _TransferCallsMixin):
         """Analyze every discoverable code object in *program*."""
         declared_entries = getattr(program, "entryPoints", None)
         codes = tuple(
-            self.iter_code_objects(
-                declared_entries if declared_entries else program
-            )
+            self.iter_code_objects(declared_entries if declared_entries else program)
         )
         if len(codes) <= 1:
             for code in codes:
@@ -363,18 +297,18 @@ class HeapTransferEngine(_TransferOpsMixin, _TransferCallsMixin):
                     self._class_method_kinds_by_root.setdefault(
                         definition.root,
                         {},
-                    )[operation.name] = self._definition_decorator_kind(operation)
+                    )[
+                        operation.name
+                    ] = self._definition_decorator_kind(operation)
                     if operation.name == "__init__":
                         self._class_initializers[
                             (self._module_owner(procedure), node.name)
                         ] = operation.code
-                        self._class_initializers_by_root[
-                            definition.root
-                        ] = operation.code
+                        self._class_initializers_by_root[definition.root] = (
+                            operation.code
+                        )
                     elif operation.name == "__new__":
-                        self._class_allocators_by_root[
-                            definition.root
-                        ] = operation.code
+                        self._class_allocators_by_root[definition.root] = operation.code
                 self._apply_known_class_creation_hooks(
                     procedure,
                     node,
@@ -494,9 +428,7 @@ class HeapTransferEngine(_TransferOpsMixin, _TransferCallsMixin):
         exceptional exits, and contaminate only objects reachable through the
         unsupported node rather than the entire heap.
         """
-        self.precision_degradations.append(
-            (node, f"unsupported-{type(node).__name__}")
-        )
+        self.precision_degradations.append((node, f"unsupported-{type(node).__name__}"))
         related: list[HeapLocation] = []
         abrupt: dict[str, _FlowState] = {}
         children: list[object] = []
@@ -580,7 +512,9 @@ class HeapTransferEngine(_TransferOpsMixin, _TransferCallsMixin):
         targets: list[py_ast.Local] = []
         for field_name in ("target", "targets", "lcls", "index"):
             candidate = getattr(node, field_name, None)
-            candidates = candidate if isinstance(candidate, (tuple, list)) else (candidate,)
+            candidates = (
+                candidate if isinstance(candidate, (tuple, list)) else (candidate,)
+            )
             targets.extend(
                 target for target in candidates if isinstance(target, py_ast.Local)
             )
@@ -736,17 +670,13 @@ class HeapTransferEngine(_TransferOpsMixin, _TransferCallsMixin):
             stored_value=semantics.stored_value,
         )
         raw_deletes = (
-            prepared_deletes
-            if prepared_deletes is not None
-            else effect.deletes
+            prepared_deletes if prepared_deletes is not None else effect.deletes
         )
         deletes = self._effective_deletes(operation, raw_deletes)
         self._record_summary_deletes(deletes)
         self._apply_deletes(deletes)
         if isinstance(operation, py_ast.DeleteGlobal):
-            module = self._module_locations_by_owner.get(
-                self._module_owner(procedure)
-            )
+            module = self._module_locations_by_owner.get(self._module_owner(procedure))
             if module is not None:
                 self.state.delete(
                     self.heap.dynamic_attribute_location(
@@ -763,7 +693,9 @@ class HeapTransferEngine(_TransferOpsMixin, _TransferCallsMixin):
         if isinstance(operation, py_ast.Raise):
             raised_locations = tuple(
                 location
-                for expression in self.effect_builder.raise_escape_expressions(operation)
+                for expression in self.effect_builder.raise_escape_expressions(
+                    operation
+                )
                 for location in self.locations_for_expression(procedure, expression)
             )
             if not raised_locations:
@@ -882,13 +814,17 @@ class HeapTransferEngine(_TransferOpsMixin, _TransferCallsMixin):
             return
         if len(left_locations) == 1 and left_locations[0].root.has_stable_identity():
             narrowed = tuple(
-                location for location in right_locations if location != left_locations[0]
+                location
+                for location in right_locations
+                if location != left_locations[0]
             )
             if narrowed:
                 self._bind_runtime_local(procedure, right, narrowed)
         if len(right_locations) == 1 and right_locations[0].root.has_stable_identity():
             narrowed = tuple(
-                location for location in left_locations if location != right_locations[0]
+                location
+                for location in left_locations
+                if location != right_locations[0]
             )
             if narrowed:
                 self._bind_runtime_local(procedure, left, narrowed)
@@ -955,9 +891,7 @@ class HeapTransferEngine(_TransferOpsMixin, _TransferCallsMixin):
                 break
             current = next_state
         else_outcome = self._outcome_after(procedure, node.else_, current)
-        normal = self._join_optional_flow_states(
-            (else_outcome.normal, *breaks)
-        )
+        normal = self._join_optional_flow_states((else_outcome.normal, *breaks))
         abrupt = self._merge_abrupt_maps(abrupt, else_outcome.abrupt)
         return _FlowOutcome(normal, abrupt)
 
@@ -1022,9 +956,7 @@ class HeapTransferEngine(_TransferOpsMixin, _TransferCallsMixin):
                 break
             current = next_state
         else_outcome = self._outcome_after(procedure, node.else_, current)
-        normal = self._join_optional_flow_states(
-            (else_outcome.normal, *breaks)
-        )
+        normal = self._join_optional_flow_states((else_outcome.normal, *breaks))
         abrupt = self._merge_abrupt_maps(abrupt, else_outcome.abrupt)
         return _FlowOutcome(normal, abrupt)
 
@@ -1152,17 +1084,17 @@ class HeapTransferEngine(_TransferOpsMixin, _TransferCallsMixin):
             if conditional_outcome.normal is None:
                 return _FlowOutcome(
                     None,
-                    {"raise": conditional_raise}
-                    if conditional_raise is not None
-                    else {},
+                    (
+                        {"raise": conditional_raise}
+                        if conditional_raise is not None
+                        else {}
+                    ),
                 )
             self._restore_flow_state(conditional_outcome.normal)
         base = self._capture_flow_state()
         normal_states: list[_FlowState] = [base]
         abrupt: dict[str, _FlowState] = (
-            {"raise": conditional_raise}
-            if conditional_raise is not None
-            else {}
+            {"raise": conditional_raise} if conditional_raise is not None else {}
         )
         for case in getattr(node, "cases", ()):
             self._restore_flow_state(base)
@@ -1333,11 +1265,14 @@ class HeapTransferEngine(_TransferOpsMixin, _TransferCallsMixin):
             heap_state.returns.pop(procedure, ()),
             heap_state.return_slots.pop(procedure, ()),
         )
-        return _FlowState(
-            heap_state,
-            state.environment,
-            state.definition_defaults,
-        ), prior
+        return (
+            _FlowState(
+                heap_state,
+                state.environment,
+                state.definition_defaults,
+            ),
+            prior,
+        )
 
     @staticmethod
     def _with_procedure_returns(
@@ -1456,11 +1391,7 @@ class HeapTransferEngine(_TransferOpsMixin, _TransferCallsMixin):
         joined_environment = self.heap.join_environments(
             tuple(state.environment for state in states)
         )
-        default_keys = {
-            key
-            for state in states
-            for key in state.definition_defaults
-        }
+        default_keys = {key for state in states for key in state.definition_defaults}
         joined_defaults = {
             key: tuple(
                 dict.fromkeys(

@@ -14,13 +14,13 @@ from pyflow.analysis.ir_utils import (
 )
 from pyflow.language.python import ast as py_ast
 
-from .heap_effects import (
+from ..semantics.effects import (
     CALL_RETURN_COPY,
     CALL_RETURN_FRESH,
     DYNAMIC_SUBSCRIPT_WILDCARD,
 )
-from .intrinsics import CALL_RETURN_NONE
-from .model import (
+from ..semantics.intrinsics import CALL_RETURN_NONE
+from ..model import (
     HeapLocation,
     HeapObjectIdentity,
     HeapObjectKind,
@@ -470,9 +470,7 @@ class _TransferOpsMixin:
                 (subscript, DYNAMIC_SUBSCRIPT_WILDCARD),
             )
             return tuple(
-                dict.fromkeys(
-                    (*self._read_heap_locations(locations), *protocol_values)
-                )
+                dict.fromkeys((*self._read_heap_locations(locations), *protocol_values))
             )
         if isinstance(expression, py_ast.DirectCall) and isinstance(
             expression.code,
@@ -540,9 +538,7 @@ class _TransferOpsMixin:
                 in self._class_definitions
             ):
                 result = tuple(
-                    dict.fromkeys(
-                        (*result, self._external_value_location(procedure))
-                    )
+                    dict.fromkeys((*result, self._external_value_location(procedure)))
                 )
             if kind == CALL_RETURN_COPY:
                 self._copy_call_result_contents(
@@ -664,9 +660,11 @@ class _TransferOpsMixin:
             protocol_values = self._evaluate_known_protocol(
                 procedure,
                 sources,
-                "__aiter__"
-                if isinstance(expression, py_ast.AsyncGetIter)
-                else "__iter__",
+                (
+                    "__aiter__"
+                    if isinstance(expression, py_ast.AsyncGetIter)
+                    else "__iter__"
+                ),
             )
             if not protocol_values and isinstance(expression, py_ast.GetIter):
                 protocol_values = self._evaluate_known_protocol(
@@ -679,7 +677,11 @@ class _TransferOpsMixin:
                 self.heap.allocation_object(
                     procedure,
                     expression,
-                    label="async iterator" if isinstance(expression, py_ast.AsyncGetIter) else "iterator",
+                    label=(
+                        "async iterator"
+                        if isinstance(expression, py_ast.AsyncGetIter)
+                        else "iterator"
+                    ),
                     context=self._current_context,
                 )
             )
@@ -704,9 +706,7 @@ class _TransferOpsMixin:
                 expression.stop,
                 expression.step,
             ):
-                components.extend(
-                    self.locations_for_expression(procedure, component)
-                )
+                components.extend(self.locations_for_expression(procedure, component))
             protocol_values = self._evaluate_known_protocol(
                 procedure,
                 bases,
@@ -767,9 +767,7 @@ class _TransferOpsMixin:
                 protocol = self._binary_protocol_name(expression.op)
                 reflected = self._reflected_binary_protocol_name(expression.op)
                 if reflected is None:
-                    reflected = self._reflected_comparison_protocol_name(
-                        expression.op
-                    )
+                    reflected = self._reflected_comparison_protocol_name(expression.op)
                 protocol_values = tuple(
                     dict.fromkeys(
                         (
@@ -815,7 +813,14 @@ class _TransferOpsMixin:
                 )
             return ()
         if isinstance(expression, (py_ast.Is, py_ast.Check)):
-            self.locations_for_expression(procedure, expression.left if isinstance(expression, py_ast.Is) else expression.expr)
+            self.locations_for_expression(
+                procedure,
+                (
+                    expression.left
+                    if isinstance(expression, py_ast.Is)
+                    else expression.expr
+                ),
+            )
             if isinstance(expression, py_ast.Is):
                 self.locations_for_expression(procedure, expression.right)
             else:
@@ -853,9 +858,7 @@ class _TransferOpsMixin:
             if self._yield_state_stack:
                 event_state = self._capture_flow_state()
                 for depth in self.state.current_yield_depths(procedure):
-                    self._yield_state_stack[-1].append(
-                        (depth, event_state, yielded)
-                    )
+                    self._yield_state_stack[-1].append((depth, event_state, yielded))
             self.state.advance_yield_depths(procedure)
             if self._resume_input_stack:
                 target_depth, sent = self._resume_input_stack[-1]
@@ -913,9 +916,7 @@ class _TransferOpsMixin:
                 # preserves both skipped and executed side effects from later
                 # terms without pretending they execute unconditionally.
                 prefix_states.append(self._capture_flow_state())
-            self._restore_flow_state(
-                self._join_flow_states(tuple(prefix_states))
-            )
+            self._restore_flow_state(self._join_flow_states(tuple(prefix_states)))
             return tuple(dict.fromkeys(possible_locations))
         if isinstance(expression, py_ast.ConditionalExpr):
             self.locations_for_expression(procedure, expression.test)
@@ -932,9 +933,7 @@ class _TransferOpsMixin:
                 expression.orelse,
             )
             else_state = self._capture_flow_state()
-            self._restore_flow_state(
-                self._join_flow_states((body_state, else_state))
-            )
+            self._restore_flow_state(self._join_flow_states((body_state, else_state)))
             return tuple(dict.fromkeys((*body_locations, *else_locations)))
         if isinstance(expression, py_ast.NamedExpr):
             locations = self.locations_for_expression(procedure, expression.value)
@@ -1057,25 +1056,18 @@ class _TransferOpsMixin:
         locations: list[HeapLocation] = []
         keys = set(self.heap.storage_overrides) | set(self.heap.allocation_sites)
         for key in keys:
-            if (
-                key[1] != local_id
-                and (
-                    not isinstance(local_name, str)
-                    or self.heap._local_names.get(key) != local_name
-                )
+            if key[1] != local_id and (
+                not isinstance(local_name, str)
+                or self.heap._local_names.get(key) != local_name
             ):
                 continue
             storage = self.heap.storage_overrides.get(key)
             if storage is None:
                 site = self.heap.allocation_sites.get(key)
                 storage = (
-                    self.heap.site_storage.get(site, ())
-                    if site is not None
-                    else ()
+                    self.heap.site_storage.get(site, ()) if site is not None else ()
                 )
-            locations.extend(
-                self.heap.location_for_raw(raw) for raw in storage
-            )
+            locations.extend(self.heap.location_for_raw(raw) for raw in storage)
         return tuple(dict.fromkeys(locations))
 
     def _declared_location(
@@ -1157,7 +1149,9 @@ class _TransferOpsMixin:
             storage = self.heap.storage_overrides.get(key)
             if storage is None:
                 site = self.heap.allocation_sites.get(key)
-                storage = self.heap.site_storage.get(site, ()) if site is not None else ()
+                storage = (
+                    self.heap.site_storage.get(site, ()) if site is not None else ()
+                )
             locations.extend(self.heap.location_for_raw(raw) for raw in storage)
         return tuple(dict.fromkeys(locations))
 
@@ -1318,8 +1312,7 @@ class _TransferOpsMixin:
             if not getattr(expr, "fromlist", None) and "." in expr.name:
                 top_level = expr.name.split(".", 1)[0]
                 if all(
-                    getattr(target, "name", None) == top_level
-                    for target in targets
+                    getattr(target, "name", None) == top_level for target in targets
                 ):
                     imported = [
                         HeapLocation(
@@ -1415,12 +1408,12 @@ class _TransferOpsMixin:
             )
         if isinstance(operation, py_ast.UnpackSequence):
             return tuple(
-                local
-                for local in operation.targets
-                if isinstance(local, py_ast.Local)
+                local for local in operation.targets if isinstance(local, py_ast.Local)
             )
         if isinstance(operation, py_ast.AnnAssign):
-            if operation.value is not None and isinstance(operation.target, py_ast.Local):
+            if operation.value is not None and isinstance(
+                operation.target, py_ast.Local
+            ):
                 return (operation.target,)
             return ()
         if isinstance(operation, py_ast.InputBlock):
@@ -1515,11 +1508,7 @@ class _TransferOpsMixin:
 
         slots = tuple(return_slots)
         flat_returns = tuple(
-            dict.fromkeys(
-                location
-                for slot in slots
-                for location in slot
-            )
+            dict.fromkeys(location for slot in slots for location in slot)
         )
         self.state.set_return_slots(procedure, slots)
         self.state.set_returns(procedure, flat_returns)
@@ -1536,9 +1525,7 @@ class _TransferOpsMixin:
         if value is not None:
             value_locations = self.locations_for_expression(procedure, value)
             if isinstance(operation, py_ast.SetSlice):
-                value_locations = self._expand_contained_locations(
-                    value_locations
-                )
+                value_locations = self._expand_contained_locations(value_locations)
             # Don't return early when value_locations is empty: write()
             # handles STRONG+empty (pop to clear the binding) and
             # WEAK+empty (no-op) correctly.
@@ -1564,9 +1551,11 @@ class _TransferOpsMixin:
                 (
                     UpdatePolicy.STRONG
                     if isinstance(operation, (py_ast.SetGlobal, py_ast.SetCellDeref))
-                    else policy
-                    if isinstance(policy, UpdatePolicy)
-                    else UpdatePolicy.WEAK
+                    else (
+                        policy
+                        if isinstance(policy, UpdatePolicy)
+                        else UpdatePolicy.WEAK
+                    )
                 ),
                 has_non_reference=value is not None and not value_locations,
             )
@@ -1583,9 +1572,7 @@ class _TransferOpsMixin:
                         ),
                         tuple(dict.fromkeys(value_locations)),
                         UpdatePolicy.STRONG,
-                        has_non_reference=(
-                            value is not None and not value_locations
-                        ),
+                        has_non_reference=(value is not None and not value_locations),
                     )
         if isinstance(operation, py_ast.SetSubscript):
             key_locations = self.locations_for_expression(
@@ -1652,7 +1639,9 @@ class _TransferOpsMixin:
         """Move every currently stored element into the wildcard may-set."""
         call = self._call_expression(operation)
         container = None
-        if isinstance(operation, (py_ast.SetSlice, py_ast.DeleteSlice, py_ast.DeleteSubscript)):
+        if isinstance(
+            operation, (py_ast.SetSlice, py_ast.DeleteSlice, py_ast.DeleteSubscript)
+        ):
             container = operation.expr
         elif call is not None:
             model = self.intrinsics.collection_mutator(resolve_call_name(call))
@@ -1662,15 +1651,15 @@ class _TransferOpsMixin:
             container = (
                 call.expr
                 if isinstance(call, py_ast.MethodCall)
-                else actuals[0]
-                if actuals
-                else None
+                else actuals[0] if actuals else None
             )
         else:
             return
         if container is None:
             return
-        evaluated = self._last_call_operands.get(id(call), {}) if call is not None else {}
+        evaluated = (
+            self._last_call_operands.get(id(call), {}) if call is not None else {}
+        )
         roots = evaluated.get(id(container))
         if roots is None:
             roots = self.locations_for_expression(procedure, container)
@@ -1859,11 +1848,7 @@ class _TransferOpsMixin:
                     self.state.write(
                         key_loc,
                         val_locs,
-                        (
-                            UpdatePolicy.STRONG
-                            if subscript
-                            else UpdatePolicy.WEAK
-                        ),
+                        (UpdatePolicy.STRONG if subscript else UpdatePolicy.WEAK),
                     )
         elif isinstance(expr, py_ast.BuildSet):
             set_loc = self.heap.dynamic_subscript_location(
@@ -1871,9 +1856,7 @@ class _TransferOpsMixin:
             )
             all_val_locs: list[HeapLocation] = []
             for val_expr in value_exprs:
-                all_val_locs.extend(
-                    self.locations_for_expression(procedure, val_expr)
-                )
+                all_val_locs.extend(self.locations_for_expression(procedure, val_expr))
             if all_val_locs:
                 self.state.write(
                     set_loc, tuple(dict.fromkeys(all_val_locs)), UpdatePolicy.WEAK
@@ -1885,9 +1868,7 @@ class _TransferOpsMixin:
                 )
                 val_locs = self.locations_for_expression(procedure, val_expr)
                 if index_loc and val_locs:
-                    self.state.write(
-                        index_loc, val_locs, UpdatePolicy.STRONG
-                    )
+                    self.state.write(index_loc, val_locs, UpdatePolicy.STRONG)
 
     @staticmethod
     def _collection_literal_values(expr: object) -> tuple[object, ...]:

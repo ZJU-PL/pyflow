@@ -12,9 +12,9 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from .points_to_graph import PointsToGraph
+    from .points_to import PointsToGraph
 
-from .model import (
+from ..model import (
     AllocationSensitivity,
     ContainerSensitivity,
     FieldSensitivity,
@@ -146,7 +146,9 @@ class HeapAbstraction:
         updates are always safe.
         """
         if self._is_immutable_type(location.root):
-            return UpdatePolicy.STRONG if not location.is_nested() else UpdatePolicy.WEAK
+            return (
+                UpdatePolicy.STRONG if not location.is_nested() else UpdatePolicy.WEAK
+            )
         if not location.root.is_singleton():
             return UpdatePolicy.WEAK
         if not location.is_precise():
@@ -230,8 +232,7 @@ class HeapAbstraction:
 
             storage_overrides[key] = joined
             sites = tuple(
-                environment.allocation_sites.get(key)
-                for environment in environments
+                environment.allocation_sites.get(key) for environment in environments
             )
             concrete_sites = tuple(site for site in sites if site is not None)
             same_storage = all(
@@ -283,9 +284,7 @@ class HeapAbstraction:
         self,
         storage: tuple[object, ...],
     ) -> tuple[HeapLocation, ...]:
-        return tuple(
-            dict.fromkeys(self.location_for_raw(raw) for raw in storage)
-        )
+        return tuple(dict.fromkeys(self.location_for_raw(raw) for raw in storage))
 
     def _join_storage(
         self,
@@ -315,7 +314,10 @@ class HeapAbstraction:
         return len(logical_bindings)
 
     def _is_immutable_type(self, root: HeapObject) -> bool:
-        if root.type_hint is not None and root.type_hint in self.policy.immutable_type_hints:
+        if (
+            root.type_hint is not None
+            and root.type_hint in self.policy.immutable_type_hints
+        ):
             return True
         return False
 
@@ -767,7 +769,9 @@ class HeapAbstraction:
         *,
         label: str | None = None,
     ) -> HeapObject:
-        name = label or getattr(local, "name", None) or self._describe_raw_storage(local)
+        name = (
+            label or getattr(local, "name", None) or self._describe_raw_storage(local)
+        )
         key = ("local", id(procedure), name)
         return self._object(
             HeapObjectKind.LOCAL,
@@ -955,10 +959,14 @@ class HeapAbstraction:
         display = label or str(cell_name)
         has_identity = hasattr(name, "name")
         key = (
-            "cell-object",
-            id(name),
-            cell_name,
-        ) if has_identity else ("cell-name", cell_name)
+            (
+                "cell-object",
+                id(name),
+                cell_name,
+            )
+            if has_identity
+            else ("cell-name", cell_name)
+        )
         return self._object(
             HeapObjectKind.CELL,
             key,
@@ -979,11 +987,7 @@ class HeapAbstraction:
                 if has_identity
                 else HeapObjectIdentity.SUMMARY
             ),
-            escape=(
-                HeapEscapeState.LOCAL
-                if has_identity
-                else HeapEscapeState.UNKNOWN
-            ),
+            escape=(HeapEscapeState.LOCAL if has_identity else HeapEscapeState.UNKNOWN),
         )
 
     def module_object(
@@ -1095,7 +1099,7 @@ class HeapAbstraction:
         resulting graph is consumed by optimization passes and the
         semantic query API.
         """
-        from .points_to_graph import HeapValueSnapshot, PointsToEntry, PointsToGraph
+        from .points_to import HeapValueSnapshot, PointsToEntry, PointsToGraph
 
         entries: dict[HeapLocation, PointsToEntry] = {}
         for obj_key, obj in self._objects.items():
@@ -1103,15 +1107,11 @@ class HeapAbstraction:
             if location in entries:
                 continue
             ref_count = self.reference_count_for_root(obj)
-            escaped = (
-                obj in self._escaped_objects
-                or obj.escape
-                in {
-                    HeapEscapeState.ESCAPED,
-                    HeapEscapeState.EXTERNAL,
-                    HeapEscapeState.UNKNOWN,
-                }
-            )
+            escaped = obj in self._escaped_objects or obj.escape in {
+                HeapEscapeState.ESCAPED,
+                HeapEscapeState.EXTERNAL,
+                HeapEscapeState.UNKNOWN,
+            }
             entries[location] = PointsToEntry(
                 location=location,
                 label=self.display_label_for_location(location),
@@ -1124,9 +1124,7 @@ class HeapAbstraction:
                 identity=obj.identity,
             )
         values = getattr(state, "values", {}) if state is not None else {}
-        contaminants = (
-            getattr(state, "contaminants", {}) if state is not None else {}
-        )
+        contaminants = getattr(state, "contaminants", {}) if state is not None else {}
         point_values: dict[int, tuple[dict, dict]] = {}
         point_contaminants: dict[int, tuple[dict, dict]] = {}
         point_absent: dict[int, tuple[frozenset, frozenset]] = {}
@@ -1154,10 +1152,7 @@ class HeapAbstraction:
                 result.setdefault((key[0], name), set()).update(
                     self.location_for_raw(raw) for raw in storage
                 )
-            return {
-                key: frozenset(locations)
-                for key, locations in result.items()
-            }
+            return {key: frozenset(locations) for key, locations in result.items()}
 
         def payloads(mapping) -> dict[int, frozenset[HeapLocation]]:
             return {
@@ -1170,6 +1165,7 @@ class HeapAbstraction:
                 id(procedure): tuple(frozenset(slot) for slot in slots)
                 for procedure, slots in mapping.items()
             }
+
         for key, pair in (program_point_states or {}).items():
             before, after = pair
             before_heap = heap_state(before)
@@ -1187,11 +1183,15 @@ class HeapAbstraction:
             point_contaminants[key] = (
                 {
                     location: frozenset(stored)
-                    for location, stored in getattr(before_heap, "contaminants", {}).items()
+                    for location, stored in getattr(
+                        before_heap, "contaminants", {}
+                    ).items()
                 },
                 {
                     location: frozenset(stored)
-                    for location, stored in getattr(after_heap, "contaminants", {}).items()
+                    for location, stored in getattr(
+                        after_heap, "contaminants", {}
+                    ).items()
                 },
             )
             point_absent[key] = (
@@ -1212,7 +1212,9 @@ class HeapAbstraction:
                 label: HeapValueSnapshot(
                     values={
                         location: frozenset(stored)
-                        for location, stored in getattr(heap_state(outcome), "values", {}).items()
+                        for location, stored in getattr(
+                            heap_state(outcome), "values", {}
+                        ).items()
                     },
                     contaminants={
                         location: frozenset(stored)
@@ -1242,19 +1244,15 @@ class HeapAbstraction:
             entries=entries,
             allow_strong_nested_fresh=self.policy.allow_strong_nested_fresh,
             heap_values={
-                location: frozenset(stored)
-                for location, stored in values.items()
+                location: frozenset(stored) for location, stored in values.items()
             },
             heap_contaminants={
-                location: frozenset(stored)
-                for location, stored in contaminants.items()
+                location: frozenset(stored) for location, stored in contaminants.items()
             },
             program_point_values=point_values,
             program_point_contaminants=point_contaminants,
             heap_absent=frozenset(getattr(state, "absent", ())),
-            heap_scalar_present=frozenset(
-                getattr(state, "scalar_present", ())
-            ),
+            heap_scalar_present=frozenset(getattr(state, "scalar_present", ())),
             complete_roots=frozenset(getattr(state, "complete_roots", ())),
             program_point_absent=point_absent,
             program_point_scalar_present=point_scalar_present,
@@ -1508,16 +1506,16 @@ class HeapAbstraction:
 
     @staticmethod
     def _subscript_literal(subscript: str) -> str | None:
-        if len(subscript) < 3 or not subscript.startswith("[") or not subscript.endswith("]"):
+        if (
+            len(subscript) < 3
+            or not subscript.startswith("[")
+            or not subscript.endswith("]")
+        ):
             return None
         inner = subscript[1:-1]
         if not inner or inner == "*":
             return None
-        if (
-            len(inner) >= 2
-            and inner[0] == inner[-1]
-            and inner[0] in {"'", '"'}
-        ):
+        if len(inner) >= 2 and inner[0] == inner[-1] and inner[0] in {"'", '"'}:
             return inner[1:-1]
         return inner
 

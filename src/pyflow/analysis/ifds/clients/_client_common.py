@@ -9,9 +9,9 @@ from pyflow.application.errors import TemporaryLimitation
 from pyflow.analysis.cfg import graph as cfg_graph
 from pyflow.language.python import ast as py_ast
 
-from ...alias.flow_sensitive.abstraction import HeapAbstraction
+from ...alias.flow_sensitive.domain.abstraction import HeapAbstraction
 from ...alias.flow_sensitive.model import HeapLocation
-from ...alias.flow_sensitive.heap_effects import (
+from ...alias.flow_sensitive.semantics.effects import (
     CALL_RETURN_COPY,
     CALL_RETURN_FRESH,
     CALL_RETURN_OPAQUE,
@@ -19,8 +19,14 @@ from ...alias.flow_sensitive.heap_effects import (
     HeapEffect,
     HeapEffectBuilder,
 )
-from ...alias.flow_sensitive.heap_summary import HeapSummary, HeapSummaryBuilder
-from ..cfg_adapter import CFGNode, CFGSupergraphAdapter, CallEffect, GuardEffect, assigned_locals
+from ...alias.flow_sensitive.domain.summary import HeapSummary, HeapSummaryBuilder
+from ..cfg_adapter import (
+    CFGNode,
+    CFGSupergraphAdapter,
+    CallEffect,
+    GuardEffect,
+    assigned_locals,
+)
 from ..transfers import (
     actual_argument_expressions,
     bind_call_arguments,
@@ -126,13 +132,17 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
             heap.update_assignment_aliases(procedure, targets, expr)
         self._site_counter = heap.next_site
 
-    def _locations_for_local(self, procedure: cfg_graph.Code, local: object) -> tuple[object, ...]:
+    def _locations_for_local(
+        self, procedure: cfg_graph.Code, local: object
+    ) -> tuple[object, ...]:
         heap = self._heap()
         locations = heap.locations_for_local(procedure, local)
         self._site_counter = heap.next_site
         return locations
 
-    def _locations_for_local_raw(self, procedure: cfg_graph.Code, local: object) -> tuple[object, ...]:
+    def _locations_for_local_raw(
+        self, procedure: cfg_graph.Code, local: object
+    ) -> tuple[object, ...]:
         del procedure
         refs = getattr(getattr(local, "annotation", None), "references", None)
         return self._annotation_locations(refs)
@@ -201,11 +211,15 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
         procedure: cfg_graph.Code,
         operation: object,
     ) -> HeapEffect:
-        return self._heap_effect_builder().operation_semantics(
-            procedure,
-            operation,
-            collection_mutator_names=self._collection_mutator_names(),
-        ).effect
+        return (
+            self._heap_effect_builder()
+            .operation_semantics(
+                procedure,
+                operation,
+                collection_mutator_names=self._collection_mutator_names(),
+            )
+            .effect
+        )
 
     def _heap_summary_for_procedure(self, procedure: cfg_graph.Code) -> HeapSummary:
         key = id(procedure)
@@ -241,7 +255,9 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
             else ()
         )
         strong_dynamic_kills = (
-            self._strong_dynamic_write_locations_for_operation(node.procedure, operation)
+            self._strong_dynamic_write_locations_for_operation(
+                node.procedure, operation
+            )
             if include_semantic
             else ()
         )
@@ -349,7 +365,9 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
         for actual, formal in self._bind_call_arguments_for_callee(call_node, callee):
             actual_locations = tuple(
                 location
-                for location in self._locations_read_by_node(call_node.procedure, actual)
+                for location in self._locations_read_by_node(
+                    call_node.procedure, actual
+                )
                 if location is not None
             )
             heap.bind_parameter(
@@ -529,7 +547,9 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
         return self._facts_for_locals(procedure, (locals_[result_index],))
 
     def _facts_for_return_location(
-        self, procedure: cfg_graph.Code, index: int,
+        self,
+        procedure: cfg_graph.Code,
+        index: int,
         access_path: tuple[str, ...] = (),
     ) -> set[FactT]:
         returnparams = tuple(procedure.code.codeparameters.returnparams)
@@ -538,11 +558,15 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
         if not access_path:
             return self._facts_for_locals(procedure, (returnparams[index],))
         return self._facts_for_locals_with_path(
-            procedure, (returnparams[index],), access_path,
+            procedure,
+            (returnparams[index],),
+            access_path,
         )
 
     def _facts_for_expression_node(
-        self, procedure: cfg_graph.Code, current: object,
+        self,
+        procedure: cfg_graph.Code,
+        current: object,
         extend_paths: bool = False,
     ) -> tuple[FactT, ...]:
         if current is None or isinstance(current, py_ast.leafTypes):
@@ -550,7 +574,9 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
         if extend_paths and isinstance(current, py_ast.GetAttr):
             attr = self._path_component(current.name)
             base = self._facts_for_expression_node(
-                procedure, current.expr, extend_paths=True,
+                procedure,
+                current.expr,
+                extend_paths=True,
             )
             return tuple(
                 self._make_location_fact_with_path(
@@ -603,9 +629,7 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
         ):
             if not nested:
                 facts = {
-                    self._make_expression_fact(
-                        procedure, call_expression, return_index
-                    )
+                    self._make_expression_fact(procedure, call_expression, return_index)
                 }
                 if self._heap().policy.bind_call_results:
                     facts.update(
@@ -621,12 +645,13 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
                 assigned_locals(operation),
                 return_index,
             )
-        if isinstance(operation, py_ast.AnnAssign) and operation.value is call_expression:
+        if (
+            isinstance(operation, py_ast.AnnAssign)
+            and operation.value is call_expression
+        ):
             if not nested:
                 facts = {
-                    self._make_expression_fact(
-                        procedure, call_expression, return_index
-                    )
+                    self._make_expression_fact(procedure, call_expression, return_index)
                 }
                 if self._heap().policy.bind_call_results:
                     facts.update(
@@ -645,26 +670,33 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
 
         if isinstance(operation, py_ast.Return):
             if not nested:
-                return {self._make_expression_fact(procedure, call_expression, return_index)}
+                return {
+                    self._make_expression_fact(procedure, call_expression, return_index)
+                }
             target_index = self._call_result_target_index(
                 operation, call_expression, return_index
             )
             if target_index is not None:
                 return self._facts_for_return_location(procedure, target_index)
 
-        if isinstance(
-            operation,
-            (
-                py_ast.SetAttr,
-                py_ast.SetSubscript,
-                py_ast.SetSlice,
-                py_ast.SetGlobal,
-                py_ast.SetCellDeref,
-                py_ast.Store,
-            ),
-        ) and getattr(operation, "value", None) is call_expression:
+        if (
+            isinstance(
+                operation,
+                (
+                    py_ast.SetAttr,
+                    py_ast.SetSubscript,
+                    py_ast.SetSlice,
+                    py_ast.SetGlobal,
+                    py_ast.SetCellDeref,
+                    py_ast.Store,
+                ),
+            )
+            and getattr(operation, "value", None) is call_expression
+        ):
             if not nested:
-                return {self._make_expression_fact(procedure, call_expression, return_index)}
+                return {
+                    self._make_expression_fact(procedure, call_expression, return_index)
+                }
             return self._facts_for_modified_operation(operation, procedure=procedure)
 
         for child in self._nested_operations(operation):
@@ -695,7 +727,10 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
             and operation.expr is call_expression
         ):
             targets = assigned_locals(operation)
-        elif isinstance(operation, py_ast.AnnAssign) and operation.value is call_expression:
+        elif (
+            isinstance(operation, py_ast.AnnAssign)
+            and operation.value is call_expression
+        ):
             targets = assigned_locals(operation)
         else:
             return
@@ -759,7 +794,10 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
             and operation.expr is call_expression
         ):
             targets = assigned_locals(operation)
-        elif isinstance(operation, py_ast.AnnAssign) and operation.value is call_expression:
+        elif (
+            isinstance(operation, py_ast.AnnAssign)
+            and operation.value is call_expression
+        ):
             targets = assigned_locals(operation)
         else:
             return
@@ -779,7 +817,10 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
         if location is None:
             return None
         for index, local in enumerate(procedure.code.codeparameters.returnparams):
-            if any(candidate == location for candidate in self._locations_for_local(procedure, local)):
+            if any(
+                candidate == location
+                for candidate in self._locations_for_local(procedure, local)
+            ):
                 return index
         return None
 
@@ -803,10 +844,14 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
     ) -> tuple[object, ...]:
         if operation is None:
             return ()
-        if isinstance(operation, (py_ast.Assign, py_ast.UnpackSequence, py_ast.AnnAssign)):
+        if isinstance(
+            operation, (py_ast.Assign, py_ast.UnpackSequence, py_ast.AnnAssign)
+        ):
             return tuple(
                 location
-                for fact in self._facts_for_locals(procedure, assigned_locals(operation))
+                for fact in self._facts_for_locals(
+                    procedure, assigned_locals(operation)
+                )
                 for location in (self._location_from_fact(fact),)
                 if location is not None
             )
@@ -859,14 +904,21 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
         ):
             return tuple(
                 location
-                for fact in self._facts_for_locals(procedure, assigned_locals(operation))
+                for fact in self._facts_for_locals(
+                    procedure, assigned_locals(operation)
+                )
                 for location in (self._location_from_fact(fact),)
                 if location is not None
             )
-        if isinstance(operation, py_ast.AnnAssign) and operation.value is call_expression:
+        if (
+            isinstance(operation, py_ast.AnnAssign)
+            and operation.value is call_expression
+        ):
             return tuple(
                 location
-                for fact in self._facts_for_locals(procedure, assigned_locals(operation))
+                for fact in self._facts_for_locals(
+                    procedure, assigned_locals(operation)
+                )
                 for location in (self._location_from_fact(fact),)
                 if location is not None
             )
@@ -934,7 +986,9 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
             dict.fromkeys(
                 (
                     *self._annotation_locations(
-                        getattr(getattr(operation, "annotation", None), "opModifies", None)
+                        getattr(
+                            getattr(operation, "annotation", None), "opModifies", None
+                        )
                     ),
                     *self._static_attribute_write_locations(procedure, operation),
                 )
@@ -1181,7 +1235,9 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
                     subscripts = (subscript, DYNAMIC_SUBSCRIPT_WILDCARD)
                 writes.append(
                     (
-                        self._collection_constructor_locations(target_locations, subscripts),
+                        self._collection_constructor_locations(
+                            target_locations, subscripts
+                        ),
                         value,
                     )
                 )
@@ -1208,7 +1264,10 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
             return ()
 
         source_location = self._location_from_fact(fact)
-        if not isinstance(source_location, HeapLocation) or not source_location.is_nested():
+        if (
+            not isinstance(source_location, HeapLocation)
+            or not source_location.is_nested()
+        ):
             return ()
 
         expr_bases = self._locations_read_by_node(procedure, expr)
@@ -1240,8 +1299,7 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
 
         source_location = self._location_from_fact(fact)
         if not (
-            isinstance(source_location, HeapLocation)
-            and source_location.selectors
+            isinstance(source_location, HeapLocation) and source_location.selectors
         ):
             return ()
 
@@ -1306,11 +1364,7 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
             container = actuals[0]
             key = actuals[1] if len(actuals) > 1 else None
 
-        subscript = (
-            self._constant_subscript(key)
-            if key is not None
-            else None
-        )
+        subscript = self._constant_subscript(key) if key is not None else None
         subscripts = (DYNAMIC_SUBSCRIPT_WILDCARD,)
         if subscript is not None:
             subscripts = (subscript, DYNAMIC_SUBSCRIPT_WILDCARD)
@@ -1339,11 +1393,15 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
         self, expr: object
     ) -> py_ast.PythonASTNode | None:
         candidate = expr
-        if not isinstance(candidate, (py_ast.DirectCall, py_ast.Call, py_ast.MethodCall)):
+        if not isinstance(
+            candidate, (py_ast.DirectCall, py_ast.Call, py_ast.MethodCall)
+        ):
             wrapped = getattr(expr, "expr", None)
             if isinstance(wrapped, (py_ast.DirectCall, py_ast.Call, py_ast.MethodCall)):
                 candidate = wrapped
-        if not isinstance(candidate, (py_ast.DirectCall, py_ast.Call, py_ast.MethodCall)):
+        if not isinstance(
+            candidate, (py_ast.DirectCall, py_ast.Call, py_ast.MethodCall)
+        ):
             return None
         return candidate
 
@@ -1367,7 +1425,9 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
         if isinstance(node, (py_ast.GetGlobal, py_ast.GetCellDeref)):
             return self._annotation_locations(getattr(node.annotation, "opReads", None))
         annotation = getattr(node, "annotation", None)
-        locations = list(self._annotation_locations(getattr(annotation, "opReads", None)))
+        locations = list(
+            self._annotation_locations(getattr(annotation, "opReads", None))
+        )
         locations.extend(self._static_attribute_read_locations(procedure, node))
         locations.extend(self._dynamic_getattr_locations(procedure, node))
         locations.extend(self._dynamic_subscript_read_locations(procedure, node))
@@ -1392,7 +1452,9 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
     def _canonical_location(self, location: object) -> object:
         return self._heap().location_for_raw(location)
 
-    def _canonical_locations(self, locations: Iterable[object]) -> tuple[HeapLocation, ...]:
+    def _canonical_locations(
+        self, locations: Iterable[object]
+    ) -> tuple[HeapLocation, ...]:
         return tuple(self._heap().location_for_raw(location) for location in locations)
 
     def _call_name(self, node: CFGNode) -> str | None:

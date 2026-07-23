@@ -6,9 +6,9 @@ from dataclasses import dataclass, field
 
 from pyflow.language.python import ast as py_ast
 
-from .model import HeapLocation, HeapObject, HeapWrite
-from .heap_state import HeapState
-from .heap_effects import HeapEffectBuilder
+from ..model import HeapLocation, HeapObject, HeapWrite
+from ..semantics.effects import HeapEffectBuilder
+from .state import HeapState
 
 
 @dataclass(frozen=True)
@@ -53,25 +53,29 @@ class HeapSummary:
             deletes=tuple(dict.fromkeys((*self.deletes, *other.deletes))),
             escapes=tuple(dict.fromkeys((*self.escapes, *other.escapes))),
             returns=tuple(dict.fromkeys((*self.returns, *other.returns))),
-            allocations=tuple(
-                dict.fromkeys((*self.allocations, *other.allocations))
-            ),
+            allocations=tuple(dict.fromkeys((*self.allocations, *other.allocations))),
         )
 
     def strong_write_locations(self) -> tuple[HeapLocation, ...]:
         return tuple(
             dict.fromkeys(
-                write.location for write in self.writes if write.policy.value == "strong"
+                write.location
+                for write in self.writes
+                if write.policy.value == "strong"
             )
         )
 
     def __repr__(self) -> str:
         nz = {
-            k: len(v) for k, v in (
-                ("r", self.reads), ("w", self.writes),
-                ("d", self.deletes), ("e", self.escapes),
+            k: len(v)
+            for k, v in (
+                ("r", self.reads),
+                ("w", self.writes),
+                ("d", self.deletes),
+                ("e", self.escapes),
                 ("ret", self.returns),
-            ) if v
+            )
+            if v
         }
         detail = " ".join(f"{k}={c}" for k, c in sorted(nz.items()))
         n_alloc = len(self.allocations)
@@ -134,7 +138,10 @@ class ProcedureHeapSummary:
             deletes=tuple(dict.fromkeys((*self.deletes, *other.deletes))),
             param_returns={
                 index: frozenset(
-                    (*self.param_returns.get(index, ()), *other.param_returns.get(index, ()))
+                    (
+                        *self.param_returns.get(index, ()),
+                        *other.param_returns.get(index, ()),
+                    )
                 )
                 for index in set(self.param_returns) | set(other.param_returns)
             },
@@ -151,8 +158,7 @@ class ProcedureHeapSummary:
             "raises_normally": self.raise_state is not None,
             "deletes": [loc.to_dict() for loc in self.deletes],
             "returns": [
-                [location.to_dict() for location in slot]
-                for slot in self.returns
+                [location.to_dict() for location in slot] for slot in self.returns
             ],
             "raises": [location.to_dict() for location in self.raises],
             "yields": [location.to_dict() for location in self.yields],
@@ -239,9 +245,7 @@ class HeapSummaryBuilder:
                     if kind != "normal":
                         next_paths.append((kind, deletes))
                     else:
-                        next_paths.extend(
-                            self._delete_exits(procedure, block, deletes)
-                        )
+                        next_paths.extend(self._delete_exits(procedure, block, deletes))
                 paths = next_paths
             return paths
         if isinstance(node, py_ast.Switch):

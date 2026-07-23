@@ -84,18 +84,35 @@ objects/callees and do not need per-program-point update semantics.
 
 ```text
 flow_sensitive/
-├── __init__.py          # Public exports
-├── model.py             # Heap objects, locations, selectors, policies, writes
-├── abstraction.py       # Canonicalization, alias classes, escape/update policy
-├── heap_effects.py      # IR operation -> read/write/delete/escape effects
-├── heap_state.py        # Flow-sensitive value state for transfer
-├── heap_summary.py      # Procedure-level summary helpers
-├── transfer.py          # Standalone forward transfer engine
-├── points_to_graph.py   # Read-only query snapshot
-├── intrinsics.py        # Built-in call and collection mutation models
-├── heap_analysis.py     # High-level HeapAnalysis facade
-└── README.md            # This file
+├── __init__.py            # Public exports
+├── model/                 # Foundational heap value objects and policies
+│   ├── __init__.py        # Compatibility exports for .model imports
+│   ├── objects.py         # Heap roots, identity, cardinality, and escape state
+│   ├── locations.py       # Selectors, locations, and write descriptors
+│   └── policy.py          # Precision and update policies
+├── domain/                # Mutable domain state and read-only snapshots
+│   ├── abstraction.py     # Canonicalization, aliases, and escape policy
+│   ├── state.py           # Flow-sensitive value state
+│   ├── summary.py         # Procedure-level summary helpers
+│   └── points_to.py       # Read-only query snapshot
+├── semantics/             # Python operation and library behavior models
+│   ├── effects.py         # IR operation -> heap effects
+│   └── intrinsics.py      # Built-in call and collection models
+├── transfer/              # Forward transfer implementation
+│   ├── __init__.py        # HeapTransferEngine export
+│   ├── engine.py          # Traversal, control flow, and state joins
+│   ├── state.py           # Shared flow outcomes and call-summary records
+│   ├── operations.py      # Expression and operation transfer mixin
+│   ├── definitions.py     # Definitions and external boundaries
+│   ├── calls.py           # Call binding and interprocedural summaries
+│   ├── classes.py         # Known classes, descriptors, and protocols
+│   └── deferred.py        # Deferred activations and result copying
+├── heap_analysis.py       # High-level HeapAnalysis facade
+└── README.md              # This file
 ```
+
+Historical module paths such as ``flow_sensitive.heap_effects`` remain
+available as compatibility aliases.
 
 ## Main Entry Points
 
