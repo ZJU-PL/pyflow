@@ -1,4 +1,4 @@
-"""Local supply-chain analysis helpers.
+"""Local supply-chain scanning engine.
 
 This module intentionally works only from local files and package metadata. It
 does not query package indexes, so generated SBOMs are reproducible offline.
@@ -8,13 +8,11 @@ from __future__ import annotations
 
 import base64
 import csv
-import datetime as _datetime
 import hashlib
 import json
 import os
 import tarfile
 import tempfile
-import uuid
 import zipfile
 from dataclasses import dataclass, field
 from email.parser import Parser
@@ -103,38 +101,60 @@ def scan_targets(
     )
 
 
-def build_cyclonedx_document(scan: SupplyChainScan) -> dict[str, Any]:
-    """Build a CycloneDX 1.3 JSON document from a local scan."""
-
-    return {
-        "bomFormat": "CycloneDX",
-        "specVersion": "1.3",
-        "serialNumber": f"urn:uuid:{uuid.uuid4()}",
-        "version": 1,
-        "metadata": {
-            "timestamp": _datetime.datetime.now(_datetime.timezone.utc)
-            .replace(microsecond=0)
-            .isoformat()
-            .replace("+00:00", "Z"),
-            "tools": [{"vendor": "PyFlow", "name": "pyflow", "version": "0.1.0"}],
-        },
-        "components": list(scan.components),
-    }
+_DEFAULT_ALLOWED_LICENSES: frozenset[str] = frozenset({
+    "MIT", "Apache-2.0", "BSD-2-Clause", "BSD-3-Clause", "Python-2.0",
+    "LGPL-2.1", "LGPL-2.1-only", "LGPL-2.1-or-later", "LGPL-3.0",
+    "LGPL-3.0-only", "LGPL-3.0-or-later", "MPL-2.0", "Unlicense",
+    "CC0-1.0", "ISC", "Zlib", "PSF-2.0", "PostgreSQL",
+})
 
 
-def format_findings_text(scan: SupplyChainScan) -> str:
-    """Render local supply-chain findings for humans."""
+def audit_license_policy(
+    scan: SupplyChainScan,
+    *,
+    allowed_licenses: Iterable[str] | None = None,
+) -> tuple[SupplyChainFinding, ...]:
+    """Check scanned components against a license allowlist.
 
-    if not scan.findings:
-        return "No supply-chain findings."
-    lines = [f"Found {len(scan.findings)} supply-chain finding(s):", ""]
-    for finding in scan.findings:
-        lines.append(f"[{finding.severity}] {finding.kind}: {finding.message}")
-        lines.append(f"  location: {finding.location}")
-        if finding.details:
-            lines.append(f"  details: {json.dumps(finding.details, sort_keys=True)}")
-        lines.append("")
-    return "\n".join(lines).rstrip()
+    Components with no declared license or a license outside the allowed
+    set produce findings.  Uses a built-in default allowlist unless
+    ``allowed_licenses`` is explicitly provided.
+    """
+
+    allowed = frozenset(allowed_licenses) if allowed_licenses is not None else _DEFAULT_ALLOWED_LICENSES
+    findings: list[SupplyChainFinding] = []
+
+    for comp in scan.components:
+        name = comp.get("name", "")
+        purl = comp.get("purl", name)
+        licenses = comp.get("licenses", [])
+
+        if not licenses:
+            findings.append(
+                SupplyChainFinding(
+                    kind="license-not-declared",
+                    message=f"Component {name} has no declared license",
+                    location=purl,
+                    severity="LOW",
+                )
+            )
+            continue
+
+        for lic in licenses:
+            inner = lic.get("license", {})
+            lid = inner.get("id") or inner.get("name")
+            if lid and lid not in allowed:
+                findings.append(
+                    SupplyChainFinding(
+                        kind="license-not-allowed",
+                        message=f"License {lid} for {name} is not in the allowed list",
+                        location=purl,
+                        severity="MEDIUM",
+                        details={"license": lid, "component": name},
+                    )
+                )
+
+    return tuple(findings)
 
 
 def _scan_path(

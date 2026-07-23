@@ -6,7 +6,13 @@ import json
 import zipfile
 from base64 import urlsafe_b64encode
 
-from pyflow.checker.supply_chain import build_cyclonedx_document, scan_targets
+from pyflow.checker.supply_chain import (
+    audit_license_policy,
+    build_cyclonedx_document,
+    build_requirements_text,
+    build_spdx_document,
+    scan_targets,
+)
 
 
 def test_sbom_from_dist_info_metadata(tmp_path):
@@ -91,6 +97,79 @@ def test_record_audit_reports_invalid_hash(tmp_path):
     scan = scan_targets([tmp_path], recursive=True)
 
     assert any(finding.kind == "record-invalid-hash" for finding in scan.findings)
+
+
+def test_build_requirements_text_formats_components(tmp_path):
+    (tmp_path / "requirements.txt").write_text(
+        "requests==2.31.0\nflask>=3\n", encoding="utf-8"
+    )
+    scan = scan_targets([tmp_path], recursive=True)
+    text = build_requirements_text(scan)
+    assert "requests==2.31.0" in text
+    assert "flask" in text
+    assert "\n" in text
+
+
+def test_build_spdx_document_outputs_valid_structure(tmp_path):
+    dist_info = tmp_path / "Demo_Pkg-1.2.3.dist-info"
+    dist_info.mkdir()
+    (dist_info / "METADATA").write_text(
+        "Name: Demo_Pkg\nVersion: 1.2.3\nLicense: MIT\n",
+        encoding="utf-8",
+    )
+    _write_record(dist_info, [dist_info / "METADATA"])
+
+    scan = scan_targets([tmp_path], recursive=True)
+    doc = build_spdx_document(scan)
+
+    assert doc["spdxVersion"] == "SPDX-2.2"
+    assert doc["dataLicense"] == "CC0-1.0"
+    assert len(doc["packages"]) == 1
+    pkg = doc["packages"][0]
+    assert pkg["name"] == "demo-pkg"
+    assert pkg["versionInfo"] == "1.2.3"
+    assert pkg["licenseDeclared"] == "MIT"
+    assert pkg["SPDXID"].startswith("SPDXRef-")
+
+
+def test_audit_license_policy_reports_unlicensed_and_disallowed(tmp_path):
+    (tmp_path / "requirements.txt").write_text(
+        "requests==2.31.0\nflask>=3\n", encoding="utf-8"
+    )
+    scan = scan_targets([tmp_path], recursive=True)
+    findings = audit_license_policy(scan)
+
+    kinds = {f.kind for f in findings}
+    assert "license-not-declared" in kinds
+    assert all(f.location.startswith("pkg:pypi/") for f in findings)
+
+
+def test_audit_license_policy_allows_custom_list(tmp_path):
+    dist_info = tmp_path / "pkg-1.0.0.dist-info"
+    dist_info.mkdir()
+    (dist_info / "METADATA").write_text(
+        "Name: pkg\nVersion: 1.0.0\nLicense: MIT\n",
+        encoding="utf-8",
+    )
+    _write_record(dist_info, [dist_info / "METADATA"])
+
+    scan = scan_targets([tmp_path], recursive=True)
+    findings = audit_license_policy(scan, allowed_licenses=["MIT"])
+    assert not findings
+
+
+def test_audit_license_policy_flags_disallowed_license(tmp_path):
+    dist_info = tmp_path / "pkg-1.0.0.dist-info"
+    dist_info.mkdir()
+    (dist_info / "METADATA").write_text(
+        "Name: pkg\nVersion: 1.0.0\nLicense: Proprietary\n",
+        encoding="utf-8",
+    )
+    _write_record(dist_info, [dist_info / "METADATA"])
+
+    scan = scan_targets([tmp_path], recursive=True)
+    findings = audit_license_policy(scan, allowed_licenses=["MIT"])
+    assert any(f.kind == "license-not-allowed" for f in findings)
 
 
 def _write_record(dist_info, files):

@@ -8,7 +8,11 @@ from pathlib import Path
 from typing import Any
 
 from pyflow.checker.supply_chain import (
+    SupplyChainScan,
+    audit_license_policy,
     build_cyclonedx_document,
+    build_requirements_text,
+    build_spdx_document,
     format_findings_text,
     scan_targets,
 )
@@ -24,13 +28,14 @@ def add_supply_chain_parser(subparsers: Any) -> None:
 
     sbom = child.add_parser(
         "sbom",
-        help="Generate a local CycloneDX SBOM",
-        description="Generate a CycloneDX SBOM from local package metadata and manifests.",
+        help="Generate a local SBOM (CycloneDX, SPDX, or requirements.txt)",
+        description="Generate an SBOM from local package metadata and manifests. "
+        "Supports CycloneDX JSON, SPDX 2.2 JSON, and requirements.txt output.",
     )
     _add_common_args(sbom)
     sbom.add_argument(
         "--format",
-        choices=["cyclonedx-json", "json"],
+        choices=["cyclonedx-json", "spdx-json", "requirements"],
         default="cyclonedx-json",
         help="SBOM output format",
     )
@@ -46,6 +51,12 @@ def add_supply_chain_parser(subparsers: Any) -> None:
         choices=["text", "json"],
         default="text",
         help="Audit output format",
+    )
+    audit.add_argument(
+        "--license-policy",
+        metavar="FILE",
+        type=Path,
+        help="JSON file with a list of allowed license IDs (default: built-in allowlist)",
     )
 
 
@@ -65,22 +76,43 @@ def run_supply_chain(args: Any) -> int:
         output = out_file or sys.stdout
 
         if args.supply_chain_command == "sbom":
-            json.dump(build_cyclonedx_document(scan), output, indent=2)
-            output.write("\n")
+            fmt = args.format
+            if fmt == "requirements":
+                output.write(build_requirements_text(scan))
+            elif fmt == "spdx-json":
+                json.dump(build_spdx_document(scan), output, indent=2)
+                output.write("\n")
+            else:
+                json.dump(build_cyclonedx_document(scan), output, indent=2)
+                output.write("\n")
             return 0
 
         if args.supply_chain_command == "audit":
+            findings = list(scan.findings)
+
+            license_policy_path = getattr(args, "license_policy", None)
+            if license_policy_path is not None:
+                allowed = _load_license_policy(license_policy_path)
+                findings.extend(audit_license_policy(scan, allowed_licenses=allowed))
+            elif scan.components:
+                findings.extend(audit_license_policy(scan))
+
             if args.format == "json":
                 json.dump(
-                    {"results": [finding.to_dict() for finding in scan.findings]},
+                    {"results": [f.to_dict() for f in findings]},
                     output,
                     indent=2,
                 )
                 output.write("\n")
             else:
-                output.write(format_findings_text(scan))
+                # Rebuild a Scan-like container for formatting
+                formatted = SupplyChainScan(
+                    components=scan.components,
+                    findings=tuple(findings),
+                )
+                output.write(format_findings_text(formatted))
                 output.write("\n")
-            return 1 if scan.findings else 0
+            return 1 if findings else 0
     finally:
         if out_file:
             out_file.close()
@@ -112,3 +144,11 @@ def _add_common_args(parser: Any) -> None:
 
 def _parse_exclude(exclude: str) -> tuple[str, ...]:
     return tuple(item.strip() for item in exclude.split(",") if item.strip())
+
+
+def _load_license_policy(path: Path) -> list[str]:
+    """Load an allowed-license list from a JSON file."""
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if isinstance(data, list):
+        return [str(item) for item in data]
+    raise SystemExit(f"License policy file must be a JSON array of license IDs, got {type(data).__name__}")
