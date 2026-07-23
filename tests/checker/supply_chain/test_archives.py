@@ -5,6 +5,7 @@ import random
 import stat
 import tarfile
 import zipfile
+from pathlib import Path
 
 from pyflow.checker.supply_chain import ScanLimits, scan_targets
 
@@ -203,6 +204,6 @@ def test_record_audit_uses_top_level_metadata_for_owned_files(tmp_path):
 
     assert any(
         finding.kind == "record-unlisted-owned-file"
-        and finding.location.endswith("demo/injected.py")
+        and Path(finding.location).parts[-2:] == ("demo", "injected.py")
         for finding in findings
     )

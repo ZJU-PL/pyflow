@@ -84,4 +84,4 @@ def test_main_returns_error_for_missing_input(monkeypatch, capsys):
     monkeypatch.setattr(cli_main.sys, "argv", ["pyflow", "optimize", missing])
 
     assert cli_main.main() == 1
-    assert missing in capsys.readouterr().err
+    assert str(Path(missing)) in capsys.readouterr().err

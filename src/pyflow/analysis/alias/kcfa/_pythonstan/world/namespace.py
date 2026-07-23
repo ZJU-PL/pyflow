@@ -206,8 +206,6 @@ class NamespaceManager:
         return None
 
     def _resolve_import_path(self, ns: Namespace) -> Optional[str]:
-        if ns.base() in builtin_module_names():
-            return self.find_ns_in_path(self.paths, ns)
         if not self.mock_libs:
             return self.find_ns_in_path(self.paths, ns)
         if self.prefer_mock_libs:

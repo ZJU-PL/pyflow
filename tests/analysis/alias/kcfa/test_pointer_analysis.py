@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from pyflow.analysis.alias.kcfa import PointerAnalysis
 from pyflow.analysis.alias.kcfa._pythonstan.world.pipeline import Pipeline
 from pyflow.analysis.alias.kcfa._pythonstan.world.namespace import NamespaceManager
@@ -155,13 +157,18 @@ def f():
         assert len(bindings) >= 2
         assert result.points_to("x") == set().union(*(pts for _, pts in bindings))
 
-    def test_pointer_stdlib_stubs_are_resolved_from_vendor_tree(self) -> None:
+    def test_pointer_stdlib_stubs_are_resolved_from_vendor_tree(
+        self, monkeypatch
+    ) -> None:
+        from pyflow.analysis.alias.kcfa._pythonstan.world import namespace
+
+        monkeypatch.setattr(namespace, "builtin_module_names", lambda: {"math"})
         manager = NamespaceManager()
         manager.build("/tmp", [], mock_libs=True, prefer_mock_libs=True)
         resolved = manager.resolve_import("math")
         assert resolved is not None
         _, path = resolved
-        assert "/analysis/alias/kcfa/_pythonstan/stubs/stdlib/math.py" in path
+        assert Path(path).resolve() == manager.mock_root / "math.py"
 
     def test_imported_module_attribute_flows_to_local(self, tmp_path) -> None:
         (tmp_path / "mod.py").write_text("v = object()\n", encoding="utf-8")

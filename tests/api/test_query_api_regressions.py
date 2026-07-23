@@ -1,3 +1,4 @@
+import re
 from types import SimpleNamespace
 
 import pytest
@@ -171,7 +172,10 @@ def test_callgraph_uses_disambiguated_node_ids():
 
     graph = queries.get_callgraph().get()
     assert len(graph.keys()) == 2
-    assert all("@/" in name for name in graph.keys())
+    assert set(graph) == {
+        context.code_identifier(src),
+        context.code_identifier(dst),
+    }
     assert queries.get_callees("foo")
     assert queries.get_callgraph_data() == {
         caller: sorted(callees)
@@ -364,7 +368,10 @@ def test_get_all_cfgs_raises_when_any_cfg_construction_fails(monkeypatch):
 
     monkeypatch.setattr(engine_module.cfg_transform, "evaluate", fake_evaluate)
 
-    with pytest.raises(TemporaryLimitation, match="broken@/tmp/b.py:2"):
+    with pytest.raises(
+        TemporaryLimitation,
+        match=re.escape(context.code_identifier(code_b)),
+    ):
         engine.get_all_cfgs()
 
 
