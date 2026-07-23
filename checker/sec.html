@@ -399,10 +399,15 @@ Object-Oriented Safety
 <li><p><code class="docutils literal notranslate"><span class="pre">scan_targets(targets,</span> <span class="pre">recursive,</span> <span class="pre">exclude)</span></code> — Scan local paths for
 package metadata and produce <code class="docutils literal notranslate"><span class="pre">SupplyChainScan</span></code> containing components and
 findings</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">build_cyclonedx_document(scan)</span></code> — Build a CycloneDX 1.3 JSON document
-from a scan result</p></li>
-<li><p>Scans <code class="docutils literal notranslate"><span class="pre">METADATA</span></code> (PEP 566), <code class="docutils literal notranslate"><span class="pre">pyproject.toml</span></code>, <code class="docutils literal notranslate"><span class="pre">poetry.lock</span></code>, and
-<code class="docutils literal notranslate"><span class="pre">requirements.txt</span></code> files for dependency metadata</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">build_cyclonedx_document(scan)</span></code> — Build and semantically validate a
+CycloneDX 1.7 JSON document</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">build_spdx_document(scan)</span></code> — Build and semantically validate SPDX 2.3</p></li>
+<li><p>Supports <code class="docutils literal notranslate"><span class="pre">METADATA</span></code>, requirements/constraints includes, <code class="docutils literal notranslate"><span class="pre">pyproject.toml</span></code>,
+Poetry/PDM/uv locks, <code class="docutils literal notranslate"><span class="pre">Pipfile.lock</span></code>, <code class="docutils literal notranslate"><span class="pre">pylock.toml</span></code>, <code class="docutils literal notranslate"><span class="pre">setup.cfg</span></code>, and
+statically inspected <code class="docutils literal notranslate"><span class="pre">setup.py</span></code></p></li>
+<li><p>Records source evidence and whether the discovered inventory is complete</p></li>
+<li><p>Resolves PEP 508 markers for a caller-selected runtime and can produce
+content-deterministic SBOM identifiers</p></li>
 </ul>
 </section>
 <section id="distribution-auditing">
@@ -411,9 +416,17 @@ from a scan result</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">RECORD</span></code> integrity verification: validates file existence, hash
 consistency, and detects unlisted files in <code class="docutils literal notranslate"><span class="pre">.dist-info</span></code> directories</p></li>
 <li><p>Archive safety: detects absolute paths, parent-directory traversal
-(<code class="docutils literal notranslate"><span class="pre">../</span></code>), and oversized members in zip, tar, and wheel files</p></li>
+(<code class="docutils literal notranslate"><span class="pre">../</span></code>), links, special files, collisions, compression bombs, nested
+archives, and oversized members in zip, tar, and wheel files</p></li>
 <li><p>Remote requirement detection: flags <code class="docutils literal notranslate"><span class="pre">requirements.txt</span></code> entries using
 remote URLs</p></li>
+<li><p>Offline OSV matching includes disjoint range handling, package indexing,
+snapshot freshness and SHA-256 sidecar enforcement</p></li>
+<li><p>SPDX-aware license policy evaluates <code class="docutils literal notranslate"><span class="pre">AND</span></code>, <code class="docutils literal notranslate"><span class="pre">OR</span></code>, <code class="docutils literal notranslate"><span class="pre">WITH</span></code>, parentheses,
+and allowed exceptions</p></li>
+<li><p>CycloneDX/OpenVEX, in-toto/SLSA provenance, optional Sigstore verification,
+typosquatting checks, expiring exceptions, baselines, and conservative
+source-import reachability evidence are supported</p></li>
 </ul>
 </section>
 <section id="output">
@@ -421,9 +434,14 @@ remote URLs</p></li>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">format_findings_text(scan)</span></code> — Human-readable text output for findings</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">build_cyclonedx_document(scan)</span></code> — CycloneDX JSON for SBOM</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">build_spdx_document(scan)</span></code> — SPDX JSON for SBOM</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">build_sarif_document(scan)</span></code> — SARIF 2.1.0 audit results</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">SupplyChainFinding.to_dict()</span></code> — Structured dict for JSON serialization</p></li>
 </ul>
-<p>All operations work offline from local files.</p>
+<p>Scanning and OSV/VEX/provenance ingestion work offline from local files.
+Production pipelines should pin official SBOM schemas, refresh OSV snapshots,
+require checksum sidecars, and use Sigstore identity verification where signed
+artifacts are expected.</p>
 </section>
 </section>
 <section id="configuration-and-testing">

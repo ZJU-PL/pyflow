@@ -273,9 +273,10 @@ can also dispatch to CPA, IFDS, and CPG-backed security engines.</p>
 <h2>Supply Chain Command<a class="headerlink" href="#supply-chain-command" title="Link to this heading"></a></h2>
 <section id="pyflow-supply-chain">
 <h3><strong>pyflow supply-chain</strong><a class="headerlink" href="#pyflow-supply-chain" title="Link to this heading"></a></h3>
-<p>Local supply-chain analysis for Python packages. Works on local files and
-archives — no package index queries. Generates CycloneDX SBOMs and audits
-distribution metadata for structural issues.</p>
+<p>Offline supply-chain analysis for Python packages. It generates CycloneDX 1.7,
+SPDX 2.3, or requirements inventories and audits dependency metadata,
+archives, installed distributions, licenses, vulnerabilities, VEX, and
+provenance.</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">pyflow</span> <span class="n">supply</span><span class="o">-</span><span class="n">chain</span> <span class="n">sbom</span> <span class="n">package</span><span class="o">/</span>
 <span class="n">pyflow</span> <span class="n">supply</span><span class="o">-</span><span class="n">chain</span> <span class="n">sbom</span> <span class="n">package</span><span class="o">/*.</span><span class="n">whl</span>
 <span class="n">pyflow</span> <span class="n">supply</span><span class="o">-</span><span class="n">chain</span> <span class="n">audit</span> <span class="n">path</span><span class="o">/</span><span class="n">to</span><span class="o">/</span><span class="n">dist</span><span class="o">-</span><span class="n">info</span><span class="o">/</span>
@@ -284,12 +285,13 @@ distribution metadata for structural issues.</p>
 </div>
 <p>Subcommands:</p>
 <dl class="simple">
-<dt><code class="docutils literal notranslate"><span class="pre">sbom</span></code></dt><dd><p>Generate a CycloneDX 1.3 SBOM JSON document from local package metadata
-(METADATA, RECORD, pyproject.toml, poetry.lock, requirements.txt).</p>
+<dt><code class="docutils literal notranslate"><span class="pre">sbom</span></code></dt><dd><p>Generate CycloneDX 1.7, SPDX 2.3, or requirements output. <code class="docutils literal notranslate"><span class="pre">--deterministic</span></code>
+derives document IDs from content and uses <code class="docutils literal notranslate"><span class="pre">SOURCE_DATE_EPOCH</span></code>.
+<code class="docutils literal notranslate"><span class="pre">--schema</span></code> validates JSON output against a pinned local official schema.</p>
 </dd>
-<dt><code class="docutils literal notranslate"><span class="pre">audit</span></code></dt><dd><p>Report structural anomalies in archives (zip/traversal, absolute paths,
-oversized members) and distribution metadata (missing RECORD, hash
-mismatches, unlisted files).</p>
+<dt><code class="docutils literal notranslate"><span class="pre">audit</span></code></dt><dd><p>Report structural anomalies, unsafe dependency sources, license-policy
+violations, local OSV matches, VEX status, provenance failures, and
+possible typosquatting. JSON, text, and SARIF output are supported.</p>
 </dd>
 </dl>
 <p>Common options:</p>
@@ -297,10 +299,25 @@ mismatches, unlisted files).</p>
 <li><p><code class="docutils literal notranslate"><span class="pre">--recursive,</span> <span class="pre">-r</span></code>: Scan directories recursively</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--exclude</span></code>: Comma-separated list of paths to exclude</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--output,</span> <span class="pre">-o</span></code>: Output file (default: stdout)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--python-version</span></code>, <code class="docutils literal notranslate"><span class="pre">--platform</span></code>, <code class="docutils literal notranslate"><span class="pre">--implementation</span></code>: resolve PEP 508
+markers for the target runtime</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--extra</span></code>: select dependency extras during marker evaluation</p></li>
 </ul>
 <p>Audit format:</p>
 <ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">--format</span> <span class="pre">text</span></code> (default) or <code class="docutils literal notranslate"><span class="pre">--format</span> <span class="pre">json</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--format</span> <span class="pre">text</span></code> (default), <code class="docutils literal notranslate"><span class="pre">json</span></code>, or <code class="docutils literal notranslate"><span class="pre">sarif</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--osv-database</span></code> with <code class="docutils literal notranslate"><span class="pre">--osv-max-age-days</span></code> and
+<code class="docutils literal notranslate"><span class="pre">--require-osv-checksum</span></code>: use freshness- and integrity-governed offline OSV
+data</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--vex</span></code>: apply CycloneDX VEX or OpenVEX status</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--policy</span></code> / <code class="docutils literal notranslate"><span class="pre">--baseline</span></code> / <code class="docutils literal notranslate"><span class="pre">--write-baseline</span></code>: manage reviewed,
+expiring finding exceptions</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--attestation</span></code> / <code class="docutils literal notranslate"><span class="pre">--trusted-builder</span></code> / <code class="docutils literal notranslate"><span class="pre">--require-provenance</span></code>:
+verify digest-bound in-toto or SLSA provenance</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--sigstore-bundle</span></code> with certificate identity and issuer options: invoke
+the official Sigstore verifier for a local bundle</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--reachability</span></code>: annotate vulnerabilities with conservative import
+evidence; absence of an import is explicitly not treated as proof of safety</p></li>
 </ul>
 </section>
 </section>
