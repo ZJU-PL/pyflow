@@ -320,9 +320,8 @@ Object-Oriented Safety
 - Coordinates semantic analysis passes (IPA/CPA/lifetime)
 - Feeds analysis results to detectors</p>
 <p><strong>semantic/detectors/</strong>: Semantic-based detectors
-- <strong>taint.py</strong> and <strong>taint2.py</strong>: Taint analysis detectors
-- <strong>null_dereference.py</strong>: Null dereference detection
-- <strong>leak.py</strong>: Leak detection (resource leaks, scope leaks)
+- <strong>semantic_taint.py</strong>: Public semantic taint detector API
+- <strong>_semantic_taint.py</strong>: Taint propagation implementation
 - Uses semantic facts from PyFlow analyses rather than AST patterns</p>
 </section>
 <section id="output-formatters">
