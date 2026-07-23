@@ -3,7 +3,7 @@
 import unittest
 import ast
 import tempfile
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from pyflow.application.context import CompilerContext
 from pyflow.application.program import Program
@@ -272,7 +272,11 @@ class MyClass:
 
     def test_absolute_path_module_name_does_not_include_cwd_prefix(self):
         """Absolute paths outside the repo should not inherit cwd path segments."""
-        self.assertEqual(self.extractor._get_module_name("/tmp/demo/pkg/mod.py"), "mod")
+        # Python 3.13 on Windows returns False for this POSIX-style rooted path.
+        with patch("pyflow.frontend.extractor.os.path.isabs", return_value=False):
+            self.assertEqual(
+                self.extractor._get_module_name("/tmp/demo/pkg/mod.py"), "mod"
+            )
 
     def test_package_init_base_class_resolves_across_modules(self):
         """Classes imported from a package __init__ should participate in MRO."""

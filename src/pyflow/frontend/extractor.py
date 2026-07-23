@@ -285,7 +285,11 @@ class Extractor:
         """
         if filename in ("<string>", "") or filename.startswith("<"):
             return "__main__"
-        if not os.path.isabs(filename):
+        # Python 3.13 no longer considers a single leading slash absolute on
+        # Windows. Source maps may still contain POSIX-style absolute paths,
+        # so recognize that form independently of the host path module.
+        is_absolute = os.path.isabs(filename) or filename.startswith("/")
+        if not is_absolute:
             rel = filename
         else:
             try:
