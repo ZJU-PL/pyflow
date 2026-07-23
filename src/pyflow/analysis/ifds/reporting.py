@@ -9,7 +9,7 @@ from typing import Any, Mapping, Sequence
 
 from pyflow.language.asttools.origin import Origin, SourceOrigin
 
-from .cfg_adapter import CFGNode, CFGSupergraphAdapter
+from .frontend.cfg_adapter import CFGNode, CFGSupergraphAdapter
 
 _SOURCE_TAG = re.compile(r"^source\((.*):(\d+)\)$")
 

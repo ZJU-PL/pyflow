@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from pyflow.analysis.ifds.clients._call_model import (
+from pyflow.analysis.ifds.modeling.calls import (
     STATE_CLOSE,
     STATE_OPEN,
     STATE_USE,

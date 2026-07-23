@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
-import pyflow.cli.security as security_cli
+import pyflow.cli.security.command as security_cli
 from pyflow.checker.formatters import json as json_formatter
 from pyflow.checker.formatters import text as text_formatter
 from pyflow.checker.pattern.core import constants as b_constants
@@ -75,15 +75,6 @@ def test_security_cli_threads_pattern_excludes_into_discover_files(
             return []
 
     monkeypatch.setattr(security_cli, "SecurityManager", FakePatternManager)
-    monkeypatch.setattr(
-        security_cli.text_formatter, "report", lambda *args, **kwargs: None
-    )
-    monkeypatch.setattr(
-        security_cli.json_formatter, "report", lambda *args, **kwargs: None
-    )
-    monkeypatch.setattr(
-        security_cli.sarif_formatter, "report", lambda *args, **kwargs: None
-    )
 
     args = SimpleNamespace(
         recursive=True,
@@ -124,15 +115,6 @@ def test_security_cli_threads_semantic_excludes_into_config(monkeypatch):
             return []
 
     monkeypatch.setattr(security_cli, "SemanticManager", FakeSemanticManager)
-    monkeypatch.setattr(
-        security_cli.text_formatter, "report", lambda *args, **kwargs: None
-    )
-    monkeypatch.setattr(
-        security_cli.json_formatter, "report", lambda *args, **kwargs: None
-    )
-    monkeypatch.setattr(
-        security_cli.sarif_formatter, "report", lambda *args, **kwargs: None
-    )
 
     args = SimpleNamespace(
         recursive=False,

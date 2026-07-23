@@ -16,7 +16,7 @@ import re
 
 import pytest
 
-from pyflow.analysis.typeinfo import typesystem
+from pyflow.analysis.typeinfo.core import typesystem
 
 
 @pytest.mark.parametrize(

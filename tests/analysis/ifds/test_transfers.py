@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pyflow.analysis.ifds.transfers import (
+from pyflow.analysis.ifds.core.transfers import (
     actual_argument_expressions,
     actual_parameters,
     bind_call_arguments,

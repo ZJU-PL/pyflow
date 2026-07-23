@@ -1,6 +1,10 @@
 from __future__ import annotations
 
-from pyflow.analysis.typeinfo import collect_pyflow_type_info, collect_python_type_info
+from pyflow.analysis.typeinfo import (
+    TypeEvidenceIndex,
+    collect_pyflow_type_info,
+    collect_python_type_info,
+)
 from pyflow.language.python import ast
 
 from tests.analysis.ifds._support import make_code
@@ -19,6 +23,7 @@ def f(x: str, *args: bytes, flag: bool = False) -> list[int]:
 
     info = collect_python_type_info(source)
 
+    assert isinstance(info, TypeEvidenceIndex)
     assert info.types_for("Box") == ("Base",)
     assert info.types_for("Box.value") == ("int",)
     assert info.types_for("f") == ("list[int]",)

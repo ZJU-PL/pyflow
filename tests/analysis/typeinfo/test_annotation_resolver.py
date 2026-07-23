@@ -9,15 +9,15 @@ from __future__ import annotations
 
 import pytest
 
-from pyflow.analysis.typeinfo.typesystem import (
+from pyflow.analysis.typeinfo.core.typesystem import (
     CallableType,
     Instance,
     TupleType,
-    TypeInfo,
+    ClassDescriptor,
     TypeVarType,
     UnionType,
 )
-from pyflow.analysis.typeinfo.annotation_resolver import (
+from pyflow.analysis.typeinfo.resolution.annotations import (
     BuiltinTypeLookup,
     resolve_annotation,
     resolve_forward_reference,
@@ -39,19 +39,19 @@ def _make_lookup(*names_and_types: tuple[str, type | Instance | TypeVarType]):
                     return t
                 if isinstance(t, TypeVarType):
                     return t
-                return Instance(TypeInfo(t))
+                return Instance(ClassDescriptor(t))
         return None
 
     return lookup
 
 
-_INT = Instance(TypeInfo(int))
-_STR = Instance(TypeInfo(str))
-_FLOAT = Instance(TypeInfo(float))
-_BOOL = Instance(TypeInfo(bool))
-_LIST = Instance(TypeInfo(list))
-_DICT = Instance(TypeInfo(dict))
-_SET = Instance(TypeInfo(set))
+_INT = Instance(ClassDescriptor(int))
+_STR = Instance(ClassDescriptor(str))
+_FLOAT = Instance(ClassDescriptor(float))
+_BOOL = Instance(ClassDescriptor(bool))
+_LIST = Instance(ClassDescriptor(list))
+_DICT = Instance(ClassDescriptor(dict))
+_SET = Instance(ClassDescriptor(set))
 
 _BASIC_LOOKUP = _make_lookup(
     ("int", int),

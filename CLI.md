@@ -5,7 +5,7 @@ This document matches the current `pyflow` command surface.
 ## Commands
 
 - `optimize`: Run the analysis and optimization pipeline
-- `callgraph`: Build a call graph from a single Python file
+- `callgraph`: Build a call graph from a Python file or project directory
 - `ir`: Dump AST, CFG, SSA, CDG, or DDG forms for specific functions
 - `alias`: Run alias analysis (flow-sensitive heap or k-CFA pointer)
 - `security`: Unified security analysis (dispatches to any of four engines)
@@ -65,15 +65,29 @@ Key options:
 ## Callgraph
 
 ```bash
-pyflow callgraph [OPTIONS] INPUT_FILE
+pyflow callgraph [OPTIONS] INPUT
 ```
 
-`INPUT_FILE` must be a Python file.
+`INPUT` may be a Python file or a project directory.  When given a directory,
+the entry point is auto-detected from ``pyproject.toml``, ``setup.py``,
+``__main__.py``, or well-known filenames (``main.py``, ``app.py``, etc.).
+Use ``--entry`` to override auto-detection.
+
+```bash
+pyflow callgraph input.py
+pyflow callgraph /path/to/project/
+pyflow callgraph /path/to/project/ --entry src/main.py
+pyflow callgraph /path/to/project/ --dry-run
+```
 
 Key options:
+- `--entry`: Entry point file relative to project root (directory input only)
+- `--dry-run`: Print detected entry point without running analysis
 - `--algorithm`, `-a`: `simple`, `constraint`, or `pycg`
 - `--output`, `-o`
 - `--verbose`, `-v`
+- `--skip-stdlib`: Skip standard library modules in constraint analysis (default: on)
+- `--no-skip-stdlib`: Include standard library modules
 - `--context-sensitive`
 - `--context-depth`
 - `--fixpoint-max-iterations`

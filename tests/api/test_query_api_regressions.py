@@ -5,7 +5,7 @@ import pytest
 from pyflow.api.entrypoints import ExistingWrapper, InterfaceDeclaration, nullWrapper
 from pyflow.application.errors import TemporaryLimitation
 from pyflow.analysis.typeinfo import TypeInfoService
-from pyflow.analysis.typeinfo.typesystem import Instance
+from pyflow.analysis.typeinfo.core.typesystem import Instance
 from pyflow.api.queries.call_graph import CallGraphQueries
 from pyflow.api.queries.context import QueryContext
 from pyflow.api.queries.engine import GraphQueryEngine

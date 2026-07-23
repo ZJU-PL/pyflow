@@ -8,7 +8,7 @@ wrapping the various query classes for convenient access.
 from typing import Any, Dict, List, Optional, Union
 
 from pyflow.analysis.typeinfo import TypeFact, TypeInfoService
-from pyflow.analysis.typeinfo.typesystem import ProperType
+from pyflow.analysis.typeinfo.core.typesystem import ProperType
 
 from .call_graph import CallGraphQueries
 from .capabilities import (

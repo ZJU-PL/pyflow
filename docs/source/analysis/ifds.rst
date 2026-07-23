@@ -30,17 +30,31 @@ Key Features
 - **Explanations**: ``trace_mode`` can retain finding paths or all predecessor
   paths for demand-driven explanations
 
-Analysis Clients
-----------------
+Package Layout
+--------------
 
-The IFDS engine ships with several ready-to-use analysis clients:
+The implementation is grouped by responsibility:
 
-- **Taint Analysis** (``clients/taint.py``): Interprocedural taint tracking
+- ``core`` — IFDS/IDE problems, forward and backward solvers, supergraphs,
+  and reusable transfer helpers
+- ``frontend`` — CFG adaptation, annotation synthesis, and preparation
+- ``analyses`` — Taint, nullness, typestate, and flow-path analyses
+- ``modeling`` — Call models, library presets, typestate protocols, and model
+  registries
+- Package-root modules — Public API orchestration, diagnostics, queries,
+  reporting, and shadow scanning
+
+Built-in Analyses
+-----------------
+
+The IFDS engine ships with several ready-to-use analyses:
+
+- **Taint Analysis** (``analyses/taint.py``): Interprocedural taint tracking
   from sources to sinks via flow functions
-- **Nullness Analysis** (``clients/nullness.py``): Null pointer and
+- **Nullness Analysis** (``analyses/nullness.py``): Null pointer and
   ``None``-related bug detection
-- **Typestate Analysis** (``clients/typestate.py``,
-  ``clients/typestate_engine.py``): Resource lifecycle protocol verification
+- **Typestate Analysis** (``analyses/typestate.py``,
+  ``modeling/typestate.py``): Resource lifecycle protocol verification
   (file descriptors, locks, sockets, transactions)
 - **Shadow Scan** (``shadow_scan.py``): Differential analysis comparing two
   analysis runs
@@ -96,7 +110,7 @@ partial when recovery can affect completeness.
 Findings and SARIF
 ------------------
 
-Taint, nullness, and typestate clients expose normalized findings with stable
+Taint, nullness, and typestate analyses expose normalized findings with stable
 fingerprints, source spans, severity, confidence, and optional code flows.
 Python-source spans include start and end positions.  SARIF output includes
 rules, physical locations, thread flows, partial fingerprints, and the overall
@@ -110,7 +124,7 @@ call paths, and ``finally`` execution for normal, exceptional, ``return``,
 ``break``, and ``continue`` control flow.  It also exposes async/generator
 procedure metadata, suspension effects, and semantic roles for synchronous and
 asynchronous context-manager and iteration calls.  These are conservative
-building blocks; individual clients decide which effects alter their facts.
+building blocks; individual analyses decide which effects alter their facts.
 
 Rule-Pack Quality and Performance
 ---------------------------------
@@ -131,14 +145,15 @@ randomized differential tests for regression detection.
 Annotation Synthesis
 --------------------
 
-The IFDS module includes an annotation synthesis engine
-(``annotation_synthesis.py``) that generates syntactic annotations to prepare
-code for IFDS analysis.  A fallback mechanism (``annotation_fallback.py``)
-handles cases where synthesis cannot be applied.
+The IFDS frontend includes an annotation synthesis engine
+(``frontend/annotations.py``) that generates syntactic annotations to prepare
+code for IFDS analysis. A fallback mechanism
+(``frontend/annotation_fallback.py``) handles cases where synthesis cannot be
+applied.
 
 See Also
 --------
 
 - :doc:`dataflowIR` — Data flow IR that IFDS operates on
 - :doc:`cfg` — CFG construction (supergraph foundation)
-- :doc:`alias/flow_sensitive` — Flow-sensitive alias analysis consumed by taint clients
+- :doc:`alias/flow_sensitive` — Flow-sensitive alias analysis consumed by taint analyses

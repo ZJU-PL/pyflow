@@ -10,7 +10,7 @@ from pyflow.analysis.typeinfo import (
     TypeFact,
     TypeInfoService,
 )
-from pyflow.analysis.typeinfo.typesystem import (
+from pyflow.analysis.typeinfo.core.typesystem import (
     CallableType,
     Instance,
     NoneType,

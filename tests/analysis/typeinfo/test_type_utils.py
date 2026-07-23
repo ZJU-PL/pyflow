@@ -12,8 +12,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from pyflow.analysis.typeinfo.typesystem import InferredSignature
-from pyflow.analysis.typeinfo.type_utils import (
+from pyflow.analysis.typeinfo.core.typesystem import InferredSignature
+from pyflow.analysis.typeinfo.core.runtime import (
     get_method_for_signature,
     given_exception_matches,
     is_arg_or_kwarg,

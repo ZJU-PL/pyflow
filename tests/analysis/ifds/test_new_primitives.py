@@ -17,8 +17,8 @@ from pyflow.analysis.ifds import (
     ZERO,
     ZeroFact,
 )
-from pyflow.analysis.ifds.problem import IFDSProblem
-from pyflow.analysis.ifds.solver import IDESolver, IFDSSolver
+from pyflow.analysis.ifds.core.problem import IFDSProblem
+from pyflow.analysis.ifds.core.solver import IDESolver, IFDSSolver
 
 
 class TestZeroFact:

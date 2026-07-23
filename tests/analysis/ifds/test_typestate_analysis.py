@@ -14,8 +14,8 @@ from pyflow.analysis.ifds import (
     analyze_typestate,
     build_supergraph_from_cfgs,
 )
-from pyflow.analysis.ifds.clients._call_model import CallModel, CallModelRegistry
-from pyflow.analysis.ifds.clients.typestate_engine import (
+from pyflow.analysis.ifds.modeling.calls import CallModel, CallModelRegistry
+from pyflow.analysis.ifds.modeling.typestate import (
     ACTION_CLOSE,
     ACTION_USE,
     TypestateEngine,

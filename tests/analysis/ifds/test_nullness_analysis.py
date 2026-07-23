@@ -680,7 +680,7 @@ def test_nullness_delete_kills_local_fact():
 
 def test_nullness_respects_configuration_call_models():
     """NullnessConfiguration.call_models should merge with nullable_return_names."""
-    from pyflow.analysis.ifds.clients._call_model import CallModel, CallModelRegistry
+    from pyflow.analysis.ifds.modeling.calls import CallModel, CallModelRegistry
 
     custom_models = CallModelRegistry([
         CallModel(name="custom_lookup", nullness_nullable_return=True),

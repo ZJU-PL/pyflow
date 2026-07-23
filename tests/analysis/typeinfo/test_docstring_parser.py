@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from pyflow.analysis.typeinfo.docstring_parser import (
+from pyflow.analysis.typeinfo.resolution.docstrings import (
     expand_typestr,
     search_param_in_docstr,
     search_return_in_docstr,

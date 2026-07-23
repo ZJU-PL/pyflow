@@ -1,26 +1,26 @@
-"""Lightweight type-information collection for analysis clients.
+"""Public type-information query API.
 
-This package contains both PyFlow's native type-info collector and
-migrated type-system facilities from Pynguin.
+Implementation modules are grouped by responsibility under ``core``, ``query``,
+``resolution``, ``inference``, and ``generation``.  Only the stable query and
+resolution entry points are exported from this package.
 """
 
-from typing import Any
-
-from .collector import (
+from . import config
+from .query.evidence import (
     TypeEvidence,
-    TypeInfo,
+    TypeEvidenceIndex,
     collect_pyflow_type_info,
     collect_python_type_info,
 )
-from .models import ClassTypeInfo, FunctionTypeInfo, TypeFact
-from .service import TypeInfoService
-from .annotation_resolver import (
+from .query.models import ClassTypeInfo, FunctionTypeInfo, TypeFact
+from .query.service import TypeInfoService
+from .resolution.annotations import (
     BuiltinTypeLookup,
     TypeLookup,
     resolve_annotation,
     resolve_forward_reference,
 )
-from .stub_loader import (
+from .resolution.stubs import (
     ResolvedStub,
     StubClassInfo,
     StubDiagnostic,
@@ -33,21 +33,7 @@ from .stub_loader import (
     parse_stub_source,
 )
 
-from . import _config as config
-from . import annotation_resolver
-from . import docstring_parser
-from . import generic_binder
-from . import gradual_typing
-from . import string_subtypes
-from . import string_subtype_inference
-from . import stub_loader
-from . import type_utils
-from . import typetracing
-from . import typesystem
-
 __all__ = [
-    "TypeEvidence",
-    "TypeInfo",
     "BuiltinTypeLookup",
     "ClassTypeInfo",
     "FunctionTypeInfo",
@@ -58,36 +44,17 @@ __all__ = [
     "StubImportInfo",
     "StubInfo",
     "StubResolver",
+    "TypeEvidence",
+    "TypeEvidenceIndex",
     "TypeFact",
-    "TypeLookup",
     "TypeInfoService",
-    "annotation_resolver",
+    "TypeLookup",
     "build_stub_map",
     "collect_pyflow_type_info",
     "collect_python_type_info",
     "config",
-    "docstring_parser",
-    "generic_binder",
-    "gradual_typing",
-    "string_subtypes",
-    "string_subtype_inference",
-    "stub_loader",
     "parse_stub_file",
     "parse_stub_source",
     "resolve_annotation",
     "resolve_forward_reference",
-    "type_inference",
-    "type_utils",
-    "typetracing",
-    "typesystem",
 ]
-
-
-def __getattr__(name: str) -> Any:
-    """Lazy-import type_inference to avoid a static-analysis import cycle."""
-    if name == "type_inference":
-        import importlib
-
-        return importlib.import_module(".type_inference", __package__)
-    msg = f"module {__name__!r} has no attribute {name!r}"
-    raise AttributeError(msg)

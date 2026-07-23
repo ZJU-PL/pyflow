@@ -1,9 +1,9 @@
 Type Information System
 ========================
 
-The typeinfo module provides lightweight type-information collection for
-analysis clients.  It combines PyFlow's native type-info collector with
-migrated type-system facilities from Pynguin.
+The ``typeinfo`` package provides type-information collection and queries for
+analysis clients.  Its implementation is grouped by responsibility instead of
+exposing a flat collection of unrelated modules.
 
 Key Features
 ------------
@@ -14,21 +14,25 @@ Key Features
   annotations are unavailable
 - **String Subtype Analysis**: Specialized inference for string subtypes
   (e.g., URLs, file paths, SQL queries)
-- **Type Tracing**: Tracks how types flow through expressions and function
-  boundaries
+- **Usage Tracing**: Records operations performed on proxied values for
+  usage-based signature inference
 - **Configurable**: Type collection can be tuned via configuration for
   different analysis precision trade-offs
 
-Core Components
----------------
+Package Layout
+--------------
 
-- ``TypeEvidence`` / ``TypeInfo`` — Data classes for representing collected
-  type information
-- ``collect_pyflow_type_info()`` / ``collect_python_type_info()`` — Main
-  entry points for gathering type facts
-- ``type_inference.py`` — Type inference engine
-- ``typesystem.py`` — Type system abstractions (from Pynguin)
-- ``string_subtype_inference.py`` — String subtype specialization
+- ``query`` — Evidence collection, public query models, and
+  ``TypeInfoService``
+- ``core`` — Proper-type representations, subtype relations, signatures, and
+  the class hierarchy
+- ``resolution`` — Annotation, generic, docstring, and ``.pyi`` resolution
+- ``inference`` — Core providers, optional external providers, usage tracing,
+  and string specialization
+- ``generation`` — Type-guided constant and value generation helpers
+
+``TypeEvidenceIndex`` stores source-level evidence.  ``ClassDescriptor`` is the
+separate core representation of a runtime Python class.
 
 Usage
 -----
@@ -37,7 +41,7 @@ Usage
 
    from pyflow.analysis.typeinfo import collect_pyflow_type_info
 
-   type_info = collect_pyflow_type_info(program, compiler)
+   type_info = collect_pyflow_type_info(program_codes)
    for var, evidence in type_info.items():
        print(f"{var}: {evidence}")
 

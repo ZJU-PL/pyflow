@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pyflow.analysis.ifds.clients._client_common import build_entry_seeds
+from pyflow.analysis.ifds.analyses.base import build_entry_seeds
 from pyflow.analysis.alias.flow_sensitive import HeapAbstraction, HeapSelector
 
 

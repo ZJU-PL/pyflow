@@ -27,7 +27,7 @@ from typing import (
 )
 
 from ..callgraph import CallGraph
-from pyflow.analysis.typeinfo.stub_loader import StubResolver
+from pyflow.analysis.typeinfo.resolution.stubs import StubResolver
 from pyflow.frontend.project_resolution import ProjectContext
 from .model import (
     AbstractValue,

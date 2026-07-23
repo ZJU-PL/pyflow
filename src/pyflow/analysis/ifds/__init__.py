@@ -1,6 +1,6 @@
 """IFDS/IDE interprocedural dataflow engine."""
 
-from .cfg_adapter import (
+from .frontend.cfg_adapter import (
     annotation_invokes_cfg_resolver,
     CallEffect,
     CFGNode,
@@ -47,7 +47,7 @@ from ..alias.flow_sensitive.domain.summary import (
     HeapSummary,
     HeapSummaryBuilder,
 )
-from .problem import (
+from .core.problem import (
     ComposedEdgeFunction,
     ConstantEdgeFunction,
     EdgeFunction,
@@ -63,7 +63,7 @@ from .problem import (
     ZERO,
     ZeroFact,
 )
-from .solver import (
+from .core.solver import (
     AnalysisStatus,
     CancellationToken,
     CallContext,
@@ -75,17 +75,17 @@ from .solver import (
     SolverLimitExceeded,
     SolverOptions,
 )
-from .solver import PropagationTrace, SolverStatistics
+from .core.solver import PropagationTrace, SolverStatistics
 from .diagnostics import IFDSDiagnostic
-from .preparation import PreparationMode
+from .frontend.preparation import PreparationMode
 from .queries import is_reached_prefix, verify_call_chain
 from .reporting import AnalysisFinding, FlowStep, SourceSpan
-from .supergraph import Supergraph, SupergraphError
-from .backward_solver import (
+from .core.supergraph import Supergraph, SupergraphError
+from .core.backward import (
     BackwardIFDSProblem,
     BackwardIFDSSolver,
 )
-from .clients.nullness import (
+from .analyses.nullness import (
     ExpressionNullFact,
     InterproceduralNullnessAnalysis,
     NullFact,
@@ -94,11 +94,11 @@ from .clients.nullness import (
     NullnessFinding,
     analyze_nullness,
 )
-from .clients.registry import (
+from .modeling.registry import (
     Registry,
     load_registry,
 )
-from .clients.taint import (
+from .analyses.taint import (
     CATEGORY_DATABASE,
     CATEGORY_ENVIRONMENT,
     CATEGORY_FILE,
@@ -112,7 +112,7 @@ from .clients.taint import (
     TaintFinding,
     analyze_taint,
 )
-from .clients.typestate import (
+from .analyses.typestate import (
     ExpressionResourceFact,
     InterproceduralTypestateAnalysis,
     ResourceStateFact,
@@ -121,7 +121,7 @@ from .clients.typestate import (
     TypestateFinding,
     analyze_typestate,
 )
-from .clients.typestate_engine import (
+from .modeling.typestate import (
     TypestateActionModel,
     TypestateEngine,
     TypestateExitObligation,
@@ -135,7 +135,7 @@ from .clients.typestate_engine import (
     socket_protocol,
     transaction_protocol,
 )
-from .transfers import (
+from .core.transfers import (
     actual_argument_expressions,
     actual_parameters,
     bind_call_arguments,

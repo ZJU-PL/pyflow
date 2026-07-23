@@ -7,14 +7,14 @@
 
 from __future__ import annotations
 
-from pyflow.analysis.typeinfo.typesystem import (
+from pyflow.analysis.typeinfo.core.typesystem import (
     Instance,
     TupleType,
-    TypeInfo,
+    ClassDescriptor,
     TypeVarType,
     UnionType,
 )
-from pyflow.analysis.typeinfo.generic_binder import (
+from pyflow.analysis.typeinfo.resolution.generics import (
     GenericBinding,
     bind_generics,
     bind_generics_from_pairs,
@@ -22,9 +22,9 @@ from pyflow.analysis.typeinfo.generic_binder import (
 )
 
 
-_INT = Instance(TypeInfo(int))
-_STR = Instance(TypeInfo(str))
-_LIST_INT = Instance(TypeInfo(list), (_INT,))
+_INT = Instance(ClassDescriptor(int))
+_STR = Instance(ClassDescriptor(str))
+_LIST_INT = Instance(ClassDescriptor(list), (_INT,))
 
 
 # ---------------------------------------------------------------------------
@@ -98,7 +98,7 @@ def test_apply_substitution() -> None:
 
 def test_apply_in_instance() -> None:
     t = TypeVarType("T")
-    ti = TypeInfo(list)
+    ti = ClassDescriptor(list)
     instance = Instance(ti, (t,))
     binding = bind_generics([t], [_INT])
     result = binding.apply(instance)

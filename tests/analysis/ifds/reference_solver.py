@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections import defaultdict, deque
 from dataclasses import dataclass
 
-from pyflow.analysis.ifds.solver import _normalize_ifds_transitions
+from pyflow.analysis.ifds.core.solver import _normalize_ifds_transitions
 
 
 @dataclass(frozen=True)

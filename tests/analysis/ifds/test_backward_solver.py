@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pyflow.analysis.ifds.backward_solver import (
+from pyflow.analysis.ifds.core.backward import (
     BackwardIFDSProblem,
     BackwardIFDSSolver,
 )

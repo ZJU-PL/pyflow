@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pyflow.analysis.ifds.annotation_fallback import ensure_ifds_annotations_complete
+from pyflow.analysis.ifds.frontend.annotation_fallback import ensure_ifds_annotations_complete
 from pyflow.language.python import ast
 
 from tests.analysis.ifds._support import make_code

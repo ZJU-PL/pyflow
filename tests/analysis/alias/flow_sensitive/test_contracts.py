@@ -16,7 +16,7 @@ from pyflow.analysis.alias.flow_sensitive import (
     ProcedureHeapSummary,
     UpdatePolicy,
 )
-from pyflow.analysis.ifds.cfg_adapter import CFGSupergraphAdapter
+from pyflow.analysis.ifds.frontend.cfg_adapter import CFGSupergraphAdapter
 from pyflow.language.python import ast as py_ast
 
 

@@ -11,8 +11,8 @@ import re
 
 import pytest
 
-from pyflow.analysis.typeinfo import string_subtypes
-from pyflow.analysis.typeinfo.string_subtypes import generate_from_regex, infer_regex_from_methods
+from pyflow.analysis.typeinfo.inference import string_patterns
+from pyflow.analysis.typeinfo.inference.string_patterns import generate_from_regex, infer_regex_from_methods
 from pyflow.util.orderedset import OrderedSet
 
 
@@ -120,7 +120,7 @@ def test_generate_from_invalid_regex(monkeypatch):
     def boom(_):
         raise ValueError("bad regex")
 
-    monkeypatch.setattr(string_subtypes.STRING_GENERATOR, "xeger", boom)
+    monkeypatch.setattr(string_patterns.STRING_GENERATOR, "xeger", boom)
 
     regex = re.compile(r".*")
     s = generate_from_regex(regex)

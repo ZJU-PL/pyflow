@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from pyflow.analysis.ifds.clients._call_model import STATE_CLOSE, STATE_OPEN, STATE_USE
-from pyflow.analysis.ifds.clients.library_presets import (
+from pyflow.analysis.ifds.modeling.calls import STATE_CLOSE, STATE_OPEN, STATE_USE
+from pyflow.analysis.ifds.modeling.presets import (
     TAINT_PRESETS,
     TAINT_SINK_PRESETS,
     TAINT_SANITIZER_PRESETS,
@@ -111,7 +111,7 @@ def test_presets_do_not_unexpectedly_sink_or_source():
 
 
 def test_merge_presets_combines_sources():
-    from pyflow.analysis.ifds.clients.library_presets import (
+    from pyflow.analysis.ifds.modeling.presets import (
         IO_SOURCES,
         OS_ENV_SOURCES,
     )
@@ -127,38 +127,38 @@ def test_merge_presets_empty():
 
 
 def test_merge_presets_single():
-    from pyflow.analysis.ifds.clients.library_presets import IO_SOURCES
+    from pyflow.analysis.ifds.modeling.presets import IO_SOURCES
     result = merge_presets(IO_SOURCES)
     assert result.model_for_name("input").taint_source is True
 
 
 def test_xml_sources():
-    from pyflow.analysis.ifds.clients.library_presets import XML_SOURCES
+    from pyflow.analysis.ifds.modeling.presets import XML_SOURCES
     assert XML_SOURCES.model_for_name("xml.etree.ElementTree.parse").taint_source is True
     assert XML_SOURCES.model_for_name("lxml.etree.parse").taint_source is True
     assert XML_SOURCES.model_for_name("defusedxml.ElementTree.parse").taint_source is True
 
 
 def test_xml_sinks():
-    from pyflow.analysis.ifds.clients.library_presets import XML_SINKS
+    from pyflow.analysis.ifds.modeling.presets import XML_SINKS
     assert XML_SINKS.model_for_name("lxml.etree.tostring").taint_sink is True
     assert XML_SINKS.model_for_name("lxml.html.fromstring").taint_sink is True
 
 
 def test_xpath_sinks():
-    from pyflow.analysis.ifds.clients.library_presets import XPATH_SINKS
+    from pyflow.analysis.ifds.modeling.presets import XPATH_SINKS
     assert XPATH_SINKS.model_for_name("lxml.etree._Element.xpath").taint_sink is True
     assert XPATH_SINKS.model_for_name("xml.etree.ElementTree.Element.find").taint_sink is True
 
 
 def test_ldap_sinks():
-    from pyflow.analysis.ifds.clients.library_presets import LDAP_SINKS
+    from pyflow.analysis.ifds.modeling.presets import LDAP_SINKS
     assert LDAP_SINKS.model_for_name("ldap.ldapobject.SimpleLDAPObject.search").taint_sink is True
     assert LDAP_SINKS.model_for_name("ldap3.Connection.search").taint_sink is True
 
 
 def test_nosql_sinks():
-    from pyflow.analysis.ifds.clients.library_presets import NOSQL_SINKS
+    from pyflow.analysis.ifds.modeling.presets import NOSQL_SINKS
     assert NOSQL_SINKS.model_for_name("pymongo.collection.Collection.find").taint_sink is True
     assert NOSQL_SINKS.model_for_name("redis.Redis.execute_command").taint_sink is True
     assert NOSQL_SINKS.model_for_name("elasticsearch.Elasticsearch.search").taint_sink is True
@@ -166,37 +166,37 @@ def test_nosql_sinks():
 
 
 def test_path_traversal_sinks():
-    from pyflow.analysis.ifds.clients.library_presets import PATH_TRAVERSAL_SINKS
+    from pyflow.analysis.ifds.modeling.presets import PATH_TRAVERSAL_SINKS
     assert PATH_TRAVERSAL_SINKS.model_for_name("tarfile.TarFile.extractall").taint_sink is True
     assert PATH_TRAVERSAL_SINKS.model_for_name("zipfile.ZipFile.extractall").taint_sink is True
     assert PATH_TRAVERSAL_SINKS.model_for_name("shutil.unpack_archive").taint_sink is True
 
 
 def test_ssrf_sinks():
-    from pyflow.analysis.ifds.clients.library_presets import SSRF_SINKS
+    from pyflow.analysis.ifds.modeling.presets import SSRF_SINKS
     assert SSRF_SINKS.model_for_name("urllib.request.urlopen").taint_sink is True
     assert SSRF_SINKS.model_for_name("httpx.AsyncClient.get").taint_sink is True
     assert SSRF_SINKS.model_for_name("aiohttp.ClientSession.get").taint_sink is True
 
 
 def test_ftp_sinks():
-    from pyflow.analysis.ifds.clients.library_presets import FTP_SINKS
+    from pyflow.analysis.ifds.modeling.presets import FTP_SINKS
     assert FTP_SINKS.model_for_name("ftplib.FTP.retrbinary").taint_sink is True
 
 
 def test_smtp_sinks():
-    from pyflow.analysis.ifds.clients.library_presets import SMTP_SINKS
+    from pyflow.analysis.ifds.modeling.presets import SMTP_SINKS
     assert SMTP_SINKS.model_for_name("smtplib.SMTP.sendmail").taint_sink is True
 
 
 def test_cmd_injection_sanitizers():
-    from pyflow.analysis.ifds.clients.library_presets import CMD_INJECTION_SANITIZERS
+    from pyflow.analysis.ifds.modeling.presets import CMD_INJECTION_SANITIZERS
     assert CMD_INJECTION_SANITIZERS.model_for_name("shlex.quote").taint_sanitizer is True
     assert CMD_INJECTION_SANITIZERS.model_for_name("pipes.quote").taint_sanitizer is True
 
 
 def test_markup_sanitizers():
-    from pyflow.analysis.ifds.clients.library_presets import MARKUP_SANITIZERS
+    from pyflow.analysis.ifds.modeling.presets import MARKUP_SANITIZERS
     assert MARKUP_SANITIZERS.model_for_name("markupsafe.escape").taint_sanitizer is True
     assert MARKUP_SANITIZERS.model_for_name("bleach.clean").taint_sanitizer is True
     assert MARKUP_SANITIZERS.model_for_name("django.utils.html.escape").taint_sanitizer is True
@@ -204,7 +204,7 @@ def test_markup_sanitizers():
 
 
 def test_http_request_sources():
-    from pyflow.analysis.ifds.clients.library_presets import HTTP_REQUEST_SOURCES
+    from pyflow.analysis.ifds.modeling.presets import HTTP_REQUEST_SOURCES
     assert HTTP_REQUEST_SOURCES.model_for_name("flask.request.args.get").taint_source is True
     assert HTTP_REQUEST_SOURCES.model_for_name("django.http.HttpRequest.GET.get").taint_source is True
     assert HTTP_REQUEST_SOURCES.model_for_name("fastapi.Request.query_params.get").taint_source is True
@@ -218,23 +218,23 @@ def test_http_request_sources():
 
 
 def test_config_nullable():
-    from pyflow.analysis.ifds.clients.library_presets import CONFIG_NULLABLE
+    from pyflow.analysis.ifds.modeling.presets import CONFIG_NULLABLE
     assert CONFIG_NULLABLE.model_for_name("configparser.ConfigParser.get").nullness_nullable_return is True
 
 
 def test_iter_nullable():
-    from pyflow.analysis.ifds.clients.library_presets import ITER_NULLABLE
+    from pyflow.analysis.ifds.modeling.presets import ITER_NULLABLE
     assert ITER_NULLABLE.model_for_name("next").nullness_nullable_return is True
 
 
 def test_chain_nullable():
-    from pyflow.analysis.ifds.clients.library_presets import CHAIN_NULLABLE
+    from pyflow.analysis.ifds.modeling.presets import CHAIN_NULLABLE
     assert CHAIN_NULLABLE.model_for_name("json.loads").nullness_nullable_return is True
     assert CHAIN_NULLABLE.model_for_name("base64.b64decode").nullness_nullable_return is True
 
 
 def test_http_typestate():
-    from pyflow.analysis.ifds.clients.library_presets import (
+    from pyflow.analysis.ifds.modeling.presets import (
         HTTP_TYPESTATE_CLOSE,
         HTTP_TYPESTATE_OPEN,
         HTTP_TYPESTATE_USE,
@@ -245,7 +245,7 @@ def test_http_typestate():
 
 
 def test_cursor_typestate():
-    from pyflow.analysis.ifds.clients.library_presets import (
+    from pyflow.analysis.ifds.modeling.presets import (
         CURSOR_TYPESTATE_CLOSE,
         CURSOR_TYPESTATE_OPEN,
         CURSOR_TYPESTATE_USE,
@@ -256,7 +256,7 @@ def test_cursor_typestate():
 
 
 def test_header_injection_sanitizers():
-    from pyflow.analysis.ifds.clients.library_presets import HEADER_INJECTION_SANITIZERS
+    from pyflow.analysis.ifds.modeling.presets import HEADER_INJECTION_SANITIZERS
     assert HEADER_INJECTION_SANITIZERS.model_for_name("email.utils.formataddr").taint_sanitizer is True
 
 
@@ -273,7 +273,7 @@ def test_merged_presets_include_new_categories():
 
 
 def test_message_queue_sources():
-    from pyflow.analysis.ifds.clients.library_presets import MESSAGE_QUEUE_SOURCES
+    from pyflow.analysis.ifds.modeling.presets import MESSAGE_QUEUE_SOURCES
     assert MESSAGE_QUEUE_SOURCES.model_for_name("kafka.KafkaConsumer").taint_source is True
     assert MESSAGE_QUEUE_SOURCES.model_for_name("pika.channel.Channel.basic_get").taint_source is True
     assert MESSAGE_QUEUE_SOURCES.model_for_name("celery.app.task.Task.request").taint_source is True
@@ -283,7 +283,7 @@ def test_message_queue_sources():
 
 
 def test_message_queue_sinks():
-    from pyflow.analysis.ifds.clients.library_presets import MESSAGE_QUEUE_SINKS
+    from pyflow.analysis.ifds.modeling.presets import MESSAGE_QUEUE_SINKS
     assert MESSAGE_QUEUE_SINKS.model_for_name("kafka.KafkaProducer.send").taint_sink is True
     assert MESSAGE_QUEUE_SINKS.model_for_name("pika.channel.Channel.basic_publish").taint_sink is True
     assert MESSAGE_QUEUE_SINKS.model_for_name("google.cloud.pubsub_v1.PublisherClient.publish").taint_sink is True
@@ -292,7 +292,7 @@ def test_message_queue_sinks():
 
 
 def test_websocket_sources():
-    from pyflow.analysis.ifds.clients.library_presets import WEBSOCKET_SOURCES
+    from pyflow.analysis.ifds.modeling.presets import WEBSOCKET_SOURCES
     assert WEBSOCKET_SOURCES.model_for_name("websockets.server.WebSocketServerProtocol.recv").taint_source is True
     assert WEBSOCKET_SOURCES.model_for_name("aiohttp.web_ws.WebSocketResponse.receive").taint_source is True
     assert WEBSOCKET_SOURCES.model_for_name("tornado.websocket.WebSocketHandler.on_message").taint_source is True
@@ -300,20 +300,20 @@ def test_websocket_sources():
 
 
 def test_websocket_sinks():
-    from pyflow.analysis.ifds.clients.library_presets import WEBSOCKET_SINKS
+    from pyflow.analysis.ifds.modeling.presets import WEBSOCKET_SINKS
     assert WEBSOCKET_SINKS.model_for_name("websockets.server.WebSocketServerProtocol.send").taint_sink is True
     assert WEBSOCKET_SINKS.model_for_name("aiohttp.web_ws.WebSocketResponse.send_str").taint_sink is True
     assert WEBSOCKET_SINKS.model_for_name("socketio.AsyncServer.emit").taint_sink is True
 
 
 def test_graphql_sources():
-    from pyflow.analysis.ifds.clients.library_presets import GRAPHQL_SOURCES
+    from pyflow.analysis.ifds.modeling.presets import GRAPHQL_SOURCES
     assert GRAPHQL_SOURCES.model_for_name("graphql.parse").taint_source is True
     assert GRAPHQL_SOURCES.model_for_name("strawberry.Schema.execute").taint_source is True
 
 
 def test_file_format_sinks():
-    from pyflow.analysis.ifds.clients.library_presets import FILE_FORMAT_SINKS
+    from pyflow.analysis.ifds.modeling.presets import FILE_FORMAT_SINKS
     assert FILE_FORMAT_SINKS.model_for_name("csv.writer.writerow").taint_sink is True
     assert FILE_FORMAT_SINKS.model_for_name("openpyxl.Workbook.save").taint_sink is True
     assert FILE_FORMAT_SINKS.model_for_name("xlsxwriter.worksheet.Worksheet.write").taint_sink is True
@@ -327,19 +327,19 @@ def test_file_format_sinks():
 
 
 def test_dns_sinks():
-    from pyflow.analysis.ifds.clients.library_presets import DNS_SINKS
+    from pyflow.analysis.ifds.modeling.presets import DNS_SINKS
     assert DNS_SINKS.model_for_name("socket.gethostbyname").taint_sink is True
     assert DNS_SINKS.model_for_name("dns.resolver.Resolver.resolve").taint_sink is True
 
 
 def test_email_sources():
-    from pyflow.analysis.ifds.clients.library_presets import EMAIL_SOURCES
+    from pyflow.analysis.ifds.modeling.presets import EMAIL_SOURCES
     assert EMAIL_SOURCES.model_for_name("email.parser.Parser.parsestr").taint_source is True
     assert EMAIL_SOURCES.model_for_name("imaplib.IMAP4.fetch").taint_source is True
 
 
 def test_cloud_storage_sinks():
-    from pyflow.analysis.ifds.clients.library_presets import CLOUD_STORAGE_SINKS
+    from pyflow.analysis.ifds.modeling.presets import CLOUD_STORAGE_SINKS
     assert CLOUD_STORAGE_SINKS.model_for_name("boto3.client.s3.upload_file").taint_sink is True
     assert CLOUD_STORAGE_SINKS.model_for_name("boto3.client.dynamodb.put_item").taint_sink is True
     assert CLOUD_STORAGE_SINKS.model_for_name("google.cloud.storage.Blob.upload_from_string").taint_sink is True
@@ -348,7 +348,7 @@ def test_cloud_storage_sinks():
 
 
 def test_webhook_sinks():
-    from pyflow.analysis.ifds.clients.library_presets import WEBHOOK_SINKS
+    from pyflow.analysis.ifds.modeling.presets import WEBHOOK_SINKS
     assert WEBHOOK_SINKS.model_for_name("slack_sdk.WebClient.chat_postMessage").taint_sink is True
     assert WEBHOOK_SINKS.model_for_name("discord.Webhook.send").taint_sink is True
     assert WEBHOOK_SINKS.model_for_name("twilio.rest.Client.messages.create").taint_sink is True
@@ -357,32 +357,32 @@ def test_webhook_sinks():
 
 
 def test_file_upload_sources():
-    from pyflow.analysis.ifds.clients.library_presets import FILE_UPLOAD_SOURCES
+    from pyflow.analysis.ifds.modeling.presets import FILE_UPLOAD_SOURCES
     assert FILE_UPLOAD_SOURCES.model_for_name("werkzeug.datastructures.FileStorage.stream").taint_source is True
     assert FILE_UPLOAD_SOURCES.model_for_name("django.core.files.uploadedfile.UploadedFile.read").taint_source is True
     assert FILE_UPLOAD_SOURCES.model_for_name("starlette.datastructures.UploadFile.read").taint_source is True
 
 
 def test_url_validation_sanitizers():
-    from pyflow.analysis.ifds.clients.library_presets import URL_VALIDATION_SANITIZERS
+    from pyflow.analysis.ifds.modeling.presets import URL_VALIDATION_SANITIZERS
     assert URL_VALIDATION_SANITIZERS.model_for_name("urllib.parse.urlparse").taint_sanitizer is True
     assert URL_VALIDATION_SANITIZERS.model_for_name("django.utils.http.url_has_allowed_host_and_scheme").taint_sanitizer is True
 
 
 def test_file_path_sanitizers():
-    from pyflow.analysis.ifds.clients.library_presets import FILE_PATH_SANITIZERS
+    from pyflow.analysis.ifds.modeling.presets import FILE_PATH_SANITIZERS
     assert FILE_PATH_SANITIZERS.model_for_name("os.path.basename").taint_sanitizer is True
     assert FILE_PATH_SANITIZERS.model_for_name("werkzeug.utils.secure_filename").taint_sanitizer is True
 
 
 def test_query_nullable():
-    from pyflow.analysis.ifds.clients.library_presets import QUERY_NULLABLE
+    from pyflow.analysis.ifds.modeling.presets import QUERY_NULLABLE
     assert QUERY_NULLABLE.model_for_name("fetchone").nullness_nullable_return is True
     assert QUERY_NULLABLE.model_for_name("scalar").nullness_nullable_return is True
 
 
 def test_subprocess_typestate():
-    from pyflow.analysis.ifds.clients.library_presets import (
+    from pyflow.analysis.ifds.modeling.presets import (
         SUBPROCESS_TYPESTATE_CLOSE,
         SUBPROCESS_TYPESTATE_OPEN,
         SUBPROCESS_TYPESTATE_USE,

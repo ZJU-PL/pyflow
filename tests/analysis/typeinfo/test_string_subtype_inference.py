@@ -12,7 +12,7 @@ import re
 
 import pytest
 
-from pyflow.analysis.typeinfo.string_subtype_inference import (
+from pyflow.analysis.typeinfo.inference.string_generators import (
     AVAILABLE_GENERATORS,
     from_faker_generator,
     from_string,
@@ -21,7 +21,7 @@ from pyflow.analysis.typeinfo.string_subtype_inference import (
     has_generator,
     to_faker_generator,
 )
-from pyflow.analysis.typeinfo.typesystem import (
+from pyflow.analysis.typeinfo.core.typesystem import (
     EmailString,
     IPv4String,
     IPv6String,

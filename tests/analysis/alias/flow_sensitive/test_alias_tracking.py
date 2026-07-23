@@ -5,10 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from pyflow.analysis.ifds import IFDSResult, IFDSSolver, Supergraph, ZERO
-from pyflow.analysis.ifds.cfg_adapter import CallEffect, CallResultRoute, CFGNode
-from pyflow.analysis.ifds.clients._client_common import AnnotatedFactProblemBase
+from pyflow.analysis.ifds.frontend.cfg_adapter import CallEffect, CallResultRoute, CFGNode
+from pyflow.analysis.ifds.analyses.base import AnnotatedFactProblemBase
 from pyflow.analysis.alias.flow_sensitive import HeapObjectKind, HeapPolicy, UpdatePolicy
-from pyflow.analysis.ifds.problem import IFDSProblem
+from pyflow.analysis.ifds.core.problem import IFDSProblem
 from pyflow.language.python import ast as py_ast
 
 
@@ -17,7 +17,7 @@ class AliasTestProblem(AnnotatedFactProblemBase[str], IFDSProblem[str, str, str]
 
     def __init__(self, sg: Supergraph[str, str]) -> None:
         self.adapter = None
-        from pyflow.analysis.ifds.clients._call_model import CallModelRegistry
+        from pyflow.analysis.ifds.modeling.calls import CallModelRegistry
 
         self.call_models = CallModelRegistry()
         self._storage_overrides = {}

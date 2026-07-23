@@ -20,7 +20,7 @@ from pyflow.frontend.programextractor import (
 )
 from pyflow.util.application.console import Console
 
-from .cfg_adapter import (
+from .frontend.cfg_adapter import (
     CFGSupergraphAdapter,
     build_supergraph_from_cfgs,
     composite_cfg_resolver,
@@ -29,21 +29,21 @@ from .cfg_adapter import (
     annotation_invokes_cfg_resolver,
     named_call_cfg_resolver,
 )
-from .clients.nullness import (
+from .analyses.nullness import (
     NullnessAnalysisResult,
     NullnessConfiguration,
     analyze_nullness,
 )
-from .clients.registry import load_registry
-from .clients.taint import TaintAnalysisResult, TaintConfiguration, analyze_taint
-from .clients.typestate import (
+from .modeling.registry import load_registry
+from .analyses.taint import TaintAnalysisResult, TaintConfiguration, analyze_taint
+from .analyses.typestate import (
     TypestateAnalysisResult,
     TypestateConfiguration,
     analyze_typestate,
 )
 from .diagnostics import IFDSDiagnostic
-from .preparation import PreparationMode, prepare_program_for_ifds
-from .solver import SolverOptions
+from .frontend.preparation import PreparationMode, prepare_program_for_ifds
+from .core.solver import SolverOptions
 
 
 @dataclass(frozen=True)

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pyflow.application import context
 from pyflow.analysis.ifds import build_supergraph_from_cfgs
-from pyflow.analysis.ifds.cfg_adapter import CallEffect
+from pyflow.analysis.ifds.frontend.cfg_adapter import CallEffect
 from pyflow.language.python import ast
 
 from tests.analysis.ifds._support import build_cfg, make_code

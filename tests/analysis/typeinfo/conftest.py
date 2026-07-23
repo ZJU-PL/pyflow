@@ -9,8 +9,8 @@ import textwrap
 
 import pytest
 
-from pyflow.analysis.typeinfo.typesystem import TypeSystem
-from pyflow.analysis.typeinfo import _config
+from pyflow.analysis.typeinfo.core.typesystem import TypeSystem
+from pyflow.analysis.typeinfo import config
 
 
 @pytest.fixture
@@ -21,15 +21,15 @@ def type_system() -> TypeSystem:
 
 def _register_builtin_edges(ts: TypeSystem) -> None:
     """Register subclass edges for common builtin types under object."""
-    object_info = ts.to_type_info(object)
+    object_info = ts.to_class_descriptor(object)
     builtins = [str, int, float, complex, bytes, list, set, dict, tuple]
     for bt in builtins:
-        bt_info = ts.to_type_info(bt)
+        bt_info = ts.to_class_descriptor(bt)
         ts.add_subclass_edge(super_class=object_info, sub_class=bt_info)
 
     # bool inherits from int in Python MRO
-    int_info = ts.to_type_info(int)
-    bool_info = ts.to_type_info(bool)
+    int_info = ts.to_class_descriptor(int)
+    bool_info = ts.to_class_descriptor(bool)
     ts.add_subclass_edge(super_class=int_info, sub_class=bool_info)
 
     # Enable numeric tower (adds complex->float, float->int, int->bool)
@@ -37,9 +37,9 @@ def _register_builtin_edges(ts: TypeSystem) -> None:
 
     # Register attributes that builtins have for find_by_attribute tests
     for bt in [str, bytes, complex, list, set, dict, tuple]:
-        ts.to_type_info(bt).attributes.add("__lt__")
+        ts.to_class_descriptor(bt).attributes.add("__lt__")
     for bt in [str, bytes]:
-        ts.to_type_info(bt).attributes.add("isspace")
+        ts.to_class_descriptor(bt).attributes.add("isspace")
 
 
 def _discover_instance_attributes(cls: type) -> set[str]:
@@ -82,13 +82,13 @@ def _build_type_system_from_module(module_name: str) -> TypeSystem:
     for name, obj in module.__dict__.items():
         if inspect.isclass(obj) and getattr(obj, "__module__", None) == module_name:
             classes[name] = obj
-            ts.to_type_info(obj)
+            ts.to_class_descriptor(obj)
 
-    object_info = ts.to_type_info(object)
+    object_info = ts.to_class_descriptor(object)
 
     # Register subclass edges from Python's MRO
     for _name, obj in classes.items():
-        type_info = ts.to_type_info(obj)
+        type_info = ts.to_class_descriptor(obj)
         bases = [
             b for b in obj.__bases__ if b is not object and b is not None
         ]
@@ -98,14 +98,14 @@ def _build_type_system_from_module(module_name: str) -> TypeSystem:
             )
         else:
             for base in bases:
-                super_info = ts.to_type_info(base)
+                super_info = ts.to_class_descriptor(base)
                 ts.add_subclass_edge(
                     super_class=super_info, sub_class=type_info
                 )
 
     # Collect attributes from each class (dir + instance attrs from __init__)
     for _name, obj in classes.items():
-        type_info = ts.to_type_info(obj)
+        type_info = ts.to_class_descriptor(obj)
         for attr_name in dir(obj):
             if not attr_name.startswith("_"):
                 type_info.attributes.add(attr_name)
@@ -128,6 +128,6 @@ def subtyping_cluster():
 
 @pytest.fixture
 def reset_settings():
-    """Reset relevant _config settings before each test."""
-    _config.settings.test_creation = _config.TestCreationConfig()
-    _config.settings.generator_selection = _config.GeneratorSelectionConfig()
+    """Reset relevant type-info settings before each test."""
+    config.settings.test_creation = config.TestCreationConfig()
+    config.settings.generator_selection = config.GeneratorSelectionConfig()

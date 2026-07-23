@@ -11,7 +11,7 @@ from pyflow.analysis.cfg import ssa as cfg_ssa
 from pyflow.analysis.cfg import transform as cfg_transform
 from pyflow.analysis.cdg import construct_cdg
 from pyflow.analysis.ifds import build_supergraph_from_cfgs
-from pyflow.analysis.ifds.preparation import prepare_program_for_ifds
+from pyflow.analysis.ifds.frontend.preparation import prepare_program_for_ifds
 
 from .context import QueryContext
 

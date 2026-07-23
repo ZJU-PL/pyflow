@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 from pyflow.application import context
 from pyflow.analysis.ifds import bind_call_arguments, build_supergraph_from_cfgs
-from pyflow.analysis.ifds.cfg_adapter import (
+from pyflow.analysis.ifds.frontend.cfg_adapter import (
     CallEffect,
     ExceptionalEffect,
     GuardEffect,

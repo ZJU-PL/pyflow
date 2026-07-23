@@ -10,7 +10,7 @@ from pyflow.analysis.ifds import (
     analyze_typestate,
     build_supergraph_from_cfgs,
 )
-from pyflow.analysis.ifds.clients.library_presets import (
+from pyflow.analysis.ifds.modeling.presets import (
     LOCK_TYPESTATE_CLOSE,
     LOCK_TYPESTATE_OPEN,
     LOCK_TYPESTATE_USE,
@@ -166,7 +166,7 @@ def test_preset_typestate_detects_double_close():
     cfg = build_cfg(compiler, main_code)
     adapter = build_supergraph_from_cfgs([cfg])
 
-    from pyflow.analysis.ifds.clients.library_presets import (
+    from pyflow.analysis.ifds.modeling.presets import (
         TYPESTATE_CLOSE_PRESETS,
         TYPESTATE_OPEN_PRESETS,
         TYPESTATE_USE_PRESETS,
@@ -208,7 +208,7 @@ def test_preset_typestate_detects_use_after_close():
     cfg = build_cfg(compiler, main_code)
     adapter = build_supergraph_from_cfgs([cfg])
 
-    from pyflow.analysis.ifds.clients.library_presets import (
+    from pyflow.analysis.ifds.modeling.presets import (
         TYPESTATE_CLOSE_PRESETS,
         TYPESTATE_OPEN_PRESETS,
         TYPESTATE_USE_PRESETS,

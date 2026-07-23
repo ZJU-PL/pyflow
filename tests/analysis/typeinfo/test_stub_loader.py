@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from pyflow.analysis.typeinfo.stub_loader import (
+from pyflow.analysis.typeinfo.resolution.stubs import (
     StubResolver,
     build_stub_map,
     clear_stub_map_cache,

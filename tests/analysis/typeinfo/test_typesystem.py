@@ -16,9 +16,9 @@ from unittest import mock
 
 import pytest
 
-import pyflow.analysis.typeinfo._config as _config
-from pyflow.analysis.typeinfo.type_inference import HintInference, NoInference
-from pyflow.analysis.typeinfo.typesystem import (
+import pyflow.analysis.typeinfo.config as _config
+from pyflow.analysis.typeinfo.inference.providers import HintInference, NoInference
+from pyflow.analysis.typeinfo.core.typesystem import (
     _DICT_KEY_ATTRIBUTES,
     _DICT_KEY_FROM_ARGUMENT_TYPES,
     _DICT_VALUE_ATTRIBUTES,
@@ -34,7 +34,7 @@ from pyflow.analysis.typeinfo.typesystem import (
     NoneType,
     StringSubtype,
     TupleType,
-    TypeInfo,
+    ClassDescriptor,
     TypeSystem,
     UnionType,
     _is_partial_type_match,
@@ -42,7 +42,7 @@ from pyflow.analysis.typeinfo.typesystem import (
     is_primitive_type,
 )
 from pyflow.util.orderedset import OrderedSet
-from pyflow.analysis.typeinfo.typetracing import UsageTraceNode
+from pyflow.analysis.typeinfo.inference.tracing import UsageTraceNode
 from tests.analysis.typeinfo.conftest import _build_type_system_from_module
 from tests.analysis.typeinfo.fixtures.types.subtyping import Sub, Super
 
@@ -118,19 +118,19 @@ def inferred_signature(signature, type_system):
         pytest.param(
             __func_1,
             HintInference(),
-            {"x": Instance(TypeInfo(int))},
-            Instance(TypeInfo(int)),
+            {"x": Instance(ClassDescriptor(int))},
+            Instance(ClassDescriptor(int)),
         ),
         pytest.param(__func_1, NoInference(), {"x": AnyType()}, AnyType()),
         pytest.param(
             __typed_dummy,
             HintInference(),
             {
-                "a": Instance(TypeInfo(int)),
-                "b": Instance(TypeInfo(float)),
+                "a": Instance(ClassDescriptor(int)),
+                "b": Instance(ClassDescriptor(float)),
                 "c": AnyType(),
             },
-            Instance(TypeInfo(str)),
+            Instance(ClassDescriptor(str)),
         ),
         pytest.param(
             __untyped_dummy,
@@ -142,16 +142,16 @@ def inferred_signature(signature, type_system):
             __union_dummy,
             HintInference(),
             {
-                "a": UnionType((Instance(TypeInfo(float)), Instance(TypeInfo(int)))),
-                "b": UnionType((Instance(TypeInfo(float)), Instance(TypeInfo(int)))),
+                "a": UnionType((Instance(ClassDescriptor(float)), Instance(ClassDescriptor(int)))),
+                "b": UnionType((Instance(ClassDescriptor(float)), Instance(ClassDescriptor(int)))),
             },
-            UnionType((Instance(TypeInfo(float)), Instance(TypeInfo(int)))),
+            UnionType((Instance(ClassDescriptor(float)), Instance(ClassDescriptor(int)))),
         ),
         pytest.param(
             __return_tuple,
             HintInference(),
             {},
-            TupleType((Instance(TypeInfo(int)), Instance(TypeInfo(int)))),
+            TupleType((Instance(ClassDescriptor(int)), Instance(ClassDescriptor(int)))),
         ),
         pytest.param(
             __return_tuple_no_annotation,
@@ -187,7 +187,7 @@ def inferred_signature(signature, type_system):
 )
 def test_infer_type_info(func, infer_types, expected_parameters, expected_return):
     type_system = TypeSystem()
-    result = type_system.infer_type_info(func, type_inference_provider=infer_types)
+    result = type_system.infer_signature_with_provider(func, type_inference_provider=infer_types)
     assert result.original_parameters == expected_parameters
     assert result.return_type == expected_return
 
@@ -198,48 +198,48 @@ A = TypeVar("A")
 @pytest.mark.parametrize(
     "hint,expected",
     [
-        (list, Instance(TypeInfo(list), (AnyType(),))),
+        (list, Instance(ClassDescriptor(list), (AnyType(),))),
         (
             list[int],
-            Instance(TypeInfo(list), (Instance(TypeInfo(int)),)),
+            Instance(ClassDescriptor(list), (Instance(ClassDescriptor(int)),)),
         ),
         (
             set[int],
-            Instance(TypeInfo(set), (Instance(TypeInfo(int)),)),
+            Instance(ClassDescriptor(set), (Instance(ClassDescriptor(int)),)),
         ),
         (
             set,
-            Instance(TypeInfo(set), (AnyType(),)),
+            Instance(ClassDescriptor(set), (AnyType(),)),
         ),
         (
             dict[int, str],
             Instance(
-                TypeInfo(dict),
-                (Instance(TypeInfo(int)), Instance(TypeInfo(str))),
+                ClassDescriptor(dict),
+                (Instance(ClassDescriptor(int)), Instance(ClassDescriptor(str))),
             ),
         ),
         (
             int | str,
             UnionType(
-                (Instance(TypeInfo(int)), Instance(TypeInfo(str))),
+                (Instance(ClassDescriptor(int)), Instance(ClassDescriptor(str))),
             ),
         ),
         (
             Union[int, str],  # noqa: UP007
             UnionType(
-                (Instance(TypeInfo(int)), Instance(TypeInfo(str))),
+                (Instance(ClassDescriptor(int)), Instance(ClassDescriptor(str))),
             ),
         ),
         (
             Union[int, type(None)],  # noqa: UP007
             UnionType(
-                (NoneType(), Instance(TypeInfo(int))),
+                (NoneType(), Instance(ClassDescriptor(int))),
             ),
         ),
         (
             tuple[int, str],
             TupleType(
-                (Instance(TypeInfo(int)), Instance(TypeInfo(str))),
+                (Instance(ClassDescriptor(int)), Instance(ClassDescriptor(str))),
             ),
         ),
         (
@@ -265,7 +265,7 @@ def test_convert_type_hints(hint, expected):
 
 @pytest.mark.parametrize(
     "hint, expected",
-    [(A, UNSUPPORTED), (list[A], Instance(TypeInfo(list), (UNSUPPORTED,)))],
+    [(A, UNSUPPORTED), (list[A], Instance(ClassDescriptor(list), (UNSUPPORTED,)))],
 )
 def test_convert_type_hint_unsupported(hint, expected):  # noqa: ARG001
     ts = TypeSystem()
@@ -365,7 +365,7 @@ def test_is_subclass(subtyping_cluster, subclass, superclass, result):
     type_system = subtyping_cluster.type_system
     assert (
         type_system.is_subclass(
-            type_system.to_type_info(subclass), type_system.to_type_info(superclass)
+            type_system.to_class_descriptor(subclass), type_system.to_class_descriptor(superclass)
         )
         == result
     )
@@ -412,8 +412,8 @@ def test_get_parameter_types_consistent_2(inferred_signature):
         (NoneType(), AnyType(), False),
         (TupleType((AnyType(),)), TupleType((AnyType(),)), True),
         (TupleType((AnyType(),)), TupleType((NoneType(),)), False),
-        (Instance(TypeInfo(int), ()), Instance(TypeInfo(int), ()), True),
-        (Instance(TypeInfo(int), ()), AnyType(), False),
+        (Instance(ClassDescriptor(int), ()), Instance(ClassDescriptor(int), ()), True),
+        (Instance(ClassDescriptor(int), ()), AnyType(), False),
         (UnionType((AnyType(),)), UnionType((AnyType(),)), True),
         (UnionType((AnyType(),)), UnionType((NoneType(),)), False),
     ],
@@ -427,13 +427,13 @@ def test_types_equality_self(left, right, result):
     [
         (AnyType(), False),
         (TupleType((AnyType(),)), False),
-        (Instance(TypeInfo(int)), True),
-        (Instance(TypeInfo(float)), True),
-        (Instance(TypeInfo(str)), True),
-        (Instance(TypeInfo(complex)), True),
-        (Instance(TypeInfo(bool)), True),
-        (Instance(TypeInfo(bytes)), True),
-        (Instance(TypeInfo(list)), False),
+        (Instance(ClassDescriptor(int)), True),
+        (Instance(ClassDescriptor(float)), True),
+        (Instance(ClassDescriptor(str)), True),
+        (Instance(ClassDescriptor(complex)), True),
+        (Instance(ClassDescriptor(bool)), True),
+        (Instance(ClassDescriptor(bytes)), True),
+        (Instance(ClassDescriptor(list)), False),
         (UnionType((AnyType(),)), False),
         (NoneType(), False),
     ],
@@ -447,10 +447,10 @@ def test_is_primitive_type(typ, result):
     [
         (AnyType(), False),
         (TupleType((AnyType(),)), True),
-        (Instance(TypeInfo(list)), True),
-        (Instance(TypeInfo(set)), True),
-        (Instance(TypeInfo(dict)), True),
-        (Instance(TypeInfo(int)), False),
+        (Instance(ClassDescriptor(list)), True),
+        (Instance(ClassDescriptor(set)), True),
+        (Instance(ClassDescriptor(dict)), True),
+        (Instance(ClassDescriptor(int)), False),
         (UnionType((AnyType(),)), False),
         (NoneType(), False),
     ],
@@ -494,7 +494,7 @@ def test_is_collection_type(typ, result):
 def test_find_by_symbols(symbol, types):
     type_system = _build_type_system_from_module("tests.analysis.typeinfo.fixtures.types.symbols")
     assert type_system.find_by_attribute(symbol) == OrderedSet([
-        type_system.find_type_info("" + t) for t in types
+        type_system.find_class_descriptor("" + t) for t in types
     ])
 
 
@@ -552,9 +552,9 @@ def test_find_by_symbols(symbol, types):
 )
 def test_get_type_outside_of(outside_of, expected_types):
     type_system = _build_type_system_from_module("tests.analysis.typeinfo.fixtures.types.outside")
-    outside_set = OrderedSet(type_system.find_type_info(t) for t in outside_of)
+    outside_set = OrderedSet(type_system.find_class_descriptor(t) for t in outside_of)
     assert set(type_system.get_type_outside_of(outside_set)) == {
-        type_system.find_type_info(t) for t in expected_types
+        type_system.find_class_descriptor(t) for t in expected_types
     }
 
 
@@ -562,32 +562,32 @@ def test_get_type_outside_of(outside_of, expected_types):
     "tp, expected",
     [
         (tuple, TupleType((AnyType(),), unknown_size=True)),
-        (int, Instance(TypeInfo(int))),
+        (int, Instance(ClassDescriptor(int))),
     ],
 )
 def test_make_instance(tp, expected):
     tps = TypeSystem()
-    type_info = tps.to_type_info(tp)
+    type_info = tps.to_class_descriptor(tp)
     assert tps.make_instance(type_info) == expected
 
 
 @pytest.mark.parametrize(
     "tp, expected",
     [
-        (Instance(TypeInfo(list)), Instance(TypeInfo(list), (AnyType(),))),
+        (Instance(ClassDescriptor(list)), Instance(ClassDescriptor(list), (AnyType(),))),
         (
-            Instance(TypeInfo(list), (AnyType(), AnyType())),
-            Instance(TypeInfo(list), (AnyType(),)),
+            Instance(ClassDescriptor(list), (AnyType(), AnyType())),
+            Instance(ClassDescriptor(list), (AnyType(),)),
         ),
-        (Instance(TypeInfo(set)), Instance(TypeInfo(set), (AnyType(),))),
+        (Instance(ClassDescriptor(set)), Instance(ClassDescriptor(set), (AnyType(),))),
         (
-            Instance(TypeInfo(set), (AnyType(), AnyType())),
-            Instance(TypeInfo(set), (AnyType(),)),
+            Instance(ClassDescriptor(set), (AnyType(), AnyType())),
+            Instance(ClassDescriptor(set), (AnyType(),)),
         ),
-        (Instance(TypeInfo(dict)), Instance(TypeInfo(dict), (AnyType(), AnyType()))),
+        (Instance(ClassDescriptor(dict)), Instance(ClassDescriptor(dict), (AnyType(), AnyType()))),
         (
-            Instance(TypeInfo(dict), (AnyType(), AnyType(), AnyType())),
-            Instance(TypeInfo(dict), (AnyType(), AnyType())),
+            Instance(ClassDescriptor(dict), (AnyType(), AnyType(), AnyType())),
+            Instance(ClassDescriptor(dict), (AnyType(), AnyType())),
         ),
     ],
 )
@@ -705,14 +705,14 @@ def test_choose_type_or_negate_empty(inferred_signature):
 def test_choose_type_or_negate(inferred_signature):
     _config.settings.test_creation.negate_type = 0.0
     assert inferred_signature._choose_type_or_negate(
-        OrderedSet((inferred_signature.type_system.to_type_info(int),))
+        OrderedSet((inferred_signature.type_system.to_class_descriptor(int),))
     ) == inferred_signature.type_system.convert_type_hint(int)
 
 
 def test_choose_type_or_negate_negate(inferred_signature):
     _config.settings.test_creation.negate_type = 1.0
     assert inferred_signature._choose_type_or_negate(
-        OrderedSet((inferred_signature.type_system.to_type_info(int),))
+        OrderedSet((inferred_signature.type_system.to_class_descriptor(int),))
     ) != inferred_signature.type_system.convert_type_hint(int)
 
 
@@ -721,7 +721,7 @@ def test_choose_type_or_negate_empty_2(inferred_signature):
     with mock.patch.object(inferred_signature.type_system, "get_type_outside_of") as outside_mock:
         outside_mock.return_value = OrderedSet()
         assert inferred_signature._choose_type_or_negate(
-            OrderedSet((inferred_signature.type_system.to_type_info(object),))
+            OrderedSet((inferred_signature.type_system.to_class_descriptor(object),))
         ) == inferred_signature.type_system.convert_type_hint(object)
 
 
@@ -798,7 +798,7 @@ def test_from_symbol_table_2(inferred_signature):
     knowledge = UsageTraceNode("ROOT")
     assert knowledge.children["foo"] is not None
     inferred_signature.type_system._attribute_map["foo"].add(
-        inferred_signature.type_system.to_type_info(int)
+        inferred_signature.type_system.to_class_descriptor(int)
     )
     assert inferred_signature._from_attr_table(
         knowledge
@@ -887,7 +887,7 @@ def test_no_partial_type_match(type_system, left, right):
 
 def test_to_type_info_union_type(subtyping_cluster):
     type_system = subtyping_cluster.type_system
-    type_system.to_type_info(float | int)
+    type_system.to_class_descriptor(float | int)
 
 
 def test__guess_parameter_type_with_type_knowledge_simple(inferred_signature):
@@ -895,7 +895,7 @@ def test__guess_parameter_type_with_type_knowledge_simple(inferred_signature):
     knowledge = UsageTraceNode("ROOT")
     kind = ""  # not inspect.Parameter.VAR_KEYWORD or inspect.Parameter.VAR_POSITIONAL
     knowledge.type_checks.add(float)
-    expected = Instance(TypeInfo(float))
+    expected = Instance(ClassDescriptor(float))
     actual = inferred_signature._guess_parameter_type(knowledge, kind)
     assert actual == expected
 
@@ -919,8 +919,8 @@ pick_0 = pick_0_generator()
 @pytest.mark.parametrize(
     "pick, expected_type",
     [
-        (pick_0, Instance(TypeInfo(float))),
-        (pick_1, Instance(TypeInfo(int))),
+        (pick_0, Instance(ClassDescriptor(float))),
+        (pick_1, Instance(ClassDescriptor(int))),
     ],
 )
 def test__guess_parameter_type_with_type_knowledge(inferred_signature, pick, expected_type):

@@ -14,7 +14,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from pyflow.analysis.typeinfo import typetracing as tt
+from pyflow.analysis.typeinfo.inference import tracing as tt
 from pyflow.util.orderedset import OrderedSet
 
 

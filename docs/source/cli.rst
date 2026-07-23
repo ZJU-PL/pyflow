@@ -16,17 +16,27 @@ Analysis Commands
 **pyflow callgraph**
 ~~~~~~~~~~~~~~~~~~~~
 
-Generate and analyze call graphs from Python code.
+Generate and analyze call graphs from Python code.  Accepts a single Python
+file or a project directory.  When given a directory, the entry point is
+auto-detected from ``pyproject.toml``, ``setup.py``, ``__main__.py``, or
+well-known filenames (``main.py``, ``app.py``, ``cli.py``, etc.).
 
 ::
 
   pyflow callgraph input.py --algorithm constraint --output callgraph.txt
   pyflow callgraph input.py --algorithm constraint --context-sensitive --context-depth 2
+  pyflow callgraph /path/to/project/                            # auto-detect entry
+  pyflow callgraph /path/to/project/ --entry src/app.py         # explicit entry
+  pyflow callgraph /path/to/project/ --dry-run                  # print entry only
 
 Options:
+- ``--entry``: Entry point file relative to project root (directory input only; auto-detected when omitted)
+- ``--dry-run``: Print detected entry point without running analysis
 - ``--algorithm, -a``: Algorithm (``simple``, ``constraint``, or ``pycg``; default: ``simple``)
 - ``--output, -o``: Output file path
 - ``--verbose, -v``: Enable verbose output
+- ``--skip-stdlib``: Skip standard library modules in constraint analysis (default: on)
+- ``--no-skip-stdlib``: Include standard library modules
 - ``--context-sensitive``: Enable call-site context sensitivity (constraint algorithm only)
 - ``--context-depth``: Call-string depth when ``--context-sensitive`` is enabled (default: 1)
 - ``--fixpoint-max-iterations``: Cap fixpoint iterations (constraint algorithm only)

@@ -9,15 +9,15 @@ from __future__ import annotations
 
 import pytest
 
-from pyflow.analysis.typeinfo.typesystem import (
+from pyflow.analysis.typeinfo.core.typesystem import (
     Instance,
     TupleType,
-    TypeInfo,
+    ClassDescriptor,
     TypeVarType,
     UnionType,
     Variance,
 )
-from pyflow.analysis.typeinfo.gradual_typing import (
+from pyflow.analysis.typeinfo.resolution.typing_syntax import (
     collect_type_vars,
     is_proxy_class,
     is_proxy_type,
@@ -102,22 +102,22 @@ def test_should_ignore_annotation_part() -> None:
 
 def test_substitute_type_vars_simple() -> None:
     t = TypeVarType("T")
-    result = substitute_type_vars(t, {"T": Instance(TypeInfo(int))})
+    result = substitute_type_vars(t, {"T": Instance(ClassDescriptor(int))})
     assert isinstance(result, Instance)
     assert result.type.raw_type is int
 
 
 def test_substitute_type_vars_no_match() -> None:
     t = TypeVarType("T")
-    result = substitute_type_vars(t, {"U": Instance(TypeInfo(int))})
+    result = substitute_type_vars(t, {"U": Instance(ClassDescriptor(int))})
     assert result is t  # unchanged
 
 
 def test_substitute_type_vars_in_instance() -> None:
     t = TypeVarType("T")
-    ti = TypeInfo(list)
+    ti = ClassDescriptor(list)
     instance = Instance(ti, (t,))
-    result = substitute_type_vars(instance, {"T": Instance(TypeInfo(int))})
+    result = substitute_type_vars(instance, {"T": Instance(ClassDescriptor(int))})
     assert isinstance(result, Instance)
     assert result.type.raw_type is list
     assert len(result.args) == 1
@@ -131,7 +131,7 @@ def test_substitute_type_vars_in_union() -> None:
     union = UnionType((t1, t2))
     result = substitute_type_vars(
         union,
-        {"T": Instance(TypeInfo(int)), "U": Instance(TypeInfo(str))},
+        {"T": Instance(ClassDescriptor(int)), "U": Instance(ClassDescriptor(str))},
     )
     assert isinstance(result, UnionType)
     items = list(result.items)
@@ -143,15 +143,15 @@ def test_substitute_type_vars_in_union() -> None:
 def test_substitute_type_vars_in_tuple() -> None:
     t = TypeVarType("T")
     tt = TupleType((t, t))
-    result = substitute_type_vars(tt, {"T": Instance(TypeInfo(int))})
+    result = substitute_type_vars(tt, {"T": Instance(ClassDescriptor(int))})
     assert isinstance(result, TupleType)
     assert result.args[0].type.raw_type is int  # type: ignore[union-attr]
     assert result.args[1].type.raw_type is int  # type: ignore[union-attr]
 
 
 def test_substitute_type_vars_no_change() -> None:
-    inst = Instance(TypeInfo(int))
-    result = substitute_type_vars(inst, {"T": Instance(TypeInfo(str))})
+    inst = Instance(ClassDescriptor(int))
+    result = substitute_type_vars(inst, {"T": Instance(ClassDescriptor(str))})
     assert result is inst
 
 
@@ -170,7 +170,7 @@ def test_collect_type_vars_simple() -> None:
 def test_collect_type_vars_nested() -> None:
     t = TypeVarType("T")
     u = TypeVarType("U")
-    ti = TypeInfo(dict)
+    ti = ClassDescriptor(dict)
     instance = Instance(ti, (t, u))
     result = collect_type_vars(instance)
     names = {tv.name for tv in result}
@@ -180,14 +180,14 @@ def test_collect_type_vars_nested() -> None:
 def test_collect_type_vars_union() -> None:
     t = TypeVarType("T")
     u = TypeVarType("U")
-    union = UnionType((t, u, Instance(TypeInfo(int))))
+    union = UnionType((t, u, Instance(ClassDescriptor(int))))
     result = collect_type_vars(union)
     names = {tv.name for tv in result}
     assert names == {"T", "U"}
 
 
 def test_collect_type_vars_no_vars() -> None:
-    result = collect_type_vars(Instance(TypeInfo(int)))
+    result = collect_type_vars(Instance(ClassDescriptor(int)))
     assert result == []
 
 
@@ -204,14 +204,14 @@ def test_collect_type_vars_dedup() -> None:
 
 
 def test_type_var_constraints() -> None:
-    t = TypeVarType("T", constraints=(Instance(TypeInfo(int)), Instance(TypeInfo(str))))
+    t = TypeVarType("T", constraints=(Instance(ClassDescriptor(int)), Instance(ClassDescriptor(str))))
     assert t.has_constraints is True
     assert t.has_bound is False
     assert len(t.constraints) == 2
 
 
 def test_type_var_bound() -> None:
-    t = TypeVarType("T", bound=Instance(TypeInfo(int)))
+    t = TypeVarType("T", bound=Instance(ClassDescriptor(int)))
     assert t.has_bound is True
     assert t.has_constraints is False
 

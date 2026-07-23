@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pyflow.analysis.ifds.clients.registry import Registry, load_registry
+from pyflow.analysis.ifds.modeling.registry import Registry, load_registry
 
 
 class TestRegistryLoading:

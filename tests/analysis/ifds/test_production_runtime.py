@@ -25,11 +25,11 @@ from pyflow.analysis.ifds import (
     ValueTransition,
 )
 from pyflow.cli.security import run_security
-from pyflow.analysis.ifds.clients.registry import (
+from pyflow.analysis.ifds.modeling.registry import (
     validate_registry,
     validate_rule_pack_data,
 )
-from pyflow.analysis.ifds.preparation import PreparationMode, prepare_program_for_ifds
+from pyflow.analysis.ifds.frontend.preparation import PreparationMode, prepare_program_for_ifds
 
 from tests.analysis.ifds.reference_solver import solve_reference
 

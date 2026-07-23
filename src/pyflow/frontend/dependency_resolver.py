@@ -41,7 +41,7 @@ from pathlib import Path
 from typing import Dict, List, Any, Optional, Iterable, Tuple, Set, cast
 from enum import Enum
 
-from pyflow.analysis.typeinfo.stub_loader import (
+from pyflow.analysis.typeinfo.resolution.stubs import (
     ResolvedStub,
     StubClassInfo,
     StubFunctionInfo,
