@@ -310,7 +310,7 @@ Distribution Auditing
   snapshot freshness and SHA-256 sidecar enforcement
 - SPDX-aware license policy evaluates ``AND``, ``OR``, ``WITH``, parentheses,
   and allowed exceptions
-- CycloneDX/OpenVEX, in-toto/SLSA provenance, optional Sigstore verification,
+- CycloneDX/OpenVEX, authenticated in-toto/SLSA provenance, Sigstore verification,
   typosquatting checks, expiring exceptions, baselines, and conservative
   source-import reachability evidence are supported
 
@@ -327,6 +327,11 @@ Scanning and OSV/VEX/provenance ingestion work offline from local files.
 Production pipelines should pin official SBOM schemas, refresh OSV snapshots,
 require checksum sidecars, and use Sigstore identity verification where signed
 artifacts are expected.
+
+For security gates, prefer externally provisioned ``--osv-trusted-digest``
+values over checksum files stored beside the database. Unsigned provenance and
+DSSE envelopes without signatures cannot establish trust. Builder IDs remain
+claims until the exact attestation has passed Sigstore identity verification.
 
 Configuration and Testing
 -------------------------

@@ -309,13 +309,20 @@ markers for the target runtime</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--osv-database</span></code> with <code class="docutils literal notranslate"><span class="pre">--osv-max-age-days</span></code> and
 <code class="docutils literal notranslate"><span class="pre">--require-osv-checksum</span></code>: use freshness- and integrity-governed offline OSV
 data</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--osv-trusted-digest</span> <span class="pre">PATH=SHA256</span></code>: bind database files to digests supplied
+by trusted CI configuration; colocated checksum sidecars alone do not prove
+database origin</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--vex</span></code>: apply CycloneDX VEX or OpenVEX status</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--policy</span></code> / <code class="docutils literal notranslate"><span class="pre">--baseline</span></code> / <code class="docutils literal notranslate"><span class="pre">--write-baseline</span></code>: manage reviewed,
 expiring finding exceptions</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--attestation</span></code> / <code class="docutils literal notranslate"><span class="pre">--trusted-builder</span></code> / <code class="docutils literal notranslate"><span class="pre">--require-provenance</span></code>:
-verify digest-bound in-toto or SLSA provenance</p></li>
+require digest-bound in-toto or SLSA provenance. An attestation establishes
+trust only when that exact file passes an independent Sigstore identity check</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--sigstore-bundle</span></code> with certificate identity and issuer options: invoke
 the official Sigstore verifier for a local bundle</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--require-schema-validation</span></code>: fail SBOM generation unless a pinned local
+official schema bundle is supplied with <code class="docutils literal notranslate"><span class="pre">--schema</span></code>; network reference
+resolution is disabled</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--reachability</span></code>: annotate vulnerabilities with conservative import
 evidence; absence of an import is explicitly not treated as proof of safety</p></li>
 </ul>

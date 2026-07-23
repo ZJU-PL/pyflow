@@ -424,7 +424,7 @@ remote URLs</p></li>
 snapshot freshness and SHA-256 sidecar enforcement</p></li>
 <li><p>SPDX-aware license policy evaluates <code class="docutils literal notranslate"><span class="pre">AND</span></code>, <code class="docutils literal notranslate"><span class="pre">OR</span></code>, <code class="docutils literal notranslate"><span class="pre">WITH</span></code>, parentheses,
 and allowed exceptions</p></li>
-<li><p>CycloneDX/OpenVEX, in-toto/SLSA provenance, optional Sigstore verification,
+<li><p>CycloneDX/OpenVEX, authenticated in-toto/SLSA provenance, Sigstore verification,
 typosquatting checks, expiring exceptions, baselines, and conservative
 source-import reachability evidence are supported</p></li>
 </ul>
@@ -442,6 +442,10 @@ source-import reachability evidence are supported</p></li>
 Production pipelines should pin official SBOM schemas, refresh OSV snapshots,
 require checksum sidecars, and use Sigstore identity verification where signed
 artifacts are expected.</p>
+<p>For security gates, prefer externally provisioned <code class="docutils literal notranslate"><span class="pre">--osv-trusted-digest</span></code>
+values over checksum files stored beside the database. Unsigned provenance and
+DSSE envelopes without signatures cannot establish trust. Builder IDs remain
+claims until the exact attestation has passed Sigstore identity verification.</p>
 </section>
 </section>
 <section id="configuration-and-testing">
