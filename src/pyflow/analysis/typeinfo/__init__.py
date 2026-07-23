@@ -20,7 +20,7 @@ from .resolution.annotations import (
     resolve_annotation,
     resolve_forward_reference,
 )
-from .resolution.stubs import (
+from pyflow.language.modules.type_stubs import (
     ResolvedStub,
     StubClassInfo,
     StubDiagnostic,

@@ -21,7 +21,7 @@ from pyflow.analysis.typeinfo.query.models import (
     FunctionTypeInfo,
     TypeFact,
 )
-from pyflow.analysis.typeinfo.resolution.stubs import (
+from pyflow.language.modules.type_stubs import (
     StubClassInfo,
     StubDiagnostic,
     StubFunctionInfo,
@@ -37,7 +37,7 @@ from pyflow.analysis.typeinfo.core.typesystem import (
     TupleType,
     TypeSystem,
 )
-from pyflow.frontend.project_resolution import ProjectContext
+from pyflow.language.modules.project_resolution import ProjectContext
 
 
 class TypeInfoService:

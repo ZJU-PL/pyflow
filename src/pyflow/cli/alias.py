@@ -65,7 +65,7 @@ def _discover_python_files(input_path: Path, recursive: bool) -> list[Path]:
 
 
 def _convert_functions(source: str, filename: str) -> dict[str, object]:
-    from pyflow.frontend.ast_converter import ASTConverter
+    from pyflow.frontend.conversion.ast import ASTConverter
 
     tree = ast.parse(source, filename=filename)
     converter = ASTConverter(verbose=False)

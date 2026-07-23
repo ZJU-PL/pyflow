@@ -18,7 +18,7 @@ import textwrap
 from pathlib import Path
 
 from pyflow.application import context
-from pyflow.frontend.programextractor import Extractor
+from pyflow.frontend.extractor import Extractor
 from pyflow.analysis.cfg import transform
 from pyflow.analysis.cfg import graph as cfg_graph
 from pyflow.analysis.cdg import (

@@ -18,7 +18,7 @@ from pyflow.language.python import ast
 from pyflow.language.python import annotations
 
 from pyflow.analysis import tools
-from pyflow.analysis.ir_utils import copy_call_argument_metadata
+from pyflow.language.python.ir_metadata import copy_call_argument_metadata
 from pyflow.optimization import dataflow
 
 from pyflow.optimization import simplify
@@ -86,7 +86,7 @@ class MethodPatternFinder(TypeDispatcher):
     """
 
     def findOriginals(self, extractor):
-        exports = extractor.stubs.exports
+        exports = extractor.intrinsic_manager.stubs.exports
         self.iget = exports["interpreter_getattribute"]
         self.oget = exports["object__getattribute__"]
 

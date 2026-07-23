@@ -3,7 +3,7 @@ import unittest
 from pyflow.application import context
 from pyflow.application.errors import TemporaryLimitation
 from pyflow.analysis.cdg import construct_cdg
-from pyflow.frontend.programextractor import Extractor
+from pyflow.frontend.extractor import Extractor
 from pyflow.analysis.cfg import (
     graph as cfg_graph,
     inline,

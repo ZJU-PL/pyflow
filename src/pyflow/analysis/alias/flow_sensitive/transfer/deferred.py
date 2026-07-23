@@ -1,7 +1,7 @@
 """Deferred activation and call-result materialization methods."""
 
 from __future__ import annotations
-from pyflow.analysis.ir_utils import actual_argument_expressions, resolve_call_name
+from pyflow.language.python.ir_metadata import actual_argument_expressions, resolve_call_name
 from pyflow.language.python import ast as py_ast
 from ..domain.state import HeapState
 from ..semantics.effects import DYNAMIC_SUBSCRIPT_WILDCARD

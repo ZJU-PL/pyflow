@@ -19,6 +19,8 @@ from itertools import chain
 from pathlib import Path
 from typing import Dict, Iterable, Iterator, List, Mapping, Optional, Sequence, Set
 
+from .imports import iter_import_nodes_in_scope
+
 _CONTAINS_POTENTIAL_PROJECT = (
     "setup.py",
     ".git",
@@ -471,41 +473,3 @@ class ProjectContext:
                         candidate = f"{resolved}.{alias.name}"
                         if self.find_module(candidate, script_path=current_path):
                             yield from emit(candidate)
-
-
-def iter_import_nodes_in_scope(nodes: Iterable[ast.AST]) -> Iterator[ast.AST]:
-    """Yield imports that execute in the current module/class/control scope."""
-
-    for node in nodes:
-        if isinstance(node, (ast.Import, ast.ImportFrom)):
-            yield node
-            continue
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-            continue
-        if isinstance(
-            node, (ast.If, ast.For, ast.AsyncFor, ast.While, ast.With, ast.AsyncWith)
-        ):
-            yield from iter_import_nodes_in_scope(getattr(node, "body", ()) or ())
-            yield from iter_import_nodes_in_scope(getattr(node, "orelse", ()) or ())
-            continue
-        if isinstance(node, ast.Try):
-            yield from iter_import_nodes_in_scope(getattr(node, "body", ()) or ())
-            for handler in getattr(node, "handlers", ()) or ():
-                yield from iter_import_nodes_in_scope(
-                    getattr(handler, "body", ()) or ()
-                )
-            yield from iter_import_nodes_in_scope(getattr(node, "orelse", ()) or ())
-            yield from iter_import_nodes_in_scope(getattr(node, "finalbody", ()) or ())
-            continue
-        if hasattr(ast, "TryStar") and isinstance(node, ast.TryStar):
-            yield from iter_import_nodes_in_scope(getattr(node, "body", ()) or ())
-            for handler in getattr(node, "handlers", ()) or ():
-                yield from iter_import_nodes_in_scope(
-                    getattr(handler, "body", ()) or ()
-                )
-            yield from iter_import_nodes_in_scope(getattr(node, "orelse", ()) or ())
-            yield from iter_import_nodes_in_scope(getattr(node, "finalbody", ()) or ())
-            continue
-        if hasattr(ast, "Match") and isinstance(node, ast.Match):
-            for case in getattr(node, "cases", ()) or ():
-                yield from iter_import_nodes_in_scope(getattr(case, "body", ()) or ())

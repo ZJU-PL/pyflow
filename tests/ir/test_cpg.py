@@ -4,7 +4,7 @@ import unittest
 import warnings
 
 from pyflow.application import context
-from pyflow.frontend.programextractor import Extractor
+from pyflow.frontend.extractor import Extractor
 from pyflow.analysis.cfg import graph as cfg_graph
 from pyflow.analysis.cfg import transform
 from pyflow.analysis.pdg import construct_pdg

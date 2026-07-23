@@ -4,7 +4,7 @@ import unittest
 from pyflow.analysis.storegraph import storegraph, canonicalobjects, extendedtypes
 from pyflow.util.application.console import Console
 from pyflow.application.context import CompilerContext
-from pyflow.frontend.programextractor import Extractor
+from pyflow.frontend.extractor import Extractor
 from pyflow.util.python import replaceGlobals
 
 

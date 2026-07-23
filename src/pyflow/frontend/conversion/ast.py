@@ -22,10 +22,17 @@ from pyflow.language.python.program import Object
 from pyflow.language.python.pythonbase import PythonASTNode
 from pyflow.language.python.annotations import CodeAnnotation
 from pyflow.language.asttools.origin import SourceOrigin
-from pyflow.analysis.ir_utils import (
+from pyflow.language.python.ir_metadata import (
     register_call_argument_metadata,
     register_class_cell,
     register_code_definition_metadata,
+)
+
+from .scope import (
+    collect_descendant_scope_directives,
+    collect_direct_scope_directives,
+    collect_scope_names,
+    direct_child_captures,
 )
 
 HAS_MATCH = sys.version_info >= (3, 10)
@@ -177,80 +184,14 @@ class ASTConverter:
     def _collect_direct_scope_directives(
         self, body_nodes: List[python_ast.AST]
     ) -> Tuple[Set[str], Set[str]]:
-        global_names: Set[str] = set()
-        nonlocal_names: Set[str] = set()
-
-        class DirectiveVisitor(python_ast.NodeVisitor):
-            def visit_Global(self, node: python_ast.Global) -> None:
-                global_names.update(node.names)
-
-            def visit_Nonlocal(self, node: python_ast.Nonlocal) -> None:
-                nonlocal_names.update(node.names)
-
-            def visit_FunctionDef(self, node: python_ast.FunctionDef) -> None:
-                return
-
-            def visit_AsyncFunctionDef(self, node: python_ast.AsyncFunctionDef) -> None:
-                return
-
-            def visit_ClassDef(self, node: python_ast.ClassDef) -> None:
-                return
-
-        visitor = DirectiveVisitor()
-        for stmt in body_nodes:
-            visitor.visit(stmt)
-        return global_names, nonlocal_names
+        return collect_direct_scope_directives(body_nodes)
 
     def _collect_scope_names(
         self,
         body_nodes: List[python_ast.AST],
     ) -> Tuple[Set[str], Set[str]]:
         """Collect names bound and loaded directly in one lexical scope."""
-        bound: Set[str] = set()
-        loaded: Set[str] = set()
-
-        class ScopeVisitor(python_ast.NodeVisitor):
-            def visit_Name(self, node: python_ast.Name) -> None:
-                if isinstance(node.ctx, (python_ast.Store, python_ast.Del)):
-                    bound.add(node.id)
-                else:
-                    loaded.add(node.id)
-
-            def visit_FunctionDef(self, node: python_ast.FunctionDef) -> None:
-                bound.add(node.name)
-                for decorator in node.decorator_list:
-                    self.visit(decorator)
-                for default in (*node.args.defaults, *node.args.kw_defaults):
-                    if default is not None:
-                        self.visit(default)
-
-            visit_AsyncFunctionDef = visit_FunctionDef
-
-            def visit_ClassDef(self, node: python_ast.ClassDef) -> None:
-                bound.add(node.name)
-                for base in node.bases:
-                    self.visit(base)
-                for keyword in node.keywords:
-                    self.visit(keyword.value)
-                for decorator in node.decorator_list:
-                    self.visit(decorator)
-
-            def visit_Lambda(self, node: python_ast.Lambda) -> None:
-                return
-
-            def visit_Import(self, node: python_ast.Import) -> None:
-                for alias in node.names:
-                    bound.add(alias.asname or alias.name.split(".")[0])
-
-            def visit_ImportFrom(self, node: python_ast.ImportFrom) -> None:
-                for alias in node.names:
-                    if alias.name != "*":
-                        bound.add(alias.asname or alias.name)
-
-        visitor = ScopeVisitor()
-        for statement in body_nodes:
-            visitor.visit(statement)
-        return bound, loaded
+        return collect_scope_names(body_nodes)
 
     def _enclosing_cell_names(
         self,
@@ -276,108 +217,12 @@ class ASTConverter:
         body_nodes: List[python_ast.AST],
         parent_bound: Set[str],
     ) -> Set[str]:
-        captures: Set[str] = set()
-
-        class ChildVisitor(python_ast.NodeVisitor):
-            def _visit_function(self, node) -> None:
-                child_bound, child_loaded = self_outer._collect_scope_names(
-                    list(node.body)
-                )
-                child_globals, child_nonlocals = (
-                    self_outer._collect_direct_scope_directives(list(node.body))
-                )
-                child_bound.update(
-                    argument.arg
-                    for argument in (
-                        *getattr(node.args, "posonlyargs", ()),
-                        *getattr(node.args, "args", ()),
-                        *getattr(node.args, "kwonlyargs", ()),
-                    )
-                )
-                if getattr(node.args, "vararg", None) is not None:
-                    child_bound.add(node.args.vararg.arg)
-                if getattr(node.args, "kwarg", None) is not None:
-                    child_bound.add(node.args.kwarg.arg)
-                candidates = (
-                    child_loaded - child_bound - child_globals
-                ) | child_nonlocals
-                captures.update(candidates & parent_bound)
-
-            def visit_FunctionDef(self, node: python_ast.FunctionDef) -> None:
-                self._visit_function(node)
-
-            visit_AsyncFunctionDef = visit_FunctionDef
-
-            def visit_Lambda(self, node: python_ast.Lambda) -> None:
-                return
-
-            def visit_ClassDef(self, node: python_ast.ClassDef) -> None:
-                return
-
-        self_outer = self
-        visitor = ChildVisitor()
-        for statement in body_nodes:
-            visitor.visit(statement)
-        return captures
+        return direct_child_captures(body_nodes, parent_bound)
 
     def _collect_descendant_scope_directives(
         self, body_nodes: List[python_ast.AST]
     ) -> Tuple[Set[str], Set[str]]:
-        global_names: Set[str] = set()
-        nonlocal_names: Set[str] = set()
-
-        def walk(nodes: List[python_ast.AST]) -> None:
-            for stmt in nodes:
-                if isinstance(
-                    stmt, (python_ast.FunctionDef, python_ast.AsyncFunctionDef)
-                ):
-                    direct_global, direct_nonlocal = (
-                        self._collect_direct_scope_directives(list(stmt.body))
-                    )
-                    global_names.update(direct_global)
-                    nonlocal_names.update(direct_nonlocal)
-                    walk(list(stmt.body))
-                    continue
-
-                if isinstance(
-                    stmt,
-                    (
-                        python_ast.If,
-                        python_ast.For,
-                        python_ast.AsyncFor,
-                        python_ast.While,
-                        python_ast.With,
-                        python_ast.AsyncWith,
-                    ),
-                ):
-                    walk(list(getattr(stmt, "body", []) or []))
-                    walk(list(getattr(stmt, "orelse", []) or []))
-                    continue
-
-                if isinstance(stmt, python_ast.Try):
-                    walk(list(getattr(stmt, "body", []) or []))
-                    for handler in getattr(stmt, "handlers", []) or []:
-                        walk(list(getattr(handler, "body", []) or []))
-                    walk(list(getattr(stmt, "orelse", []) or []))
-                    walk(list(getattr(stmt, "finalbody", []) or []))
-                    continue
-
-                if hasattr(python_ast, "TryStar") and isinstance(
-                    stmt, python_ast.TryStar
-                ):
-                    walk(list(getattr(stmt, "body", []) or []))
-                    for handler in getattr(stmt, "handlers", []) or []:
-                        walk(list(getattr(handler, "body", []) or []))
-                    walk(list(getattr(stmt, "orelse", []) or []))
-                    walk(list(getattr(stmt, "finalbody", []) or []))
-                    continue
-
-                if hasattr(python_ast, "Match") and isinstance(stmt, python_ast.Match):
-                    for case in getattr(stmt, "cases", []) or []:
-                        walk(list(getattr(case, "body", []) or []))
-
-        walk(body_nodes)
-        return global_names, nonlocal_names
+        return collect_descendant_scope_directives(body_nodes)
 
     def _name_constant(self, name: str) -> pyflow_ast.Existing:
         return pyflow_ast.Existing(Object(name))

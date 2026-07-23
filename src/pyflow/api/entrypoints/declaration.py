@@ -258,8 +258,9 @@ class InterfaceDeclaration:
             tobj = ExistingWrapper(cls.typeobj)
             inst = InstanceWrapper(cls.typeobj)
 
-            call = extractor.stubs.exports["interpreter_call"]
-            getter = extractor.stubs.exports["interpreter_getattribute"]
+            exports = extractor.intrinsic_manager.stubs.exports
+            call = exports["interpreter_call"]
+            getter = exports["interpreter_getattribute"]
 
             group = None
             for idx, args in enumerate(cls._init):

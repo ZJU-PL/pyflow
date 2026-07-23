@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pyflow.analysis.ir_utils import resolve_call_name
+from pyflow.language.python.ir_metadata import resolve_call_name
 from pyflow.language.python import ast as py_ast
 
 from ..model import HeapLocation, UpdatePolicy

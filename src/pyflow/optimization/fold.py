@@ -11,7 +11,7 @@ from pyflow.optimization.dataflow.forward import *
 from pyflow.optimization.dataflow.base import top, undefined, MutateCode
 from pyflow.language.python import fold
 from pyflow.analysis import tools
-from pyflow.analysis.ir_utils import copy_call_argument_metadata
+from pyflow.language.python.ir_metadata import copy_call_argument_metadata
 from pyflow.optimization import termrewrite
 from pyflow.optimization.termrewrite import DirectCallRewriter
 

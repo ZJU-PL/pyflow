@@ -16,8 +16,8 @@ from pyflow.language.python.default_markers import MISSING_DEFAULT
 from pyflow.language.python.pythonbase import PythonASTNode
 from pyflow.application.program import Program
 
-from .ast_converter import ASTConverter
-from .source_locator import find_function_source_segment
+from .ast import ASTConverter
+from .source import find_function_source_segment
 
 _KWONLY_PARAM_PREFIX = "kwonly:"
 

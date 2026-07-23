@@ -16,7 +16,7 @@ from pyflow.analysis.typeinfo.core.typesystem import (
     NoneType,
     UnionType,
 )
-from pyflow.frontend.project_resolution import ProjectContext
+from pyflow.language.modules.project_resolution import ProjectContext
 
 
 def _instance_name(value) -> str:

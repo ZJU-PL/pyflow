@@ -7,16 +7,15 @@ from dataclasses import dataclass
 import io
 import os
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Iterable, Sequence
 
 from pyflow.application.context import CompilerContext
 from pyflow.application.pipeline import Pipeline
 from pyflow.application.program import Program
-from pyflow.frontend.programextractor import (
-    Extractor,
-    create_interface_from_paths,
-    extractProgram,
+from pyflow.frontend.extractor import Extractor, extract_program
+from pyflow.frontend.interface_builder import (
+    InterfaceBuildOptions,
+    build_interface_from_paths,
 )
 from pyflow.util.application.console import Console
 
@@ -61,11 +60,17 @@ class AnalysisSession:
         return tuple(str(diagnostic) for diagnostic in self.diagnostics)
 
 
-def _path_args(verbose: bool, dependency_strategy: str, search_paths):
-    return SimpleNamespace(
+def _path_options(
+    verbose: bool, dependency_strategy: str, search_paths
+) -> InterfaceBuildOptions:
+    return InterfaceBuildOptions(
         verbose=verbose,
         dependency_strategy=dependency_strategy,
-        search_paths=search_paths,
+        search_paths=(
+            tuple(str(path) for path in search_paths)
+            if search_paths is not None
+            else None
+        ),
         include_main_entry_points=True,
     )
 
@@ -287,16 +292,18 @@ def load_analysis_session(
     )
     program = Program()
 
-    args = _path_args(verbose, dependency_strategy, search_paths)
+    options = _path_options(verbose, dependency_strategy, search_paths)
     stdout = nullcontext() if verbose else redirect_stdout(io.StringIO())
     preserved_codes = ()
     target_source: str | None = None
     with stdout:
-        program.interface, all_source_code = create_interface_from_paths(files, args)
+        program.interface, all_source_code = build_interface_from_paths(
+            files, options
+        )
         compiler.extractor = Extractor(
             compiler, verbose=verbose, source_code=all_source_code
         )
-        extractProgram(compiler, program)
+        extract_program(compiler, program)
         if root_function is not None:
             queries = program.get_queries(compiler)
             target_code = _resolve_requested_entry_code(program, queries, root_function)

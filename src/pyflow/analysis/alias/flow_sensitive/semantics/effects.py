@@ -12,7 +12,7 @@ from typing import Callable
 
 from pyflow.language.python import ast as py_ast
 
-from pyflow.analysis.ir_utils import (
+from pyflow.language.python.ir_metadata import (
     actual_argument_expressions,
     assigned_locals,
     resolve_call_name,

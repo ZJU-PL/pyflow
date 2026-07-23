@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Set
 
 from pyflow.application import context
-from pyflow.frontend.programextractor import Extractor
+from pyflow.frontend.extractor import Extractor
 from pyflow.analysis.cfg import transform as cfg_transform
 from pyflow.analysis.pdg import construct_pdg
 from pyflow.analysis.callgraph.callgraph import CallGraph

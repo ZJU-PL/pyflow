@@ -1,20 +1,26 @@
-"""Unit tests for programextractor module."""
+"""Unit tests for the frontend extractor module."""
 
 import unittest
 import ast
 import tempfile
-from unittest.mock import Mock, patch
+from unittest.mock import Mock
 
 from pyflow.application.context import CompilerContext
 from pyflow.application.program import Program
 from pyflow.api.entrypoints import InterfaceDeclaration, ExistingWrapper, nullWrapper
 from pyflow.analysis import ipa
 from pyflow.util.application.console import Console
-from pyflow.frontend.programextractor import (
-    Extractor,
-    create_interface_from_paths,
-    extractProgram,
+from pyflow.frontend.extractor import Extractor, extract_program
+from pyflow.frontend.interface_builder import (
+    InterfaceBuildOptions,
+    build_interface_from_paths,
 )
+
+
+def _build_interface(python_files, args):
+    return build_interface_from_paths(
+        python_files, InterfaceBuildOptions.from_namespace(args)
+    )
 
 
 class TestExtractor(unittest.TestCase):
@@ -35,7 +41,7 @@ class TestExtractor(unittest.TestCase):
         self.assertEqual(self.extractor.errors, 0)
         self.assertEqual(self.extractor.failures, 0)
         self.assertIsNotNone(self.extractor.desc)
-        self.assertIsNotNone(self.extractor.stub_manager)
+        self.assertIsNotNone(self.extractor.intrinsic_manager)
         self.assertIsNotNone(self.extractor.function_extractor)
         self.assertIsNotNone(self.extractor.object_manager)
 
@@ -354,7 +360,7 @@ def outer2():
 
         self.assertEqual(code.ast.blocks[0].exprs[0].object.pyobj, 2)
 
-    def test_create_interface_from_paths_includes_class_only_modules(self):
+    def test_build_interface_includes_class_only_modules(self):
         """Class-only modules should still produce interface entries."""
         import tempfile
         from pathlib import Path
@@ -374,12 +380,12 @@ def outer2():
                 encoding="utf-8",
             )
 
-            interface, _sources = create_interface_from_paths([sample], Args())
+            interface, _sources = _build_interface([sample], Args())
 
         self.assertEqual(len(interface.cls), 1)
         self.assertFalse(interface.func)
 
-    def test_create_interface_from_paths_binds_instance_methods_via_class_decl(self):
+    def test_build_interface_binds_instance_methods_via_class_decl(self):
         """Instance methods should become class entry points, not free functions."""
         import tempfile
         from pathlib import Path
@@ -399,14 +405,14 @@ def outer2():
                 encoding="utf-8",
             )
 
-            interface, sources = create_interface_from_paths([sample], Args())
+            interface, sources = _build_interface([sample], Args())
             program = Program()
             program.interface = interface
             compiler = CompilerContext(Console())
             compiler.extractor = Extractor(
                 compiler, verbose=False, source_code=sources
             )
-            extractProgram(compiler, program)
+            extract_program(compiler, program)
 
         method_eps = [
             ep
@@ -418,7 +424,7 @@ def outer2():
         self.assertEqual(type(method_eps[0].selfarg).__name__, "ExistingWrapper")
         self.assertEqual(len(method_eps[0].args), 2)
 
-    def test_create_interface_from_paths_binds_class_and_static_methods(self):
+    def test_build_interface_binds_class_and_static_methods(self):
         """Class and static methods should get the correct synthesized receiver args."""
         import tempfile
         from pathlib import Path
@@ -442,14 +448,14 @@ def outer2():
                 encoding="utf-8",
             )
 
-            interface, sources = create_interface_from_paths([sample], Args())
+            interface, sources = _build_interface([sample], Args())
             program = Program()
             program.interface = interface
             compiler = CompilerContext(Console())
             compiler.extractor = Extractor(
                 compiler, verbose=False, source_code=sources
             )
-            extractProgram(compiler, program)
+            extract_program(compiler, program)
 
         build_eps = [
             ep
@@ -470,7 +476,7 @@ def outer2():
         self.assertEqual(len(build_eps[0].args), 2)
         self.assertEqual(len(util_eps[0].args), 1)
 
-    def test_create_interface_from_paths_treats_property_as_attribute(self):
+    def test_build_interface_treats_property_as_attribute(self):
         """Properties should become attribute entry points, not callable methods."""
         import tempfile
         from pathlib import Path
@@ -491,13 +497,13 @@ def outer2():
                 encoding="utf-8",
             )
 
-            interface, _sources = create_interface_from_paths([sample], Args())
+            interface, _sources = _build_interface([sample], Args())
 
         self.assertEqual(len(interface.cls), 1)
         self.assertEqual(interface.cls[0]._attr, ["token"])
         self.assertNotIn("token", interface.cls[0]._method)
 
-    def test_create_interface_from_paths_synthesizes_posonly_function_args(self):
+    def test_build_interface_synthesizes_posonly_function_args(self):
         """Auto-generated entry points should include positional-only params."""
         import tempfile
         from pathlib import Path
@@ -516,14 +522,14 @@ def outer2():
                 encoding="utf-8",
             )
 
-            interface, sources = create_interface_from_paths([sample], Args())
+            interface, sources = _build_interface([sample], Args())
             program = Program()
             program.interface = interface
             compiler = CompilerContext(Console())
             compiler.extractor = Extractor(
                 compiler, verbose=False, source_code=sources
             )
-            extractProgram(compiler, program)
+            extract_program(compiler, program)
 
         func_eps = [
             ep for ep in program.interface.entryPoint if ep.code.codeName() == "f"
@@ -531,7 +537,7 @@ def outer2():
         self.assertEqual(len(func_eps), 1)
         self.assertEqual(len(func_eps[0].args), 2)
 
-    def test_create_interface_from_paths_tracks_keyword_only_function_args(self):
+    def test_build_interface_tracks_keyword_only_function_args(self):
         """Auto-generated declarations should preserve keyword-only arg names."""
         import tempfile
         from pathlib import Path
@@ -550,7 +556,7 @@ def outer2():
                 encoding="utf-8",
             )
 
-            interface, _sources = create_interface_from_paths([sample], Args())
+            interface, _sources = _build_interface([sample], Args())
 
         self.assertEqual(len(interface.func), 1)
         func_obj, func_args, func_kwds = interface.func[0]
@@ -603,7 +609,7 @@ def outer2():
 
 
 class TestExtractProgram(unittest.TestCase):
-    """Test cases for the extractProgram function."""
+    """Test cases for the extract_program function."""
 
     def setUp(self):
         """Set up test fixtures."""
@@ -612,34 +618,34 @@ class TestExtractProgram(unittest.TestCase):
         self.program = Program()
 
     def test_extract_program_without_extractor(self):
-        """Test extractProgram creates extractor if none exists."""
+        """Test extract_program creates extractor if none exists."""
         self.assertIsNone(self.compiler.extractor)
-        extractProgram(self.compiler, self.program)
+        extract_program(self.compiler, self.program)
         self.assertIsNotNone(self.compiler.extractor)
 
     def test_extract_program_with_extractor(self):
-        """Test extractProgram uses existing extractor."""
+        """Test extract_program uses existing extractor."""
         extractor = Extractor(self.compiler, verbose=False)
         self.compiler.extractor = extractor
-        extractProgram(self.compiler, self.program)
+        extract_program(self.compiler, self.program)
         self.assertEqual(self.compiler.extractor, extractor)
 
     def test_extract_program_with_source_code_dict(self):
-        """Test extractProgram with source code dictionary."""
+        """Test extract_program with source code dictionary."""
         source_dict = {
             "file1.py": "def func1(): return 1",
             "file2.py": "def func2(): return 2"
         }
         extractor = Extractor(self.compiler, verbose=False, source_code=source_dict)
         self.compiler.extractor = extractor
-        extractProgram(self.compiler, self.program)
+        extract_program(self.compiler, self.program)
         # Should not raise an exception
         self.assertIs(self.program.class_hierarchy, extractor.class_hierarchy)
         self.assertIs(self.program.cross_module_resolver, extractor.cross_module_resolver)
         self.assertIsNotNone(self.program.frontend_telemetry)
 
     def test_extract_program_with_interface(self):
-        """Test extractProgram with interface."""
+        """Test extract_program with interface."""
         from pyflow.api.entrypoints import InterfaceDeclaration
         
         interface_decl = InterfaceDeclaration()
@@ -647,7 +653,7 @@ class TestExtractProgram(unittest.TestCase):
         
         extractor = Extractor(self.compiler, verbose=False)
         self.compiler.extractor = extractor
-        extractProgram(self.compiler, self.program)
+        extract_program(self.compiler, self.program)
         # Should not raise an exception
 
     def test_extract_program_adds_module_entrypoint_for_top_level_code(self):
@@ -659,7 +665,7 @@ class TestExtractProgram(unittest.TestCase):
         )
         self.compiler.extractor = extractor
 
-        extractProgram(self.compiler, self.program)
+        extract_program(self.compiler, self.program)
 
         code_names = {code.codeName() for code in self.program.liveCode}
         entry_names = {ep.code.codeName() for ep in self.program.entryPoints}
@@ -683,7 +689,7 @@ class TestExtractProgram(unittest.TestCase):
         )
         self.compiler.extractor = extractor
 
-        extractProgram(self.compiler, self.program)
+        extract_program(self.compiler, self.program)
 
         code_names = {code.codeName() for code in self.program.liveCode}
         self.assertNotIn("pkg.mod.C.<classbody>", code_names)
@@ -697,7 +703,7 @@ class TestExtractProgram(unittest.TestCase):
         )
         self.compiler.extractor = extractor
 
-        extractProgram(self.compiler, self.program)
+        extract_program(self.compiler, self.program)
 
         self.assertIn("f", {code.codeName() for code in self.program.liveCode})
 
@@ -717,13 +723,13 @@ class TestExtractProgram(unittest.TestCase):
             main.write_text("def main():\n    return 0\n", encoding="utf-8")
             dead.write_text("x = source()\nsink(x)\n", encoding="utf-8")
 
-            interface, sources = create_interface_from_paths([main, dead], Args())
+            interface, sources = _build_interface([main, dead], Args())
             self.program.interface = interface
             self.compiler.extractor = Extractor(
                 self.compiler, verbose=False, source_code=sources
             )
 
-            extractProgram(self.compiler, self.program)
+            extract_program(self.compiler, self.program)
 
         self.assertEqual(
             {ep.code.codeName() for ep in self.program.entryPoints},
@@ -752,12 +758,12 @@ class TestExtractProgram(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            interface, sources = create_interface_from_paths([sample], Args())
+            interface, sources = _build_interface([sample], Args())
             self.program.interface = interface
             self.compiler.extractor = Extractor(
                 self.compiler, verbose=False, source_code=sources
             )
-            extractProgram(self.compiler, self.program)
+            extract_program(self.compiler, self.program)
 
         method_names = sorted(
             ep.code.codeName()
@@ -784,12 +790,12 @@ class TestExtractProgram(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            interface, sources = create_interface_from_paths([sample], Args())
+            interface, sources = _build_interface([sample], Args())
             self.program.interface = interface
             self.compiler.extractor = Extractor(
                 self.compiler, verbose=False, source_code=sources
             )
-            extractProgram(self.compiler, self.program)
+            extract_program(self.compiler, self.program)
 
         cfg = self.program.get_queries(self.compiler).get_cfg("main")
         self.assertEqual(cfg.code.codeName(), "main")
@@ -809,14 +815,14 @@ class TestFrontendPipelineCompatibility(unittest.TestCase):
             sample = Path(tmpdir) / "sample.py"
             sample.write_text(source, encoding="utf-8")
 
-            interface, sources = create_interface_from_paths([sample], Args())
+            interface, sources = _build_interface([sample], Args())
             compiler = CompilerContext(Console())
             compiler.extractor = Extractor(
                 compiler, verbose=False, source_code=sources
             )
             program = Program()
             program.interface = interface
-            extractProgram(compiler, program)
+            extract_program(compiler, program)
             return compiler, program
 
     def test_ipa_accepts_namedexpr(self):

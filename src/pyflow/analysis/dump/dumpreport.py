@@ -13,7 +13,7 @@ from pyflow.util.io.filesystem import ensureDirectoryExists
 from ... import config
 
 from .. import programculler
-from pyflow.frontend.programextractor import Extractor
+from pyflow.frontend.extractor import Extractor
 
 from pyflow.analysis.dump import dumputil
 from pyflow.analysis import tools

@@ -9,7 +9,7 @@ from typing import Callable, DefaultDict, Dict, Iterable, Mapping, Sequence
 
 from pyflow.analysis.cfg import dfs as cfg_dfs
 from pyflow.analysis.cfg import graph as cfg_graph
-from pyflow.analysis.ir_utils import (
+from pyflow.language.python.ir_metadata import (
     actual_argument_expressions,
     assigned_locals,
     resolve_call_name,

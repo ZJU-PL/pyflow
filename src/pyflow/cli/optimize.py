@@ -8,7 +8,11 @@ from pathlib import Path
 from pyflow.application.context import CompilerContext
 from pyflow.application.program import Program
 from pyflow.application.pipeline import Pipeline
-from pyflow.frontend.programextractor import extractProgram
+from pyflow.frontend.extractor import Extractor, extract_program
+from pyflow.frontend.interface_builder import (
+    InterfaceBuildOptions,
+    build_interface_from_paths,
+)
 from pyflow.util.application.console import Console
 
 # Constants
@@ -135,15 +139,15 @@ def _build_analysis_state(python_files, args):
     compiler = CompilerContext(console)
     program = Program()
 
-    from pyflow.frontend.programextractor import create_interface_from_paths, Extractor
-
-    program.interface, all_source_code = create_interface_from_paths(python_files, args)
+    program.interface, all_source_code = build_interface_from_paths(
+        python_files, InterfaceBuildOptions.from_namespace(args)
+    )
     compiler.extractor = Extractor(
         compiler, verbose=args.verbose, source_code=all_source_code
     )
 
     with console.scope("extraction"):
-        extractProgram(compiler, program)
+        extract_program(compiler, program)
 
     return compiler, program
 

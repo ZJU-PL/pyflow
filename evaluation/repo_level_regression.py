@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Dict, List
 
 from pyflow.application.context import CompilerContext
-from pyflow.frontend.programextractor import Extractor
+from pyflow.frontend.extractor import Extractor
 from pyflow.util.application.console import Console
 
 

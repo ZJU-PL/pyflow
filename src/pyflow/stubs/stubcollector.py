@@ -456,7 +456,7 @@ def makeStubs(compiler):
         >>> # All stubs are now registered and available for analysis
     """
     collector = StubCollector(compiler)
-    compiler.extractor.stubs = collector
+    compiler.extractor.intrinsic_manager.stubs = collector
     # Run all registered stub generators
     for gen in stubgenerators:
         gen(collector)

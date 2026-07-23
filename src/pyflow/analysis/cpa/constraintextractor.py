@@ -78,7 +78,7 @@ class ExtractDataflow(TypeDispatcher):
         Returns:
             Dictionary of exported stub functions
         """
-        return self.system.extractor.stubs.exports
+        return self.system.extractor.intrinsic_manager.stubs.exports
 
     def doOnce(self, node):
         """Check if a node should be processed only once.

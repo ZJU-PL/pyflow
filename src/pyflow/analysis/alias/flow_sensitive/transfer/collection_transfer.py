@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pyflow.analysis.ir_utils import (
+from pyflow.language.python.ir_metadata import (
     actual_argument_expressions,
     resolve_call_name,
 )

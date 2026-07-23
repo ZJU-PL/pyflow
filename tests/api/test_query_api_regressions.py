@@ -12,7 +12,7 @@ from pyflow.api.queries.engine import GraphQueryEngine
 from pyflow.api.queries.localization import LocalizationCandidate, LocalizationQueries
 from pyflow.api.queries.service import SemanticQueryService
 from pyflow.api.queries.test_generation import TestGenerationQueries as _TestGenerationQueries
-from pyflow.frontend.project_resolution import ProjectContext
+from pyflow.language.modules.project_resolution import ProjectContext
 
 
 class DummyCode:

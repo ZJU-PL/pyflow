@@ -9,22 +9,16 @@ import pytest
 from pyflow.application.context import CompilerContext
 from pyflow.application.program import Program
 from pyflow.application.pipeline import evaluate as pipeline_evaluate
-from pyflow.frontend.programextractor import (
-    create_interface_from_paths,
-    extractProgram,
-    Extractor,
+from pyflow.frontend.extractor import Extractor, extract_program
+from pyflow.frontend.interface_builder import (
+    InterfaceBuildOptions,
+    build_interface_from_paths,
 )
 from pyflow.util.application.console import Console
 
 
-def _make_args(verbose: bool = False):
-    """Minimal args namespace for create_interface_from_paths."""
-    class Args:
-        dependency_strategy = "auto"
-
-    args = Args()
-    args.verbose = verbose
-    return args
+def _make_options(verbose: bool = False) -> InterfaceBuildOptions:
+    return InterfaceBuildOptions(verbose=verbose)
 
 
 @pytest.mark.integration
@@ -41,19 +35,19 @@ class TestPipelineIntegration:
             encoding="utf-8",
         )
         python_files = [sample]
-        args = _make_args(verbose=False)
+        options = _make_options(verbose=False)
 
         console = Console(verbose=False)
         compiler = CompilerContext(console)
         program = Program()
 
-        program.interface, all_source_code = create_interface_from_paths(
-            python_files, args
+        program.interface, all_source_code = build_interface_from_paths(
+            python_files, options
         )
         compiler.extractor = Extractor(
             compiler, verbose=False, source_code=all_source_code
         )
-        extractProgram(compiler, program)
+        extract_program(compiler, program)
 
         assert program.interface.func, "Expected at least one function in interface"
 

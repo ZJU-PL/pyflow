@@ -5,7 +5,7 @@ import sys
 import unittest
 import inspect
 
-from pyflow.frontend.dependency_resolver import DependencyResolver, DependencyStrategy
+from pyflow.frontend.resolution.dependencies import DependencyResolver, DependencyStrategy
 
 
 class TestDependencyStrategy(unittest.TestCase):

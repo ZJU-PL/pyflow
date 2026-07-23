@@ -3,7 +3,7 @@
 import unittest
 from unittest.mock import Mock, patch
 
-from pyflow.frontend.object_manager import ObjectManager
+from pyflow.frontend.runtime.objects import ObjectManager
 from pyflow.language.python.program import Object, ImaginaryObject, AbstractObject, TypeInfo
 
 

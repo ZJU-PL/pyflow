@@ -861,10 +861,14 @@ class CallConstraint(AbstractCallConstraint):
     def getCode(self, selfType):
         # Add null check for selfType
         if selfType is None or selfType.obj is None:
-            return self.sys.extractor.stubs.exports["interpreter_call"]
+            return self.sys.extractor.intrinsic_manager.stubs.exports[
+                "interpreter_call"
+            ]
         code = self.sys.getCall(selfType.obj)
         if code is None:
-            return self.sys.extractor.stubs.exports["interpreter_call"]
+            return self.sys.extractor.intrinsic_manager.stubs.exports[
+                "interpreter_call"
+            ]
         else:
             return code
 

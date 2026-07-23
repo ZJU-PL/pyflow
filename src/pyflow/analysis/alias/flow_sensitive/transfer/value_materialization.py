@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pyflow.analysis.ir_utils import assigned_locals
+from pyflow.language.python.ir_metadata import assigned_locals
 from pyflow.language.python import ast as py_ast
 
 from ..model import HeapLocation, HeapObjectKind, UpdatePolicy

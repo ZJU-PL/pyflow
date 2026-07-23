@@ -44,7 +44,7 @@ class ConvertCalls(TypeDispatcher):
 
     @property
     def exports(self):
-        return self.extractor.stubs.exports
+        return self.extractor.intrinsic_manager.stubs.exports
 
     @dispatch(
         ast.leafTypes,

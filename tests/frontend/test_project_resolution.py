@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from pyflow.frontend.project_resolution import (
+from pyflow.language.modules.project_resolution import (
     ProjectContext,
     check_sys_path_modifications,
     transform_path_to_dotted,

@@ -25,7 +25,7 @@ runs the analysis pipeline.
 import sys
 import os.path
 
-from pyflow.frontend.programextractor import extractProgram
+from pyflow.frontend.extractor import extract_program
 import pyflow.application.pipeline as pipeline
 from pyflow.util.application.console import Console
 
@@ -208,6 +208,6 @@ class Makefile(object):
 
             assert self.outdir, "No output directory declared."
 
-        extractProgram(compiler, prgm)
+        extract_program(compiler, prgm)
 
         pipeline.evaluate(compiler, prgm, self.moduleName)

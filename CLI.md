@@ -176,10 +176,14 @@ Unified security analysis frontend. Dispatches to one of four engines depending 
 - ``--analysis`` (IFDS only): ``taint`` (default) or ``typestate`` — selects the
   IFDS analysis to run
 - ``--function FUNCTION`` — entry function (required for ``--engine ifds``)
-- ``--framework FRAMEWORK [FRAMEWORK ...]`` — framework rule pack(s) for CPG
-  (choices: ``django``, ``flask``, ``fastapi``, ``sqlalchemy``, ``stdlib``,
-  ``cloud``, ``injection``, ``network``, ``nosql``, ``requests``, ``sql``)
-- ``--registry`` — activate all framework rule packs (only for ``--engine ifds``)
+- ``--framework FRAMEWORK [FRAMEWORK ...]`` — framework rule pack(s) for taint
+  sources/sinks/sanitizers (supports both ``--engine cpg`` and ``--engine ifds``).
+  Pass with no values to auto-detect packs from imports.
+  (choices: ``aiohttp``, ``cloud``, ``concurrency``, ``django``, ``falcon``,
+  ``fastapi``, ``flask``, ``injection``, ``network``, ``nosql``, ``pandas``,
+  ``requests``, ``serialization``, ``sql``, ``sqlalchemy``, ``stdlib``,
+  ``tornado``, ``wtforms``, ``xml``)
+- ``--registry-path`` — load custom rule-pack JSON file(s) or directories (both IFDS and CPG engines)
 - ``--typestate-protocol PROTOCOLS`` — typestate protocols for
   ``--analysis typestate``. May be repeated; supports ``resource``,
   ``python-builtins``, ``file``, ``socket``, ``lock``, ``transaction``

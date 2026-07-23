@@ -17,8 +17,8 @@ import unittest
 from pyflow.application import context
 from pyflow.application.program import Program
 from pyflow.application.pipeline import evaluate as pipeline_evaluate
-from pyflow.frontend.programextractor import Extractor
-from pyflow.frontend.programextractor import extractProgram
+from pyflow.frontend.extractor import Extractor
+from pyflow.frontend.extractor import extract_program
 from pyflow.analysis.dataflowIR import convert
 from pyflow.analysis.ddg import construct_ddg
 from pyflow.analysis.ddg.graph import DataDependenceGraph, DDGNode, DDGEdge
@@ -98,7 +98,7 @@ class TestDDG(unittest.TestCase):
         if func not in self._code_cache:
             program = Program()
             program.interface.func.append((func, []))
-            extractProgram(self.compiler, program)
+            extract_program(self.compiler, program)
             pipeline_evaluate(self.compiler, program, "ddg_tests")
 
             code = next(

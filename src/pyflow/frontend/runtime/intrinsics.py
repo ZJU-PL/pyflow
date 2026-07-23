@@ -1,9 +1,4 @@
-"""
-Stub Manager for handling stub functions and built-in operations.
-
-This module manages the creation and handling of stub functions
-for built-in Python operations and interpreter functions.
-"""
+"""IR models for built-in operations and interpreter helpers."""
 
 import operator
 
@@ -11,19 +6,11 @@ from pyflow.language.python import ast as pyflow_ast
 from pyflow.language.python.annotations import CodeAnnotation
 
 
-# Expose makeStubs at module scope so tests can patch it directly.
-#
-# The decompilation-based stub pipeline has been removed from the frontend.
-# The frontend now uses minimal, side-effect free stubs by default.
-def makeStubs(compiler):
-    raise NotImplementedError(
-        "Legacy stub collection requires the removed decompilation frontend; "
-        "use StubManager's minimal stubs."
-    )
+class IntrinsicManager:
+    """Manage PyFlow IR models for built-in interpreter operations.
 
-
-class StubManager:
-    """Manages stub functions for built-in operations."""
+    These are executable-semantics models, not ``.pyi`` type stubs.
+    """
 
     def __init__(self, compiler):
         self.compiler = compiler
@@ -423,3 +410,6 @@ class StubManager:
                 }
             },
         )()
+
+
+__all__ = ["IntrinsicManager"]

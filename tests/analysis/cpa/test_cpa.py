@@ -5,13 +5,13 @@ import builtins
 import pyflow.analysis.cpa
 import pyflow.application.makefile
 import pyflow.application.program
-from pyflow.frontend.programextractor import extractProgram
+from pyflow.frontend.extractor import extract_program
 
 
 from pyflow.util.application.console import Console
 from pyflow.application.context import CompilerContext
 
-from pyflow.frontend.programextractor import Extractor
+from pyflow.frontend.extractor import Extractor
 from pyflow.util.python import replaceGlobals
 
 
@@ -61,9 +61,9 @@ class TestCPA(unittest.TestCase):
         )
 
         compiler.program = program
-        compiler.extractor = pyflow.frontend.programextractor.Extractor(compiler)
+        compiler.extractor = pyflow.frontend.extractor.Extractor(compiler)
 
-        extractProgram(compiler, program)
+        extract_program(compiler, program)
         result = pyflow.analysis.cpa.evaluate(compiler, program)
 
         # Check argument and return types
@@ -106,7 +106,7 @@ class TestCPA(unittest.TestCase):
         compiler.program = program
         compiler.extractor = Extractor(compiler)
 
-        extractProgram(compiler, program)
+        extract_program(compiler, program)
         result = pyflow.analysis.cpa.evaluate(compiler, program)
 
         # Find the function code
@@ -136,7 +136,7 @@ class TestCPA(unittest.TestCase):
         compiler.program = program
         compiler.extractor = Extractor(compiler)
 
-        extractProgram(compiler, program)
+        extract_program(compiler, program)
         result = pyflow.analysis.cpa.evaluate(compiler, program)
 
         # Find the function code
@@ -164,7 +164,7 @@ class TestCPA(unittest.TestCase):
         compiler.program = program
         compiler.extractor = Extractor(compiler)
 
-        extractProgram(compiler, program)
+        extract_program(compiler, program)
         result = pyflow.analysis.cpa.evaluate(compiler, program)
 
         # Find the function code

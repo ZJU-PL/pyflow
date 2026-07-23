@@ -9,12 +9,15 @@ import sys
 import os
 import fnmatch
 from pathlib import Path
-import argparse
 
 from pyflow.application.context import CompilerContext
 from pyflow.application.program import Program
 from pyflow.application.pipeline import evaluate
-from pyflow.frontend.programextractor import extractProgram, Extractor
+from pyflow.frontend.extractor import Extractor, extract_program
+from pyflow.frontend.interface_builder import (
+    InterfaceBuildOptions,
+    build_interface_from_paths,
+)
 from pyflow.util.application.console import Console
 from pyflow.analysis.cfg import transform, dump as cfg_dump, ssa
 from pyflow.analysis.cfg.dump import generate_clang_style_cfg
@@ -370,15 +373,6 @@ def find_python_files(directory, args):
         )
 
 
-def create_interface_from_paths(python_files, args):
-    """Delegate interface construction to the shared frontend helper."""
-    from pyflow.frontend.programextractor import (
-        create_interface_from_paths as frontend_create_interface_from_paths,
-    )
-
-    return frontend_create_interface_from_paths(python_files, args)
-
-
 def run_ir_dump(input_path: Path, args):
     """Run IR dumping for the specified function."""
     try:
@@ -399,15 +393,15 @@ def run_ir_dump(input_path: Path, args):
         console = Console(verbose=args.verbose)
         compiler = CompilerContext(console)
         program = Program()
-        program.interface, all_source_code = create_interface_from_paths(
-            python_files, args
+        program.interface, all_source_code = build_interface_from_paths(
+            python_files, InterfaceBuildOptions.from_namespace(args)
         )
         compiler.extractor = Extractor(
             compiler, verbose=args.verbose, source_code=all_source_code
         )
 
         with console.scope("extraction"):
-            extractProgram(compiler, program)
+            extract_program(compiler, program)
 
         if program.liveCode:
             print(

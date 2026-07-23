@@ -1,12 +1,8 @@
 """Unit tests for class_hierarchy module."""
 
 import unittest
-from pyflow.frontend.class_hierarchy import (
-    ClassHierarchy,
-    ClassInfo,
-    CrossModuleResolver,
-    MROError,
-)
+from pyflow.frontend.resolution.cross_module import CrossModuleResolver
+from pyflow.frontend.resolution.hierarchy import ClassHierarchy, ClassInfo, MROError
 
 
 class TestClassInfo(unittest.TestCase):

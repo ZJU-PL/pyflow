@@ -11,7 +11,7 @@ from pyflow.analysis.alias.flow_sensitive import (
 )
 from pyflow.analysis.alias.flow_sensitive.heap_effects import HeapEffectBuilder
 from pyflow.analysis.alias.flow_sensitive.model import HeapLocation
-from pyflow.analysis.ir_utils import register_code_definition_metadata
+from pyflow.language.python.ir_metadata import register_code_definition_metadata
 from pyflow.language.python import ast as py_ast
 
 

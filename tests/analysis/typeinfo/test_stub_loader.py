@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from pyflow.analysis.typeinfo.resolution.stubs import (
+from pyflow.language.modules.type_stubs import (
     StubResolver,
     build_stub_map,
     clear_stub_map_cache,
@@ -22,7 +22,7 @@ from pyflow.analysis.typeinfo.resolution.stubs import (
     get_cached_stub_map,
     parse_stub_file,
 )
-from pyflow.frontend.project_resolution import ProjectContext
+from pyflow.language.modules.project_resolution import ProjectContext
 from pyflow.analysis import typeinfo
 
 

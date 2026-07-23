@@ -4,8 +4,8 @@ import unittest
 import ast as python_ast
 from unittest.mock import Mock, patch
 
-from pyflow.frontend.ast_converter import ASTConverter
-from pyflow.analysis.ir_utils import call_argument_evaluation_order
+from pyflow.frontend.conversion.ast import ASTConverter
+from pyflow.language.python.ir_metadata import call_argument_evaluation_order
 from pyflow.language.python import ast as pyflow_ast
 from pyflow.language.python.default_markers import MISSING_DEFAULT
 from pyflow.language.python.program import Object

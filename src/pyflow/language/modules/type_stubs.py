@@ -248,7 +248,7 @@ def clear_stub_map_cache() -> None:
 import ast
 from dataclasses import dataclass, field
 
-from pyflow.frontend.project_resolution import ProjectContext
+from .project_resolution import ProjectContext
 
 
 @dataclass

@@ -13,7 +13,7 @@ Key functions:
 
 import os
 
-from pyflow.frontend.project_resolution import ProjectContext
+from .project_resolution import ProjectContext
 
 # Bug K fix: the original code used a module-level mutable list ``_local_modules``
 # as a cache.  The cache was never cleared between calls, so if

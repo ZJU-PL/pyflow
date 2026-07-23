@@ -4,7 +4,7 @@ import unittest
 import ast as python_ast
 from unittest.mock import Mock, patch
 
-from pyflow.frontend.function_extractor import FunctionExtractor
+from pyflow.frontend.conversion.functions import FunctionExtractor
 from pyflow.application.program import Program
 from pyflow.language.python import ast as pyflow_ast
 

@@ -167,7 +167,7 @@ class IPAnalysis(object):
 
         code = self.extractor.getCall(obj.obj())
         if code is None:
-            code = self.extractor.stubs.exports["interpreter_call"]
+            code = self.extractor.intrinsic_manager.stubs.exports["interpreter_call"]
 
         callConverter(self.extractor, code)
 

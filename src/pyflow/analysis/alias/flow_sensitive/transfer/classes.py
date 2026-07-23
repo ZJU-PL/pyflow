@@ -1,7 +1,7 @@
 """Known-class, descriptor, and protocol transfer methods."""
 
 from __future__ import annotations
-from pyflow.analysis.ir_utils import actual_argument_expressions, resolve_call_name
+from pyflow.language.python.ir_metadata import actual_argument_expressions, resolve_call_name
 from pyflow.language.python import ast as py_ast
 from ..semantics.effects import DYNAMIC_SUBSCRIPT_WILDCARD
 from ..semantics.intrinsics import CALL_RETURN_ARG, CALL_RETURN_SELF

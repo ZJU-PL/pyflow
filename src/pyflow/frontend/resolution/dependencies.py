@@ -31,312 +31,37 @@ handling the "missing dependencies" problem in a principled manner.
 import ast as python_ast
 import builtins
 import inspect
-import json
 import os
-import subprocess
 import sys
 import types
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Any, Optional, Iterable, Tuple, Set, cast
+from typing import Dict, List, Any, Optional, Tuple, Set, cast
 from enum import Enum
 
-from pyflow.analysis.typeinfo.resolution.stubs import (
+from pyflow.language.modules.type_stubs import (
     ResolvedStub,
     StubClassInfo,
     StubFunctionInfo,
     StubResolver,
 )
-from pyflow.frontend.project_resolution import ProjectContext
+from pyflow.language.modules.imports import (
+    base_name_from_expr as _base_name_from_expr,
+    discover_module_exports,
+    infer_analysis_root as _infer_analysis_root,
+    iter_import_nodes_in_scope as _iter_import_nodes_in_scope,
+)
+from pyflow.language.modules.project_resolution import ProjectContext
 
-
-@dataclass(frozen=True)
-class _FakeCode:
-    co_filename: str
-    co_firstlineno: int
-
-
-class _ASTFunctionProxy:
-    """An enhanced callable proxy that looks like a Python function to the frontend.
-
-    This lets the rest of the pipeline (InterfaceDeclaration -> Extractor ->
-    FunctionExtractor) operate without executing the analyzed module.
-
-    Enhanced to preserve more semantic information from AST:
-    - Docstrings
-    - Type annotations
-    - Decorators
-    - Class membership
-    """
-
-    def __init__(
-        self,
-        *,
-        name: str,
-        qualname: str,
-        module: str,
-        filename: str,
-        firstlineno: int,
-        signature: Optional[inspect.Signature],
-        docstring: Optional[str] = None,
-        decorators: Optional[List[str]] = None,
-        is_async: bool = False,
-        is_class_method: bool = False,
-        type_hints: Optional[Dict[str, Any]] = None,
-    ):
-        self.__name__ = name
-        self.__qualname__ = qualname
-        self.__module__ = module
-        self.__code__ = _FakeCode(filename, firstlineno)
-        if signature is not None:
-            self.__signature__ = signature
-        self.__doc__ = docstring
-        self._decorators = decorators or []
-        self._is_async = is_async
-        self._is_class_method = is_class_method
-        self._type_hints = type_hints or {}
-
-    def __call__(self, *args, **kwargs):
-        # Never execute user code; this proxy is only for metadata.
-        return None
-
-
-def _infer_analysis_root(paths: Iterable[str]) -> Optional[str]:
-    resolved_roots: List[str] = []
-
-    for path in paths:
-        if not path or path.startswith("<"):
-            continue
-
-        abs_path = os.path.realpath(path)
-        current = abs_path if os.path.isdir(abs_path) else os.path.dirname(abs_path)
-        if not current:
-            continue
-
-        while os.path.isfile(os.path.join(current, "__init__.py")):
-            parent = os.path.dirname(current)
-            if not parent or parent == current:
-                break
-            current = parent
-
-        resolved_roots.append(current)
-
-    if not resolved_roots:
-        return None
-
-    try:
-        return os.path.commonpath(resolved_roots)
-    except ValueError:
-        return None
-
-
-def _iter_toplevel_function_nodes(tree: python_ast.AST) -> Iterable[python_ast.AST]:
-    """Iterate over top-level function and class definitions."""
-    for node in getattr(tree, "body", []) or []:
-        if isinstance(node, (python_ast.FunctionDef, python_ast.AsyncFunctionDef)):
-            yield node
-
-
-def _iter_toplevel_class_nodes(tree: python_ast.AST) -> Iterable[python_ast.AST]:
-    """Iterate over top-level class definitions."""
-    for node in getattr(tree, "body", []) or []:
-        if isinstance(node, python_ast.ClassDef):
-            yield node
-
-
-def _extract_docstring(node: python_ast.AST) -> Optional[str]:
-    """Extract docstring from a function or class node."""
-    if not hasattr(node, "body") or not node.body:
-        return None
-
-    first_stmt = node.body[0]
-    if isinstance(first_stmt, python_ast.Expr) and isinstance(
-        first_stmt.value, python_ast.Constant
-    ):
-        if isinstance(first_stmt.value.value, str):
-            return first_stmt.value.value
-    elif isinstance(first_stmt, python_ast.Expr) and hasattr(first_stmt.value, "s"):
-        # Python < 3.8 compatibility
-        return first_stmt.value.s
-
-    return None
-
-
-def _extract_decorator_names(node: python_ast.AST) -> List[str]:
-    """Extract decorator names from a function or class node."""
-    decorators = []
-    if hasattr(node, "decorator_list"):
-        for decorator in node.decorator_list:
-            if isinstance(decorator, python_ast.Name):
-                decorators.append(decorator.id)
-            elif isinstance(decorator, python_ast.Attribute):
-                # Handle qualified names like @module.decorator
-                parts = []
-                current = decorator
-                while isinstance(current, python_ast.Attribute):
-                    parts.append(current.attr)
-                    current = current.value
-                if isinstance(current, python_ast.Name):
-                    parts.append(current.id)
-                decorators.append(".".join(reversed(parts)))
-            elif isinstance(decorator, python_ast.Call):
-                # Handle @decorator(args)
-                if isinstance(decorator.func, python_ast.Name):
-                    decorators.append(decorator.func.id)
-                elif isinstance(decorator.func, python_ast.Attribute):
-                    parts = []
-                    current = decorator.func
-                    while isinstance(current, python_ast.Attribute):
-                        parts.append(current.attr)
-                        current = current.value
-                    if isinstance(current, python_ast.Name):
-                        parts.append(current.id)
-                    decorators.append(".".join(reversed(parts)))
-    return decorators
-
-
-def _extract_literal_string_list(node: python_ast.AST) -> Optional[List[str]]:
-    """Extract a static list/tuple/set of string values."""
-    if isinstance(node, (python_ast.List, python_ast.Tuple, python_ast.Set)):
-        out: List[str] = []
-        for elt in node.elts:
-            if isinstance(elt, python_ast.Constant) and isinstance(elt.value, str):
-                out.append(elt.value)
-            else:
-                return None
-        return out
-    return None
-
-
-def _is_property_decorator(name: str) -> bool:
-    tail = name.rsplit(".", 1)[-1].lower()
-    return tail in {"property", "cached_property", "abstractproperty"}
-
-
-def _base_name_from_expr(node: python_ast.AST) -> Optional[str]:
-    if isinstance(node, python_ast.Subscript):
-        return _base_name_from_expr(node.value)
-    if isinstance(node, python_ast.Name):
-        return node.id
-    if isinstance(node, python_ast.Attribute):
-        parts = []
-        current = node
-        while isinstance(current, python_ast.Attribute):
-            parts.append(current.attr)
-            current = current.value
-        if isinstance(current, python_ast.Name):
-            parts.append(current.id)
-            return ".".join(reversed(parts))
-    return None
-
-
-def _iter_import_nodes_in_scope(nodes: Iterable[python_ast.AST]):
-    """Yield import statements that execute in the current scope."""
-
-    for node in nodes:
-        if isinstance(node, (python_ast.Import, python_ast.ImportFrom)):
-            yield node
-            continue
-
-        if isinstance(
-            node,
-            (python_ast.FunctionDef, python_ast.AsyncFunctionDef, python_ast.ClassDef),
-        ):
-            continue
-
-        if isinstance(
-            node,
-            (
-                python_ast.If,
-                python_ast.For,
-                python_ast.AsyncFor,
-                python_ast.While,
-                python_ast.With,
-                python_ast.AsyncWith,
-            ),
-        ):
-            yield from _iter_import_nodes_in_scope(getattr(node, "body", ()) or ())
-            yield from _iter_import_nodes_in_scope(getattr(node, "orelse", ()) or ())
-            continue
-
-        if isinstance(node, python_ast.Try):
-            yield from _iter_import_nodes_in_scope(getattr(node, "body", ()) or ())
-            for handler in getattr(node, "handlers", ()) or ():
-                yield from _iter_import_nodes_in_scope(
-                    getattr(handler, "body", ()) or ()
-                )
-            yield from _iter_import_nodes_in_scope(getattr(node, "orelse", ()) or ())
-            yield from _iter_import_nodes_in_scope(getattr(node, "finalbody", ()) or ())
-            continue
-
-        if hasattr(python_ast, "TryStar") and isinstance(node, python_ast.TryStar):
-            yield from _iter_import_nodes_in_scope(getattr(node, "body", ()) or ())
-            for handler in getattr(node, "handlers", ()) or ():
-                yield from _iter_import_nodes_in_scope(
-                    getattr(handler, "body", ()) or ()
-                )
-            yield from _iter_import_nodes_in_scope(getattr(node, "orelse", ()) or ())
-            yield from _iter_import_nodes_in_scope(getattr(node, "finalbody", ()) or ())
-            continue
-
-        if hasattr(python_ast, "Match") and isinstance(node, python_ast.Match):
-            for case in getattr(node, "cases", ()) or ():
-                yield from _iter_import_nodes_in_scope(getattr(case, "body", ()) or ())
-
-
-def _signature_from_ast(args: python_ast.arguments) -> inspect.Signature:
-    params: List[inspect.Parameter] = []
-
-    def add_param(
-        name: str, kind: inspect._ParameterKind, default: Any = inspect._empty
-    ):
-        params.append(inspect.Parameter(name, kind, default=default))
-
-    posonly = list(getattr(args, "posonlyargs", []) or [])
-    regular = list(getattr(args, "args", []) or [])
-    kwonly = list(getattr(args, "kwonlyargs", []) or [])
-
-    # Defaults for posonly+regular apply to last N.
-    positional = [*posonly, *regular]
-    defaults = list(getattr(args, "defaults", []) or [])
-    default_start = len(positional) - len(defaults)
-
-    for i, a in enumerate(posonly):
-        default = inspect._empty
-        if defaults and i >= default_start:
-            try:
-                default = python_ast.literal_eval(defaults[i - default_start])
-            except Exception:
-                default = None
-        add_param(a.arg, inspect.Parameter.POSITIONAL_ONLY, default)
-
-    for i, a in enumerate(regular):
-        default = inspect._empty
-        pos_index = len(posonly) + i
-        if defaults and pos_index >= default_start:
-            try:
-                default = python_ast.literal_eval(defaults[pos_index - default_start])
-            except Exception:
-                default = None
-        add_param(a.arg, inspect.Parameter.POSITIONAL_OR_KEYWORD, default)
-
-    if args.vararg is not None:
-        add_param(args.vararg.arg, inspect.Parameter.VAR_POSITIONAL)
-
-    kw_defaults = list(getattr(args, "kw_defaults", []) or [])
-    for i, a in enumerate(kwonly):
-        default = inspect._empty
-        if i < len(kw_defaults) and kw_defaults[i] is not None:
-            try:
-                default = python_ast.literal_eval(kw_defaults[i])
-            except Exception:
-                default = None
-        add_param(a.arg, inspect.Parameter.KEYWORD_ONLY, default)
-
-    if args.kwarg is not None:
-        add_param(args.kwarg.arg, inspect.Parameter.VAR_KEYWORD)
-
-    return inspect.Signature(params)
+from .ast_index import (
+    ASTFunctionProxy as _ASTFunctionProxy,
+    extract_decorator_names as _extract_decorator_names,
+    extract_docstring as _extract_docstring,
+    is_property_decorator as _is_property_decorator,
+    iter_toplevel_class_nodes as _iter_toplevel_class_nodes,
+    iter_toplevel_function_nodes as _iter_toplevel_function_nodes,
+    signature_from_ast as _signature_from_ast,
+)
+from .runtime_probe import probe_function_names
 
 
 class DependencyStrategy(Enum):
@@ -762,109 +487,11 @@ class DependencyResolver:
         *,
         allow_stub_imports: bool,
     ) -> List[str]:
-        script = r"""
-import builtins
-import json
-import os
-import sys
-import types
-
-FILE_PATH = sys.argv[1]
-ALLOW_STUBS = sys.argv[2] == "1"
-SOURCE = sys.stdin.read()
-
-def _noop(*args, **kwargs):
-    return None
-
-def _make_stub_module(module_name):
-    module = types.ModuleType(module_name)
-    module.__file__ = f"<stub:{module_name}>"
-    module.__getattr__ = lambda name, _module_name=module_name: _noop
-    return module
-
-orig_import = builtins.__import__
-
-def _safe_import(name, globals=None, locals=None, fromlist=(), level=0):
-    try:
-        return orig_import(name, globals, locals, fromlist, level)
-    except ImportError:
-        if not ALLOW_STUBS:
-            raise
-        parts = [p for p in name.split(".") if p]
-        if not parts:
-            raise
-        parent = None
-        module = None
-        for i in range(1, len(parts) + 1):
-            fullname = ".".join(parts[:i])
-            module = sys.modules.get(fullname)
-            if module is None:
-                module = _make_stub_module(fullname)
-                sys.modules[fullname] = module
-            if parent is not None:
-                setattr(parent, parts[i - 1], module)
-            parent = module
-        return module
-
-builtins.__import__ = _safe_import
-
-namespace = {"__name__": "__pyflow_analysis__", "__file__": FILE_PATH, "input": lambda *a, **k: ""}
-
-try:
-    import os as _os
-    _os.system = lambda *a, **k: 0
-    _os.popen = lambda *a, **k: None
-except Exception:
-    pass
-
-try:
-    compiled = compile(SOURCE, FILE_PATH, "exec")
-    exec(compiled, namespace)
-except Exception as exc:
-    print(json.dumps({"error": f"{type(exc).__name__}: {exc}"}))
-    sys.exit(1)
-finally:
-    builtins.__import__ = orig_import
-
-functions = []
-for name, obj in namespace.items():
-    if name.startswith("_"):
-        continue
-    if not callable(obj):
-        continue
-    code = getattr(obj, "__code__", None)
-    if code is None:
-        continue
-    if getattr(code, "co_filename", None) != FILE_PATH:
-        continue
-    functions.append(name)
-
-print(json.dumps({"functions": sorted(functions)}))
-"""
-
-        completed = subprocess.run(
-            [
-                sys.executable,
-                "-c",
-                script,
-                file_path,
-                "1" if allow_stub_imports else "0",
-            ],
-            input=source,
-            text=True,
-            capture_output=True,
-            check=False,
+        return probe_function_names(
+            source,
+            file_path,
+            allow_stub_imports=allow_stub_imports,
         )
-
-        stdout = (completed.stdout or "").strip()
-        stderr = (completed.stderr or "").strip()
-
-        if completed.returncode != 0:
-            message = stderr or stdout or "runtime probe failed"
-            raise RuntimeError(message)
-
-        payload = json.loads(stdout or "{}")
-        return list(payload.get("functions", []))
 
     def _extract_ast_only(self, source: str, file_path: str) -> Dict[str, Any]:
         """Extract functions using only AST parsing."""
@@ -1125,54 +752,9 @@ print(json.dumps({"functions": sorted(functions)}))
 
         try:
             module_source = self._load_source(source_file)
-            tree = python_ast.parse(module_source)
         except Exception:
             return []
-
-        explicit_all: Optional[List[str]] = None
-        discovered: Set[str] = set()
-
-        for node in getattr(tree, "body", []) or []:
-            if isinstance(
-                node,
-                (
-                    python_ast.FunctionDef,
-                    python_ast.AsyncFunctionDef,
-                    python_ast.ClassDef,
-                ),
-            ):
-                if not node.name.startswith("_"):
-                    discovered.add(node.name)
-                continue
-
-            if isinstance(node, python_ast.Assign):
-                for target in node.targets:
-                    if not isinstance(target, python_ast.Name):
-                        continue
-                    if target.id == "__all__":
-                        explicit_all = _extract_literal_string_list(node.value)
-                    elif not target.id.startswith("_"):
-                        discovered.add(target.id)
-                continue
-
-            if isinstance(node, python_ast.Import):
-                for alias in node.names:
-                    local = alias.asname or alias.name.split(".")[-1]
-                    if not local.startswith("_"):
-                        discovered.add(local)
-                continue
-
-            if isinstance(node, python_ast.ImportFrom):
-                for alias in node.names:
-                    if alias.name == "*":
-                        continue
-                    local = alias.asname or alias.name
-                    if not local.startswith("_"):
-                        discovered.add(local)
-
-        if explicit_all is not None:
-            return [name for name in explicit_all if isinstance(name, str)]
-        return sorted(discovered)
+        return discover_module_exports(module_source)
 
     def _resolve_proxy_base_name(
         self,

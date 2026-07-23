@@ -5,17 +5,16 @@ from __future__ import annotations
 from dataclasses import dataclass
 import ast
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple, Union
 
 from pyflow.application.context import CompilerContext
 from pyflow.application.pipeline import Pipeline
 from pyflow.application.program import Program
 from pyflow.api.queries import SemanticQueryService
-from pyflow.frontend.programextractor import (
-    Extractor,
-    create_interface_from_paths,
-    extractProgram,
+from pyflow.frontend.extractor import Extractor, extract_program
+from pyflow.frontend.interface_builder import (
+    InterfaceBuildOptions,
+    build_interface_from_paths,
 )
 from pyflow.util.application.console import Console
 
@@ -57,16 +56,15 @@ class AnalysisSession:
         if not python_files:
             raise ValueError("No Python files found to analyze.")
 
-        arg_ns = SimpleNamespace(verbose=verbose, include=include, exclude=exclude)
-        program.interface, all_source_code = create_interface_from_paths(
-            python_files, arg_ns
+        program.interface, all_source_code = build_interface_from_paths(
+            python_files, InterfaceBuildOptions(verbose=verbose)
         )
         compiler.extractor = Extractor(
             compiler, verbose=verbose, source_code=all_source_code
         )
 
         with console.scope("extraction"):
-            extractProgram(compiler, program)
+            extract_program(compiler, program)
 
         pipeline = Pipeline(use_pass_manager=use_pass_manager)
         compiler.program = program

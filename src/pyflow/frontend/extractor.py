@@ -12,67 +12,28 @@ NOTE: This extractor is intentionally source/AST-based (no bytecode decompilatio
 """
 
 import ast
-import inspect
 import os
 import re
-from typing import Any, Dict, Iterable, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set
 
 from pyflow.application.program import Program
 from pyflow.application.context import CompilerContext
 from pyflow.language.python.program import Object
 from pyflow.language.python.program import ImaginaryObject, AbstractObject
+from pyflow.language.modules.imports import (
+    base_name_from_expr as _base_name_from_expr,
+    build_module_source_map,
+    discover_module_exports,
+    infer_analysis_root as _infer_analysis_root,
+    iter_import_nodes_in_scope as _iter_import_nodes_in_scope,
+)
 
-from .function_extractor import FunctionExtractor
-from .object_manager import ObjectManager
-from .stub_manager import StubManager
-from .source_locator import best_source_for_callable
-from .class_hierarchy import ClassHierarchy, ClassInfo, CrossModuleResolver
-
-
-def _infer_analysis_root(paths: List[str]) -> Optional[str]:
-    resolved_roots: List[str] = []
-
-    for path in paths:
-        if not path or path.startswith("<"):
-            continue
-
-        abs_path = os.path.realpath(path)
-        current = abs_path if os.path.isdir(abs_path) else os.path.dirname(abs_path)
-        if not current:
-            continue
-
-        while os.path.isfile(os.path.join(current, "__init__.py")):
-            parent = os.path.dirname(current)
-            if not parent or parent == current:
-                break
-            current = parent
-
-        resolved_roots.append(current)
-
-    if not resolved_roots:
-        return None
-
-    try:
-        return os.path.commonpath(resolved_roots)
-    except ValueError:
-        return None
-
-
-def _base_name_from_expr(node: ast.AST) -> Optional[str]:
-    if isinstance(node, ast.Subscript):
-        return _base_name_from_expr(node.value)
-    if isinstance(node, ast.Name):
-        return node.id
-    if isinstance(node, ast.Attribute):
-        parts = []
-        current = node
-        while isinstance(current, ast.Attribute):
-            parts.append(current.attr)
-            current = current.value
-        if isinstance(current, ast.Name):
-            parts.append(current.id)
-            return ".".join(reversed(parts))
-    return None
+from .conversion.functions import FunctionExtractor
+from .conversion.source import best_source_for_callable
+from .resolution.cross_module import CrossModuleResolver
+from .resolution.hierarchy import ClassHierarchy
+from .runtime.intrinsics import IntrinsicManager
+from .runtime.objects import ObjectManager
 
 
 def _is_synthetic_entry_code(code: Any) -> bool:
@@ -82,92 +43,6 @@ def _is_synthetic_entry_code(code: Any) -> bool:
         if isinstance(item, str) and item.startswith("synthetic_module("):
             return True
     return False
-
-
-def _iter_import_nodes_in_scope(nodes: Iterable[ast.AST]):
-    """Yield import statements visible in the current scope.
-
-    Descend through module-scope control-flow statements, but do not cross into
-    nested function or class scopes where imports should not leak into the
-    module-level namespace.
-    """
-
-    for node in nodes:
-        if isinstance(node, (ast.Import, ast.ImportFrom)):
-            yield node
-            continue
-
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-            continue
-
-        if isinstance(node, (ast.If, ast.For, ast.AsyncFor, ast.While, ast.With, ast.AsyncWith)):
-            yield from _iter_import_nodes_in_scope(getattr(node, "body", ()) or ())
-            yield from _iter_import_nodes_in_scope(getattr(node, "orelse", ()) or ())
-            continue
-
-        if isinstance(node, ast.Try):
-            yield from _iter_import_nodes_in_scope(getattr(node, "body", ()) or ())
-            for handler in getattr(node, "handlers", ()) or ():
-                yield from _iter_import_nodes_in_scope(getattr(handler, "body", ()) or ())
-            yield from _iter_import_nodes_in_scope(getattr(node, "orelse", ()) or ())
-            yield from _iter_import_nodes_in_scope(getattr(node, "finalbody", ()) or ())
-            continue
-
-        if hasattr(ast, "TryStar") and isinstance(node, ast.TryStar):
-            yield from _iter_import_nodes_in_scope(getattr(node, "body", ()) or ())
-            for handler in getattr(node, "handlers", ()) or ():
-                yield from _iter_import_nodes_in_scope(getattr(handler, "body", ()) or ())
-            yield from _iter_import_nodes_in_scope(getattr(node, "orelse", ()) or ())
-            yield from _iter_import_nodes_in_scope(getattr(node, "finalbody", ()) or ())
-            continue
-
-        if hasattr(ast, "Match") and isinstance(node, ast.Match):
-            for case in getattr(node, "cases", ()) or ():
-                yield from _iter_import_nodes_in_scope(getattr(case, "body", ()) or ())
-
-
-def _default_entry_args(callable_obj, existing_wrapper, *, skip_first: bool = False):
-    try:
-        sig = inspect.signature(callable_obj)
-    except (TypeError, ValueError):
-        return (), ()
-
-    params = list(sig.parameters.values())
-    if skip_first and params:
-        params = params[1:]
-
-    args = []
-    kwds = []
-    for param in params:
-        if param.kind in (
-            inspect.Parameter.POSITIONAL_ONLY,
-            inspect.Parameter.POSITIONAL_OR_KEYWORD,
-        ):
-            args.append(existing_wrapper(None))
-        elif param.kind == inspect.Parameter.KEYWORD_ONLY:
-            kwds.append((param.name, existing_wrapper(None)))
-    return tuple(args), tuple(kwds)
-
-
-def _should_include_interface_function(func_name: str, args) -> bool:
-    if func_name != "main":
-        return True
-    return getattr(args, "include_main_entry_points", False)
-
-
-def _get_interface_search_paths(args) -> list[str]:
-    search_paths = getattr(args, "search_paths", None)
-    if search_paths is not None:
-        return list(search_paths)
-
-    import sys
-
-    return list(sys.path)
-
-
-def _read_interface_source(file_path) -> str:
-    with open(file_path, "r", encoding="utf-8") as f:
-        return f.read()
 
 
 class Extractor:
@@ -187,10 +62,9 @@ class Extractor:
         failures: Count of failures during extraction.
         _source_files: Dictionary tracking source files for error reporting.
         desc: ProgramDescription object for program metadata.
-        stub_manager: Manager for handling stub files.
+        intrinsic_manager: Manager holding interpreter intrinsic models.
         function_extractor: Extractor for functions and classes.
         object_manager: Manager for object representations.
-        stubs: Stub files for backward compatibility.
         class_hierarchy: ClassHierarchy for MRO and cross-module resolution.
         cross_module_resolver: CrossModuleResolver for resolving across modules.
         _module_imports: Cache of imports per module for base class resolution.
@@ -235,10 +109,10 @@ class Extractor:
         self.desc = ProgramDescription()
 
         # Initialize component managers
-        self.stub_manager = StubManager(compiler)
+        self.intrinsic_manager = IntrinsicManager(compiler)
         self.function_extractor = FunctionExtractor(verbose)
         self.object_manager = ObjectManager(
-            verbose, self.function_extractor, self.stub_manager
+            verbose, self.function_extractor, self.intrinsic_manager
         )
 
         # Initialize class hierarchy for cross-module analysis
@@ -246,9 +120,6 @@ class Extractor:
         self.cross_module_resolver = CrossModuleResolver(
             self.class_hierarchy, verbose=verbose
         )
-
-        # Expose stubs for backward compatibility
-        self.stubs = self.stub_manager.stubs
 
     def extract_from_source(
         self, source: str, filename: str = "<string>", *, reset_telemetry: bool = True
@@ -341,7 +212,7 @@ class Extractor:
 
         module_name = self._get_module_name(filename)
         self._current_file_path = filename  # Store for relative import resolution
-        
+
         self._extract_imports(tree, module_name)
         self.function_extractor.extract_module_body(
             getattr(tree, "body", []) or [],
@@ -527,88 +398,28 @@ class Extractor:
             module_source = source_map.get(init_name)
         if module_source is None:
             return []
-
-        try:
-            tree = ast.parse(module_source)
-        except SyntaxError:
-            return []
-
-        explicit_all: Optional[List[str]] = None
-        discovered: Set[str] = set()
-
-        for node in getattr(tree, "body", []) or []:
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-                if not node.name.startswith("_"):
-                    discovered.add(node.name)
-                continue
-
-            if isinstance(node, ast.Assign):
-                for target in node.targets:
-                    if isinstance(target, ast.Name):
-                        if target.id == "__all__":
-                            explicit_all = self._extract_literal_string_list(node.value)
-                        elif not target.id.startswith("_"):
-                            discovered.add(target.id)
-                continue
-
-            if isinstance(node, ast.Import):
-                for alias in node.names:
-                    local = alias.asname or alias.name.split(".")[-1]
-                    if not local.startswith("_"):
-                        discovered.add(local)
-                continue
-
-            if isinstance(node, ast.ImportFrom):
-                for alias in node.names:
-                    if alias.name == "*":
-                        continue
-                    local = alias.asname or alias.name
-                    if not local.startswith("_"):
-                        discovered.add(local)
-
-        if explicit_all is not None:
-            return [name for name in explicit_all if isinstance(name, str)]
-        return sorted(discovered)
-
-    def _extract_literal_string_list(self, node: ast.AST) -> Optional[List[str]]:
-        """Extract a static list/tuple/set of string values."""
-        if isinstance(node, (ast.List, ast.Tuple, ast.Set)):
-            out: List[str] = []
-            for elt in node.elts:
-                if isinstance(elt, ast.Constant) and isinstance(elt.value, str):
-                    out.append(elt.value)
-                else:
-                    return None
-            return out
-        return None
+        return discover_module_exports(module_source)
 
     def _build_module_source_map(self) -> Dict[str, str]:
         """Build module-name -> source mapping from in-memory source_code dict."""
         if not isinstance(self.source_code, dict):
             return {}
-
-        mapping: Dict[str, str] = {}
-        for filename, source in self.source_code.items():
-            module = self._get_module_name(filename)
-            mapping[module] = source
-            if module.endswith(".__init__"):
-                mapping[module[: -len(".__init__")]] = source
-        return mapping
+        return build_module_source_map(self.source_code, self._get_module_name)
 
     def _register_class_in_hierarchy(self, node: ast.ClassDef, module_name: str) -> None:
         """Register a class in the class hierarchy with enhanced MRO support."""
         class_name = node.name
         qualified_name = f"{module_name}.{class_name}"
-        
+
         base_names = []
         for base in node.bases:
             base_name = _base_name_from_expr(base)
             if base_name:
                 base_names.append(base_name)
-        
+
         methods: Set[str] = set()
         attributes: Set[str] = set()
-        
+
         # Extract more detailed information
         for item in node.body:
             if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -621,9 +432,9 @@ class Extractor:
                         # Handle class attributes like cls.attr
                         if isinstance(target.value, ast.Name) and target.value.id == class_name:
                             attributes.add(target.attr)
-        
+
         imported_names = self._module_imports.get(module_name, {})
-        
+
         # Enhanced base class resolution with better error reporting
         resolved_bases = []
         unresolved_bases = []
@@ -640,7 +451,7 @@ class Extractor:
                         f"WARNING: Could not resolve base class '{base_name}' "
                         f"for class '{qualified_name}'"
                     )
-        
+
         self.class_hierarchy.register_class(
             name=class_name,
             bases=base_names,
@@ -649,7 +460,7 @@ class Extractor:
             attributes=attributes,
             ast_node=node,
         )
-        
+
         cls_info = self.class_hierarchy.get_class_info(qualified_name)
         if cls_info:
             cls_info.resolved_bases = resolved_bases
@@ -823,7 +634,7 @@ class Extractor:
         )
 
 
-def extractProgram(compiler: CompilerContext, program: Program) -> None:
+def extract_program(compiler: CompilerContext, program: Program) -> None:
     """
     Extract program information for static analysis.
 
@@ -908,126 +719,3 @@ def extractProgram(compiler: CompilerContext, program: Program) -> None:
 
         # Set entry points from the interface
         program.entryPoints = program.interface.entryPoint
-
-
-def create_interface_from_paths(python_files, args):
-    """Create a basic interface from multiple Python files using enhanced dependency resolver."""
-    from pyflow.api.entrypoints import (
-        ClassDeclaration,
-        ExistingWrapper,
-        InterfaceDeclaration,
-    )
-    from pyflow.frontend.dependency_resolver import DependencyResolver
-    from pyflow.frontend.class_hierarchy import ClassHierarchy
-
-    def add_function_entries(interface_decl, functions, file_path):
-        for func_name, func_obj in functions.items():
-            if not _should_include_interface_function(func_name, args):
-                if args.verbose:
-                    print(f"DEBUG: Skipping '{func_name}' as an entry point")
-                continue
-
-            func_args, func_kwds = _default_entry_args(func_obj, ExistingWrapper)
-            interface_decl.func.append((func_obj, func_args, func_kwds))
-            if args.verbose:
-                print(f"Added function '{func_name}' from {file_path}")
-
-    def add_class_entries(interface_decl, classes, resolver, file_path):
-        for cls_name, cls_obj in classes.items():
-            class_decl = ClassDeclaration(cls_obj)
-            init_args, init_kwds = _default_entry_args(
-                cls_obj.__init__, ExistingWrapper, skip_first=True
-            )
-            class_decl.init(*init_args, kwds=init_kwds)
-            interface_decl.cls.append(class_decl)
-
-            for method_name, method_info in resolver.get_public_method_specs(cls_obj).items():
-                if method_name.startswith("_"):
-                    continue
-                if method_info.get("is_property", False):
-                    class_decl.attr(method_name)
-                    continue
-                skip_first = not method_info.get("is_staticmethod", False)
-                method_obj = getattr(cls_obj, method_name)
-                if method_info.get("is_classmethod", False):
-                    method_obj = getattr(method_obj, "__func__", method_obj)
-                method_args, method_kwds = _default_entry_args(
-                    method_obj, ExistingWrapper, skip_first=skip_first
-                )
-                class_decl.method(
-                    method_name,
-                    *method_args,
-                    kind=(
-                        "staticmethod"
-                        if method_info.get("is_staticmethod", False)
-                        else "classmethod"
-                        if method_info.get("is_classmethod", False)
-                        else "instance"
-                    ),
-                    kwds=method_kwds,
-                )
-
-            if args.verbose:
-                print(f"Added class '{cls_name}' from {file_path}")
-
-    def process_file(file_path, resolver, all_source_code, interface_decl):
-        source = _read_interface_source(file_path)
-        all_source_code[str(file_path)] = source
-        resolver.source_files[str(file_path)] = source
-
-        functions = resolver.extract_functions(source, str(file_path))
-        classes = resolver.get_module_classes(str(file_path))
-        add_function_entries(interface_decl, functions, file_path)
-        add_class_entries(interface_decl, classes, resolver, file_path)
-
-        if args.verbose:
-            print(
-                f"Found {len(functions)} functions and {len(classes)} classes in {file_path}"
-            )
-
-    def report_resolver_state(resolver):
-        if not args.verbose:
-            return
-
-        missing = resolver.get_missing_dependencies()
-        if missing:
-            print("\nMissing dependencies report:")
-            for module, importing_files in missing.items():
-                print(f"  {module}: imported by {len(importing_files)} file(s)")
-
-        telemetry = resolver.get_telemetry()
-        if telemetry:
-            print("\nDependency resolver telemetry:")
-            for key in sorted(telemetry):
-                print(f"  {key}: {telemetry[key]}")
-
-    interface_decl = InterfaceDeclaration()
-    all_source_code = {}
-    analysis_root = _infer_analysis_root([str(path) for path in python_files])
-
-    # Create shared class hierarchy for cross-module analysis
-    class_hierarchy = ClassHierarchy(verbose=getattr(args, "verbose", False))
-
-    resolver = DependencyResolver(
-        strategy=getattr(args, "dependency_strategy", "auto"),
-        verbose=getattr(args, "verbose", False),
-        safe_modules=["math", "os", "sys", "re", "json", "datetime", "collections"],
-        search_paths=_get_interface_search_paths(args),
-        class_hierarchy=class_hierarchy,
-        source_files=all_source_code,
-        analysis_root=analysis_root,
-        fail_on_diagnostics=getattr(args, "fail_on_diagnostics", False),
-        max_diagnostics=getattr(args, "max_diagnostics", None),
-        max_runtime_fallback_ratio=getattr(args, "max_runtime_fallback_ratio", None),
-    )
-
-    for file_path in python_files:
-        try:
-            process_file(file_path, resolver, all_source_code, interface_decl)
-        except Exception as e:
-            if args.verbose:
-                print(f"Warning: Could not parse file {file_path}: {e}")
-
-    report_resolver_state(resolver)
-
-    return interface_decl, all_source_code

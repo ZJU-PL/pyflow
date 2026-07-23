@@ -14,14 +14,14 @@ from pyflow.language.python.program import (
     TypeInfo,
 )
 
-from .source_locator import best_source_for_callable
+from ..conversion.source import best_source_for_callable
 
 
 class ObjectManager:
     """Manages Python objects and their PyFlow representations."""
 
     def __init__(
-        self, verbose: bool = True, function_extractor=None, stub_manager=None
+        self, verbose: bool = True, function_extractor=None, intrinsic_manager=None
     ):
         self.verbose = verbose
         # Cache for hashable objects (value-based key).
@@ -29,7 +29,7 @@ class ObjectManager:
         # Fallback cache for unhashable objects (identity-based key).
         self._object_cache_by_id: Dict[int, Object] = {}
         self.function_extractor = function_extractor
-        self.stub_manager = stub_manager
+        self.intrinsic_manager = intrinsic_manager
 
     def _hashable_cache_key(self, obj: Any) -> Any:
         """Use type-aware cache keys so equal-but-distinct values do not collide."""
@@ -85,7 +85,6 @@ class ObjectManager:
                             )
 
                     if hasattr(func, "__code__") and func.__code__.co_filename:
-                        filename = func.__code__.co_filename
                         if isinstance(source_code, dict):
                             func_source = best_source_for_callable(func, source_code)
                             if self.verbose:
@@ -180,8 +179,8 @@ class ObjectManager:
             pyobj = obj.pyobj
 
             # Resolve stubbed interpreter/helper functions by name.
-            if isinstance(pyobj, str) and self.stub_manager:
-                exports = getattr(self.stub_manager.stubs, "exports", {})
+            if isinstance(pyobj, str) and self.intrinsic_manager:
+                exports = getattr(self.intrinsic_manager.stubs, "exports", {})
                 if pyobj in exports:
                     return exports[pyobj]
 

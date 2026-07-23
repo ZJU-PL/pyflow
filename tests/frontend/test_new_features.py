@@ -4,8 +4,8 @@ import unittest
 import ast as python_ast
 import sys
 
-from pyflow.frontend.ast_converter import ASTConverter
-from pyflow.analysis.ir_utils import code_closure_cells
+from pyflow.frontend.conversion.ast import ASTConverter
+from pyflow.language.python.ir_metadata import code_closure_cells
 from pyflow.language.python import ast as pyflow_ast
 
 

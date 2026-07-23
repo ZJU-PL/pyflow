@@ -10,7 +10,7 @@ import warnings
 
 from pyflow.application import context
 from pyflow.analysis.dataflowIR.convert import UnsupportedDataflowConstructError
-from pyflow.frontend.programextractor import Extractor
+from pyflow.frontend.extractor import Extractor
 from pyflow.analysis.cfg import transform
 from pyflow.analysis.pdg import construct_pdg
 from pyflow.language.python import ast

@@ -14,7 +14,18 @@ The Frontend module (`src/pyflow/frontend/`) bridges Python source code and PyFl
 - **AST Conversion**: Transforming Python AST to PyFlow AST
 - **Function Extraction**: Extracting functions and classes
 - **Object Management**: Managing Python objects and representations
-- **Stub Management**: Providing stubs for built-in operations
+- **Intrinsic Models**: Providing IR models for built-in interpreter operations
+
+The implementation is grouped by responsibility:
+
+- ``pyflow.frontend.conversion`` converts source AST into PyFlow IR.
+- ``pyflow.frontend.resolution`` coordinates dependency and hierarchy resolution.
+- ``pyflow.frontend.runtime`` manages object representations and intrinsic models.
+- ``pyflow.frontend.interface_builder`` discovers analysis entry points from paths.
+
+New code should import supported classes from ``pyflow.frontend``. Historical
+The package does not retain forwarding modules for its previous flat layout;
+imports should use the canonical locations shown below.
 
 ===============
 Key Components
@@ -34,7 +45,7 @@ The ``ASTConverter`` class converts Python's standard AST to PyFlow's internal A
 
 .. code-block:: python
 
-   from pyflow.frontend.ast_converter import ASTConverter
+   from pyflow.frontend.conversion.ast import ASTConverter
    import ast as python_ast
    
    source = "def add(x, y): return x + y"
@@ -51,7 +62,7 @@ The ``Extractor`` class orchestrates program extraction from Python source.
 
 .. code-block:: python
 
-   from pyflow.frontend.programextractor import Extractor
+   from pyflow.frontend.extractor import Extractor
    from pyflow.application.context import CompilerContext
    
    compiler = CompilerContext()
@@ -76,7 +87,7 @@ The ``FunctionExtractor`` class extracts and converts individual Python function
 
 .. code-block:: python
 
-   from pyflow.frontend.function_extractor import FunctionExtractor
+   from pyflow.frontend.conversion.functions import FunctionExtractor
    
    extractor = FunctionExtractor(verbose=True)
    pyflow_code = extractor.convert_function(
@@ -110,7 +121,7 @@ gates:
 
 .. code-block:: python
 
-   from pyflow.frontend.dependency_resolver import DependencyResolver
+   from pyflow.frontend.resolution.dependencies import DependencyResolver
    
    resolver = DependencyResolver(strategy="auto", verbose=True)
    functions = resolver.extract_functions(source_code, "example.py")
@@ -124,7 +135,7 @@ The ``ObjectManager`` class manages Python objects and their PyFlow representati
 
 .. code-block:: python
 
-   from pyflow.frontend.object_manager import ObjectManager
+   from pyflow.frontend.runtime.objects import ObjectManager
    
    manager = ObjectManager(verbose=True)
    obj = manager.get_object(some_python_object)
@@ -134,18 +145,19 @@ The ``ObjectManager`` class manages Python objects and their PyFlow representati
 **Key Methods:**
   - ``get_object()``, ``get_object_call()``, ``make_imaginary()``, ``ensure_loaded()``
 
-Stub Manager
-------------
+Intrinsic Manager
+-----------------
 
-The ``StubManager`` class manages stub functions for built-in Python operations (arithmetic, comparison, attribute access, function calls).
+The ``IntrinsicManager`` class manages IR models for built-in Python operations
+such as arithmetic, comparison, attribute access, and function calls.
 
 **Usage:**
 
 .. code-block:: python
 
-   from pyflow.frontend.stub_manager import StubManager
+   from pyflow.frontend.runtime.intrinsics import IntrinsicManager
    
-   manager = StubManager(compiler)
+   manager = IntrinsicManager(compiler)
    add_stub = manager.stubs.exports["interpreter__add__"]
 
 ===============
@@ -164,7 +176,7 @@ Typical workflow:
 
 .. code-block:: python
 
-   from pyflow.frontend.programextractor import Extractor
+   from pyflow.frontend.extractor import Extractor
    from pyflow.application.context import CompilerContext
    
    compiler = CompilerContext()

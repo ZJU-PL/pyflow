@@ -29,10 +29,10 @@ test-cov:  ## Run tests with coverage
 	pytest --cov=pyflow --cov-report=html --cov-report=term
 
 ifds-validate-rules:  ## Validate all IFDS registry rule packs
-	$(PYTHON) -m pyflow.analysis.ifds.clients.registry.validate
+	$(PYTHON) -m pyflow.analysis.ifds.modeling.registry.validate
 
-ifds-benchmark:  ## Run the synthetic IFDS solver benchmark
-	$(PYTHON) benchmarks/ifds_solver_benchmark.py
+ifds-benchmark:  ## Run the IFDS solver test suite (dedicated benchmark removed)
+	pytest -q tests/analysis/ifds/
 
 clean:  ## Clean up build artifacts
 	rm -rf build/

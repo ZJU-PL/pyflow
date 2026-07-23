@@ -8,7 +8,8 @@ from pyflow.optimization.callconverter import ConvertCalls
 
 class MockExtractor:
     def __init__(self):
-        self.stubs = type("Stubs", (), {"exports": {}})()
+        stubs = type("Stubs", (), {"exports": {}})()
+        self.intrinsic_manager = type("IntrinsicManager", (), {"stubs": stubs})()
 
 
 class TestConvertCalls(unittest.TestCase):

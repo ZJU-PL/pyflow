@@ -163,7 +163,10 @@ class DirectCallRewriter(object):
             extractor: Program extractor with stub information
         """
         self.extractor = extractor
-        self.exports = extractor.stubs.exports if hasattr(extractor, "stubs") else {}
+        intrinsic_manager = getattr(extractor, "intrinsic_manager", None)
+        self.exports = (
+            intrinsic_manager.stubs.exports if intrinsic_manager is not None else {}
+        )
         self.rewrites = {}
 
     def _getOrigin(self, func):
