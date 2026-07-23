@@ -93,6 +93,12 @@ pyflow supply-chain sbom package/
 
 # Audit archives and distribution metadata for issues
 pyflow supply-chain audit . --recursive
+
+# Match exact dependency versions against a local OSV database snapshot
+pyflow supply-chain audit . --recursive --osv-database osv-data/
+
+# Use a CI failure threshold while retaining lower-severity findings
+pyflow supply-chain audit . --recursive --fail-on high --format json
 ```
 
 See [CLI.md](CLI.md) for the command reference and `docs/` for broader project

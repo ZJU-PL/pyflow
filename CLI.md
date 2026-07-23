@@ -119,25 +119,40 @@ Key options:
 pyflow supply-chain <sbom|audit> [TARGETS ...]
 ```
 
-Local-only supply-chain analysis for Python packages. Works offline — no
-package index queries. Scans package metadata (METADATA, RECORD,
-pyproject.toml, poetry.lock, requirements.txt), archives (wheel, zip, tar),
-and distribution metadata for structural issues.
+Local-first supply-chain analysis for Python packages. It performs no package
+index queries. Scans package metadata (METADATA and RECORD), PEP 621 and Poetry
+projects, requirements/constraints files, `pylock.toml`, `uv.lock`,
+`poetry.lock`, `pdm.lock`, `Pipfile.lock`, setup metadata, and package archives.
+Known-vulnerability matching accepts caller-controlled local OSV JSON, JSONL,
+or directory snapshots.
 
 ### Commands
 
-- \`sbom\`: Generate a CycloneDX 1.3 SBOM document from local metadata
-- \`audit\`: Report structural anomalies in archives and distribution metadata
+- \`sbom\`: Generate CycloneDX 1.7, SPDX 2.3, or requirements output
+- \`audit\`: Report dependency, license, archive, integrity, install-script,
+  source-provenance, and known-vulnerability findings
 
 ### Common options
 
 - \`--recursive\`, \`-r\`: Scan directories recursively
 - \`--exclude PATH1,PATH2,...\`: Comma-separated paths to exclude
 - \`--output\`, \`-o FILE\`: Output file (default: stdout)
+- \`--max-archive-depth N\`: Limit nested archive inspection (default: 3)
+- \`--max-archive-members N\`: Limit entries per archive (default: 10000)
+- \`--max-archive-member-mb N\`: Limit one expanded archive member
+- \`--max-archive-expanded-mb N\`: Limit total expanded archive content
+- \`--max-compression-ratio N\`: Reject suspiciously compressed members
+- \`--max-manifest-mb N\`: Limit metadata and manifest input size
 
 ### Audit-specific options
 
 - \`--format\`: \`text\` (default) or \`json\`
+- \`--license-policy FILE\`: JSON license allowlist, either an array or an
+  object with an `allowed_licenses` array
+- \`--skip-license-audit\`: Disable missing/disallowed license findings
+- \`--osv-database PATH\`: Local OSV JSON, JSONL, or directory; repeatable
+- \`--fail-on LEVEL\`: Lowest severity producing a non-zero exit; one of
+  `low`, `medium`, `high`, `critical`, or `none` (default: `low`)
 
 ## Security
 

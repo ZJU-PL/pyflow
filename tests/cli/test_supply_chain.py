@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import json
-import re
-from pathlib import Path
 from types import SimpleNamespace
 
 from pyflow.cli.supply_chain import run_supply_chain
@@ -116,7 +114,7 @@ def test_sbom_format_spdx_json_outputs_valid(tmp_path, capsys):
 
     out = json.loads(capsys.readouterr().out)
     assert exit_code == 0
-    assert out["spdxVersion"] == "SPDX-2.2"
+    assert out["spdxVersion"] == "SPDX-2.3"
     assert len(out["packages"]) == 1
     assert out["packages"][0]["name"] == "requests"
 
@@ -171,3 +169,69 @@ def test_audit_with_custom_license_policy_file(tmp_path, capsys):
     assert exit_code == 1
     kinds = {r["kind"] for r in out["results"]}
     assert "license-not-allowed" not in kinds
+
+
+def test_audit_fail_threshold_and_json_summary(tmp_path, capsys):
+    req = tmp_path / "requirements.txt"
+    req.write_text("requests==2.31.0\n", encoding="utf-8")
+
+    exit_code = run_supply_chain(
+        SimpleNamespace(
+            supply_chain_command="audit",
+            targets=[str(req)],
+            recursive=False,
+            exclude="",
+            output=None,
+            format="json",
+            license_policy=None,
+            skip_license_audit=True,
+            osv_database=[],
+            fail_on="high",
+        )
+    )
+
+    out = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert out["summary"]["components"] == 1
+    assert out["summary"]["severity"]["LOW"] == 1
+    assert out["results"][0]["id"]
+
+
+def test_audit_uses_local_osv_database(tmp_path, capsys):
+    req = tmp_path / "requirements.txt"
+    req.write_text("demo==1.0\n", encoding="utf-8")
+    osv = tmp_path / "osv.json"
+    osv.write_text(
+        json.dumps(
+            {
+                "id": "PYSEC-CLI-1",
+                "database_specific": {"severity": "HIGH"},
+                "affected": [
+                    {
+                        "package": {"ecosystem": "PyPI", "name": "demo"},
+                        "versions": ["1.0"],
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    exit_code = run_supply_chain(
+        SimpleNamespace(
+            supply_chain_command="audit",
+            targets=[str(req)],
+            recursive=False,
+            exclude="",
+            output=None,
+            format="json",
+            license_policy=None,
+            skip_license_audit=True,
+            osv_database=[osv],
+            fail_on="high",
+        )
+    )
+
+    out = json.loads(capsys.readouterr().out)
+    assert exit_code == 1
+    assert any(item["kind"] == "known-vulnerability" for item in out["results"])

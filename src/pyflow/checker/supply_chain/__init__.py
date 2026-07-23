@@ -12,17 +12,21 @@ from .formats import (
     build_spdx_document,
     format_findings_text,
 )
-from .scanner import (
+from .licenses import audit_license_policy
+from .models import (
+    ScanLimits,
     SupplyChainFinding,
     SupplyChainScan,
-    audit_license_policy,
-    scan_targets,
 )
+from .scanner import scan_targets
+from .vulnerabilities import audit_vulnerabilities
 
 __all__ = [
+    "ScanLimits",
     "SupplyChainFinding",
     "SupplyChainScan",
     "audit_license_policy",
+    "audit_vulnerabilities",
     "build_cyclonedx_document",
     "build_requirements_text",
     "build_spdx_document",
