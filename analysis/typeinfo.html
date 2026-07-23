@@ -94,7 +94,7 @@
 <li class="toctree-l3"><a class="reference internal" href="ifds.html">IFDS/IDE Data Flow Engine</a></li>
 <li class="toctree-l3 current"><a class="current reference internal" href="#">Type Information System</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="#key-features">Key Features</a></li>
-<li class="toctree-l4"><a class="reference internal" href="#core-components">Core Components</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#package-layout">Package Layout</a></li>
 <li class="toctree-l4"><a class="reference internal" href="#usage">Usage</a></li>
 <li class="toctree-l4"><a class="reference internal" href="#see-also">See Also</a></li>
 </ul>
@@ -146,9 +146,9 @@
              
   <section id="type-information-system">
 <h1>Type Information System<a class="headerlink" href="#type-information-system" title="Link to this heading"></a></h1>
-<p>The typeinfo module provides lightweight type-information collection for
-analysis clients.  It combines PyFlow’s native type-info collector with
-migrated type-system facilities from Pynguin.</p>
+<p>The <code class="docutils literal notranslate"><span class="pre">typeinfo</span></code> package provides type-information collection and queries for
+analysis clients.  Its implementation is grouped by responsibility instead of
+exposing a flat collection of unrelated modules.</p>
 <section id="key-features">
 <h2>Key Features<a class="headerlink" href="#key-features" title="Link to this heading"></a></h2>
 <ul class="simple">
@@ -158,29 +158,32 @@ usage patterns from Python source code</p></li>
 annotations are unavailable</p></li>
 <li><p><strong>String Subtype Analysis</strong>: Specialized inference for string subtypes
 (e.g., URLs, file paths, SQL queries)</p></li>
-<li><p><strong>Type Tracing</strong>: Tracks how types flow through expressions and function
-boundaries</p></li>
+<li><p><strong>Usage Tracing</strong>: Records operations performed on proxied values for
+usage-based signature inference</p></li>
 <li><p><strong>Configurable</strong>: Type collection can be tuned via configuration for
 different analysis precision trade-offs</p></li>
 </ul>
 </section>
-<section id="core-components">
-<h2>Core Components<a class="headerlink" href="#core-components" title="Link to this heading"></a></h2>
+<section id="package-layout">
+<h2>Package Layout<a class="headerlink" href="#package-layout" title="Link to this heading"></a></h2>
 <ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">TypeEvidence</span></code> / <code class="docutils literal notranslate"><span class="pre">TypeInfo</span></code> — Data classes for representing collected
-type information</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">collect_pyflow_type_info()</span></code> / <code class="docutils literal notranslate"><span class="pre">collect_python_type_info()</span></code> — Main
-entry points for gathering type facts</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">type_inference.py</span></code> — Type inference engine</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">typesystem.py</span></code> — Type system abstractions (from Pynguin)</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">string_subtype_inference.py</span></code> — String subtype specialization</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">query</span></code> — Evidence collection, public query models, and
+<code class="docutils literal notranslate"><span class="pre">TypeInfoService</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">core</span></code> — Proper-type representations, subtype relations, signatures, and
+the class hierarchy</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">resolution</span></code> — Annotation, generic, docstring, and <code class="docutils literal notranslate"><span class="pre">.pyi</span></code> resolution</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">inference</span></code> — Core providers, optional external providers, usage tracing,
+and string specialization</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">generation</span></code> — Type-guided constant and value generation helpers</p></li>
 </ul>
+<p><code class="docutils literal notranslate"><span class="pre">TypeEvidenceIndex</span></code> stores source-level evidence.  <code class="docutils literal notranslate"><span class="pre">ClassDescriptor</span></code> is the
+separate core representation of a runtime Python class.</p>
 </section>
 <section id="usage">
 <h2>Usage<a class="headerlink" href="#usage" title="Link to this heading"></a></h2>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.analysis.typeinfo</span><span class="w"> </span><span class="kn">import</span> <span class="n">collect_pyflow_type_info</span>
 
-<span class="n">type_info</span> <span class="o">=</span> <span class="n">collect_pyflow_type_info</span><span class="p">(</span><span class="n">program</span><span class="p">,</span> <span class="n">compiler</span><span class="p">)</span>
+<span class="n">type_info</span> <span class="o">=</span> <span class="n">collect_pyflow_type_info</span><span class="p">(</span><span class="n">program_codes</span><span class="p">)</span>
 <span class="k">for</span> <span class="n">var</span><span class="p">,</span> <span class="n">evidence</span> <span class="ow">in</span> <span class="n">type_info</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
     <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">var</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">evidence</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
 </pre></div>

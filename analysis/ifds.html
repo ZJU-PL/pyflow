@@ -93,7 +93,8 @@
 <li class="toctree-l3"><a class="reference internal" href="lifetimeanalysis.html">Variable Lifetime Analysis</a></li>
 <li class="toctree-l3 current"><a class="current reference internal" href="#">IFDS/IDE Data Flow Engine</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="#key-features">Key Features</a></li>
-<li class="toctree-l4"><a class="reference internal" href="#analysis-clients">Analysis Clients</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#package-layout">Package Layout</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#built-in-analyses">Built-in Analyses</a></li>
 <li class="toctree-l4"><a class="reference internal" href="#cli-usage">CLI Usage</a></li>
 <li class="toctree-l4"><a class="reference internal" href="#production-execution-contract">Production Execution Contract</a></li>
 <li class="toctree-l4"><a class="reference internal" href="#findings-and-sarif">Findings and SARIF</a></li>
@@ -179,16 +180,30 @@ from strict failures</p></li>
 paths for demand-driven explanations</p></li>
 </ul>
 </section>
-<section id="analysis-clients">
-<h2>Analysis Clients<a class="headerlink" href="#analysis-clients" title="Link to this heading"></a></h2>
-<p>The IFDS engine ships with several ready-to-use analysis clients:</p>
+<section id="package-layout">
+<h2>Package Layout<a class="headerlink" href="#package-layout" title="Link to this heading"></a></h2>
+<p>The implementation is grouped by responsibility:</p>
 <ul class="simple">
-<li><p><strong>Taint Analysis</strong> (<code class="docutils literal notranslate"><span class="pre">clients/taint.py</span></code>): Interprocedural taint tracking
+<li><p><code class="docutils literal notranslate"><span class="pre">core</span></code> — IFDS/IDE problems, forward and backward solvers, supergraphs,
+and reusable transfer helpers</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">frontend</span></code> — CFG adaptation, annotation synthesis, and preparation</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">analyses</span></code> — Taint, nullness, typestate, and flow-path analyses</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">modeling</span></code> — Call models, library presets, typestate protocols, and model
+registries</p></li>
+<li><p>Package-root modules — Public API orchestration, diagnostics, queries,
+reporting, and shadow scanning</p></li>
+</ul>
+</section>
+<section id="built-in-analyses">
+<h2>Built-in Analyses<a class="headerlink" href="#built-in-analyses" title="Link to this heading"></a></h2>
+<p>The IFDS engine ships with several ready-to-use analyses:</p>
+<ul class="simple">
+<li><p><strong>Taint Analysis</strong> (<code class="docutils literal notranslate"><span class="pre">analyses/taint.py</span></code>): Interprocedural taint tracking
 from sources to sinks via flow functions</p></li>
-<li><p><strong>Nullness Analysis</strong> (<code class="docutils literal notranslate"><span class="pre">clients/nullness.py</span></code>): Null pointer and
+<li><p><strong>Nullness Analysis</strong> (<code class="docutils literal notranslate"><span class="pre">analyses/nullness.py</span></code>): Null pointer and
 <code class="docutils literal notranslate"><span class="pre">None</span></code>-related bug detection</p></li>
-<li><p><strong>Typestate Analysis</strong> (<code class="docutils literal notranslate"><span class="pre">clients/typestate.py</span></code>,
-<code class="docutils literal notranslate"><span class="pre">clients/typestate_engine.py</span></code>): Resource lifecycle protocol verification
+<li><p><strong>Typestate Analysis</strong> (<code class="docutils literal notranslate"><span class="pre">analyses/typestate.py</span></code>,
+<code class="docutils literal notranslate"><span class="pre">modeling/typestate.py</span></code>): Resource lifecycle protocol verification
 (file descriptors, locks, sockets, transactions)</p></li>
 <li><p><strong>Shadow Scan</strong> (<code class="docutils literal notranslate"><span class="pre">shadow_scan.py</span></code>): Differential analysis comparing two
 analysis runs</p></li>
@@ -240,7 +255,7 @@ partial when recovery can affect completeness.</p>
 </section>
 <section id="findings-and-sarif">
 <h2>Findings and SARIF<a class="headerlink" href="#findings-and-sarif" title="Link to this heading"></a></h2>
-<p>Taint, nullness, and typestate clients expose normalized findings with stable
+<p>Taint, nullness, and typestate analyses expose normalized findings with stable
 fingerprints, source spans, severity, confidence, and optional code flows.
 Python-source spans include start and end positions.  SARIF output includes
 rules, physical locations, thread flows, partial fingerprints, and the overall
@@ -253,7 +268,7 @@ call paths, and <code class="docutils literal notranslate"><span class="pre">fin
 <code class="docutils literal notranslate"><span class="pre">break</span></code>, and <code class="docutils literal notranslate"><span class="pre">continue</span></code> control flow.  It also exposes async/generator
 procedure metadata, suspension effects, and semantic roles for synchronous and
 asynchronous context-manager and iteration calls.  These are conservative
-building blocks; individual clients decide which effects alter their facts.</p>
+building blocks; individual analyses decide which effects alter their facts.</p>
 </section>
 <section id="rule-pack-quality-and-performance">
 <h2>Rule-Pack Quality and Performance<a class="headerlink" href="#rule-pack-quality-and-performance" title="Link to this heading"></a></h2>
@@ -270,17 +285,18 @@ randomized differential tests for regression detection.</p>
 </section>
 <section id="annotation-synthesis">
 <h2>Annotation Synthesis<a class="headerlink" href="#annotation-synthesis" title="Link to this heading"></a></h2>
-<p>The IFDS module includes an annotation synthesis engine
-(<code class="docutils literal notranslate"><span class="pre">annotation_synthesis.py</span></code>) that generates syntactic annotations to prepare
-code for IFDS analysis.  A fallback mechanism (<code class="docutils literal notranslate"><span class="pre">annotation_fallback.py</span></code>)
-handles cases where synthesis cannot be applied.</p>
+<p>The IFDS frontend includes an annotation synthesis engine
+(<code class="docutils literal notranslate"><span class="pre">frontend/annotations.py</span></code>) that generates syntactic annotations to prepare
+code for IFDS analysis. A fallback mechanism
+(<code class="docutils literal notranslate"><span class="pre">frontend/annotation_fallback.py</span></code>) handles cases where synthesis cannot be
+applied.</p>
 </section>
 <section id="see-also">
 <h2>See Also<a class="headerlink" href="#see-also" title="Link to this heading"></a></h2>
 <ul class="simple">
 <li><p><a class="reference internal" href="dataflowIR.html"><span class="doc">Data Flow Intermediate Representation</span></a> — Data flow IR that IFDS operates on</p></li>
 <li><p><a class="reference internal" href="cfg.html"><span class="doc">Control Flow Graph (CFG) Analysis</span></a> — CFG construction (supergraph foundation)</p></li>
-<li><p><a class="reference internal" href="alias/flow_sensitive.html"><span class="doc">Flow-Sensitive Alias Analysis</span></a> — Flow-sensitive alias analysis consumed by taint clients</p></li>
+<li><p><a class="reference internal" href="alias/flow_sensitive.html"><span class="doc">Flow-Sensitive Alias Analysis</span></a> — Flow-sensitive alias analysis consumed by taint analyses</p></li>
 </ul>
 </section>
 </section>

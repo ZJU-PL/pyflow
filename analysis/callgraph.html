@@ -83,6 +83,7 @@
 <li class="toctree-l3"><a class="reference internal" href="ddg.html">Data Dependence Graph (DDG)</a></li>
 <li class="toctree-l3"><a class="reference internal" href="cpg.html">Code Property Graph (CPG)</a></li>
 <li class="toctree-l3 current"><a class="current reference internal" href="#">Call Graph Analysis</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#cli-usage">CLI Usage</a></li>
 <li class="toctree-l4"><a class="reference internal" href="#analysis-approaches">Analysis Approaches</a></li>
 <li class="toctree-l4"><a class="reference internal" href="#applications">Applications</a></li>
 </ul>
@@ -145,6 +146,54 @@
   <section id="call-graph-analysis">
 <h1>Call Graph Analysis<a class="headerlink" href="#call-graph-analysis" title="Link to this heading"></a></h1>
 <p>PyFlow provides multiple algorithms for call graph construction.</p>
+<p>Call graphs can be built from a single Python file or an entire project
+directory.  When given a directory, PyFlow auto-detects the entry point by
+checking (in order):</p>
+<ol class="arabic simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">pyproject.toml</span></code> (<code class="docutils literal notranslate"><span class="pre">[project.scripts]</span></code> or <code class="docutils literal notranslate"><span class="pre">[tool.poetry.scripts]</span></code>)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">setup.py</span></code> (<code class="docutils literal notranslate"><span class="pre">console_scripts</span></code> entry points)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">__main__.py</span></code> inside the first non-hidden, non-test subdirectory</p></li>
+<li><p>Well-known filenames: <code class="docutils literal notranslate"><span class="pre">main.py</span></code>, <code class="docutils literal notranslate"><span class="pre">app.py</span></code>, <code class="docutils literal notranslate"><span class="pre">cli.py</span></code>, <code class="docutils literal notranslate"><span class="pre">run.py</span></code>, <code class="docutils literal notranslate"><span class="pre">launch.py</span></code></p></li>
+</ol>
+<p>A manual entry point can be specified with <code class="docutils literal notranslate"><span class="pre">--entry</span></code>.</p>
+<section id="cli-usage">
+<h2>CLI Usage<a class="headerlink" href="#cli-usage" title="Link to this heading"></a></h2>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="c1"># Single file</span>
+<span class="n">pyflow</span> <span class="n">callgraph</span> <span class="nb">input</span><span class="o">.</span><span class="n">py</span>
+
+<span class="c1"># Project directory (auto-detected entry)</span>
+<span class="n">pyflow</span> <span class="n">callgraph</span> <span class="o">/</span><span class="n">path</span><span class="o">/</span><span class="n">to</span><span class="o">/</span><span class="n">project</span><span class="o">/</span>
+
+<span class="c1"># Project directory with explicit entry</span>
+<span class="n">pyflow</span> <span class="n">callgraph</span> <span class="o">/</span><span class="n">path</span><span class="o">/</span><span class="n">to</span><span class="o">/</span><span class="n">project</span><span class="o">/</span> <span class="o">--</span><span class="n">entry</span> <span class="n">src</span><span class="o">/</span><span class="n">main</span><span class="o">.</span><span class="n">py</span>
+
+<span class="c1"># Dry-run: print the entry point that would be used</span>
+<span class="n">pyflow</span> <span class="n">callgraph</span> <span class="o">/</span><span class="n">path</span><span class="o">/</span><span class="n">to</span><span class="o">/</span><span class="n">project</span><span class="o">/</span> <span class="o">--</span><span class="n">dry</span><span class="o">-</span><span class="n">run</span>
+
+<span class="c1"># Constraint-based algorithm with stdlib excluded (default)</span>
+<span class="n">pyflow</span> <span class="n">callgraph</span> <span class="nb">input</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">algorithm</span> <span class="n">constraint</span> <span class="o">--</span><span class="n">skip</span><span class="o">-</span><span class="n">stdlib</span>
+
+<span class="c1"># Include standard library modules</span>
+<span class="n">pyflow</span> <span class="n">callgraph</span> <span class="nb">input</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">algorithm</span> <span class="n">constraint</span> <span class="o">--</span><span class="n">no</span><span class="o">-</span><span class="n">skip</span><span class="o">-</span><span class="n">stdlib</span>
+</pre></div>
+</div>
+<p>Options:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">--entry</span></code>: Entry point file relative to project root (directory input only; auto-detected when omitted)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--dry-run</span></code>: Print detected entry point without running analysis</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--algorithm,</span> <span class="pre">-a</span></code>: Algorithm (<code class="docutils literal notranslate"><span class="pre">simple</span></code>, <code class="docutils literal notranslate"><span class="pre">constraint</span></code>, or <code class="docutils literal notranslate"><span class="pre">pycg</span></code>; default: <code class="docutils literal notranslate"><span class="pre">simple</span></code>)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--output,</span> <span class="pre">-o</span></code>: Output file path</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--verbose,</span> <span class="pre">-v</span></code>: Enable verbose output</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--skip-stdlib</span></code>: Skip standard library modules in constraint analysis (default: on)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--no-skip-stdlib</span></code>: Include standard library modules</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--context-sensitive</span></code>: Enable call-site context sensitivity (constraint algorithm only)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--context-depth</span></code>: Call-string depth when <code class="docutils literal notranslate"><span class="pre">--context-sensitive</span></code> is enabled (default: 1)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--fixpoint-max-iterations</span></code>: Cap fixpoint iterations (constraint algorithm only)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--no-fixpoint-warning</span></code>: Disable warning when fixpoint cap is hit (constraint algorithm only)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--allocation-site-sensitive-instances</span></code>: Track per-allocation instance identities (constraint algorithm only)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--as-graph-output</span></code>: Write constraint value-flow assignment graph JSON (constraint algorithm only)</p></li>
+</ul>
+</section>
 <section id="analysis-approaches">
 <h2>Analysis Approaches<a class="headerlink" href="#analysis-approaches" title="Link to this heading"></a></h2>
 <section id="constraint-based-analysis-default">
@@ -155,6 +204,7 @@
 <li><p><strong>Full MRO Support</strong>: Complete C3 MRO linearization for class method lookup</p></li>
 <li><p><strong>Rich Semantics</strong>: Handles descriptors, closures, comprehensions, and container tracking</p></li>
 <li><p><strong>Dynamic Summaries</strong>: Generates explicit summary nodes for unresolved call targets</p></li>
+<li><p><strong>Stdlib Filtering</strong>: Standard library modules can be skipped to reduce noise (<code class="docutils literal notranslate"><span class="pre">--skip-stdlib</span></code>)</p></li>
 </ul>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.analysis.callgraph</span><span class="w"> </span><span class="kn">import</span> <span class="n">extract_call_graph_constraint</span>
 

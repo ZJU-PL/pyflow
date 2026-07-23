@@ -149,15 +149,25 @@ reference used by the repository today, also see <code class="docutils literal n
 <h2>Analysis Commands<a class="headerlink" href="#analysis-commands" title="Link to this heading"></a></h2>
 <section id="pyflow-callgraph">
 <h3><strong>pyflow callgraph</strong><a class="headerlink" href="#pyflow-callgraph" title="Link to this heading"></a></h3>
-<p>Generate and analyze call graphs from Python code.</p>
+<p>Generate and analyze call graphs from Python code.  Accepts a single Python
+file or a project directory.  When given a directory, the entry point is
+auto-detected from <code class="docutils literal notranslate"><span class="pre">pyproject.toml</span></code>, <code class="docutils literal notranslate"><span class="pre">setup.py</span></code>, <code class="docutils literal notranslate"><span class="pre">__main__.py</span></code>, or
+well-known filenames (<code class="docutils literal notranslate"><span class="pre">main.py</span></code>, <code class="docutils literal notranslate"><span class="pre">app.py</span></code>, <code class="docutils literal notranslate"><span class="pre">cli.py</span></code>, etc.).</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">pyflow</span> <span class="n">callgraph</span> <span class="nb">input</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">algorithm</span> <span class="n">constraint</span> <span class="o">--</span><span class="n">output</span> <span class="n">callgraph</span><span class="o">.</span><span class="n">txt</span>
 <span class="n">pyflow</span> <span class="n">callgraph</span> <span class="nb">input</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">algorithm</span> <span class="n">constraint</span> <span class="o">--</span><span class="n">context</span><span class="o">-</span><span class="n">sensitive</span> <span class="o">--</span><span class="n">context</span><span class="o">-</span><span class="n">depth</span> <span class="mi">2</span>
+<span class="n">pyflow</span> <span class="n">callgraph</span> <span class="o">/</span><span class="n">path</span><span class="o">/</span><span class="n">to</span><span class="o">/</span><span class="n">project</span><span class="o">/</span>                            <span class="c1"># auto-detect entry</span>
+<span class="n">pyflow</span> <span class="n">callgraph</span> <span class="o">/</span><span class="n">path</span><span class="o">/</span><span class="n">to</span><span class="o">/</span><span class="n">project</span><span class="o">/</span> <span class="o">--</span><span class="n">entry</span> <span class="n">src</span><span class="o">/</span><span class="n">app</span><span class="o">.</span><span class="n">py</span>         <span class="c1"># explicit entry</span>
+<span class="n">pyflow</span> <span class="n">callgraph</span> <span class="o">/</span><span class="n">path</span><span class="o">/</span><span class="n">to</span><span class="o">/</span><span class="n">project</span><span class="o">/</span> <span class="o">--</span><span class="n">dry</span><span class="o">-</span><span class="n">run</span>                  <span class="c1"># print entry only</span>
 </pre></div>
 </div>
 <p>Options:
+- <code class="docutils literal notranslate"><span class="pre">--entry</span></code>: Entry point file relative to project root (directory input only; auto-detected when omitted)
+- <code class="docutils literal notranslate"><span class="pre">--dry-run</span></code>: Print detected entry point without running analysis
 - <code class="docutils literal notranslate"><span class="pre">--algorithm,</span> <span class="pre">-a</span></code>: Algorithm (<code class="docutils literal notranslate"><span class="pre">simple</span></code>, <code class="docutils literal notranslate"><span class="pre">constraint</span></code>, or <code class="docutils literal notranslate"><span class="pre">pycg</span></code>; default: <code class="docutils literal notranslate"><span class="pre">simple</span></code>)
 - <code class="docutils literal notranslate"><span class="pre">--output,</span> <span class="pre">-o</span></code>: Output file path
 - <code class="docutils literal notranslate"><span class="pre">--verbose,</span> <span class="pre">-v</span></code>: Enable verbose output
+- <code class="docutils literal notranslate"><span class="pre">--skip-stdlib</span></code>: Skip standard library modules in constraint analysis (default: on)
+- <code class="docutils literal notranslate"><span class="pre">--no-skip-stdlib</span></code>: Include standard library modules
 - <code class="docutils literal notranslate"><span class="pre">--context-sensitive</span></code>: Enable call-site context sensitivity (constraint algorithm only)
 - <code class="docutils literal notranslate"><span class="pre">--context-depth</span></code>: Call-string depth when <code class="docutils literal notranslate"><span class="pre">--context-sensitive</span></code> is enabled (default: 1)
 - <code class="docutils literal notranslate"><span class="pre">--fixpoint-max-iterations</span></code>: Cap fixpoint iterations (constraint algorithm only)
