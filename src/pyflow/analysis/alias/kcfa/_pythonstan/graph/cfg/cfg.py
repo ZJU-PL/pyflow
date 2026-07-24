@@ -1,3 +1,5 @@
+"""Mutable control-flow graph over lowered Python basic blocks."""
+
 from typing import *
 
 from ..graph import Edge, Node, Graph
@@ -11,6 +13,12 @@ __all__ = ["ControlFlowGraph"]
 
 
 class ControlFlowGraph(Graph):
+    """Store basic blocks, typed edges, exits, labels, and variable indexes.
+
+    A synthetic super-exit may be added to give graph algorithms a unique exit
+    even when the source scope has multiple returns or exceptional exits.
+    """
+
     entry_blk: BaseBlock
     exit_blks: Set[BaseBlock]
     super_exit_blk: Optional[BaseBlock]

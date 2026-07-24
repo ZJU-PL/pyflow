@@ -169,6 +169,8 @@ class FunctionObject(AbstractObject):
 
 @dataclass(frozen=True)
 class MethodObject(FunctionObject):
+    """Function object bound to a defining class and optional receiver."""
+
     class_obj: 'ClassObject'
     instance_obj: Optional['InstanceObject']
 
@@ -183,6 +185,7 @@ class MethodObject(FunctionObject):
 
 @dataclass(frozen=True)
 class ClassObject(AbstractObject):
+    """Abstract user-defined class and its lowered class body."""
 
     container_scope: 'Scope'
     ir: 'IRClass'
@@ -190,16 +193,22 @@ class ClassObject(AbstractObject):
 
 @dataclass(frozen=True)
 class ModuleObject(AbstractObject):
+    """Abstract imported or entry module."""
+
     ir: 'IRModule'
 
 
 @dataclass(frozen=True)
 class InstanceObject(AbstractObject):
+    """Abstract instance associated with its allocated class object."""
+
     class_obj: 'ClassObject'    
     
 
 @dataclass(frozen=True)
 class ConstantObject(AbstractObject):
+    """Abstract immutable scalar with a statically known value."""
+
     value: Union[str, int, float, bool]
 
 

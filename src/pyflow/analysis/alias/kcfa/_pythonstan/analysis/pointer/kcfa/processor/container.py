@@ -1,3 +1,5 @@
+"""Model container allocation and element flow for pointer analysis."""
+
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any
 from .processor import Processor
@@ -15,14 +17,14 @@ if TYPE_CHECKING:
 
 
 class ContainerProcessor(Processor):
-    """
-    Handle container allocations and load/store of container elements.
+    """Handle container allocations and subscript load/store constraints.
+
+    With index sensitivity enabled, constant keys receive precise synthetic
+    fields while a generic element field preserves sound flow for unknown keys.
     """
     
     def __init__(self, index_sensitive: bool = True):
-        """
-        Initialize container processor.
-        """
+        """Initialize the processor and optionally retain constant indices."""
         self.index_sensitive = index_sensitive
         
     def handle_allocation(self, solver: 'PointerSolver', target: 'Ctx[Any]', scope: 'Scope', context: 'AbstractContext', c: 'AllocConstraint') -> bool:                

@@ -1,3 +1,5 @@
+"""Represent module namespaces and resolve imports to source or stub files."""
+
 import ast
 import os
 from pathlib import Path
@@ -8,6 +10,7 @@ from pyflow.analysis.alias.kcfa._pythonstan.utils.common import is_src_file, src
 
 
 def get_root(path: str, names: List[str]) -> str:
+    """Remove a module namespace suffix from ``path`` to recover its root."""
     prev_num = len(names)
     path_obj = Path(path)
     if path_obj.name == "__init__.py":
@@ -24,6 +27,8 @@ def get_root(path: str, names: List[str]) -> str:
 
 
 class Namespace:
+    """Interned dotted module name represented as path-like components."""
+
     names: List[str]
     empty_ns = None
 
@@ -117,6 +122,12 @@ class Namespace:
 
 
 class NamespaceManager:
+    """Resolve absolute and relative imports across project and stub paths.
+
+    Results are cached in namespace-to-path and dotted-name indexes. Standard
+    library models can be preferred or used only when real modules are absent.
+    """
+
     homepath: str
     paths: List[str]
     names2path: Dict[str, str]
@@ -132,6 +143,7 @@ class NamespaceManager:
         mock_libs: bool = True,
         prefer_mock_libs: bool = False,
     ):
+        """Initialize search roots, caches, and standard-library stub policy."""
         self.homepath = homepath
         self.paths = [homepath] + (paths or [])
         self.names2path = {}
@@ -161,6 +173,7 @@ class NamespaceManager:
         return self.names2path[ns.to_str()]
     
     def set_entry_module(self, module_path: str, root_path: str) -> Namespace:
+        """Register and return the namespace of the analysis entry module."""
         if root_path.endswith("/"):
             root_path = root_path[:-1]
         if module_path.startswith(root_path):

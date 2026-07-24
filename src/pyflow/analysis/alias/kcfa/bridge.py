@@ -32,7 +32,13 @@ __all__ = ["PointerAnalysis", "PointerAnalysisResult"]
 
 
 class PointerAnalysisResult:
-    """Wraps PythonStAn's AnalysisResult with pyflow-friendly query methods."""
+    """Expose a stable, pyflow-facing view of a completed analysis.
+
+    The migrated backend represents variables and objects with internal,
+    context-qualified classes.  This wrapper deliberately returns strings and
+    built-in containers for the common queries, while :attr:`raw` remains
+    available to callers that need the backend's richer query interface.
+    """
 
     def __init__(self, inner: AnalysisResult, state) -> None:
         self._inner = inner
@@ -40,7 +46,12 @@ class PointerAnalysisResult:
         self._query = inner.query()
 
     def points_to(self, var_name: str) -> set[str]:
-        """Return the set of allocation sites that ``var_name`` may point to."""
+        """Return abstract objects reachable from any binding named ``var_name``.
+
+        Bindings from all analyzed scopes and contexts are combined.  Use
+        :meth:`bindings_for_name` when the distinction between those bindings
+        matters.
+        """
         result: set[str] = set()
         for cvar, pts in self._state._env.items():
             content = getattr(cvar, "content", cvar)
@@ -49,7 +60,11 @@ class PointerAnalysisResult:
         return result
 
     def bindings_for_name(self, var_name: str) -> list[tuple[str, set[str]]]:
-        """Return all context-qualified bindings matching ``var_name``."""
+        """Return each context-qualified binding matching ``var_name``.
+
+        Each result contains the backend's printable binding identifier and
+        the printable abstract objects in that binding's points-to set.
+        """
         bindings: list[tuple[str, set[str]]] = []
         for cvar, pts in self._state._env.items():
             content = getattr(cvar, "content", cvar)
@@ -58,7 +73,7 @@ class PointerAnalysisResult:
         return bindings
 
     def call_edges(self) -> list[tuple[str, str]]:
-        """Return call graph edges as (caller, callee) pairs."""
+        """Return discovered call-graph edges as ``(call_site, callee)`` pairs."""
         cg = self._inner.query().call_graph()
         return [
             (str(edge.callsite), str(edge.callee))
@@ -67,7 +82,7 @@ class PointerAnalysisResult:
 
     @property
     def raw(self) -> AnalysisResult:
-        """Access the underlying PythonStAn result for advanced queries."""
+        """Return the migrated backend result for advanced queries."""
         return self._inner
 
 
@@ -87,16 +102,32 @@ class PointerAnalysis:
     """
 
     def __init__(self, source: str, *, k: int = 1) -> None:
+        """Configure an analysis over ``source`` with call-string depth ``k``.
+
+        The source is parsed when :meth:`run` is called.  ``k=0`` gives a
+        context-insensitive analysis; positive values retain that many recent
+        call sites in each abstract calling context.
+        """
         self._source = source
         self._k = k
 
     def run(self) -> PointerAnalysisResult:
         """Execute the pointer analysis and return results.
 
-        Source-string inputs are written to a temporary entry module, then
+        Source-string inputs are written to a temporary entry module and then
         analyzed through PythonStAn's migrated Pipeline so import resolution,
         mock stdlib stubs, module graph construction, and transform ordering
         stay aligned with the original backend.
+
+        Returns
+        -------
+        PointerAnalysisResult
+            A query wrapper over the solver's fixed-point result.
+
+        Raises
+        ------
+        SyntaxError
+            If ``source`` is not valid Python syntax.
         """
         ast.parse(self._source)
         with tempfile.TemporaryDirectory(prefix="pyflow-pointer-") as tmpdir:

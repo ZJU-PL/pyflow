@@ -1,3 +1,5 @@
+"""Render CFGs and nested IR scopes with Graphviz."""
+
 import graphviz
 from graphviz import Digraph
 from typing import Dict
@@ -8,6 +10,7 @@ from .cfg import ControlFlowGraph
 
 def new_digraph(name, filename, node_attr={}, edge_attr={}, graph_attr={}
                 ) -> Digraph:
+    """Create a Graphviz graph with the backend's standard visual styling."""
     n_attr = {'shape': 'record', 'fontsize': '8pt'}
     n_attr.update(node_attr)
     e_attr = {'fontsize': '7pt'}
@@ -22,6 +25,7 @@ def new_digraph(name, filename, node_attr={}, edge_attr={}, graph_attr={}
 
 
 def draw_cfg(scope: IRScope, s: Digraph, info: Dict = {}):
+    """Add one scope's CFG nodes and edges to ``s``."""
     cfg = scope.cfg
     gen_id = lambda blk: f'{subg_name}_{blk.idx}'
 
@@ -56,6 +60,7 @@ def draw_cfg(scope: IRScope, s: Digraph, info: Dict = {}):
 
 
 def draw_module(mod: IRModule, s: Digraph, info: Dict = {}):
+    """Draw a module CFG and recursively draw its nested scopes."""
     with s.subgraph(name=mod.get_name(),
                     graph_attr={'label': mod.get_name(),
                                 'cluster': 'true',
@@ -75,6 +80,7 @@ def draw_module(mod: IRModule, s: Digraph, info: Dict = {}):
 
 
 def draw_class(cls: IRClass, s: Digraph, info: Dict = {}):
+    """Draw a class CFG and recursively draw nested classes and functions."""
     with s.subgraph(name=cls.get_name(),
                     graph_attr={'label': cls.get_name(),
                                 'cluster': 'true',
@@ -94,6 +100,7 @@ def draw_class(cls: IRClass, s: Digraph, info: Dict = {}):
 
 
 def draw_function(fn: IRFunc, s: Digraph, info: Dict = {}):
+    """Draw a function CFG and recursively draw its nested scopes."""
     with s.subgraph(name=fn.get_name(),
                     graph_attr={'label': fn.get_name(),
                                 'cluster': 'true',

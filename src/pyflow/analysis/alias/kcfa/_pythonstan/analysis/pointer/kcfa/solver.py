@@ -34,6 +34,14 @@ logger = logging.getLogger(__name__)
 
 
 class PointerSolver:
+    """Compute a fixed point over constraints and pointer-flow edges.
+
+    The solver consumes newly discovered constraints and points-to deltas from
+    deterministic worklists.  Semantic processors handle Python-specific cases
+    while this class coordinates allocation, propagation, calls, contexts, and
+    statistics.
+    """
+
     def __init__(
         self,
         state: 'PointerAnalysisState',
@@ -876,10 +884,13 @@ class PointerSolver:
 
 
     def query(self) -> ISolverQuery:
+        """Return a read-only query facade over the current fixed-point state."""
         return SolverQuery(self.state, self._stats, self._unknown_tracker)
 
 
 class SolverQuery(ISolverQuery):
+    """Expose points-to, alias, call-graph, and diagnostic solver results."""
+
     def __init__(self, state: 'PointerAnalysisState', stats: Dict[str, int], unknown_tracker: 'UnknownTracker'):
         self._state = state
         self._stats = stats

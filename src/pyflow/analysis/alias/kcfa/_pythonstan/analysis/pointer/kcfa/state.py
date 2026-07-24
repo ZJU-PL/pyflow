@@ -29,6 +29,7 @@ __all__ = ["PointerAnalysisState"]
 
 # TODO to be done 
 class PointerCallGraph(AbstractCallGraph[Ctx[CallSite], Scope]):
+    """Call graph with a context-insensitive edge index for fast deduplication."""
 
     def __init__(self):
         super().__init__()

@@ -1,3 +1,5 @@
+"""Basic-block nodes for lowered Python control-flow graphs."""
+
 from typing import List, Optional, Set
 
 from pyflow.analysis.alias.kcfa._pythonstan.ir import IRStatement, Label
@@ -7,6 +9,8 @@ __all__ = ["BaseBlock"]
 
 
 class BaseBlock(Node):
+    """Ordered sequence of IR statements treated as one CFG node."""
+
     idx: int
     only_pass: bool
     stmts: List[IRStatement]
@@ -40,18 +44,21 @@ class BaseBlock(Node):
         return len(self.stmts)
 
     def get_stores(self) -> Set[str]:
+        """Return variable names stored by statements in this block."""
         stores = {*()}
         for stmt in self.stmts:
             stores.update(stmt.get_stores())
         return stores
 
     def get_loads(self) -> Set[str]:
+        """Return variable names loaded by statements in this block."""
         loads = {*()}
         for stmt in self.stmts:
             loads.update(stmt.get_loads())
         return loads
 
     def get_dels(self) -> Set[str]:
+        """Return variable names deleted by statements in this block."""
         dels = {*()}
         for stmt in self.stmts:
             dels.update(stmt.get_dels())
@@ -68,6 +75,7 @@ class BaseBlock(Node):
         return '\\n'.join([head, stmts_str])
 
     def gen_label(self) -> Label:
+        """Return the leading label, creating one when necessary."""
         if self.n_stmt() > 0 and isinstance(self.stmts[0], Label):
             return self.stmts[0]
         else:

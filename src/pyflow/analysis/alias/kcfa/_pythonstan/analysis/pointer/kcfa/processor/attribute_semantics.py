@@ -1,3 +1,10 @@
+"""Translate Python attribute operations into pointer-flow constraints.
+
+The processor models instance and class lookup, inheritance, descriptors, and
+the interception hooks used by ``__getattribute__``, ``__getattr__``, and
+``__setattr__``.
+"""
+
 import ast
 from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple
 
@@ -28,6 +35,13 @@ __all__ = ["AttributeSemanticsProcessor"]
 
 
 class AttributeSemanticsProcessor(Processor):
+    """Apply Python attribute read and write semantics during solving.
+
+    Constant attribute names are resolved precisely.  Dynamic names fall back
+    to conservative unknown fields so that dataflow is retained when the
+    concrete attribute cannot be determined statically.
+    """
+
     _READ_INTERCEPT_SKIP = {"__getattribute__", "__getattr__"}
     _WRITE_INTERCEPT_SKIP = {"__setattr__"}
     

@@ -1,3 +1,5 @@
+"""Shared registry of project-wide services and analysis state."""
+
 from typing import List, Dict, Optional, Tuple, TYPE_CHECKING
 
 from pyflow.analysis.alias.kcfa._pythonstan.utils.common import Singleton
@@ -12,6 +14,12 @@ if TYPE_CHECKING:
 
 
 class World(Singleton):
+    """Hold the managers and entry module used by a pipeline run.
+
+    The migrated backend accesses this registry as a singleton. :meth:`setup`
+    creates manager instances and :meth:`build` configures them for a project.
+    """
+
     namespace_manager: 'NamespaceManager'
     entry_module: IRModule
     class_hierarchy: 'ClassHierarchy'
@@ -20,6 +28,7 @@ class World(Singleton):
 
     @classmethod
     def setup(cls):
+        """Create fresh scope, namespace, hierarchy, and import managers."""
         from .scope_manager import ScopeManager
         from .class_hierarchy import ClassHierarchy
         from .import_manager import ImportManager
@@ -33,6 +42,7 @@ class World(Singleton):
         cls.module2ns = {}
 
     def build(self, config: 'Config'):
+        """Reset managers and configure module search paths from ``config``."""
         self.scope_manager.build()
         self.import_manager.build()
         self.namespace_manager.build(
@@ -43,7 +53,9 @@ class World(Singleton):
         )
 
     def set_entry_module(self, module: IRModule):
+        """Set the root module for subsequent interprocedural analyses."""
         self.entry_module = module
 
     def get_entry_module(self) -> IRModule:
+        """Return the configured interprocedural entry module."""
         return self.entry_module

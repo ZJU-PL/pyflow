@@ -1,3 +1,5 @@
+"""Base protocol for optional pointer-solver semantic processors."""
+
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any
 
@@ -13,8 +15,11 @@ if TYPE_CHECKING:
 
 
 class Processor(ABC):
-    """ The additional processing logic for the pointer analysis.
-    For explicitly handling certain features of Python programs.
+    """Provide hooks for Python semantics layered onto the core solver.
+
+    A hook returns ``True`` when the processor handled the event.  The default
+    implementations decline every event, allowing subclasses to implement only
+    the allocation, call, constraint, or propagation hooks they need.
     """
     
     def handle_allocation(self, solver: 'PointerSolver', target: 'Ctx[Any]', scope: 'Scope', context: 'AbstractContext', constraint: 'Constraint') -> bool:

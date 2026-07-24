@@ -1,3 +1,10 @@
+"""Build modules, run lowering passes, and schedule configured analyses.
+
+The pipeline is the orchestration boundary used by PyFlow's public k-CFA
+bridge. It constructs the import graph, lowers reachable modules through the
+required IR and CFG passes, and dispatches analysis drivers in dependency order.
+"""
+
 from pyflow.analysis.alias.kcfa._pythonstan.ir import IRModule
 from pyflow.analysis.alias.kcfa._pythonstan.analysis import AnalysisConfig, AnalysisDriver
 from .namespace import Namespace
@@ -13,10 +20,17 @@ import logging
 logger = logging.getLogger(__name__)
 
 class Pipeline:
+    """Coordinate project discovery, lowering, and analysis execution."""
+
     config: Config
     analysis_manager: AnalysisManager
 
     def __init__(self, config=None, filename=None):
+        """Create a pipeline from a configuration mapping or config file.
+
+        Construction initializes the shared :class:`World` and builds the
+        module graph rooted at the configured entry file.
+        """
         if config is not None:
             self.config = Config.from_dict(config)
         elif filename is not None:
@@ -32,9 +46,15 @@ class Pipeline:
         self.build_scope_graph(self.config.filename)
 
     def get_world(self):
+        """Return the shared world populated by this pipeline."""
         return World()
 
     def build_scope_graph(self, entry_path: str):
+        """Discover modules and run prerequisite lowering passes.
+
+        Lazy mode lowers only the entry module. Otherwise imports are followed
+        transitively up to the configured import depth.
+        """
         entry_ns = World().namespace_manager.set_entry_module(entry_path, self.config.project_path)
         entry_mod = World().scope_manager.add_module(entry_ns, entry_path)
         World().entry_module = entry_mod
@@ -100,6 +120,7 @@ class Pipeline:
         World().scope_manager.set_module_graph(g)
 
     def analyse_intra_procedure(self, analyzer):
+        """Run ``analyzer`` independently on every reachable module."""
         module_graph = World().scope_manager.get_module_graph()
         q = Queue()
         for entry in module_graph.get_entries():
@@ -114,10 +135,12 @@ class Pipeline:
                     q.put(succ)
 
     def analyse_inter_procedure(self, analyzer: AnalysisDriver):
+        """Run an interprocedural analyzer from the entry module."""
         entry_mod = World().get_entry_module()
         self.analysis_manager.do_analysis(analyzer, entry_mod)
 
     def do_transform(self, analyzer):
+        """Apply a transform to modules in import-graph order."""
         module_graph = World().scope_manager.get_module_graph()
         q = Queue()
         for entry in module_graph.get_entries():
@@ -132,6 +155,7 @@ class Pipeline:
                     q.put(succ)
 
     def do_analysis(self, analyzer_generator: Generator[AnalysisDriver, None, None]):
+        """Dispatch configured drivers according to their analysis type."""
         for analyzer in analyzer_generator:
             if analyzer.config.type == "dataflow analysis":
                 if analyzer.config.inter_procedure:
@@ -149,5 +173,6 @@ class Pipeline:
                 self.analyse_inter_procedure(analyzer)
 
     def run(self):
+        """Execute configured analyses in dependency order."""
         analyzer_generator = self.analysis_manager.generator()
         self.do_analysis(analyzer_generator)

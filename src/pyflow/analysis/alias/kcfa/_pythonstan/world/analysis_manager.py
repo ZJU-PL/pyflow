@@ -1,3 +1,5 @@
+"""Register analysis drivers and schedule them by declared dependencies."""
+
 from typing import Dict, List, Any, Tuple, Literal, Generator
 from queue import Queue
 import time
@@ -45,6 +47,12 @@ DEFAULT_ANALYSIS = [
 
 
 class AnalysisManager:
+    """Own analysis drivers, dependency edges, results, and timing policy.
+
+    Mandatory lowering passes are installed before user-configured analyses.
+    Results are keyed by analysis name and supplied to dependent drivers.
+    """
+
     prev_analyzers: Dict[str, List[str]]
     next_analyzers: Dict[str, List[str]]
     analysis_configs: List[AnalysisConfig]
@@ -53,6 +61,7 @@ class AnalysisManager:
     time_count: bool
 
     def reset(self):
+        """Discard registered drivers, dependency edges, and cached results."""
         self.prev_analyzers = {}
         self.next_analyzers = {}
         self.analysis_configs = []
@@ -60,6 +69,7 @@ class AnalysisManager:
         self.results = {}
 
     def build(self, configs: List[AnalysisConfig]):
+        """Register default lowering passes followed by ``configs``."""
         self.reset()
         for config in DEFAULT_ANALYSIS:
             self.add_analyzer(config)
@@ -67,9 +77,11 @@ class AnalysisManager:
             self.add_analyzer(config)
     
     def set_time_count(self, time_count: bool):
+        """Enable or disable wall-clock reporting for analyses."""
         self.time_count = time_count
 
     def add_analyzer(self, config: AnalysisConfig):
+        """Instantiate and register one configured analysis driver."""
         name = config.name
         analyzer = self.gen_analyzer(config)
         self.analysis_configs.append(config)
@@ -81,6 +93,7 @@ class AnalysisManager:
             self.next_analyzers[prev_name].append(name)
 
     def gen_analyzer(self, config: AnalysisConfig) -> AnalysisDriver:
+        """Create the driver implementation selected by ``config.type``."""
         if config.type == "transform":
             analyzer = TransformDriver(config)
         elif config.type == "dataflow analysis":
@@ -96,6 +109,7 @@ class AnalysisManager:
         return analyzer
 
     def analysis(self, analyzer_name: str, module: IRModule):
+        """Run a named analysis on ``module``, optionally recording duration."""
         if self.time_count:
             start_time = time.perf_counter()
             
@@ -110,6 +124,7 @@ class AnalysisManager:
                 print(f"Analysis {analyzer_name} for module {module.get_qualname()} took {end_time - start_time:.2f} seconds")
 
     def do_analysis(self, analyzer: AnalysisDriver, module: IRModule):
+        """Run a driver with prerequisite results and cache its output."""
         prev_results = {}
         for anal_name in self.prev_analyzers[analyzer.config.name]:
             prev_results[anal_name] = self.results[anal_name]
@@ -117,6 +132,7 @@ class AnalysisManager:
         self.results[analyzer.config.name] = analyzer.results
 
     def generator(self) -> Generator[AnalysisDriver, None, None]:
+        """Yield configured non-default drivers in dependency order."""
         visited = {*()}
         queue = Queue()
         for name, _ in self.analyzers.items():
@@ -135,7 +151,9 @@ class AnalysisManager:
                     queue.put(succ)
 
     def get_analyzer(self, name):
+        """Return the registered driver named ``name``."""
         return self.analyzers[name]
 
     def get_results(self, name: str):
+        """Return the most recent result produced by analysis ``name``."""
         return self.results[name]

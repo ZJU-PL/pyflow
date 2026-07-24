@@ -1,3 +1,5 @@
+"""Resolve explicit and zero-argument ``super()`` objects."""
+
 from typing import TYPE_CHECKING, Any
 from .processor import Processor
 from ..points_to_set import PointsToSet
@@ -13,6 +15,13 @@ if TYPE_CHECKING:
 
 
 class SuperResolveProcessor(Processor):    
+    """Populate abstract ``super`` objects for MRO-based attribute lookup.
+
+    Explicit calls use their class and instance arguments.  Zero-argument
+    calls recover the defining class and receiver from the current method or
+    closure context.
+    """
+
     def handle_allocation(self, solver: 'PointerSolver', target: 'Ctx[Any]', scope: 'Scope', context: 'AbstractContext', c: AllocConstraint) -> bool:
         if c.alloc_site.kind != AllocKind.OBJECT:
             return False
@@ -128,4 +137,3 @@ class SuperResolveProcessor(Processor):
             if isinstance(constraint, SuperResolveConstraint):
                 return True
         return False
- 

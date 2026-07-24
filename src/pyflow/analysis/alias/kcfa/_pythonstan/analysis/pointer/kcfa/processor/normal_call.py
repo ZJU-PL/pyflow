@@ -1,3 +1,5 @@
+"""Resolve ordinary Python calls encountered by the pointer solver."""
+
 from abc import ABC, abstractmethod
 import ast
 import logging
@@ -40,6 +42,13 @@ __all__ = ["NormalCallProcessor"]
 
 
 class NormalCallProcessor(Processor):
+    """Dispatch calls according to the abstract kind of the callee.
+
+    Functions and bound methods receive argument-to-parameter flow; class calls
+    create instances; builtin calls delegate to builtin summaries; and callable
+    instances are resolved through their ``__call__`` attribute.
+    """
+
     def __init__(self) -> None:
         self._default_alloc_sites: Dict[Tuple[IRFunc, str, int, AllocKind], AllocSite] = {}
 

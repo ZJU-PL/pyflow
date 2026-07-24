@@ -1,8 +1,12 @@
+"""Abstract node, edge, and directed-graph interfaces."""
+
 from abc import ABC, abstractmethod
 from typing import Collection
 
 
 class Node(ABC):
+    """Interface required of nodes stored in analysis graphs."""
+
     @abstractmethod
     def get_idx(self) -> int:
         pass
@@ -13,6 +17,8 @@ class Node(ABC):
 
 
 class Edge(ABC):
+    """Interface for a directed edge with mutable endpoints."""
+
     @abstractmethod
     def set_src(self, node: Node):
         pass
@@ -35,6 +41,8 @@ class Edge(ABC):
 
 
 class Graph(ABC):
+    """Minimal directed-graph interface consumed by graph algorithms."""
+
     @abstractmethod
     def in_degree_of(self, node: Node) -> int:
         pass
@@ -78,4 +86,3 @@ class Graph(ABC):
     @abstractmethod
     def get_nodes(self) -> Collection[Node]:
         pass
-    

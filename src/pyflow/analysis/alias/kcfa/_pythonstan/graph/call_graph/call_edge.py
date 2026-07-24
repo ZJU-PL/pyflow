@@ -1,3 +1,5 @@
+"""Typed call-graph edges shared by pointer and call analyses."""
+
 from typing import Dict, Set, Optional, TypeVar, Generic, Tuple
 from enum import Enum
 
@@ -9,6 +11,8 @@ Method = TypeVar('Method')
 
 
 class CallKind(Enum):
+    """Kinds of callable targets represented in a call graph."""
+
     INSTANCE = 1
     STATIC = 2
     FUNCTION = 3
@@ -18,6 +22,8 @@ class CallKind(Enum):
 
 
 class CallEdge(Generic[CallSite, Method]):
+    """A hashable edge from a call site to one possible callee."""
+
     kind: CallKind
     callsite: CallSite
     callee: Method
@@ -28,12 +34,15 @@ class CallEdge(Generic[CallSite, Method]):
         self.callee = callee
 
     def get_kind(self) -> CallKind:
+        """Return the dispatch kind of this edge."""
         return self.kind
 
     def get_callsite(self) -> CallSite:
+        """Return the source call site."""
         return self.callsite
 
     def get_callee(self) -> Method:
+        """Return the possible target callable or scope."""
         return self.callee
 
     def __eq__(self, other):

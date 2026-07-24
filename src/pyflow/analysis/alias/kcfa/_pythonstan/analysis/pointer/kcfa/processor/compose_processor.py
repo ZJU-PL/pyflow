@@ -1,3 +1,5 @@
+"""Combine multiple semantic processors into one ordered dispatch chain."""
+
 from typing import List, TYPE_CHECKING, Any
 from .processor import Processor
 
@@ -10,9 +12,10 @@ if TYPE_CHECKING:
     
 
 class ComposeProcessor(Processor):
-    """
-    Compose multiple processors into one.
-    Each processor will be called in order until one of them returns True.
+    """Dispatch each solver event to the first processor that handles it.
+
+    Processor order is significant: once a hook returns ``True``, later
+    processors do not observe that event.
     """
     
     def __init__(self, processors: List[Processor]):

@@ -1,3 +1,10 @@
+"""Pointer-flow graph nodes, edges, and propagation operations.
+
+The graph records inclusion relationships between context-qualified variables.
+Special nodes filter flow for inheritance, descriptor, and MRO semantics before
+new points-to facts are placed on the solver worklist.
+"""
+
 from dataclasses import dataclass
 from typing import Dict, FrozenSet, Tuple, Set, Optional, Iterable, Any, TYPE_CHECKING, List, Callable
 from enum import Enum
@@ -30,6 +37,13 @@ class PointerFlowKind(Enum):
 
 @dataclass(frozen=True)
 class PointerFlowEdge:
+    """A directed, typed points-to flow between two graph nodes.
+
+    ``INHERIT`` edges rebind methods and class-owned objects to a subclass;
+    ``INSTANCE`` edges bind class members to an instance; normal edges preserve
+    the incoming points-to set unchanged.
+    """
+
     source: 'PointerFlowNode'
     target: 'PointerFlowNode'
     kind: PointerFlowKind
@@ -53,6 +67,8 @@ class PointerFlowEdge:
 
 
 class PointerFlowNode(ABC):
+    """Base class for nodes that may transform incoming points-to facts."""
+
     @abstractmethod
     def flow_through(self, edge: PointerFlowEdge, pts: 'PointsToSet') -> 'PointsToSet':
         pass
@@ -60,10 +76,7 @@ class PointerFlowNode(ABC):
 
 @dataclass(frozen=True)
 class NormalNode(PointerFlowNode):
-    """
-    Normal node in pointer flow graph, just make all objects flowed through.
-    var: Ctx[Any] - the variable of the node.
-    """
+    """A context-qualified variable node that accepts all incoming objects."""
     var: Ctx[Any]
     
     def __post_init__(self):
@@ -74,10 +87,7 @@ class NormalNode(PointerFlowNode):
     
 
 class GuardNode(PointerFlowNode):
-    """
-    Guardian node in pointer flow graph, only allow the objects that are allowed by the guard condition to be flowed through.
-    guard: Callable[[PointerFlowEdge, PointsToSet], PointsToSet] - the guard condition.
-    """
+    """Filter incoming objects with a caller-provided guard function."""
     
     def __init__(self, guard: 'Callable[[PointerFlowEdge, PointsToSet], PointsToSet]'):
         self.guard = guard
@@ -93,9 +103,11 @@ class GuardNode(PointerFlowNode):
     
 
 class SelectorNode(PointerFlowNode):
-    """Selector node in pointer flow graph, only the edge with the least index will be flowed through.
-    edges: Dict[PointerFlowEdge, int] - the edges and their indices.
-    least_index: int - the least index of the edges.
+    """Select the first non-empty incoming edge according to MRO priority.
+
+    Each incoming edge is assigned an index.  Facts from the smallest active
+    index flow through, preventing a lower-priority base class from overriding
+    an earlier MRO match.
     """
     edges: Dict[PointerFlowEdge, int]
     least_index: int
@@ -143,7 +155,11 @@ class SelectorNode(PointerFlowNode):
 
 
 class PointerFlowGraph:
-    """Represents pointer flow graph in context-sensitive pointer analysis.
+    """Store and evaluate points-to inclusion edges.
+
+    The graph owns no points-to sets itself.  :meth:`propagate` transforms a
+    delta along outgoing edges and returns the target/delta pairs that the
+    solver should enqueue.
     """
     # TODO maybe object can be grouped by age, and too old objects should not be propagated.
     
@@ -169,6 +185,7 @@ class PointerFlowGraph:
         self._edge_object_flow: Dict[PointerFlowEdge, int] = {}
     
     def propagate(self, node: PointerFlowNode, pts: 'PointsToSet') -> 'List[Tuple[PointerFlowNode, PointsToSet]]':
+        """Propagate a points-to delta through every live outgoing edge."""
         assert isinstance(node, PointerFlowNode), f"node must be a PFNode, but got {type(node)}"
         result = []
         for succ_edge in self.succs.get(node, frozenset()):
@@ -193,6 +210,7 @@ class PointerFlowGraph:
         return result
 
     def add_edge(self, edge: PointerFlowEdge) -> bool:
+        """Add ``edge`` and return whether it was new to the graph."""
         if edge not in self.edges:
             self.succs.setdefault(edge.source, {*()}).add(edge)
             self.preds.setdefault(edge.target, {*()}).add(edge)
@@ -204,18 +222,23 @@ class PointerFlowGraph:
             return False
     
     def flow_through_edge(self, edge: PointerFlowEdge, pts: 'PointsToSet') -> 'PointsToSet':
+        """Apply both edge-level and target-node flow transformations."""
         return edge.target.flow_through(edge, edge.flow_through(pts))
 
     def get_succs(self, var: PointerFlowNode) -> Set[PointerFlowEdge]:
+        """Return outgoing edges for ``var``."""
         return self.succs.get(var, {*()})
     
     def get_preds(self, var: PointerFlowNode) -> Set[PointerFlowEdge]:
+        """Return incoming edges for ``var``."""
         return self.preds.get(var, {*()})
     
     def get_nodes(self) -> Set[PointerFlowNode]:
+        """Return all nodes currently present in the graph."""
         return self.nodes
     
     def get_edges(self) -> Set[PointerFlowEdge]:
+        """Return all edges currently present in the graph."""
         return self.edges
     
     def get_edge_statistics(self) -> Dict[str, Any]:

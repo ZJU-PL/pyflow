@@ -1,3 +1,10 @@
+"""Extension processors used by the k-CFA constraint solver.
+
+Processors isolate Python-specific semantics that do not fit the solver's
+generic allocation and propagation rules, including containers, calls,
+``super()``, generators, and attribute descriptors.
+"""
+
 from .processor import Processor
 from .compose_processor import ComposeProcessor
 from .container import ContainerProcessor

@@ -1,3 +1,5 @@
+"""Manage lowered lexical scopes and the project's module import graph."""
+
 import ast
 import os
 from typing import Set, List, Dict, Tuple, Any, Optional, FrozenSet
@@ -8,6 +10,8 @@ from pyflow.analysis.alias.kcfa._pythonstan.utils.persistent_rb_tree import Pers
 
 
 class ModuleGraph:
+    """Directed graph of modules connected by concrete import statements."""
+
     preds: Dict[IRModule, List[IRModule]]
     succs: Dict[IRModule, List[IRModule]]
     succ_module_index: Dict[Tuple[IRModule, IRImport], IRModule]
@@ -20,6 +24,7 @@ class ModuleGraph:
         self.succ_module_index = {}
 
     def add_edge(self, src: IRModule, stmt, tgt: IRModule):
+        """Record that import ``stmt`` in ``src`` resolves to ``tgt``."""
         if src not in self.preds:
             self.preds[src] = []
             self.succs[src] = []
@@ -33,6 +38,7 @@ class ModuleGraph:
         self.succ_module_index[(src, stmt)] = tgt
 
     def add_node(self, node: IRModule):
+        """Add an isolated module node."""
         self.nodes.add(node)
         self.preds[node] = []
         self.succs[node] = []
@@ -44,16 +50,25 @@ class ModuleGraph:
         return self.succs[node]
 
     def get_entries(self):
+        """Return modules with no incoming import edges."""
         return [u for u in self.nodes if len(self.preds[u]) == 0]
 
     def get_modules(self) -> FrozenSet[IRModule]:
+        """Return an immutable snapshot of all registered modules."""
         return frozenset(self.nodes)
     
     def get_succ_module(self, src: IRModule, stmt: IRImport) -> Optional[IRModule]:
+        """Return the module resolved for ``stmt`` in ``src``, if known."""
         return self.succ_module_index.get((src, stmt), None)
 
 
 class ScopeManager:
+    """Index modules, classes, functions, and per-scope analysis artifacts.
+
+    Derived representations such as imports, CFGs, and closure information are
+    stored by scope and format name for reuse by later analysis passes.
+    """
+
     module_graph: ModuleGraph
     scopes: Set[IRScope]
     subscope_idx: Dict[Tuple[IRScope, str], IRScope]
@@ -64,6 +79,7 @@ class ScopeManager:
     file2mod: Dict[str, IRModule]
 
     def build(self):
+        """Initialize empty scope and artifact indexes."""
         self.scopes = {*()}
         self.subscope_idx = {}
         self.subscopes = {}
@@ -79,15 +95,18 @@ class ScopeManager:
         self.module_graph = graph
 
     def set_ir(self, scope: IRScope, fmt: str, ir: Any):
+        """Associate a derived artifact named ``fmt`` with ``scope``."""
         self.scope_ir[(scope.qualname, fmt)] = ir
 
     def get_ir(self, scope: IRScope, fmt: str) -> Any:
+        """Return a previously stored artifact, or ``None``."""
         return self.scope_ir.get((scope.qualname, fmt), None)
 
     def check_analysis_done(self, scope: IRScope, analysis_name: str) -> bool:
         return (scope, analysis_name) in self.scope_ir
 
     def add_func(self, scope: IRScope, func: IRFunc):
+        """Register ``func`` as a lexical child of ``scope``."""
         self.names2scope[func.get_qualname()] = func
         self.scopes.add(func)
         self.father[func] = scope
@@ -98,6 +117,7 @@ class ScopeManager:
             self.subscopes[scope] = [func]
 
     def add_class(self, scope: IRScope, cls: IRClass):
+        """Register ``cls`` as a lexical child of ``scope``."""
         self.names2scope[cls.get_qualname()] = cls
         self.scopes.add(cls)
         self.father[cls] = scope
@@ -108,6 +128,7 @@ class ScopeManager:
             self.subscopes[scope] = [cls]
 
     def add_module(self, ns: Namespace, filename: str) -> Optional[IRModule]:
+        """Parse and register a source module, returning ``None`` if absent."""
         if filename in self.file2mod or ns.to_str() in self.names2scope:
             return self.file2mod[filename]        
         if not os.path.isfile(filename):

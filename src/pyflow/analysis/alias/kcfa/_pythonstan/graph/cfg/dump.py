@@ -1,9 +1,12 @@
+"""Flatten reachable CFG blocks into breadth-first statement order."""
+
 import ast
 from queue import Queue
 
 from . import ControlFlowGraph, BaseBlock
 
 def dump(cfg: ControlFlowGraph):
+    """Return statements from blocks reachable from ``cfg``'s entry."""
     entry = cfg.get_entry()
     stmts = []
     visited = {*()}

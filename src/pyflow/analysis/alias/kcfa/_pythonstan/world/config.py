@@ -1,3 +1,5 @@
+"""Configuration loading and analysis dependency ordering for the pipeline."""
+
 from typing import Set, Dict, List
 from queue import Queue
 import json as _json
@@ -14,6 +16,12 @@ __all__ = ["Config"]
 
 
 class Config:
+    """Describe project discovery and the analyses a pipeline should run.
+
+    Configurations may be constructed from dictionaries or JSON/YAML files.
+    Analysis dependencies are topologically ordered before execution.
+    """
+
     filename: str
     project_path: str
     library_paths: List[str]
@@ -44,6 +52,7 @@ class Config:
         
     @classmethod
     def from_dict(cls, info: Dict):
+        """Build a configuration from a decoded mapping."""
         lazy_ir = info.get('lazy_ir_construction', False)
         mock_libs = info.get('mock_libs', True)
         prefer_mock_libs = info.get('prefer_mock_libs', False)
@@ -68,6 +77,7 @@ class Config:
 
     @classmethod
     def from_file(cls, filename):
+        """Load a configuration from JSON or, when available, YAML."""
         with open(filename, 'r') as f:
             if filename.endswith('.json'):
                 info = _json.load(f)
@@ -78,6 +88,7 @@ class Config:
         return cls.from_dict(info)
 
     def add_analysis(self, cfg: AnalysisConfig):
+        """Register an analysis and its prerequisite dependency edges."""
         self.analysis[cfg.name] = cfg
         self.succ_analysis[cfg.name] = {*()}
         for prev_name in cfg.prev_analysis:
@@ -86,8 +97,10 @@ class Config:
             self.succ_analysis[prev_name].add(cfg.name)
 
     def add_library_path(self, path: str):
+        """Append a directory searched during import resolution."""
         self.library_paths.append(path)
 
     def get_analysis_list(self):
+        """Return configured analyses in dependency-respecting order."""
         analysis_id_list = topo_sort(self.succ_analysis)
         return [self.analysis[anal_id] for anal_id in analysis_id_list if anal_id in self.analysis]

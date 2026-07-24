@@ -1,3 +1,5 @@
+"""Combine per-scope CFGs with call and return edges."""
+
 from typing import List, Set, Dict
 
 from ..cfg import ControlFlowGraph, BaseBlock, NormalEdge, CallEdge, ReturnEdge
@@ -7,6 +9,13 @@ __all__ = ["InterControlFlowGraph"]
 
 
 class InterControlFlowGraph(ControlFlowGraph):
+    """Whole-program CFG indexed by scopes and call sites.
+
+    Per-scope CFGs retain their original blocks. Call edges connect call sites
+    to callee entries, while return edges reconnect callee exits to each caller's
+    intraprocedural return sites.
+    """
+
     super_entry_blk: BaseBlock
     entry_scopes: Set[IRScope]
     scope2cfg: Dict[IRScope, ControlFlowGraph]
@@ -27,6 +36,7 @@ class InterControlFlowGraph(ControlFlowGraph):
         self.blk2scope = {}
 
     def add_entry_scope(self, scope: IRScope):
+        """Connect ``scope`` to the synthetic whole-program entry block."""
         assert scope in self.scope2cfg, f"Scope {scope} not in current icfg!"
         self.entry_scopes.add(scope)
         scope_cfg = self.get_cfg(scope)
@@ -34,6 +44,7 @@ class InterControlFlowGraph(ControlFlowGraph):
         self.add_edge(entry_edge)
 
     def add_scope(self, scope: IRScope, cfg: ControlFlowGraph):
+        """Merge a scope's CFG and index ownership of all its blocks."""
         self.scope2cfg[scope] = cfg
 
         self.in_edges |= cfg.in_edges
@@ -46,6 +57,7 @@ class InterControlFlowGraph(ControlFlowGraph):
             self.blk2scope[blk] = scope
 
     def add_invoke(self, call_site: BaseBlock, callee: IRScope):
+        """Connect ``call_site`` to ``callee`` and its matching return sites."""
         self.call_sites.add(call_site)
         if call_site not in self.callees:
             self.callees[call_site] = {*()}

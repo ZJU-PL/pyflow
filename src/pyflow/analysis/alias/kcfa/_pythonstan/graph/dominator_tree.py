@@ -1,9 +1,17 @@
+"""Compute dominators and dominance frontiers for directed graphs."""
+
 from typing import Dict, List, Collection, Set
 
 from .graph import Graph, Node
 
 
 class DominatorTree:
+    """Lengauer-Tarjan dominator tree with dominance-frontier queries.
+
+    Set ``is_post`` to reverse traversal and compute post-dominators from the
+    graph exit instead of dominators from its entry.
+    """
+
     graph: Graph
     is_post: bool
     dfn: Dict[Node, int]
@@ -120,7 +128,9 @@ class DominatorTree:
                         runner = self.idom[runner]
 
     def intermediate_dominator(self, u: Node) -> Node:
+        """Return the immediate dominator (or post-dominator) of ``u``."""
         return self.idom[u]
 
     def dominance_frontier(self, u: Node) -> Collection[Node]:
+        """Return the dominance frontier of ``u``."""
         return self.df[u]

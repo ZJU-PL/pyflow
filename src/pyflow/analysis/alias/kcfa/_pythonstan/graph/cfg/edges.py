@@ -1,3 +1,5 @@
+"""Typed control-flow edges for branches, calls, and structured statements."""
+
 import ast
 from abc import ABC, abstractmethod
 from typing import Set
@@ -15,6 +17,8 @@ __all__ = ["CFGEdge", "NormalEdge", "IfEdge",
 
 
 class CFGEdge(Edge):
+    """Base directed edge between two CFG basic blocks."""
+
     src: BaseBlock
     tgt: BaseBlock
 
@@ -42,11 +46,15 @@ class CFGEdge(Edge):
 
 
 class NormalEdge(CFGEdge):
+    """Unconditional intraprocedural control-flow edge."""
+
     def __init__(self, src, tgt):
         super().__init__(src, tgt)
 
 
 class IfEdge(CFGEdge):
+    """Conditional branch annotated with its test variable and truth value."""
+
     test: str
     value: bool
 
@@ -61,6 +69,8 @@ class IfEdge(CFGEdge):
 
 
 class CallEdge(CFGEdge):
+    """Interprocedural edge from a call site to a callee entry."""
+
     scope: IRScope
 
     def __init__(self, src, tgt, scope: IRScope):
@@ -72,6 +82,8 @@ class CallEdge(CFGEdge):
 
 
 class ReturnEdge(CFGEdge):
+    """Interprocedural edge from a callee exit to a return site."""
+
     call_site: BaseBlock
     ret_vars: Set[ast.Expr]
 
