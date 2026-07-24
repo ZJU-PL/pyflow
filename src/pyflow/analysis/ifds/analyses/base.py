@@ -148,7 +148,9 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
         return self._annotation_locations(refs)
 
     @abstractmethod
-    def _make_location_fact(self, location: object) -> FactT:
+    def _make_location_fact(
+        self, location: object, template_fact: FactT | None = None
+    ) -> FactT:
         raise NotImplementedError
 
     @abstractmethod
@@ -157,6 +159,7 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
         procedure: cfg_graph.Code,
         expression: py_ast.PythonASTNode,
         result_index: int = 0,
+        template_fact: FactT | None = None,
     ) -> FactT:
         raise NotImplementedError
 
@@ -173,9 +176,12 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
         return HeapAbstraction.access_path_prefix_matches(stored, query)
 
     def _make_location_fact_with_path(
-        self, location: object, access_path: tuple[str, ...]
+        self,
+        location: object,
+        access_path: tuple[str, ...],
+        template_fact: FactT | None = None,
     ) -> FactT:
-        return self._make_location_fact(location)
+        return self._make_location_fact(location, template_fact)
 
     @abstractmethod
     def _expression_fact_result(
@@ -500,21 +506,10 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
         return result
 
     def _facts_for_locals(
-        self, procedure: cfg_graph.Code, locals_: Iterable[object]
-    ) -> set[FactT]:
-        facts: set[FactT] = set()
-        for local in locals_:
-            if not isinstance(local, py_ast.Local) or local.name is None:
-                continue
-            locations = self._locations_for_local(procedure, local)
-            facts.update(self._make_location_fact(location) for location in locations)
-        return facts
-
-    def _facts_for_locals_with_path(
         self,
         procedure: cfg_graph.Code,
         locals_: Iterable[object],
-        access_path: tuple[str, ...],
+        template_fact: FactT | None = None,
     ) -> set[FactT]:
         facts: set[FactT] = set()
         for local in locals_:
@@ -522,7 +517,25 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
                 continue
             locations = self._locations_for_local(procedure, local)
             facts.update(
-                self._make_location_fact_with_path(location, access_path)
+                self._make_location_fact(location, template_fact)
+                for location in locations
+            )
+        return facts
+
+    def _facts_for_locals_with_path(
+        self,
+        procedure: cfg_graph.Code,
+        locals_: Iterable[object],
+        access_path: tuple[str, ...],
+        template_fact: FactT | None = None,
+    ) -> set[FactT]:
+        facts: set[FactT] = set()
+        for local in locals_:
+            if not isinstance(local, py_ast.Local) or local.name is None:
+                continue
+            locations = self._locations_for_local(procedure, local)
+            facts.update(
+                self._make_location_fact_with_path(location, access_path, template_fact)
                 for location in locations
             )
         return facts
@@ -541,26 +554,33 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
         procedure: cfg_graph.Code,
         locals_: Sequence[object],
         result_index: int,
+        template_fact: FactT | None = None,
     ) -> set[FactT]:
         if result_index >= len(locals_):
             return set()
-        return self._facts_for_locals(procedure, (locals_[result_index],))
+        return self._facts_for_locals(
+            procedure, (locals_[result_index],), template_fact
+        )
 
     def _facts_for_return_location(
         self,
         procedure: cfg_graph.Code,
         index: int,
         access_path: tuple[str, ...] = (),
+        template_fact: FactT | None = None,
     ) -> set[FactT]:
         returnparams = tuple(procedure.code.codeparameters.returnparams)
         if index >= len(returnparams):
             return set()
         if not access_path:
-            return self._facts_for_locals(procedure, (returnparams[index],))
+            return self._facts_for_locals(
+                procedure, (returnparams[index],), template_fact
+            )
         return self._facts_for_locals_with_path(
             procedure,
             (returnparams[index],),
             access_path,
+            template_fact,
         )
 
     def _facts_for_expression_node(
@@ -568,6 +588,7 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
         procedure: cfg_graph.Code,
         current: object,
         extend_paths: bool = False,
+        template_fact: FactT | None = None,
     ) -> tuple[FactT, ...]:
         if current is None or isinstance(current, py_ast.leafTypes):
             return ()
@@ -577,18 +598,20 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
                 procedure,
                 current.expr,
                 extend_paths=True,
+                template_fact=template_fact,
             )
             return tuple(
                 self._make_location_fact_with_path(
                     self._location_from_fact(f),
                     (*self._access_path_from_fact(f), attr),
+                    template_fact,
                 )
                 for f in base
                 if self._location_from_fact(f) is not None
             )
         if isinstance(current, (py_ast.DirectCall, py_ast.Call, py_ast.MethodCall)):
             dynamic_facts = tuple(
-                self._make_location_fact(location)
+                self._make_location_fact(location, template_fact)
                 for location in (
                     *self._dynamic_getattr_locations(procedure, current),
                     *self._dynamic_subscript_read_locations(procedure, current),
@@ -599,9 +622,14 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
                     ),
                 )
             )
-            return (*dynamic_facts, self._make_expression_fact(procedure, current))
+            return (
+                *dynamic_facts,
+                self._make_expression_fact(
+                    procedure, current, template_fact=template_fact
+                ),
+            )
         return tuple(
-            self._make_location_fact(location)
+            self._make_location_fact(location, template_fact)
             for location in self._locations_read_by_node(procedure, current)
         )
 
@@ -613,6 +641,7 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
         return_index: int,
         *,
         nested: bool,
+        template_fact: FactT | None = None,
     ) -> set[FactT]:
         if operation is None or call_expression is None:
             return set()
@@ -629,7 +658,12 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
         ):
             if not nested:
                 facts = {
-                    self._make_expression_fact(procedure, call_expression, return_index)
+                    self._make_expression_fact(
+                        procedure,
+                        call_expression,
+                        return_index,
+                        template_fact,
+                    )
                 }
                 if self._heap().policy.bind_call_results:
                     facts.update(
@@ -637,6 +671,7 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
                             procedure,
                             assigned_locals(operation),
                             return_index,
+                            template_fact,
                         )
                     )
                 return facts
@@ -644,6 +679,7 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
                 procedure,
                 assigned_locals(operation),
                 return_index,
+                template_fact,
             )
         if (
             isinstance(operation, py_ast.AnnAssign)
@@ -651,7 +687,12 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
         ):
             if not nested:
                 facts = {
-                    self._make_expression_fact(procedure, call_expression, return_index)
+                    self._make_expression_fact(
+                        procedure,
+                        call_expression,
+                        return_index,
+                        template_fact,
+                    )
                 }
                 if self._heap().policy.bind_call_results:
                     facts.update(
@@ -659,6 +700,7 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
                             procedure,
                             assigned_locals(operation),
                             return_index,
+                            template_fact,
                         )
                     )
                 return facts
@@ -666,18 +708,26 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
                 procedure,
                 assigned_locals(operation),
                 return_index,
+                template_fact,
             )
 
         if isinstance(operation, py_ast.Return):
             if not nested:
                 return {
-                    self._make_expression_fact(procedure, call_expression, return_index)
+                    self._make_expression_fact(
+                        procedure,
+                        call_expression,
+                        return_index,
+                        template_fact,
+                    )
                 }
             target_index = self._call_result_target_index(
                 operation, call_expression, return_index
             )
             if target_index is not None:
-                return self._facts_for_return_location(procedure, target_index)
+                return self._facts_for_return_location(
+                    procedure, target_index, template_fact=template_fact
+                )
 
         if (
             isinstance(
@@ -695,9 +745,18 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
         ):
             if not nested:
                 return {
-                    self._make_expression_fact(procedure, call_expression, return_index)
+                    self._make_expression_fact(
+                        procedure,
+                        call_expression,
+                        return_index,
+                        template_fact,
+                    )
                 }
-            return self._facts_for_modified_operation(operation, procedure=procedure)
+            return self._facts_for_modified_operation(
+                operation,
+                procedure=procedure,
+                template_fact=template_fact,
+            )
 
         for child in self._nested_operations(operation):
             child_result = self._facts_for_nested_call_result(
@@ -706,11 +765,16 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
                 call_expression,
                 return_index,
                 nested=True,
+                template_fact=template_fact,
             )
             if child_result:
                 return child_result
 
-        return {self._make_expression_fact(procedure, call_expression, return_index)}
+        return {
+            self._make_expression_fact(
+                procedure, call_expression, return_index, template_fact
+            )
+        }
 
     def _materialize_call_result_location(
         self,
@@ -981,6 +1045,7 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
         access_path: tuple[str, ...] = (),
         *,
         procedure: cfg_graph.Code | None = None,
+        template_fact: FactT | None = None,
     ) -> set[FactT]:
         locations = tuple(
             dict.fromkeys(
@@ -995,9 +1060,12 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
             )
         )
         if not access_path:
-            return {self._make_location_fact(location) for location in locations}
+            return {
+                self._make_location_fact(location, template_fact)
+                for location in locations
+            }
         return {
-            self._make_location_fact_with_path(location, access_path)
+            self._make_location_fact_with_path(location, access_path, template_fact)
             for location in locations
         }
 

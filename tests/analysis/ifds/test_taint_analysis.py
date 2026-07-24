@@ -13,9 +13,44 @@ from pyflow.analysis.ifds import (
     analyze_taint,
     build_supergraph_from_cfgs,
 )
+from pyflow.analysis.ifds.modeling.calls import CallModel, CallModelRegistry
+from pyflow.analysis.ifds.modeling.taint import TaintRule
 from pyflow.language.python import ast
 
 from tests.analysis.ifds._support import build_cfg, call_stmt, make_code
+
+
+def _config(
+    *,
+    source_names=frozenset(),
+    sink_names=frozenset(),
+    sanitizer_names=frozenset(),
+    **options,
+):
+    models = [
+        *(
+            CallModel(name, source_kinds=frozenset({"test.source"}))
+            for name in source_names
+        ),
+        *(CallModel(name, sink_kinds=frozenset({"test.sink"})) for name in sink_names),
+        *(
+            CallModel(name, sanitizer_kinds=frozenset({"*"}))
+            for name in sanitizer_names
+        ),
+    ]
+    rules = (
+        TaintRule(
+            "TEST-TAINT",
+            "Test taint flow",
+            frozenset({"test.source"}),
+            frozenset({"test.sink"}),
+        ),
+    )
+    return TaintConfiguration(
+        call_models=CallModelRegistry(models),
+        rules=rules,
+        **options,
+    )
 
 
 def test_interprocedural_taint_analysis_reports_only_unsanitized_sink_flow():
@@ -66,7 +101,7 @@ def test_interprocedural_taint_analysis_reports_only_unsanitized_sink_flow():
     adapter = build_supergraph_from_cfgs(cfgs)
     result = analyze_taint(
         adapter,
-        TaintConfiguration(
+        _config(
             source_names=frozenset({"source"}),
             sink_names=frozenset({"sink"}),
             sanitizer_names=frozenset({"sanitize"}),
@@ -78,6 +113,203 @@ def test_interprocedural_taint_analysis_reports_only_unsanitized_sink_flow():
     finding = result.findings[0]
     assert finding.sink_name == "sink"
     assert [local.name for local in finding.tainted_arguments] == ["b"]
+
+
+def test_typed_rules_only_report_matching_source_sink_kinds():
+    compiler = context.CompilerContext(None)
+    source_code, _ = make_code("source", [], [], return_name="source_ret")
+    sink_value = ast.Local("value")
+    sink_code, _ = make_code("sink", [sink_value], [], return_name="sink_ret")
+    value = ast.Local("value")
+    main_code, _ = make_code(
+        "main",
+        [],
+        [
+            call_stmt(source_code, [], [value]),
+            call_stmt(sink_code, [value]),
+            ast.Return([]),
+        ],
+        return_name="main_ret",
+    )
+    cfgs = [build_cfg(compiler, code) for code in (main_code, source_code, sink_code)]
+    adapter = build_supergraph_from_cfgs(cfgs)
+    models = CallModelRegistry(
+        [
+            CallModel("source", source_kinds=frozenset({"network"})),
+            CallModel("sink", sink_kinds=frozenset({"sql"})),
+        ]
+    )
+
+    result = analyze_taint(
+        adapter,
+        TaintConfiguration(
+            call_models=models,
+            rules=(
+                TaintRule(
+                    "NO-MATCH",
+                    "Only HTTP input is dangerous",
+                    frozenset({"http"}),
+                    frozenset({"sql"}),
+                ),
+            ),
+        ),
+        entry_nodes=[adapter.supergraph.entry_of(cfgs[0])],
+    )
+    assert result.findings == ()
+
+
+def test_typed_rules_record_matched_kinds_and_rule():
+    compiler = context.CompilerContext(None)
+    source_code, _ = make_code("source", [], [], return_name="source_ret")
+    sink_value = ast.Local("value")
+    sink_code, _ = make_code("sink", [sink_value], [], return_name="sink_ret")
+    value = ast.Local("value")
+    main_code, _ = make_code(
+        "main",
+        [],
+        [call_stmt(source_code, [], [value]), call_stmt(sink_code, [value])],
+        return_name="main_ret",
+    )
+    cfgs = [build_cfg(compiler, code) for code in (main_code, source_code, sink_code)]
+    adapter = build_supergraph_from_cfgs(cfgs)
+    rule = TaintRule(
+        "SQL-001",
+        "SQL injection",
+        frozenset({"http"}),
+        frozenset({"sql"}),
+        severity="high",
+        cwe="CWE-89",
+    )
+    result = analyze_taint(
+        adapter,
+        TaintConfiguration(
+            call_models=CallModelRegistry(
+                [
+                    CallModel("source", source_kinds=frozenset({"http"})),
+                    CallModel("sink", sink_kinds=frozenset({"sql"})),
+                ]
+            ),
+            rules=(rule,),
+        ),
+        entry_nodes=[adapter.supergraph.entry_of(cfgs[0])],
+    )
+    assert len(result.findings) == 1
+    finding = result.findings[0]
+    assert finding.rule == rule
+    assert finding.source_kind == "http"
+    assert finding.sink_kind == "sql"
+
+
+def test_typed_sink_ports_ignore_taint_on_unmodeled_arguments():
+    compiler = context.CompilerContext(None)
+    source_code, _ = make_code("source", [], [], return_name="source_ret")
+    first = ast.Local("first")
+    second = ast.Local("second")
+    sink_code, _ = make_code("sink", [first, second], [], return_name="sink_ret")
+    tainted = ast.Local("tainted")
+    clean = ast.Local("clean")
+    main_code, _ = make_code(
+        "main",
+        [],
+        [
+            call_stmt(source_code, [], [tainted]),
+            ast.Assign(ast.Existing(ast.program.Object(0)), [clean]),
+            call_stmt(sink_code, [clean, tainted]),
+        ],
+        return_name="main_ret",
+    )
+    cfgs = [build_cfg(compiler, code) for code in (main_code, source_code, sink_code)]
+    adapter = build_supergraph_from_cfgs(cfgs)
+    result = analyze_taint(
+        adapter,
+        TaintConfiguration(
+            call_models=CallModelRegistry(
+                [
+                    CallModel("source", source_kinds=frozenset({"http"})),
+                    CallModel(
+                        "sink",
+                        sink_kinds=frozenset({"sql"}),
+                        sink_arg_positions=frozenset({0}),
+                    ),
+                ]
+            ),
+            rules=(
+                TaintRule(
+                    "SQL-001",
+                    "SQL injection",
+                    frozenset({"http"}),
+                    frozenset({"sql"}),
+                ),
+            ),
+        ),
+        entry_nodes=[adapter.supergraph.entry_of(cfgs[0])],
+    )
+    assert result.findings == ()
+
+
+def test_kind_scoped_sanitizer_preserves_other_taint_kinds():
+    compiler = context.CompilerContext(None)
+    http_source, _ = make_code("http_source", [], [], return_name="http_ret")
+    secret_source, _ = make_code("secret_source", [], [], return_name="secret_ret")
+    parameter = ast.Local("value")
+    sanitizer, _ = make_code(
+        "sanitize_http", [parameter], [ast.Return([parameter])], return_name="san_ret"
+    )
+    sink_parameter = ast.Local("value")
+    sink, _ = make_code("sink", [sink_parameter], [], return_name="sink_ret")
+    http_value = ast.Local("http_value")
+    safe_http = ast.Local("safe_http")
+    secret_value = ast.Local("secret_value")
+    preserved_secret = ast.Local("preserved_secret")
+    main, _ = make_code(
+        "main",
+        [],
+        [
+            call_stmt(http_source, [], [http_value]),
+            call_stmt(sanitizer, [http_value], [safe_http]),
+            call_stmt(sink, [safe_http]),
+            call_stmt(secret_source, [], [secret_value]),
+            call_stmt(sanitizer, [secret_value], [preserved_secret]),
+            call_stmt(sink, [preserved_secret]),
+        ],
+        return_name="main_ret",
+    )
+    cfgs = [
+        build_cfg(compiler, code)
+        for code in (main, http_source, secret_source, sanitizer, sink)
+    ]
+    adapter = build_supergraph_from_cfgs(cfgs)
+    result = analyze_taint(
+        adapter,
+        TaintConfiguration(
+            call_models=CallModelRegistry(
+                [
+                    CallModel("http_source", source_kinds=frozenset({"http"})),
+                    CallModel("secret_source", source_kinds=frozenset({"secret"})),
+                    CallModel("sanitize_http", sanitizer_kinds=frozenset({"http"})),
+                    CallModel("sink", sink_kinds=frozenset({"sql"})),
+                ]
+            ),
+            rules=(
+                TaintRule(
+                    "SQL-HTTP",
+                    "HTTP to SQL",
+                    frozenset({"http"}),
+                    frozenset({"sql"}),
+                ),
+                TaintRule(
+                    "SQL-SECRET",
+                    "Secret to SQL",
+                    frozenset({"secret"}),
+                    frozenset({"sql"}),
+                ),
+            ),
+        ),
+        entry_nodes=[adapter.supergraph.entry_of(cfgs[0])],
+    )
+    assert [
+        (finding.rule.rule_id, finding.source_kind) for finding in result.findings
+    ] == [("SQL-SECRET", "secret")]
 
 
 def test_interprocedural_taint_materializes_source_call_result_root():
@@ -106,7 +338,7 @@ def test_interprocedural_taint_materializes_source_call_result_root():
     adapter = build_supergraph_from_cfgs(cfgs)
     result = analyze_taint(
         adapter,
-        TaintConfiguration(
+        _config(
             source_names=frozenset({"source"}),
             sink_names=frozenset({"sink"}),
         ),
@@ -184,7 +416,7 @@ def test_constructor_self_field_write_projects_to_call_result_object():
     adapter = build_supergraph_from_cfgs(cfgs)
     result = analyze_taint(
         adapter,
-        TaintConfiguration(
+        _config(
             source_names=frozenset({"source"}),
             sink_names=frozenset({"sink"}),
         ),
@@ -219,13 +451,16 @@ def test_interprocedural_taint_rejects_non_annotated_cfgs():
         return_name="main_ret",
     )
 
-    cfgs = [transform.evaluate(compiler, code) for code in (main_code, source_code, sink_code)]
+    cfgs = [
+        transform.evaluate(compiler, code)
+        for code in (main_code, source_code, sink_code)
+    ]
     adapter = build_supergraph_from_cfgs(cfgs)
 
     with pytest.raises(TemporaryLimitation, match="annotation-complete programs"):
         analyze_taint(
             adapter,
-            TaintConfiguration(
+            _config(
                 source_names=frozenset({"source"}),
                 sink_names=frozenset({"sink"}),
             ),
@@ -257,7 +492,7 @@ def test_interprocedural_taint_requires_explicit_entry_nodes():
     with pytest.raises(ValueError, match="explicit entry_nodes"):
         analyze_taint(
             adapter,
-            TaintConfiguration(
+            _config(
                 source_names=frozenset({"source"}),
                 sink_names=frozenset({"sink"}),
             ),
@@ -280,7 +515,10 @@ def test_interprocedural_taint_handles_return_calls():
 
     choose_call = ast.Call(
         ast.Local("choose"),
-        [ast.Call(ast.Local("source"), [], [], None, None), ast.Existing(ast.program.Object(0))],
+        [
+            ast.Call(ast.Local("source"), [], [], None, None),
+            ast.Existing(ast.program.Object(0)),
+        ],
         [],
         None,
         None,
@@ -317,7 +555,7 @@ def test_interprocedural_taint_handles_return_calls():
     adapter = build_supergraph_from_cfgs(cfgs)
     result = analyze_taint(
         adapter,
-        TaintConfiguration(
+        _config(
             source_names=frozenset({"source"}),
             sink_names=frozenset({"sink"}),
         ),
@@ -341,7 +579,9 @@ def test_taint_conservatively_models_unresolved_call_side_effects_when_enabled()
         "main",
         [],
         [
-            ast.Assign(ast.DirectCall(source_code, None, [], [], None, None), [tainted]),
+            ast.Assign(
+                ast.DirectCall(source_code, None, [], [], None, None), [tainted]
+            ),
             ast.Assign(ast.Existing(ast.program.Object(0)), [target]),
             ast.Discard(
                 ast.Call(
@@ -366,7 +606,7 @@ def test_taint_conservatively_models_unresolved_call_side_effects_when_enabled()
     adapter = build_supergraph_from_cfgs(cfgs)
     result = analyze_taint(
         adapter,
-        TaintConfiguration(
+        _config(
             source_names=frozenset({"source"}),
             sink_names=frozenset({"sink"}),
             conservative_unresolved_call_side_effects=True,
@@ -410,7 +650,9 @@ def test_interprocedural_taint_flows_through_if_branch_merge():
                     ]
                 ),
             ),
-            ast.Discard(ast.DirectCall(sink_code, None, [branch_value], [], None, None)),
+            ast.Discard(
+                ast.DirectCall(sink_code, None, [branch_value], [], None, None)
+            ),
             ast.Return([branch_value]),
         ],
         return_name="main_ret",
@@ -424,7 +666,7 @@ def test_interprocedural_taint_flows_through_if_branch_merge():
     adapter = build_supergraph_from_cfgs(cfgs)
     result = analyze_taint(
         adapter,
-        TaintConfiguration(
+        _config(
             source_names=frozenset({"source"}),
             sink_names=frozenset({"sink"}),
         ),
@@ -432,7 +674,9 @@ def test_interprocedural_taint_flows_through_if_branch_merge():
     )
 
     assert len(result.findings) == 1
-    assert [local.name for local in result.findings[0].tainted_arguments] == ["branch_value"]
+    assert [local.name for local in result.findings[0].tainted_arguments] == [
+        "branch_value"
+    ]
 
 
 def test_interprocedural_taint_flows_through_while_loop_body():
@@ -475,7 +719,7 @@ def test_interprocedural_taint_flows_through_while_loop_body():
     adapter = build_supergraph_from_cfgs(cfgs)
     result = analyze_taint(
         adapter,
-        TaintConfiguration(
+        _config(
             source_names=frozenset({"source"}),
             sink_names=frozenset({"sink"}),
         ),
@@ -483,7 +727,9 @@ def test_interprocedural_taint_flows_through_while_loop_body():
     )
 
     assert len(result.findings) == 1
-    assert [local.name for local in result.findings[0].tainted_arguments] == ["loop_value"]
+    assert [local.name for local in result.findings[0].tainted_arguments] == [
+        "loop_value"
+    ]
 
 
 def test_interprocedural_taint_tracks_flows_through_except_handlers():
@@ -512,13 +758,21 @@ def test_interprocedural_taint_tracks_flows_through_except_handlers():
         [],
         [
             ast.TryExceptFinally(
-                ast.Suite([ast.Raise(ast.Existing(ast.program.Object(ValueError)), None, None)]),
+                ast.Suite(
+                    [
+                        ast.Raise(
+                            ast.Existing(ast.program.Object(ValueError)), None, None
+                        )
+                    ]
+                ),
                 [handler],
                 None,
                 None,
                 None,
             ),
-            ast.Discard(ast.DirectCall(sink_code, None, [handler_value], [], None, None)),
+            ast.Discard(
+                ast.DirectCall(sink_code, None, [handler_value], [], None, None)
+            ),
             ast.Return([handler_value]),
         ],
         return_name="main_ret",
@@ -532,7 +786,7 @@ def test_interprocedural_taint_tracks_flows_through_except_handlers():
     adapter = build_supergraph_from_cfgs(cfgs)
     result = analyze_taint(
         adapter,
-        TaintConfiguration(
+        _config(
             source_names=frozenset({"source"}),
             sink_names=frozenset({"sink"}),
         ),
@@ -541,7 +795,9 @@ def test_interprocedural_taint_tracks_flows_through_except_handlers():
 
     assert len(result.findings) == 1
     assert result.findings[0].sink_name == "sink"
-    assert [local.name for local in result.findings[0].tainted_arguments] == ["handler_value"]
+    assert [local.name for local in result.findings[0].tainted_arguments] == [
+        "handler_value"
+    ]
 
 
 def test_interprocedural_taint_delete_kills_local_fact():
@@ -572,7 +828,7 @@ def test_interprocedural_taint_delete_kills_local_fact():
     adapter = build_supergraph_from_cfgs(cfgs)
     result = analyze_taint(
         adapter,
-        TaintConfiguration(
+        _config(
             source_names=frozenset({"source"}),
             sink_names=frozenset({"sink"}),
         ),
@@ -640,7 +896,7 @@ def test_interprocedural_taint_preserves_return_slot_mapping():
     adapter = build_supergraph_from_cfgs(cfgs)
     result = analyze_taint(
         adapter,
-        TaintConfiguration(
+        _config(
             source_names=frozenset({"source"}),
             sink_names=frozenset({"sink"}),
         ),
@@ -722,7 +978,7 @@ def test_interprocedural_taint_tracks_attribute_global_and_cell_flows():
     adapter = build_supergraph_from_cfgs(cfgs)
     result = analyze_taint(
         adapter,
-        TaintConfiguration(
+        _config(
             source_names=frozenset({"source"}),
             sink_names=frozenset({"sink"}),
         ),
@@ -731,7 +987,9 @@ def test_interprocedural_taint_tracks_attribute_global_and_cell_flows():
 
     assert len(result.findings) == 3
     labels = sorted(
-        label for finding in result.findings for label in finding.tainted_argument_labels
+        label
+        for finding in result.findings
+        for label in finding.tainted_argument_labels
     )
     assert labels == ["SHARED", "captured", "obj.payload"]
 
@@ -781,7 +1039,7 @@ def test_interprocedural_taint_tracks_constant_name_getattr_setattr_field_flow()
     adapter = build_supergraph_from_cfgs(cfgs)
     result = analyze_taint(
         adapter,
-        TaintConfiguration(
+        _config(
             source_names=frozenset({"source"}),
             sink_names=frozenset({"sink"}),
         ),
@@ -838,7 +1096,7 @@ def test_interprocedural_taint_tracks_unknown_name_setattr_to_constant_getattr()
     adapter = build_supergraph_from_cfgs(cfgs)
     result = analyze_taint(
         adapter,
-        TaintConfiguration(
+        _config(
             source_names=frozenset({"source"}),
             sink_names=frozenset({"sink"}),
         ),
@@ -884,7 +1142,7 @@ def test_interprocedural_taint_tracks_unknown_subscript_write_to_constant_read()
     adapter = build_supergraph_from_cfgs(cfgs)
     result = analyze_taint(
         adapter,
-        TaintConfiguration(
+        _config(
             source_names=frozenset({"source"}),
             sink_names=frozenset({"sink"}),
         ),
@@ -934,7 +1192,7 @@ def test_interprocedural_taint_tracks_collection_mutator_to_subscript_read():
     adapter = build_supergraph_from_cfgs(cfgs)
     result = analyze_taint(
         adapter,
-        TaintConfiguration(
+        _config(
             source_names=frozenset({"source"}),
             sink_names=frozenset({"sink"}),
         ),
@@ -986,7 +1244,7 @@ def test_interprocedural_taint_tracks_function_style_collection_mutator_to_subsc
     adapter = build_supergraph_from_cfgs(cfgs)
     result = analyze_taint(
         adapter,
-        TaintConfiguration(
+        _config(
             source_names=frozenset({"source"}),
             sink_names=frozenset({"sink"}),
         ),
@@ -1041,7 +1299,7 @@ def test_interprocedural_taint_tracks_collection_extend_source_elements():
     adapter = build_supergraph_from_cfgs(cfgs)
     result = analyze_taint(
         adapter,
-        TaintConfiguration(
+        _config(
             source_names=frozenset({"source"}),
             sink_names=frozenset({"sink"}),
         ),
@@ -1071,7 +1329,9 @@ def test_interprocedural_taint_tracks_collection_accessor_to_subscript_slot():
                 items,
                 key,
             ),
-            ast.Assign(ast.MethodCall(items, ast.Local("get"), [key], [], None, None), [out]),
+            ast.Assign(
+                ast.MethodCall(items, ast.Local("get"), [key], [], None, None), [out]
+            ),
             ast.Discard(ast.DirectCall(sink_code, None, [out], [], None, None)),
             ast.Return([]),
         ],
@@ -1086,7 +1346,7 @@ def test_interprocedural_taint_tracks_collection_accessor_to_subscript_slot():
     adapter = build_supergraph_from_cfgs(cfgs)
     result = analyze_taint(
         adapter,
-        TaintConfiguration(
+        _config(
             source_names=frozenset({"source"}),
             sink_names=frozenset({"sink"}),
         ),
@@ -1130,7 +1390,7 @@ def test_interprocedural_taint_tracks_list_literal_element_to_subscript_read():
     adapter = build_supergraph_from_cfgs(cfgs)
     result = analyze_taint(
         adapter,
-        TaintConfiguration(
+        _config(
             source_names=frozenset({"source"}),
             sink_names=frozenset({"sink"}),
         ),
@@ -1177,7 +1437,7 @@ def test_interprocedural_taint_copies_dynamic_subscript_facts_to_alias():
     adapter = build_supergraph_from_cfgs(cfgs)
     result = analyze_taint(
         adapter,
-        TaintConfiguration(
+        _config(
             source_names=frozenset({"source"}),
             sink_names=frozenset({"sink"}),
         ),
@@ -1224,7 +1484,7 @@ def test_interprocedural_taint_copies_precise_container_selector_to_fresh_copy()
     adapter = build_supergraph_from_cfgs(cfgs)
     result = analyze_taint(
         adapter,
-        TaintConfiguration(
+        _config(
             source_names=frozenset({"source"}),
             sink_names=frozenset({"sink"}),
         ),
@@ -1297,7 +1557,7 @@ def test_interprocedural_taint_deletes_lowered_subscript_fact():
     adapter = build_supergraph_from_cfgs(cfgs)
     result = analyze_taint(
         adapter,
-        TaintConfiguration(
+        _config(
             source_names=frozenset({"source"}),
             sink_names=frozenset({"sink"}),
         ),
@@ -1322,11 +1582,15 @@ def test_interprocedural_taint_strong_updates_locals_and_globals():
         [
             ast.Assign(ast.Call(ast.Local("source"), [], [], None, None), [tainted]),
             ast.Assign(ast.Existing(ast.program.Object(0)), [tainted]),
-            ast.SetGlobal(global_name, ast.Call(ast.Local("source"), [], [], None, None)),
+            ast.SetGlobal(
+                global_name, ast.Call(ast.Local("source"), [], [], None, None)
+            ),
             ast.SetGlobal(global_name, ast.Existing(ast.program.Object(0))),
             ast.Discard(ast.Call(ast.Local("sink"), [tainted], [], None, None)),
             ast.Discard(
-                ast.Call(ast.Local("sink"), [ast.GetGlobal(global_name)], [], None, None)
+                ast.Call(
+                    ast.Local("sink"), [ast.GetGlobal(global_name)], [], None, None
+                )
             ),
             ast.Return([tainted]),
         ],
@@ -1341,7 +1605,7 @@ def test_interprocedural_taint_strong_updates_locals_and_globals():
     adapter = build_supergraph_from_cfgs(cfgs)
     result = analyze_taint(
         adapter,
-        TaintConfiguration(
+        _config(
             source_names=frozenset({"source"}),
             sink_names=frozenset({"sink"}),
         ),
@@ -1364,7 +1628,9 @@ def test_interprocedural_taint_uses_weak_updates_for_heap_slots():
         "main",
         [],
         [
-            ast.SetAttr(ast.Call(ast.Local("source"), [], [], None, None), obj, payload_name),
+            ast.SetAttr(
+                ast.Call(ast.Local("source"), [], [], None, None), obj, payload_name
+            ),
             ast.SetAttr(ast.Existing(ast.program.Object(0)), obj, payload_name),
             ast.Discard(
                 ast.Call(
@@ -1388,7 +1654,7 @@ def test_interprocedural_taint_uses_weak_updates_for_heap_slots():
     adapter = build_supergraph_from_cfgs(cfgs)
     result = analyze_taint(
         adapter,
-        TaintConfiguration(
+        _config(
             source_names=frozenset({"source"}),
             sink_names=frozenset({"sink"}),
         ),
@@ -1452,7 +1718,7 @@ def test_interprocedural_taint_keeps_outer_call_argument_facts_for_nested_calls(
     adapter = build_supergraph_from_cfgs(cfgs)
     result = analyze_taint(
         adapter,
-        TaintConfiguration(
+        _config(
             source_names=frozenset({"source"}),
             sink_names=frozenset({"sink"}),
         ),

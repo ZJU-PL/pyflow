@@ -4,15 +4,15 @@ from .calls import STATE_CLOSE, STATE_OPEN, STATE_USE, CallModel, CallModelRegis
 
 
 def _source(name: str) -> CallModel:
-    return CallModel(name=name, taint_source=True)
+    return CallModel(name=name, source_kinds=frozenset({"untrusted"}))
 
 
 def _sink(name: str) -> CallModel:
-    return CallModel(name=name, taint_sink=True)
+    return CallModel(name=name, sink_kinds=frozenset({"dangerous"}))
 
 
 def _sanitizer(name: str) -> CallModel:
-    return CallModel(name=name, taint_sanitizer=True)
+    return CallModel(name=name, sanitizer_kinds=frozenset({"*"}))
 
 
 def _nullable(name: str) -> CallModel:

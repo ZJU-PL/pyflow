@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "framework": "django",
   "version": "1.0",
   "description": "Django taint models (extracted from root rule pack)",
@@ -22,688 +22,955 @@
   "models": [
     {
       "call": "django.http.HttpRequest.GET.get",
-      "taint_source": true,
-      "category": "user_input"
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "django.http.HttpRequest.GET.getlist",
-      "taint_source": true,
-      "category": "user_input"
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "django.http.HttpRequest.POST.get",
-      "taint_source": true,
-      "category": "user_input"
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "django.http.HttpRequest.POST.getlist",
-      "taint_source": true,
-      "category": "user_input"
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "django.http.HttpRequest.body",
-      "taint_source": true,
-      "category": "user_input"
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "django.http.HttpRequest.headers.get",
-      "taint_source": true,
-      "category": "user_input"
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "django.http.HttpRequest.COOKIES.get",
-      "taint_source": true,
-      "category": "user_input"
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "django.http.HttpRequest.FILES.get",
-      "taint_source": true,
-      "category": "user_input"
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "django.http.HttpRequest.META.get",
-      "taint_source": true,
-      "category": "user_input"
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "django.shortcuts.render",
-      "taint_sink": true,
-      "categories": [
-        "file",
-        "xss"
+      "cwe": "CWE-79",
+      "severity": "high",
+      "sinks": [
+        {
+          "kind": "file",
+          "port": {
+            "parameter": 0
+          }
+        },
+        {
+          "kind": "xss",
+          "port": {
+            "parameter": 0
+          }
+        },
+        {
+          "kind": "file",
+          "port": {
+            "parameter": 1
+          }
+        },
+        {
+          "kind": "file",
+          "port": {
+            "parameter": 3
+          }
+        },
+        {
+          "kind": "xss",
+          "port": {
+            "parameter": 1
+          }
+        },
+        {
+          "kind": "xss",
+          "port": {
+            "parameter": 3
+          }
+        }
       ]
     },
     {
       "call": "django.template.Template.render",
-      "taint_sink": true
+      "sinks": [
+        {
+          "kind": "xss",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "django.http.HttpResponse",
-      "taint_sink": true
+      "sinks": [
+        {
+          "kind": "xss",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "django.http.JsonResponse",
-      "taint_sink": true
+      "sinks": [
+        {
+          "kind": "xss",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "django.http.HttpResponseRedirect",
-      "taint_sink": true
+      "sinks": [
+        {
+          "kind": "xss",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "django.shortcuts.redirect",
-      "taint_sink": true,
-      "category": "redirect"
+      "cwe": "CWE-601",
+      "severity": "high",
+      "sinks": [
+        {
+          "kind": "redirect",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "django.utils.html.escape",
-      "taint_sanitizer": true
+      "sanitizers": [
+        {
+          "kinds": "all",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "django.utils.html.strip_tags",
-      "taint_sanitizer": true
+      "sanitizers": [
+        {
+          "kinds": "all",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "django.utils.html.format_html",
-      "taint_sanitizer": true
+      "cwe": "CWE-79",
+      "severity": "high",
+      "sinks": [
+        {
+          "kind": "xss",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ],
+      "sanitizers": [
+        {
+          "kinds": "all",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "django.utils.http.url_has_allowed_host_and_scheme",
-      "taint_sanitizer": true
+      "sanitizers": [
+        {
+          "kinds": "all",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "django.utils.text.get_valid_filename",
-      "taint_sanitizer": true
+      "sanitizers": [
+        {
+          "kinds": "all",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "django.db.connection.cursor",
-      "taint_sink": true
+      "sinks": [
+        {
+          "kind": "ssrf",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "django.db.connection.cursor.execute",
-      "taint_sink": true
+      "sinks": [
+        {
+          "kind": "sql",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "django.core.files.uploadedfile.UploadedFile.read",
-      "taint_source": true,
-      "category": "file"
+      "sources": [
+        {
+          "kind": "file",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "django.core.files.uploadedfile.UploadedFile.chunks",
-      "taint_source": true,
-      "category": "file"
+      "sources": [
+        {
+          "kind": "file",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "django.core.files.uploadedfile.UploadedFile.name",
-      "taint_source": true,
-      "category": "file"
+      "sources": [
+        {
+          "kind": "file",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "django.contrib.sessions.backends.base.SessionBase._session_key",
-      "category": "secrets",
-      "taint_source": true
+      "sources": [
+        {
+          "kind": "secrets",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "django.contrib.sessions.backends.base.SessionBase.session_key",
-      "category": "secrets",
-      "taint_source": true
+      "sources": [
+        {
+          "kind": "secrets",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "django.core.cache.backends.base.BaseCache.get",
-      "category": "cache",
-      "taint_source": true
+      "sources": [
+        {
+          "kind": "cache",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "django.core.cache.backends.base.BaseCache.get_many",
-      "category": "cache",
-      "taint_source": true
+      "sources": [
+        {
+          "kind": "cache",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "django.http.request.HttpRequest.COOKIES",
-      "category": "user_input",
-      "taint_source": true
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "django.http.request.HttpRequest.GET",
-      "category": "user_input",
-      "taint_source": true
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ],
+      "sanitizers": [
+        {
+          "kinds": "all",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "django.http.request.HttpRequest.META",
-      "category": "user_input",
-      "taint_source": true
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "django.http.request.HttpRequest.POST",
-      "category": "user_input",
-      "taint_source": true
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ],
+      "sanitizers": [
+        {
+          "kinds": "all",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "django.http.request.HttpRequest.REQUEST",
-      "category": "user_input",
-      "taint_source": true
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "django.http.request.HttpRequest.__repr__",
-      "category": "user_input",
-      "taint_source": true
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "django.http.request.HttpRequest.body",
-      "category": "user_input",
-      "taint_source": true
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "django.http.request.HttpRequest.build_absolute_uri",
-      "category": "user_input",
-      "taint_source": true
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "django.http.request.HttpRequest.get_full_path",
-      "category": "user_input",
-      "taint_source": true
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "django.http.request.HttpRequest.get_signed_cookie",
-      "category": "user_input",
-      "taint_source": true
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "django.http.request.HttpRequest.user_agent",
-      "category": "user_input",
-      "taint_source": true
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "django.http.request.HttpRequest.user_agent_string",
-      "category": "user_input",
-      "taint_source": true
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "django.http.request.build_request_repr",
-      "category": "user_input",
-      "taint_source": true
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "django.http.response.HttpResponse.__bytes__",
-      "category": "user_input",
-      "taint_source": true
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "django.http.response.HttpResponse.__iter__",
-      "category": "user_input",
-      "taint_source": true
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "django.http.response.HttpResponse.content",
-      "category": "user_input",
-      "taint_source": true
+      "cwe": "CWE-79",
+      "severity": "high",
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ],
+      "sinks": [
+        {
+          "kind": "xss",
+          "port": {
+            "parameter": 1
+          }
+        }
+      ]
     },
     {
       "call": "django.http.response.HttpResponse.getvalue",
-      "category": "user_input",
-      "taint_source": true
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "django.http.response.HttpResponse.serialize",
-      "category": "user_input",
-      "taint_source": true
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "django.http.response.HttpResponseBase.__bytes__",
-      "category": "user_input",
-      "taint_source": true
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "django.http.response.HttpResponseBase.__getitem__",
-      "category": "user_input",
-      "taint_source": true
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "django.http.response.HttpResponseBase.cookies",
-      "category": "user_input",
-      "taint_source": true
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "django.http.response.HttpResponseBase.get",
-      "category": "user_input",
-      "taint_source": true
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "django.http.response.HttpResponseBase.items",
-      "category": "user_input",
-      "taint_source": true
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "django.http.response.HttpResponseBase.serialize_headers",
-      "category": "user_input",
-      "taint_source": true
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "rest_framework.request.Request.DATA",
-      "category": "user_input",
-      "taint_source": true
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "rest_framework.request.Request.FILES",
-      "category": "user_input",
-      "taint_source": true
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "rest_framework.request.Request.POST",
-      "category": "user_input",
-      "taint_source": true
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "rest_framework.request.Request.QUERY_PARAMS",
-      "category": "user_input",
-      "taint_source": true
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "rest_framework.request.Request.content_type",
-      "category": "user_input",
-      "taint_source": true
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "rest_framework.request.Request.data",
-      "category": "user_input",
-      "taint_source": true
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "rest_framework.request.Request.query_params",
-      "category": "user_input",
-      "taint_source": true
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "rest_framework.request.Request.stream",
-      "category": "user_input",
-      "taint_source": true
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "django.core.cache.backends.base.BaseCache.set",
-      "category": "cache",
-      "sink_arg_positions": [
-        2
-      ],
-      "taint_sink": true
+      "severity": "medium",
+      "sinks": [
+        {
+          "kind": "cache",
+          "port": {
+            "parameter": 2
+          }
+        }
+      ]
     },
     {
       "call": "django.core.cache.backends.base.BaseCache.set_many",
-      "category": "cache",
-      "sink_arg_positions": [
-        1
-      ],
-      "taint_sink": true
+      "severity": "medium",
+      "sinks": [
+        {
+          "kind": "cache",
+          "port": {
+            "parameter": 1
+          }
+        }
+      ]
     },
     {
       "call": "django.db.backends.mysql.base.CursorWrapper.execute",
-      "category": "sql",
-      "sink_arg_positions": [
-        1
-      ],
-      "taint_sink": true
+      "cwe": "CWE-89",
+      "severity": "high",
+      "sinks": [
+        {
+          "kind": "sql",
+          "port": {
+            "parameter": 1
+          }
+        }
+      ]
     },
     {
       "call": "django.db.backends.mysql.base.CursorWrapper.executemany",
-      "category": "sql",
-      "sink_arg_positions": [
-        1
-      ],
-      "taint_sink": true
+      "cwe": "CWE-89",
+      "severity": "high",
+      "sinks": [
+        {
+          "kind": "sql",
+          "port": {
+            "parameter": 1
+          }
+        }
+      ]
     },
     {
       "call": "django.db.backends.utils.CursorWrapper.execute",
-      "category": "sql",
-      "sink_arg_positions": [
-        1
-      ],
-      "taint_sink": true
+      "cwe": "CWE-89",
+      "severity": "high",
+      "sinks": [
+        {
+          "kind": "sql",
+          "port": {
+            "parameter": 1
+          }
+        }
+      ]
     },
     {
       "call": "django.db.backends.utils.CursorWrapper.executemany",
-      "category": "sql",
-      "sink_arg_positions": [
-        1
-      ],
-      "taint_sink": true
+      "cwe": "CWE-89",
+      "severity": "high",
+      "sinks": [
+        {
+          "kind": "sql",
+          "port": {
+            "parameter": 1
+          }
+        }
+      ]
     },
     {
       "call": "django.db.models.manager.Manager.raw",
-      "category": "sql",
-      "sink_arg_positions": [
-        1
-      ],
-      "taint_sink": true
+      "cwe": "CWE-89",
+      "severity": "high",
+      "sinks": [
+        {
+          "kind": "sql",
+          "port": {
+            "parameter": 1
+          }
+        }
+      ]
     },
     {
       "call": "django.http.response.HttpResponse.__init__",
-      "categories": [
-        "user_input",
-        "xss"
-      ],
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
-    },
-    {
-      "call": "django.http.response.HttpResponse.content",
-      "category": "xss",
-      "sink_arg_positions": [
-        1
-      ],
-      "taint_sink": true
+      "cwe": "CWE-79",
+      "severity": "high",
+      "sinks": [
+        {
+          "kind": "user_input",
+          "port": {
+            "parameter": 0
+          }
+        },
+        {
+          "kind": "xss",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "django.http.response.HttpResponseBase.__setitem__",
-      "category": "user_input",
-      "sink_arg_positions": [
-        1,
-        2
-      ],
-      "taint_sink": true
+      "severity": "medium",
+      "sinks": [
+        {
+          "kind": "user_input",
+          "port": {
+            "parameter": 1
+          }
+        },
+        {
+          "kind": "user_input",
+          "port": {
+            "parameter": 2
+          }
+        }
+      ]
     },
     {
       "call": "django.http.response.HttpResponseBase.setdefault",
-      "category": "user_input",
-      "sink_arg_positions": [
-        1,
-        2
-      ],
-      "taint_sink": true
+      "severity": "medium",
+      "sinks": [
+        {
+          "kind": "user_input",
+          "port": {
+            "parameter": 1
+          }
+        },
+        {
+          "kind": "user_input",
+          "port": {
+            "parameter": 2
+          }
+        }
+      ]
     },
     {
       "call": "django.http.response.HttpResponseRedirect.__init__",
-      "category": "redirect",
-      "sink_arg_positions": [
-        1
-      ],
-      "taint_sink": true
-    },
-    {
-      "call": "django.utils.html.format_html",
-      "category": "xss",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
+      "cwe": "CWE-601",
+      "severity": "high",
+      "sinks": [
+        {
+          "kind": "redirect",
+          "port": {
+            "parameter": 1
+          }
+        }
+      ]
     },
     {
       "call": "django.utils.html.format_html_join",
-      "category": "xss",
-      "sink_arg_positions": [
-        1
-      ],
-      "taint_sink": true
-    },
-    {
-      "call": "django.http.request.HttpRequest.GET",
-      "taint_sanitizer": true
-    },
-    {
-      "call": "django.http.request.HttpRequest.POST",
-      "taint_sanitizer": true
+      "cwe": "CWE-79",
+      "severity": "high",
+      "sinks": [
+        {
+          "kind": "xss",
+          "port": {
+            "parameter": 1
+          }
+        }
+      ]
     },
     {
       "call": "django.http.request.HttpRequest.is_secure",
-      "taint_sanitizer": true
+      "sanitizers": [
+        {
+          "kinds": "all",
+          "port": "return"
+        }
+      ]
     }
   ],
   "rules": [
     {
-      "categories": [
-        "cache"
-      ],
-      "id": "django/cache/django_core_cache_backends_base_BaseCache_set",
-      "pattern_type": "taint_sink",
-      "severity": "medium",
-      "sink_arg_positions": [
-        2
-      ],
-      "sinks": [
-        "django.core.cache.backends.base.BaseCache.set"
-      ],
-      "title": "Tainted data reaches set"
-    },
-    {
-      "categories": [
-        "cache"
-      ],
-      "id": "django/cache/django_core_cache_backends_base_BaseCache_set_many",
-      "pattern_type": "taint_sink",
-      "severity": "medium",
-      "sink_arg_positions": [
-        1
-      ],
-      "sinks": [
-        "django.core.cache.backends.base.BaseCache.set_many"
-      ],
-      "title": "Tainted data reaches set_many"
-    },
-    {
-      "categories": [
-        "sql"
-      ],
-      "cwe": "CWE-89",
-      "id": "django/sql/django_db_backends_mysql_base_CursorWrapper_execute",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        1
-      ],
-      "sinks": [
-        "django.db.backends.mysql.base.CursorWrapper.execute"
-      ],
-      "title": "Tainted data reaches execute"
-    },
-    {
-      "categories": [
-        "sql"
-      ],
-      "cwe": "CWE-89",
-      "id": "django/sql/django_db_backends_mysql_base_CursorWrapper_executemany",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        1
-      ],
-      "sinks": [
-        "django.db.backends.mysql.base.CursorWrapper.executemany"
-      ],
-      "title": "Tainted data reaches executemany"
-    },
-    {
-      "categories": [
-        "sql"
-      ],
-      "cwe": "CWE-89",
-      "id": "django/sql/django_db_backends_utils_CursorWrapper_execute",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        1
-      ],
-      "sinks": [
-        "django.db.backends.utils.CursorWrapper.execute"
-      ],
-      "title": "Tainted data reaches execute"
-    },
-    {
-      "categories": [
-        "sql"
-      ],
-      "cwe": "CWE-89",
-      "id": "django/sql/django_db_backends_utils_CursorWrapper_executemany",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        1
-      ],
-      "sinks": [
-        "django.db.backends.utils.CursorWrapper.executemany"
-      ],
-      "title": "Tainted data reaches executemany"
-    },
-    {
-      "categories": [
-        "sql"
-      ],
-      "cwe": "CWE-89",
-      "id": "django/sql/django_db_models_manager_Manager_raw",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        1
-      ],
-      "sinks": [
-        "django.db.models.manager.Manager.raw"
-      ],
-      "title": "Tainted data reaches raw"
-    },
-    {
-      "categories": [
+      "id": "PYFLOW-DJANGO-CACHE",
+      "title": "Untrusted data reaches cache sink",
+      "sources": [
         "user_input",
-        "xss"
-      ],
-      "cwe": "CWE-79",
-      "id": "django/user_input_xss/django_http_response_HttpResponse___init__",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        0
-      ],
-      "sinks": [
-        "django.http.response.HttpResponse.__init__"
-      ],
-      "title": "Tainted data reaches __init__"
-    },
-    {
-      "categories": [
-        "xss"
-      ],
-      "cwe": "CWE-79",
-      "id": "django/xss/django_http_response_HttpResponse_content",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        1
-      ],
-      "sinks": [
-        "django.http.response.HttpResponse.content"
-      ],
-      "title": "Tainted data reaches content"
-    },
-    {
-      "categories": [
-        "user_input"
-      ],
-      "id": "django/user_input/django_http_response_HttpResponseBase___setitem__",
-      "pattern_type": "taint_sink",
-      "severity": "medium",
-      "sink_arg_positions": [
-        1,
-        2
-      ],
-      "sinks": [
-        "django.http.response.HttpResponseBase.__setitem__"
-      ],
-      "title": "Tainted data reaches __setitem__"
-    },
-    {
-      "categories": [
-        "user_input"
-      ],
-      "id": "django/user_input/django_http_response_HttpResponseBase_setdefault",
-      "pattern_type": "taint_sink",
-      "severity": "medium",
-      "sink_arg_positions": [
-        1,
-        2
-      ],
-      "sinks": [
-        "django.http.response.HttpResponseBase.setdefault"
-      ],
-      "title": "Tainted data reaches setdefault"
-    },
-    {
-      "categories": [
-        "redirect"
-      ],
-      "cwe": "CWE-601",
-      "id": "django/redirect/django_http_response_HttpResponseRedirect___init__",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        1
-      ],
-      "sinks": [
-        "django.http.response.HttpResponseRedirect.__init__"
-      ],
-      "title": "Tainted data reaches __init__"
-    },
-    {
-      "categories": [
-        "redirect"
-      ],
-      "cwe": "CWE-601",
-      "id": "django/redirect/django_shortcuts_redirect",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        0
-      ],
-      "sinks": [
-        "django.shortcuts.redirect"
-      ],
-      "title": "Tainted data reaches redirect"
-    },
-    {
-      "categories": [
+        "network",
         "file",
-        "xss"
-      ],
-      "cwe": "CWE-79",
-      "id": "django/file_xss/django_shortcuts_render",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        1,
-        3
+        "env",
+        "database",
+        "secrets",
+        "cache",
+        "userdata",
+        "untrusted",
+        "exception"
       ],
       "sinks": [
-        "django.shortcuts.render"
+        "cache"
       ],
-      "title": "Tainted data reaches render"
+      "severity": "medium"
     },
     {
-      "categories": [
-        "xss"
-      ],
-      "cwe": "CWE-79",
-      "id": "django/xss/django_utils_html_format_html",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        0
+      "id": "PYFLOW-DJANGO-FILE",
+      "title": "Untrusted data reaches file sink",
+      "sources": [
+        "user_input",
+        "network",
+        "file",
+        "env",
+        "database",
+        "secrets",
+        "cache",
+        "userdata",
+        "untrusted",
+        "exception"
       ],
       "sinks": [
-        "django.utils.html.format_html"
+        "file"
       ],
-      "title": "Tainted data reaches format_html"
+      "severity": "high"
     },
     {
-      "categories": [
-        "xss"
-      ],
-      "cwe": "CWE-79",
-      "id": "django/xss/django_utils_html_format_html_join",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        1
+      "id": "PYFLOW-DJANGO-REDIRECT",
+      "title": "Untrusted data reaches redirect sink",
+      "sources": [
+        "user_input",
+        "network",
+        "file",
+        "env",
+        "database",
+        "secrets",
+        "cache",
+        "userdata",
+        "untrusted",
+        "exception"
       ],
       "sinks": [
-        "django.utils.html.format_html_join"
+        "redirect"
       ],
-      "title": "Tainted data reaches format_html_join"
+      "severity": "high"
+    },
+    {
+      "id": "PYFLOW-DJANGO-SQL",
+      "title": "Untrusted data reaches sql sink",
+      "sources": [
+        "user_input",
+        "network",
+        "file",
+        "env",
+        "database",
+        "secrets",
+        "cache",
+        "userdata",
+        "untrusted",
+        "exception"
+      ],
+      "sinks": [
+        "sql"
+      ],
+      "severity": "high"
+    },
+    {
+      "id": "PYFLOW-DJANGO-SSRF",
+      "title": "Untrusted data reaches ssrf sink",
+      "sources": [
+        "user_input",
+        "network",
+        "file",
+        "env",
+        "database",
+        "secrets",
+        "cache",
+        "userdata",
+        "untrusted",
+        "exception"
+      ],
+      "sinks": [
+        "ssrf"
+      ],
+      "severity": "high"
+    },
+    {
+      "id": "PYFLOW-DJANGO-USER_INPUT",
+      "title": "Untrusted data reaches user_input sink",
+      "sources": [
+        "user_input",
+        "network",
+        "file",
+        "env",
+        "database",
+        "secrets",
+        "cache",
+        "userdata",
+        "untrusted",
+        "exception"
+      ],
+      "sinks": [
+        "user_input"
+      ],
+      "severity": "high"
+    },
+    {
+      "id": "PYFLOW-DJANGO-XSS",
+      "title": "Untrusted data reaches xss sink",
+      "sources": [
+        "user_input",
+        "network",
+        "file",
+        "env",
+        "database",
+        "secrets",
+        "cache",
+        "userdata",
+        "untrusted",
+        "exception"
+      ],
+      "sinks": [
+        "xss"
+      ],
+      "severity": "high"
     }
   ],
   "type": "taint"

@@ -19,6 +19,7 @@ from pyflow.analysis.ifds.modeling.presets import (
     TAINT_SANITIZER_PRESETS,
     TAINT_SINK_PRESETS,
 )
+from pyflow.analysis.ifds.modeling.taint import TaintRule
 from pyflow.language.python import ast
 
 from tests.analysis.ifds._support import build_cfg, make_code
@@ -37,7 +38,9 @@ def test_preset_nullable_return_detected():
                 ast.Call(ast.Local("get"), [value, ast.Local("key")], [], None, None),
                 [result],
             ),
-            ast.Discard(ast.GetAttr(result, ast.Existing(ast.program.Object("payload")))),
+            ast.Discard(
+                ast.GetAttr(result, ast.Existing(ast.program.Object("payload")))
+            ),
             ast.Return([]),
         ],
         return_name="main_ret",
@@ -92,11 +95,19 @@ def test_preset_taint_source_sink_with_sanitizer():
     adapter = build_supergraph_from_cfgs([cfg])
 
     config = TaintConfiguration(
-        source_names=TAINT_PRESETS.as_mapping().keys(),
-        sink_names=TAINT_SINK_PRESETS.as_mapping().keys(),
-        sanitizer_names=TAINT_SANITIZER_PRESETS.as_mapping().keys(),
+        call_models=TAINT_PRESETS.merged(TAINT_SINK_PRESETS, TAINT_SANITIZER_PRESETS),
+        rules=(
+            TaintRule(
+                "TEST-PRESET",
+                "Preset flow",
+                frozenset({"untrusted"}),
+                frozenset({"dangerous"}),
+            ),
+        ),
     )
-    result = analyze_taint(adapter, config, entry_nodes=[adapter.supergraph.entry_of(cfg)])
+    result = analyze_taint(
+        adapter, config, entry_nodes=[adapter.supergraph.entry_of(cfg)]
+    )
 
     assert len(result.findings) == 0
 
@@ -131,11 +142,19 @@ def test_preset_taint_without_sanitizer_reports_sink():
     adapter = build_supergraph_from_cfgs([cfg])
 
     config = TaintConfiguration(
-        source_names=TAINT_PRESETS.as_mapping().keys(),
-        sink_names=TAINT_SINK_PRESETS.as_mapping().keys(),
-        sanitizer_names=frozenset(),
+        call_models=TAINT_PRESETS.merged(TAINT_SINK_PRESETS),
+        rules=(
+            TaintRule(
+                "TEST-PRESET",
+                "Preset flow",
+                frozenset({"untrusted"}),
+                frozenset({"dangerous"}),
+            ),
+        ),
     )
-    result = analyze_taint(adapter, config, entry_nodes=[adapter.supergraph.entry_of(cfg)])
+    result = analyze_taint(
+        adapter, config, entry_nodes=[adapter.supergraph.entry_of(cfg)]
+    )
 
     assert len(result.findings) == 1
 
@@ -177,7 +196,9 @@ def test_preset_typestate_detects_double_close():
         close_names=TYPESTATE_CLOSE_PRESETS.as_mapping().keys(),
         use_names=TYPESTATE_USE_PRESETS.as_mapping().keys(),
     )
-    result = analyze_typestate(adapter, config, entry_nodes=[adapter.supergraph.entry_of(cfg)])
+    result = analyze_typestate(
+        adapter, config, entry_nodes=[adapter.supergraph.entry_of(cfg)]
+    )
 
     assert any(f.kind == "double_close" for f in result.findings)
 
@@ -219,7 +240,9 @@ def test_preset_typestate_detects_use_after_close():
         close_names=TYPESTATE_CLOSE_PRESETS.as_mapping().keys(),
         use_names=TYPESTATE_USE_PRESETS.as_mapping().keys(),
     )
-    result = analyze_typestate(adapter, config, entry_nodes=[adapter.supergraph.entry_of(cfg)])
+    result = analyze_typestate(
+        adapter, config, entry_nodes=[adapter.supergraph.entry_of(cfg)]
+    )
 
     assert any(f.kind == "use_after_close" for f in result.findings)
 
@@ -235,9 +258,7 @@ def test_preset_lock_detects_release_without_acquire():
             ast.Assign(
                 ast.Call(ast.Local("threading.Lock"), [], [], None, None), [lock]
             ),
-            ast.Discard(
-                ast.MethodCall(lock, ast.Local("release"), [], [], None, None)
-            ),
+            ast.Discard(ast.MethodCall(lock, ast.Local("release"), [], [], None, None)),
             ast.Return([]),
         ],
         return_name="main_ret",
@@ -252,7 +273,9 @@ def test_preset_lock_detects_release_without_acquire():
         close_names=LOCK_TYPESTATE_CLOSE.as_mapping().keys(),
         use_names=LOCK_TYPESTATE_USE.as_mapping().keys(),
     )
-    result = analyze_typestate(adapter, config, entry_nodes=[adapter.supergraph.entry_of(cfg)])
+    result = analyze_typestate(
+        adapter, config, entry_nodes=[adapter.supergraph.entry_of(cfg)]
+    )
 
     assert any(f.kind == "release_without_acquire" for f in result.findings)
 
@@ -288,6 +311,8 @@ def test_preset_lock_context_manager_releases_lock():
         close_names=LOCK_TYPESTATE_CLOSE.as_mapping().keys(),
         use_names=LOCK_TYPESTATE_USE.as_mapping().keys(),
     )
-    result = analyze_typestate(adapter, config, entry_nodes=[adapter.supergraph.entry_of(cfg)])
+    result = analyze_typestate(
+        adapter, config, entry_nodes=[adapter.supergraph.entry_of(cfg)]
+    )
 
     assert not any(f.kind == "lock_leak" for f in result.findings)

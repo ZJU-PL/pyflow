@@ -14,9 +14,9 @@ from pyflow.analysis.ifds.modeling.calls import (
 def test_call_model_default_values():
     model = CallModel(name="read")
     assert model.name == "read"
-    assert model.taint_source is False
-    assert model.taint_sink is False
-    assert model.taint_sanitizer is False
+    assert model.source_kinds == frozenset()
+    assert model.sink_kinds == frozenset()
+    assert model.sanitizer_kinds == frozenset()
     assert model.nullness_nullable_return is False
     assert model.typestate_actions == frozenset()
     assert model.resource_arg_positions == frozenset({0})
@@ -36,12 +36,12 @@ def test_call_model_custom_values():
 
 
 def test_call_model_merged_taint_source():
-    a = CallModel(name="f", taint_source=True)
-    b = CallModel(name="f", taint_sink=True)
+    a = CallModel(name="f", source_kinds=frozenset({"user_input"}))
+    b = CallModel(name="f", sink_kinds=frozenset({"sql"}))
     merged = a.merged(b)
     assert merged.name == "f"
-    assert merged.taint_source is True
-    assert merged.taint_sink is True
+    assert merged.source_kinds == frozenset({"user_input"})
+    assert merged.sink_kinds == frozenset({"sql"})
 
 
 def test_call_model_merged_nullness():
@@ -75,21 +75,23 @@ def test_call_model_merged_track_method_receiver():
 def test_call_model_merged_raises_on_name_mismatch():
     a = CallModel(name="x")
     b = CallModel(name="y")
-    with pytest.raises(ValueError, match="Cannot merge call models with different names"):
+    with pytest.raises(
+        ValueError, match="Cannot merge call models with different names"
+    ):
         a.merged(b)
 
 
 def test_call_model_merged_is_idempotent():
-    model = CallModel(name="idem", taint_source=True)
+    model = CallModel(name="idem", source_kinds=frozenset({"user_input"}))
     merged = model.merged(model)
     assert merged == model
 
 
 def test_call_model_merged_combined_taint_sanitizer():
-    a = CallModel(name="san", taint_sanitizer=True)
+    a = CallModel(name="san", sanitizer_kinds=frozenset({"user_input"}))
     b = CallModel(name="san", nullness_nullable_return=True)
     merged = a.merged(b)
-    assert merged.taint_sanitizer is True
+    assert merged.sanitizer_kinds == frozenset({"user_input"})
     assert merged.nullness_nullable_return is True
 
 
@@ -99,22 +101,24 @@ def test_registry_empty():
 
 
 def test_registry_single_model_lookup():
-    model = CallModel(name="source", taint_source=True)
+    model = CallModel(name="source", source_kinds=frozenset({"user_input"}))
     registry = CallModelRegistry([model])
     found = registry.model_for_name("source")
     assert found is not None
-    assert found.taint_source is True
+    assert found.source_kinds == frozenset({"user_input"})
 
 
 def test_registry_duplicate_names_merge():
-    registry = CallModelRegistry([
-        CallModel(name="multi", taint_source=True),
-        CallModel(name="multi", taint_sink=True),
-    ])
+    registry = CallModelRegistry(
+        [
+            CallModel(name="multi", source_kinds=frozenset({"user_input"})),
+            CallModel(name="multi", sink_kinds=frozenset({"sql"})),
+        ]
+    )
     found = registry.model_for_name("multi")
     assert found is not None
-    assert found.taint_source is True
-    assert found.taint_sink is True
+    assert found.source_kinds == frozenset({"user_input"})
+    assert found.sink_kinds == frozenset({"sql"})
 
 
 def test_registry_model_for_name_none():
@@ -128,39 +132,32 @@ def test_registry_model_for_name_missing():
 
 
 def test_registry_as_mapping():
-    registry = CallModelRegistry([
-        CallModel(name="a", taint_source=True),
-        CallModel(name="b", taint_sink=True),
-    ])
+    registry = CallModelRegistry(
+        [
+            CallModel(name="a", source_kinds=frozenset({"user_input"})),
+            CallModel(name="b", sink_kinds=frozenset({"sql"})),
+        ]
+    )
     mapping = registry.as_mapping()
-    assert mapping == {"a": CallModel(name="a", taint_source=True), "b": CallModel(name="b", taint_sink=True)}
+    assert mapping == {
+        "a": CallModel(name="a", source_kinds=frozenset({"user_input"})),
+        "b": CallModel(name="b", sink_kinds=frozenset({"sql"})),
+    }
 
 
-def test_from_taint_configuration():
-    from dataclasses import dataclass
-
-    @dataclass(frozen=True)
-    class FakeTaintConfig:
-        source_names: frozenset[str] = frozenset({"input", "read"})
-        sink_names: frozenset[str] = frozenset({"exec", "eval"})
-        sanitizer_names: frozenset[str] = frozenset({"escape"})
-
-    config = FakeTaintConfig()
-    registry = CallModelRegistry.from_taint_configuration(config)
-
-    source = registry.model_for_name("input")
-    assert source is not None
-    assert source.taint_source is True
-    assert source.taint_sink is False
-
-    sink = registry.model_for_name("exec")
-    assert sink is not None
-    assert sink.taint_sink is True
-    assert sink.taint_source is False
-
-    sanitizer = registry.model_for_name("escape")
-    assert sanitizer is not None
-    assert sanitizer.taint_sanitizer is True
+def test_taint_registry_requires_explicit_typed_models():
+    registry = CallModelRegistry(
+        [
+            CallModel("input", source_kinds=frozenset({"user_input"})),
+            CallModel("exec", sink_kinds=frozenset({"rce"})),
+            CallModel("escape", sanitizer_kinds=frozenset({"user_input"})),
+        ]
+    )
+    assert registry.model_for_name("input").source_kinds == frozenset({"user_input"})
+    assert registry.model_for_name("exec").sink_kinds == frozenset({"rce"})
+    assert registry.model_for_name("escape").sanitizer_kinds == frozenset(
+        {"user_input"}
+    )
 
 
 def test_from_nullness_configuration():
@@ -206,20 +203,24 @@ def test_from_typestate_configuration():
 
 
 def test_registry_merged_combines_multiple_registries():
-    r1 = CallModelRegistry([CallModel(name="f", taint_source=True)])
-    r2 = CallModelRegistry([CallModel(name="f", taint_sink=True)])
+    r1 = CallModelRegistry(
+        [CallModel(name="f", source_kinds=frozenset({"user_input"}))]
+    )
+    r2 = CallModelRegistry([CallModel(name="f", sink_kinds=frozenset({"sql"}))])
     r3 = CallModelRegistry([CallModel(name="g", nullness_nullable_return=True)])
 
     merged = r1.merged(r2, r3)
-    assert merged.model_for_name("f").taint_source is True
-    assert merged.model_for_name("f").taint_sink is True
+    assert merged.model_for_name("f").source_kinds == frozenset({"user_input"})
+    assert merged.model_for_name("f").sink_kinds == frozenset({"sql"})
     assert merged.model_for_name("g").nullness_nullable_return is True
     assert merged.model_for_name("absent") is None
 
 
 def test_registry_merged_preserves_original():
-    r1 = CallModelRegistry([CallModel(name="f", taint_source=True)])
-    r2 = CallModelRegistry([CallModel(name="g", taint_sink=True)])
+    r1 = CallModelRegistry(
+        [CallModel(name="f", source_kinds=frozenset({"user_input"}))]
+    )
+    r2 = CallModelRegistry([CallModel(name="g", sink_kinds=frozenset({"sql"}))])
 
     merged = r1.merged(r2)
     assert r1.model_for_name("g") is None

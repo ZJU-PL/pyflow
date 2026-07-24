@@ -1,5 +1,6 @@
 tmp
 scripts
+!scripts/migrate_rule_packs_v2.py
 telemetry-id
 .qwen
 .omx

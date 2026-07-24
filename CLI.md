@@ -229,6 +229,8 @@ Unified security analysis frontend. Dispatches to one of four engines depending 
   ``requests``, ``serialization``, ``sql``, ``sqlalchemy``, ``stdlib``,
   ``tornado``, ``wtforms``, ``xml``)
 - ``--registry-path`` — load custom rule-pack JSON file(s) or directories (both IFDS and CPG engines)
+  using the strict schema-v2 format documented in
+  ``docs/ifds-rule-packs-v2.md``. Schema-v1 packs are rejected.
 - ``--typestate-protocol PROTOCOLS`` — typestate protocols for
   ``--analysis typestate``. May be repeated; supports ``resource``,
   ``python-builtins``, ``file``, ``socket``, ``lock``, ``transaction``

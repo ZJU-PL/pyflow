@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "framework": "fastapi",
   "version": "1.0",
   "description": "Fastapi nullable-return models for the IFDS nullness analysis",
@@ -13,5 +13,6 @@
       "nullness_nullable_return": true
     }
   ],
-  "type": "nullness"
+  "type": "nullness",
+  "rules": []
 }

@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "framework": "sqlalchemy",
   "version": "1.0",
   "description": "Sqlalchemy nullable-return models for the IFDS nullness analysis",
@@ -29,5 +29,6 @@
       "nullness_nullable_return": true
     }
   ],
-  "type": "nullness"
+  "type": "nullness",
+  "rules": []
 }

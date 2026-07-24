@@ -34,6 +34,7 @@ from .analyses.nullness import (
     analyze_nullness,
 )
 from .modeling.registry import load_registry
+from .modeling.calls import CallModelRegistry
 from .analyses.taint import TaintAnalysisResult, TaintConfiguration, analyze_taint
 from .analyses.typestate import (
     TypestateAnalysisResult,
@@ -297,9 +298,7 @@ def load_analysis_session(
     preserved_codes = ()
     target_source: str | None = None
     with stdout:
-        program.interface, all_source_code = build_interface_from_paths(
-            files, options
-        )
+        program.interface, all_source_code = build_interface_from_paths(files, options)
         compiler.extractor = Extractor(
             compiler, verbose=verbose, source_code=all_source_code
         )
@@ -346,9 +345,8 @@ def run_taint_analysis(
     python_files: Sequence[str | Path],
     *,
     function: str,
-    source_names: Iterable[str],
-    sink_names: Iterable[str],
-    sanitizer_names: Iterable[str] = (),
+    call_models=None,
+    rules=(),
     collection_mutator_names: Iterable[str] | None = None,
     collection_accessor_names: Iterable[str] | None = None,
     conservative_unresolved_call_side_effects: bool = False,
@@ -379,9 +377,10 @@ def run_taint_analysis(
     result = analyze_taint(
         session.adapter,
         TaintConfiguration(
-            source_names=frozenset(source_names),
-            sink_names=frozenset(sink_names),
-            sanitizer_names=frozenset(sanitizer_names),
+            call_models=(
+                call_models if call_models is not None else CallModelRegistry()
+            ),
+            rules=tuple(rules),
             collection_mutator_names=(
                 frozenset(collection_mutator_names)
                 if collection_mutator_names is not None

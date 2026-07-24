@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "framework": "aiohttp",
   "version": "1.0",
   "description": "Aiohttp taint models (extracted from root rule pack)",
@@ -13,627 +13,619 @@
   "models": [
     {
       "call": "aiohttp.client.ClientSession.delete",
-      "categories": [
-        "network",
-        "ssrf"
+      "cwe": "CWE-918",
+      "severity": "high",
+      "sources": [
+        {
+          "kind": "network",
+          "port": "return"
+        },
+        {
+          "kind": "ssrf",
+          "port": "return"
+        }
       ],
-      "taint_source": true
+      "sinks": [
+        {
+          "kind": "ssrf",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "aiohttp.client.ClientSession.get",
-      "categories": [
-        "network",
-        "ssrf"
+      "cwe": "CWE-918",
+      "severity": "high",
+      "sources": [
+        {
+          "kind": "network",
+          "port": "return"
+        },
+        {
+          "kind": "ssrf",
+          "port": "return"
+        }
       ],
-      "taint_source": true
+      "sinks": [
+        {
+          "kind": "ssrf",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "aiohttp.client.ClientSession.head",
-      "categories": [
-        "network",
-        "ssrf"
+      "cwe": "CWE-918",
+      "severity": "high",
+      "sources": [
+        {
+          "kind": "network",
+          "port": "return"
+        },
+        {
+          "kind": "ssrf",
+          "port": "return"
+        }
       ],
-      "taint_source": true
+      "sinks": [
+        {
+          "kind": "ssrf",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "aiohttp.client.ClientSession.options",
-      "categories": [
-        "network",
-        "ssrf"
+      "cwe": "CWE-918",
+      "severity": "high",
+      "sources": [
+        {
+          "kind": "network",
+          "port": "return"
+        },
+        {
+          "kind": "ssrf",
+          "port": "return"
+        }
       ],
-      "taint_source": true
+      "sinks": [
+        {
+          "kind": "ssrf",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "aiohttp.client.ClientSession.patch",
-      "categories": [
-        "network",
-        "ssrf"
+      "cwe": "CWE-918",
+      "severity": "high",
+      "sources": [
+        {
+          "kind": "network",
+          "port": "return"
+        },
+        {
+          "kind": "ssrf",
+          "port": "return"
+        }
       ],
-      "taint_source": true
+      "sinks": [
+        {
+          "kind": "ssrf",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "aiohttp.client.ClientSession.post",
-      "categories": [
-        "network",
-        "ssrf"
+      "cwe": "CWE-918",
+      "severity": "high",
+      "sources": [
+        {
+          "kind": "network",
+          "port": "return"
+        },
+        {
+          "kind": "ssrf",
+          "port": "return"
+        }
       ],
-      "taint_source": true
+      "sinks": [
+        {
+          "kind": "ssrf",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "aiohttp.client.ClientSession.put",
-      "categories": [
-        "network",
-        "ssrf"
+      "cwe": "CWE-918",
+      "severity": "high",
+      "sources": [
+        {
+          "kind": "network",
+          "port": "return"
+        },
+        {
+          "kind": "ssrf",
+          "port": "return"
+        }
       ],
-      "taint_source": true
+      "sinks": [
+        {
+          "kind": "ssrf",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "aiohttp.client.ClientSession.request",
-      "categories": [
-        "network",
-        "ssrf"
+      "cwe": "CWE-918",
+      "severity": "high",
+      "sources": [
+        {
+          "kind": "network",
+          "port": "return"
+        },
+        {
+          "kind": "ssrf",
+          "port": "return"
+        }
       ],
-      "taint_source": true
+      "sinks": [
+        {
+          "kind": "ssrf",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "aiohttp.client.ClientSession.ws_connect",
-      "categories": [
-        "network",
-        "ssrf"
+      "cwe": "CWE-918",
+      "severity": "high",
+      "sources": [
+        {
+          "kind": "network",
+          "port": "return"
+        },
+        {
+          "kind": "ssrf",
+          "port": "return"
+        }
       ],
-      "taint_source": true
+      "sinks": [
+        {
+          "kind": "ssrf",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "aiohttp.web_request.BaseRequest.__getitem__",
-      "category": "user_input",
-      "taint_source": true
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "aiohttp.web_request.BaseRequest.__iter__",
-      "category": "user_input",
-      "taint_source": true
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "aiohttp.web_request.BaseRequest.__repr__",
-      "category": "user_input",
-      "taint_source": true
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "aiohttp.web_request.BaseRequest.content",
-      "category": "user_input",
-      "taint_source": true
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "aiohttp.web_request.BaseRequest.cookies",
-      "category": "user_input",
-      "taint_source": true
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "aiohttp.web_request.BaseRequest.forwarded",
-      "category": "user_input",
-      "taint_source": true
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "aiohttp.web_request.BaseRequest.headers",
-      "category": "user_input",
-      "taint_source": true
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "aiohttp.web_request.BaseRequest.http_range",
-      "category": "user_input",
-      "taint_source": true
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "aiohttp.web_request.BaseRequest.path",
-      "category": "user_input",
-      "taint_source": true
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "aiohttp.web_request.BaseRequest.path_qs",
-      "category": "user_input",
-      "taint_source": true
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "aiohttp.web_request.BaseRequest.query",
-      "category": "user_input",
-      "taint_source": true
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "aiohttp.web_request.BaseRequest.query_string",
-      "category": "user_input",
-      "taint_source": true
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "aiohttp.web_request.BaseRequest.raw_headers",
-      "category": "user_input",
-      "taint_source": true
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "aiohttp.web_request.BaseRequest.raw_path",
-      "category": "user_input",
-      "taint_source": true
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "aiohttp.web_request.BaseRequest.rel_url",
-      "category": "user_input",
-      "taint_source": true
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "aiohttp.web_request.BaseRequest.url",
-      "category": "user_input",
-      "taint_source": true
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "aiohttp.web_request.Request.app",
-      "category": "user_input",
-      "taint_source": true
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "aiohttp.web_request.Request.config_dict",
-      "category": "user_input",
-      "taint_source": true
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "aiohttp.web_request.Request.match_info",
-      "category": "user_input",
-      "taint_source": true
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "aiohttp.web_response.StreamResponse.cookies",
-      "category": "user_input",
-      "taint_source": true
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "aiohttp.web_response.StreamResponse.headers",
-      "category": "user_input",
-      "taint_source": true
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "aiohttp.web_ws.WebSocketResponse.__aiter__",
-      "category": "user_input",
-      "taint_source": true
-    },
-    {
-      "call": "aiohttp.client.ClientSession.delete",
-      "category": "ssrf",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
-    },
-    {
-      "call": "aiohttp.client.ClientSession.get",
-      "category": "ssrf",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
-    },
-    {
-      "call": "aiohttp.client.ClientSession.head",
-      "category": "ssrf",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
-    },
-    {
-      "call": "aiohttp.client.ClientSession.options",
-      "category": "ssrf",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
-    },
-    {
-      "call": "aiohttp.client.ClientSession.patch",
-      "category": "ssrf",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
-    },
-    {
-      "call": "aiohttp.client.ClientSession.post",
-      "category": "ssrf",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
-    },
-    {
-      "call": "aiohttp.client.ClientSession.put",
-      "category": "ssrf",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
-    },
-    {
-      "call": "aiohttp.client.ClientSession.request",
-      "category": "ssrf",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
-    },
-    {
-      "call": "aiohttp.client.ClientSession.ws_connect",
-      "category": "ssrf",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "aiohttp.web_exceptions.HTTPException.__init__",
-      "categories": [
-        "user_input",
-        "xss"
-      ],
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
+      "cwe": "CWE-79",
+      "severity": "high",
+      "sinks": [
+        {
+          "kind": "user_input",
+          "port": {
+            "parameter": 0
+          }
+        },
+        {
+          "kind": "xss",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "aiohttp.web_exceptions.HTTPMethodNotAllowed.__init__",
-      "category": "xss",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
+      "cwe": "CWE-79",
+      "severity": "high",
+      "sinks": [
+        {
+          "kind": "xss",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "aiohttp.web_exceptions.HTTPUnavailableForLegalReasons.__init__",
-      "category": "xss",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
+      "cwe": "CWE-79",
+      "severity": "high",
+      "sinks": [
+        {
+          "kind": "xss",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "aiohttp.web_exceptions._HTTPMove.__init__",
-      "categories": [
-        "redirect",
-        "xss"
-      ],
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
+      "cwe": "CWE-601",
+      "severity": "high",
+      "sinks": [
+        {
+          "kind": "redirect",
+          "port": {
+            "parameter": 0
+          }
+        },
+        {
+          "kind": "xss",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "aiohttp.web_response.Response.__init__",
-      "category": "xss",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
+      "cwe": "CWE-79",
+      "severity": "high",
+      "sinks": [
+        {
+          "kind": "xss",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "aiohttp.web_response.Response.body",
-      "category": "xss",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
+      "cwe": "CWE-79",
+      "severity": "high",
+      "sinks": [
+        {
+          "kind": "xss",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "aiohttp.web_response.Response.text",
-      "category": "xss",
-      "sink_arg_positions": [
-        1
-      ],
-      "taint_sink": true
+      "cwe": "CWE-79",
+      "severity": "high",
+      "sinks": [
+        {
+          "kind": "xss",
+          "port": {
+            "parameter": 1
+          }
+        }
+      ]
     },
     {
       "call": "aiohttp.web_response.StreamResponse.__init__",
-      "category": "xss",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
+      "cwe": "CWE-79",
+      "severity": "high",
+      "sinks": [
+        {
+          "kind": "xss",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "aiohttp.web_response.json_response",
-      "category": "xss",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
+      "cwe": "CWE-79",
+      "severity": "high",
+      "sinks": [
+        {
+          "kind": "xss",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     }
   ],
   "rules": [
     {
-      "categories": [
-        "ssrf"
-      ],
-      "cwe": "CWE-918",
-      "id": "aiohttp/ssrf/aiohttp_client_ClientSession_delete",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        0
-      ],
-      "sinks": [
-        "aiohttp.client.ClientSession.delete"
-      ],
-      "title": "Tainted data reaches delete"
-    },
-    {
-      "categories": [
-        "ssrf"
-      ],
-      "cwe": "CWE-918",
-      "id": "aiohttp/ssrf/aiohttp_client_ClientSession_get",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        0
-      ],
-      "sinks": [
-        "aiohttp.client.ClientSession.get"
-      ],
-      "title": "Tainted data reaches get"
-    },
-    {
-      "categories": [
-        "ssrf"
-      ],
-      "cwe": "CWE-918",
-      "id": "aiohttp/ssrf/aiohttp_client_ClientSession_head",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        0
-      ],
-      "sinks": [
-        "aiohttp.client.ClientSession.head"
-      ],
-      "title": "Tainted data reaches head"
-    },
-    {
-      "categories": [
-        "ssrf"
-      ],
-      "cwe": "CWE-918",
-      "id": "aiohttp/ssrf/aiohttp_client_ClientSession_options",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        0
-      ],
-      "sinks": [
-        "aiohttp.client.ClientSession.options"
-      ],
-      "title": "Tainted data reaches options"
-    },
-    {
-      "categories": [
-        "ssrf"
-      ],
-      "cwe": "CWE-918",
-      "id": "aiohttp/ssrf/aiohttp_client_ClientSession_patch",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        0
-      ],
-      "sinks": [
-        "aiohttp.client.ClientSession.patch"
-      ],
-      "title": "Tainted data reaches patch"
-    },
-    {
-      "categories": [
-        "ssrf"
-      ],
-      "cwe": "CWE-918",
-      "id": "aiohttp/ssrf/aiohttp_client_ClientSession_post",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        0
-      ],
-      "sinks": [
-        "aiohttp.client.ClientSession.post"
-      ],
-      "title": "Tainted data reaches post"
-    },
-    {
-      "categories": [
-        "ssrf"
-      ],
-      "cwe": "CWE-918",
-      "id": "aiohttp/ssrf/aiohttp_client_ClientSession_put",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        0
-      ],
-      "sinks": [
-        "aiohttp.client.ClientSession.put"
-      ],
-      "title": "Tainted data reaches put"
-    },
-    {
-      "categories": [
-        "ssrf"
-      ],
-      "cwe": "CWE-918",
-      "id": "aiohttp/ssrf/aiohttp_client_ClientSession_request",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        0
-      ],
-      "sinks": [
-        "aiohttp.client.ClientSession.request"
-      ],
-      "title": "Tainted data reaches request"
-    },
-    {
-      "categories": [
-        "ssrf"
-      ],
-      "cwe": "CWE-918",
-      "id": "aiohttp/ssrf/aiohttp_client_ClientSession_ws_connect",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        0
-      ],
-      "sinks": [
-        "aiohttp.client.ClientSession.ws_connect"
-      ],
-      "title": "Tainted data reaches ws_connect"
-    },
-    {
-      "categories": [
+      "id": "PYFLOW-AIOHTTP-REDIRECT",
+      "title": "Untrusted data reaches redirect sink",
+      "sources": [
         "user_input",
-        "xss"
-      ],
-      "cwe": "CWE-79",
-      "id": "aiohttp/user_input_xss/aiohttp_web_exceptions_HTTPException___init__",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        0
+        "network",
+        "file",
+        "env",
+        "database",
+        "secrets",
+        "cache",
+        "userdata",
+        "untrusted",
+        "exception"
       ],
       "sinks": [
-        "aiohttp.web_exceptions.HTTPException.__init__"
+        "redirect"
       ],
-      "title": "Tainted data reaches __init__"
+      "severity": "high"
     },
     {
-      "categories": [
-        "xss"
-      ],
-      "cwe": "CWE-79",
-      "id": "aiohttp/xss/aiohttp_web_exceptions_HTTPMethodNotAllowed___init__",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        0
+      "id": "PYFLOW-AIOHTTP-SSRF",
+      "title": "Untrusted data reaches ssrf sink",
+      "sources": [
+        "user_input",
+        "network",
+        "file",
+        "env",
+        "database",
+        "secrets",
+        "cache",
+        "userdata",
+        "untrusted",
+        "exception"
       ],
       "sinks": [
-        "aiohttp.web_exceptions.HTTPMethodNotAllowed.__init__"
+        "ssrf"
       ],
-      "title": "Tainted data reaches __init__"
+      "severity": "high"
     },
     {
-      "categories": [
-        "xss"
-      ],
-      "cwe": "CWE-79",
-      "id": "aiohttp/xss/aiohttp_web_exceptions_HTTPUnavailableForLegalReasons___init__",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        0
+      "id": "PYFLOW-AIOHTTP-USER_INPUT",
+      "title": "Untrusted data reaches user_input sink",
+      "sources": [
+        "user_input",
+        "network",
+        "file",
+        "env",
+        "database",
+        "secrets",
+        "cache",
+        "userdata",
+        "untrusted",
+        "exception"
       ],
       "sinks": [
-        "aiohttp.web_exceptions.HTTPUnavailableForLegalReasons.__init__"
+        "user_input"
       ],
-      "title": "Tainted data reaches __init__"
+      "severity": "high"
     },
     {
-      "categories": [
-        "redirect",
-        "xss"
-      ],
-      "cwe": "CWE-601",
-      "id": "aiohttp/redirect_xss/aiohttp_web_exceptions__HTTPMove___init__",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        0
-      ],
-      "sinks": [
-        "aiohttp.web_exceptions._HTTPMove.__init__"
-      ],
-      "title": "Tainted data reaches __init__"
-    },
-    {
-      "categories": [
-        "xss"
-      ],
-      "cwe": "CWE-79",
-      "id": "aiohttp/xss/aiohttp_web_response_Response___init__",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        0
+      "id": "PYFLOW-AIOHTTP-XSS",
+      "title": "Untrusted data reaches xss sink",
+      "sources": [
+        "user_input",
+        "network",
+        "file",
+        "env",
+        "database",
+        "secrets",
+        "cache",
+        "userdata",
+        "untrusted",
+        "exception"
       ],
       "sinks": [
-        "aiohttp.web_response.Response.__init__"
-      ],
-      "title": "Tainted data reaches __init__"
-    },
-    {
-      "categories": [
         "xss"
       ],
-      "cwe": "CWE-79",
-      "id": "aiohttp/xss/aiohttp_web_response_Response_body",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        0
-      ],
-      "sinks": [
-        "aiohttp.web_response.Response.body"
-      ],
-      "title": "Tainted data reaches body"
-    },
-    {
-      "categories": [
-        "xss"
-      ],
-      "cwe": "CWE-79",
-      "id": "aiohttp/xss/aiohttp_web_response_Response_text",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        1
-      ],
-      "sinks": [
-        "aiohttp.web_response.Response.text"
-      ],
-      "title": "Tainted data reaches text"
-    },
-    {
-      "categories": [
-        "xss"
-      ],
-      "cwe": "CWE-79",
-      "id": "aiohttp/xss/aiohttp_web_response_StreamResponse___init__",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        0
-      ],
-      "sinks": [
-        "aiohttp.web_response.StreamResponse.__init__"
-      ],
-      "title": "Tainted data reaches __init__"
-    },
-    {
-      "categories": [
-        "xss"
-      ],
-      "cwe": "CWE-79",
-      "id": "aiohttp/xss/aiohttp_web_response_json_response",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        0
-      ],
-      "sinks": [
-        "aiohttp.web_response.json_response"
-      ],
-      "title": "Tainted data reaches json_response"
+      "severity": "high"
     }
   ],
   "type": "taint"

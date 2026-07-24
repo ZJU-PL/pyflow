@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "framework": "injection",
   "version": "1.0",
   "description": "Injection taint models (extracted from root rule pack)",
@@ -23,2271 +23,1845 @@
   "models": [
     {
       "call": "jinja2.Template.render",
-      "taint_sink": true
+      "sinks": [
+        {
+          "kind": "xss",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "jinja2.Environment.from_string",
-      "taint_sink": true
+      "sinks": [
+        {
+          "kind": "dangerous",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "mako.template.Template.render",
-      "taint_sink": true
+      "sinks": [
+        {
+          "kind": "xss",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "django.template.Template.render",
-      "taint_sink": true
+      "sinks": [
+        {
+          "kind": "xss",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "django.shortcuts.render",
-      "taint_sink": true
+      "sinks": [
+        {
+          "kind": "xss",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "markupsafe.escape",
-      "taint_sanitizer": true
+      "sanitizers": [
+        {
+          "kinds": "all",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "markupsafe.Markup.escape",
-      "taint_sanitizer": true
+      "sanitizers": [
+        {
+          "kinds": "all",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "markupsafe.Markup.striptags",
-      "taint_sanitizer": true
+      "sanitizers": [
+        {
+          "kinds": "all",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "bleach.clean",
-      "taint_sanitizer": true
+      "sanitizers": [
+        {
+          "kinds": "all",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "bleach.linkify",
-      "taint_sanitizer": true
+      "sanitizers": [
+        {
+          "kinds": "all",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "nh3.clean",
-      "taint_sanitizer": true
+      "sanitizers": [
+        {
+          "kinds": "all",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "django.utils.html.escape",
-      "taint_sanitizer": true
+      "sanitizers": [
+        {
+          "kinds": "all",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "django.utils.html.strip_tags",
-      "taint_sanitizer": true
+      "sanitizers": [
+        {
+          "kinds": "all",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "django.utils.html.format_html",
-      "taint_sanitizer": true
+      "sanitizers": [
+        {
+          "kinds": "all",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "html.escape",
-      "taint_sanitizer": true
+      "sanitizers": [
+        {
+          "kinds": "all",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "shlex.quote",
-      "taint_sanitizer": true
+      "sanitizers": [
+        {
+          "kinds": "all",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "shlex.split",
-      "taint_sanitizer": true
+      "sanitizers": [
+        {
+          "kinds": "all",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "pipes.quote",
-      "taint_sanitizer": true
+      "sanitizers": [
+        {
+          "kinds": "all",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "subprocess.list2cmdline",
-      "taint_sanitizer": true
+      "sanitizers": [
+        {
+          "kinds": "all",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "werkzeug.http.parse_options_header",
-      "taint_sanitizer": true
+      "sanitizers": [
+        {
+          "kinds": "all",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "email.header.Header.encode",
-      "taint_sanitizer": true
+      "sanitizers": [
+        {
+          "kinds": "all",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "email.utils.formataddr",
-      "taint_sanitizer": true
+      "sanitizers": [
+        {
+          "kinds": "all",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "urllib.parse.urlencode",
-      "taint_sanitizer": true
+      "sanitizers": [
+        {
+          "kinds": "all",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "urllib.parse.urlparse",
-      "taint_sanitizer": true
+      "sanitizers": [
+        {
+          "kinds": "all",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "urllib.parse.urlsplit",
-      "taint_sanitizer": true
+      "sanitizers": [
+        {
+          "kinds": "all",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "urllib.parse.urljoin",
-      "taint_sanitizer": true
+      "sanitizers": [
+        {
+          "kinds": "all",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "werkzeug.urls.url_parse",
-      "taint_sanitizer": true
+      "sanitizers": [
+        {
+          "kinds": "all",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "werkzeug.urls.url_encode",
-      "taint_sanitizer": true
+      "sanitizers": [
+        {
+          "kinds": "all",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "django.utils.http.url_has_allowed_host_and_scheme",
-      "taint_sanitizer": true
+      "sanitizers": [
+        {
+          "kinds": "all",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "django.utils.http.is_safe_url",
-      "taint_sanitizer": true
+      "sanitizers": [
+        {
+          "kinds": "all",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "werkzeug.utils.secure_filename",
-      "taint_sanitizer": true
+      "sanitizers": [
+        {
+          "kinds": "all",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "django.utils.text.get_valid_filename",
-      "taint_sanitizer": true
+      "sanitizers": [
+        {
+          "kinds": "all",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "Cheetah.Template.Template.__init__",
-      "category": "ssti",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
+      "cwe": "CWE-94",
+      "severity": "high",
+      "sinks": [
+        {
+          "kind": "ssti",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "__import__",
-      "category": "execimportsink",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
+      "severity": "medium",
+      "sinks": [
+        {
+          "kind": "execimportsink",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "airspeed.Template.__init__",
-      "category": "ssti",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
+      "cwe": "CWE-94",
+      "severity": "high",
+      "sinks": [
+        {
+          "kind": "ssti",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "amazon.api.AmazonAPI.__init__",
-      "category": "auth",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
+      "cwe": "CWE-287",
+      "severity": "high",
+      "sinks": [
+        {
+          "kind": "auth",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "asyncio.events.AbstractEventLoop.subprocess_exec",
-      "category": "execargsink",
-      "sink_arg_positions": [
-        1,
-        2
-      ],
-      "taint_sink": true
+      "severity": "medium",
+      "sinks": [
+        {
+          "kind": "execargsink",
+          "port": {
+            "parameter": 1
+          }
+        },
+        {
+          "kind": "execargsink",
+          "port": {
+            "parameter": 2
+          }
+        }
+      ]
     },
     {
       "call": "asyncio.events.AbstractEventLoop.subprocess_shell",
-      "categories": [
-        "execargsink",
-        "rce"
-      ],
-      "sink_arg_positions": [
-        0,
-        2
-      ],
-      "taint_sink": true
+      "cwe": "CWE-78",
+      "severity": "high",
+      "sinks": [
+        {
+          "kind": "execargsink",
+          "port": {
+            "parameter": 0
+          }
+        },
+        {
+          "kind": "execargsink",
+          "port": {
+            "parameter": 2
+          }
+        },
+        {
+          "kind": "rce",
+          "port": {
+            "parameter": 0
+          }
+        },
+        {
+          "kind": "rce",
+          "port": {
+            "parameter": 2
+          }
+        }
+      ]
     },
     {
       "call": "boto.s3.connection.S3Connection.__init__",
-      "category": "auth",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
+      "cwe": "CWE-287",
+      "severity": "high",
+      "sinks": [
+        {
+          "kind": "auth",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "boto3.client",
-      "category": "auth",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
+      "cwe": "CWE-287",
+      "severity": "high",
+      "sinks": [
+        {
+          "kind": "auth",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "chameleon.template.BaseTemplate.__init__",
-      "category": "ssti",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
+      "cwe": "CWE-94",
+      "severity": "high",
+      "sinks": [
+        {
+          "kind": "ssti",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "chevron.renderer.render",
-      "category": "ssti",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
+      "cwe": "CWE-94",
+      "severity": "high",
+      "sinks": [
+        {
+          "kind": "ssti",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "code.InteractiveConsole.push",
-      "category": "rce",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
+      "cwe": "CWE-78",
+      "severity": "high",
+      "sinks": [
+        {
+          "kind": "rce",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "code.InteractiveInterpreter.runcode",
-      "category": "rce",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
+      "cwe": "CWE-78",
+      "severity": "high",
+      "sinks": [
+        {
+          "kind": "rce",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "code.InteractiveInterpreter.runsource",
-      "category": "rce",
-      "sink_arg_positions": [
-        0,
-        1
-      ],
-      "taint_sink": true
+      "cwe": "CWE-78",
+      "severity": "high",
+      "sinks": [
+        {
+          "kind": "rce",
+          "port": {
+            "parameter": 0
+          }
+        },
+        {
+          "kind": "rce",
+          "port": {
+            "parameter": 1
+          }
+        }
+      ]
     },
     {
       "call": "code.compile_command",
-      "category": "rce",
-      "sink_arg_positions": [
-        0,
-        1
-      ],
-      "taint_sink": true
+      "cwe": "CWE-78",
+      "severity": "high",
+      "sinks": [
+        {
+          "kind": "rce",
+          "port": {
+            "parameter": 0
+          }
+        },
+        {
+          "kind": "rce",
+          "port": {
+            "parameter": 1
+          }
+        }
+      ]
     },
     {
       "call": "django.template.base.Template.__init__",
-      "category": "ssti",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
+      "cwe": "CWE-94",
+      "severity": "high",
+      "sinks": [
+        {
+          "kind": "ssti",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "django.template.engine.Engine.from_string",
-      "category": "ssti",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
+      "cwe": "CWE-94",
+      "severity": "high",
+      "sinks": [
+        {
+          "kind": "ssti",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "eval",
-      "category": "rce",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
+      "cwe": "CWE-78",
+      "severity": "high",
+      "sinks": [
+        {
+          "kind": "rce",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "exec",
-      "category": "rce",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
+      "cwe": "CWE-78",
+      "severity": "high",
+      "sinks": [
+        {
+          "kind": "rce",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "fabric.connection.Connection.local",
-      "category": "rce",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
+      "cwe": "CWE-78",
+      "severity": "high",
+      "sinks": [
+        {
+          "kind": "rce",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "fabric.connection.Connection.run",
-      "category": "rce",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
+      "cwe": "CWE-78",
+      "severity": "high",
+      "sinks": [
+        {
+          "kind": "rce",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "fabric.connection.Connection.sudo",
-      "category": "rce",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
+      "cwe": "CWE-78",
+      "severity": "high",
+      "sinks": [
+        {
+          "kind": "rce",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "fabric.operations.local",
-      "category": "rce",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
+      "cwe": "CWE-78",
+      "severity": "high",
+      "sinks": [
+        {
+          "kind": "rce",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "fabric.operations.reboot",
-      "category": "rce",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
+      "cwe": "CWE-78",
+      "severity": "high",
+      "sinks": [
+        {
+          "kind": "rce",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "fabric.operations.run",
-      "category": "rce",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
+      "cwe": "CWE-78",
+      "severity": "high",
+      "sinks": [
+        {
+          "kind": "rce",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "fabric.operations.sudo",
-      "category": "rce",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
+      "cwe": "CWE-78",
+      "severity": "high",
+      "sinks": [
+        {
+          "kind": "rce",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "fabric2.connection.Connection.local",
-      "category": "rce",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
+      "cwe": "CWE-78",
+      "severity": "high",
+      "sinks": [
+        {
+          "kind": "rce",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "fabric2.connection.Connection.run",
-      "category": "rce",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
+      "cwe": "CWE-78",
+      "severity": "high",
+      "sinks": [
+        {
+          "kind": "rce",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "fabric2.connection.Connection.sudo",
-      "category": "rce",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
+      "cwe": "CWE-78",
+      "severity": "high",
+      "sinks": [
+        {
+          "kind": "rce",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "genshi.template.base.Template.__init__",
-      "category": "ssti",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
+      "cwe": "CWE-94",
+      "severity": "high",
+      "sinks": [
+        {
+          "kind": "ssti",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "importlib.import_module",
-      "category": "execimportsink",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
+      "severity": "medium",
+      "sinks": [
+        {
+          "kind": "execimportsink",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "jinja2.environment.Environment.compile_expression",
-      "category": "ssti",
-      "sink_arg_positions": [
-        1
-      ],
-      "taint_sink": true
+      "cwe": "CWE-94",
+      "severity": "high",
+      "sinks": [
+        {
+          "kind": "ssti",
+          "port": {
+            "parameter": 1
+          }
+        }
+      ]
     },
     {
       "call": "jinja2.environment.Environment.from_string",
-      "category": "ssti",
-      "sink_arg_positions": [
-        1
-      ],
-      "taint_sink": true
+      "cwe": "CWE-94",
+      "severity": "high",
+      "sinks": [
+        {
+          "kind": "ssti",
+          "port": {
+            "parameter": 1
+          }
+        }
+      ]
     },
     {
       "call": "jinja2.environment.Template.__new__",
-      "category": "ssti",
-      "sink_arg_positions": [
-        1
-      ],
-      "taint_sink": true
+      "cwe": "CWE-94",
+      "severity": "high",
+      "sinks": [
+        {
+          "kind": "ssti",
+          "port": {
+            "parameter": 1
+          }
+        }
+      ]
     },
     {
       "call": "jinja2.filters.do_mark_safe",
-      "category": "xss",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
+      "cwe": "CWE-79",
+      "severity": "high",
+      "sinks": [
+        {
+          "kind": "xss",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "jsonpickle.backend.JSONBackend.load_backend",
-      "category": "execdeserializationsink",
-      "sink_arg_positions": [
-        1
-      ],
-      "taint_sink": true
+      "severity": "medium",
+      "sinks": [
+        {
+          "kind": "execdeserializationsink",
+          "port": {
+            "parameter": 1
+          }
+        }
+      ]
     },
     {
       "call": "jsonpickle.decode",
-      "category": "execdeserializationsink",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
+      "severity": "medium",
+      "sinks": [
+        {
+          "kind": "execdeserializationsink",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "jsonpickle.loads",
-      "category": "execdeserializationsink",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
+      "severity": "medium",
+      "sinks": [
+        {
+          "kind": "execdeserializationsink",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "jsonpickle.unpickler.decode",
-      "category": "execdeserializationsink",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
+      "severity": "medium",
+      "sinks": [
+        {
+          "kind": "execdeserializationsink",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "jsonpickle.unpickler.loadclass",
-      "category": "reflection",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
+      "severity": "medium",
+      "sinks": [
+        {
+          "kind": "reflection",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "jsonpickle.unpickler.loadrepr",
-      "category": "execdeserializationsink",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
+      "severity": "medium",
+      "sinks": [
+        {
+          "kind": "execdeserializationsink",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "jsonpickle.util.is_installed",
-      "category": "execdeserializationsink",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
+      "severity": "medium",
+      "sinks": [
+        {
+          "kind": "execdeserializationsink",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "mako.template.Template.__init__",
-      "category": "ssti",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
+      "cwe": "CWE-94",
+      "severity": "high",
+      "sinks": [
+        {
+          "kind": "ssti",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "markdown.core.Markdown.convert",
-      "category": "xss",
-      "sink_arg_positions": [
-        1
-      ],
-      "taint_sink": true
+      "cwe": "CWE-79",
+      "severity": "high",
+      "sinks": [
+        {
+          "kind": "xss",
+          "port": {
+            "parameter": 1
+          }
+        }
+      ]
     },
     {
       "call": "markdown.core.Markdown.convertFile",
-      "category": "xss",
-      "sink_arg_positions": [
-        1
-      ],
-      "taint_sink": true
+      "cwe": "CWE-79",
+      "severity": "high",
+      "sinks": [
+        {
+          "kind": "xss",
+          "port": {
+            "parameter": 1
+          }
+        }
+      ]
     },
     {
       "call": "markdown.core.markdown",
-      "category": "xss",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
+      "cwe": "CWE-79",
+      "severity": "high",
+      "sinks": [
+        {
+          "kind": "xss",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "markdown.core.markdownFromFile",
-      "category": "xss",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
+      "cwe": "CWE-79",
+      "severity": "high",
+      "sinks": [
+        {
+          "kind": "xss",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "markupsafe.Markup.__new__",
-      "category": "xss",
-      "sink_arg_positions": [
-        1
-      ],
-      "taint_sink": true
+      "cwe": "CWE-79",
+      "severity": "high",
+      "sinks": [
+        {
+          "kind": "xss",
+          "port": {
+            "parameter": 1
+          }
+        }
+      ]
     },
     {
       "call": "marshal.load",
-      "category": "file",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
+      "cwe": "CWE-22",
+      "severity": "high",
+      "sinks": [
+        {
+          "kind": "file",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "marshal.loads",
-      "category": "execdeserializationsink",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
+      "severity": "medium",
+      "sinks": [
+        {
+          "kind": "execdeserializationsink",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "os.execl",
-      "category": "execargsink",
-      "sink_arg_positions": [
-        0,
-        2
-      ],
-      "taint_sink": true
+      "severity": "medium",
+      "sinks": [
+        {
+          "kind": "execargsink",
+          "port": {
+            "parameter": 0
+          }
+        },
+        {
+          "kind": "execargsink",
+          "port": {
+            "parameter": 2
+          }
+        }
+      ]
     },
     {
       "call": "os.execle",
-      "category": "execargsink",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
+      "severity": "medium",
+      "sinks": [
+        {
+          "kind": "execargsink",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "os.execlp",
-      "category": "execargsink",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
+      "severity": "medium",
+      "sinks": [
+        {
+          "kind": "execargsink",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "os.execlpe",
-      "category": "execargsink",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
+      "severity": "medium",
+      "sinks": [
+        {
+          "kind": "execargsink",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "os.execv",
-      "category": "execargsink",
-      "sink_arg_positions": [
-        0,
-        1
-      ],
-      "taint_sink": true
+      "severity": "medium",
+      "sinks": [
+        {
+          "kind": "execargsink",
+          "port": {
+            "parameter": 0
+          }
+        },
+        {
+          "kind": "execargsink",
+          "port": {
+            "parameter": 1
+          }
+        }
+      ]
     },
     {
       "call": "os.execve",
-      "categories": [
-        "execargsink",
-        "execenvsink"
-      ],
-      "sink_arg_positions": [
-        0,
-        1,
-        2
-      ],
-      "taint_sink": true
+      "severity": "medium",
+      "sinks": [
+        {
+          "kind": "execargsink",
+          "port": {
+            "parameter": 0
+          }
+        },
+        {
+          "kind": "execargsink",
+          "port": {
+            "parameter": 1
+          }
+        },
+        {
+          "kind": "execargsink",
+          "port": {
+            "parameter": 2
+          }
+        },
+        {
+          "kind": "execenvsink",
+          "port": {
+            "parameter": 0
+          }
+        },
+        {
+          "kind": "execenvsink",
+          "port": {
+            "parameter": 1
+          }
+        },
+        {
+          "kind": "execenvsink",
+          "port": {
+            "parameter": 2
+          }
+        }
+      ]
     },
     {
       "call": "os.execvp",
-      "category": "execargsink",
-      "sink_arg_positions": [
-        0,
-        1
-      ],
-      "taint_sink": true
+      "severity": "medium",
+      "sinks": [
+        {
+          "kind": "execargsink",
+          "port": {
+            "parameter": 0
+          }
+        },
+        {
+          "kind": "execargsink",
+          "port": {
+            "parameter": 1
+          }
+        }
+      ]
     },
     {
       "call": "os.execvpe",
-      "categories": [
-        "execargsink",
-        "execenvsink"
-      ],
-      "sink_arg_positions": [
-        0,
-        1,
-        2
-      ],
-      "taint_sink": true
+      "severity": "medium",
+      "sinks": [
+        {
+          "kind": "execargsink",
+          "port": {
+            "parameter": 0
+          }
+        },
+        {
+          "kind": "execargsink",
+          "port": {
+            "parameter": 1
+          }
+        },
+        {
+          "kind": "execargsink",
+          "port": {
+            "parameter": 2
+          }
+        },
+        {
+          "kind": "execenvsink",
+          "port": {
+            "parameter": 0
+          }
+        },
+        {
+          "kind": "execenvsink",
+          "port": {
+            "parameter": 1
+          }
+        },
+        {
+          "kind": "execenvsink",
+          "port": {
+            "parameter": 2
+          }
+        }
+      ]
     },
     {
       "call": "os.popen",
-      "category": "rce",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
+      "cwe": "CWE-78",
+      "severity": "high",
+      "sinks": [
+        {
+          "kind": "rce",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "os.spawnl",
-      "category": "execargsink",
-      "sink_arg_positions": [
-        1,
-        3
-      ],
-      "taint_sink": true
+      "severity": "medium",
+      "sinks": [
+        {
+          "kind": "execargsink",
+          "port": {
+            "parameter": 1
+          }
+        },
+        {
+          "kind": "execargsink",
+          "port": {
+            "parameter": 3
+          }
+        }
+      ]
     },
     {
       "call": "os.spawnle",
-      "category": "execargsink",
-      "sink_arg_positions": [
-        1,
-        3
-      ],
-      "taint_sink": true
+      "severity": "medium",
+      "sinks": [
+        {
+          "kind": "execargsink",
+          "port": {
+            "parameter": 1
+          }
+        },
+        {
+          "kind": "execargsink",
+          "port": {
+            "parameter": 3
+          }
+        }
+      ]
     },
     {
       "call": "os.spawnlp",
-      "category": "execargsink",
-      "sink_arg_positions": [
-        1,
-        3
-      ],
-      "taint_sink": true
+      "severity": "medium",
+      "sinks": [
+        {
+          "kind": "execargsink",
+          "port": {
+            "parameter": 1
+          }
+        },
+        {
+          "kind": "execargsink",
+          "port": {
+            "parameter": 3
+          }
+        }
+      ]
     },
     {
       "call": "os.spawnlpe",
-      "category": "execargsink",
-      "sink_arg_positions": [
-        1,
-        3
-      ],
-      "taint_sink": true
+      "severity": "medium",
+      "sinks": [
+        {
+          "kind": "execargsink",
+          "port": {
+            "parameter": 1
+          }
+        },
+        {
+          "kind": "execargsink",
+          "port": {
+            "parameter": 3
+          }
+        }
+      ]
     },
     {
       "call": "os.spawnv",
-      "category": "execargsink",
-      "sink_arg_positions": [
-        1,
-        2
-      ],
-      "taint_sink": true
+      "severity": "medium",
+      "sinks": [
+        {
+          "kind": "execargsink",
+          "port": {
+            "parameter": 1
+          }
+        },
+        {
+          "kind": "execargsink",
+          "port": {
+            "parameter": 2
+          }
+        }
+      ]
     },
     {
       "call": "os.spawnve",
-      "categories": [
-        "execargsink",
-        "execenvsink"
-      ],
-      "sink_arg_positions": [
-        1,
-        2,
-        3
-      ],
-      "taint_sink": true
+      "severity": "medium",
+      "sinks": [
+        {
+          "kind": "execargsink",
+          "port": {
+            "parameter": 1
+          }
+        },
+        {
+          "kind": "execargsink",
+          "port": {
+            "parameter": 2
+          }
+        },
+        {
+          "kind": "execargsink",
+          "port": {
+            "parameter": 3
+          }
+        },
+        {
+          "kind": "execenvsink",
+          "port": {
+            "parameter": 1
+          }
+        },
+        {
+          "kind": "execenvsink",
+          "port": {
+            "parameter": 2
+          }
+        },
+        {
+          "kind": "execenvsink",
+          "port": {
+            "parameter": 3
+          }
+        }
+      ]
     },
     {
       "call": "os.spawnvp",
-      "category": "execargsink",
-      "sink_arg_positions": [
-        1,
-        2
-      ],
-      "taint_sink": true
+      "severity": "medium",
+      "sinks": [
+        {
+          "kind": "execargsink",
+          "port": {
+            "parameter": 1
+          }
+        },
+        {
+          "kind": "execargsink",
+          "port": {
+            "parameter": 2
+          }
+        }
+      ]
     },
     {
       "call": "os.spawnvpe",
-      "categories": [
-        "execargsink",
-        "execenvsink"
-      ],
-      "sink_arg_positions": [
-        0,
-        1,
-        2
-      ],
-      "taint_sink": true
+      "severity": "medium",
+      "sinks": [
+        {
+          "kind": "execargsink",
+          "port": {
+            "parameter": 0
+          }
+        },
+        {
+          "kind": "execargsink",
+          "port": {
+            "parameter": 1
+          }
+        },
+        {
+          "kind": "execargsink",
+          "port": {
+            "parameter": 2
+          }
+        },
+        {
+          "kind": "execenvsink",
+          "port": {
+            "parameter": 0
+          }
+        },
+        {
+          "kind": "execenvsink",
+          "port": {
+            "parameter": 1
+          }
+        },
+        {
+          "kind": "execenvsink",
+          "port": {
+            "parameter": 2
+          }
+        }
+      ]
     },
     {
       "call": "os.system",
-      "category": "rce",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
+      "cwe": "CWE-78",
+      "severity": "high",
+      "sinks": [
+        {
+          "kind": "rce",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "paramiko.channel.Channel.exec_command",
-      "category": "rce",
-      "sink_arg_positions": [
-        1
-      ],
-      "taint_sink": true
+      "cwe": "CWE-78",
+      "severity": "high",
+      "sinks": [
+        {
+          "kind": "rce",
+          "port": {
+            "parameter": 1
+          }
+        }
+      ]
     },
     {
       "call": "paramiko.client.SSHClient.exec_command",
-      "category": "rce",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
+      "cwe": "CWE-78",
+      "severity": "high",
+      "sinks": [
+        {
+          "kind": "rce",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "paramiko.proxy_command.ProxyCommand.__init__",
-      "category": "rce",
-      "sink_arg_positions": [
-        1
-      ],
-      "taint_sink": true
+      "cwe": "CWE-78",
+      "severity": "high",
+      "sinks": [
+        {
+          "kind": "rce",
+          "port": {
+            "parameter": 1
+          }
+        }
+      ]
     },
     {
       "call": "pexpect.spawn.__init__",
-      "category": "rce",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
+      "cwe": "CWE-78",
+      "severity": "high",
+      "sinks": [
+        {
+          "kind": "rce",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "pexpect.spawn.send",
-      "category": "rce",
-      "sink_arg_positions": [
-        1
-      ],
-      "taint_sink": true
+      "cwe": "CWE-78",
+      "severity": "high",
+      "sinks": [
+        {
+          "kind": "rce",
+          "port": {
+            "parameter": 1
+          }
+        }
+      ]
     },
     {
       "call": "pexpect.spawn.sendline",
-      "category": "rce",
-      "sink_arg_positions": [
-        1
-      ],
-      "taint_sink": true
+      "cwe": "CWE-78",
+      "severity": "high",
+      "sinks": [
+        {
+          "kind": "rce",
+          "port": {
+            "parameter": 1
+          }
+        }
+      ]
     },
     {
       "call": "pickle.Unpickler.__init__",
-      "category": "execdeserializationsink",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
+      "severity": "medium",
+      "sinks": [
+        {
+          "kind": "execdeserializationsink",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "pickle.load",
-      "category": "execdeserializationsink",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
+      "severity": "medium",
+      "sinks": [
+        {
+          "kind": "execdeserializationsink",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "pickle.loads",
-      "category": "execdeserializationsink",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
+      "severity": "medium",
+      "sinks": [
+        {
+          "kind": "execdeserializationsink",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "s3fs.core.S3FileSystem.__init__",
-      "category": "auth",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
+      "cwe": "CWE-287",
+      "severity": "high",
+      "sinks": [
+        {
+          "kind": "auth",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "shelve.open",
-      "category": "execdeserializationsink",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
+      "severity": "medium",
+      "sinks": [
+        {
+          "kind": "execdeserializationsink",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "subprocess.Popen.__new__",
-      "category": "execargsink",
-      "sink_arg_positions": [
-        0,
-        1
-      ],
-      "taint_sink": true
+      "severity": "medium",
+      "sinks": [
+        {
+          "kind": "execargsink",
+          "port": {
+            "parameter": 0
+          }
+        },
+        {
+          "kind": "execargsink",
+          "port": {
+            "parameter": 1
+          }
+        }
+      ]
     },
     {
       "call": "subprocess.call",
-      "category": "execargsink",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
+      "severity": "medium",
+      "sinks": [
+        {
+          "kind": "execargsink",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "subprocess.check_call",
-      "category": "execargsink",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
+      "severity": "medium",
+      "sinks": [
+        {
+          "kind": "execargsink",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "subprocess.check_output",
-      "category": "execargsink",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
+      "severity": "medium",
+      "sinks": [
+        {
+          "kind": "execargsink",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "subprocess.getoutput",
-      "category": "rce",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
+      "cwe": "CWE-78",
+      "severity": "high",
+      "sinks": [
+        {
+          "kind": "rce",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "subprocess.getstatusoutput",
-      "category": "rce",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
+      "cwe": "CWE-78",
+      "severity": "high",
+      "sinks": [
+        {
+          "kind": "rce",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "subprocess.run",
-      "category": "execargsink",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
+      "severity": "medium",
+      "sinks": [
+        {
+          "kind": "execargsink",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "trender.trender.TRender.__init__",
-      "category": "ssti",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
+      "cwe": "CWE-94",
+      "severity": "high",
+      "sinks": [
+        {
+          "kind": "ssti",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "yaml.load",
-      "category": "execdeserializationsink",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
+      "severity": "medium",
+      "sinks": [
+        {
+          "kind": "execdeserializationsink",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "yaml.load_all",
-      "category": "execdeserializationsink",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
+      "severity": "medium",
+      "sinks": [
+        {
+          "kind": "execdeserializationsink",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     }
   ],
   "rules": [
     {
-      "categories": [
-        "ssti"
-      ],
-      "cwe": "CWE-94",
-      "id": "injection/ssti/Cheetah_Template_Template___init__",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        0
-      ],
-      "sinks": [
-        "Cheetah.Template.Template.__init__"
-      ],
-      "title": "Tainted data reaches __init__"
-    },
-    {
-      "categories": [
-        "execimportsink"
-      ],
-      "id": "injection/execimportsink/__import__",
-      "pattern_type": "taint_sink",
-      "severity": "medium",
-      "sink_arg_positions": [
-        0
+      "id": "PYFLOW-INJECTION-AUTH",
+      "title": "Untrusted data reaches auth sink",
+      "sources": [
+        "user_input",
+        "network",
+        "file",
+        "env",
+        "database",
+        "secrets",
+        "cache",
+        "userdata",
+        "untrusted",
+        "exception"
       ],
       "sinks": [
-        "__import__"
-      ],
-      "title": "Tainted data reaches __import__"
-    },
-    {
-      "categories": [
-        "ssti"
-      ],
-      "cwe": "CWE-94",
-      "id": "injection/ssti/airspeed_Template___init__",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        0
-      ],
-      "sinks": [
-        "airspeed.Template.__init__"
-      ],
-      "title": "Tainted data reaches __init__"
-    },
-    {
-      "categories": [
         "auth"
       ],
-      "cwe": "CWE-287",
-      "id": "injection/auth/amazon_api_AmazonAPI___init__",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        0
-      ],
-      "sinks": [
-        "amazon.api.AmazonAPI.__init__"
-      ],
-      "title": "Tainted data reaches __init__"
+      "severity": "high"
     },
     {
-      "categories": [
+      "id": "PYFLOW-INJECTION-DANGEROUS",
+      "title": "Untrusted data reaches dangerous sink",
+      "sources": [
+        "user_input",
+        "network",
+        "file",
+        "env",
+        "database",
+        "secrets",
+        "cache",
+        "userdata",
+        "untrusted",
+        "exception"
+      ],
+      "sinks": [
+        "dangerous"
+      ],
+      "severity": "high"
+    },
+    {
+      "id": "PYFLOW-INJECTION-EXECARGSINK",
+      "title": "Untrusted data reaches execargsink sink",
+      "sources": [
+        "user_input",
+        "network",
+        "file",
+        "env",
+        "database",
+        "secrets",
+        "cache",
+        "userdata",
+        "untrusted",
+        "exception"
+      ],
+      "sinks": [
         "execargsink"
       ],
-      "id": "injection/execargsink/asyncio_events_AbstractEventLoop_subprocess_exec",
-      "pattern_type": "taint_sink",
-      "severity": "medium",
-      "sink_arg_positions": [
-        1,
-        2
-      ],
-      "sinks": [
-        "asyncio.events.AbstractEventLoop.subprocess_exec"
-      ],
-      "title": "Tainted data reaches subprocess_exec"
+      "severity": "high"
     },
     {
-      "categories": [
-        "execargsink",
-        "rce"
-      ],
-      "cwe": "CWE-78",
-      "id": "injection/execargsink_rce/asyncio_events_AbstractEventLoop_subprocess_shell",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        0,
-        2
-      ],
-      "sinks": [
-        "asyncio.events.AbstractEventLoop.subprocess_shell"
-      ],
-      "title": "Tainted data reaches subprocess_shell"
-    },
-    {
-      "categories": [
-        "auth"
-      ],
-      "cwe": "CWE-287",
-      "id": "injection/auth/boto_s3_connection_S3Connection___init__",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        0
+      "id": "PYFLOW-INJECTION-EXECDESERIALIZATIONSINK",
+      "title": "Untrusted data reaches execdeserializationsink sink",
+      "sources": [
+        "user_input",
+        "network",
+        "file",
+        "env",
+        "database",
+        "secrets",
+        "cache",
+        "userdata",
+        "untrusted",
+        "exception"
       ],
       "sinks": [
-        "boto.s3.connection.S3Connection.__init__"
+        "execdeserializationsink"
       ],
-      "title": "Tainted data reaches __init__"
+      "severity": "high"
     },
     {
-      "categories": [
-        "auth"
-      ],
-      "cwe": "CWE-287",
-      "id": "injection/auth/boto3_client",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        0
+      "id": "PYFLOW-INJECTION-EXECENVSINK",
+      "title": "Untrusted data reaches execenvsink sink",
+      "sources": [
+        "user_input",
+        "network",
+        "file",
+        "env",
+        "database",
+        "secrets",
+        "cache",
+        "userdata",
+        "untrusted",
+        "exception"
       ],
       "sinks": [
-        "boto3.client"
+        "execenvsink"
       ],
-      "title": "Tainted data reaches client"
+      "severity": "high"
     },
     {
-      "categories": [
-        "ssti"
-      ],
-      "cwe": "CWE-94",
-      "id": "injection/ssti/chameleon_template_BaseTemplate___init__",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        0
+      "id": "PYFLOW-INJECTION-EXECIMPORTSINK",
+      "title": "Untrusted data reaches execimportsink sink",
+      "sources": [
+        "user_input",
+        "network",
+        "file",
+        "env",
+        "database",
+        "secrets",
+        "cache",
+        "userdata",
+        "untrusted",
+        "exception"
       ],
       "sinks": [
-        "chameleon.template.BaseTemplate.__init__"
-      ],
-      "title": "Tainted data reaches __init__"
-    },
-    {
-      "categories": [
-        "ssti"
-      ],
-      "cwe": "CWE-94",
-      "id": "injection/ssti/chevron_renderer_render",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        0
-      ],
-      "sinks": [
-        "chevron.renderer.render"
-      ],
-      "title": "Tainted data reaches render"
-    },
-    {
-      "categories": [
-        "rce"
-      ],
-      "cwe": "CWE-78",
-      "id": "injection/rce/code_InteractiveConsole_push",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        0
-      ],
-      "sinks": [
-        "code.InteractiveConsole.push"
-      ],
-      "title": "Tainted data reaches push"
-    },
-    {
-      "categories": [
-        "rce"
-      ],
-      "cwe": "CWE-78",
-      "id": "injection/rce/code_InteractiveInterpreter_runcode",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        0
-      ],
-      "sinks": [
-        "code.InteractiveInterpreter.runcode"
-      ],
-      "title": "Tainted data reaches runcode"
-    },
-    {
-      "categories": [
-        "rce"
-      ],
-      "cwe": "CWE-78",
-      "id": "injection/rce/code_InteractiveInterpreter_runsource",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        0,
-        1
-      ],
-      "sinks": [
-        "code.InteractiveInterpreter.runsource"
-      ],
-      "title": "Tainted data reaches runsource"
-    },
-    {
-      "categories": [
-        "rce"
-      ],
-      "cwe": "CWE-78",
-      "id": "injection/rce/code_compile_command",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        0,
-        1
-      ],
-      "sinks": [
-        "code.compile_command"
-      ],
-      "title": "Tainted data reaches compile_command"
-    },
-    {
-      "categories": [
-        "ssti"
-      ],
-      "cwe": "CWE-94",
-      "id": "injection/ssti/django_template_base_Template___init__",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        0
-      ],
-      "sinks": [
-        "django.template.base.Template.__init__"
-      ],
-      "title": "Tainted data reaches __init__"
-    },
-    {
-      "categories": [
-        "ssti"
-      ],
-      "cwe": "CWE-94",
-      "id": "injection/ssti/django_template_engine_Engine_from_string",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        0
-      ],
-      "sinks": [
-        "django.template.engine.Engine.from_string"
-      ],
-      "title": "Tainted data reaches from_string"
-    },
-    {
-      "categories": [
-        "rce"
-      ],
-      "cwe": "CWE-78",
-      "id": "injection/rce/eval",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        0
-      ],
-      "sinks": [
-        "eval"
-      ],
-      "title": "Tainted data reaches eval"
-    },
-    {
-      "categories": [
-        "rce"
-      ],
-      "cwe": "CWE-78",
-      "id": "injection/rce/exec",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        0
-      ],
-      "sinks": [
-        "exec"
-      ],
-      "title": "Tainted data reaches exec"
-    },
-    {
-      "categories": [
-        "rce"
-      ],
-      "cwe": "CWE-78",
-      "id": "injection/rce/fabric_connection_Connection_local",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        0
-      ],
-      "sinks": [
-        "fabric.connection.Connection.local"
-      ],
-      "title": "Tainted data reaches local"
-    },
-    {
-      "categories": [
-        "rce"
-      ],
-      "cwe": "CWE-78",
-      "id": "injection/rce/fabric_connection_Connection_run",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        0
-      ],
-      "sinks": [
-        "fabric.connection.Connection.run"
-      ],
-      "title": "Tainted data reaches run"
-    },
-    {
-      "categories": [
-        "rce"
-      ],
-      "cwe": "CWE-78",
-      "id": "injection/rce/fabric_connection_Connection_sudo",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        0
-      ],
-      "sinks": [
-        "fabric.connection.Connection.sudo"
-      ],
-      "title": "Tainted data reaches sudo"
-    },
-    {
-      "categories": [
-        "rce"
-      ],
-      "cwe": "CWE-78",
-      "id": "injection/rce/fabric_operations_local",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        0
-      ],
-      "sinks": [
-        "fabric.operations.local"
-      ],
-      "title": "Tainted data reaches local"
-    },
-    {
-      "categories": [
-        "rce"
-      ],
-      "cwe": "CWE-78",
-      "id": "injection/rce/fabric_operations_reboot",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        0
-      ],
-      "sinks": [
-        "fabric.operations.reboot"
-      ],
-      "title": "Tainted data reaches reboot"
-    },
-    {
-      "categories": [
-        "rce"
-      ],
-      "cwe": "CWE-78",
-      "id": "injection/rce/fabric_operations_run",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        0
-      ],
-      "sinks": [
-        "fabric.operations.run"
-      ],
-      "title": "Tainted data reaches run"
-    },
-    {
-      "categories": [
-        "rce"
-      ],
-      "cwe": "CWE-78",
-      "id": "injection/rce/fabric_operations_sudo",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        0
-      ],
-      "sinks": [
-        "fabric.operations.sudo"
-      ],
-      "title": "Tainted data reaches sudo"
-    },
-    {
-      "categories": [
-        "rce"
-      ],
-      "cwe": "CWE-78",
-      "id": "injection/rce/fabric2_connection_Connection_local",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        0
-      ],
-      "sinks": [
-        "fabric2.connection.Connection.local"
-      ],
-      "title": "Tainted data reaches local"
-    },
-    {
-      "categories": [
-        "rce"
-      ],
-      "cwe": "CWE-78",
-      "id": "injection/rce/fabric2_connection_Connection_run",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        0
-      ],
-      "sinks": [
-        "fabric2.connection.Connection.run"
-      ],
-      "title": "Tainted data reaches run"
-    },
-    {
-      "categories": [
-        "rce"
-      ],
-      "cwe": "CWE-78",
-      "id": "injection/rce/fabric2_connection_Connection_sudo",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        0
-      ],
-      "sinks": [
-        "fabric2.connection.Connection.sudo"
-      ],
-      "title": "Tainted data reaches sudo"
-    },
-    {
-      "categories": [
-        "ssti"
-      ],
-      "cwe": "CWE-94",
-      "id": "injection/ssti/genshi_template_base_Template___init__",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        0
-      ],
-      "sinks": [
-        "genshi.template.base.Template.__init__"
-      ],
-      "title": "Tainted data reaches __init__"
-    },
-    {
-      "categories": [
         "execimportsink"
       ],
-      "id": "injection/execimportsink/importlib_import_module",
-      "pattern_type": "taint_sink",
-      "severity": "medium",
-      "sink_arg_positions": [
-        0
-      ],
-      "sinks": [
-        "importlib.import_module"
-      ],
-      "title": "Tainted data reaches import_module"
+      "severity": "high"
     },
     {
-      "categories": [
-        "ssti"
-      ],
-      "cwe": "CWE-94",
-      "id": "injection/ssti/jinja2_environment_Environment_compile_expression",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        1
-      ],
-      "sinks": [
-        "jinja2.environment.Environment.compile_expression"
-      ],
-      "title": "Tainted data reaches compile_expression"
-    },
-    {
-      "categories": [
-        "ssti"
-      ],
-      "cwe": "CWE-94",
-      "id": "injection/ssti/jinja2_environment_Environment_from_string",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        1
+      "id": "PYFLOW-INJECTION-FILE",
+      "title": "Untrusted data reaches file sink",
+      "sources": [
+        "user_input",
+        "network",
+        "file",
+        "env",
+        "database",
+        "secrets",
+        "cache",
+        "userdata",
+        "untrusted",
+        "exception"
       ],
       "sinks": [
-        "jinja2.environment.Environment.from_string"
-      ],
-      "title": "Tainted data reaches from_string"
-    },
-    {
-      "categories": [
-        "ssti"
-      ],
-      "cwe": "CWE-94",
-      "id": "injection/ssti/jinja2_environment_Template___new__",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        1
-      ],
-      "sinks": [
-        "jinja2.environment.Template.__new__"
-      ],
-      "title": "Tainted data reaches __new__"
-    },
-    {
-      "categories": [
-        "xss"
-      ],
-      "cwe": "CWE-79",
-      "id": "injection/xss/jinja2_filters_do_mark_safe",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        0
-      ],
-      "sinks": [
-        "jinja2.filters.do_mark_safe"
-      ],
-      "title": "Tainted data reaches do_mark_safe"
-    },
-    {
-      "categories": [
-        "execdeserializationsink"
-      ],
-      "id": "injection/execdeserializationsink/jsonpickle_backend_JSONBackend_load_backend",
-      "pattern_type": "taint_sink",
-      "severity": "medium",
-      "sink_arg_positions": [
-        1
-      ],
-      "sinks": [
-        "jsonpickle.backend.JSONBackend.load_backend"
-      ],
-      "title": "Tainted data reaches load_backend"
-    },
-    {
-      "categories": [
-        "execdeserializationsink"
-      ],
-      "id": "injection/execdeserializationsink/jsonpickle_decode",
-      "pattern_type": "taint_sink",
-      "severity": "medium",
-      "sink_arg_positions": [
-        0
-      ],
-      "sinks": [
-        "jsonpickle.decode"
-      ],
-      "title": "Tainted data reaches decode"
-    },
-    {
-      "categories": [
-        "execdeserializationsink"
-      ],
-      "id": "injection/execdeserializationsink/jsonpickle_loads",
-      "pattern_type": "taint_sink",
-      "severity": "medium",
-      "sink_arg_positions": [
-        0
-      ],
-      "sinks": [
-        "jsonpickle.loads"
-      ],
-      "title": "Tainted data reaches loads"
-    },
-    {
-      "categories": [
-        "execdeserializationsink"
-      ],
-      "id": "injection/execdeserializationsink/jsonpickle_unpickler_decode",
-      "pattern_type": "taint_sink",
-      "severity": "medium",
-      "sink_arg_positions": [
-        0
-      ],
-      "sinks": [
-        "jsonpickle.unpickler.decode"
-      ],
-      "title": "Tainted data reaches decode"
-    },
-    {
-      "categories": [
-        "reflection"
-      ],
-      "id": "injection/reflection/jsonpickle_unpickler_loadclass",
-      "pattern_type": "taint_sink",
-      "severity": "medium",
-      "sink_arg_positions": [
-        0
-      ],
-      "sinks": [
-        "jsonpickle.unpickler.loadclass"
-      ],
-      "title": "Tainted data reaches loadclass"
-    },
-    {
-      "categories": [
-        "execdeserializationsink"
-      ],
-      "id": "injection/execdeserializationsink/jsonpickle_unpickler_loadrepr",
-      "pattern_type": "taint_sink",
-      "severity": "medium",
-      "sink_arg_positions": [
-        0
-      ],
-      "sinks": [
-        "jsonpickle.unpickler.loadrepr"
-      ],
-      "title": "Tainted data reaches loadrepr"
-    },
-    {
-      "categories": [
-        "execdeserializationsink"
-      ],
-      "id": "injection/execdeserializationsink/jsonpickle_util_is_installed",
-      "pattern_type": "taint_sink",
-      "severity": "medium",
-      "sink_arg_positions": [
-        0
-      ],
-      "sinks": [
-        "jsonpickle.util.is_installed"
-      ],
-      "title": "Tainted data reaches is_installed"
-    },
-    {
-      "categories": [
-        "ssti"
-      ],
-      "cwe": "CWE-94",
-      "id": "injection/ssti/mako_template_Template___init__",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        0
-      ],
-      "sinks": [
-        "mako.template.Template.__init__"
-      ],
-      "title": "Tainted data reaches __init__"
-    },
-    {
-      "categories": [
-        "xss"
-      ],
-      "cwe": "CWE-79",
-      "id": "injection/xss/markdown_core_Markdown_convert",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        1
-      ],
-      "sinks": [
-        "markdown.core.Markdown.convert"
-      ],
-      "title": "Tainted data reaches convert"
-    },
-    {
-      "categories": [
-        "xss"
-      ],
-      "cwe": "CWE-79",
-      "id": "injection/xss/markdown_core_Markdown_convertFile",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        1
-      ],
-      "sinks": [
-        "markdown.core.Markdown.convertFile"
-      ],
-      "title": "Tainted data reaches convertFile"
-    },
-    {
-      "categories": [
-        "xss"
-      ],
-      "cwe": "CWE-79",
-      "id": "injection/xss/markdown_core_markdown",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        0
-      ],
-      "sinks": [
-        "markdown.core.markdown"
-      ],
-      "title": "Tainted data reaches markdown"
-    },
-    {
-      "categories": [
-        "xss"
-      ],
-      "cwe": "CWE-79",
-      "id": "injection/xss/markdown_core_markdownFromFile",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        0
-      ],
-      "sinks": [
-        "markdown.core.markdownFromFile"
-      ],
-      "title": "Tainted data reaches markdownFromFile"
-    },
-    {
-      "categories": [
-        "xss"
-      ],
-      "cwe": "CWE-79",
-      "id": "injection/xss/markupsafe_Markup___new__",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        1
-      ],
-      "sinks": [
-        "markupsafe.Markup.__new__"
-      ],
-      "title": "Tainted data reaches __new__"
-    },
-    {
-      "categories": [
         "file"
       ],
-      "cwe": "CWE-22",
-      "id": "injection/file/marshal_load",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        0
-      ],
-      "sinks": [
-        "marshal.load"
-      ],
-      "title": "Tainted data reaches load"
+      "severity": "high"
     },
     {
-      "categories": [
-        "execdeserializationsink"
-      ],
-      "id": "injection/execdeserializationsink/marshal_loads",
-      "pattern_type": "taint_sink",
-      "severity": "medium",
-      "sink_arg_positions": [
-        0
-      ],
-      "sinks": [
-        "marshal.loads"
-      ],
-      "title": "Tainted data reaches loads"
-    },
-    {
-      "categories": [
-        "execargsink"
-      ],
-      "id": "injection/execargsink/os_execl",
-      "pattern_type": "taint_sink",
-      "severity": "medium",
-      "sink_arg_positions": [
-        0,
-        2
+      "id": "PYFLOW-INJECTION-RCE",
+      "title": "Untrusted data reaches rce sink",
+      "sources": [
+        "user_input",
+        "network",
+        "file",
+        "env",
+        "database",
+        "secrets",
+        "cache",
+        "userdata",
+        "untrusted",
+        "exception"
       ],
       "sinks": [
-        "os.execl"
-      ],
-      "title": "Tainted data reaches execl"
-    },
-    {
-      "categories": [
-        "execargsink"
-      ],
-      "id": "injection/execargsink/os_execle",
-      "pattern_type": "taint_sink",
-      "severity": "medium",
-      "sink_arg_positions": [
-        0
-      ],
-      "sinks": [
-        "os.execle"
-      ],
-      "title": "Tainted data reaches execle"
-    },
-    {
-      "categories": [
-        "execargsink"
-      ],
-      "id": "injection/execargsink/os_execlp",
-      "pattern_type": "taint_sink",
-      "severity": "medium",
-      "sink_arg_positions": [
-        0
-      ],
-      "sinks": [
-        "os.execlp"
-      ],
-      "title": "Tainted data reaches execlp"
-    },
-    {
-      "categories": [
-        "execargsink"
-      ],
-      "id": "injection/execargsink/os_execlpe",
-      "pattern_type": "taint_sink",
-      "severity": "medium",
-      "sink_arg_positions": [
-        0
-      ],
-      "sinks": [
-        "os.execlpe"
-      ],
-      "title": "Tainted data reaches execlpe"
-    },
-    {
-      "categories": [
-        "execargsink"
-      ],
-      "id": "injection/execargsink/os_execv",
-      "pattern_type": "taint_sink",
-      "severity": "medium",
-      "sink_arg_positions": [
-        0,
-        1
-      ],
-      "sinks": [
-        "os.execv"
-      ],
-      "title": "Tainted data reaches execv"
-    },
-    {
-      "categories": [
-        "execargsink",
-        "execenvsink"
-      ],
-      "id": "injection/execargsink_execenvsink/os_execve",
-      "pattern_type": "taint_sink",
-      "severity": "medium",
-      "sink_arg_positions": [
-        0,
-        1,
-        2
-      ],
-      "sinks": [
-        "os.execve"
-      ],
-      "title": "Tainted data reaches execve"
-    },
-    {
-      "categories": [
-        "execargsink"
-      ],
-      "id": "injection/execargsink/os_execvp",
-      "pattern_type": "taint_sink",
-      "severity": "medium",
-      "sink_arg_positions": [
-        0,
-        1
-      ],
-      "sinks": [
-        "os.execvp"
-      ],
-      "title": "Tainted data reaches execvp"
-    },
-    {
-      "categories": [
-        "execargsink",
-        "execenvsink"
-      ],
-      "id": "injection/execargsink_execenvsink/os_execvpe",
-      "pattern_type": "taint_sink",
-      "severity": "medium",
-      "sink_arg_positions": [
-        0,
-        1,
-        2
-      ],
-      "sinks": [
-        "os.execvpe"
-      ],
-      "title": "Tainted data reaches execvpe"
-    },
-    {
-      "categories": [
         "rce"
       ],
-      "cwe": "CWE-78",
-      "id": "injection/rce/os_popen",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        0
-      ],
-      "sinks": [
-        "os.popen"
-      ],
-      "title": "Tainted data reaches popen"
+      "severity": "high"
     },
     {
-      "categories": [
-        "execargsink"
-      ],
-      "id": "injection/execargsink/os_spawnl",
-      "pattern_type": "taint_sink",
-      "severity": "medium",
-      "sink_arg_positions": [
-        1,
-        3
-      ],
-      "sinks": [
-        "os.spawnl"
-      ],
-      "title": "Tainted data reaches spawnl"
-    },
-    {
-      "categories": [
-        "execargsink"
-      ],
-      "id": "injection/execargsink/os_spawnle",
-      "pattern_type": "taint_sink",
-      "severity": "medium",
-      "sink_arg_positions": [
-        1,
-        3
+      "id": "PYFLOW-INJECTION-REFLECTION",
+      "title": "Untrusted data reaches reflection sink",
+      "sources": [
+        "user_input",
+        "network",
+        "file",
+        "env",
+        "database",
+        "secrets",
+        "cache",
+        "userdata",
+        "untrusted",
+        "exception"
       ],
       "sinks": [
-        "os.spawnle"
+        "reflection"
       ],
-      "title": "Tainted data reaches spawnle"
+      "severity": "high"
     },
     {
-      "categories": [
-        "execargsink"
-      ],
-      "id": "injection/execargsink/os_spawnlp",
-      "pattern_type": "taint_sink",
-      "severity": "medium",
-      "sink_arg_positions": [
-        1,
-        3
+      "id": "PYFLOW-INJECTION-SSTI",
+      "title": "Untrusted data reaches ssti sink",
+      "sources": [
+        "user_input",
+        "network",
+        "file",
+        "env",
+        "database",
+        "secrets",
+        "cache",
+        "userdata",
+        "untrusted",
+        "exception"
       ],
       "sinks": [
-        "os.spawnlp"
-      ],
-      "title": "Tainted data reaches spawnlp"
-    },
-    {
-      "categories": [
-        "execargsink"
-      ],
-      "id": "injection/execargsink/os_spawnlpe",
-      "pattern_type": "taint_sink",
-      "severity": "medium",
-      "sink_arg_positions": [
-        1,
-        3
-      ],
-      "sinks": [
-        "os.spawnlpe"
-      ],
-      "title": "Tainted data reaches spawnlpe"
-    },
-    {
-      "categories": [
-        "execargsink"
-      ],
-      "id": "injection/execargsink/os_spawnv",
-      "pattern_type": "taint_sink",
-      "severity": "medium",
-      "sink_arg_positions": [
-        1,
-        2
-      ],
-      "sinks": [
-        "os.spawnv"
-      ],
-      "title": "Tainted data reaches spawnv"
-    },
-    {
-      "categories": [
-        "execargsink",
-        "execenvsink"
-      ],
-      "id": "injection/execargsink_execenvsink/os_spawnve",
-      "pattern_type": "taint_sink",
-      "severity": "medium",
-      "sink_arg_positions": [
-        1,
-        2,
-        3
-      ],
-      "sinks": [
-        "os.spawnve"
-      ],
-      "title": "Tainted data reaches spawnve"
-    },
-    {
-      "categories": [
-        "execargsink"
-      ],
-      "id": "injection/execargsink/os_spawnvp",
-      "pattern_type": "taint_sink",
-      "severity": "medium",
-      "sink_arg_positions": [
-        1,
-        2
-      ],
-      "sinks": [
-        "os.spawnvp"
-      ],
-      "title": "Tainted data reaches spawnvp"
-    },
-    {
-      "categories": [
-        "execargsink",
-        "execenvsink"
-      ],
-      "id": "injection/execargsink_execenvsink/os_spawnvpe",
-      "pattern_type": "taint_sink",
-      "severity": "medium",
-      "sink_arg_positions": [
-        0,
-        1,
-        2
-      ],
-      "sinks": [
-        "os.spawnvpe"
-      ],
-      "title": "Tainted data reaches spawnvpe"
-    },
-    {
-      "categories": [
-        "rce"
-      ],
-      "cwe": "CWE-78",
-      "id": "injection/rce/os_system",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        0
-      ],
-      "sinks": [
-        "os.system"
-      ],
-      "title": "Tainted data reaches system"
-    },
-    {
-      "categories": [
-        "rce"
-      ],
-      "cwe": "CWE-78",
-      "id": "injection/rce/paramiko_channel_Channel_exec_command",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        1
-      ],
-      "sinks": [
-        "paramiko.channel.Channel.exec_command"
-      ],
-      "title": "Tainted data reaches exec_command"
-    },
-    {
-      "categories": [
-        "rce"
-      ],
-      "cwe": "CWE-78",
-      "id": "injection/rce/paramiko_client_SSHClient_exec_command",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        0
-      ],
-      "sinks": [
-        "paramiko.client.SSHClient.exec_command"
-      ],
-      "title": "Tainted data reaches exec_command"
-    },
-    {
-      "categories": [
-        "rce"
-      ],
-      "cwe": "CWE-78",
-      "id": "injection/rce/paramiko_proxy_command_ProxyCommand___init__",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        1
-      ],
-      "sinks": [
-        "paramiko.proxy_command.ProxyCommand.__init__"
-      ],
-      "title": "Tainted data reaches __init__"
-    },
-    {
-      "categories": [
-        "rce"
-      ],
-      "cwe": "CWE-78",
-      "id": "injection/rce/pexpect_spawn___init__",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        0
-      ],
-      "sinks": [
-        "pexpect.spawn.__init__"
-      ],
-      "title": "Tainted data reaches __init__"
-    },
-    {
-      "categories": [
-        "rce"
-      ],
-      "cwe": "CWE-78",
-      "id": "injection/rce/pexpect_spawn_send",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        1
-      ],
-      "sinks": [
-        "pexpect.spawn.send"
-      ],
-      "title": "Tainted data reaches send"
-    },
-    {
-      "categories": [
-        "rce"
-      ],
-      "cwe": "CWE-78",
-      "id": "injection/rce/pexpect_spawn_sendline",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        1
-      ],
-      "sinks": [
-        "pexpect.spawn.sendline"
-      ],
-      "title": "Tainted data reaches sendline"
-    },
-    {
-      "categories": [
-        "execdeserializationsink"
-      ],
-      "id": "injection/execdeserializationsink/pickle_Unpickler___init__",
-      "pattern_type": "taint_sink",
-      "severity": "medium",
-      "sink_arg_positions": [
-        0
-      ],
-      "sinks": [
-        "pickle.Unpickler.__init__"
-      ],
-      "title": "Tainted data reaches __init__"
-    },
-    {
-      "categories": [
-        "execdeserializationsink"
-      ],
-      "id": "injection/execdeserializationsink/pickle_load",
-      "pattern_type": "taint_sink",
-      "severity": "medium",
-      "sink_arg_positions": [
-        0
-      ],
-      "sinks": [
-        "pickle.load"
-      ],
-      "title": "Tainted data reaches load"
-    },
-    {
-      "categories": [
-        "execdeserializationsink"
-      ],
-      "id": "injection/execdeserializationsink/pickle_loads",
-      "pattern_type": "taint_sink",
-      "severity": "medium",
-      "sink_arg_positions": [
-        0
-      ],
-      "sinks": [
-        "pickle.loads"
-      ],
-      "title": "Tainted data reaches loads"
-    },
-    {
-      "categories": [
-        "auth"
-      ],
-      "cwe": "CWE-287",
-      "id": "injection/auth/s3fs_core_S3FileSystem___init__",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        0
-      ],
-      "sinks": [
-        "s3fs.core.S3FileSystem.__init__"
-      ],
-      "title": "Tainted data reaches __init__"
-    },
-    {
-      "categories": [
-        "execdeserializationsink"
-      ],
-      "id": "injection/execdeserializationsink/shelve_open",
-      "pattern_type": "taint_sink",
-      "severity": "medium",
-      "sink_arg_positions": [
-        0
-      ],
-      "sinks": [
-        "shelve.open"
-      ],
-      "title": "Tainted data reaches open"
-    },
-    {
-      "categories": [
-        "execargsink"
-      ],
-      "id": "injection/execargsink/subprocess_Popen___new__",
-      "pattern_type": "taint_sink",
-      "severity": "medium",
-      "sink_arg_positions": [
-        0,
-        1
-      ],
-      "sinks": [
-        "subprocess.Popen.__new__"
-      ],
-      "title": "Tainted data reaches __new__"
-    },
-    {
-      "categories": [
-        "execargsink"
-      ],
-      "id": "injection/execargsink/subprocess_call",
-      "pattern_type": "taint_sink",
-      "severity": "medium",
-      "sink_arg_positions": [
-        0
-      ],
-      "sinks": [
-        "subprocess.call"
-      ],
-      "title": "Tainted data reaches call"
-    },
-    {
-      "categories": [
-        "execargsink"
-      ],
-      "id": "injection/execargsink/subprocess_check_call",
-      "pattern_type": "taint_sink",
-      "severity": "medium",
-      "sink_arg_positions": [
-        0
-      ],
-      "sinks": [
-        "subprocess.check_call"
-      ],
-      "title": "Tainted data reaches check_call"
-    },
-    {
-      "categories": [
-        "execargsink"
-      ],
-      "id": "injection/execargsink/subprocess_check_output",
-      "pattern_type": "taint_sink",
-      "severity": "medium",
-      "sink_arg_positions": [
-        0
-      ],
-      "sinks": [
-        "subprocess.check_output"
-      ],
-      "title": "Tainted data reaches check_output"
-    },
-    {
-      "categories": [
-        "rce"
-      ],
-      "cwe": "CWE-78",
-      "id": "injection/rce/subprocess_getoutput",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        0
-      ],
-      "sinks": [
-        "subprocess.getoutput"
-      ],
-      "title": "Tainted data reaches getoutput"
-    },
-    {
-      "categories": [
-        "rce"
-      ],
-      "cwe": "CWE-78",
-      "id": "injection/rce/subprocess_getstatusoutput",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        0
-      ],
-      "sinks": [
-        "subprocess.getstatusoutput"
-      ],
-      "title": "Tainted data reaches getstatusoutput"
-    },
-    {
-      "categories": [
-        "execargsink"
-      ],
-      "id": "injection/execargsink/subprocess_run",
-      "pattern_type": "taint_sink",
-      "severity": "medium",
-      "sink_arg_positions": [
-        0
-      ],
-      "sinks": [
-        "subprocess.run"
-      ],
-      "title": "Tainted data reaches run"
-    },
-    {
-      "categories": [
         "ssti"
       ],
-      "cwe": "CWE-94",
-      "id": "injection/ssti/trender_trender_TRender___init__",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        0
-      ],
-      "sinks": [
-        "trender.trender.TRender.__init__"
-      ],
-      "title": "Tainted data reaches __init__"
+      "severity": "high"
     },
     {
-      "categories": [
-        "execdeserializationsink"
-      ],
-      "id": "injection/execdeserializationsink/yaml_load",
-      "pattern_type": "taint_sink",
-      "severity": "medium",
-      "sink_arg_positions": [
-        0
-      ],
-      "sinks": [
-        "yaml.load"
-      ],
-      "title": "Tainted data reaches load"
-    },
-    {
-      "categories": [
-        "execdeserializationsink"
-      ],
-      "id": "injection/execdeserializationsink/yaml_load_all",
-      "pattern_type": "taint_sink",
-      "severity": "medium",
-      "sink_arg_positions": [
-        0
+      "id": "PYFLOW-INJECTION-XSS",
+      "title": "Untrusted data reaches xss sink",
+      "sources": [
+        "user_input",
+        "network",
+        "file",
+        "env",
+        "database",
+        "secrets",
+        "cache",
+        "userdata",
+        "untrusted",
+        "exception"
       ],
       "sinks": [
-        "yaml.load_all"
+        "xss"
       ],
-      "title": "Tainted data reaches load_all"
+      "severity": "high"
     }
   ],
   "type": "taint"

@@ -67,7 +67,9 @@ class InterproceduralFlowPathProblem(
     def bottom_value(self) -> frozenset[str]:
         return frozenset()
 
-    def join_values(self, left: frozenset[str], right: frozenset[str]) -> frozenset[str]:
+    def join_values(
+        self, left: frozenset[str], right: frozenset[str]
+    ) -> frozenset[str]:
         return left | right
 
     def initial_seed_values(self):
@@ -119,10 +121,12 @@ class InterproceduralFlowPathProblem(
                 return f"{name}()"
         return "<call>"
 
-    def _make_location_fact(self, location: object) -> str:
+    def _make_location_fact(self, location: object, template_fact=None) -> str:
         return ZERO_COLLECTOR
 
-    def _make_expression_fact(self, procedure, expression, result_index=0) -> str:
+    def _make_expression_fact(
+        self, procedure, expression, result_index=0, template_fact=None
+    ) -> str:
         return ZERO_COLLECTOR
 
     def _location_from_fact(self, fact: str) -> object | None:

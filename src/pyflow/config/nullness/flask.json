@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "framework": "flask",
   "version": "1.0",
   "description": "Flask nullable-return models for the IFDS nullness analysis",
@@ -33,5 +33,6 @@
       "nullness_nullable_return": true
     }
   ],
-  "type": "nullness"
+  "type": "nullness",
+  "rules": []
 }

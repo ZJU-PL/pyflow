@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "framework": "falcon",
   "version": "1.0",
   "description": "Falcon taint models (extracted from root rule pack)",
@@ -12,363 +12,400 @@
   "models": [
     {
       "call": "falcon.request.Request._cookies",
-      "category": "user_input",
-      "taint_source": true
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "falcon.request.Request._params",
-      "category": "user_input",
-      "taint_source": true
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "falcon.request.Request.access_route",
-      "category": "user_input",
-      "taint_source": true
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "falcon.request.Request.app",
-      "category": "user_input",
-      "taint_source": true
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "falcon.request.Request.auth",
-      "category": "user_input",
-      "taint_source": true
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "falcon.request.Request.cookies",
-      "category": "user_input",
-      "taint_source": true
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "falcon.request.Request.env",
-      "categories": [
-        "user_input",
-        "userdata"
-      ],
-      "taint_source": true
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        },
+        {
+          "kind": "userdata",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "falcon.request.Request.forwarded_host",
-      "category": "user_input",
-      "taint_source": true
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "falcon.request.Request.get_header",
-      "category": "user_input",
-      "taint_source": true
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "falcon.request.Request.headers",
-      "category": "user_input",
-      "taint_source": true
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "falcon.request.Request.params",
-      "category": "user_input",
-      "taint_source": true
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "falcon.request.Request.path",
-      "category": "user_input",
-      "taint_source": true
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "falcon.request.Request.query_string",
-      "category": "user_input",
-      "taint_source": true
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "falcon.request.Request.referer",
-      "category": "user_input",
-      "taint_source": true
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "falcon.request.Request.stream",
-      "category": "user_input",
-      "taint_source": true
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "falcon.request.Request.url",
-      "category": "user_input",
-      "taint_source": true
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "falcon.request.Request.user_agent",
-      "category": "user_input",
-      "taint_source": true
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "falcon.response.Response._data",
-      "category": "user_input",
-      "taint_source": true
+      "cwe": "CWE-79",
+      "severity": "high",
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ],
+      "sinks": [
+        {
+          "kind": "xss",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "falcon.response.Response._media",
-      "category": "user_input",
-      "taint_source": true
+      "cwe": "CWE-79",
+      "severity": "high",
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ],
+      "sinks": [
+        {
+          "kind": "xss",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "falcon.response.Response.body",
-      "category": "user_input",
-      "taint_source": true
+      "cwe": "CWE-79",
+      "severity": "high",
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ],
+      "sinks": [
+        {
+          "kind": "xss",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "falcon.response.Response.stream",
-      "category": "user_input",
-      "taint_source": true
+      "cwe": "CWE-79",
+      "severity": "high",
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ],
+      "sinks": [
+        {
+          "kind": "xss",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "falcon.util.uri.decode",
-      "category": "user_input",
-      "taint_source": true
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "falcon.util.uri.parse_query_string",
-      "category": "user_input",
-      "taint_source": true
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "falcon.redirects.HTTPFound.__init__",
-      "categories": [
-        "redirect",
-        "xss"
-      ],
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
+      "cwe": "CWE-601",
+      "severity": "high",
+      "sinks": [
+        {
+          "kind": "redirect",
+          "port": {
+            "parameter": 0
+          }
+        },
+        {
+          "kind": "xss",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "falcon.redirects.HTTPMovedPermanently.__init__",
-      "categories": [
-        "redirect",
-        "xss"
-      ],
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
+      "cwe": "CWE-601",
+      "severity": "high",
+      "sinks": [
+        {
+          "kind": "redirect",
+          "port": {
+            "parameter": 0
+          }
+        },
+        {
+          "kind": "xss",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "falcon.redirects.HTTPPermanentRedirect.__init__",
-      "categories": [
-        "redirect",
-        "xss"
-      ],
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
+      "cwe": "CWE-601",
+      "severity": "high",
+      "sinks": [
+        {
+          "kind": "redirect",
+          "port": {
+            "parameter": 0
+          }
+        },
+        {
+          "kind": "xss",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "falcon.redirects.HTTPSeeOther.__init__",
-      "categories": [
-        "redirect",
-        "xss"
-      ],
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
+      "cwe": "CWE-601",
+      "severity": "high",
+      "sinks": [
+        {
+          "kind": "redirect",
+          "port": {
+            "parameter": 0
+          }
+        },
+        {
+          "kind": "xss",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "falcon.redirects.HTTPTemporaryRedirect.__init__",
-      "categories": [
-        "redirect",
-        "xss"
-      ],
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
-    },
-    {
-      "call": "falcon.response.Response._data",
-      "category": "xss",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
-    },
-    {
-      "call": "falcon.response.Response._media",
-      "category": "xss",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
-    },
-    {
-      "call": "falcon.response.Response.body",
-      "category": "xss",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
-    },
-    {
-      "call": "falcon.response.Response.stream",
-      "category": "xss",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
+      "cwe": "CWE-601",
+      "severity": "high",
+      "sinks": [
+        {
+          "kind": "redirect",
+          "port": {
+            "parameter": 0
+          }
+        },
+        {
+          "kind": "xss",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "falcon.request.Request.get_param_as_bool",
-      "taint_sanitizer": true
+      "sanitizers": [
+        {
+          "kinds": "all",
+          "port": "return"
+        }
+      ]
     }
   ],
   "rules": [
     {
-      "categories": [
-        "redirect",
-        "xss"
-      ],
-      "cwe": "CWE-601",
-      "id": "falcon/redirect_xss/falcon_redirects_HTTPFound___init__",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        0
+      "id": "PYFLOW-FALCON-REDIRECT",
+      "title": "Untrusted data reaches redirect sink",
+      "sources": [
+        "user_input",
+        "network",
+        "file",
+        "env",
+        "database",
+        "secrets",
+        "cache",
+        "userdata",
+        "untrusted",
+        "exception"
       ],
       "sinks": [
-        "falcon.redirects.HTTPFound.__init__"
+        "redirect"
       ],
-      "title": "Tainted data reaches __init__"
+      "severity": "high"
     },
     {
-      "categories": [
-        "redirect",
-        "xss"
-      ],
-      "cwe": "CWE-601",
-      "id": "falcon/redirect_xss/falcon_redirects_HTTPMovedPermanently___init__",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        0
-      ],
-      "sinks": [
-        "falcon.redirects.HTTPMovedPermanently.__init__"
-      ],
-      "title": "Tainted data reaches __init__"
-    },
-    {
-      "categories": [
-        "redirect",
-        "xss"
-      ],
-      "cwe": "CWE-601",
-      "id": "falcon/redirect_xss/falcon_redirects_HTTPPermanentRedirect___init__",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        0
+      "id": "PYFLOW-FALCON-XSS",
+      "title": "Untrusted data reaches xss sink",
+      "sources": [
+        "user_input",
+        "network",
+        "file",
+        "env",
+        "database",
+        "secrets",
+        "cache",
+        "userdata",
+        "untrusted",
+        "exception"
       ],
       "sinks": [
-        "falcon.redirects.HTTPPermanentRedirect.__init__"
-      ],
-      "title": "Tainted data reaches __init__"
-    },
-    {
-      "categories": [
-        "redirect",
         "xss"
       ],
-      "cwe": "CWE-601",
-      "id": "falcon/redirect_xss/falcon_redirects_HTTPSeeOther___init__",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        0
-      ],
-      "sinks": [
-        "falcon.redirects.HTTPSeeOther.__init__"
-      ],
-      "title": "Tainted data reaches __init__"
-    },
-    {
-      "categories": [
-        "redirect",
-        "xss"
-      ],
-      "cwe": "CWE-601",
-      "id": "falcon/redirect_xss/falcon_redirects_HTTPTemporaryRedirect___init__",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        0
-      ],
-      "sinks": [
-        "falcon.redirects.HTTPTemporaryRedirect.__init__"
-      ],
-      "title": "Tainted data reaches __init__"
-    },
-    {
-      "categories": [
-        "xss"
-      ],
-      "cwe": "CWE-79",
-      "id": "falcon/xss/falcon_response_Response__data",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        0
-      ],
-      "sinks": [
-        "falcon.response.Response._data"
-      ],
-      "title": "Tainted data reaches _data"
-    },
-    {
-      "categories": [
-        "xss"
-      ],
-      "cwe": "CWE-79",
-      "id": "falcon/xss/falcon_response_Response__media",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        0
-      ],
-      "sinks": [
-        "falcon.response.Response._media"
-      ],
-      "title": "Tainted data reaches _media"
-    },
-    {
-      "categories": [
-        "xss"
-      ],
-      "cwe": "CWE-79",
-      "id": "falcon/xss/falcon_response_Response_body",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        0
-      ],
-      "sinks": [
-        "falcon.response.Response.body"
-      ],
-      "title": "Tainted data reaches body"
-    },
-    {
-      "categories": [
-        "xss"
-      ],
-      "cwe": "CWE-79",
-      "id": "falcon/xss/falcon_response_Response_stream",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        0
-      ],
-      "sinks": [
-        "falcon.response.Response.stream"
-      ],
-      "title": "Tainted data reaches stream"
+      "severity": "high"
     }
   ],
   "type": "taint"

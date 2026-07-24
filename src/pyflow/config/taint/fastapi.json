@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "framework": "fastapi",
   "version": "1.0",
   "description": "Fastapi taint models (extracted from root rule pack)",
@@ -23,169 +23,402 @@
   "models": [
     {
       "call": "fastapi.Request.query_params.get",
-      "taint_source": true,
-      "category": "user_input"
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "fastapi.Request.path_params.get",
-      "taint_source": true,
-      "category": "user_input"
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "fastapi.Request.headers.get",
-      "taint_source": true,
-      "category": "user_input"
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "fastapi.Request.cookies.get",
-      "taint_source": true,
-      "category": "user_input"
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "fastapi.Request.json",
-      "taint_source": true,
-      "category": "user_input"
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "fastapi.Request.body",
-      "taint_source": true,
-      "category": "user_input"
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "fastapi.Request.form",
-      "taint_source": true,
-      "category": "user_input"
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "starlette.requests.Request.query_params.get",
-      "taint_source": true,
-      "category": "user_input"
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "starlette.requests.Request.path_params.get",
-      "taint_source": true,
-      "category": "user_input"
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "starlette.requests.Request.headers.get",
-      "taint_source": true,
-      "category": "user_input"
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "starlette.requests.Request.cookies.get",
-      "taint_source": true,
-      "category": "user_input"
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "starlette.requests.Request.json",
-      "taint_source": true,
-      "category": "user_input"
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "starlette.requests.Request.body",
-      "taint_source": true,
-      "category": "user_input"
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "starlette.requests.Request.form",
-      "taint_source": true,
-      "category": "user_input"
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "fastapi.Response",
-      "taint_sink": true
+      "sinks": [
+        {
+          "kind": "xss",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "fastapi.responses.JSONResponse",
-      "taint_sink": true
+      "sinks": [
+        {
+          "kind": "xss",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "fastapi.responses.HTMLResponse",
-      "taint_sink": true
+      "cwe": "CWE-79",
+      "severity": "high",
+      "suggestion": "Escape or sanitize user-controlled content before returning HTML.",
+      "sinks": [
+        {
+          "kind": "xss",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "fastapi.responses.RedirectResponse",
-      "taint_sink": true
+      "sinks": [
+        {
+          "kind": "xss",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "fastapi.responses.FileResponse",
-      "taint_sink": true
+      "cwe": "CWE-22",
+      "severity": "high",
+      "suggestion": "Resolve paths against a trusted base directory and reject traversal outside it.",
+      "sinks": [
+        {
+          "kind": "xss",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "starlette.datastructures.UploadFile.read",
-      "taint_source": true,
-      "category": "file"
+      "sources": [
+        {
+          "kind": "file",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "starlette.datastructures.UploadFile.filename",
-      "taint_source": true,
-      "category": "file"
+      "sources": [
+        {
+          "kind": "file",
+          "port": "return"
+        }
+      ]
+    },
+    {
+      "call": "requests.get",
+      "cwe": "CWE-918",
+      "severity": "high",
+      "suggestion": "Validate outbound URLs against an allowlist and block private network ranges.",
+      "sinks": [
+        {
+          "kind": "ssrf",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
+    },
+    {
+      "call": "requests.post",
+      "cwe": "CWE-918",
+      "severity": "high",
+      "suggestion": "Validate outbound URLs against an allowlist and block private network ranges.",
+      "sinks": [
+        {
+          "kind": "ssrf",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
+    },
+    {
+      "call": "httpx.get",
+      "cwe": "CWE-918",
+      "severity": "high",
+      "suggestion": "Validate outbound URLs against an allowlist and block private network ranges.",
+      "sinks": [
+        {
+          "kind": "dangerous",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
+    },
+    {
+      "call": "httpx.post",
+      "cwe": "CWE-918",
+      "severity": "high",
+      "suggestion": "Validate outbound URLs against an allowlist and block private network ranges.",
+      "sinks": [
+        {
+          "kind": "dangerous",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
+    },
+    {
+      "call": "httpx.AsyncClient.get",
+      "cwe": "CWE-918",
+      "severity": "high",
+      "suggestion": "Validate outbound URLs against an allowlist and block private network ranges.",
+      "sinks": [
+        {
+          "kind": "dangerous",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
+    },
+    {
+      "call": "starlette.responses.FileResponse",
+      "cwe": "CWE-22",
+      "severity": "high",
+      "suggestion": "Resolve paths against a trusted base directory and reject traversal outside it.",
+      "sinks": [
+        {
+          "kind": "xss",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
+    },
+    {
+      "call": "open",
+      "cwe": "CWE-22",
+      "severity": "high",
+      "suggestion": "Resolve paths against a trusted base directory and reject traversal outside it.",
+      "sinks": [
+        {
+          "kind": "file",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
+    },
+    {
+      "call": "starlette.responses.HTMLResponse",
+      "cwe": "CWE-79",
+      "severity": "high",
+      "suggestion": "Escape or sanitize user-controlled content before returning HTML.",
+      "sinks": [
+        {
+          "kind": "xss",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     }
   ],
   "rules": [
     {
-      "id": "PYFLOW-FASTAPI-SRC-REQUEST",
-      "title": "FastAPI request data source",
-      "pattern_type": "taint_source",
-      "category": "user_input",
-      "calls": [
-        "fastapi.Request.query_params.get",
-        "fastapi.Request.path_params.get",
-        "fastapi.Request.headers.get",
-        "fastapi.Request.cookies.get",
-        "fastapi.Request.json",
-        "fastapi.Request.body",
-        "fastapi.Request.form"
-      ]
+      "id": "PYFLOW-FASTAPI-DANGEROUS",
+      "title": "Untrusted data reaches dangerous sink",
+      "sources": [
+        "user_input",
+        "network",
+        "file",
+        "env",
+        "database",
+        "secrets",
+        "cache",
+        "userdata",
+        "untrusted",
+        "exception"
+      ],
+      "sinks": [
+        "dangerous"
+      ],
+      "severity": "high"
     },
     {
-      "id": "PYFLOW-FASTAPI-SINK-SSRF",
-      "title": "Outbound HTTP request with tainted URL",
-      "pattern_type": "taint_sink",
-      "cwe": "CWE-918",
-      "severity": "HIGH",
-      "sink_arg_positions": [
-        0
+      "id": "PYFLOW-FASTAPI-FILE",
+      "title": "Untrusted data reaches file sink",
+      "sources": [
+        "user_input",
+        "network",
+        "file",
+        "env",
+        "database",
+        "secrets",
+        "cache",
+        "userdata",
+        "untrusted",
+        "exception"
       ],
-      "calls": [
-        "requests.get",
-        "requests.post",
-        "httpx.get",
-        "httpx.post",
-        "httpx.AsyncClient.get"
+      "sinks": [
+        "file"
       ],
-      "suggestion": "Validate outbound URLs against an allowlist and block private network ranges."
+      "severity": "high"
     },
     {
-      "id": "PYFLOW-FASTAPI-SINK-PATH-TRAVERSAL",
-      "title": "File response with tainted path",
-      "pattern_type": "taint_sink",
-      "cwe": "CWE-22",
-      "severity": "HIGH",
-      "sink_arg_positions": [
-        0
+      "id": "PYFLOW-FASTAPI-SSRF",
+      "title": "Untrusted data reaches ssrf sink",
+      "sources": [
+        "user_input",
+        "network",
+        "file",
+        "env",
+        "database",
+        "secrets",
+        "cache",
+        "userdata",
+        "untrusted",
+        "exception"
       ],
-      "calls": [
-        "fastapi.responses.FileResponse",
-        "starlette.responses.FileResponse",
-        "open"
+      "sinks": [
+        "ssrf"
       ],
-      "suggestion": "Resolve paths against a trusted base directory and reject traversal outside it."
+      "severity": "high"
     },
     {
-      "id": "PYFLOW-FASTAPI-SINK-XSS",
-      "title": "HTML response with tainted content",
-      "pattern_type": "taint_sink",
-      "cwe": "CWE-79",
-      "severity": "HIGH",
-      "sink_arg_positions": [
-        0
+      "id": "PYFLOW-FASTAPI-XSS",
+      "title": "Untrusted data reaches xss sink",
+      "sources": [
+        "user_input",
+        "network",
+        "file",
+        "env",
+        "database",
+        "secrets",
+        "cache",
+        "userdata",
+        "untrusted",
+        "exception"
       ],
-      "calls": [
-        "fastapi.responses.HTMLResponse",
-        "starlette.responses.HTMLResponse"
+      "sinks": [
+        "xss"
       ],
-      "suggestion": "Escape or sanitize user-controlled content before returning HTML."
+      "severity": "high"
     }
   ],
   "type": "taint"

@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "framework": "nosql",
   "version": "1.0",
   "description": "Nosql taint models (extracted from root rule pack)",
@@ -24,143 +24,417 @@
   "models": [
     {
       "call": "pymongo.collection.Collection.find",
-      "taint_sink": true
+      "sinks": [
+        {
+          "kind": "dangerous",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "pymongo.collection.Collection.find_one",
-      "taint_sink": true
+      "sinks": [
+        {
+          "kind": "dangerous",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "pymongo.collection.Collection.aggregate",
-      "taint_sink": true
+      "sinks": [
+        {
+          "kind": "dangerous",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "pymongo.collection.Collection.update_one",
-      "taint_sink": true
+      "sinks": [
+        {
+          "kind": "dangerous",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "pymongo.collection.Collection.update_many",
-      "taint_sink": true
+      "sinks": [
+        {
+          "kind": "dangerous",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "pymongo.collection.Collection.delete_one",
-      "taint_sink": true
+      "sinks": [
+        {
+          "kind": "dangerous",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "pymongo.collection.Collection.delete_many",
-      "taint_sink": true
+      "sinks": [
+        {
+          "kind": "dangerous",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "pymongo.collection.Collection.insert_one",
-      "taint_sink": true
+      "sinks": [
+        {
+          "kind": "dangerous",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "pymongo.collection.Collection.insert_many",
-      "taint_sink": true
+      "sinks": [
+        {
+          "kind": "dangerous",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "redis.Redis.execute_command",
-      "taint_sink": true
+      "sinks": [
+        {
+          "kind": "sql",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "redis.Redis.eval",
-      "taint_sink": true
+      "sinks": [
+        {
+          "kind": "rce",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "redis.Redis.evalsha",
-      "taint_sink": true
+      "sinks": [
+        {
+          "kind": "rce",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "redis.StrictRedis.execute_command",
-      "taint_sink": true
+      "sinks": [
+        {
+          "kind": "sql",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "redis.Redis.publish",
-      "taint_sink": true
+      "sinks": [
+        {
+          "kind": "dangerous",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "redis.Redis.lpush",
-      "taint_sink": true
+      "sinks": [
+        {
+          "kind": "dangerous",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "redis.Redis.rpush",
-      "taint_sink": true
+      "sinks": [
+        {
+          "kind": "dangerous",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "redis.Redis.xadd",
-      "taint_sink": true
+      "sinks": [
+        {
+          "kind": "dangerous",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "redis.Redis.set",
-      "taint_sink": true
+      "sinks": [
+        {
+          "kind": "dangerous",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "redis.Redis.hset",
-      "taint_sink": true
+      "sinks": [
+        {
+          "kind": "dangerous",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "redis.Redis.brpop",
-      "taint_source": true,
-      "category": "network"
+      "sources": [
+        {
+          "kind": "network",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "redis.Redis.blpop",
-      "taint_source": true,
-      "category": "network"
+      "sources": [
+        {
+          "kind": "network",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "redis.Redis.lpop",
-      "taint_source": true,
-      "category": "network"
+      "sources": [
+        {
+          "kind": "network",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "redis.Redis.rpop",
-      "taint_source": true,
-      "category": "network"
+      "sources": [
+        {
+          "kind": "network",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "redis.Redis.xread",
-      "taint_source": true,
-      "category": "network"
+      "sources": [
+        {
+          "kind": "network",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "redis.Redis.xreadgroup",
-      "taint_source": true,
-      "category": "network"
+      "sources": [
+        {
+          "kind": "network",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "elasticsearch.Elasticsearch.search",
-      "taint_sink": true
+      "sinks": [
+        {
+          "kind": "dangerous",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "elasticsearch.Elasticsearch.index",
-      "taint_sink": true
+      "sinks": [
+        {
+          "kind": "dangerous",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "elasticsearch.Elasticsearch.update",
-      "taint_sink": true
+      "sinks": [
+        {
+          "kind": "dangerous",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "elasticsearch.Elasticsearch.delete",
-      "taint_sink": true
+      "sinks": [
+        {
+          "kind": "dangerous",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "couchdb.Database.view",
-      "taint_sink": true
+      "sinks": [
+        {
+          "kind": "dangerous",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "couchdb.Database.find",
-      "taint_sink": true
+      "sinks": [
+        {
+          "kind": "dangerous",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "cassandra.cluster.Session.execute",
-      "taint_sink": true
+      "sinks": [
+        {
+          "kind": "sql",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "cassandra.cluster.Session.execute_async",
-      "taint_sink": true
+      "sinks": [
+        {
+          "kind": "sql",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     }
   ],
-  "rules": [],
+  "rules": [
+    {
+      "id": "PYFLOW-NOSQL-DANGEROUS",
+      "title": "Untrusted data reaches dangerous sink",
+      "sources": [
+        "user_input",
+        "network",
+        "file",
+        "env",
+        "database",
+        "secrets",
+        "cache",
+        "userdata",
+        "untrusted",
+        "exception"
+      ],
+      "sinks": [
+        "dangerous"
+      ],
+      "severity": "high"
+    },
+    {
+      "id": "PYFLOW-NOSQL-RCE",
+      "title": "Untrusted data reaches rce sink",
+      "sources": [
+        "user_input",
+        "network",
+        "file",
+        "env",
+        "database",
+        "secrets",
+        "cache",
+        "userdata",
+        "untrusted",
+        "exception"
+      ],
+      "sinks": [
+        "rce"
+      ],
+      "severity": "high"
+    },
+    {
+      "id": "PYFLOW-NOSQL-SQL",
+      "title": "Untrusted data reaches sql sink",
+      "sources": [
+        "user_input",
+        "network",
+        "file",
+        "env",
+        "database",
+        "secrets",
+        "cache",
+        "userdata",
+        "untrusted",
+        "exception"
+      ],
+      "sinks": [
+        "sql"
+      ],
+      "severity": "high"
+    }
+  ],
   "type": "taint"
 }

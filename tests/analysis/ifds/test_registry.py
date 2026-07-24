@@ -2,7 +2,16 @@
 
 from __future__ import annotations
 
-from pyflow.analysis.ifds.modeling.registry import Registry, load_registry
+import json
+
+import pytest
+
+from pyflow.analysis.ifds.modeling.registry import (
+    Registry,
+    RulePackValidationError,
+    load_registry,
+    validate_rule_pack_data,
+)
 
 
 class TestRegistryLoading:
@@ -32,7 +41,7 @@ class TestRegistryLoading:
         mapping = models.as_mapping()
         assert "flask.request.args" in mapping
         m = mapping["flask.request.args"]
-        assert m.taint_source is True
+        assert m.source_kinds == frozenset({"user_input"})
 
     def test_active_models_merges_multiple(self):
         r = Registry()
@@ -76,18 +85,120 @@ class TestRegistryLoading:
         r.activate("stdlib")
         mapping = r.active_models().as_mapping()
         model = mapping["subprocess.run"]
-        assert model.taint_sink is True
-        assert model.cwe == "CWE-78"
-        assert model.severity == "HIGH"
-        assert model.rule_id == "PYFLOW-SINK-CMD-INJECTION"
+        assert model.sink_kinds == frozenset({"rce"})
         assert model.sink_arg_positions == frozenset({0})
 
     def test_active_rule_metadata(self):
         r = Registry()
         r.activate("fastapi")
-        metadata = {rule.rule_id: rule for rule in r.active_rule_metadata()}
-        assert metadata["PYFLOW-FASTAPI-SINK-SSRF"].cwe == "CWE-918"
-        assert "requests.get" in metadata["PYFLOW-FASTAPI-SINK-SSRF"].calls
+        rules = {rule.rule_id: rule for rule in r.active_taint_rules()}
+        assert rules["PYFLOW-FASTAPI-SSRF"].sink_kinds == frozenset({"ssrf"})
+        assert "user_input" in rules["PYFLOW-FASTAPI-SSRF"].source_kinds
+
+
+class TestStrictV2Validation:
+    def test_v1_pack_is_rejected(self):
+        issues = validate_rule_pack_data(
+            {
+                "schema_version": 1,
+                "framework": "legacy",
+                "version": "1.0",
+                "type": "taint",
+                "models": [],
+                "rules": [],
+            }
+        )
+        assert any("must equal 2" in issue.message for issue in issues)
+
+    def test_legacy_model_fields_are_rejected(self):
+        issues = validate_rule_pack_data(
+            {
+                "schema_version": 2,
+                "framework": "legacy",
+                "version": "2.0",
+                "type": "taint",
+                "models": [{"call": "source", "taint_source": True}],
+                "rules": [],
+            }
+        )
+        assert any("not valid in schema v2" in issue.message for issue in issues)
+
+    def test_sink_kind_requires_flow_rule(self):
+        issues = validate_rule_pack_data(
+            {
+                "schema_version": 2,
+                "framework": "broken",
+                "version": "2.0",
+                "type": "taint",
+                "models": [
+                    {
+                        "call": "sink",
+                        "sinks": [{"kind": "sql", "port": {"parameter": 0}}],
+                    }
+                ],
+                "rules": [],
+            }
+        )
+        assert any("sink kind 'sql' has no" in issue.message for issue in issues)
+
+    def test_unknown_endpoint_field_is_rejected(self):
+        issues = validate_rule_pack_data(
+            {
+                "schema_version": 2,
+                "framework": "broken",
+                "version": "2.0",
+                "type": "taint",
+                "models": [
+                    {
+                        "call": "source",
+                        "sources": [
+                            {"kind": "user_input", "port": "return", "extra": True}
+                        ],
+                    }
+                ],
+                "rules": [],
+            }
+        )
+        assert any("unknown endpoint field" in issue.message for issue in issues)
+
+    def test_analysis_specific_model_fields_are_enforced(self):
+        issues = validate_rule_pack_data(
+            {
+                "schema_version": 2,
+                "framework": "broken",
+                "version": "2.0",
+                "type": "nullness",
+                "models": [
+                    {
+                        "call": "source",
+                        "sources": [{"kind": "user_input", "port": "return"}],
+                    }
+                ],
+                "rules": [],
+            }
+        )
+        assert any("unknown schema-v2 model field" in issue.message for issue in issues)
+
+    def test_invalid_custom_pack_fails_closed(self, tmp_path):
+        path = tmp_path / "legacy.json"
+        path.write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "framework": "legacy",
+                    "version": "1.0",
+                    "type": "taint",
+                    "models": [],
+                    "rules": [],
+                }
+            )
+        )
+        with pytest.raises(RulePackValidationError):
+            Registry().load_custom(path)
+
+    def test_missing_custom_pack_fails_closed(self, tmp_path):
+        with pytest.raises(FileNotFoundError):
+            Registry().load_custom(tmp_path / "missing.json")
 
 
 class TestFrameworkDetection:
@@ -141,28 +252,19 @@ class TestTaintConfiguration:
         r = Registry()
         r.activate("flask")
         tc = r.as_config()
-        assert "flask.request.args" in tc.source_names
-        assert "flask.render_template_string" in tc.sink_names
-        assert "flask.escape" in tc.sanitizer_names
+        mapping = tc.call_models.as_mapping()
+        assert mapping["flask.request.args"].source_kinds == frozenset({"user_input"})
+        assert "xss" in mapping["flask.render_template_string"].sink_kinds
+        assert mapping["flask.escape"].sanitizer_kinds == frozenset({"*"})
+        assert tc.rules
 
-    def test_as_config_with_extras(self):
-        r = Registry()
-        r.activate("flask")
-        tc = r.as_config(
-            extra_sources=["custom.source"],
-            extra_sinks=["custom.sink"],
-            extra_sanitizers=["custom.sanitizer"],
-        )
-        assert "custom.source" in tc.source_names
-        assert "custom.sink" in tc.sink_names
-        assert "custom.sanitizer" in tc.sanitizer_names
-
-    def test_as_config_preserves_sanitizer_categories(self):
+    def test_as_config_preserves_typed_sanitizers(self):
         r = Registry()
         r.activate("stdlib")
         tc = r.as_config()
-        assert tc.sanitizer_categories["html.escape"] == frozenset({"user_input"})
-        assert tc.sanitizer_categories["os.path.basename"] == frozenset(
+        mapping = tc.call_models.as_mapping()
+        assert mapping["html.escape"].sanitizer_kinds == frozenset({"user_input"})
+        assert mapping["os.path.basename"].sanitizer_kinds == frozenset(
             {"file", "user_input"}
         )
 
@@ -190,8 +292,8 @@ class TestNullnessPack:
         assert mapping["re.match"].nullness_nullable_return is True
         assert mapping["first"].nullness_nullable_return is True
         # stdlib taint models should still be present
-        assert mapping["eval"].taint_sink is True
-        assert mapping["open"].taint_source is True
+        assert mapping["eval"].sink_kinds
+        assert mapping["open"].source_kinds
 
 
 class TestTypeStatePresets:
@@ -212,5 +314,5 @@ class TestTypeStatePresets:
         mapping = r.active_models().as_mapping()
         sp = mapping.get("subprocess.Popen")
         assert sp is not None
-        assert sp.taint_sink is True
+        assert sp.sink_kinds
         assert "open" in sp.typestate_actions

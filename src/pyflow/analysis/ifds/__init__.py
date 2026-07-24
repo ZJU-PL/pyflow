@@ -112,6 +112,7 @@ from .analyses.taint import (
     TaintFinding,
     analyze_taint,
 )
+from .modeling.taint import TaintRule
 from .analyses.typestate import (
     ExpressionResourceFact,
     InterproceduralTypestateAnalysis,
@@ -226,6 +227,7 @@ __all__ = [
     "TypestateViolation",
     "ResourceStateFact",
     "TaintFact",
+    "TaintRule",
     "ShadowMatch",
     "ShadowScanReport",
     "ZERO",

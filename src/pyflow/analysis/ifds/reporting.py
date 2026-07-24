@@ -190,11 +190,7 @@ def normalized_taint_findings(result) -> tuple[AnalysisFinding, ...]:
     adapter = result._problem.adapter
     findings: list[AnalysisFinding] = []
     for finding in result.findings:
-        model = result._problem._call_model_for_node(finding.sink)
-        rule_id = getattr(model, "rule_id", None) or "PYFLOW-TAINT"
-        cwe = getattr(model, "cwe", None)
-        severity = getattr(model, "severity", None) or "warning"
-        suggestion = getattr(model, "suggestion", None)
+        rule = finding.rule
         labels = (
             tuple(local.name or "<local>" for local in finding.tainted_arguments)
             or finding.tainted_argument_labels
@@ -206,21 +202,26 @@ def normalized_taint_findings(result) -> tuple[AnalysisFinding, ...]:
                 traces = result.explain_path(finding.sink, fact)
         findings.append(
             AnalysisFinding(
-                rule_id=rule_id,
+                rule_id=rule.rule_id,
                 kind="taint",
-                severity=severity,
+                severity=rule.severity,
                 confidence="high" if traces else "medium",
                 message=(
-                    f"Tainted data reaches {finding.sink_name} through "
+                    f"{finding.source_kind} data reaches {finding.sink_kind} "
+                    f"sink {finding.sink_name} through "
                     f"{', '.join(labels) or '<expression>'}"
                 ),
                 primary_location=source_span_for_node(adapter, finding.sink),
                 procedure=_procedure_name(finding.sink),
                 node_id=adapter.supergraph.node_id(finding.sink),
                 code_flow=flow_steps_for_traces(adapter, traces),
-                cwe=cwe,
-                suggestion=suggestion,
-                properties={"tainted_arguments": labels},
+                cwe=rule.cwe,
+                suggestion=rule.suggestion,
+                properties={
+                    "tainted_arguments": labels,
+                    "source_kind": finding.source_kind,
+                    "sink_kind": finding.sink_kind,
+                },
             )
         )
     return tuple(sorted(findings, key=_finding_key))

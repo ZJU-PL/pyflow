@@ -8,7 +8,7 @@ from typing import FrozenSet, Mapping, Sequence
 from pyflow.ir.cfg import graph as cfg_graph
 from pyflow.language.python import ast as py_ast
 
-from ..modeling.calls import CallModel, CallModelRegistry
+from ..modeling.calls import CallModelRegistry
 from .base import AnnotatedFactProblemBase, build_entry_seeds
 from ..frontend.cfg_adapter import CFGNode, CFGSupergraphAdapter, assigned_locals
 from ..core.problem import IFDSProblem
@@ -118,9 +118,7 @@ class InterproceduralNullnessProblem(
         entry_nodes: Sequence[CFGNode] | None = None,
     ) -> None:
         self.configuration = configuration or NullnessConfiguration()
-        call_models = CallModelRegistry.from_nullness_configuration(
-            self.configuration
-        )
+        call_models = CallModelRegistry.from_nullness_configuration(self.configuration)
         if self.configuration.call_models is not None:
             call_models = call_models.merged(self.configuration.call_models)
         super().__init__(
@@ -486,11 +484,11 @@ class InterproceduralNullnessProblem(
             return self.describe_expression(fact.expression)
         return "<expr>"
 
-    def _make_location_fact(self, location: object) -> object:
+    def _make_location_fact(self, location: object, template_fact=None) -> object:
         return NullFact(location)
 
     def _make_location_fact_with_path(
-        self, location: object, access_path: tuple[str, ...]
+        self, location: object, access_path: tuple[str, ...], template_fact=None
     ) -> object:
         return NullFact(location, access_path=access_path)
 
@@ -499,6 +497,7 @@ class InterproceduralNullnessProblem(
         procedure: cfg_graph.Code,
         expression: py_ast.PythonASTNode,
         result_index: int = 0,
+        template_fact=None,
     ) -> object:
         return ExpressionNullFact(procedure, expression, result_index)
 

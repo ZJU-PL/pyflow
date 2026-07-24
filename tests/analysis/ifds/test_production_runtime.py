@@ -30,7 +30,10 @@ from pyflow.analysis.ifds.modeling.registry import (
     validate_registry,
     validate_rule_pack_data,
 )
-from pyflow.analysis.ifds.frontend.preparation import PreparationMode, prepare_program_for_ifds
+from pyflow.analysis.ifds.frontend.preparation import (
+    PreparationMode,
+    prepare_program_for_ifds,
+)
 
 from tests.analysis.ifds.reference_solver import solve_reference
 
@@ -325,7 +328,8 @@ def test_random_interprocedural_problems_match_reference_solver():
 
 
 def test_solver_serialization_is_independent_of_python_hash_seed():
-    script = textwrap.dedent("""
+    script = textwrap.dedent(
+        """
         import json
         from pyflow.analysis.ifds import IFDSProblem, IFDSSolver, Supergraph
 
@@ -350,7 +354,8 @@ def test_solver_serialization_is_independent_of_python_hash_seed():
             [node, result.facts_with_ids_at(node)]
             for node in problem.graph.ordered_nodes()
         ]))
-        """)
+        """
+    )
     outputs = []
     for seed in ("1", "777"):
         environment = {**os.environ, "PYTHONHASHSEED": seed}
@@ -368,7 +373,8 @@ def test_solver_serialization_is_independent_of_python_hash_seed():
 
 def test_ifds_sarif_contains_location_and_code_flow(tmp_path, capsys):
     target = tmp_path / "flow.py"
-    target.write_text("""
+    target.write_text(
+        """
 def source():
     return 1
 
@@ -378,7 +384,8 @@ def sink(value):
 def main():
     value = source()
     sink(value)
-""")
+"""
+    )
     args = SimpleNamespace(
         function="main",
         analysis="taint",
@@ -436,11 +443,13 @@ def test_strict_preparation_propagates_pipeline_failure():
 
 def test_cli_uses_distinct_invalid_and_partial_exit_codes(tmp_path, capsys):
     target = tmp_path / "flow.py"
-    target.write_text("""
+    target.write_text(
+        """
 def source(): return 1
 def sink(value): return value
 def main(): sink(source())
-""")
+"""
+    )
     base = dict(
         function="main",
         analysis="taint",
@@ -449,6 +458,7 @@ def main(): sink(source())
         sources=[],
         sinks=[],
         sanitizers=[],
+        framework=["nonexistent"],
         format="json",
         recursive=False,
         dependency_strategy="auto",

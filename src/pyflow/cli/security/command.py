@@ -15,7 +15,7 @@ import json
 import logging
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Sequence
 
 from pyflow.checker.pattern.core.manager import SecurityManager
 from pyflow.checker.pattern.core.config import SecurityConfig
@@ -27,6 +27,10 @@ from .reporting import (
     _output_results,
     _typestate_result_to_dict,
 )
+
+if TYPE_CHECKING:
+    from pyflow.analysis.ifds.modeling.calls import CallModelRegistry
+    from pyflow.analysis.ifds.modeling.taint import TaintRule
 
 # ── Engine dispatchers ────────────────────────────────────────────────────
 
@@ -93,17 +97,30 @@ def _apply_ifds_config(args) -> None:
     try:
         config_data = json.loads(path.read_text())
     except json.JSONDecodeError as exc:
-        print(f"Error: invalid JSON in config file {config_path}: {exc}",
-              file=sys.stderr)
+        print(
+            f"Error: invalid JSON in config file {config_path}: {exc}", file=sys.stderr
+        )
         raise SystemExit(2)
 
-    unknown = set(config_data) - {"solver_options", "frameworks", "sources",
-        "sinks", "sanitizers", "analysis", "function", "ifds_mode",
-        "ifds_trace_mode", "ifds_context_depth", "registry_path",
-        "typestate_protocol"}
+    unknown = set(config_data) - {
+        "solver_options",
+        "frameworks",
+        "sources",
+        "sinks",
+        "sanitizers",
+        "analysis",
+        "function",
+        "ifds_mode",
+        "ifds_trace_mode",
+        "ifds_context_depth",
+        "registry_path",
+        "typestate_protocol",
+    }
     if unknown:
-        print(f"Warning: unknown config keys: {', '.join(sorted(unknown))}",
-              file=sys.stderr)
+        print(
+            f"Warning: unknown config keys: {', '.join(sorted(unknown))}",
+            file=sys.stderr,
+        )
 
     for config_key, attr_name in _CONFIG_SCALAR_MAP.items():
         if config_key in config_data and not hasattr(args, attr_name):
@@ -252,11 +269,11 @@ def _run_ifds(targets: List[str], args) -> Dict[str, Any]:
         result = _nullness_result_to_dict(args.function or "<unknown>", nullness_result)
         return _apply_session_diagnostics(result, _session)
 
-    sources, sinks, sanitizers = _merge_taint_specs(args, source_files=files)
+    call_models, taint_rules = _merge_taint_specs(args, source_files=files)
 
-    if not sources and not sinks:
+    if not call_models.as_mapping() or not taint_rules:
         print(
-            "No sources or sinks specified. Use --sources/--sinks --framework,"
+            "No typed taint models or rules specified. Use --sources/--sinks --framework,"
             " or --registry-path.",
             file=sys.stderr,
         )
@@ -265,16 +282,15 @@ def _run_ifds(targets: List[str], args) -> Dict[str, Any]:
             "findings": [],
             "diagnostics": [],
             "status": "invalid",
-            "termination_reason": "No taint sources or sinks configured",
+            "termination_reason": "No typed taint models or rules configured",
         }
 
     try:
         _session, taint_result, _shadow_matches = run_taint_analysis(
             files,
             function=args.function or "",
-            source_names=sources,
-            sink_names=sinks,
-            sanitizer_names=sanitizers,
+            call_models=call_models,
+            rules=taint_rules,
             collection_mutator_names=getattr(args, "collection_mutators", None),
             collection_accessor_names=getattr(args, "collection_accessors", None),
             conservative_unresolved_call_side_effects=getattr(
@@ -398,20 +414,45 @@ def _discover_python_files(targets: Sequence[str], recursive: bool) -> list[Path
 def _merge_taint_specs(
     args,
     source_files: Sequence[Path] = (),
-) -> tuple[list[str], list[str], list[str]]:
-    """Merge CLI-provided sources/sinks/sanitizers with --framework rule packs."""
+) -> tuple[CallModelRegistry, tuple[TaintRule, ...]]:
+    """Build typed CLI models and policies from names and v2 rule packs."""
+    from pyflow.analysis.ifds.modeling.calls import CallModel, CallModelRegistry
+    from pyflow.analysis.ifds.modeling.taint import TaintRule
+
     sources = list(getattr(args, "sources", []) or [])
     sinks = list(getattr(args, "sinks", []) or [])
     sanitizers = list(getattr(args, "sanitizers", []) or [])
+    models = [
+        *(
+            CallModel(name=name, source_kinds=frozenset({"untrusted"}))
+            for name in sources
+        ),
+        *(CallModel(name=name, sink_kinds=frozenset({"dangerous"})) for name in sinks),
+        *(
+            CallModel(name=name, sanitizer_kinds=frozenset({"*"}))
+            for name in sanitizers
+        ),
+    ]
+    rules: list[TaintRule] = []
+    if sources and sinks:
+        rules.append(
+            TaintRule(
+                rule_id="PYFLOW-CLI-DANGEROUS",
+                title="Untrusted data reaches configured sink",
+                source_kinds=frozenset({"untrusted"}),
+                sink_kinds=frozenset({"dangerous"}),
+                severity="high",
+            )
+        )
 
     custom_paths = getattr(args, "registry_path", []) or []
-    given_frameworks = getattr(args, "framework", None) or None
-    if given_frameworks is not None and len(given_frameworks) == 0:
-        given_frameworks = None
+    raw_frameworks = getattr(args, "framework", None)
+    auto_detect = raw_frameworks == []
+    given_frameworks = tuple(raw_frameworks) if raw_frameworks else None
 
-    # No framework or custom paths → user handles sources/sinks manually
-    if given_frameworks is None and not custom_paths:
-        return sources, sinks, sanitizers
+    # No framework or custom paths → user handles models manually.
+    if given_frameworks is None and not auto_detect and not custom_paths and models:
+        return CallModelRegistry(models), tuple(rules)
 
     try:
         from pyflow.analysis.ifds.modeling.registry import load_registry
@@ -419,31 +460,26 @@ def _merge_taint_specs(
         registry = load_registry()
         if given_frameworks is not None:
             registry.activate(*given_frameworks, type="taint")
-        else:
+        elif auto_detect:
             if source_files:
                 for path in source_files:
                     try:
-                        registry.detect(
-                            path.read_text(encoding="utf-8").splitlines()
-                        )
+                        registry.detect(path.read_text(encoding="utf-8").splitlines())
                     except OSError:
                         continue
             if not registry.detected_frameworks:
                 registry.activate("stdlib", type="taint")
+        else:
+            registry.activate("stdlib", type="taint")
         if custom_paths:
             registry.load_custom(*custom_paths)
         config = registry.as_config()
-        sources.extend(config.source_names)
-        sinks.extend(config.sink_names)
-        sanitizers.extend(config.sanitizer_names)
+        models.extend(config.call_models.as_mapping().values())
+        rules.extend(config.rules)
     except ImportError:
         pass
 
-    return (
-        list(dict.fromkeys(sources)),
-        list(dict.fromkeys(sinks)),
-        list(dict.fromkeys(sanitizers)),
-    )
+    return CallModelRegistry(models), tuple(rules)
 
 
 def _parse_typestate_protocols(args) -> list[str]:
@@ -457,6 +493,7 @@ def _parse_typestate_protocols(args) -> list[str]:
     if not protocols:
         protocols.append("resource")
     return list(dict.fromkeys(protocols))
+
 
 # ── Main entry point ──────────────────────────────────────────────────────
 

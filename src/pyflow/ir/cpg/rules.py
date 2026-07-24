@@ -50,6 +50,7 @@ def _available_packs() -> Dict[str, Path]:
             continue
     return packs
 
+
 _FRAMEWORK_ALIASES: Dict[str, str] = {
     "requests_lib": "requests",
     "subprocess_lib": "injection",
@@ -88,12 +89,21 @@ _DETECTION_MARKERS: Dict[str, Dict[str, List[str]]] = {
     },
     "injection": {
         "imports": [
-            "import subprocess", "from subprocess", "import pickle",
-            "import yaml", "import marshal", "import jsonpickle",
+            "import subprocess",
+            "from subprocess",
+            "import pickle",
+            "import yaml",
+            "import marshal",
+            "import jsonpickle",
         ],
         "patterns": [
-            "os.system(", "subprocess.run(", "eval(", "exec(",
-            "pickle.loads(", "yaml.load(", "jsonpickle.decode(",
+            "os.system(",
+            "subprocess.run(",
+            "eval(",
+            "exec(",
+            "pickle.loads(",
+            "yaml.load(",
+            "jsonpickle.decode(",
             "ElementTree.fromstring(",
         ],
     },
@@ -164,27 +174,28 @@ def _load_custom_pack(path: Path) -> Optional[dict]:
 def _apply_registry_data(engine: CPGTaintEngine, data: dict) -> None:
     """Apply a single registry pack's models to a CPGTaintEngine."""
     models: List[dict] = data.get("models", [])
+    rule_cwes = {
+        sink_kind: str(rule.get("cwe", ""))
+        for rule in data.get("rules", [])
+        if isinstance(rule, dict)
+        for sink_kind in rule.get("sinks", [])
+    }
     for m in models:
         call_name = m.get("call", "")
         if not call_name:
             continue
-        if m.get("taint_source"):
+        if m.get("sources"):
             engine.add_source(call_name)
-        if m.get("taint_sink"):
+        if m.get("sinks"):
             cwe = m.get("cwe", "")
-            if not cwe and "rules" in data:
-                for rule in data.get("rules", []):
-                    if call_name in rule.get("calls", ()):
-                        cwe = rule.get("cwe", "")
+            if not cwe:
+                for sink in m.get("sinks", []):
+                    cwe = rule_cwes.get(str(sink.get("kind", "")), "")
+                    if cwe:
                         break
             engine.add_sink(call_name, cwe=cwe)
-        if m.get("taint_sanitizer"):
+        if m.get("sanitizers"):
             san_cwe = m.get("cwe", "")
-            if not san_cwe and "rules" in data:
-                for rule in data.get("rules", []):
-                    if call_name in rule.get("calls", ()):
-                        san_cwe = rule.get("cwe", "")
-                        break
             engine.add_sanitizer(
                 call_name,
                 cwes={san_cwe} if san_cwe else None,
@@ -209,7 +220,9 @@ def load_rules(
     Returns *engine* for chaining.
     """
     # Bundled packs
-    pack_names = frameworks if frameworks is not None else list(_available_packs().keys())
+    pack_names = (
+        frameworks if frameworks is not None else list(_available_packs().keys())
+    )
     for fw in pack_names:
         data = _load_pack(_canonical_framework(fw))
         if data is not None:
@@ -264,7 +277,9 @@ def detect_frameworks(source: str) -> List[str]:
     detected: Set[str] = set()
     source_lower = source.lower()
 
-    for fw in set(_available_packs()) | set(_DETECTION_MARKERS) | set(_FRAMEWORK_ALIASES):
+    for fw in (
+        set(_available_packs()) | set(_DETECTION_MARKERS) | set(_FRAMEWORK_ALIASES)
+    ):
         data = _load_pack(fw)
         detection = dict(_DETECTION_MARKERS.get(_canonical_framework(fw), {}))
         if data is not None:
@@ -323,8 +338,7 @@ def load_yaml_rules(
         import yaml
     except ImportError as exc:
         raise ImportError(
-            "load_yaml_rules requires pyyaml. "
-            "Install it with: pip install pyyaml"
+            "load_yaml_rules requires pyyaml. " "Install it with: pip install pyyaml"
         ) from exc
 
     yaml_path = Path(path)

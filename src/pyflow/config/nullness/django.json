@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "framework": "django",
   "version": "1.0",
   "description": "Django nullable-return models for the IFDS nullness analysis",
@@ -17,5 +17,6 @@
       "nullness_nullable_return": true
     }
   ],
-  "type": "nullness"
+  "type": "nullness",
+  "rules": []
 }

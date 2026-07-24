@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "framework": "requests",
   "version": "1.0",
   "description": "Requests taint models (extracted from root rule pack)",
@@ -21,931 +21,808 @@
   "models": [
     {
       "call": "requests.get",
-      "taint_source": true,
-      "category": "network"
+      "sources": [
+        {
+          "kind": "network",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "requests.post",
-      "taint_source": true,
-      "category": "network"
+      "sources": [
+        {
+          "kind": "network",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "requests.put",
-      "taint_source": true,
-      "category": "network"
+      "sources": [
+        {
+          "kind": "network",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "requests.patch",
-      "taint_source": true,
-      "category": "network"
+      "sources": [
+        {
+          "kind": "network",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "requests.delete",
-      "taint_source": true,
-      "category": "network"
+      "sources": [
+        {
+          "kind": "network",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "requests.head",
-      "taint_source": true,
-      "category": "network"
+      "sources": [
+        {
+          "kind": "network",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "requests.request",
-      "taint_source": true,
-      "category": "network"
+      "sources": [
+        {
+          "kind": "network",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "urllib.request.urlopen",
-      "taint_source": true,
-      "taint_sink": true,
-      "category": "network"
+      "sources": [
+        {
+          "kind": "network",
+          "port": "return"
+        }
+      ],
+      "sinks": [
+        {
+          "kind": "network",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "urllib.request.urlretrieve",
-      "taint_source": true,
-      "taint_sink": true,
-      "category": "network"
+      "cwe": "CWE-918",
+      "severity": "high",
+      "sources": [
+        {
+          "kind": "network",
+          "port": "return"
+        },
+        {
+          "kind": "ssrf",
+          "port": "return"
+        }
+      ],
+      "sinks": [
+        {
+          "kind": "network",
+          "port": {
+            "parameter": 0
+          }
+        },
+        {
+          "kind": "ssrf",
+          "port": {
+            "parameter": 0
+          }
+        },
+        {
+          "kind": "ssrf",
+          "port": {
+            "parameter": 3
+          }
+        }
+      ]
     },
     {
       "call": "httpx.get",
-      "taint_source": true,
-      "category": "network"
+      "sources": [
+        {
+          "kind": "network",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "httpx.post",
-      "taint_source": true,
-      "category": "network"
+      "sources": [
+        {
+          "kind": "network",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "httpx.request",
-      "taint_source": true,
-      "category": "network"
+      "sources": [
+        {
+          "kind": "network",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "aiohttp.ClientSession.get",
-      "taint_source": true,
-      "category": "network"
+      "sources": [
+        {
+          "kind": "network",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "aiohttp.ClientSession.post",
-      "taint_source": true,
-      "category": "network"
+      "sources": [
+        {
+          "kind": "network",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "aiohttp.ClientSession.request",
-      "taint_source": true,
-      "category": "network"
+      "sources": [
+        {
+          "kind": "network",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "http.client.HTTPConnection.getresponse",
-      "category": "network",
-      "taint_source": true
+      "sources": [
+        {
+          "kind": "network",
+          "port": "return"
+        }
+      ],
+      "sanitizers": [
+        {
+          "kinds": "all",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "requests.api.delete",
-      "categories": [
-        "network",
-        "ssrf"
+      "cwe": "CWE-918",
+      "severity": "high",
+      "sources": [
+        {
+          "kind": "network",
+          "port": "return"
+        },
+        {
+          "kind": "ssrf",
+          "port": "return"
+        }
       ],
-      "taint_source": true
+      "sinks": [
+        {
+          "kind": "ssrf",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "requests.api.get",
-      "categories": [
-        "network",
-        "ssrf"
+      "cwe": "CWE-918",
+      "severity": "high",
+      "sources": [
+        {
+          "kind": "network",
+          "port": "return"
+        },
+        {
+          "kind": "ssrf",
+          "port": "return"
+        }
       ],
-      "taint_source": true
+      "sinks": [
+        {
+          "kind": "ssrf",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "requests.api.head",
-      "categories": [
-        "network",
-        "ssrf"
+      "cwe": "CWE-918",
+      "severity": "high",
+      "sources": [
+        {
+          "kind": "network",
+          "port": "return"
+        },
+        {
+          "kind": "ssrf",
+          "port": "return"
+        }
       ],
-      "taint_source": true
+      "sinks": [
+        {
+          "kind": "ssrf",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "requests.api.options",
-      "categories": [
-        "network",
-        "ssrf"
+      "cwe": "CWE-918",
+      "severity": "high",
+      "sources": [
+        {
+          "kind": "network",
+          "port": "return"
+        },
+        {
+          "kind": "ssrf",
+          "port": "return"
+        }
       ],
-      "taint_source": true
+      "sinks": [
+        {
+          "kind": "ssrf",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "requests.api.patch",
-      "categories": [
-        "network",
-        "ssrf"
+      "cwe": "CWE-918",
+      "severity": "high",
+      "sources": [
+        {
+          "kind": "network",
+          "port": "return"
+        },
+        {
+          "kind": "ssrf",
+          "port": "return"
+        }
       ],
-      "taint_source": true
+      "sinks": [
+        {
+          "kind": "ssrf",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "requests.api.post",
-      "categories": [
-        "network",
-        "ssrf"
+      "cwe": "CWE-918",
+      "severity": "high",
+      "sources": [
+        {
+          "kind": "network",
+          "port": "return"
+        },
+        {
+          "kind": "ssrf",
+          "port": "return"
+        }
       ],
-      "taint_source": true
+      "sinks": [
+        {
+          "kind": "ssrf",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "requests.api.put",
-      "categories": [
-        "network",
-        "ssrf"
+      "cwe": "CWE-918",
+      "severity": "high",
+      "sources": [
+        {
+          "kind": "network",
+          "port": "return"
+        },
+        {
+          "kind": "ssrf",
+          "port": "return"
+        }
       ],
-      "taint_source": true
+      "sinks": [
+        {
+          "kind": "ssrf",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "requests.api.request",
-      "categories": [
-        "network",
-        "ssrf"
+      "cwe": "CWE-918",
+      "severity": "high",
+      "sources": [
+        {
+          "kind": "network",
+          "port": "return"
+        },
+        {
+          "kind": "ssrf",
+          "port": "return"
+        }
       ],
-      "taint_source": true
+      "sinks": [
+        {
+          "kind": "ssrf",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "requests.sessions.Session.delete",
-      "categories": [
-        "network",
-        "ssrf"
+      "cwe": "CWE-918",
+      "severity": "high",
+      "sources": [
+        {
+          "kind": "network",
+          "port": "return"
+        },
+        {
+          "kind": "ssrf",
+          "port": "return"
+        }
       ],
-      "taint_source": true
+      "sinks": [
+        {
+          "kind": "ssrf",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "requests.sessions.Session.get",
-      "categories": [
-        "network",
-        "ssrf"
+      "cwe": "CWE-918",
+      "severity": "high",
+      "sources": [
+        {
+          "kind": "network",
+          "port": "return"
+        },
+        {
+          "kind": "ssrf",
+          "port": "return"
+        }
       ],
-      "taint_source": true
+      "sinks": [
+        {
+          "kind": "ssrf",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "requests.sessions.Session.head",
-      "categories": [
-        "network",
-        "ssrf"
+      "cwe": "CWE-918",
+      "severity": "high",
+      "sources": [
+        {
+          "kind": "network",
+          "port": "return"
+        },
+        {
+          "kind": "ssrf",
+          "port": "return"
+        }
       ],
-      "taint_source": true
+      "sinks": [
+        {
+          "kind": "ssrf",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "requests.sessions.Session.options",
-      "categories": [
-        "network",
-        "ssrf"
+      "cwe": "CWE-918",
+      "severity": "high",
+      "sources": [
+        {
+          "kind": "network",
+          "port": "return"
+        },
+        {
+          "kind": "ssrf",
+          "port": "return"
+        }
       ],
-      "taint_source": true
+      "sinks": [
+        {
+          "kind": "ssrf",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "requests.sessions.Session.patch",
-      "categories": [
-        "network",
-        "ssrf"
+      "cwe": "CWE-918",
+      "severity": "high",
+      "sources": [
+        {
+          "kind": "network",
+          "port": "return"
+        },
+        {
+          "kind": "ssrf",
+          "port": "return"
+        }
       ],
-      "taint_source": true
+      "sinks": [
+        {
+          "kind": "ssrf",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "requests.sessions.Session.post",
-      "categories": [
-        "network",
-        "ssrf"
+      "cwe": "CWE-918",
+      "severity": "high",
+      "sources": [
+        {
+          "kind": "network",
+          "port": "return"
+        },
+        {
+          "kind": "ssrf",
+          "port": "return"
+        }
       ],
-      "taint_source": true
+      "sinks": [
+        {
+          "kind": "ssrf",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "requests.sessions.Session.put",
-      "categories": [
-        "network",
-        "ssrf"
+      "cwe": "CWE-918",
+      "severity": "high",
+      "sources": [
+        {
+          "kind": "network",
+          "port": "return"
+        },
+        {
+          "kind": "ssrf",
+          "port": "return"
+        }
       ],
-      "taint_source": true
+      "sinks": [
+        {
+          "kind": "ssrf",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "requests.sessions.Session.request",
-      "categories": [
-        "network",
-        "ssrf"
+      "cwe": "CWE-918",
+      "severity": "high",
+      "sources": [
+        {
+          "kind": "network",
+          "port": "return"
+        },
+        {
+          "kind": "ssrf",
+          "port": "return"
+        }
       ],
-      "taint_source": true
+      "sinks": [
+        {
+          "kind": "ssrf",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "urllib.request.URLopener.open",
-      "categories": [
-        "network",
-        "ssrf"
+      "cwe": "CWE-918",
+      "severity": "high",
+      "sources": [
+        {
+          "kind": "network",
+          "port": "return"
+        },
+        {
+          "kind": "ssrf",
+          "port": "return"
+        }
       ],
-      "taint_source": true
+      "sinks": [
+        {
+          "kind": "ssrf",
+          "port": {
+            "parameter": 1
+          }
+        },
+        {
+          "kind": "ssrf",
+          "port": {
+            "parameter": 2
+          }
+        }
+      ]
     },
     {
       "call": "urllib.request.URLopener.open_unknown",
-      "categories": [
-        "network",
-        "ssrf"
+      "cwe": "CWE-918",
+      "severity": "high",
+      "sources": [
+        {
+          "kind": "network",
+          "port": "return"
+        },
+        {
+          "kind": "ssrf",
+          "port": "return"
+        }
       ],
-      "taint_source": true
+      "sinks": [
+        {
+          "kind": "ssrf",
+          "port": {
+            "parameter": 1
+          }
+        },
+        {
+          "kind": "ssrf",
+          "port": {
+            "parameter": 2
+          }
+        }
+      ]
     },
     {
       "call": "urllib.request.URLopener.retrieve",
-      "categories": [
-        "network",
-        "ssrf"
+      "cwe": "CWE-918",
+      "severity": "high",
+      "sources": [
+        {
+          "kind": "network",
+          "port": "return"
+        },
+        {
+          "kind": "ssrf",
+          "port": "return"
+        }
       ],
-      "taint_source": true
-    },
-    {
-      "call": "urllib.request.urlretrieve",
-      "categories": [
-        "network",
-        "ssrf"
-      ],
-      "taint_source": true
+      "sinks": [
+        {
+          "kind": "ssrf",
+          "port": {
+            "parameter": 1
+          }
+        },
+        {
+          "kind": "ssrf",
+          "port": {
+            "parameter": 4
+          }
+        }
+      ]
     },
     {
       "call": "_socket.socket.connect",
-      "category": "ssrf",
-      "sink_arg_positions": [
-        1
-      ],
-      "taint_sink": true
+      "cwe": "CWE-918",
+      "severity": "high",
+      "sinks": [
+        {
+          "kind": "ssrf",
+          "port": {
+            "parameter": 1
+          }
+        }
+      ]
     },
     {
       "call": "_socket.socket.connect_ex",
-      "category": "ssrf",
-      "sink_arg_positions": [
-        1
-      ],
-      "taint_sink": true
+      "cwe": "CWE-918",
+      "severity": "high",
+      "sinks": [
+        {
+          "kind": "ssrf",
+          "port": {
+            "parameter": 1
+          }
+        }
+      ]
     },
     {
       "call": "_socket.socket.send",
-      "category": "ssrf",
-      "sink_arg_positions": [
-        1
-      ],
-      "taint_sink": true
+      "cwe": "CWE-918",
+      "severity": "high",
+      "sinks": [
+        {
+          "kind": "ssrf",
+          "port": {
+            "parameter": 1
+          }
+        }
+      ]
     },
     {
       "call": "_socket.socket.sendall",
-      "category": "ssrf",
-      "sink_arg_positions": [
-        1
-      ],
-      "taint_sink": true
+      "cwe": "CWE-918",
+      "severity": "high",
+      "sinks": [
+        {
+          "kind": "ssrf",
+          "port": {
+            "parameter": 1
+          }
+        }
+      ]
     },
     {
       "call": "pycurl.Curl.setopt",
-      "category": "ssrf",
-      "sink_arg_positions": [
-        2
-      ],
-      "taint_sink": true
-    },
-    {
-      "call": "requests.api.delete",
-      "category": "ssrf",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
-    },
-    {
-      "call": "requests.api.get",
-      "category": "ssrf",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
-    },
-    {
-      "call": "requests.api.head",
-      "category": "ssrf",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
-    },
-    {
-      "call": "requests.api.options",
-      "category": "ssrf",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
-    },
-    {
-      "call": "requests.api.patch",
-      "category": "ssrf",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
-    },
-    {
-      "call": "requests.api.post",
-      "category": "ssrf",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
-    },
-    {
-      "call": "requests.api.put",
-      "category": "ssrf",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
-    },
-    {
-      "call": "requests.api.request",
-      "category": "ssrf",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
+      "cwe": "CWE-918",
+      "severity": "high",
+      "sinks": [
+        {
+          "kind": "ssrf",
+          "port": {
+            "parameter": 2
+          }
+        }
+      ]
     },
     {
       "call": "requests.models.PreparedRequest.prepare",
-      "category": "auth",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
+      "cwe": "CWE-287",
+      "severity": "high",
+      "sinks": [
+        {
+          "kind": "auth",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "requests.models.Request.__init__",
-      "category": "auth",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
-    },
-    {
-      "call": "requests.sessions.Session.delete",
-      "category": "ssrf",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
-    },
-    {
-      "call": "requests.sessions.Session.get",
-      "category": "ssrf",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
-    },
-    {
-      "call": "requests.sessions.Session.head",
-      "category": "ssrf",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
-    },
-    {
-      "call": "requests.sessions.Session.options",
-      "category": "ssrf",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
-    },
-    {
-      "call": "requests.sessions.Session.patch",
-      "category": "ssrf",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
-    },
-    {
-      "call": "requests.sessions.Session.post",
-      "category": "ssrf",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
-    },
-    {
-      "call": "requests.sessions.Session.put",
-      "category": "ssrf",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
-    },
-    {
-      "call": "requests.sessions.Session.request",
-      "category": "ssrf",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
+      "cwe": "CWE-287",
+      "severity": "high",
+      "sinks": [
+        {
+          "kind": "auth",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "socket.create_connection",
-      "category": "ssrf",
-      "sink_arg_positions": [
-        0
-      ],
-      "taint_sink": true
-    },
-    {
-      "call": "urllib.request.URLopener.open",
-      "category": "ssrf",
-      "sink_arg_positions": [
-        1,
-        2
-      ],
-      "taint_sink": true
-    },
-    {
-      "call": "urllib.request.URLopener.open_unknown",
-      "category": "ssrf",
-      "sink_arg_positions": [
-        1,
-        2
-      ],
-      "taint_sink": true
-    },
-    {
-      "call": "urllib.request.URLopener.retrieve",
-      "category": "ssrf",
-      "sink_arg_positions": [
-        1,
-        4
-      ],
-      "taint_sink": true
-    },
-    {
-      "call": "urllib.request.urlretrieve",
-      "category": "ssrf",
-      "sink_arg_positions": [
-        0,
-        3
-      ],
-      "taint_sink": true
-    },
-    {
-      "call": "http.client.HTTPConnection.getresponse",
-      "taint_sanitizer": true
+      "cwe": "CWE-918",
+      "severity": "high",
+      "sinks": [
+        {
+          "kind": "ssrf",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     }
   ],
   "rules": [
     {
-      "categories": [
-        "ssrf"
-      ],
-      "cwe": "CWE-918",
-      "id": "requests/ssrf/_socket_socket_connect",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        1
-      ],
-      "sinks": [
-        "_socket.socket.connect"
-      ],
-      "title": "Tainted data reaches connect"
-    },
-    {
-      "categories": [
-        "ssrf"
-      ],
-      "cwe": "CWE-918",
-      "id": "requests/ssrf/_socket_socket_connect_ex",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        1
+      "id": "PYFLOW-REQUESTS-AUTH",
+      "title": "Untrusted data reaches auth sink",
+      "sources": [
+        "user_input",
+        "network",
+        "file",
+        "env",
+        "database",
+        "secrets",
+        "cache",
+        "userdata",
+        "untrusted",
+        "exception"
       ],
       "sinks": [
-        "_socket.socket.connect_ex"
-      ],
-      "title": "Tainted data reaches connect_ex"
-    },
-    {
-      "categories": [
-        "ssrf"
-      ],
-      "cwe": "CWE-918",
-      "id": "requests/ssrf/_socket_socket_send",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        1
-      ],
-      "sinks": [
-        "_socket.socket.send"
-      ],
-      "title": "Tainted data reaches send"
-    },
-    {
-      "categories": [
-        "ssrf"
-      ],
-      "cwe": "CWE-918",
-      "id": "requests/ssrf/_socket_socket_sendall",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        1
-      ],
-      "sinks": [
-        "_socket.socket.sendall"
-      ],
-      "title": "Tainted data reaches sendall"
-    },
-    {
-      "categories": [
-        "ssrf"
-      ],
-      "cwe": "CWE-918",
-      "id": "requests/ssrf/pycurl_Curl_setopt",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        2
-      ],
-      "sinks": [
-        "pycurl.Curl.setopt"
-      ],
-      "title": "Tainted data reaches setopt"
-    },
-    {
-      "categories": [
-        "ssrf"
-      ],
-      "cwe": "CWE-918",
-      "id": "requests/ssrf/requests_api_delete",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        0
-      ],
-      "sinks": [
-        "requests.api.delete"
-      ],
-      "title": "Tainted data reaches delete"
-    },
-    {
-      "categories": [
-        "ssrf"
-      ],
-      "cwe": "CWE-918",
-      "id": "requests/ssrf/requests_api_get",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        0
-      ],
-      "sinks": [
-        "requests.api.get"
-      ],
-      "title": "Tainted data reaches get"
-    },
-    {
-      "categories": [
-        "ssrf"
-      ],
-      "cwe": "CWE-918",
-      "id": "requests/ssrf/requests_api_head",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        0
-      ],
-      "sinks": [
-        "requests.api.head"
-      ],
-      "title": "Tainted data reaches head"
-    },
-    {
-      "categories": [
-        "ssrf"
-      ],
-      "cwe": "CWE-918",
-      "id": "requests/ssrf/requests_api_options",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        0
-      ],
-      "sinks": [
-        "requests.api.options"
-      ],
-      "title": "Tainted data reaches options"
-    },
-    {
-      "categories": [
-        "ssrf"
-      ],
-      "cwe": "CWE-918",
-      "id": "requests/ssrf/requests_api_patch",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        0
-      ],
-      "sinks": [
-        "requests.api.patch"
-      ],
-      "title": "Tainted data reaches patch"
-    },
-    {
-      "categories": [
-        "ssrf"
-      ],
-      "cwe": "CWE-918",
-      "id": "requests/ssrf/requests_api_post",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        0
-      ],
-      "sinks": [
-        "requests.api.post"
-      ],
-      "title": "Tainted data reaches post"
-    },
-    {
-      "categories": [
-        "ssrf"
-      ],
-      "cwe": "CWE-918",
-      "id": "requests/ssrf/requests_api_put",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        0
-      ],
-      "sinks": [
-        "requests.api.put"
-      ],
-      "title": "Tainted data reaches put"
-    },
-    {
-      "categories": [
-        "ssrf"
-      ],
-      "cwe": "CWE-918",
-      "id": "requests/ssrf/requests_api_request",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        0
-      ],
-      "sinks": [
-        "requests.api.request"
-      ],
-      "title": "Tainted data reaches request"
-    },
-    {
-      "categories": [
         "auth"
       ],
-      "cwe": "CWE-287",
-      "id": "requests/auth/requests_models_PreparedRequest_prepare",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        0
-      ],
-      "sinks": [
-        "requests.models.PreparedRequest.prepare"
-      ],
-      "title": "Tainted data reaches prepare"
+      "severity": "high"
     },
     {
-      "categories": [
-        "auth"
-      ],
-      "cwe": "CWE-287",
-      "id": "requests/auth/requests_models_Request___init__",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        0
+      "id": "PYFLOW-REQUESTS-NETWORK",
+      "title": "Untrusted data reaches network sink",
+      "sources": [
+        "user_input",
+        "network",
+        "file",
+        "env",
+        "database",
+        "secrets",
+        "cache",
+        "userdata",
+        "untrusted",
+        "exception"
       ],
       "sinks": [
-        "requests.models.Request.__init__"
+        "network"
       ],
-      "title": "Tainted data reaches __init__"
+      "severity": "high"
     },
     {
-      "categories": [
+      "id": "PYFLOW-REQUESTS-SSRF",
+      "title": "Untrusted data reaches ssrf sink",
+      "sources": [
+        "user_input",
+        "network",
+        "file",
+        "env",
+        "database",
+        "secrets",
+        "cache",
+        "userdata",
+        "untrusted",
+        "exception"
+      ],
+      "sinks": [
         "ssrf"
       ],
-      "cwe": "CWE-918",
-      "id": "requests/ssrf/requests_sessions_Session_delete",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        0
-      ],
-      "sinks": [
-        "requests.sessions.Session.delete"
-      ],
-      "title": "Tainted data reaches delete"
-    },
-    {
-      "categories": [
-        "ssrf"
-      ],
-      "cwe": "CWE-918",
-      "id": "requests/ssrf/requests_sessions_Session_get",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        0
-      ],
-      "sinks": [
-        "requests.sessions.Session.get"
-      ],
-      "title": "Tainted data reaches get"
-    },
-    {
-      "categories": [
-        "ssrf"
-      ],
-      "cwe": "CWE-918",
-      "id": "requests/ssrf/requests_sessions_Session_head",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        0
-      ],
-      "sinks": [
-        "requests.sessions.Session.head"
-      ],
-      "title": "Tainted data reaches head"
-    },
-    {
-      "categories": [
-        "ssrf"
-      ],
-      "cwe": "CWE-918",
-      "id": "requests/ssrf/requests_sessions_Session_options",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        0
-      ],
-      "sinks": [
-        "requests.sessions.Session.options"
-      ],
-      "title": "Tainted data reaches options"
-    },
-    {
-      "categories": [
-        "ssrf"
-      ],
-      "cwe": "CWE-918",
-      "id": "requests/ssrf/requests_sessions_Session_patch",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        0
-      ],
-      "sinks": [
-        "requests.sessions.Session.patch"
-      ],
-      "title": "Tainted data reaches patch"
-    },
-    {
-      "categories": [
-        "ssrf"
-      ],
-      "cwe": "CWE-918",
-      "id": "requests/ssrf/requests_sessions_Session_post",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        0
-      ],
-      "sinks": [
-        "requests.sessions.Session.post"
-      ],
-      "title": "Tainted data reaches post"
-    },
-    {
-      "categories": [
-        "ssrf"
-      ],
-      "cwe": "CWE-918",
-      "id": "requests/ssrf/requests_sessions_Session_put",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        0
-      ],
-      "sinks": [
-        "requests.sessions.Session.put"
-      ],
-      "title": "Tainted data reaches put"
-    },
-    {
-      "categories": [
-        "ssrf"
-      ],
-      "cwe": "CWE-918",
-      "id": "requests/ssrf/requests_sessions_Session_request",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        0
-      ],
-      "sinks": [
-        "requests.sessions.Session.request"
-      ],
-      "title": "Tainted data reaches request"
-    },
-    {
-      "categories": [
-        "ssrf"
-      ],
-      "cwe": "CWE-918",
-      "id": "requests/ssrf/socket_create_connection",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        0
-      ],
-      "sinks": [
-        "socket.create_connection"
-      ],
-      "title": "Tainted data reaches create_connection"
-    },
-    {
-      "categories": [
-        "ssrf"
-      ],
-      "cwe": "CWE-918",
-      "id": "requests/ssrf/urllib_request_URLopener_open",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        1,
-        2
-      ],
-      "sinks": [
-        "urllib.request.URLopener.open"
-      ],
-      "title": "Tainted data reaches open"
-    },
-    {
-      "categories": [
-        "ssrf"
-      ],
-      "cwe": "CWE-918",
-      "id": "requests/ssrf/urllib_request_URLopener_open_unknown",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        1,
-        2
-      ],
-      "sinks": [
-        "urllib.request.URLopener.open_unknown"
-      ],
-      "title": "Tainted data reaches open_unknown"
-    },
-    {
-      "categories": [
-        "ssrf"
-      ],
-      "cwe": "CWE-918",
-      "id": "requests/ssrf/urllib_request_URLopener_retrieve",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        1,
-        4
-      ],
-      "sinks": [
-        "urllib.request.URLopener.retrieve"
-      ],
-      "title": "Tainted data reaches retrieve"
-    },
-    {
-      "categories": [
-        "ssrf"
-      ],
-      "cwe": "CWE-918",
-      "id": "requests/ssrf/urllib_request_urlretrieve",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        0,
-        3
-      ],
-      "sinks": [
-        "urllib.request.urlretrieve"
-      ],
-      "title": "Tainted data reaches urlretrieve"
+      "severity": "high"
     }
   ],
   "type": "taint"

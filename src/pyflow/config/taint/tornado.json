@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "framework": "tornado",
   "version": "1.0",
   "description": "Tornado taint models (extracted from root rule pack)",
@@ -13,138 +13,190 @@
   "models": [
     {
       "call": "tornado.httputil.HTTPServerRequest.cookies",
-      "category": "user_input",
-      "taint_source": true
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "tornado.web.RequestHandler.get_argument",
-      "category": "user_input",
-      "taint_source": true
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "tornado.web.RequestHandler.get_arguments",
-      "category": "user_input",
-      "taint_source": true
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "tornado.web.RequestHandler.get_body_argument",
-      "category": "user_input",
-      "taint_source": true
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "tornado.web.RequestHandler.get_body_arguments",
-      "category": "user_input",
-      "taint_source": true
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "tornado.web.RequestHandler.get_query_argument",
-      "category": "user_input",
-      "taint_source": true
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "tornado.web.RequestHandler.get_query_arguments",
-      "category": "user_input",
-      "taint_source": true
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
     },
     {
       "call": "tornado.web.RequestHandler.add_header",
-      "category": "user_input",
-      "sink_arg_positions": [
-        1,
-        2
-      ],
-      "taint_sink": true
+      "severity": "medium",
+      "sinks": [
+        {
+          "kind": "user_input",
+          "port": {
+            "parameter": 1
+          }
+        },
+        {
+          "kind": "user_input",
+          "port": {
+            "parameter": 2
+          }
+        }
+      ]
     },
     {
       "call": "tornado.web.RequestHandler.redirect",
-      "category": "redirect",
-      "sink_arg_positions": [
-        1
-      ],
-      "taint_sink": true
+      "cwe": "CWE-601",
+      "severity": "high",
+      "sinks": [
+        {
+          "kind": "redirect",
+          "port": {
+            "parameter": 1
+          }
+        }
+      ]
     },
     {
       "call": "tornado.web.RequestHandler.set_header",
-      "category": "user_input",
-      "sink_arg_positions": [
-        1,
-        2
-      ],
-      "taint_sink": true
+      "severity": "medium",
+      "sinks": [
+        {
+          "kind": "user_input",
+          "port": {
+            "parameter": 1
+          }
+        },
+        {
+          "kind": "user_input",
+          "port": {
+            "parameter": 2
+          }
+        }
+      ]
     },
     {
       "call": "tornado.web.RequestHandler.write",
-      "category": "xss",
-      "sink_arg_positions": [
-        1
-      ],
-      "taint_sink": true
+      "cwe": "CWE-79",
+      "severity": "high",
+      "sinks": [
+        {
+          "kind": "xss",
+          "port": {
+            "parameter": 1
+          }
+        }
+      ]
     }
   ],
   "rules": [
     {
-      "categories": [
-        "user_input"
-      ],
-      "id": "tornado/user_input/tornado_web_RequestHandler_add_header",
-      "pattern_type": "taint_sink",
-      "severity": "medium",
-      "sink_arg_positions": [
-        1,
-        2
+      "id": "PYFLOW-TORNADO-REDIRECT",
+      "title": "Untrusted data reaches redirect sink",
+      "sources": [
+        "user_input",
+        "network",
+        "file",
+        "env",
+        "database",
+        "secrets",
+        "cache",
+        "userdata",
+        "untrusted",
+        "exception"
       ],
       "sinks": [
-        "tornado.web.RequestHandler.add_header"
-      ],
-      "title": "Tainted data reaches add_header"
-    },
-    {
-      "categories": [
         "redirect"
       ],
-      "cwe": "CWE-601",
-      "id": "tornado/redirect/tornado_web_RequestHandler_redirect",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        1
-      ],
-      "sinks": [
-        "tornado.web.RequestHandler.redirect"
-      ],
-      "title": "Tainted data reaches redirect"
+      "severity": "high"
     },
     {
-      "categories": [
+      "id": "PYFLOW-TORNADO-USER_INPUT",
+      "title": "Untrusted data reaches user_input sink",
+      "sources": [
+        "user_input",
+        "network",
+        "file",
+        "env",
+        "database",
+        "secrets",
+        "cache",
+        "userdata",
+        "untrusted",
+        "exception"
+      ],
+      "sinks": [
         "user_input"
       ],
-      "id": "tornado/user_input/tornado_web_RequestHandler_set_header",
-      "pattern_type": "taint_sink",
-      "severity": "medium",
-      "sink_arg_positions": [
-        1,
-        2
-      ],
-      "sinks": [
-        "tornado.web.RequestHandler.set_header"
-      ],
-      "title": "Tainted data reaches set_header"
+      "severity": "high"
     },
     {
-      "categories": [
-        "xss"
-      ],
-      "cwe": "CWE-79",
-      "id": "tornado/xss/tornado_web_RequestHandler_write",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        1
+      "id": "PYFLOW-TORNADO-XSS",
+      "title": "Untrusted data reaches xss sink",
+      "sources": [
+        "user_input",
+        "network",
+        "file",
+        "env",
+        "database",
+        "secrets",
+        "cache",
+        "userdata",
+        "untrusted",
+        "exception"
       ],
       "sinks": [
-        "tornado.web.RequestHandler.write"
+        "xss"
       ],
-      "title": "Tainted data reaches write"
+      "severity": "high"
     }
   ],
   "type": "taint"

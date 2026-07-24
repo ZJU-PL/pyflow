@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "framework": "sql",
   "version": "1.0",
   "description": "Sql typestate models (extracted from root rule pack)",
@@ -103,5 +103,6 @@
       "typestate_protocol": "resource"
     }
   ],
-  "type": "typestate"
+  "type": "typestate",
+  "rules": []
 }

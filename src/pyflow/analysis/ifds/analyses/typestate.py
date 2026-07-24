@@ -8,12 +8,7 @@ from typing import FrozenSet, Mapping, Sequence
 from pyflow.ir.cfg import graph as cfg_graph
 from pyflow.language.python import ast as py_ast
 
-from ..modeling.calls import (
-    CallModelRegistry,
-    STATE_CLOSE,
-    STATE_OPEN as ACTION_OPEN,
-    STATE_USE,
-)
+from ..modeling.calls import CallModelRegistry
 from .base import AnnotatedFactProblemBase, build_entry_seeds
 from ..modeling.typestate import (
     TypestateEngine,
@@ -738,11 +733,11 @@ class InterproceduralTypestateProblem(
 
         return tuple(outputs)
 
-    def _make_location_fact(self, location: object) -> object:
+    def _make_location_fact(self, location: object, template_fact=None) -> object:
         return ResourceStateFact(location, STATE_OPEN)
 
     def _make_location_fact_with_path(
-        self, location: object, access_path: tuple[str, ...]
+        self, location: object, access_path: tuple[str, ...], template_fact=None
     ) -> object:
         return ResourceStateFact(location, STATE_OPEN, access_path=access_path)
 
@@ -751,6 +746,7 @@ class InterproceduralTypestateProblem(
         procedure: cfg_graph.Code,
         expression: py_ast.PythonASTNode,
         result_index: int = 0,
+        template_fact=None,
     ) -> object:
         return ExpressionResourceFact(procedure, expression, STATE_OPEN, result_index)
 

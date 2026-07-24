@@ -131,7 +131,7 @@ def test_is_reached_prefix_exact_match():
     graph.add_normal_edge("main.body", "main.exit")
 
     location = "my_obj"
-    fact_a = TaintFact(location=location, access_path=("f",))
+    fact_a = TaintFact(location=location, kind="test", access_path=("f",))
 
     class _TestProblem(IFDSProblem[str, str, TaintFact]):
         def __init__(self, supergraph):
@@ -170,8 +170,8 @@ def test_is_reached_prefix_with_prefix_path():
     graph.add_normal_edge("main.body", "main.exit")
 
     location = "my_obj"
-    fact_stored = TaintFact(location=location, access_path=("f",))
-    fact_query = TaintFact(location=location, access_path=("f", "g"))
+    fact_stored = TaintFact(location=location, kind="test", access_path=("f",))
+    fact_query = TaintFact(location=location, kind="test", access_path=("f", "g"))
 
     class _TestProblem(IFDSProblem[str, str, TaintFact]):
         def __init__(self, supergraph):
@@ -209,8 +209,8 @@ def test_is_reached_prefix_wrong_location():
     graph.add_normal_edge("main.entry", "main.body")
     graph.add_normal_edge("main.body", "main.exit")
 
-    fact_stored = TaintFact(location="a", access_path=("f",))
-    fact_query = TaintFact(location="b", access_path=("f", "g"))
+    fact_stored = TaintFact(location="a", kind="test", access_path=("f",))
+    fact_query = TaintFact(location="b", kind="test", access_path=("f", "g"))
 
     class _TestProblem(IFDSProblem[str, str, TaintFact]):
         def __init__(self, supergraph):
@@ -249,8 +249,8 @@ def test_is_reached_prefix_not_reversed():
     graph.add_normal_edge("main.body", "main.exit")
 
     location = "my_obj"
-    fact_stored = TaintFact(location=location, access_path=("f", "g"))
-    fact_query = TaintFact(location=location, access_path=("f",))
+    fact_stored = TaintFact(location=location, kind="test", access_path=("f", "g"))
+    fact_query = TaintFact(location=location, kind="test", access_path=("f",))
 
     class _TestProblem(IFDSProblem[str, str, TaintFact]):
         def __init__(self, supergraph):
@@ -288,7 +288,7 @@ def test_is_reached_prefix_nothing_stored():
     graph.add_normal_edge("main.entry", "main.body")
     graph.add_normal_edge("main.body", "main.exit")
 
-    fact_query = TaintFact(location="a", access_path=("f",))
+    fact_query = TaintFact(location="a", kind="test", access_path=("f",))
 
     class _TestProblem(IFDSProblem[str, str, TaintFact]):
         def __init__(self, supergraph):

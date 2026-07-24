@@ -1,8 +1,8 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "framework": "concurrency",
   "version": "1.0",
-  "description": "Concurrency framework detection (no taint models — see typestate/concurrency.json)",
+  "description": "Concurrency framework detection (no taint models \u2014 see typestate/concurrency.json)",
   "type": "taint",
   "detection": {
     "imports": [
@@ -21,5 +21,6 @@
       "TemporaryDirectory("
     ]
   },
-  "models": []
+  "models": [],
+  "rules": []
 }

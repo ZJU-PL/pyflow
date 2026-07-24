@@ -15,6 +15,8 @@ from pyflow.analysis.ifds.api import (
     run_typestate_analysis,
 )
 from pyflow.cli.security import run_security
+from pyflow.analysis.ifds.modeling.calls import CallModel, CallModelRegistry
+from pyflow.analysis.ifds.modeling.taint import TaintRule
 
 
 PROGRAM = """
@@ -40,6 +42,35 @@ def main():
 """
 
 
+def _taint_setup(sources, sinks, sanitizers=()):
+    return {
+        "call_models": CallModelRegistry(
+            [
+                *(
+                    CallModel(name, source_kinds=frozenset({"test.source"}))
+                    for name in sources
+                ),
+                *(
+                    CallModel(name, sink_kinds=frozenset({"test.sink"}))
+                    for name in sinks
+                ),
+                *(
+                    CallModel(name, sanitizer_kinds=frozenset({"*"}))
+                    for name in sanitizers
+                ),
+            ]
+        ),
+        "rules": (
+            TaintRule(
+                "TEST-TAINT",
+                "Test taint flow",
+                frozenset({"test.source"}),
+                frozenset({"test.sink"}),
+            ),
+        ),
+    }
+
+
 def test_run_taint_analysis_api_on_source_file(tmp_path):
     target = tmp_path / "sample.py"
     target.write_text(PROGRAM)
@@ -47,9 +78,7 @@ def test_run_taint_analysis_api_on_source_file(tmp_path):
     session, result, _ = run_taint_analysis(
         [target],
         function="main",
-        source_names=["source"],
-        sink_names=["sink"],
-        sanitizer_names=["sanitize"],
+        **_taint_setup(["source"], ["sink"], ["sanitize"]),
     )
 
     assert {code.codeName() for code in session.program.liveCode} >= {
@@ -85,8 +114,7 @@ def main():
     _session, result, _ = run_taint_analysis(
         [target],
         function="main",
-        source_names=["source"],
-        sink_names=["sink"],
+        **_taint_setup(["source"], ["sink"]),
     )
 
     assert len(result.findings) == 1
@@ -199,9 +227,7 @@ def test_run_taint_analysis_forwards_dynamic_model_configuration(monkeypatch):
     _session, result, _ = run_taint_analysis(
         ["sample.py"],
         function="main",
-        source_names=["source"],
-        sink_names=["sink"],
-        sanitizer_names=["clean"],
+        **_taint_setup(["source"], ["sink"], ["clean"]),
         collection_mutator_names=["append_safe"],
         collection_accessor_names=["fetch"],
         conservative_unresolved_call_side_effects=True,
@@ -210,9 +236,11 @@ def test_run_taint_analysis_forwards_dynamic_model_configuration(monkeypatch):
     assert result is expected_result
     assert captured["entry_nodes"] == ("entry",)
     configuration = captured["configuration"]
-    assert configuration.source_names == frozenset({"source"})
-    assert configuration.sink_names == frozenset({"sink"})
-    assert configuration.sanitizer_names == frozenset({"clean"})
+    mapping = configuration.call_models.as_mapping()
+    assert mapping["source"].source_kinds == frozenset({"test.source"})
+    assert mapping["sink"].sink_kinds == frozenset({"test.sink"})
+    assert mapping["clean"].sanitizer_kinds == frozenset({"*"})
+    assert configuration.rules[0].rule_id == "TEST-TAINT"
     assert configuration.collection_mutator_names == frozenset({"append_safe"})
     assert configuration.collection_accessor_names == frozenset({"fetch"})
     assert configuration.conservative_unresolved_call_side_effects is True
@@ -357,9 +385,7 @@ def test_run_taint_analysis_api_on_repo_backed_multi_file_snippet():
     session, result, _ = run_taint_analysis(
         python_files,
         function="main",
-        source_names=["source"],
-        sink_names=["sink"],
-        sanitizer_names=["sanitize"],
+        **_taint_setup(["source"], ["sink"], ["sanitize"]),
         search_paths=[str(snippet_dir)],
     )
 
@@ -417,8 +443,7 @@ def main():
     _session, result, _ = run_taint_analysis(
         [target],
         function="main",
-        source_names=["source"],
-        sink_names=["sink"],
+        **_taint_setup(["source"], ["sink"]),
     )
 
     assert len(result.findings) == 1
@@ -446,8 +471,7 @@ def main():
     session, result, _ = run_taint_analysis(
         [target],
         function="main",
-        source_names=["source"],
-        sink_names=["sink"],
+        **_taint_setup(["source"], ["sink"]),
     )
 
     assert len(result.findings) == 1
@@ -479,8 +503,7 @@ def main():
     _session, result, _ = run_taint_analysis(
         [target],
         function="main",
-        source_names=["source"],
-        sink_names=["sink"],
+        **_taint_setup(["source"], ["sink"]),
     )
 
     findings = sorted(
@@ -520,9 +543,7 @@ def main():
     _session, result, _ = run_taint_analysis(
         [target],
         function="main",
-        source_names=["source"],
-        sink_names=["sink"],
-        sanitizer_names=["sanitize"],
+        **_taint_setup(["source"], ["sink"], ["sanitize"]),
     )
 
     assert result.findings == ()
@@ -549,8 +570,7 @@ def main():
     _session, result, _ = run_taint_analysis(
         [target],
         function="main",
-        source_names=["source"],
-        sink_names=["sink"],
+        **_taint_setup(["source"], ["sink"]),
     )
 
     assert result.findings == ()
@@ -580,8 +600,7 @@ def main():
     _session, result, _ = run_taint_analysis(
         [target],
         function="main",
-        source_names=["source"],
-        sink_names=["sink"],
+        **_taint_setup(["source"], ["sink"]),
     )
 
     assert len(result.findings) == 1
@@ -611,8 +630,7 @@ def main():
     _session, result, _ = run_taint_analysis(
         [target],
         function="main",
-        source_names=["source"],
-        sink_names=["sink"],
+        **_taint_setup(["source"], ["sink"]),
     )
 
     assert len(result.findings) == 1
@@ -641,8 +659,7 @@ def main():
     _session, result, _ = run_taint_analysis(
         [target],
         function="main",
-        source_names=["source"],
-        sink_names=["sink"],
+        **_taint_setup(["source"], ["sink"]),
     )
 
     assert result.findings == ()
@@ -669,8 +686,7 @@ def main():
     _session, result, _ = run_taint_analysis(
         [target],
         function="main",
-        source_names=["source"],
-        sink_names=["sink"],
+        **_taint_setup(["source"], ["sink"]),
     )
 
     assert result.findings == ()

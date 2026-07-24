@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "framework": "network",
   "version": "1.0",
   "description": "Network taint models (extracted from root rule pack)",
@@ -26,341 +26,861 @@
   "models": [
     {
       "call": "socket.create_connection",
-      "taint_sink": true
+      "sinks": [
+        {
+          "kind": "ssrf",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "socket.socket.connect",
-      "taint_sink": true
+      "sinks": [
+        {
+          "kind": "ssrf",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "socket.gethostbyname",
-      "taint_sink": true
+      "sinks": [
+        {
+          "kind": "ssrf",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "socket.gethostbyname_ex",
-      "taint_sink": true
+      "sinks": [
+        {
+          "kind": "ssrf",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "socket.getaddrinfo",
-      "taint_sink": true
+      "sinks": [
+        {
+          "kind": "ssrf",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "ftplib.FTP.connect",
-      "taint_sink": true
+      "sinks": [
+        {
+          "kind": "ssrf",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "ftplib.FTP.login",
-      "taint_sink": true
+      "sinks": [
+        {
+          "kind": "dangerous",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "ftplib.FTP.retrbinary",
-      "taint_sink": true
+      "sinks": [
+        {
+          "kind": "dangerous",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "ftplib.FTP.retrlines",
-      "taint_sink": true
+      "sinks": [
+        {
+          "kind": "dangerous",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "ftplib.FTP.storbinary",
-      "taint_sink": true
+      "sinks": [
+        {
+          "kind": "dangerous",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "ftplib.FTP.storlines",
-      "taint_sink": true
+      "sinks": [
+        {
+          "kind": "dangerous",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "smtplib.SMTP.sendmail",
-      "taint_sink": true
+      "sinks": [
+        {
+          "kind": "dangerous",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "smtplib.SMTP.send_message",
-      "taint_sink": true
+      "sinks": [
+        {
+          "kind": "dangerous",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "smtplib.SMTP_SSL.sendmail",
-      "taint_sink": true
+      "sinks": [
+        {
+          "kind": "dangerous",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "dns.resolver.Resolver.resolve",
-      "taint_sink": true
+      "sinks": [
+        {
+          "kind": "dangerous",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "dns.resolver.Resolver.query",
-      "taint_sink": true
+      "sinks": [
+        {
+          "kind": "dangerous",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "dns.query.tcp",
-      "taint_sink": true
+      "sinks": [
+        {
+          "kind": "dangerous",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "dns.query.udp",
-      "taint_sink": true
+      "sinks": [
+        {
+          "kind": "dangerous",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "dns.query.https",
-      "taint_sink": true
+      "sinks": [
+        {
+          "kind": "dangerous",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "dns.query.tls",
-      "taint_sink": true
+      "sinks": [
+        {
+          "kind": "dangerous",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "dns.message.make_query",
-      "taint_sink": true
+      "sinks": [
+        {
+          "kind": "dangerous",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "ldap.ldapobject.SimpleLDAPObject.search",
-      "taint_sink": true
+      "sinks": [
+        {
+          "kind": "ldap",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "ldap.ldapobject.SimpleLDAPObject.search_s",
-      "taint_sink": true
+      "sinks": [
+        {
+          "kind": "ldap",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "ldap.ldapobject.SimpleLDAPObject.search_ext",
-      "taint_sink": true
+      "sinks": [
+        {
+          "kind": "ldap",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "ldap.ldapobject.SimpleLDAPObject.search_ext_s",
-      "taint_sink": true
+      "sinks": [
+        {
+          "kind": "ldap",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "ldap3.Connection.search",
-      "taint_sink": true
+      "sinks": [
+        {
+          "kind": "ssrf",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "ldap3.Connection.extend.standard.paged_search",
-      "taint_sink": true
+      "sinks": [
+        {
+          "kind": "ssrf",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "urllib.request.urlopen",
-      "taint_sink": true,
-      "taint_source": true,
-      "category": "network"
+      "sources": [
+        {
+          "kind": "network",
+          "port": "return"
+        }
+      ],
+      "sinks": [
+        {
+          "kind": "network",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "urllib.request.urlretrieve",
-      "taint_sink": true
+      "sinks": [
+        {
+          "kind": "ssrf",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "urllib.request.Request",
-      "taint_sink": true
+      "sinks": [
+        {
+          "kind": "ssrf",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "http.client.HTTPConnection.request",
-      "taint_sink": true
+      "sinks": [
+        {
+          "kind": "ssrf",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "http.client.HTTPSConnection.request",
-      "taint_sink": true
+      "sinks": [
+        {
+          "kind": "ssrf",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "urllib3.PoolManager.request",
-      "taint_sink": true
+      "sinks": [
+        {
+          "kind": "ssrf",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "urllib3.connectionpool.HTTPConnectionPool.urlopen",
-      "taint_sink": true
+      "sinks": [
+        {
+          "kind": "ssrf",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "httpx.AsyncClient.get",
-      "taint_sink": true
+      "sinks": [
+        {
+          "kind": "dangerous",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "httpx.AsyncClient.post",
-      "taint_sink": true
+      "sinks": [
+        {
+          "kind": "dangerous",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "httpx.AsyncClient.request",
-      "taint_sink": true
+      "sinks": [
+        {
+          "kind": "ssrf",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "aiohttp.ClientSession.get",
-      "taint_sink": true
+      "sinks": [
+        {
+          "kind": "dangerous",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "aiohttp.ClientSession.post",
-      "taint_sink": true
+      "sinks": [
+        {
+          "kind": "dangerous",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "aiohttp.ClientSession.request",
-      "taint_sink": true
+      "sinks": [
+        {
+          "kind": "ssrf",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "requests.post",
-      "taint_sink": true
+      "sinks": [
+        {
+          "kind": "ssrf",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "slack_sdk.WebClient.chat_postMessage",
-      "taint_sink": true
+      "sinks": [
+        {
+          "kind": "dangerous",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "slack_sdk.WebClient.chat_update",
-      "taint_sink": true
+      "sinks": [
+        {
+          "kind": "dangerous",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "slack_sdk.WebClient.files_upload",
-      "taint_sink": true
+      "sinks": [
+        {
+          "kind": "file",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "discord.Webhook.send",
-      "taint_sink": true
+      "sinks": [
+        {
+          "kind": "dangerous",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "discord.Client.send_message",
-      "taint_sink": true
+      "sinks": [
+        {
+          "kind": "dangerous",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "discord.abc.Messageable.send",
-      "taint_sink": true
+      "sinks": [
+        {
+          "kind": "dangerous",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "discord.TextChannel.send",
-      "taint_sink": true
+      "sinks": [
+        {
+          "kind": "dangerous",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "twilio.rest.Client.messages.create",
-      "taint_sink": true
+      "sinks": [
+        {
+          "kind": "dangerous",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "twilio.rest.Client.calls.create",
-      "taint_sink": true
+      "sinks": [
+        {
+          "kind": "dangerous",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "sendgrid.SendGridAPIClient.send",
-      "taint_sink": true
+      "sinks": [
+        {
+          "kind": "dangerous",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "sendgrid.helpers.mail.Mail",
-      "taint_sink": true
+      "sinks": [
+        {
+          "kind": "dangerous",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "telegram.Bot.send_message",
-      "taint_sink": true
+      "sinks": [
+        {
+          "kind": "dangerous",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "telegram.Bot.send_photo",
-      "taint_sink": true
+      "sinks": [
+        {
+          "kind": "dangerous",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "telegram.Bot.send_document",
-      "taint_sink": true
+      "sinks": [
+        {
+          "kind": "dangerous",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "atproto_client.Client.send_post",
-      "taint_sink": true
+      "sinks": [
+        {
+          "kind": "dangerous",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
     },
     {
       "call": "http.server.BaseHTTPRequestHandler.send_error",
-      "category": "xss",
-      "sink_arg_positions": [
-        1,
-        2,
-        3
-      ],
-      "taint_sink": true
+      "cwe": "CWE-79",
+      "severity": "high",
+      "sinks": [
+        {
+          "kind": "xss",
+          "port": {
+            "parameter": 1
+          }
+        },
+        {
+          "kind": "xss",
+          "port": {
+            "parameter": 2
+          }
+        },
+        {
+          "kind": "xss",
+          "port": {
+            "parameter": 3
+          }
+        }
+      ]
     },
     {
       "call": "http.server.BaseHTTPRequestHandler.send_header",
-      "categories": [
-        "user_input",
-        "xss"
-      ],
-      "sink_arg_positions": [
-        1,
-        2
-      ],
-      "taint_sink": true
+      "cwe": "CWE-79",
+      "severity": "high",
+      "sinks": [
+        {
+          "kind": "user_input",
+          "port": {
+            "parameter": 1
+          }
+        },
+        {
+          "kind": "user_input",
+          "port": {
+            "parameter": 2
+          }
+        },
+        {
+          "kind": "xss",
+          "port": {
+            "parameter": 1
+          }
+        },
+        {
+          "kind": "xss",
+          "port": {
+            "parameter": 2
+          }
+        }
+      ]
     },
     {
       "call": "http.server.BaseHTTPRequestHandler.send_response",
-      "category": "xss",
-      "sink_arg_positions": [
-        1,
-        2
-      ],
-      "taint_sink": true
+      "cwe": "CWE-79",
+      "severity": "high",
+      "sinks": [
+        {
+          "kind": "xss",
+          "port": {
+            "parameter": 1
+          }
+        },
+        {
+          "kind": "xss",
+          "port": {
+            "parameter": 2
+          }
+        }
+      ]
     },
     {
       "call": "http.server.BaseHTTPRequestHandler.send_response_only",
-      "category": "xss",
-      "sink_arg_positions": [
-        1,
-        2
-      ],
-      "taint_sink": true
+      "cwe": "CWE-79",
+      "severity": "high",
+      "sinks": [
+        {
+          "kind": "xss",
+          "port": {
+            "parameter": 1
+          }
+        },
+        {
+          "kind": "xss",
+          "port": {
+            "parameter": 2
+          }
+        }
+      ]
     }
   ],
   "rules": [
     {
-      "categories": [
-        "xss"
-      ],
-      "cwe": "CWE-79",
-      "id": "network/xss/http_server_BaseHTTPRequestHandler_send_error",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        1,
-        2,
-        3
-      ],
-      "sinks": [
-        "http.server.BaseHTTPRequestHandler.send_error"
-      ],
-      "title": "Tainted data reaches send_error"
-    },
-    {
-      "categories": [
+      "id": "PYFLOW-NETWORK-DANGEROUS",
+      "title": "Untrusted data reaches dangerous sink",
+      "sources": [
         "user_input",
-        "xss"
-      ],
-      "cwe": "CWE-79",
-      "id": "network/user_input_xss/http_server_BaseHTTPRequestHandler_send_header",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        1,
-        2
+        "network",
+        "file",
+        "env",
+        "database",
+        "secrets",
+        "cache",
+        "userdata",
+        "untrusted",
+        "exception"
       ],
       "sinks": [
-        "http.server.BaseHTTPRequestHandler.send_header"
+        "dangerous"
       ],
-      "title": "Tainted data reaches send_header"
+      "severity": "high"
     },
     {
-      "categories": [
-        "xss"
-      ],
-      "cwe": "CWE-79",
-      "id": "network/xss/http_server_BaseHTTPRequestHandler_send_response",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        1,
-        2
+      "id": "PYFLOW-NETWORK-FILE",
+      "title": "Untrusted data reaches file sink",
+      "sources": [
+        "user_input",
+        "network",
+        "file",
+        "env",
+        "database",
+        "secrets",
+        "cache",
+        "userdata",
+        "untrusted",
+        "exception"
       ],
       "sinks": [
-        "http.server.BaseHTTPRequestHandler.send_response"
+        "file"
       ],
-      "title": "Tainted data reaches send_response"
+      "severity": "high"
     },
     {
-      "categories": [
-        "xss"
-      ],
-      "cwe": "CWE-79",
-      "id": "network/xss/http_server_BaseHTTPRequestHandler_send_response_only",
-      "pattern_type": "taint_sink",
-      "severity": "high",
-      "sink_arg_positions": [
-        1,
-        2
+      "id": "PYFLOW-NETWORK-LDAP",
+      "title": "Untrusted data reaches ldap sink",
+      "sources": [
+        "user_input",
+        "network",
+        "file",
+        "env",
+        "database",
+        "secrets",
+        "cache",
+        "userdata",
+        "untrusted",
+        "exception"
       ],
       "sinks": [
-        "http.server.BaseHTTPRequestHandler.send_response_only"
+        "ldap"
       ],
-      "title": "Tainted data reaches send_response_only"
+      "severity": "high"
+    },
+    {
+      "id": "PYFLOW-NETWORK-NETWORK",
+      "title": "Untrusted data reaches network sink",
+      "sources": [
+        "user_input",
+        "network",
+        "file",
+        "env",
+        "database",
+        "secrets",
+        "cache",
+        "userdata",
+        "untrusted",
+        "exception"
+      ],
+      "sinks": [
+        "network"
+      ],
+      "severity": "high"
+    },
+    {
+      "id": "PYFLOW-NETWORK-SSRF",
+      "title": "Untrusted data reaches ssrf sink",
+      "sources": [
+        "user_input",
+        "network",
+        "file",
+        "env",
+        "database",
+        "secrets",
+        "cache",
+        "userdata",
+        "untrusted",
+        "exception"
+      ],
+      "sinks": [
+        "ssrf"
+      ],
+      "severity": "high"
+    },
+    {
+      "id": "PYFLOW-NETWORK-USER_INPUT",
+      "title": "Untrusted data reaches user_input sink",
+      "sources": [
+        "user_input",
+        "network",
+        "file",
+        "env",
+        "database",
+        "secrets",
+        "cache",
+        "userdata",
+        "untrusted",
+        "exception"
+      ],
+      "sinks": [
+        "user_input"
+      ],
+      "severity": "high"
+    },
+    {
+      "id": "PYFLOW-NETWORK-XSS",
+      "title": "Untrusted data reaches xss sink",
+      "sources": [
+        "user_input",
+        "network",
+        "file",
+        "env",
+        "database",
+        "secrets",
+        "cache",
+        "userdata",
+        "untrusted",
+        "exception"
+      ],
+      "sinks": [
+        "xss"
+      ],
+      "severity": "high"
     }
   ],
   "type": "taint"

@@ -11,23 +11,14 @@ STATE_CLOSE = "close"
 STATE_USE = "use"
 
 
-def _sanitizer_categories_for(configuration, name: str) -> FrozenSet[str]:
-    categories = getattr(configuration, "sanitizer_categories", {})
-    if not hasattr(categories, "get"):
-        return frozenset()
-    return frozenset(categories.get(name, ()))
-
-
 @dataclass(frozen=True)
 class CallModel:
     """Unified semantic model for a symbolic call target."""
 
     name: str
-    taint_source: bool = False
-    taint_sink: bool = False
-    taint_sanitizer: bool = False
-    taint_categories: FrozenSet[str] = frozenset()
-    sanitizer_categories: FrozenSet[str] = frozenset()
+    source_kinds: FrozenSet[str] = frozenset()
+    sink_kinds: FrozenSet[str] = frozenset()
+    sanitizer_kinds: FrozenSet[str] = frozenset()
     sink_arg_positions: FrozenSet[int] = frozenset({0})
     rule_id: str | None = None
     cwe: str | None = None
@@ -47,13 +38,9 @@ class CallModel:
             raise ValueError("Cannot merge call models with different names")
         return CallModel(
             name=self.name,
-            taint_source=self.taint_source or other.taint_source,
-            taint_sink=self.taint_sink or other.taint_sink,
-            taint_sanitizer=self.taint_sanitizer or other.taint_sanitizer,
-            taint_categories=self.taint_categories | other.taint_categories,
-            sanitizer_categories=(
-                self.sanitizer_categories | other.sanitizer_categories
-            ),
+            source_kinds=self.source_kinds | other.source_kinds,
+            sink_kinds=self.sink_kinds | other.sink_kinds,
+            sanitizer_kinds=self.sanitizer_kinds | other.sanitizer_kinds,
             sink_arg_positions=self.sink_arg_positions | other.sink_arg_positions,
             rule_id=self.rule_id or other.rule_id,
             cwe=self.cwe or other.cwe,
@@ -87,26 +74,6 @@ class CallModelRegistry:
             current = merged.get(model.name)
             merged[model.name] = model if current is None else current.merged(model)
         self._models = merged
-
-    @classmethod
-    def from_taint_configuration(cls, configuration) -> "CallModelRegistry":
-        models: list[CallModel] = []
-        models.extend(
-            CallModel(name=name, taint_source=True)
-            for name in configuration.source_names
-        )
-        models.extend(
-            CallModel(name=name, taint_sink=True) for name in configuration.sink_names
-        )
-        models.extend(
-            CallModel(
-                name=name,
-                taint_sanitizer=True,
-                sanitizer_categories=_sanitizer_categories_for(configuration, name),
-            )
-            for name in configuration.sanitizer_names
-        )
-        return cls(models)
 
     @classmethod
     def from_typestate_configuration(cls, configuration) -> "CallModelRegistry":

@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "framework": "concurrency",
   "version": "1.0",
   "description": "Concurrency typestate models (extracted from root rule pack)",
@@ -141,5 +141,6 @@
       "typestate_protocol": "file"
     }
   ],
-  "type": "typestate"
+  "type": "typestate",
+  "rules": []
 }

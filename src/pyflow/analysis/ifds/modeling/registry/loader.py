@@ -19,7 +19,7 @@ import logging
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import FrozenSet, Iterable, Mapping, Sequence
+from typing import FrozenSet, Iterable, Sequence
 
 from ..calls import (
     STATE_CLOSE,
@@ -29,14 +29,53 @@ from ..calls import (
     CallModelRegistry,
 )
 from ..typestate import typestate_action_for_protocol
+from ..taint import TaintRule
 
 _log = logging.getLogger(__name__)
 
 # JSON rule packs live under src/pyflow/config/ — resolve relative to this file
 _REGISTRY_DIR = Path(__file__).resolve().parent.parent.parent.parent.parent / "config"
-RULE_PACK_SCHEMA_VERSION = 1
+RULE_PACK_SCHEMA_VERSION = 2
 _SEVERITIES = {"info", "low", "medium", "high", "critical"}
 _KNOWN_TYPES = frozenset({"taint", "typestate", "nullness"})
+_ROOT_KEYS = frozenset(
+    {
+        "schema_version",
+        "framework",
+        "version",
+        "type",
+        "description",
+        "detection",
+        "models",
+        "rules",
+    }
+)
+_MODEL_KEYS_BY_TYPE = {
+    "taint": frozenset(
+        {"call", "sources", "sinks", "sanitizers", "severity", "cwe", "suggestion"}
+    ),
+    "typestate": frozenset(
+        {
+            "call",
+            "typestate_action",
+            "typestate_protocol",
+            "resource_arg_positions",
+            "track_method_receiver",
+            "receiver_types",
+            "module_prefixes",
+        }
+    ),
+    "nullness": frozenset({"call", "nullness_nullable_return"}),
+}
+_RULE_KEYS = frozenset(
+    {"id", "title", "sources", "sinks", "severity", "cwe", "suggestion"}
+)
+_ENDPOINT_KEYS = frozenset({"kind", "port"})
+_SANITIZER_KEYS = frozenset({"kinds", "port"})
+_DETECTION_KEYS = frozenset({"imports", "patterns"})
+_REQUIRED_ROOT_KEYS = frozenset(
+    {"schema_version", "framework", "version", "type", "models", "rules"}
+)
 
 
 @dataclass(frozen=True)
@@ -108,9 +147,12 @@ class RulePack:
             model = _call_model_from_entry(entry)
             if model is not None:
                 models.append(model)
-        for rule in self._rules_data:
-            models.extend(_call_models_from_rule(rule))
         return tuple(models)
+
+    def taint_rules(self) -> tuple[TaintRule, ...]:
+        if self.type != "taint":
+            return ()
+        return tuple(_taint_rule_from_entry(rule) for rule in self._rules_data)
 
     def rule_metadata(self) -> tuple[RuleMetadata, ...]:
         metadata: list[RuleMetadata] = []
@@ -125,8 +167,8 @@ class RulePack:
                     cwe=_optional_str(rule.get("cwe")),
                     severity=_optional_str(rule.get("severity")),
                     suggestion=_optional_str(rule.get("suggestion")),
-                    calls=tuple(_iter_rule_calls(rule)),
-                    pattern_type=str(rule.get("pattern_type", "call_model")),
+                    calls=(),
+                    pattern_type="taint_flow",
                 )
             )
         return tuple(metadata)
@@ -162,10 +204,45 @@ def _parse_int_set(value: object, default: Iterable[int]) -> FrozenSet[int]:
     return frozenset(parsed)
 
 
-def _taint_categories(entry: dict) -> FrozenSet[str]:
-    return _parse_string_set(entry.get("categories")) | _parse_string_set(
-        entry.get("category")
+def _taint_kinds(entries: object) -> FrozenSet[str]:
+    if not isinstance(entries, list):
+        return frozenset()
+    return frozenset(
+        str(entry.get("kind", "")).strip()
+        for entry in entries
+        if isinstance(entry, dict) and str(entry.get("kind", "")).strip()
     )
+
+
+def _sink_positions(entries: object) -> FrozenSet[int]:
+    if not isinstance(entries, list):
+        return frozenset({0})
+    positions: set[int] = set()
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        port = entry.get("port")
+        if not isinstance(port, dict):
+            continue
+        parameter = port.get("parameter")
+        if isinstance(parameter, int) and not isinstance(parameter, bool):
+            positions.add(parameter)
+    return frozenset(positions or {0})
+
+
+def _sanitizer_kinds(entries: object) -> FrozenSet[str]:
+    if not isinstance(entries, list):
+        return frozenset()
+    kinds: set[str] = set()
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        raw = entry.get("kinds", ())
+        if raw == "all":
+            kinds.add("*")
+        else:
+            kinds.update(_parse_string_set(raw))
+    return frozenset(kinds)
 
 
 def _call_model_from_entry(entry: dict) -> CallModel | None:
@@ -174,13 +251,10 @@ def _call_model_from_entry(entry: dict) -> CallModel | None:
         return None
     return CallModel(
         name=name,
-        taint_source=entry.get("taint_source", False),
-        taint_sink=entry.get("taint_sink", False),
-        taint_sanitizer=entry.get("taint_sanitizer", False),
-        taint_categories=_taint_categories(entry),
-        sanitizer_categories=_parse_string_set(entry.get("sanitizer_categories")),
-        sink_arg_positions=_parse_int_set(entry.get("sink_arg_positions"), [0]),
-        rule_id=_optional_str(entry.get("rule_id")),
+        source_kinds=_taint_kinds(entry.get("sources")),
+        sink_kinds=_taint_kinds(entry.get("sinks")),
+        sanitizer_kinds=_sanitizer_kinds(entry.get("sanitizers")),
+        sink_arg_positions=_sink_positions(entry.get("sinks")),
         cwe=_optional_str(entry.get("cwe")),
         severity=_optional_str(entry.get("severity")),
         suggestion=_optional_str(entry.get("suggestion")),
@@ -190,65 +264,20 @@ def _call_model_from_entry(entry: dict) -> CallModel | None:
         resource_arg_positions=_parse_int_set(entry.get("resource_arg_positions"), [0]),
         track_method_receiver=entry.get("track_method_receiver", True),
         receiver_types=_parse_string_set(entry.get("receiver_types")),
-        callee_qualnames=_parse_string_set(entry.get("callee_qualnames")),
         module_prefixes=_parse_string_set(entry.get("module_prefixes")),
     )
 
 
-def _iter_rule_calls(rule: dict) -> tuple[str, ...]:
-    names: list[str] = []
-    for key in ("calls", "call", "sources", "sinks", "sanitizers"):
-        raw = rule.get(key, ())
-        if isinstance(raw, str):
-            raw = (raw,)
-        for name in raw or ():
-            text = str(name).strip()
-            if text and text not in names:
-                names.append(text)
-    return tuple(names)
-
-
-def _call_models_from_rule(rule: dict) -> tuple[CallModel, ...]:
-    pattern_type = str(rule.get("pattern_type", "")).strip().lower()
-    taint_source = pattern_type == "taint_source"
-    taint_sink = pattern_type == "taint_sink"
-    taint_sanitizer = pattern_type == "taint_sanitizer"
-
-    models: list[CallModel] = []
-    for key, source, sink, sanitizer in (
-        ("sources", True, False, False),
-        ("sinks", False, True, False),
-        ("sanitizers", False, False, True),
-        ("calls", taint_source, taint_sink, taint_sanitizer),
-        ("call", taint_source, taint_sink, taint_sanitizer),
-    ):
-        raw_names = rule.get(key, ())
-        if isinstance(raw_names, str):
-            raw_names = (raw_names,)
-        for raw_name in raw_names or ():
-            name = str(raw_name).strip()
-            if not name:
-                continue
-            models.append(
-                CallModel(
-                    name=name,
-                    taint_source=source,
-                    taint_sink=sink,
-                    taint_sanitizer=sanitizer,
-                    taint_categories=_taint_categories(rule),
-                    sanitizer_categories=_parse_string_set(
-                        rule.get("sanitizer_categories")
-                    ),
-                    sink_arg_positions=_parse_int_set(
-                        rule.get("sink_arg_positions"), [0]
-                    ),
-                    rule_id=_optional_str(rule.get("id")),
-                    cwe=_optional_str(rule.get("cwe")),
-                    severity=_optional_str(rule.get("severity")),
-                    suggestion=_optional_str(rule.get("suggestion")),
-                )
-            )
-    return tuple(models)
+def _taint_rule_from_entry(rule: dict) -> TaintRule:
+    return TaintRule(
+        rule_id=str(rule["id"]),
+        title=str(rule["title"]),
+        source_kinds=_parse_string_set(rule.get("sources")),
+        sink_kinds=_parse_string_set(rule.get("sinks")),
+        severity=str(rule.get("severity", "medium")),
+        cwe=_optional_str(rule.get("cwe")),
+        suggestion=_optional_str(rule.get("suggestion")),
+    )
 
 
 def _parse_typestate(entry: dict) -> FrozenSet[str]:
@@ -257,23 +286,12 @@ def _parse_typestate(entry: dict) -> FrozenSet[str]:
     }
     if explicit_actions:
         return frozenset(explicit_actions)
-    actions: set[str] = set()
-    if entry.get("typestate_open"):
-        actions.add(STATE_OPEN)
-    if entry.get("typestate_close"):
-        actions.add(STATE_CLOSE)
-    if entry.get("typestate_use"):
-        actions.add(STATE_USE)
-    return frozenset(actions)
+    return frozenset()
 
 
 def _parse_typestate_action_protocols(entry: dict) -> FrozenSet[tuple[str, str]]:
     protocol = _optional_str(entry.get("typestate_protocol"))
-    raw_actions = (
-        entry.get("typestate_action")
-        if "typestate_action" in entry
-        else entry.get("typestate_actions")
-    )
+    raw_actions = entry.get("typestate_action")
     if protocol is None or raw_actions is None:
         return frozenset()
     pairs: set[tuple[str, str]] = set()
@@ -307,14 +325,11 @@ def _discover_pack_paths(base_dir: Path) -> list[Path]:
 def _available_packs() -> tuple[RulePack, ...]:
     packs: list[RulePack] = []
     for path in _discover_pack_paths(_REGISTRY_DIR):
-        try:
-            data = json.loads(path.read_text())
-            issues = validate_rule_pack_data(data, path=path)
-            if issues:
-                raise RulePackValidationError(path, issues)
-            packs.append(RulePack(data, source_path=path))
-        except Exception:
-            _log.debug("Failed to load rule pack %s", path.name, exc_info=True)
+        data = json.loads(path.read_text())
+        issues = validate_rule_pack_data(data, path=path)
+        if issues:
+            raise RulePackValidationError(path, issues)
+        packs.append(RulePack(data, source_path=path))
     return tuple(packs)
 
 
@@ -331,6 +346,10 @@ def validate_rule_pack_data(
     if not isinstance(data, dict):
         error("$", "root must be an object")
         return tuple(issues)
+    for key in sorted(set(data) - _ROOT_KEYS):
+        error(key, "unknown schema-v2 field")
+    for key in sorted(_REQUIRED_ROOT_KEYS - set(data)):
+        error(key, "is required")
     if data.get("schema_version") != RULE_PACK_SCHEMA_VERSION:
         error(
             "schema_version",
@@ -345,6 +364,20 @@ def validate_rule_pack_data(
             "type",
             f"must be one of {sorted(_KNOWN_TYPES)}, got {raw_type!r}",
         )
+    detection = data.get("detection")
+    if detection is not None:
+        if not isinstance(detection, dict):
+            error("detection", "must be an object")
+        else:
+            for key in sorted(set(detection) - _DETECTION_KEYS):
+                error(f"detection.{key}", "unknown schema-v2 detection field")
+            for key in ("imports", "patterns"):
+                value = detection.get(key)
+                if value is not None and (
+                    not isinstance(value, list)
+                    or any(not isinstance(item, str) for item in value)
+                ):
+                    error(f"detection.{key}", "must be an array of strings")
 
     models = data.get("models", [])
     if not isinstance(models, list):
@@ -355,10 +388,39 @@ def validate_rule_pack_data(
         if not isinstance(model, dict):
             error(location, "must be an object")
             continue
+        allowed_model_keys = _MODEL_KEYS_BY_TYPE.get(raw_type, frozenset({"call"}))
+        for key in sorted(set(model) - allowed_model_keys):
+            error(f"{location}.{key}", "unknown schema-v2 model field")
         call = model.get("call")
         if not isinstance(call, str) or not call.strip():
             error(f"{location}.call", "must be a non-empty string")
-        _validate_positions(model, location, error)
+        legacy_keys = {
+            "taint_source",
+            "taint_sink",
+            "taint_sanitizer",
+            "category",
+            "categories",
+            "sanitizer_categories",
+            "sink_arg_positions",
+            "pattern_type",
+        }
+        for key in sorted(legacy_keys & model.keys()):
+            error(f"{location}.{key}", "is not valid in schema v2")
+        if raw_type == "taint":
+            _validate_taint_model(model, location, error)
+        elif raw_type == "typestate":
+            for key in ("typestate_action", "typestate_protocol"):
+                if not isinstance(model.get(key), str) or not model[key].strip():
+                    error(f"{location}.{key}", "must be a non-empty string")
+            _validate_positions(model, location, error)
+        elif raw_type == "nullness":
+            if model.get("nullness_nullable_return") is not True:
+                error(
+                    f"{location}.nullness_nullable_return",
+                    "must be true",
+                )
+        else:
+            _validate_positions(model, location, error)
         severity = model.get("severity")
         if severity is not None and str(severity).lower() not in _SEVERITIES:
             error(f"{location}.severity", f"unknown severity {severity!r}")
@@ -373,6 +435,11 @@ def validate_rule_pack_data(
         if not isinstance(rule, dict):
             error(location, "must be an object")
             continue
+        for key in sorted(set(rule) - _RULE_KEYS):
+            error(f"{location}.{key}", "unknown schema-v2 rule field")
+        for key in ("id", "title", "sources", "sinks", "severity"):
+            if key not in rule:
+                error(f"{location}.{key}", "is required")
         rule_id = rule.get("id")
         if not isinstance(rule_id, str) or not rule_id.strip():
             error(f"{location}.id", "must be a non-empty string")
@@ -382,16 +449,110 @@ def validate_rule_pack_data(
             seen_rule_ids.add(rule_id)
         if not isinstance(rule.get("title"), str) or not rule["title"].strip():
             error(f"{location}.title", "must be a non-empty string")
-        if not tuple(_iter_rule_calls(rule)):
-            error(location, "must reference at least one call")
+        if raw_type != "taint":
+            error(location, "rules are only valid in taint packs")
+        for key in ("sources", "sinks"):
+            value = rule.get(key)
+            if (
+                not isinstance(value, list)
+                or not value
+                or any(not isinstance(item, str) or not item.strip() for item in value)
+            ):
+                error(f"{location}.{key}", "must contain non-empty kind names")
+        for key in ("calls", "call", "pattern_type", "sink_arg_positions"):
+            if key in rule:
+                error(f"{location}.{key}", "is not valid in schema v2")
         severity = rule.get("severity")
         if severity is not None and str(severity).lower() not in _SEVERITIES:
             error(f"{location}.severity", f"unknown severity {severity!r}")
         cwe = rule.get("cwe")
         if cwe is not None and not re_fullmatch_cwe(cwe):
             error(f"{location}.cwe", "must match CWE-<number>")
-        _validate_positions(rule, location, error)
+    if raw_type == "taint":
+        modeled_sink_kinds = {
+            str(endpoint.get("kind"))
+            for model in models
+            if isinstance(model, dict)
+            for endpoint in model.get("sinks", [])
+            if isinstance(endpoint, dict) and endpoint.get("kind")
+        }
+        ruled_sink_kinds = {
+            str(kind)
+            for rule in rules
+            if isinstance(rule, dict)
+            for kind in rule.get("sinks", [])
+        }
+        for kind in sorted(modeled_sink_kinds - ruled_sink_kinds):
+            error("rules", f"sink kind {kind!r} has no source-to-sink rule")
+        for kind in sorted(ruled_sink_kinds - modeled_sink_kinds):
+            error("rules", f"rule references unmodeled sink kind {kind!r}")
     return tuple(issues)
+
+
+def _validate_taint_model(entry: dict, location: str, error) -> None:
+    if not any(entry.get(key) for key in ("sources", "sinks", "sanitizers")):
+        error(location, "must define at least one source, sink, or sanitizer")
+    for key in ("sources", "sinks"):
+        endpoints = entry.get(key, [])
+        if not isinstance(endpoints, list):
+            error(f"{location}.{key}", "must be an array")
+            continue
+        for index, endpoint in enumerate(endpoints):
+            endpoint_location = f"{location}.{key}[{index}]"
+            if not isinstance(endpoint, dict):
+                error(endpoint_location, "must be an object")
+                continue
+            for field in sorted(set(endpoint) - _ENDPOINT_KEYS):
+                error(f"{endpoint_location}.{field}", "unknown endpoint field")
+            kind = endpoint.get("kind")
+            if not isinstance(kind, str) or not kind.strip():
+                error(f"{endpoint_location}.kind", "must be a non-empty string")
+            port = endpoint.get("port")
+            if key == "sources" and port != "return":
+                error(f"{endpoint_location}.port", "source port must be 'return'")
+            if key == "sinks" and not _valid_parameter_port(port):
+                error(
+                    f"{endpoint_location}.port",
+                    "sink port must contain a non-negative parameter index",
+                )
+
+    sanitizers = entry.get("sanitizers", [])
+    if not isinstance(sanitizers, list):
+        error(f"{location}.sanitizers", "must be an array")
+        return
+    for index, sanitizer in enumerate(sanitizers):
+        sanitizer_location = f"{location}.sanitizers[{index}]"
+        if not isinstance(sanitizer, dict):
+            error(sanitizer_location, "must be an object")
+            continue
+        for field in sorted(set(sanitizer) - _SANITIZER_KEYS):
+            error(f"{sanitizer_location}.{field}", "unknown sanitizer field")
+        kinds = sanitizer.get("kinds")
+        if kinds != "all" and (
+            not isinstance(kinds, list)
+            or not kinds
+            or any(not isinstance(kind, str) or not kind.strip() for kind in kinds)
+        ):
+            error(
+                f"{sanitizer_location}.kinds",
+                "must be 'all' or a non-empty array of kind names",
+            )
+        if sanitizer.get("port") != "return":
+            error(
+                f"{sanitizer_location}.port",
+                "only return sanitizers are currently supported",
+            )
+
+
+def _valid_parameter_port(port: object) -> bool:
+    if not isinstance(port, dict) or set(port) != {"parameter"}:
+        return False
+    parameter = port["parameter"]
+    return (
+        isinstance(parameter, int)
+        and not isinstance(parameter, bool)
+        and parameter >= 0
+    )
 
 
 def _validate_positions(entry: dict, location: str, error) -> None:
@@ -484,9 +645,7 @@ class Registry:
 
     # ── activation & detection ───────────────────────────────────────
 
-    def activate(
-        self, *framework_names: str, type: str | None = None
-    ) -> None:
+    def activate(self, *framework_names: str, type: str | None = None) -> None:
         """Explicitly activate packs, optionally filtered by *type*."""
         for pack in _available_packs():
             pid = id(pack)
@@ -530,9 +689,7 @@ class Registry:
 
     @property
     def detected_frameworks(self) -> FrozenSet[str]:
-        return frozenset(
-            pack.framework for pack in self._active_packs
-        )
+        return frozenset(pack.framework for pack in self._active_packs)
 
     def available_frameworks(self, *, type: str | None = None) -> FrozenSet[str]:
         """Return all known framework names, optionally filtered by *type*."""
@@ -553,8 +710,7 @@ class Registry:
         for raw in paths:
             path = Path(raw)
             if not path.exists():
-                _log.warning("Custom registry path not found: %s", path)
-                continue
+                raise FileNotFoundError(f"Custom registry path not found: {path}")
             if path.is_dir():
                 for child in sorted(path.glob("*.json")):
                     self._load_custom_file(child)
@@ -562,26 +718,16 @@ class Registry:
                 self._load_custom_file(path)
 
     def _load_custom_file(self, path: Path) -> None:
-        try:
-            data = json.loads(path.read_text())
-        except Exception as exc:
-            _log.warning("Failed to parse custom rule pack %s: %s", path.name, exc)
-            return
+        data = json.loads(path.read_text())
         issues = validate_rule_pack_data(data, path=path)
         if issues:
-            for issue in issues:
-                _log.warning(
-                    "Validation issue in %s: %s", path.name, issue.message
-                )
-            return
+            raise RulePackValidationError(path, issues)
         pack = RulePack(data, source_path=path)
         self._active_packs.append(pack)
 
     # ── model access ─────────────────────────────────────────────────
 
-    def active_models(
-        self, *, type: str | None = None
-    ) -> CallModelRegistry:
+    def active_models(self, *, type: str | None = None) -> CallModelRegistry:
         """Return a ``CallModelRegistry`` merging active packs, optionally filtered by *type*."""
         models: list[CallModel] = []
         for pack in self._active_packs:
@@ -597,36 +743,22 @@ class Registry:
             metadata.extend(pack.rule_metadata())
         return tuple(metadata)
 
+    def active_taint_rules(self) -> tuple[TaintRule, ...]:
+        """Return typed source-to-sink policies from active taint packs."""
+        rules: list[TaintRule] = []
+        for pack in self._active_packs:
+            rules.extend(pack.taint_rules())
+        return tuple(rules)
+
     def as_config(
         self,
-        *,
-        extra_sources: Iterable[str] = (),
-        extra_sinks: Iterable[str] = (),
-        extra_sanitizers: Iterable[str] = (),
     ):
         """Build a ``TaintConfiguration`` from active taint models."""
         from ...analyses.taint import TaintConfiguration
 
-        models = self.active_models(type="taint")
-        mapping = models.as_mapping()
-        sources: set[str] = set(extra_sources)
-        sinks: set[str] = set(extra_sinks)
-        sanitizers: set[str] = set(extra_sanitizers)
-        sanitizer_categories: dict[str, FrozenSet[str]] = {}
-        for name, model in mapping.items():
-            if model.taint_source:
-                sources.add(name)
-            if model.taint_sink:
-                sinks.add(name)
-            if model.taint_sanitizer:
-                sanitizers.add(name)
-                if model.sanitizer_categories:
-                    sanitizer_categories[name] = model.sanitizer_categories
         return TaintConfiguration(
-            source_names=frozenset(sources),
-            sink_names=frozenset(sinks),
-            sanitizer_names=frozenset(sanitizers),
-            sanitizer_categories=sanitizer_categories,
+            call_models=self.active_models(type="taint"),
+            rules=self.active_taint_rules(),
         )
 
     def as_nullness_config(
@@ -657,7 +789,6 @@ class Registry:
     ):
         """Build a ``TypestateConfiguration`` from active typestate models."""
         from ...analyses.typestate import TypestateConfiguration
-        from .._call_model import STATE_CLOSE, STATE_OPEN, STATE_USE
 
         models = self.active_models(type="typestate")
         mapping = models.as_mapping()
@@ -677,8 +808,14 @@ class Registry:
         return TypestateConfiguration(
             open_names=frozenset(open_names) if open_names else frozenset({"open"}),
             close_names=frozenset(close_names) if close_names else frozenset({"close"}),
-            use_names=frozenset(use_names) if use_names else frozenset({"read", "write", "send", "recv"}),
-            enabled_protocols=frozenset(protocol_names) if protocol_names else frozenset({"resource"}),
+            use_names=(
+                frozenset(use_names)
+                if use_names
+                else frozenset({"read", "write", "send", "recv"})
+            ),
+            enabled_protocols=(
+                frozenset(protocol_names) if protocol_names else frozenset({"resource"})
+            ),
             call_models=models,
         )
 

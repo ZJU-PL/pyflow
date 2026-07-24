@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "framework": "sql",
   "version": "1.0",
   "description": "Sql nullable-return models",
@@ -17,5 +17,6 @@
       "nullness_nullable_return": true
     }
   ],
-  "type": "nullness"
+  "type": "nullness",
+  "rules": []
 }

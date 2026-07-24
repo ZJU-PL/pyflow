@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "framework": "stdlib",
   "version": "1.0",
   "description": "Stdlib typestate models (extracted from root rule pack)",
@@ -87,5 +87,6 @@
       "typestate_protocol": "socket"
     }
   ],
-  "type": "typestate"
+  "type": "typestate",
+  "rules": []
 }

@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "framework": "network",
   "version": "1.0",
   "description": "Network typestate models (extracted from root rule pack)",
@@ -126,5 +126,6 @@
       ]
     }
   ],
-  "type": "typestate"
+  "type": "typestate",
+  "rules": []
 }
