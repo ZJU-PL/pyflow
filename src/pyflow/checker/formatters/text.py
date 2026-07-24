@@ -92,8 +92,12 @@ def _output_issue_str(issue, indent, show_lineno=True, show_code=True, lines=-1)
         f"{indent}   Location: {issue.fname}:{issue.lineno if show_lineno else ''}:{issue.col_offset if show_lineno else ''}",
     ]
 
-    if show_code:
-        bits.extend(indent + line for line in issue.get_code(lines, True).split("\n"))
+    if show_code and getattr(issue, "lineno", None) is not None:
+        try:
+            code = issue.get_code(lines, True)
+            bits.extend(indent + line for line in code.split("\n"))
+        except (TypeError, AttributeError):
+            pass
 
     return "\n".join(bits)
 
@@ -136,7 +140,7 @@ def report(manager, fileobj, sev_level, conf_level, lines=-1):
     :param conf_level: Filtering confidence level
     :param lines: Number of lines to report, -1 for all
     """
-    if manager.quiet and not manager.results_count(sev_level, conf_level):
+    if getattr(manager, "quiet", False) and not getattr(manager, "results_count", lambda s, c: False)(sev_level, conf_level):
         return
 
     bits = [f"Run started:{datetime.datetime.now(datetime.timezone.utc)}"]

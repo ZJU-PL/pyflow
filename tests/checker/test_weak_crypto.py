@@ -7,7 +7,9 @@ def test_hashlib_md5_is_flagged(scan):
     res = scan("import hashlib\nhashlib.md5(b'abc')\n")
     issues = res.issues
 
-    assert [i.test_id for i in issues] == ["B304"]
+    test_ids = [i.test_id for i in issues]
+    assert "B324" in test_ids
+    assert "B304" in test_ids
     issue = issues[0]
     assert issue.cwe.id == Cwe.BROKEN_CRYPTO
     assert issue.severity == "MEDIUM"

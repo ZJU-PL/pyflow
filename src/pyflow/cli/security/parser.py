@@ -146,7 +146,7 @@ def add_security_parser(subparsers):
     )
     p.add_argument(
         "--format",
-        choices=["text", "json", "sarif"],
+        choices=["text", "json", "sarif", "csv", "custom", "html", "screen", "xml", "yaml"],
         default="text",
         help="Output format",
     )
@@ -155,6 +155,12 @@ def add_security_parser(subparsers):
         "-o",
         type=Path,
         help="Output file (default: stdout)",
+    )
+    p.add_argument(
+        "--custom-template",
+        default=None,
+        help="Template string for --format custom "
+             "(e.g. '{abspath}:{line}: {test_id} [{severity}] {msg}')",
     )
     p.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
     p.add_argument("--debug", "-d", action="store_true", help="Debug output")

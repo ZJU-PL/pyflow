@@ -103,6 +103,15 @@ def _output_results(engine: str, result, args) -> None:
     """Write analysis results in the requested format."""
     fmt = getattr(args, "format", "text")
 
+    # For scanner-based engines (ast-scanner, cpa), try using checker formatters
+    # which need a manager object. For ifds/cpg, use the inline formatters.
+    if engine in ("ast-scanner", "cpa") and fmt in (
+        "csv", "html", "screen", "text", "xml", "yaml", "json", "sarif", "custom"
+    ):
+        _output_via_formatter(engine, result, args, fmt)
+        return
+
+    # Fallback for ifds / cpg engines (dict-based results)
     out_file = None
     try:
         if getattr(args, "output", None):
@@ -119,6 +128,58 @@ def _output_results(engine: str, result, args) -> None:
             sarif_doc = _result_to_sarif(engine, result, args)
             json.dump(sarif_doc, output, indent=2)
             output.write("\n")
+        else:
+            # Unsupported format for dict-based engines, fall back to text
+            output.write(_format_output_text(engine, result))
+            output.write("\n")
+    finally:
+        if out_file:
+            out_file.close()
+
+
+def _output_via_formatter(engine: str, result, args, fmt: str) -> None:
+    """Route scanner-based results through the appropriate checker formatter."""
+    from pyflow.checker.pattern.core import constants as b_constants
+
+    sev_level = getattr(args, "severity", b_constants.LOW)
+    conf_level = getattr(args, "confidence", b_constants.LOW)
+    lines = -1
+
+    out_file = None
+    try:
+        if getattr(args, "output", None):
+            out_file = open(args.output, "wb" if fmt in ("xml",) else "w",
+                            encoding="utf-8" if fmt != "xml" else None)
+        fileobj = out_file or sys.stdout
+
+        if fmt == "json":
+            from pyflow.checker.formatters import json as json_fmt
+            json_fmt.report(result, fileobj, sev_level, conf_level, lines)
+        elif fmt == "sarif":
+            from pyflow.checker.formatters import sarif as sarif_fmt
+            sarif_fmt.report(result, fileobj, sev_level, conf_level, lines)
+        elif fmt == "text":
+            from pyflow.checker.formatters import text as text_fmt
+            text_fmt.report(result, fileobj, sev_level, conf_level, lines)
+        elif fmt == "csv":
+            from pyflow.checker.formatters import csv as csv_fmt
+            csv_fmt.report(result, fileobj, sev_level, conf_level, lines)
+        elif fmt == "html":
+            from pyflow.checker.formatters import html as html_fmt
+            html_fmt.report(result, fileobj, sev_level, conf_level, lines)
+        elif fmt == "screen":
+            from pyflow.checker.formatters import screen as screen_fmt
+            screen_fmt.report(result, fileobj, sev_level, conf_level, lines)
+        elif fmt == "xml":
+            from pyflow.checker.formatters import xml as xml_fmt
+            xml_fmt.report(result, fileobj, sev_level, conf_level, lines)
+        elif fmt == "yaml":
+            from pyflow.checker.formatters import yaml as yaml_fmt
+            yaml_fmt.report(result, fileobj, sev_level, conf_level, lines)
+        elif fmt == "custom":
+            from pyflow.checker.formatters import custom as custom_fmt
+            template = getattr(args, "custom_template", None)
+            custom_fmt.report(result, fileobj, sev_level, conf_level, template=template)
     finally:
         if out_file:
             out_file.close()

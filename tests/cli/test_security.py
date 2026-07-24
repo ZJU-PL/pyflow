@@ -63,6 +63,31 @@ def test_security_cli_threads_pattern_excludes_into_discover_files(
         def __init__(self, *args, **kwargs):
             pass
 
+        verbose = False
+        quiet = False
+        files_list = []
+        scores = []
+        excluded_files = []
+
+        class _Metrics:
+            data = {
+                "_totals": {
+                    "loc": 0, "nosec": 0, "skipped_tests": 0,
+                    "SEVERITY.UNDEFINED": 0, "SEVERITY.LOW": 0,
+                    "SEVERITY.MEDIUM": 0, "SEVERITY.HIGH": 0,
+                    "CONFIDENCE.UNDEFINED": 0, "CONFIDENCE.LOW": 0,
+                    "CONFIDENCE.MEDIUM": 0, "CONFIDENCE.HIGH": 0,
+                }
+            }
+
+        metrics = _Metrics()
+
+        def results_count(self, sev_level, conf_level):
+            return 0
+
+        def get_skipped(self):
+            return []
+
         def discover_files(self, targets, recursive=False, excluded_paths=""):
             captured["targets"] = list(targets)
             captured["recursive"] = recursive
@@ -107,6 +132,31 @@ def test_security_cli_threads_semantic_excludes_into_config(monkeypatch):
             captured["taint_engine"] = config.taint_engine
             captured["sources"] = config.sources
             captured["sinks"] = config.sinks
+            self.verbose = verbose
+            self.quiet = quiet
+
+        files_list = []
+        scores = []
+        excluded_files = []
+
+        class _Metrics:
+            data = {
+                "_totals": {
+                    "loc": 0, "nosec": 0, "skipped_tests": 0,
+                    "SEVERITY.UNDEFINED": 0, "SEVERITY.LOW": 0,
+                    "SEVERITY.MEDIUM": 0, "SEVERITY.HIGH": 0,
+                    "CONFIDENCE.UNDEFINED": 0, "CONFIDENCE.LOW": 0,
+                    "CONFIDENCE.MEDIUM": 0, "CONFIDENCE.HIGH": 0,
+                }
+            }
+
+        metrics = _Metrics()
+
+        def results_count(self, sev_level, conf_level):
+            return 0
+
+        def get_skipped(self):
+            return []
 
         def analyze(self, targets):
             captured["targets"] = list(targets)
