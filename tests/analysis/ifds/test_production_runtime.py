@@ -418,13 +418,28 @@ def test_shipped_registry_is_schema_valid():
 def test_registry_validation_rejects_invalid_argument_positions():
     issues = validate_rule_pack_data(
         {
-            "schema_version": 1,
+            "schema_version": 2,
             "framework": "demo",
             "version": "1.0",
-            "models": [{"call": "demo.sink", "sink_arg_positions": [-1]}],
+            "type": "taint",
+            "models": [
+                {
+                    "call": "demo.sink",
+                    "sinks": [{"kind": "dangerous", "port": {"parameter": -1}}],
+                }
+            ],
+            "rules": [
+                {
+                    "id": "DEMO-DANGEROUS",
+                    "title": "Demo dangerous flow",
+                    "sources": ["untrusted"],
+                    "sinks": ["dangerous"],
+                    "severity": "high",
+                }
+            ],
         }
     )
-    assert any("non-negative integers" in issue.message for issue in issues)
+    assert any("non-negative parameter index" in issue.message for issue in issues)
 
 
 def test_strict_preparation_propagates_pipeline_failure():
@@ -471,6 +486,7 @@ def main(): sink(source())
         **base,
         "sources": ["source"],
         "sinks": ["sink"],
+        "framework": None,
         "ifds_max_path_edges": 1,
     }
     assert run_security(SimpleNamespace(**limited)) == 3

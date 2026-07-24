@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://pyflow.dev/schemas/ifds-rule-pack-v2.json",
-  "title": "PyFlow IFDS Rule Pack v2",
+  "$id": "https://pyflow.dev/schemas/taint-rule-pack-v2.json",
+  "title": "PyFlow Rule Pack v2",
   "type": "object",
   "required": ["schema_version", "framework", "version", "type", "models", "rules"],
   "properties": {

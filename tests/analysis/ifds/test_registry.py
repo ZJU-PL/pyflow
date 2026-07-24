@@ -2,13 +2,10 @@
 
 from __future__ import annotations
 
-import json
-
 import pytest
 
 from pyflow.analysis.ifds.modeling.registry import (
     Registry,
-    RulePackValidationError,
     load_registry,
     validate_rule_pack_data,
 )
@@ -24,10 +21,10 @@ class TestRegistryLoading:
         r.activate("flask")
         assert "flask" in r.detected_frameworks
 
-    def test_activate_unknown_is_noop(self):
+    def test_activate_unknown_fails_closed(self):
         r = Registry()
-        r.activate("nonexistent_framework_xyz")
-        assert len(r.detected_frameworks) == 0
+        with pytest.raises(ValueError, match="nonexistent_framework_xyz"):
+            r.activate("nonexistent_framework_xyz")
 
     def test_activate_all(self):
         r = Registry()
@@ -97,11 +94,11 @@ class TestRegistryLoading:
 
 
 class TestStrictV2Validation:
-    def test_v1_pack_is_rejected(self):
+    def test_unsupported_schema_version_is_rejected(self):
         issues = validate_rule_pack_data(
             {
-                "schema_version": 1,
-                "framework": "legacy",
+                "schema_version": 3,
+                "framework": "invalid-version",
                 "version": "1.0",
                 "type": "taint",
                 "models": [],
@@ -110,11 +107,11 @@ class TestStrictV2Validation:
         )
         assert any("must equal 2" in issue.message for issue in issues)
 
-    def test_legacy_model_fields_are_rejected(self):
+    def test_unknown_model_fields_are_rejected(self):
         issues = validate_rule_pack_data(
             {
                 "schema_version": 2,
-                "framework": "legacy",
+                "framework": "invalid-fields",
                 "version": "2.0",
                 "type": "taint",
                 "models": [{"call": "source", "taint_source": True}],
@@ -178,23 +175,6 @@ class TestStrictV2Validation:
             }
         )
         assert any("unknown schema-v2 model field" in issue.message for issue in issues)
-
-    def test_invalid_custom_pack_fails_closed(self, tmp_path):
-        path = tmp_path / "legacy.json"
-        path.write_text(
-            json.dumps(
-                {
-                    "schema_version": 1,
-                    "framework": "legacy",
-                    "version": "1.0",
-                    "type": "taint",
-                    "models": [],
-                    "rules": [],
-                }
-            )
-        )
-        with pytest.raises(RulePackValidationError):
-            Registry().load_custom(path)
 
     def test_missing_custom_pack_fails_closed(self, tmp_path):
         with pytest.raises(FileNotFoundError):

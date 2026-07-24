@@ -25,6 +25,8 @@ class _LocalSemanticTaintAnalyzer(
         *,
         sources: Set[str],
         sinks: Set[str],
+        sanitizers: Set[str],
+        sink_positions: Dict[str, Set[int]],
         entry_tainted_params: Set[str],
         entry_tainted_param_keys: Dict[str, Set[str]],
         callee_returns_tainted: Dict[str, bool],
@@ -42,6 +44,8 @@ class _LocalSemanticTaintAnalyzer(
     ):
         self.sources = sources
         self.sinks = sinks
+        self.sanitizers = sanitizers
+        self.sink_positions = sink_positions
         self.entry_tainted_params = entry_tainted_params
         self.entry_tainted_param_keys = entry_tainted_param_keys
         self.callee_returns_tainted = callee_returns_tainted

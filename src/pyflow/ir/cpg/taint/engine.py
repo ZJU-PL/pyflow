@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 from collections import deque
-from typing import Any, Dict, FrozenSet, List, Optional, Set, Tuple
+from typing import Dict, FrozenSet, List, Set, Tuple
+from pyflow.analysis.taint import TaintPolicy, TaintRule
 from pyflow.ir.pdg.graph import PDGNode
 from pyflow.ir.cpg.graph import CodePropertyGraph, CPGEdgeKind
-from .model import MemoryLayout, TaintFinding, TaintState, _CLEAN, _USER_CONTROLLED
-from .defaults import _DEFAULT_SANITIZERS, _DEFAULT_SINKS, _DEFAULT_SOURCES
+from .model import MemoryLayout, TaintFinding, TaintState, _CLEAN
 from .interprocedural import _TaintInterproceduralMixin
 from .matching import _TaintMatchingMixin
 from .propagation import _TaintPropagationMixin
@@ -25,29 +25,24 @@ class CPGTaintEngine(
         self,
         cpg: CodePropertyGraph,
         *,
-        sources: Optional[Set[str]] = None,
-        sinks: Optional[Dict[str, str]] = None,
-        sanitizers: Optional[Set[str]] = None,
-        extra_taint_specs: Optional[Dict[str, Any]] = None,
+        policy: TaintPolicy | None = None,
         max_call_depth: int = 5,
         max_loop_iterations: int = 3,
     ) -> None:
         self._cpg = cpg
-        self._sources: Set[str] = set(_DEFAULT_SOURCES)
-        self._sinks: Dict[str, str] = dict(_DEFAULT_SINKS)
-        self._sanitizers: Dict[str, FrozenSet[str]] = dict(_DEFAULT_SANITIZERS)
+        self._sources: Set[str] = set()
+        self._source_kinds: Dict[str, FrozenSet[str]] = {}
+        self._sinks: Dict[str, str] = {}
+        self._sink_kinds: Dict[str, FrozenSet[str]] = {}
+        self._sink_positions: Dict[str, FrozenSet[int]] = {}
+        self._sink_severity: Dict[str, str] = {}
+        self._sanitizers: Dict[str, FrozenSet[str]] = {}
+        self._rules: List[TaintRule] = []
         self._max_call_depth: int = max_call_depth
         self._max_loop_iterations: int = max_loop_iterations
 
-        if sources:
-            self._sources.update(sources)
-        if sinks:
-            self._sinks.update(sinks)
-        if sanitizers:
-            for san in sanitizers:
-                self.add_sanitizer(san)
-        if extra_taint_specs:
-            self.merge_taint_specs(extra_taint_specs)
+        if policy is not None:
+            self.apply_policy(policy)
 
         self._node_taint: Dict[int, TaintState] = {}
         self._summary_cache: Dict[Tuple[str, Tuple[str, ...]], TaintState] = {}
@@ -55,47 +50,64 @@ class CPGTaintEngine(
             Tuple[str, Tuple[str, ...], Tuple[int, ...]], TaintState
         ] = {}
 
-    def add_source(self, name: str) -> None:
+    def add_source(self, name: str, kind: str = "untrusted") -> None:
         self._sources.add(name)
+        self._source_kinds[name] = self._source_kinds.get(name, frozenset()) | {kind}
 
-    def add_sink(self, name: str, cwe: str = "") -> None:
-        self._sinks[name] = cwe or name
-
-    def add_sanitizer(self, name: str, cwes: Optional[Set[str]] = None) -> None:
-        if cwes is not None:
-            self._sanitizers[name] = frozenset(cwes)
-        else:
-            self._sanitizers.setdefault(name, frozenset())
-
-    def merge_taint_specs(
-        self, specs: Dict[str, Any], language: str = "python"
+    def add_sink(
+        self,
+        name: str,
+        cwe: str = "",
+        *,
+        kind: str = "dangerous",
+        positions: FrozenSet[int] = frozenset({0}),
     ) -> None:
-        """Merge Ansede-style taint specs into this engine.
+        self._sinks[name] = cwe or name
+        self._sink_kinds[name] = self._sink_kinds.get(name, frozenset()) | {kind}
+        self._sink_positions[name] = (
+            self._sink_positions.get(name, frozenset()) | positions
+        )
+        if not any(kind in rule.sink_kinds for rule in self._rules):
+            self._rules.append(
+                TaintRule(
+                    rule_id=f"CPG-MANUAL-{kind.upper()}",
+                    title=f"Untrusted data reaches {kind} sink",
+                    source_kinds=frozenset({"untrusted"}),
+                    sink_kinds=frozenset({kind}),
+                    severity="high",
+                    cwe=cwe or None,
+                )
+            )
 
-        Only entries matching *language* (default ``"python"``) are loaded,
-        so multi-language spec files are handled correctly.
-        """
-        for src in specs.get("sources", {}).get(language, []):
-            name = src if isinstance(src, str) else src.get("name", "")
-            if name:
-                self.add_source(name)
-        for sink in specs.get("sinks", {}).get(language, []):
-            if isinstance(sink, str):
-                self.add_sink(sink, cwe="CWE-0")
-            else:
-                name = sink.get("name", "")
-                if name:
-                    self.add_sink(name, cwe=sink.get("cwe", "CWE-0"))
-        for san in specs.get("sanitizers", {}).get(language, []):
-            if isinstance(san, str):
-                self.add_sanitizer(san)
-            else:
-                name = san.get("name", "")
-                if name:
-                    san_cwes = san.get("cwe", [])
-                    if isinstance(san_cwes, str):
-                        san_cwes = {san_cwes}
-                    self.add_sanitizer(name, cwes=set(san_cwes) if san_cwes else None)
+    def add_sanitizer(
+        self, name: str, kinds: FrozenSet[str] = frozenset({"*"})
+    ) -> None:
+        self._sanitizers[name] = self._sanitizers.get(name, frozenset()) | kinds
+
+    def apply_policy(self, policy: TaintPolicy) -> None:
+        """Merge one strict-v2 typed policy into this engine."""
+        for name, kinds in policy.source_kinds_by_call.items():
+            self._sources.add(name)
+            self._source_kinds[name] = self._source_kinds.get(name, frozenset()) | kinds
+        for name, kinds in policy.sink_kinds_by_call.items():
+            self._sink_kinds[name] = self._sink_kinds.get(name, frozenset()) | kinds
+            self._sink_positions[name] = self._sink_positions.get(
+                name, frozenset()
+            ) | policy.sink_positions_by_call.get(name, frozenset({0}))
+            if name in policy.sink_severity_by_call:
+                self._sink_severity[name] = policy.sink_severity_by_call[name]
+        for name, kinds in policy.sanitizer_kinds_by_call.items():
+            self._sanitizers[name] = self._sanitizers.get(name, frozenset()) | kinds
+        known_rule_ids = {rule.rule_id for rule in self._rules}
+        self._rules.extend(
+            rule for rule in policy.rules if rule.rule_id not in known_rule_ids
+        )
+        for name, kinds in policy.sink_kinds_by_call.items():
+            matching = [rule for rule in self._rules if rule.sink_kinds & kinds]
+            cwe = policy.sink_cwe_by_call.get(name) or next(
+                (rule.cwe for rule in matching if rule.cwe), ""
+            )
+            self._sinks[name] = cwe or next(iter(sorted(kinds)), name)
 
     @property
     def sources(self) -> FrozenSet[str]:
@@ -109,18 +121,16 @@ class CPGTaintEngine(
     def sanitizers(self) -> Dict[str, FrozenSet[str]]:
         return dict(self._sanitizers)
 
+    @property
+    def rules(self) -> tuple[TaintRule, ...]:
+        return tuple(self._rules)
+
     def find_taint_paths(
         self,
-        call_context: Optional[Tuple[int, ...]] = None,
     ) -> List[TaintFinding]:
-        """Find source-to-sink taint flows.
-
-        ``call_context`` is accepted for Ansede API compatibility.  PyFlow's
-        traversal manages call context internally, so a supplied tuple is used
-        only as the initial context for each seed.
-        """
+        """Find source-to-sink taint flows under the configured typed policy."""
         self._cpg._ensure_built()
-        initial_call_context: Tuple[int, ...] = tuple(call_context or ())
+        initial_call_context: Tuple[int, ...] = ()
 
         seeds = self._collect_seeds()
         if not seeds:
@@ -137,7 +147,7 @@ class CPGTaintEngine(
             CPGEdgeKind.RETURN_EDGE,
         }
 
-        for seed_node, seed_tag in seeds:
+        for seed_node, seed_name, source_kinds in seeds:
             # (node_id, tags, call_context) → context-sensitive visited state
             visited: Set[Tuple[int, Tuple[str, ...], Tuple[int, ...]]] = set()
             # Loop re-entry: track how many times each loop header has been
@@ -152,7 +162,8 @@ class CPGTaintEngine(
                     Tuple[int, ...],
                 ]
             ] = deque()
-            initial_state = _USER_CONTROLLED.add_tag(seed_tag)
+            seed_tag = f"from:{seed_name}"
+            initial_state = TaintState(tags=source_kinds)
             worklist.append(
                 (seed_node, initial_state, [], MemoryLayout(), initial_call_context)
             )
@@ -188,19 +199,25 @@ class CPGTaintEngine(
 
                 sink_name, cwe = self._check_sink(node)
                 if sink_name is not None and tstate.is_tainted():
-                    findings.append(
-                        TaintFinding(
-                            cwe=cwe,
-                            severity="high",
-                            source_label=seed_tag,
-                            sink_label=sink_name,
-                            source_node=seed_node,
-                            sink_node=node,
-                            path_nodes=list(path),
-                            tags=tstate.tags,
-                            sanitizers=tstate.sanitized_by,
+                    for rule in self._matching_rules(tstate.tags, sink_name):
+                        findings.append(
+                            TaintFinding(
+                                cwe=cwe or rule.cwe or "",
+                                severity=self._sink_severity.get(
+                                    sink_name, rule.severity
+                                ),
+                                source_label=seed_tag,
+                                sink_label=sink_name,
+                                source_node=seed_node,
+                                sink_node=node,
+                                path_nodes=list(path),
+                                tags=tstate.tags,
+                                sanitizers=tstate.sanitized_by,
+                                rule_id=rule.rule_id,
+                                rule_title=rule.title,
+                                suggestion=rule.suggestion or "",
+                            )
                         )
-                    )
                     continue
 
                 for succ in self._cpg.successors(node, kinds=traversal_kinds):
@@ -239,25 +256,49 @@ class CPGTaintEngine(
         node_id = node if isinstance(node, int) else node.node_id
         return self._node_taint.get(node_id, _CLEAN)
 
-    def _collect_seeds(self) -> List[Tuple[PDGNode, str]]:
-        seeds: List[Tuple[PDGNode, str]] = []
+    def _matching_rules(
+        self, source_kinds: FrozenSet[str], sink_name: str
+    ) -> tuple[TaintRule, ...]:
+        sink_kinds = self._sink_kinds.get(sink_name, frozenset())
+        return tuple(
+            rule
+            for rule in self._rules
+            if rule.source_kinds & source_kinds and rule.sink_kinds & sink_kinds
+        )
+
+    def _source_kinds_for_name(self, source_name: str) -> FrozenSet[str]:
+        for configured, kinds in self._source_kinds.items():
+            if (
+                source_name == configured
+                or source_name.endswith("." + configured)
+                or configured.endswith("." + source_name)
+            ):
+                return kinds
+        return frozenset()
+
+    def _collect_seeds(self) -> List[Tuple[PDGNode, str, FrozenSet[str]]]:
+        seeds: List[Tuple[PDGNode, str, FrozenSet[str]]] = []
         cpg = self._cpg
         # Strategy 1: Match PDG nodes whose AST contains a call to a source
         for node in cpg.nodes():
             src = self._detect_source(node)
             if src:
-                seeds.append((node, f"from:{src}"))
+                seeds.append((node, src, self._source_kinds_for_name(src)))
         # Strategy 2: Match via DATA edges from source-named definitions
-        source_vars = set()
+        source_vars: Dict[str, Tuple[str, FrozenSet[str]]] = {}
         for node in cpg.nodes():
-            if self._detect_source(node):
+            source_name = self._detect_source(node)
+            if source_name:
                 # Follow DATA edges: which variables does this source define?
                 for edge in cpg._cpg_edges_out.get(node.node_id, ()):
                     if edge.kind == CPGEdgeKind.DATA and edge.label:
-                        source_vars.add(edge.label)
+                        source_vars[edge.label] = (
+                            source_name,
+                            self._source_kinds_for_name(source_name),
+                        )
         if source_vars:
-            for var in source_vars:
+            for var, (source_name, source_kinds) in source_vars.items():
                 for seed_node in cpg.defs.get(var, []):
                     if seed_node not in [s[0] for s in seeds]:
-                        seeds.append((seed_node, f"var:{var}"))
+                        seeds.append((seed_node, source_name, source_kinds))
         return seeds

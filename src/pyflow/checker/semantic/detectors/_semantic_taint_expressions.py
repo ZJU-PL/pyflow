@@ -12,6 +12,8 @@ class _ExpressionTaintMixin:
             return expr.id in self.sources
         if isinstance(expr, ast.Call):
             fullname = self._call_fullname(expr.func)
+            if fullname in self.sanitizers:
+                return False
             if fullname in self.sources:
                 return True
         if isinstance(expr, ast.Attribute):
@@ -27,6 +29,10 @@ class _ExpressionTaintMixin:
             return False
         if isinstance(expr, ast.Await):
             return self._expr_is_tainted(expr.value)
+        if isinstance(expr, ast.Call):
+            fullname = self._call_fullname(expr.func)
+            if fullname in self.sanitizers:
+                return False
         if self._expr_is_source(expr):
             return True
         if isinstance(expr, ast.Name) and self._is_container_tainted(expr.id):

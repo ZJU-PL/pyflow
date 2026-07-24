@@ -112,7 +112,7 @@ from .analyses.taint import (
     TaintFinding,
     analyze_taint,
 )
-from .modeling.taint import TaintRule
+from pyflow.analysis.taint import TaintRule
 from .analyses.typestate import (
     ExpressionResourceFact,
     InterproceduralTypestateAnalysis,

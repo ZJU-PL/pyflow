@@ -9,7 +9,7 @@ from pyflow.ir.cfg import graph as cfg_graph
 from pyflow.language.python import ast as py_ast
 
 from ..modeling.calls import CallModelRegistry
-from ..modeling.taint import TaintRule
+from pyflow.analysis.taint import TaintRule
 from .base import AnnotatedFactProblemBase, build_entry_seeds
 from ..frontend.cfg_adapter import CFGNode, CFGSupergraphAdapter, assigned_locals
 from ...alias.flow_sensitive.model import HeapLocation, HeapObjectKind
@@ -52,6 +52,9 @@ class TaintFinding:
     rule: TaintRule
     source_kind: str
     sink_kind: str
+    severity: str
+    cwe: str | None
+    suggestion: str | None
     tainted_arguments: tuple[py_ast.Local, ...]
     tainted_argument_labels: tuple[str, ...] = ()
 
@@ -754,6 +757,9 @@ class InterproceduralTaintProblem(
                                 rule=rule,
                                 source_kind=source_kind,
                                 sink_kind=sink_kind,
+                                severity=model.severity or rule.severity,
+                                cwe=model.cwe or rule.cwe,
+                                suggestion=model.suggestion or rule.suggestion,
                                 tainted_arguments=tainted_args,
                                 tainted_argument_labels=tainted_labels,
                             )

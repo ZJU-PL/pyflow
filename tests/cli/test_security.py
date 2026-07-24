@@ -72,11 +72,17 @@ def test_security_cli_threads_pattern_excludes_into_discover_files(
         class _Metrics:
             data = {
                 "_totals": {
-                    "loc": 0, "nosec": 0, "skipped_tests": 0,
-                    "SEVERITY.UNDEFINED": 0, "SEVERITY.LOW": 0,
-                    "SEVERITY.MEDIUM": 0, "SEVERITY.HIGH": 0,
-                    "CONFIDENCE.UNDEFINED": 0, "CONFIDENCE.LOW": 0,
-                    "CONFIDENCE.MEDIUM": 0, "CONFIDENCE.HIGH": 0,
+                    "loc": 0,
+                    "nosec": 0,
+                    "skipped_tests": 0,
+                    "SEVERITY.UNDEFINED": 0,
+                    "SEVERITY.LOW": 0,
+                    "SEVERITY.MEDIUM": 0,
+                    "SEVERITY.HIGH": 0,
+                    "CONFIDENCE.UNDEFINED": 0,
+                    "CONFIDENCE.LOW": 0,
+                    "CONFIDENCE.MEDIUM": 0,
+                    "CONFIDENCE.HIGH": 0,
                 }
             }
 
@@ -107,7 +113,6 @@ def test_security_cli_threads_pattern_excludes_into_discover_files(
         debug=False,
         exclude=" foo.py , bar.py ",
         engine="ast-scanner",
-        taint_engine="ast",
         micro_bench=None,
         format="text",
         output=None,
@@ -129,7 +134,6 @@ def test_security_cli_threads_semantic_excludes_into_config(monkeypatch):
     class FakeSemanticManager:
         def __init__(self, config, debug=False, verbose=False, quiet=False):
             captured["exclude"] = config.exclude
-            captured["taint_engine"] = config.taint_engine
             captured["sources"] = config.sources
             captured["sinks"] = config.sinks
             self.verbose = verbose
@@ -142,11 +146,17 @@ def test_security_cli_threads_semantic_excludes_into_config(monkeypatch):
         class _Metrics:
             data = {
                 "_totals": {
-                    "loc": 0, "nosec": 0, "skipped_tests": 0,
-                    "SEVERITY.UNDEFINED": 0, "SEVERITY.LOW": 0,
-                    "SEVERITY.MEDIUM": 0, "SEVERITY.HIGH": 0,
-                    "CONFIDENCE.UNDEFINED": 0, "CONFIDENCE.LOW": 0,
-                    "CONFIDENCE.MEDIUM": 0, "CONFIDENCE.HIGH": 0,
+                    "loc": 0,
+                    "nosec": 0,
+                    "skipped_tests": 0,
+                    "SEVERITY.UNDEFINED": 0,
+                    "SEVERITY.LOW": 0,
+                    "SEVERITY.MEDIUM": 0,
+                    "SEVERITY.HIGH": 0,
+                    "CONFIDENCE.UNDEFINED": 0,
+                    "CONFIDENCE.LOW": 0,
+                    "CONFIDENCE.MEDIUM": 0,
+                    "CONFIDENCE.HIGH": 0,
                 }
             }
 
@@ -174,7 +184,6 @@ def test_security_cli_threads_semantic_excludes_into_config(monkeypatch):
         engine="cpa",
         sources=["input"],
         sinks=["eval"],
-        taint_engine="ast",
         micro_bench=None,
         format="text",
         output=None,
@@ -186,7 +195,6 @@ def test_security_cli_threads_semantic_excludes_into_config(monkeypatch):
     assert exit_code == 0
     assert captured["targets"] == ["sample.py"]
     assert captured["exclude"] == ("foo.py", "bar.py")
-    assert captured["taint_engine"] == "ast"
     assert captured["sources"] == ("input",)
     assert captured["sinks"] == ("eval",)
 
@@ -216,7 +224,6 @@ def eval_from_input():
         debug=False,
         exclude="",
         engine="cpa",
-        taint_engine="ast",
         format="text",
         output=None,
         targets=[str(sample)],

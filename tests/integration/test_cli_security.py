@@ -19,6 +19,7 @@ def _security_args(
     Always pass output to a temp file to avoid writing to sys.stdout
     (which can break pytest's capture).
     """
+
     class Args:
         pass
 
@@ -29,7 +30,6 @@ def _security_args(
     args.debug = False
     args.exclude = None
     args.engine = "ast-scanner"
-    args.taint_engine = "ast"
     args.micro_bench = None
     args.format = "text"
     args.output = output

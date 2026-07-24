@@ -29,7 +29,7 @@ from ..calls import (
     CallModelRegistry,
 )
 from ..typestate import typestate_action_for_protocol
-from ..taint import TaintRule
+from pyflow.analysis.taint import TaintPolicy, TaintRule
 
 _log = logging.getLogger(__name__)
 
@@ -90,7 +90,7 @@ class RulePackValidationError(ValueError):
         self.path = path
         self.issues = tuple(issues)
         super().__init__(
-            f"Invalid IFDS rule pack {path.name}: "
+            f"Invalid PyFlow rule pack {path.name}: "
             + "; ".join(issue.message for issue in issues)
         )
 
@@ -647,6 +647,12 @@ class Registry:
 
     def activate(self, *framework_names: str, type: str | None = None) -> None:
         """Explicitly activate packs, optionally filtered by *type*."""
+        available = self.available_frameworks(type=type)
+        unknown = sorted(set(framework_names) - available)
+        if unknown:
+            raise ValueError(
+                "Unknown PyFlow rule-pack framework(s): " + ", ".join(unknown)
+            )
         for pack in _available_packs():
             pid = id(pack)
             if pack.framework not in framework_names:
@@ -759,6 +765,13 @@ class Registry:
         return TaintConfiguration(
             call_models=self.active_models(type="taint"),
             rules=self.active_taint_rules(),
+        )
+
+    def as_taint_policy(self) -> TaintPolicy:
+        """Project active strict-v2 taint packs into an engine-neutral policy."""
+        return TaintPolicy.from_call_models(
+            self.active_models(type="taint"),
+            self.active_taint_rules(),
         )
 
     def as_nullness_config(

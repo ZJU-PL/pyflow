@@ -6,7 +6,7 @@ from typing import Optional, Set
 
 from pyflow.analysis.ifds import TaintConfiguration, analyze_taint
 from pyflow.analysis.ifds.modeling.calls import CallModel, CallModelRegistry
-from pyflow.analysis.ifds.modeling.taint import TaintRule
+from pyflow.analysis.taint import TaintRule
 
 from ._models import TaintFlowReport
 

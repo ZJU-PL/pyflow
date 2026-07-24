@@ -19,9 +19,11 @@ class BugFinderConfig:
     recursive: bool = False
     include: Iterable[str] = field(default_factory=lambda: ("*.py",))
     exclude: Iterable[str] = field(default_factory=tuple)
-    taint_engine: str = "semantic"  # Uses comprehensive semantic taint analysis
     sources: Iterable[str] = field(default_factory=tuple)
     sinks: Iterable[str] = field(default_factory=tuple)
+    sanitizers: Iterable[str] = field(default_factory=tuple)
+    frameworks: Optional[Iterable[str]] = None
+    registry_paths: Iterable[str | Path] = field(default_factory=tuple)
 
 
 class StaticBugFinder:
@@ -34,10 +36,18 @@ class StaticBugFinder:
     def _create_detectors(self) -> List:
         sources = set(self.config.sources or ())
         sinks = set(self.config.sinks or ())
+        sanitizers = set(self.config.sanitizers or ())
         return [
             SemanticTaintDetector(
                 sources=sources or None,
                 sinks=sinks or None,
+                sanitizers=sanitizers or None,
+                frameworks=(
+                    None
+                    if self.config.frameworks is None
+                    else tuple(self.config.frameworks)
+                ),
+                registry_paths=tuple(self.config.registry_paths),
             )
         ]
 

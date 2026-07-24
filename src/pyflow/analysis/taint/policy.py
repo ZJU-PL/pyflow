@@ -45,6 +45,9 @@ class TaintPolicy:
     source_kinds_by_call: Mapping[str, FrozenSet[str]] = field(default_factory=dict)
     sink_kinds_by_call: Mapping[str, FrozenSet[str]] = field(default_factory=dict)
     sink_positions_by_call: Mapping[str, FrozenSet[int]] = field(default_factory=dict)
+    sink_cwe_by_call: Mapping[str, str] = field(default_factory=dict)
+    sink_severity_by_call: Mapping[str, str] = field(default_factory=dict)
+    sink_suggestion_by_call: Mapping[str, str] = field(default_factory=dict)
     sanitizer_kinds_by_call: Mapping[str, FrozenSet[str]] = field(default_factory=dict)
     rules: tuple[TaintRule, ...] = ()
 
@@ -53,6 +56,9 @@ class TaintPolicy:
             "source_kinds_by_call",
             "sink_kinds_by_call",
             "sink_positions_by_call",
+            "sink_cwe_by_call",
+            "sink_severity_by_call",
+            "sink_suggestion_by_call",
             "sanitizer_kinds_by_call",
         ):
             object.__setattr__(
@@ -83,6 +89,21 @@ class TaintPolicy:
                 name: model.sink_arg_positions
                 for name, model in mapping.items()
                 if model.sink_kinds
+            },
+            sink_cwe_by_call={
+                name: model.cwe
+                for name, model in mapping.items()
+                if model.sink_kinds and model.cwe
+            },
+            sink_severity_by_call={
+                name: model.severity
+                for name, model in mapping.items()
+                if model.sink_kinds and model.severity
+            },
+            sink_suggestion_by_call={
+                name: model.suggestion
+                for name, model in mapping.items()
+                if model.sink_kinds and model.suggestion
             },
             sanitizer_kinds_by_call={
                 name: model.sanitizer_kinds

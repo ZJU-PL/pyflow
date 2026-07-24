@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import ast
 import textwrap
-from typing import Any, Dict, List, Optional, Set, Tuple
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
+
+from pyflow.analysis.taint import TaintPolicy, TaintRule
 
 from ..core.base import Detector
 from ..core.context import AnalysisSession
 from ..core.issue import Issue
-from ._semantic_taint_config import TAINT_SINKS, TAINT_SOURCES, get_cwe_for_sink
 from ._semantic_taint_local import _LocalSemanticTaintAnalyzer
 from ._semantic_taint_models import FunctionSummary
 
@@ -32,9 +34,22 @@ class SemanticTaintDetector(Detector):
         self,
         sources: Optional[Set[str]] = None,
         sinks: Optional[Set[str]] = None,
+        sanitizers: Optional[Set[str]] = None,
+        *,
+        policy: TaintPolicy | None = None,
+        frameworks: Sequence[str] | None = None,
+        registry_paths: Sequence[str | Path] = (),
     ):
-        self.sources = set(sources or TAINT_SOURCES)
-        self.sinks = set(sinks or TAINT_SINKS)
+        self._manual_sources = set(sources or ())
+        self._manual_sinks = set(sinks or ())
+        self._manual_sanitizers = set(sanitizers or ())
+        self.policy = policy
+        self.frameworks = None if frameworks is None else tuple(frameworks)
+        self.registry_paths = tuple(registry_paths)
+        self.sources: Set[str] = set()
+        self.sinks: Set[str] = set()
+        self.sanitizers: Set[str] = set()
+        self.sink_positions: Dict[str, Set[int]] = {}
 
     def run(self, session: AnalysisSession) -> List[Issue]:
         """
@@ -46,26 +61,155 @@ class SemanticTaintDetector(Detector):
         Returns:
             List of issues for each detected taint flow
         """
+        self.policy = self.policy or self._policy_for_session(session)
+        self.sources = set(self.policy.source_names) | self._manual_sources
+        self.sinks = set(self.policy.sink_names) | self._manual_sinks
+        self.sanitizers = {
+            name
+            for name, kinds in self.policy.sanitizer_kinds_by_call.items()
+            if "*" in kinds
+        } | self._manual_sanitizers
+        self.sink_positions = {
+            name: set(positions)
+            for name, positions in self.policy.sink_positions_by_call.items()
+        }
+
         # Build function summaries using hybrid approach
         summaries = self._build_summaries(session)
 
         reports: List[Issue] = []
         for name, summary in summaries.items():
             for sink in summary.tainted_sinks:
+                rule = self._rule_for_sink(sink)
+                if rule is None:
+                    continue
+                cwe = self.policy.sink_cwe_by_call.get(sink) or rule.cwe
                 issue = Issue(
-                    severity="HIGH",
+                    severity=self.policy.sink_severity_by_call.get(
+                        sink, rule.severity
+                    ).upper(),
                     confidence="HIGH",
-                    cwe=get_cwe_for_sink(sink),
+                    cwe=self._cwe_number(cwe),
                     text=f"Untrusted data can reach sink '{sink}'.",
                     ident=sink,
                     lineno=None,
-                    test_id="S005",
+                    test_id=rule.rule_id,
                 )
                 issue.fname = getattr(session, "func_to_file", {}).get(name, name)
                 issue.test = self.name
                 reports.append(issue)
 
         return reports
+
+    def _policy_for_session(self, session: AnalysisSession) -> TaintPolicy:
+        from pyflow.analysis.ifds.modeling.calls import CallModel, CallModelRegistry
+        from pyflow.analysis.ifds.modeling.registry import load_registry
+
+        registry = load_registry()
+        if self.frameworks is None:
+            registry.activate("stdlib", type="taint")
+        elif self.frameworks:
+            registry.activate("stdlib", *self.frameworks, type="taint")
+        else:
+            registry.activate("stdlib", type="taint")
+            for source in getattr(session, "all_source_code", {}).values():
+                registry.detect(source.splitlines(), type="taint")
+        if self.registry_paths:
+            registry.load_custom(*self.registry_paths)
+        base = registry.as_taint_policy()
+
+        manual_models = [
+            *(
+                CallModel(name, source_kinds=frozenset({"untrusted"}))
+                for name in self._manual_sources
+            ),
+            *(
+                CallModel(name, sink_kinds=frozenset({"dangerous"}))
+                for name in self._manual_sinks
+            ),
+            *(
+                CallModel(name, sanitizer_kinds=frozenset({"*"}))
+                for name in self._manual_sanitizers
+            ),
+        ]
+        if not manual_models:
+            return base
+        manual_rules: tuple[TaintRule, ...] = ()
+        if self._manual_sinks:
+            manual_rules = (
+                TaintRule(
+                    "PYFLOW-SEMANTIC-MANUAL",
+                    "Untrusted data reaches configured semantic sink",
+                    frozenset(
+                        {
+                            "untrusted",
+                            *(
+                                kind
+                                for kinds in base.source_kinds_by_call.values()
+                                for kind in kinds
+                            ),
+                        }
+                    ),
+                    frozenset({"dangerous"}),
+                    severity="high",
+                ),
+            )
+        manual = TaintPolicy.from_call_models(
+            CallModelRegistry(manual_models), manual_rules
+        )
+        return self._merge_policies(base, manual)
+
+    @staticmethod
+    def _merge_policies(left: TaintPolicy, right: TaintPolicy) -> TaintPolicy:
+        def merge_maps(first, second):
+            result = dict(first)
+            for name, values in second.items():
+                result[name] = result.get(name, frozenset()) | values
+            return result
+
+        return TaintPolicy(
+            source_kinds_by_call=merge_maps(
+                left.source_kinds_by_call, right.source_kinds_by_call
+            ),
+            sink_kinds_by_call=merge_maps(
+                left.sink_kinds_by_call, right.sink_kinds_by_call
+            ),
+            sink_positions_by_call=merge_maps(
+                left.sink_positions_by_call, right.sink_positions_by_call
+            ),
+            sink_cwe_by_call={**left.sink_cwe_by_call, **right.sink_cwe_by_call},
+            sink_severity_by_call={
+                **left.sink_severity_by_call,
+                **right.sink_severity_by_call,
+            },
+            sink_suggestion_by_call={
+                **left.sink_suggestion_by_call,
+                **right.sink_suggestion_by_call,
+            },
+            sanitizer_kinds_by_call=merge_maps(
+                left.sanitizer_kinds_by_call,
+                right.sanitizer_kinds_by_call,
+            ),
+            rules=left.rules + right.rules,
+        )
+
+    def _rule_for_sink(self, sink: str) -> TaintRule | None:
+        sink_kinds = self.policy.sink_kinds_by_call.get(sink, frozenset())
+        if not sink_kinds and sink in self._manual_sinks:
+            sink_kinds = frozenset({"dangerous"})
+        source_kinds = frozenset(
+            kind
+            for kinds in self.policy.source_kinds_by_call.values()
+            for kind in kinds
+        ) | ({"untrusted"} if self._manual_sources else set())
+        matches = self.policy.matching_rules(source_kinds, sink_kinds)
+        return matches[0] if matches else None
+
+    @staticmethod
+    def _cwe_number(cwe: str | None) -> int:
+        if cwe and cwe.startswith("CWE-") and cwe[4:].isdigit():
+            return int(cwe[4:])
+        return 0
 
     def _build_summaries(self, session: AnalysisSession) -> Dict[str, FunctionSummary]:
         """Build function summaries using PyFlow infrastructure and local analysis."""
@@ -232,6 +376,8 @@ class SemanticTaintDetector(Detector):
         analyzer = _LocalSemanticTaintAnalyzer(
             sources=self.sources,
             sinks=self.sinks,
+            sanitizers=self.sanitizers,
+            sink_positions=self.sink_positions,
             entry_tainted_params=entry_tainted_params,
             entry_tainted_param_keys=entry_tainted_param_keys,
             callee_returns_tainted=callee_returns_tainted,

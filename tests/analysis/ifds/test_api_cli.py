@@ -16,7 +16,7 @@ from pyflow.analysis.ifds.api import (
 )
 from pyflow.cli.security import run_security
 from pyflow.analysis.ifds.modeling.calls import CallModel, CallModelRegistry
-from pyflow.analysis.ifds.modeling.taint import TaintRule
+from pyflow.analysis.taint import TaintRule
 
 
 PROGRAM = """

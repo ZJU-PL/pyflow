@@ -30,7 +30,7 @@ from .reporting import (
 
 if TYPE_CHECKING:
     from pyflow.analysis.ifds.modeling.calls import CallModelRegistry
-    from pyflow.analysis.ifds.modeling.taint import TaintRule
+    from pyflow.analysis.taint import TaintRule
 
 # ── Engine dispatchers ────────────────────────────────────────────────────
 
@@ -173,9 +173,11 @@ def _run_cpa(
         verbose=getattr(args, "verbose", False),
         recursive=recursive,
         exclude=_parse_exclude_tuple(exclude),
-        taint_engine=getattr(args, "taint_engine", "ast"),
         sources=tuple(getattr(args, "sources", ()) or ()),
         sinks=tuple(getattr(args, "sinks", ()) or ()),
+        sanitizers=tuple(getattr(args, "sanitizers", ()) or ()),
+        frameworks=getattr(args, "framework", None),
+        registry_paths=tuple(getattr(args, "registry_path", ()) or ()),
     )
     manager = SemanticManager(
         config=config,
@@ -269,7 +271,17 @@ def _run_ifds(targets: List[str], args) -> Dict[str, Any]:
         result = _nullness_result_to_dict(args.function or "<unknown>", nullness_result)
         return _apply_session_diagnostics(result, _session)
 
-    call_models, taint_rules = _merge_taint_specs(args, source_files=files)
+    try:
+        call_models, taint_rules = _build_taint_configuration(args, source_files=files)
+    except (OSError, ValueError) as error:
+        print(f"Invalid taint policy configuration: {error}", file=sys.stderr)
+        return {
+            "function": args.function or "<unknown>",
+            "findings": [],
+            "diagnostics": [str(error)],
+            "status": "invalid",
+            "termination_reason": str(error),
+        }
 
     if not call_models.as_mapping() or not taint_rules:
         print(
@@ -411,13 +423,13 @@ def _discover_python_files(targets: Sequence[str], recursive: bool) -> list[Path
     return files
 
 
-def _merge_taint_specs(
+def _build_taint_configuration(
     args,
     source_files: Sequence[Path] = (),
 ) -> tuple[CallModelRegistry, tuple[TaintRule, ...]]:
     """Build typed CLI models and policies from names and v2 rule packs."""
     from pyflow.analysis.ifds.modeling.calls import CallModel, CallModelRegistry
-    from pyflow.analysis.ifds.modeling.taint import TaintRule
+    from pyflow.analysis.taint import TaintRule
 
     sources = list(getattr(args, "sources", []) or [])
     sinks = list(getattr(args, "sinks", []) or [])
@@ -459,16 +471,15 @@ def _merge_taint_specs(
 
         registry = load_registry()
         if given_frameworks is not None:
-            registry.activate(*given_frameworks, type="taint")
+            registry.activate("stdlib", *given_frameworks, type="taint")
         elif auto_detect:
+            registry.activate("stdlib", type="taint")
             if source_files:
                 for path in source_files:
                     try:
                         registry.detect(path.read_text(encoding="utf-8").splitlines())
                     except OSError:
                         continue
-            if not registry.detected_frameworks:
-                registry.activate("stdlib", type="taint")
         else:
             registry.activate("stdlib", type="taint")
         if custom_paths:

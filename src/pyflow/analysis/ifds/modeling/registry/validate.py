@@ -1,4 +1,4 @@
-"""Command-line validation for shipped IFDS rule packs."""
+"""Command-line validation for shipped PyFlow rule packs."""
 
 from __future__ import annotations
 
@@ -29,7 +29,7 @@ def main(argv: list[str] | None = None) -> int:
         for issue in issues:
             print(f"{issue.severity}: {issue.path}: {issue.message}")
         if not issues:
-            print("All IFDS rule packs are valid.")
+            print("All PyFlow rule packs are valid.")
     return 1 if issues else 0
 
 

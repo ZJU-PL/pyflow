@@ -19,7 +19,7 @@ from pyflow.analysis.ifds.modeling.presets import (
     TAINT_SANITIZER_PRESETS,
     TAINT_SINK_PRESETS,
 )
-from pyflow.analysis.ifds.modeling.taint import TaintRule
+from pyflow.analysis.taint import TaintRule
 from pyflow.language.python import ast
 
 from tests.analysis.ifds._support import build_cfg, make_code

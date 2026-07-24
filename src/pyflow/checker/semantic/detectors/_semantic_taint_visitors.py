@@ -411,7 +411,10 @@ class _StatementVisitorMixin:
         if fullname in self.sinks:
             self.sinks_found.add(fullname)
             tainted_arg = False
-            for arg in node.args:
+            positions = self.sink_positions.get(fullname, set(range(len(node.args))))
+            for index, arg in enumerate(node.args):
+                if index not in positions:
+                    continue
                 if isinstance(arg, ast.Name):
                     if self._expr_is_tainted(arg):
                         self.params_to_sink.add(arg.id)

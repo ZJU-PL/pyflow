@@ -204,7 +204,7 @@ def normalized_taint_findings(result) -> tuple[AnalysisFinding, ...]:
             AnalysisFinding(
                 rule_id=rule.rule_id,
                 kind="taint",
-                severity=rule.severity,
+                severity=finding.severity,
                 confidence="high" if traces else "medium",
                 message=(
                     f"{finding.source_kind} data reaches {finding.sink_kind} "
@@ -215,8 +215,8 @@ def normalized_taint_findings(result) -> tuple[AnalysisFinding, ...]:
                 procedure=_procedure_name(finding.sink),
                 node_id=adapter.supergraph.node_id(finding.sink),
                 code_flow=flow_steps_for_traces(adapter, traces),
-                cwe=rule.cwe,
-                suggestion=rule.suggestion,
+                cwe=finding.cwe,
+                suggestion=finding.suggestion,
                 properties={
                     "tainted_arguments": labels,
                     "source_kind": finding.source_kind,

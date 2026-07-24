@@ -22,9 +22,14 @@ class TaintState:
             sanitized_by=self.sanitized_by & other.sanitized_by,
         )
 
-    def sanitize(self, sanitizer_name: str) -> TaintState:
+    def sanitize(
+        self, sanitizer_name: str, kinds: FrozenSet[str] = frozenset({"*"})
+    ) -> TaintState:
+        remaining = frozenset() if "*" in kinds else self.tags - kinds
+        if remaining == self.tags:
+            return self
         return TaintState(
-            tags=frozenset(),
+            tags=remaining,
             sanitized_by=self.sanitized_by | {sanitizer_name},
         )
 
@@ -265,7 +270,7 @@ def _metadata_for_cwe(cwe: str) -> RuleMetadata:
 
 @dataclass
 class TaintPath:
-    """Ansede-compatible source-to-sink path DTO."""
+    """Serializable source-to-sink path DTO."""
 
     source_node_id: int
     sink_node_id: int
@@ -292,6 +297,8 @@ class TaintFinding:
     tags: FrozenSet[str] = field(default_factory=frozenset)
     sanitizers: FrozenSet[str] = field(default_factory=frozenset)
     rule_id: str = ""
+    rule_title: str = ""
+    suggestion: str = ""
 
     @property
     def source_line(self) -> int:
@@ -342,6 +349,19 @@ class TaintFinding:
 
     @property
     def rule_metadata(self) -> RuleMetadata:
+        if self.rule_id and self.rule_title:
+            return RuleMetadata(
+                self.rule_id,
+                self.rule_title,
+                self.rule_title,
+                self.suggestion,
+                precision="high",
+                tags=(
+                    ("security", "taint", self.cwe)
+                    if self.cwe
+                    else ("security", "taint")
+                ),
+            )
         return _metadata_for_cwe(self.effective_rule_id)
 
     def to_dict(self) -> Dict[str, Any]:
@@ -371,7 +391,7 @@ class TaintFinding:
         }
 
     def to_taint_path(self) -> TaintPath:
-        """Return an Ansede-compatible path object."""
+        """Return a serializable path object."""
         return TaintPath(
             source_node_id=getattr(self.source_node, "node_id", -1),
             sink_node_id=getattr(self.sink_node, "node_id", -1),

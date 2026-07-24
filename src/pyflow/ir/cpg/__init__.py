@@ -45,7 +45,7 @@ from .taint import (
 )
 from .build import build_cpg, build_cpg_with_callgraph, build_cpg_from_directory
 from .dump import to_dot, to_dot_file
-from .rules import load_rules, load_taint_specs, load_yaml_rules, detect_frameworks
+from .rules import detect_frameworks, load_rules
 from .profiles import (
     FrameworkProfile,
     FlaskProfile,
@@ -77,8 +77,6 @@ __all__ = [
     "to_dot",
     "to_dot_file",
     "load_rules",
-    "load_taint_specs",
-    "load_yaml_rules",
     "detect_frameworks",
     "FrameworkProfile",
     "FlaskProfile",

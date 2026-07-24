@@ -3,6 +3,8 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from pyflow.checker.semantic.detectors.semantic_taint import SemanticTaintDetector
+from pyflow.analysis.ifds.modeling.calls import CallModel, CallModelRegistry
+from pyflow.analysis.taint import TaintPolicy, TaintRule
 
 
 class _DummyQueries:
@@ -36,8 +38,8 @@ def vuln():
     issue = issues[0]
     assert issue.test == "semantic_taint"
     assert issue.fname == "sample.py"
-    assert issue.cwe.id == 94
-    assert issue.test_id == "S005"
+    assert issue.cwe.id == 95
+    assert issue.test_id == "PYFLOW-STDLIB-RCE"
     assert "eval" in issue.text
 
 
@@ -71,4 +73,62 @@ def main():
     issue = issues[0]
     assert issue.fname == "sample.py"
     assert issue.ident == "eval"
-    assert issue.cwe.id == 94
+    assert issue.cwe.id == 95
+
+
+def _typed_policy(*models):
+    return TaintPolicy.from_call_models(
+        CallModelRegistry(models),
+        [
+            TaintRule(
+                "TEST-TYPED-FLOW",
+                "Typed test flow",
+                frozenset({"user_input"}),
+                frozenset({"dangerous"}),
+                severity="high",
+                cwe="CWE-999",
+            )
+        ],
+    )
+
+
+def test_semantic_taint_detector_respects_sink_parameter_ports():
+    policy = _typed_policy(
+        CallModel("input", source_kinds=frozenset({"user_input"})),
+        CallModel(
+            "target_sink",
+            sink_kinds=frozenset({"dangerous"}),
+            sink_arg_positions=frozenset({1}),
+            cwe="CWE-999",
+        ),
+    )
+    safe = _make_session(
+        {"main": "def main():\n    value = input()\n    target_sink(value, 'safe')\n"}
+    )
+    unsafe = _make_session(
+        {"main": "def main():\n    value = input()\n    target_sink('safe', value)\n"}
+    )
+
+    assert SemanticTaintDetector(policy=policy).run(safe) == []
+    issues = SemanticTaintDetector(policy=policy).run(unsafe)
+    assert len(issues) == 1
+    assert issues[0].test_id == "TEST-TYPED-FLOW"
+
+
+def test_semantic_taint_detector_applies_universal_sanitizer():
+    policy = _typed_policy(
+        CallModel("input", source_kinds=frozenset({"user_input"})),
+        CallModel("target_sink", sink_kinds=frozenset({"dangerous"})),
+        CallModel("clean", sanitizer_kinds=frozenset({"*"})),
+    )
+    session = _make_session(
+        {
+            "main": (
+                "def main():\n"
+                "    value = input()\n"
+                "    target_sink(clean(value))\n"
+            )
+        }
+    )
+
+    assert SemanticTaintDetector(policy=policy).run(session) == []

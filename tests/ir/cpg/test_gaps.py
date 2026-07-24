@@ -2,7 +2,7 @@
 Gap-coverage tests for CPG patches.
 
 Each test targets a specific gap from the CPG feature-gap analysis
-(vs Ansede).  Run with::
+(including strict-v2 policy behavior). Run with::
 
     pytest tests/ir/test_cpg_gaps.py -x -v
 """
@@ -122,85 +122,73 @@ class TestGap6FuncsProperty:
         assert cpg.funcs == {}
 
 
-# ── Gap 5: language filter on merge_taint_specs ──────────────────────────
+# ── Gap 5: strict typed policy application ───────────────────────────────
 
 
-class TestGap5LanguageFilter:
-    """``merge_taint_specs`` with a ``language`` parameter should only load
-    entries for the matching language."""
+class TestGap5TypedPolicy:
+    """The CPG engine consumes the shared strict-v2 policy projection."""
 
-    def test_language_filter_python(self):
+    def test_policy_preserves_typed_models(self):
+        from pyflow.analysis.ifds.modeling.calls import CallModel, CallModelRegistry
+        from pyflow.analysis.taint import TaintPolicy, TaintRule
+
         cpg = CodePropertyGraph()
         cpg.build()
         engine = CPGTaintEngine(cpg)
-        specs: Dict[str, Any] = {
-            "sources": {
-                "python": ["src_a", "src_b"],
-                "java": ["java_src"],
-            },
-            "sinks": {
-                "python": [{"name": "sink_a", "cwe": "CWE-89"}],
-                "java": [{"name": "java_sink"}],
-            },
-            "sanitizers": {
-                "python": ["san_a"],
-                "java": ["java_san"],
-            },
-        }
-        engine.merge_taint_specs(specs, language="python")
-        assert "src_a" in engine.sources
-        assert "src_b" in engine.sources
-        assert "java_src" not in engine.sources
-        assert "sink_a" in engine.sinks
-        assert "java_sink" not in engine.sinks
-        assert "san_a" in engine.sanitizers
-        assert "java_san" not in engine.sanitizers
+        models = CallModelRegistry(
+            [
+                CallModel("src", source_kinds=frozenset({"user_input"})),
+                CallModel(
+                    "sink",
+                    sink_kinds=frozenset({"sql"}),
+                    sink_arg_positions=frozenset({1}),
+                    cwe="CWE-89",
+                    severity="high",
+                ),
+                CallModel("clean", sanitizer_kinds=frozenset({"user_input"})),
+            ]
+        )
+        rule = TaintRule(
+            "TEST-SQL",
+            "Test SQL flow",
+            frozenset({"user_input"}),
+            frozenset({"sql"}),
+            severity="high",
+            cwe="CWE-89",
+        )
+        engine.apply_policy(TaintPolicy.from_call_models(models, [rule]))
+        assert engine.sources == frozenset({"src"})
+        assert engine.sinks == {"sink": "CWE-89"}
+        assert engine.sanitizers == {"clean": frozenset({"user_input"})}
+        assert engine.rules == (rule,)
 
-    def test_language_filter_java(self):
-        cpg = CodePropertyGraph()
-        cpg.build()
-        engine = CPGTaintEngine(cpg)
-        specs: Dict[str, Any] = {
-            "sources": {
-                "python": ["py_src"],
-                "java": ["java_src"],
-            },
-            "sinks": {
-                "python": ["py_sink"],
-                "java": ["java_sink"],
-            },
-        }
-        engine.merge_taint_specs(specs, language="java")
-        assert "java_src" in engine.sources
-        assert "py_src" not in engine.sources
-        assert "java_sink" in engine.sinks
-        assert "py_sink" not in engine.sinks
+    def test_kind_scoped_sanitizer_preserves_other_kinds(self):
+        from pyflow.ir.cpg.taint import TaintState
 
-    def test_language_filter_default_python(self):
-        cpg = CodePropertyGraph()
-        cpg.build()
-        engine = CPGTaintEngine(cpg)
-        specs: Dict[str, Any] = {
-            "sources": {
-                "python": ["default_py"],
-                "ruby": ["ruby_src"],
-            },
-        }
-        engine.merge_taint_specs(specs)
-        assert "default_py" in engine.sources
-        assert "ruby_src" not in engine.sources
+        state = TaintState(tags=frozenset({"user_input", "network"}))
+        sanitized = state.sanitize("clean_input", frozenset({"user_input"}))
+        assert sanitized.tags == frozenset({"network"})
+        assert sanitized.sanitized_by == frozenset({"clean_input"})
 
-    def test_language_filter_missing_section(self):
-        """When no entry matches the target language, only defaults remain."""
-        cpg = CodePropertyGraph()
-        cpg.build()
-        engine = CPGTaintEngine(cpg)
-        defaults = set(engine.sources)
-        specs: Dict[str, Any] = {"sources": {"java": ["java_src_only"]}}
-        engine.merge_taint_specs(specs, language="python")
-        # Defaults should be unchanged; java_src_only should NOT appear
-        assert "java_src_only" not in engine.sources
-        assert engine.sources == frozenset(defaults)
+    def test_rules_reject_nonmatching_source_kinds(self):
+        from pyflow.analysis.ifds.modeling.calls import CallModel, CallModelRegistry
+        from pyflow.analysis.taint import TaintPolicy, TaintRule
+
+        engine = CPGTaintEngine(CodePropertyGraph())
+        rule = TaintRule(
+            "ONLY-INPUT-SQL",
+            "Only user input reaches SQL",
+            frozenset({"user_input"}),
+            frozenset({"sql"}),
+        )
+        engine.apply_policy(
+            TaintPolicy.from_call_models(
+                CallModelRegistry([CallModel("sink", sink_kinds=frozenset({"sql"}))]),
+                [rule],
+            )
+        )
+        assert engine._matching_rules(frozenset({"user_input"}), "sink") == (rule,)
+        assert engine._matching_rules(frozenset({"network"}), "sink") == ()
 
 
 # ── Gap 10: CPGStore round-trip ──────────────────────────────────────────
@@ -255,9 +243,7 @@ class TestGap10CPGStore:
             Path(db_path).unlink(missing_ok=True)
 
     def test_file_changed_detection(self):
-        with tempfile.NamedTemporaryFile(
-            suffix=".py", mode="w", delete=False
-        ) as src:
+        with tempfile.NamedTemporaryFile(suffix=".py", mode="w", delete=False) as src:
             src.write("x = 1\n")
             src_path = src.name
         try:
@@ -291,11 +277,7 @@ class TestGap14PhiMetadata:
     def test_phi_node_type_on_if(self):
         cpg = self._build_ssa_cpg(_IF_SRC)
         cpg.build()
-        phi_nodes = [
-            n
-            for n in cpg.nodes("choose")
-            if cpg.node_type(n) == "Phi"
-        ]
+        phi_nodes = [n for n in cpg.nodes("choose") if cpg.node_type(n) == "Phi"]
         if not phi_nodes:
             pytest.skip("no phi nodes generated (SSA may be off)")
         for node in phi_nodes:

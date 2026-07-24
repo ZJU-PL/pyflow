@@ -1,7 +1,7 @@
 """Source, sink, call-name, and local-flow matching."""
 
 from __future__ import annotations
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, FrozenSet, List, Optional, Tuple
 from pyflow.ir.pdg.graph import PDGNode
 from pyflow.ir.cpg.graph import CPGEdgeKind
 from pyflow.language.python import ast as py_ast
@@ -40,9 +40,9 @@ class _TaintMatchingMixin:
         if ast_node is not None:
             call_name = self._extract_call_name(ast_node)
             if call_name:
-                cwe = self._match_sink_cwe(call_name)
-                if cwe and not self._is_parameterized_safe(ast_node, call_name):
-                    return call_name, cwe
+                sink_name = self._match_sink_name(call_name)
+                if sink_name and not self._is_parameterized_safe(ast_node, call_name):
+                    return sink_name, self._sinks[sink_name]
         label = node.label or ""
         for sink_name, cwe in self._sinks.items():
             if sink_name in label:
@@ -51,9 +51,9 @@ class _TaintMatchingMixin:
         cpg = self._cpg
         for edge in cpg._cpg_edges_in.get(node.node_id, ()):
             if edge.kind == CPGEdgeKind.DATA and edge.label:
-                cwe = self._match_sink_cwe(edge.label)
-                if cwe:
-                    return edge.label, cwe
+                sink_name = self._match_sink_name(edge.label)
+                if sink_name:
+                    return sink_name, self._sinks[sink_name]
         return None, ""
 
     def _is_parameterized_safe(self, ast_node: Any, call_name: str) -> bool:
@@ -136,13 +136,19 @@ class _TaintMatchingMixin:
         tracking local variables and object fields at a shallow level.
         """
         seen = {
-            (id(f.source_node), id(f.sink_node), f.source_label, f.sink_label)
+            (
+                id(f.source_node),
+                id(f.sink_node),
+                f.source_label,
+                f.sink_label,
+                f.effective_rule_id,
+            )
             for f in existing_findings
         }
         found: List[TaintFinding] = []
 
         for func_name in self._cpg.functions:
-            tainted: Dict[str, Tuple[PDGNode, str]] = {}
+            tainted: Dict[str, Tuple[PDGNode, str, FrozenSet[str]]] = {}
             nodes = [
                 node
                 for node in self._cpg.nodes(func_name)
@@ -154,28 +160,47 @@ class _TaintMatchingMixin:
                 ast_node = node.ast_node
                 sink_name, cwe = self._check_sink(node)
                 if sink_name:
-                    source = self._source_for_sink_call(ast_node, tainted)
+                    source = self._source_for_sink_call(
+                        ast_node, tainted, sink_name=sink_name
+                    )
                     if source is not None:
-                        source_node, source_label = source
-                        key = (id(source_node), id(node), source_label, sink_name)
-                        if key not in seen:
+                        source_node, source_label, source_kinds = source
+                        for rule in self._matching_rules(source_kinds, sink_name):
+                            key = (
+                                id(source_node),
+                                id(node),
+                                source_label,
+                                sink_name,
+                                rule.rule_id,
+                            )
+                            if key in seen:
+                                continue
                             seen.add(key)
                             found.append(
                                 TaintFinding(
-                                    cwe=cwe,
-                                    severity="high",
+                                    cwe=cwe or rule.cwe or "",
+                                    severity=rule.severity,
                                     source_label=source_label,
                                     sink_label=sink_name,
                                     source_node=source_node,
                                     sink_node=node,
                                     path_nodes=[source_node, node],
-                                    tags=frozenset({source_label}),
+                                    tags=source_kinds,
+                                    rule_id=rule.rule_id,
+                                    rule_title=rule.title,
+                                    suggestion=rule.suggestion or "",
                                 )
                             )
 
                 source_label = self._find_source_call(ast_node)
-                source_info: Optional[Tuple[PDGNode, str]] = (
-                    (node, f"from:{source_label}") if source_label else None
+                source_info: Optional[Tuple[PDGNode, str, FrozenSet[str]]] = (
+                    (
+                        node,
+                        f"from:{source_label}",
+                        self._source_kinds_for_name(source_label),
+                    )
+                    if source_label
+                    else None
                 )
 
                 if isinstance(ast_node, py_ast.Assign):
@@ -202,22 +227,45 @@ class _TaintMatchingMixin:
     def _source_for_sink_call(
         self,
         ast_node: Any,
-        tainted: Dict[str, Tuple[PDGNode, str]],
-    ) -> Optional[Tuple[PDGNode, str]]:
+        tainted: Dict[str, Tuple[PDGNode, str, FrozenSet[str]]],
+        *,
+        sink_name: str,
+    ) -> Optional[Tuple[PDGNode, str, FrozenSet[str]]]:
         call = self._call_expr(ast_node)
         if call is None:
             return self._source_for_expr(ast_node, tainted)
-        for arg in getattr(call, "args", []) or []:
+        positions = self._sink_positions.get(sink_name, frozenset({0}))
+        for index, arg in enumerate(getattr(call, "args", []) or []):
+            if index not in positions:
+                continue
             source = self._source_for_expr(arg, tainted)
             if source is not None:
                 return source
-        return self._source_for_expr(call, tainted)
+        return None
 
     def _source_for_expr(
         self,
         expr: Any,
-        tainted: Dict[str, Tuple[PDGNode, str]],
-    ) -> Optional[Tuple[PDGNode, str]]:
+        tainted: Dict[str, Tuple[PDGNode, str, FrozenSet[str]]],
+    ) -> Optional[Tuple[PDGNode, str, FrozenSet[str]]]:
+        call = self._call_expr(expr)
+        if call is not None:
+            call_name = self._extract_call_name(call)
+            sanitizer_kinds = self._sanitizers.get(call_name or "")
+            if sanitizer_kinds is not None:
+                for arg in getattr(call, "args", []) or []:
+                    source = self._source_for_expr(arg, tainted)
+                    if source is None:
+                        continue
+                    source_node, source_label, source_kinds = source
+                    remaining = (
+                        frozenset()
+                        if "*" in sanitizer_kinds
+                        else source_kinds - sanitizer_kinds
+                    )
+                    if remaining:
+                        return source_node, source_label, remaining
+                return None
         for name in self._expr_names(expr):
             if name in tainted:
                 return tainted[name]
@@ -279,12 +327,12 @@ class _TaintMatchingMixin:
                 return True
         return False
 
-    def _match_sink_cwe(self, name: str) -> str:
+    def _match_sink_name(self, name: str) -> str:
         if not name:
             return ""
-        for sink, cwe in self._sinks.items():
+        for sink in self._sinks:
             if name == sink or name.endswith("." + sink):
-                return cwe
+                return sink
             if "." in name and sink.endswith("." + name):
-                return cwe
+                return sink
         return ""

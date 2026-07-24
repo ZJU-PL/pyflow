@@ -14,7 +14,7 @@ from pyflow.analysis.ifds import (
     build_supergraph_from_cfgs,
 )
 from pyflow.analysis.ifds.modeling.calls import CallModel, CallModelRegistry
-from pyflow.analysis.ifds.modeling.taint import TaintRule
+from pyflow.analysis.taint import TaintRule
 from pyflow.language.python import ast
 
 from tests.analysis.ifds._support import build_cfg, call_stmt, make_code

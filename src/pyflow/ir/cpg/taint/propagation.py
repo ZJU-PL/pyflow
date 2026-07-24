@@ -49,9 +49,9 @@ class _TaintPropagationMixin:
             return self._propagate_try(ast_node, tstate, dst_node, mem)
 
         label = dst_node.label or ""
-        for san, san_cwes in self._sanitizers.items():
+        for san, sanitizer_kinds in self._sanitizers.items():
             if san in label:
-                return self._apply_sanitizer(tstate, san, san_cwes)
+                return self._apply_sanitizer(tstate, san, sanitizer_kinds)
 
         return tstate
 
@@ -60,8 +60,6 @@ class _TaintPropagationMixin:
         call_node: py_ast.Call,
         tstate: TaintState,
         mem: MemoryLayout,
-        *,
-        pending_sink_cwe: str = "",
     ) -> Optional[TaintState]:
         call_name = self._extract_call_name(call_node)
 
@@ -72,15 +70,9 @@ class _TaintPropagationMixin:
                         tstate,
                         call_name,
                         self._sanitizers[call_name],
-                        pending_sink_cwe,
                     )
                 return tstate
-            return self._apply_sanitizer(
-                tstate, call_name, self._sanitizers[call_name], pending_sink_cwe
-            )
-
-        if call_name in ("int", "float", "bool", "str"):
-            return tstate.sanitize(call_name)
+            return self._apply_sanitizer(tstate, call_name, self._sanitizers[call_name])
 
         if call_name == "getattr":
             return self._handle_getattr(call_node, tstate, mem)
@@ -106,14 +98,9 @@ class _TaintPropagationMixin:
         self,
         tstate: TaintState,
         sanitizer_name: str,
-        sanitizer_cwes: FrozenSet[str],
-        pending_sink_cwe: str = "",
+        sanitizer_kinds: FrozenSet[str],
     ) -> TaintState:
-        if not sanitizer_cwes:
-            return tstate.sanitize(sanitizer_name)
-        if not pending_sink_cwe or pending_sink_cwe in sanitizer_cwes:
-            return tstate.sanitize(sanitizer_name)
-        return tstate
+        return tstate.sanitize(sanitizer_name, sanitizer_kinds)
 
     def _handle_lambda_call(
         self,
