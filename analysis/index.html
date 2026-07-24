@@ -19,8 +19,8 @@
     <script src="../_static/js/theme.js"></script>
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="Control Flow Graph (CFG) Analysis" href="cfg.html" />
-    <link rel="prev" title="PyFlow API" href="../api.html" /> 
+    <link rel="next" title="Call Graph Analysis" href="callgraph.html" />
+    <link rel="prev" title="Store Graph Intermediate Representation" href="../ir/storegraph.html" /> 
 </head>
 
 <body class="wy-body-for-nav"> 
@@ -69,9 +69,11 @@
 <li class="toctree-l1"><a class="reference internal" href="../cli.html#global-options">Global Options</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../cli.html#integration">Integration</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../api.html">PyFlow API</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../ir/index.html">Intermediate Representations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../ir/index.html#package-layout">Package Layout</a></li>
 <li class="toctree-l1 current"><a class="current reference internal" href="#">Analysis Modules</a></li>
 <li class="toctree-l1"><a class="reference internal" href="#overview">Overview</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="#ir-construction">IR Construction</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#graph-analysis">Graph Analysis</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#data-flow-analysis">Data Flow Analysis</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#alias-and-type-analysis">Alias and Type Analysis</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#shape-and-object-analysis">Shape and Object Analysis</a></li>
@@ -93,18 +95,11 @@
 <li class="toctree-l2"><a class="reference internal" href="#text-output">Text Output</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#json-output">JSON Output</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#sarif-output">SARIF Output</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="cfg.html">Control Flow Graph (CFG) Analysis</a></li>
-<li class="toctree-l3"><a class="reference internal" href="cdg.html">Control Dependence Graph (CDG)</a></li>
-<li class="toctree-l3"><a class="reference internal" href="pdg.html">Program Dependence Graph (PDG)</a></li>
-<li class="toctree-l3"><a class="reference internal" href="ddg.html">Data Dependence Graph (DDG)</a></li>
-<li class="toctree-l3"><a class="reference internal" href="cpg.html">Code Property Graph (CPG)</a></li>
 <li class="toctree-l3"><a class="reference internal" href="callgraph.html">Call Graph Analysis</a></li>
-<li class="toctree-l3"><a class="reference internal" href="dataflowIR.html">Data Flow Intermediate Representation</a></li>
 <li class="toctree-l3"><a class="reference internal" href="fsdf.html">Flow-Sensitive Data Flow (FSDF)</a></li>
 <li class="toctree-l3"><a class="reference internal" href="ipa.html">Inter-procedural Analysis (IPA)</a></li>
 <li class="toctree-l3"><a class="reference internal" href="cpa.html">Constraint-based Analysis (CPA)</a></li>
 <li class="toctree-l3"><a class="reference internal" href="alias/index.html">Alias Analysis</a></li>
-<li class="toctree-l3"><a class="reference internal" href="storegraph.html">Store Graph Analysis</a></li>
 <li class="toctree-l3"><a class="reference internal" href="shape.html">Shape Analysis</a></li>
 <li class="toctree-l3"><a class="reference internal" href="lifetimeanalysis.html">Variable Lifetime Analysis</a></li>
 <li class="toctree-l3"><a class="reference internal" href="ifds.html">IFDS/IDE Data Flow Engine</a></li>
@@ -155,9 +150,9 @@
              
   <section id="analysis-modules">
 <h1>Analysis Modules<a class="headerlink" href="#analysis-modules" title="Link to this heading"></a></h1>
-<p>PyFlow provides a comprehensive suite of static analysis modules for understanding
-and analyzing Python programs. This section documents each analysis module and
-its capabilities.</p>
+<p>PyFlow provides a comprehensive suite of static analysis engines for
+understanding Python programs. These engines consume the shared representations
+documented in <a class="reference internal" href="../ir/index.html"><span class="doc">Intermediate Representations</span></a>.</p>
 <p>For an introduction to analysis concepts, see:</p>
 <ul class="simple">
 <li><p><a class="reference internal" href="../tutorials/analyzing-python-code.html#tutorial-analyzing-python-code"><span class="std std-ref">Analyzing Python Code</span></a> - Tutorial on running analyses</p></li>
@@ -168,21 +163,16 @@ its capabilities.</p>
 <section id="overview">
 <h1>Overview<a class="headerlink" href="#overview" title="Link to this heading"></a></h1>
 <p>PyFlow’s analysis modules are organized into several categories:</p>
-<section id="ir-construction">
-<h2>IR Construction<a class="headerlink" href="#ir-construction" title="Link to this heading"></a></h2>
+<section id="graph-analysis">
+<h2>Graph Analysis<a class="headerlink" href="#graph-analysis" title="Link to this heading"></a></h2>
 <ul class="simple">
-<li><p><a class="reference internal" href="cfg.html"><span class="doc">Control Flow Graph (CFG) Analysis</span></a> - Control Flow Graph construction and analysis</p></li>
-<li><p><a class="reference internal" href="cdg.html"><span class="doc">Control Dependence Graph (CDG)</span></a> - Control Dependence Graph analysis</p></li>
-<li><p><a class="reference internal" href="pdg.html"><span class="doc">Program Dependence Graph (PDG)</span></a> - Program Dependence Graph construction and queries</p></li>
-<li><p><a class="reference internal" href="ddg.html"><span class="doc">Data Dependence Graph (DDG)</span></a> - Data Dependence Graph construction and analysis</p></li>
-<li><p><a class="reference internal" href="cpg.html"><span class="doc">Code Property Graph (CPG)</span></a> - Code Property Graph (unified CFG + PDG + call graph)</p></li>
 <li><p><a class="reference internal" href="callgraph.html"><span class="doc">Call Graph Analysis</span></a> - Call Graph construction and analysis</p></li>
+<li><p><a class="reference internal" href="../ir/index.html"><span class="doc">Intermediate Representations</span></a> - CFG, CDG, DDG, PDG, CPG, data flow IR, and store graph</p></li>
 </ul>
 </section>
 <section id="data-flow-analysis">
 <h2>Data Flow Analysis<a class="headerlink" href="#data-flow-analysis" title="Link to this heading"></a></h2>
 <ul class="simple">
-<li><p><a class="reference internal" href="dataflowIR.html"><span class="doc">Data Flow Intermediate Representation</span></a> - Data Flow Intermediate Representation</p></li>
 <li><p><a class="reference internal" href="fsdf.html"><span class="doc">Flow-Sensitive Data Flow (FSDF)</span></a> - Flow-Sensitive Data Flow analysis</p></li>
 <li><p><a class="reference internal" href="ifds.html"><span class="doc">IFDS/IDE Data Flow Engine</span></a> - IFDS/IDE interprocedural data flow engine (taint, nullness, typestate)</p></li>
 <li><p><a class="reference internal" href="ipa.html"><span class="doc">Inter-procedural Analysis (IPA)</span></a> - Inter-procedural Analysis</p></li>
@@ -199,7 +189,6 @@ its capabilities.</p>
 <section id="shape-and-object-analysis">
 <h2>Shape and Object Analysis<a class="headerlink" href="#shape-and-object-analysis" title="Link to this heading"></a></h2>
 <ul class="simple">
-<li><p><a class="reference internal" href="storegraph.html"><span class="doc">Store Graph Analysis</span></a> - Store graph analysis for object relationships (foundational data model for CPA/shape)</p></li>
 <li><p><a class="reference internal" href="shape.html"><span class="doc">Shape Analysis</span></a> - Region-based shape analysis for data structures (reference counts, path info)</p></li>
 <li><p><a class="reference internal" href="lifetimeanalysis.html"><span class="doc">Variable Lifetime Analysis</span></a> - Variable lifetime analysis (read/modify tracking, post-shape pipeline)</p></li>
 </ul>
@@ -305,52 +294,10 @@ ast-scanner, CPA, IFDS, or CPG engines</p></li>
 <div class="toctree-wrapper compound">
 <p class="caption" role="heading"><span class="caption-text">Analysis Modules</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="cfg.html">Control Flow Graph (CFG) Analysis</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="cfg.html#key-features">Key Features</a></li>
-<li class="toctree-l2"><a class="reference internal" href="cfg.html#core-components">Core Components</a></li>
-</ul>
-</li>
-<li class="toctree-l1"><a class="reference internal" href="cdg.html">Control Dependence Graph (CDG)</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="cdg.html#overview">Overview</a></li>
-<li class="toctree-l2"><a class="reference internal" href="cdg.html#construction-process">Construction Process</a></li>
-<li class="toctree-l2"><a class="reference internal" href="cdg.html#applications">Applications</a></li>
-</ul>
-</li>
-<li class="toctree-l1"><a class="reference internal" href="pdg.html">Program Dependence Graph (PDG)</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="pdg.html#overview">Overview</a></li>
-<li class="toctree-l2"><a class="reference internal" href="pdg.html#programmatic-usage">Programmatic usage</a></li>
-<li class="toctree-l2"><a class="reference internal" href="pdg.html#applications">Applications</a></li>
-<li class="toctree-l2"><a class="reference internal" href="pdg.html#cypher-like-queries">Cypher-like queries</a></li>
-</ul>
-</li>
-<li class="toctree-l1"><a class="reference internal" href="ddg.html">Data Dependence Graph (DDG)</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="ddg.html#key-features">Key Features</a></li>
-<li class="toctree-l2"><a class="reference internal" href="ddg.html#graph-structure">Graph Structure</a></li>
-<li class="toctree-l2"><a class="reference internal" href="ddg.html#module-structure">Module Structure</a></li>
-<li class="toctree-l2"><a class="reference internal" href="ddg.html#see-also">See Also</a></li>
-</ul>
-</li>
-<li class="toctree-l1"><a class="reference internal" href="cpg.html">Code Property Graph (CPG)</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="cpg.html#overview">Overview</a></li>
-<li class="toctree-l2"><a class="reference internal" href="cpg.html#node-metadata">Node Metadata</a></li>
-<li class="toctree-l2"><a class="reference internal" href="cpg.html#edge-kinds">Edge Kinds</a></li>
-<li class="toctree-l2"><a class="reference internal" href="cpg.html#programmatic-usage">Programmatic Usage</a></li>
-<li class="toctree-l2"><a class="reference internal" href="cpg.html#taint-analysis">Taint Analysis</a></li>
-<li class="toctree-l2"><a class="reference internal" href="cpg.html#cli-usage">CLI Usage</a></li>
-<li class="toctree-l2"><a class="reference internal" href="cpg.html#related-modules">Related Modules</a></li>
-</ul>
-</li>
 <li class="toctree-l1"><a class="reference internal" href="callgraph.html">Call Graph Analysis</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="callgraph.html#cli-usage">CLI Usage</a></li>
 <li class="toctree-l2"><a class="reference internal" href="callgraph.html#analysis-approaches">Analysis Approaches</a></li>
 <li class="toctree-l2"><a class="reference internal" href="callgraph.html#applications">Applications</a></li>
-</ul>
-</li>
-<li class="toctree-l1"><a class="reference internal" href="dataflowIR.html">Data Flow Intermediate Representation</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="dataflowIR.html#key-features">Key Features</a></li>
-<li class="toctree-l2"><a class="reference internal" href="dataflowIR.html#core-components">Core Components</a></li>
-<li class="toctree-l2"><a class="reference internal" href="dataflowIR.html#usage">Usage</a></li>
-<li class="toctree-l2"><a class="reference internal" href="dataflowIR.html#see-also">See Also</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="fsdf.html">Flow-Sensitive Data Flow (FSDF)</a><ul>
@@ -374,11 +321,6 @@ ast-scanner, CPA, IFDS, or CPG engines</p></li>
 <li class="toctree-l1"><a class="reference internal" href="alias/index.html">Alias Analysis</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="alias/flow_sensitive.html">Flow-Sensitive Alias Analysis</a></li>
 <li class="toctree-l2"><a class="reference internal" href="alias/kcfa.html">k-CFA Alias Analysis</a></li>
-</ul>
-</li>
-<li class="toctree-l1"><a class="reference internal" href="storegraph.html">Store Graph Analysis</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="storegraph.html#core-concepts">Core Concepts</a></li>
-<li class="toctree-l2"><a class="reference internal" href="storegraph.html#relationship-to-other-modules">Relationship to Other Modules</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="shape.html">Shape Analysis</a><ul>
@@ -455,8 +397,8 @@ ast-scanner, CPA, IFDS, or CPG engines</p></li>
            </div>
           </div>
           <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
-        <a href="../api.html" class="btn btn-neutral float-left" title="PyFlow API" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
-        <a href="cfg.html" class="btn btn-neutral float-right" title="Control Flow Graph (CFG) Analysis" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+        <a href="../ir/storegraph.html" class="btn btn-neutral float-left" title="Store Graph Intermediate Representation" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="callgraph.html" class="btn btn-neutral float-right" title="Call Graph Analysis" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
     </div>
 
   <hr/>

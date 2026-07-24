@@ -149,6 +149,8 @@
 <li class="toctree-l1"><a class="reference internal" href="../cli.html#global-options">Global Options</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../cli.html#integration">Integration</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../api.html">PyFlow API</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../ir/index.html">Intermediate Representations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../ir/index.html#package-layout">Package Layout</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../analysis/index.html">Analysis Modules</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#overview">Overview</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#analysis-configuration">Analysis Configuration</a></li>
@@ -287,7 +289,7 @@ representing program structure and analysis results.</p>
 <section id="control-flow-graph-cfg">
 <h3>Control Flow Graph (CFG)<a class="headerlink" href="#control-flow-graph-cfg" title="Link to this heading"></a></h3>
 <p>The CFG represents the control flow structure of a function:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.analysis.cfg.graph</span><span class="w"> </span><span class="kn">import</span> <span class="n">CFGBlock</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.ir.cfg.graph</span><span class="w"> </span><span class="kn">import</span> <span class="n">CFGBlock</span>
 
 <span class="n">entry</span> <span class="o">=</span> <span class="n">CFGBlock</span><span class="p">(</span><span class="s2">&quot;entry&quot;</span><span class="p">)</span>
 <span class="n">loop_body</span> <span class="o">=</span> <span class="n">CFGBlock</span><span class="p">(</span><span class="s2">&quot;loop_body&quot;</span><span class="p">)</span>
@@ -304,7 +306,7 @@ representing program structure and analysis results.</p>
 <section id="data-flow-ir">
 <h3>Data Flow IR<a class="headerlink" href="#data-flow-ir" title="Link to this heading"></a></h3>
 <p>Represents data flow information for analysis:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.analysis.dataflowIR.convert</span><span class="w"> </span><span class="kn">import</span> <span class="n">CodeToDataflow</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.ir.dataflow.convert</span><span class="w"> </span><span class="kn">import</span> <span class="n">CodeToDataflow</span>
 
 <span class="n">converter</span> <span class="o">=</span> <span class="n">CodeToDataflow</span><span class="p">()</span>
 <span class="n">df_graph</span> <span class="o">=</span> <span class="n">converter</span><span class="o">.</span><span class="n">convert</span><span class="p">(</span><span class="n">cfg_block</span><span class="p">)</span>
@@ -320,7 +322,7 @@ representing program structure and analysis results.</p>
 <section id="store-graph">
 <h3>Store Graph<a class="headerlink" href="#store-graph" title="Link to this heading"></a></h3>
 <p>Represents object allocation and field access:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.analysis.storegraph.storegraph</span><span class="w"> </span><span class="kn">import</span> <span class="n">StoreGraph</span><span class="p">,</span> <span class="n">ObjectNode</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.ir.storegraph.storegraph</span><span class="w"> </span><span class="kn">import</span> <span class="n">StoreGraph</span><span class="p">,</span> <span class="n">ObjectNode</span>
 
 <span class="n">graph</span> <span class="o">=</span> <span class="n">StoreGraph</span><span class="p">()</span>
 <span class="n">node</span> <span class="o">=</span> <span class="n">ObjectNode</span><span class="p">(</span><span class="s2">&quot;obj&quot;</span><span class="p">,</span> <span class="s2">&quot;Object()&quot;</span><span class="p">)</span>

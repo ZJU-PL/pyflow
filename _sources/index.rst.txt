@@ -46,6 +46,7 @@ If you are new to PyFlow, start with the :ref:`tutorials`.
 
     cli
     api
+    ir/index
     analysis/index
     optimization/index
     lang/index

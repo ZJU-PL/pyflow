@@ -73,6 +73,8 @@
 <li class="toctree-l1"><a class="reference internal" href="cli.html#global-options">Global Options</a></li>
 <li class="toctree-l1"><a class="reference internal" href="cli.html#integration">Integration</a></li>
 <li class="toctree-l1"><a class="reference internal" href="api.html">PyFlow API</a></li>
+<li class="toctree-l1"><a class="reference internal" href="ir/index.html">Intermediate Representations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="ir/index.html#package-layout">Package Layout</a></li>
 <li class="toctree-l1"><a class="reference internal" href="analysis/index.html">Analysis Modules</a></li>
 <li class="toctree-l1"><a class="reference internal" href="analysis/index.html#overview">Overview</a></li>
 <li class="toctree-l1"><a class="reference internal" href="analysis/index.html#analysis-configuration">Analysis Configuration</a></li>
@@ -217,10 +219,16 @@ the breadth of the implementation.</p>
 <h1>Architecture<a class="headerlink" href="#architecture" title="Link to this heading"></a></h1>
 <p>PyFlow is built around a modular architecture with clear separation of concerns:</p>
 <dl class="simple">
+<dt><strong>IR Layer</strong> (<cite>src/pyflow/ir/</cite>)</dt><dd><ul class="simple">
+<li><p>CFG, CDG, DDG, PDG, and CPG representations</p></li>
+<li><p>Lowered data flow IR and shared store graph model</p></li>
+<li><p>Graph construction, transformation, traversal, and serialization support</p></li>
+</ul>
+</dd>
 <dt><strong>Analysis Layer</strong> (<cite>src/pyflow/analysis/</cite>)</dt><dd><ul class="simple">
-<li><p>Core analysis algorithms and data structures</p></li>
+<li><p>Analysis engines operating on shared IR structures</p></li>
 <li><p>Modular design allowing easy extension</p></li>
-<li><p>Support for various analysis domains</p></li>
+<li><p>IFDS, alias, call graph, IPA, CPA, shape, lifetime, and type analyses</p></li>
 </ul>
 </dd>
 <dt><strong>Optimization Layer</strong> (<cite>src/pyflow/optimization/</cite>)</dt><dd><ul class="simple">

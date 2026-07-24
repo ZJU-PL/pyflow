@@ -33,5 +33,5 @@ See Also
 --------
 
 - :doc:`/cli` — CLI reference for ``pyflow ir`` options
-- :doc:`cfg` — Control Flow Graph (dump target)
-- :doc:`ddg` — Data Dependence Graph (dump target)
+- :doc:`/ir/cfg` — Control Flow Graph (dump target)
+- :doc:`/ir/ddg` — Data Dependence Graph (dump target)

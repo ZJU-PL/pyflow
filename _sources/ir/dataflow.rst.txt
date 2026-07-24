@@ -29,7 +29,7 @@ slots are consumed by subsequent operations.
 
 .. code-block:: python
 
-   from pyflow.analysis.dataflowIR.convert import CodeToDataflow
+   from pyflow.ir.dataflow.convert import CodeToDataflow
 
    converter = CodeToDataflow()
    dataflow_graph = converter.convert(cfg_block)
@@ -47,6 +47,6 @@ Data flow IR is used internally by many subsystems:
 See Also
 --------
 
-- :doc:`fsdf` — Flow-Sensitive Data Flow analysis over dataflow IR
-- :doc:`ifds` — IFDS/IDE interprocedural engine consuming dataflow IR
+- :doc:`/analysis/fsdf` — Flow-Sensitive Data Flow analysis over data flow IR
+- :doc:`/analysis/ifds` — IFDS/IDE interprocedural engine consuming data flow IR
 - :doc:`ddg` — Data Dependence Graph built on dataflow IR

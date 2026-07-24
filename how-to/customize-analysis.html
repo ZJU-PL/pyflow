@@ -143,6 +143,8 @@
 <li class="toctree-l1"><a class="reference internal" href="../cli.html#global-options">Global Options</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../cli.html#integration">Integration</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../api.html">PyFlow API</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../ir/index.html">Intermediate Representations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../ir/index.html#package-layout">Package Layout</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../analysis/index.html">Analysis Modules</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#overview">Overview</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#analysis-configuration">Analysis Configuration</a></li>
@@ -192,7 +194,7 @@ for your specific needs.</p>
 <section id="custom-analysis-passes">
 <h2>Custom Analysis Passes<a class="headerlink" href="#custom-analysis-passes" title="Link to this heading"></a></h2>
 <p>Create custom analysis passes by extending PyFlow’s base classes:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.analysis.cfg.graph</span><span class="w"> </span><span class="kn">import</span> <span class="n">CFGBlock</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.ir.cfg.graph</span><span class="w"> </span><span class="kn">import</span> <span class="n">CFGBlock</span>
 
 <span class="k">class</span><span class="w"> </span><span class="nc">MyCustomAnalysis</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Custom analysis pass for specific needs.&quot;&quot;&quot;</span>

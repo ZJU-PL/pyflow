@@ -20,7 +20,7 @@
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
     <link rel="next" title="Variable Lifetime Analysis" href="lifetimeanalysis.html" />
-    <link rel="prev" title="Store Graph Analysis" href="storegraph.html" /> 
+    <link rel="prev" title="k-CFA Alias Analysis" href="alias/kcfa.html" /> 
 </head>
 
 <body class="wy-body-for-nav"> 
@@ -69,6 +69,8 @@
 <li class="toctree-l1"><a class="reference internal" href="../cli.html#global-options">Global Options</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../cli.html#integration">Integration</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../api.html">PyFlow API</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../ir/index.html">Intermediate Representations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../ir/index.html#package-layout">Package Layout</a></li>
 <li class="toctree-l1"><a class="reference internal" href="index.html">Analysis Modules</a></li>
 <li class="toctree-l1"><a class="reference internal" href="index.html#overview">Overview</a></li>
 <li class="toctree-l1"><a class="reference internal" href="index.html#analysis-configuration">Analysis Configuration</a></li>
@@ -77,18 +79,11 @@
 <li class="toctree-l2"><a class="reference internal" href="index.html#text-output">Text Output</a></li>
 <li class="toctree-l2"><a class="reference internal" href="index.html#json-output">JSON Output</a></li>
 <li class="toctree-l2 current"><a class="reference internal" href="index.html#sarif-output">SARIF Output</a><ul class="current">
-<li class="toctree-l3"><a class="reference internal" href="cfg.html">Control Flow Graph (CFG) Analysis</a></li>
-<li class="toctree-l3"><a class="reference internal" href="cdg.html">Control Dependence Graph (CDG)</a></li>
-<li class="toctree-l3"><a class="reference internal" href="pdg.html">Program Dependence Graph (PDG)</a></li>
-<li class="toctree-l3"><a class="reference internal" href="ddg.html">Data Dependence Graph (DDG)</a></li>
-<li class="toctree-l3"><a class="reference internal" href="cpg.html">Code Property Graph (CPG)</a></li>
 <li class="toctree-l3"><a class="reference internal" href="callgraph.html">Call Graph Analysis</a></li>
-<li class="toctree-l3"><a class="reference internal" href="dataflowIR.html">Data Flow Intermediate Representation</a></li>
 <li class="toctree-l3"><a class="reference internal" href="fsdf.html">Flow-Sensitive Data Flow (FSDF)</a></li>
 <li class="toctree-l3"><a class="reference internal" href="ipa.html">Inter-procedural Analysis (IPA)</a></li>
 <li class="toctree-l3"><a class="reference internal" href="cpa.html">Constraint-based Analysis (CPA)</a></li>
 <li class="toctree-l3"><a class="reference internal" href="alias/index.html">Alias Analysis</a></li>
-<li class="toctree-l3"><a class="reference internal" href="storegraph.html">Store Graph Analysis</a></li>
 <li class="toctree-l3 current"><a class="current reference internal" href="#">Shape Analysis</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="#pipeline-position">Pipeline Position</a></li>
 <li class="toctree-l4"><a class="reference internal" href="#how-it-works">How It Works</a></li>
@@ -150,7 +145,7 @@
 <h1>Shape Analysis<a class="headerlink" href="#shape-analysis" title="Link to this heading"></a></h1>
 <p>Shape analysis (<code class="docutils literal notranslate"><span class="pre">pyflow.analysis.shape</span></code>) is a region-based analysis that
 tracks the structure and properties of data structures.  It operates on the
-<strong>store graph</strong> (see <a class="reference internal" href="storegraph.html"><span class="doc">Store Graph Analysis</span></a>) using CPA’s points-to and type results
+<strong>store graph</strong> (see <a class="reference internal" href="../ir/storegraph.html"><span class="doc">Store Graph Intermediate Representation</span></a>) using CPA’s points-to and type results
 as input.</p>
 <p>Unlike the <a class="reference internal" href="alias/flow_sensitive.html"><span class="doc">Flow-Sensitive Alias Analysis</span></a> analysis — which is a fixed-policy model for
 canonical heap locations (primarily consumed by IFDS clients) — shape
@@ -230,7 +225,7 @@ analysis:</p>
            </div>
           </div>
           <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
-        <a href="storegraph.html" class="btn btn-neutral float-left" title="Store Graph Analysis" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="alias/kcfa.html" class="btn btn-neutral float-left" title="k-CFA Alias Analysis" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
         <a href="lifetimeanalysis.html" class="btn btn-neutral float-right" title="Variable Lifetime Analysis" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
     </div>
 

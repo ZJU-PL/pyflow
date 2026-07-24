@@ -19,8 +19,8 @@
     <script src="../_static/js/theme.js"></script>
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="Code Property Graph (CPG)" href="cpg.html" />
-    <link rel="prev" title="Program Dependence Graph (PDG)" href="pdg.html" /> 
+    <link rel="next" title="Program Dependence Graph (PDG)" href="pdg.html" />
+    <link rel="prev" title="Data Flow Intermediate Representation" href="dataflow.html" /> 
 </head>
 
 <body class="wy-body-for-nav"> 
@@ -69,44 +69,28 @@
 <li class="toctree-l1"><a class="reference internal" href="../cli.html#global-options">Global Options</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../cli.html#integration">Integration</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../api.html">PyFlow API</a></li>
-<li class="toctree-l1"><a class="reference internal" href="index.html">Analysis Modules</a></li>
-<li class="toctree-l1"><a class="reference internal" href="index.html#overview">Overview</a></li>
-<li class="toctree-l1"><a class="reference internal" href="index.html#analysis-configuration">Analysis Configuration</a></li>
-<li class="toctree-l1"><a class="reference internal" href="index.html#running-analyses">Running Analyses</a></li>
-<li class="toctree-l1 current"><a class="reference internal" href="index.html#analysis-results">Analysis Results</a><ul class="current">
-<li class="toctree-l2"><a class="reference internal" href="index.html#text-output">Text Output</a></li>
-<li class="toctree-l2"><a class="reference internal" href="index.html#json-output">JSON Output</a></li>
-<li class="toctree-l2 current"><a class="reference internal" href="index.html#sarif-output">SARIF Output</a><ul class="current">
-<li class="toctree-l3"><a class="reference internal" href="cfg.html">Control Flow Graph (CFG) Analysis</a></li>
-<li class="toctree-l3"><a class="reference internal" href="cdg.html">Control Dependence Graph (CDG)</a></li>
-<li class="toctree-l3"><a class="reference internal" href="pdg.html">Program Dependence Graph (PDG)</a></li>
-<li class="toctree-l3 current"><a class="current reference internal" href="#">Data Dependence Graph (DDG)</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="#key-features">Key Features</a></li>
-<li class="toctree-l4"><a class="reference internal" href="#graph-structure">Graph Structure</a></li>
-<li class="toctree-l4"><a class="reference internal" href="#module-structure">Module Structure</a></li>
-<li class="toctree-l4"><a class="reference internal" href="#see-also">See Also</a></li>
+<li class="toctree-l1"><a class="reference internal" href="index.html">Intermediate Representations</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="index.html#package-layout">Package Layout</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="cfg.html">Control Flow Graph (CFG)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="cdg.html">Control Dependence Graph (CDG)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="dataflow.html">Data Flow Intermediate Representation</a></li>
+<li class="toctree-l2 current"><a class="current reference internal" href="#">Data Dependence Graph (DDG)</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#key-features">Key Features</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#graph-structure">Graph Structure</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#module-structure">Module Structure</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#see-also">See Also</a></li>
 </ul>
 </li>
-<li class="toctree-l3"><a class="reference internal" href="cpg.html">Code Property Graph (CPG)</a></li>
-<li class="toctree-l3"><a class="reference internal" href="callgraph.html">Call Graph Analysis</a></li>
-<li class="toctree-l3"><a class="reference internal" href="dataflowIR.html">Data Flow Intermediate Representation</a></li>
-<li class="toctree-l3"><a class="reference internal" href="fsdf.html">Flow-Sensitive Data Flow (FSDF)</a></li>
-<li class="toctree-l3"><a class="reference internal" href="ipa.html">Inter-procedural Analysis (IPA)</a></li>
-<li class="toctree-l3"><a class="reference internal" href="cpa.html">Constraint-based Analysis (CPA)</a></li>
-<li class="toctree-l3"><a class="reference internal" href="alias/index.html">Alias Analysis</a></li>
-<li class="toctree-l3"><a class="reference internal" href="storegraph.html">Store Graph Analysis</a></li>
-<li class="toctree-l3"><a class="reference internal" href="shape.html">Shape Analysis</a></li>
-<li class="toctree-l3"><a class="reference internal" href="lifetimeanalysis.html">Variable Lifetime Analysis</a></li>
-<li class="toctree-l3"><a class="reference internal" href="ifds.html">IFDS/IDE Data Flow Engine</a></li>
-<li class="toctree-l3"><a class="reference internal" href="typeinfo.html">Type Information System</a></li>
-<li class="toctree-l3"><a class="reference internal" href="numbering.html">Program Point Numbering</a></li>
-<li class="toctree-l3"><a class="reference internal" href="dump.html">Analysis Result Dumping</a></li>
-<li class="toctree-l3"><a class="reference internal" href="stats.html">Statistics Collection and Reporting</a></li>
-<li class="toctree-l3"><a class="reference internal" href="incremental.html">Incremental Analysis Cache</a></li>
+<li class="toctree-l2"><a class="reference internal" href="pdg.html">Program Dependence Graph (PDG)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="cpg.html">Code Property Graph (CPG)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="storegraph.html">Store Graph Intermediate Representation</a></li>
 </ul>
 </li>
-</ul>
-</li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html">Analysis Modules</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#overview">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#analysis-configuration">Analysis Configuration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#running-analyses">Running Analyses</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../analysis/index.html#analysis-results">Analysis Results</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../optimization/index.html">Optimizing Python Programs</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#overview">Overview</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../optimization/index.html#optimization-categories">Optimization Categories</a></li>
@@ -133,10 +117,10 @@
           <div role="navigation" aria-label="Page navigation">
   <ul class="wy-breadcrumbs">
       <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
-          <li class="breadcrumb-item"><a href="index.html">Analysis Modules</a></li>
+          <li class="breadcrumb-item"><a href="index.html">Intermediate Representations</a></li>
       <li class="breadcrumb-item active">Data Dependence Graph (DDG)</li>
       <li class="wy-breadcrumbs-aside">
-            <a href="../_sources/analysis/ddg.rst.txt" rel="nofollow"> View page source</a>
+            <a href="../_sources/ir/ddg.rst.txt" rel="nofollow"> View page source</a>
       </li>
   </ul>
   <hr/>
@@ -177,7 +161,7 @@ parallelization and dead code elimination</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">construction.py</span></code> — Algorithms for building DDGs from data flow IR</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">dump.py</span></code> — Visualization and serialization</p></li>
 </ul>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.analysis.ddg</span><span class="w"> </span><span class="kn">import</span> <span class="n">construct_ddg</span><span class="p">,</span> <span class="n">DataDependenceGraph</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.ir.ddg</span><span class="w"> </span><span class="kn">import</span> <span class="n">construct_ddg</span><span class="p">,</span> <span class="n">DataDependenceGraph</span>
 
 <span class="n">ddg</span><span class="p">:</span> <span class="n">DataDependenceGraph</span> <span class="o">=</span> <span class="n">construct_ddg</span><span class="p">(</span><span class="n">dataflow_graph</span><span class="p">)</span>
 </pre></div>
@@ -186,7 +170,7 @@ parallelization and dead code elimination</p></li>
 <section id="see-also">
 <h2>See Also<a class="headerlink" href="#see-also" title="Link to this heading"></a></h2>
 <ul class="simple">
-<li><p><a class="reference internal" href="dataflowIR.html"><span class="doc">Data Flow Intermediate Representation</span></a> — The data flow IR that DDGs are built from</p></li>
+<li><p><a class="reference internal" href="dataflow.html"><span class="doc">Data Flow Intermediate Representation</span></a> — The data flow IR that DDGs are built from</p></li>
 <li><p><a class="reference internal" href="pdg.html"><span class="doc">Program Dependence Graph (PDG)</span></a> — Program Dependence Graph (combines CDG + DDG)</p></li>
 </ul>
 </section>
@@ -196,8 +180,8 @@ parallelization and dead code elimination</p></li>
            </div>
           </div>
           <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
-        <a href="pdg.html" class="btn btn-neutral float-left" title="Program Dependence Graph (PDG)" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
-        <a href="cpg.html" class="btn btn-neutral float-right" title="Code Property Graph (CPG)" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+        <a href="dataflow.html" class="btn btn-neutral float-left" title="Data Flow Intermediate Representation" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="pdg.html" class="btn btn-neutral float-right" title="Program Dependence Graph (PDG)" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
     </div>
 
   <hr/>

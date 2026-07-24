@@ -33,12 +33,12 @@ Module Structure
 
 .. code-block:: python
 
-   from pyflow.analysis.ddg import construct_ddg, DataDependenceGraph
+   from pyflow.ir.ddg import construct_ddg, DataDependenceGraph
 
    ddg: DataDependenceGraph = construct_ddg(dataflow_graph)
 
 See Also
 --------
 
-- :doc:`dataflowIR` — The data flow IR that DDGs are built from
+- :doc:`dataflow` — The data flow IR that DDGs are built from
 - :doc:`pdg` — Program Dependence Graph (combines CDG + DDG)

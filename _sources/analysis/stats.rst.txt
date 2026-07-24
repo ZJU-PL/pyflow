@@ -137,5 +137,5 @@ includes ``\includegraphics`` and ``\subfloat`` support (e.g., standard
 See Also
 --------
 
-- :doc:`cfg` — CFG construction (statistics draw on CFG-level metrics)
+- :doc:`/ir/cfg` — CFG construction (statistics draw on CFG-level metrics)
 - :doc:`../optimization/index` — Optimization passes whose effects are measured

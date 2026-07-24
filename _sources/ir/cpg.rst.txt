@@ -9,7 +9,7 @@ Overview
 --------
 
 The CPG is constructed from one or more :doc:`pdg` instances and optionally a
-:doc:`callgraph`. During :meth:`~pyflow.analysis.cpg.CodePropertyGraph.build`,
+:doc:`/analysis/callgraph`. During :meth:`~pyflow.ir.cpg.CodePropertyGraph.build`,
 it derives layered edges on top of the raw PDG edges:
 
 - ``AST_CHILD`` edges from parent → child AST nodes that both have PDG
@@ -25,7 +25,7 @@ Node Metadata
 -------------
 
 Each CPG node carries a ``meta`` dictionary (accessible via
-:meth:`~pyflow.analysis.cpg.CodePropertyGraph.node_meta`) with Ansede-compatible
+:meth:`~pyflow.ir.cpg.CodePropertyGraph.node_meta`) with Ansede-compatible
 fields:
 
 - ``node_type`` — AST type name or PDG node kind
@@ -59,8 +59,8 @@ Programmatic Usage
 
 .. code-block:: python
 
-    from pyflow.analysis.cpg import CodePropertyGraph, CPGEdgeKind
-    from pyflow.analysis.pdg import construct_pdg
+    from pyflow.ir.cpg import CodePropertyGraph, CPGEdgeKind
+    from pyflow.ir.pdg import construct_pdg
 
     cpg = CodePropertyGraph()
     cpg.add_function("my_func", pdg)
@@ -86,7 +86,7 @@ The CPG is the foundation for PyFlow's taint analysis engine:
 
 .. code-block:: python
 
-    from pyflow.analysis.cpg.taint import CPGTaintEngine
+    from pyflow.ir.cpg.taint import CPGTaintEngine
 
     engine = CPGTaintEngine(
         cpg,
@@ -126,4 +126,4 @@ Related Modules
 
 * :doc:`pdg` — Program Dependence Graph (CPG building block)
 * :doc:`cfg` — Control Flow Graph (PDG building block)
-* :doc:`callgraph` — Call Graph (CPG CALL edges)
+* :doc:`/analysis/callgraph` — Call Graph (CPG CALL edges)

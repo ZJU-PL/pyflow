@@ -154,6 +154,6 @@ applied.
 See Also
 --------
 
-- :doc:`dataflowIR` — Data flow IR that IFDS operates on
-- :doc:`cfg` — CFG construction (supergraph foundation)
+- :doc:`/ir/dataflow` — Data flow IR that IFDS operates on
+- :doc:`/ir/cfg` — CFG construction (supergraph foundation)
 - :doc:`alias/flow_sensitive` — Flow-sensitive alias analysis consumed by taint analyses

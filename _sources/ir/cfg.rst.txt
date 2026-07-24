@@ -1,7 +1,9 @@
-Control Flow Graph (CFG) Analysis
-==================================
+Control Flow Graph (CFG)
+========================
 
-PyFlow's Control Flow Graph (CFG) module constructs and analyzes control flow graphs from Python AST, providing the foundation for data flow analysis and optimization.
+The ``pyflow.ir.cfg`` package constructs and represents control flow graphs
+from Python AST nodes. It also provides the graph algorithms and
+transformations used by analyses and optimization passes.
 
 Key Features
 ------------

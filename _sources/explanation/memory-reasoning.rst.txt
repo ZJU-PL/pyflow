@@ -40,8 +40,8 @@ StoreGraph family — different heap models, no shared types, no bridge.
 StoreGraph — Shared Infrastructure (Not an Analysis)
 =====================================================
 
-:Location: ``src/pyflow/analysis/storegraph/``
-:Docs:    :doc:`/analysis/storegraph`
+:Location: ``src/pyflow/ir/storegraph/``
+:Docs:    :doc:`/ir/storegraph`
 
 Data model, not an analysis — it has no solver, no fixpoint loop, no ``run()``
 method.  IPA and CPA both use it as their heap representation.

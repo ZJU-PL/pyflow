@@ -1,7 +1,7 @@
-Store Graph Analysis
-====================
+Store Graph Intermediate Representation
+=======================================
 
-The store graph (``pyflow.analysis.storegraph``) is the **foundational data
+The store graph (``pyflow.ir.storegraph``) is the **foundational data
 model** for object relationships and points-to information in PyFlow.  It is
 the shared base that CPA, IPA, shape, and lifetime analyses build on.
 
@@ -41,29 +41,27 @@ The store graph uses canonicalization to reduce analysis complexity:
 Relationship to Other Modules
 -----------------------------
 
-+---------------------+-----------------------------------+
-| Module              | How it uses the store graph       |
-+=====================+===================================+
-| ``cpa``             | Constraint propagation over       |
-|                     | points-to relationships           |
-+---------------------+-----------------------------------+
-| ``ipa``             | Interprocedural analysis across   |
-|                     | store graph regions               |
-+---------------------+-----------------------------------+
-| ``shape``           | Region-based shape inference      |
-|                     | using CPA results                 |
-+---------------------+-----------------------------------+
-| ``lifetimeanalysis``| Read/modify tracking using        |
-|                     | shape and CPA results             |
-+---------------------+-----------------------------------+
-| ``alias/flow_sensitive`` | **Independent** — operates on the     |
-|                     | CFG supergraph (consumed by IFDS),    |
-|                     | not the store graph                   |
-+---------------------+-----------------------------------+
+.. list-table::
+   :header-rows: 1
+   :widths: 28 72
+
+   * - Module
+     - How it uses the store graph
+   * - ``cpa``
+     - Constraint propagation over points-to relationships
+   * - ``ipa``
+     - Interprocedural analysis across store graph regions
+   * - ``shape``
+     - Region-based shape inference using CPA results
+   * - ``lifetimeanalysis``
+     - Read/modify tracking using shape and CPA results
+   * - ``alias/flow_sensitive``
+     - Independent subsystem operating on the CFG supergraph; it does not use
+       the store graph
 
 .. note::
 
-   The :doc:`alias/flow_sensitive` analysis uses its own model (``HeapLocation``,
+   The :doc:`/analysis/alias/flow_sensitive` analysis uses its own model (``HeapLocation``,
    ``HeapObject``) and does not depend on the store graph.  Heap is
    primarily consumed by IFDS clients (taint, nullness, typestate);
    store graph serves CPA/shape/lifetime.  These are separate subsystems.

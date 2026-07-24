@@ -19,8 +19,8 @@ Programmatic usage
 
 .. code-block:: python
 
-   from pyflow.analysis.cfg import transform
-   from pyflow.analysis.pdg import construct_pdg
+   from pyflow.ir.cfg import transform
+   from pyflow.ir.pdg import construct_pdg
 
    cfg = transform.evaluate(compiler, code)
    pdg = construct_pdg(cfg, run_ssa=True, include_control=True, include_data=True)

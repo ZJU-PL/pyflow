@@ -27,6 +27,6 @@ with the program culler to identify live code.
 See Also
 --------
 
-- :doc:`dataflowIR` — The data flow IR that FSDF operates on
+- :doc:`/ir/dataflow` — The data flow IR that FSDF operates on
 - :doc:`ipa` — Inter-procedural extension of data flow analysis
 - :doc:`cpa` — Constraint-based alternative to data flow analysis
