@@ -10,7 +10,7 @@ from pyflow.util.io import formatting
 
 from . import base, simpleimagebuilder
 
-from ..storegraph import storegraph, canonicalobjects, extendedtypes
+from pyflow.ir.storegraph import storegraph, canonicalobjects, extendedtypes
 from .. import cpasignature
 
 from .constraintextractor import ExtractDataflow

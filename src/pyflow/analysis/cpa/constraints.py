@@ -19,9 +19,9 @@ Key constraint types:
 """
 
 import itertools
-from pyflow.analysis.storegraph import storegraph
-from pyflow.analysis.storegraph import canonicalobjects
-from pyflow.analysis.storegraph import extendedtypes
+from pyflow.ir.storegraph import storegraph
+from pyflow.ir.storegraph import canonicalobjects
+from pyflow.ir.storegraph import extendedtypes
 from pyflow.analysis import cpasignature
 from pyflow import analysis  # ensure 'analysis.cpasignature' references resolve
 

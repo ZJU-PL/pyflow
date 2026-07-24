@@ -6,7 +6,7 @@ import pytest
 
 from pyflow.application import context
 from pyflow.application.errors import TemporaryLimitation
-from pyflow.analysis.cfg import transform
+from pyflow.ir.cfg import transform
 from pyflow.analysis.ifds import (
     HeapObjectKind,
     TaintConfiguration,

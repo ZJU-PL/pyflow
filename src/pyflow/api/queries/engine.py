@@ -7,9 +7,9 @@ from typing import Any, Dict, List, Optional, Set, Union
 
 from pyflow.application.errors import TemporaryLimitation
 from pyflow.analysis.callgraph import CallGraph
-from pyflow.analysis.cfg import ssa as cfg_ssa
-from pyflow.analysis.cfg import transform as cfg_transform
-from pyflow.analysis.cdg import construct_cdg
+from pyflow.ir.cfg import ssa as cfg_ssa
+from pyflow.ir.cfg import transform as cfg_transform
+from pyflow.ir.cdg import construct_cdg
 from pyflow.analysis.ifds import build_supergraph_from_cfgs
 from pyflow.analysis.ifds.frontend.preparation import prepare_program_for_ifds
 

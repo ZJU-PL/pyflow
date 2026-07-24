@@ -21,8 +21,8 @@ import pyflow.analysis.cpasignature as cpasignature
 
 CanonicalObject = canonical.CanonicalObject
 
-from pyflow.analysis.storegraph import extendedtypes
-from pyflow.analysis.storegraph import storegraph
+from pyflow.ir.storegraph import extendedtypes
+from pyflow.ir.storegraph import storegraph
 
 ###########################
 ### Evaluation Contexts ###

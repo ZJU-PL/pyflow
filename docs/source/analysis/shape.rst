@@ -3,7 +3,7 @@ Shape Analysis
 
 Shape analysis (``pyflow.analysis.shape``) is a region-based analysis that
 tracks the structure and properties of data structures.  It operates on the
-**store graph** (see :doc:`storegraph`) using CPA's points-to and type results
+**store graph** (see :doc:`/ir/storegraph`) using CPA's points-to and type results
 as input.
 
 Unlike the :doc:`alias/flow_sensitive` analysis — which is a fixed-policy model for

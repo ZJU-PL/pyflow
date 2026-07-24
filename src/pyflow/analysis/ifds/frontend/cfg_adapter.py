@@ -7,8 +7,8 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Callable, DefaultDict, Dict, Iterable, Mapping, Sequence
 
-from pyflow.analysis.cfg import dfs as cfg_dfs
-from pyflow.analysis.cfg import graph as cfg_graph
+from pyflow.ir.cfg import dfs as cfg_dfs
+from pyflow.ir.cfg import graph as cfg_graph
 from pyflow.language.python.ir_metadata import (
     actual_argument_expressions,
     assigned_locals,
@@ -446,7 +446,7 @@ def _cfgs_for_constraint_callee_names(
 
 class CFGSupergraphAdapter:
     """
-    Build a reusable IFDS supergraph from existing ``analysis.cfg`` graphs.
+    Build a reusable IFDS supergraph from existing ``ir.cfg`` graphs.
 
     Suites are lowered to statement-level nodes so dataflow problems can reason
     about operations in program order and model call sites precisely.

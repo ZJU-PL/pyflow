@@ -275,7 +275,7 @@ def _result_to_sarif(engine: str, result, args) -> Dict[str, Any]:
         }
 
     if engine == "cpg":
-        from pyflow.analysis.cpg.taint import CPGTaintEngine
+        from pyflow.ir.cpg.taint import CPGTaintEngine
 
         findings = result
         artifact_uri = (

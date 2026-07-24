@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import FrozenSet, Mapping, Sequence
 
-from pyflow.analysis.cfg import graph as cfg_graph
+from pyflow.ir.cfg import graph as cfg_graph
 from pyflow.language.python import ast as py_ast
 
 from ..modeling.calls import CallModel, CallModelRegistry

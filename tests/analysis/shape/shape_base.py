@@ -10,7 +10,7 @@ import pyflow.analysis.shape
 import pyflow.analysis as analysis
 
 from pyflow.language.python import ast
-from pyflow.analysis.storegraph import storegraph, canonicalobjects, setmanager
+from pyflow.ir.storegraph import storegraph, canonicalobjects, setmanager
 
 import pyflow.application.context
 import pyflow.frontend.extractor
@@ -38,11 +38,11 @@ class TestConstraintBase(unittest.TestCase):
         self.extractor = pyflow.frontend.extractor.Extractor(compiler)
         compiler.extractor = self.extractor
 
-        cpacanonical = pyflow.analysis.storegraph.canonicalobjects.CanonicalObjects()
+        cpacanonical = pyflow.ir.storegraph.canonicalobjects.CanonicalObjects()
         self.sys = pyflow.analysis.shape.RegionBasedShapeAnalysis(
             self.extractor, cpacanonical, MockInformationProvider(self)
         )
-        self.root = pyflow.analysis.storegraph.storegraph.StoreGraph(
+        self.root = pyflow.ir.storegraph.storegraph.StoreGraph(
             self.extractor, cpacanonical
         )
 

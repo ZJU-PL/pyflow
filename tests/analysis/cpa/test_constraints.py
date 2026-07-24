@@ -7,7 +7,7 @@ from pyflow.analysis.cpa.constraints import (
     AllocateConstraint, SimpleCheckConstraint, CallConstraint, AbstractCallConstraint
 )
 from pyflow.analysis.cpa.base import AnalysisContext
-from pyflow.analysis.storegraph import storegraph
+from pyflow.ir.storegraph import storegraph
 from pyflow.analysis import cpasignature
 from pyflow.util.python import calling
 

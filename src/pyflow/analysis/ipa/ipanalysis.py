@@ -10,7 +10,7 @@ import logging
 LOG = logging.getLogger(__name__)
 
 from pyflow.optimization.callconverter import callConverter
-from pyflow.analysis.storegraph import setmanager
+from pyflow.ir.storegraph import setmanager
 from pyflow.util.monkeypatch import xtypes
 
 from . import constraintextractor

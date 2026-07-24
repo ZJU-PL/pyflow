@@ -7,7 +7,7 @@ contexts for different calling patterns.
 
 import itertools
 from pyflow.util import canonical
-from pyflow.analysis.storegraph import extendedtypes
+from pyflow.ir.storegraph import extendedtypes
 
 
 def cpaArgOK(arg):

@@ -118,7 +118,7 @@ The CFG represents the control flow structure of a function:
 
 .. code-block:: python
 
-   from pyflow.analysis.cfg.graph import CFGBlock
+   from pyflow.ir.cfg.graph import CFGBlock
 
    entry = CFGBlock("entry")
    loop_body = CFGBlock("loop_body")
@@ -137,7 +137,7 @@ Represents data flow information for analysis:
 
 .. code-block:: python
 
-   from pyflow.analysis.dataflowIR.convert import CodeToDataflow
+   from pyflow.ir.dataflow.convert import CodeToDataflow
 
    converter = CodeToDataflow()
    df_graph = converter.convert(cfg_block)
@@ -155,7 +155,7 @@ Represents object allocation and field access:
 
 .. code-block:: python
 
-   from pyflow.analysis.storegraph.storegraph import StoreGraph, ObjectNode
+   from pyflow.ir.storegraph.storegraph import StoreGraph, ObjectNode
 
    graph = StoreGraph()
    node = ObjectNode("obj", "Object()")

@@ -1,7 +1,7 @@
 import unittest
 from pyflow.analysis.ipa.ipanalysis import IPAnalysis
 from pyflow.analysis.ipa.constraints import qualifiers
-from pyflow.analysis.storegraph.canonicalobjects import CanonicalObjects
+from pyflow.ir.storegraph.canonicalobjects import CanonicalObjects
 from pyflow.language.python import program
 
 from pyflow.application.context import CompilerContext

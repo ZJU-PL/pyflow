@@ -6,7 +6,7 @@ from abc import ABC, abstractmethod
 from typing import Generic, Iterable, Sequence, TypeVar
 
 from pyflow.application.errors import TemporaryLimitation
-from pyflow.analysis.cfg import graph as cfg_graph
+from pyflow.ir.cfg import graph as cfg_graph
 from pyflow.language.python import ast as py_ast
 
 from ...alias.flow_sensitive.domain.abstraction import HeapAbstraction

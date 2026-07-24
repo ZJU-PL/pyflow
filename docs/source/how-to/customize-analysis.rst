@@ -14,7 +14,7 @@ Create custom analysis passes by extending PyFlow's base classes:
 
 .. code-block:: python
 
-   from pyflow.analysis.cfg.graph import CFGBlock
+   from pyflow.ir.cfg.graph import CFGBlock
 
    class MyCustomAnalysis:
        """Custom analysis pass for specific needs."""

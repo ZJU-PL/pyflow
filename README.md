@@ -23,8 +23,10 @@ If you use pyflow in your research or work, please cite the following:
 
 ## What PyFlow includes
 
-- **Program analysis**: CFG, call graph, IFDS/dataflow, IPA, CPA, shape, and
-  lifetime analysis infrastructure
+- **Intermediate representations**: CFG, CDG, DDG, PDG, CPG, lowered data
+  flow IR, and a shared store graph model
+- **Program analysis**: call graph, IFDS, alias, IPA, CPA, shape, lifetime,
+  and type-analysis infrastructure
 - **Optimization pipeline**: modular passes such as simplify, method-call
   optimization, cloning, argument normalization, and load/store elimination
 - **Security checking**: pattern-based and semantic security analysis
@@ -134,6 +136,7 @@ pytest
 pytest -m integration tests/integration
 
 # Run focused areas
+pytest tests/ir
 pytest tests/frontend
 pytest tests/api
 pytest tests/checker
@@ -143,7 +146,8 @@ pytest tests/checker
 
 The repository is organized around a few major subsystems:
 
-- `src/pyflow/analysis`: core analysis engines such as call graph, CFG, DDG, IFDS, alias (flow-sensitive heap + k-CFA pointer), IPA, CPA, PDG, shape, and lifetime analysis.
+- `src/pyflow/ir`: shared intermediate representations and graph infrastructure, including CFG, CDG, data flow IR, DDG, PDG, CPG, and store graph packages.
+- `src/pyflow/analysis`: analysis engines such as call graph, IFDS, alias (flow-sensitive heap + k-CFA pointer), IPA, CPA, shape, lifetime, and type analysis.
 - `src/pyflow/application`: orchestration code including compiler context, pipeline execution, and the pass manager.
 - `src/pyflow/api`: query-facing interfaces and entrypoint construction.
 - `src/pyflow/checker`: pattern-based, semantic, and supply-chain analysis modules plus output formatters.
@@ -154,7 +158,8 @@ The repository is organized around a few major subsystems:
 - `src/pyflow/stats`: statistics collection and reporting for analysis results.
 - `src/pyflow/stubs`: builtin/runtime modeling used during analysis.
 - `src/pyflow/util`: foundational utility library (OrderedSet, canonical objects, TVL, type dispatch, graph algorithms).
-- `tests`: focused coverage for analysis, frontend, checker, integration, and API regressions.
+- `tests`: focused coverage mirroring the major source areas, including
+  `tests/ir` and `tests/analysis`, plus frontend, checker, integration, and API regressions.
 
 ## Project maturity and expectations
 

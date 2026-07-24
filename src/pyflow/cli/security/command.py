@@ -323,9 +323,9 @@ def _apply_session_diagnostics(result: Dict[str, Any], session) -> Dict[str, Any
 
 def _run_cpg(targets: List[str], args) -> List[Dict[str, Any]]:
     """Run the CPG-based context-sensitive security analysis."""
-    from pyflow.analysis.cpg.build import build_cpg, build_cpg_from_directory
-    from pyflow.analysis.cpg.taint import CPGTaintEngine
-    from pyflow.analysis.cpg.rules import load_rules, detect_frameworks
+    from pyflow.ir.cpg.build import build_cpg, build_cpg_from_directory
+    from pyflow.ir.cpg.taint import CPGTaintEngine
+    from pyflow.ir.cpg.rules import load_rules, detect_frameworks
 
     findings: List = []
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import FrozenSet, Mapping, Sequence
 
-from pyflow.analysis.cfg import graph as cfg_graph
+from pyflow.ir.cfg import graph as cfg_graph
 
 from ..frontend.cfg_adapter import CFGNode, CFGSupergraphAdapter
 from ..core.problem import IDEProblem, IdentityEdgeFunction, ValueTransition

@@ -89,10 +89,15 @@ Architecture
 
 PyFlow is built around a modular architecture with clear separation of concerns:
 
+**IR Layer** (`src/pyflow/ir/`)
+  - CFG, CDG, DDG, PDG, and CPG representations
+  - Lowered data flow IR and shared store graph model
+  - Graph construction, transformation, traversal, and serialization support
+
 **Analysis Layer** (`src/pyflow/analysis/`)
-  - Core analysis algorithms and data structures
+  - Analysis engines operating on shared IR structures
   - Modular design allowing easy extension
-  - Support for various analysis domains
+  - IFDS, alias, call graph, IPA, CPA, shape, lifetime, and type analyses
 
 **Optimization Layer** (`src/pyflow/optimization/`)
   - Compiler optimization passes

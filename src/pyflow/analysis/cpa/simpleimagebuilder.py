@@ -14,7 +14,7 @@ This provides a starting point for the constraint-based analysis, which then
 refines and extends the store graph through constraint solving.
 """
 
-from pyflow.analysis.storegraph import storegraph, canonicalobjects
+from pyflow.ir.storegraph import storegraph, canonicalobjects
 from pyflow.util.python.calling import CallerArgs
 
 

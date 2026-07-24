@@ -28,5 +28,5 @@ used directly by end users but underpins:
 See Also
 --------
 
-- :doc:`cfg` — Control Flow Graph construction (primary consumer)
-- :doc:`dataflowIR` — Data flow IR that uses point numbering
+- :doc:`/ir/cfg` — Control Flow Graph construction (primary consumer)
+- :doc:`/ir/dataflow` — Data flow IR that uses point numbering

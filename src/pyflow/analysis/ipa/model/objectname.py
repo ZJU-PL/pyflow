@@ -5,7 +5,7 @@ It combines an ExtendedType (from store graph) with a qualifier that
 indicates the object's scope and lifetime.
 """
 
-from pyflow.analysis.storegraph import extendedtypes
+from pyflow.ir.storegraph import extendedtypes
 
 
 class ObjectName(object):

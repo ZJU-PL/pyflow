@@ -19,11 +19,11 @@ from pyflow.frontend.interface_builder import (
     build_interface_from_paths,
 )
 from pyflow.util.application.console import Console
-from pyflow.analysis.cfg import transform, dump as cfg_dump, ssa
-from pyflow.analysis.cfg.dump import generate_clang_style_cfg
-from pyflow.analysis.cdg import construct_cdg, dump_cdg
-from pyflow.analysis.ddg import construction, dump as ddg_dump
-from pyflow.analysis.dataflowIR import convert
+from pyflow.ir.cfg import transform, dump as cfg_dump, ssa
+from pyflow.ir.cfg.dump import generate_clang_style_cfg
+from pyflow.ir.cdg import construct_cdg, dump_cdg
+from pyflow.ir.ddg import construction, dump as ddg_dump
+from pyflow.ir.dataflow import convert
 from pyflow.analysis.programculler import findLiveCode
 import pyflow.util.pydot as pydot
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from pyflow.analysis.cfg import transform
+from pyflow.ir.cfg import transform
 from pyflow.language.asttools.annotation import annotationSet, makeContextualAnnotation
 from pyflow.language.python import ast
 

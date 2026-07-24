@@ -20,7 +20,7 @@ import collections
 import time
 
 from pyflow.analysis.cpa import base
-from pyflow.analysis.storegraph import storegraph
+from pyflow.ir.storegraph import storegraph
 from pyflow.language.python import ast
 from pyflow.language.python import annotations
 

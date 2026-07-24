@@ -1,4 +1,4 @@
-from pyflow.analysis.storegraph import storegraph
+from pyflow.ir.storegraph import storegraph
 
 
 class LinkManager(object):

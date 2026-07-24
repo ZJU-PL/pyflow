@@ -1,9 +1,9 @@
 Analysis Modules
 ================
 
-PyFlow provides a comprehensive suite of static analysis modules for understanding
-and analyzing Python programs. This section documents each analysis module and
-its capabilities.
+PyFlow provides a comprehensive suite of static analysis engines for
+understanding Python programs. These engines consume the shared representations
+documented in :doc:`/ir/index`.
 
 For an introduction to analysis concepts, see:
 
@@ -16,20 +16,15 @@ Overview
 
 PyFlow's analysis modules are organized into several categories:
 
-IR Construction
----------------
+Graph Analysis
+--------------
 
-* :doc:`cfg` - Control Flow Graph construction and analysis
-* :doc:`cdg` - Control Dependence Graph analysis
-* :doc:`pdg` - Program Dependence Graph construction and queries
-* :doc:`ddg` - Data Dependence Graph construction and analysis
-* :doc:`cpg` - Code Property Graph (unified CFG + PDG + call graph)
 * :doc:`callgraph` - Call Graph construction and analysis
+* :doc:`/ir/index` - CFG, CDG, DDG, PDG, CPG, data flow IR, and store graph
 
 Data Flow Analysis
 ------------------
 
-* :doc:`dataflowIR` - Data Flow Intermediate Representation
 * :doc:`fsdf` - Flow-Sensitive Data Flow analysis
 * :doc:`ifds` - IFDS/IDE interprocedural data flow engine (taint, nullness, typestate)
 * :doc:`ipa` - Inter-procedural Analysis
@@ -42,9 +37,8 @@ Alias and Type Analysis
 * :doc:`typeinfo` - Type-information collection and inference
 
 Shape and Object Analysis
-------------------------
+-------------------------
 
-* :doc:`storegraph` - Store graph analysis for object relationships (foundational data model for CPA/shape)
 * :doc:`shape` - Region-based shape analysis for data structures (reference counts, path info)
 * :doc:`lifetimeanalysis` - Variable lifetime analysis (read/modify tracking, post-shape pipeline)
 
@@ -146,7 +140,7 @@ Human-readable text output for terminal:
    pyflow ir input.py --dump-cfg main --dump-format text
 
 JSON Output
-----------
+-----------
 
 Machine-readable JSON for programmatic processing:
 
@@ -155,7 +149,7 @@ Machine-readable JSON for programmatic processing:
    pyflow ir input.py --dump-cfg main --dump-format json --dump-output ./out
 
 SARIF Output
------------
+------------
 
 Standard SARIF format for CI/CD integration:
 
@@ -167,18 +161,11 @@ Standard SARIF format for CI/CD integration:
     :maxdepth: 2
     :caption: Analysis Modules
 
-    cfg
-    cdg
-    pdg
-    ddg
-    cpg
     callgraph
-    dataflowIR
     fsdf
     ipa
     cpa
     alias/index
-    storegraph
     shape
     lifetimeanalysis
     ifds
