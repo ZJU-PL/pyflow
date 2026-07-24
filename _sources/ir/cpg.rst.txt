@@ -82,19 +82,22 @@ Programmatic Usage
 Taint Analysis
 --------------
 
-The CPG is the foundation for PyFlow's taint analysis engine:
+The CPG has its own graph-based taint propagation algorithm, but consumes the
+same strict-v2 typed taint policy as the IFDS and semantic engines:
 
 .. code-block:: python
 
+    from pyflow.analysis.ifds.modeling.registry import load_registry
     from pyflow.ir.cpg.taint import CPGTaintEngine
 
-    engine = CPGTaintEngine(
-        cpg,
-        max_call_depth=5,  # context-sensitive call depth limit
-    )
-    engine.add_source("request.args")
-    engine.add_sink("subprocess.run", cwe="CWE-78")
+    registry = load_registry()
+    registry.activate("stdlib", "flask", type="taint")
+    engine = CPGTaintEngine(cpg, policy=registry.as_taint_policy())
     findings = engine.find_taint_paths()
+
+Manual ``add_source``, ``add_sink``, and ``add_sanitizer`` calls remain
+available for programmatic one-off policies. They do not install hidden default
+models; a newly constructed engine has an empty policy unless one is supplied.
 
 The engine supports:
 
@@ -105,7 +108,8 @@ The engine supports:
 - isinstance type-guard stripping
 - getattr dynamic dispatch detection
 - Dict unpack (``**kwargs``) taint propagation
-- Ansede-style JSON taint spec loading
+- Strict-v2 typed sources, sinks, sink ports, sanitizers, and flow rules
+- Kind-scoped sanitizer propagation
 - SARIF output for CI/CD integration
 
 CLI Usage

@@ -210,18 +210,20 @@ fields:</p>
 </section>
 <section id="taint-analysis">
 <h2>Taint Analysis<a class="headerlink" href="#taint-analysis" title="Link to this heading"></a></h2>
-<p>The CPG is the foundation for PyFlow’s taint analysis engine:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.ir.cpg.taint</span><span class="w"> </span><span class="kn">import</span> <span class="n">CPGTaintEngine</span>
+<p>The CPG has its own graph-based taint propagation algorithm, but consumes the
+same strict-v2 typed taint policy as the IFDS and semantic engines:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.analysis.ifds.modeling.registry</span><span class="w"> </span><span class="kn">import</span> <span class="n">load_registry</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.ir.cpg.taint</span><span class="w"> </span><span class="kn">import</span> <span class="n">CPGTaintEngine</span>
 
-<span class="n">engine</span> <span class="o">=</span> <span class="n">CPGTaintEngine</span><span class="p">(</span>
-    <span class="n">cpg</span><span class="p">,</span>
-    <span class="n">max_call_depth</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span>  <span class="c1"># context-sensitive call depth limit</span>
-<span class="p">)</span>
-<span class="n">engine</span><span class="o">.</span><span class="n">add_source</span><span class="p">(</span><span class="s2">&quot;request.args&quot;</span><span class="p">)</span>
-<span class="n">engine</span><span class="o">.</span><span class="n">add_sink</span><span class="p">(</span><span class="s2">&quot;subprocess.run&quot;</span><span class="p">,</span> <span class="n">cwe</span><span class="o">=</span><span class="s2">&quot;CWE-78&quot;</span><span class="p">)</span>
+<span class="n">registry</span> <span class="o">=</span> <span class="n">load_registry</span><span class="p">()</span>
+<span class="n">registry</span><span class="o">.</span><span class="n">activate</span><span class="p">(</span><span class="s2">&quot;stdlib&quot;</span><span class="p">,</span> <span class="s2">&quot;flask&quot;</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="s2">&quot;taint&quot;</span><span class="p">)</span>
+<span class="n">engine</span> <span class="o">=</span> <span class="n">CPGTaintEngine</span><span class="p">(</span><span class="n">cpg</span><span class="p">,</span> <span class="n">policy</span><span class="o">=</span><span class="n">registry</span><span class="o">.</span><span class="n">as_taint_policy</span><span class="p">())</span>
 <span class="n">findings</span> <span class="o">=</span> <span class="n">engine</span><span class="o">.</span><span class="n">find_taint_paths</span><span class="p">()</span>
 </pre></div>
 </div>
+<p>Manual <code class="docutils literal notranslate"><span class="pre">add_source</span></code>, <code class="docutils literal notranslate"><span class="pre">add_sink</span></code>, and <code class="docutils literal notranslate"><span class="pre">add_sanitizer</span></code> calls remain
+available for programmatic one-off policies. They do not install hidden default
+models; a newly constructed engine has an empty policy unless one is supplied.</p>
 <p>The engine supports:</p>
 <ul class="simple">
 <li><p>Context-sensitive visited state (call-context tuple in state key)</p></li>
@@ -231,7 +233,8 @@ fields:</p>
 <li><p>isinstance type-guard stripping</p></li>
 <li><p>getattr dynamic dispatch detection</p></li>
 <li><p>Dict unpack (<code class="docutils literal notranslate"><span class="pre">**kwargs</span></code>) taint propagation</p></li>
-<li><p>Ansede-style JSON taint spec loading</p></li>
+<li><p>Strict-v2 typed sources, sinks, sink ports, sanitizers, and flow rules</p></li>
+<li><p>Kind-scoped sanitizer propagation</p></li>
 <li><p>SARIF output for CI/CD integration</p></li>
 </ul>
 </section>
