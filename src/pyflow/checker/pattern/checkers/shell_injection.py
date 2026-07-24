@@ -29,9 +29,26 @@ def subprocess_popen_with_shell_equals_true(context):
 @test.with_id("B603")
 def subprocess_without_shell_equals_true(context):
     """Check for subprocess calls without shell=True but with shell injection risk"""
-    # This is a simplified check - in practice you'd want to analyze the command construction
-    # For now, we'll skip this check to avoid false positives
-    pass
+    SUBPROCESS_FUNCS = {
+        "subprocess.Popen",
+        "subprocess.call",
+        "subprocess.check_call",
+        "subprocess.check_output",
+        "subprocess.run",
+    }
+    if context.call_function_name_qual not in SUBPROCESS_FUNCS:
+        return None
+    shell_arg = context.get_call_arg_value("shell")
+    if shell_arg is True or shell_arg == "True":
+        return None
+    return issue.Issue(
+        severity="LOW",
+        confidence="HIGH",
+        cwe=issue.Cwe.OS_COMMAND_INJECTION,
+        text="subprocess call - check for execution of untrusted input. "
+        "Even without shell=True, ensure all arguments are properly "
+        "validated and not constructed from user input.",
+    )
 
 
 @test.checks("Call")

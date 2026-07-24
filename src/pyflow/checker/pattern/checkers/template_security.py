@@ -2,12 +2,13 @@
 Template Security Checks.
 
 This module provides security tests for template rendering vulnerabilities,
-particularly Jinja2 and other template engines.
+particularly Jinja2, Mako, and other template engines.
 
 **Test IDs:**
 - B613: Jinja2 autoescape off
 - B614: Jinja2 with mark_safe
 - B615: Jinja2 template injection (SSTI)
+- B702: Mako template usage (XSS risk)
 """
 
 import ast
@@ -271,6 +272,24 @@ def jinja2_unsafe_loader(context):
                     "templates from unintended directories.",
                 )
 
+    return None
+
+
+@test.checks("Call")
+@test.with_id("B702")
+def use_of_mako_templates(context):
+    qualname = context.call_function_name_qual
+    if qualname == "mako.template.Template" or qualname == "mako.Template":
+        return issue.Issue(
+            severity="MEDIUM",
+            confidence="HIGH",
+            cwe=issue.Cwe.BASIC_XSS,
+            text="Mako templates allow HTML/JS rendering by default and "
+            "are inherently open to XSS attacks. Ensure variables in "
+            "all templates are properly sanitized via the 'n', 'h' or "
+            "'x' flags (depending on context). For example, to HTML "
+            "escape the variable 'data' do ${ data |h }.",
+        )
     return None
 
 

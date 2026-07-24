@@ -10,13 +10,19 @@ Test IDs:
 - B706: popen2.Popen with shell=True
 - B707: commands.getoutput/getstatusoutput usage
 - B708: command string formatting/shlex.join with user input
+- B605: start_process_with_a_shell
+- B606: start_process_with_no_shell
+- B607: start_process_with_partial_path
 """
 
 import ast
+import re
 
 from ..core import issue
 from ..core import test_properties as test
 
+# Pattern: starts with a drive letter (Windows) or path delimiter (/,\,.)
+_FULL_PATH_RE = re.compile(r"^(?:[A-Za-z](?=\:)|[\\\/\.])")
 
 USER_INPUT_MARKERS = (
     "user",
@@ -46,6 +52,44 @@ COMMAND_SINKS = {
     "popen2.Popen",
     "commands.getoutput",
     "commands.getstatusoutput",
+}
+
+# Functions that start a process via a shell (vulnerable to injection).
+# Excludes os.system, os.popen, commands.getstatusoutput — already
+# covered by B604 in shell_injection.py.
+COMMAND_SINKS_SHELL = {
+    "os.popen2",
+    "os.popen3",
+    "os.popen4",
+    "popen2.popen2",
+    "popen2.popen3",
+    "popen2.popen4",
+    "popen2.Popen3",
+    "popen2.Popen4",
+    "commands.getoutput",
+    "subprocess.getoutput",
+    "subprocess.getstatusoutput",
+}
+
+# Functions that start a process without a shell (safer but still worth tracking)
+COMMAND_SINKS_NO_SHELL = {
+    "os.execl",
+    "os.execle",
+    "os.execlp",
+    "os.execlpe",
+    "os.execv",
+    "os.execve",
+    "os.execvp",
+    "os.execvpe",
+    "os.spawnl",
+    "os.spawnle",
+    "os.spawnlp",
+    "os.spawnlpe",
+    "os.spawnv",
+    "os.spawnve",
+    "os.spawnvp",
+    "os.spawnvpe",
+    "os.startfile",
 }
 
 
@@ -337,4 +381,80 @@ def command_string_formatting(context):
             "shlex.join() is used with user input to construct a shell command."
         )
 
+    return None
+
+
+@test.checks("Call")
+@test.with_id("B605")
+def start_process_with_a_shell(context):
+    qualname = context.call_function_name_qual
+    if qualname not in COMMAND_SINKS_SHELL:
+        return None
+    if context.call_args_count < 1:
+        return None
+    cmd = context.node.args[0]
+    if isinstance(cmd, ast.Constant) and isinstance(cmd.value, str):
+        return issue.Issue(
+            severity="LOW",
+            confidence="HIGH",
+            cwe=issue.Cwe.OS_COMMAND_INJECTION,
+            text=f"Starting a process with a shell: {qualname}. "
+            "Shell functions invoke a system shell to interpret the "
+            "command string and are vulnerable to injection. "
+            "Consider using subprocess with a list of arguments instead.",
+        )
+    return issue.Issue(
+        severity="HIGH",
+        confidence="HIGH",
+        cwe=issue.Cwe.OS_COMMAND_INJECTION,
+        text=f"Starting a process with a shell, possible injection "
+        f"detected: {qualname}. The command argument is dynamically "
+        "constructed and may allow shell injection.",
+    )
+
+
+@test.checks("Call")
+@test.with_id("B606")
+def start_process_with_no_shell(context):
+    qualname = context.call_function_name_qual
+    if qualname not in COMMAND_SINKS_NO_SHELL:
+        return None
+    return issue.Issue(
+        severity="LOW",
+        confidence="MEDIUM",
+        cwe=issue.Cwe.OS_COMMAND_INJECTION,
+        text=f"Starting a process without a shell: {qualname}. "
+        "This call spawns a process by replacing the current one. "
+        "While not vulnerable to shell injection, ensure arguments "
+        "are properly validated.",
+    )
+
+
+@test.checks("Call")
+@test.with_id("B607")
+def start_process_with_partial_path(context):
+    qualname = context.call_function_name_qual
+    # Only check functions without dedicated path-safety checks
+    # (B701-B708, B604 already cover COMMAND_SINKS and most COMMAND_SINKS_SHELL)
+    if qualname not in COMMAND_SINKS_NO_SHELL:
+        return None
+    if context.call_args_count < 1:
+        return None
+    node = context.node.args[0]
+    if isinstance(node, ast.List) and node.elts:
+        node = node.elts[0]
+    if (
+        isinstance(node, ast.Constant)
+        and isinstance(node.value, str)
+        and not _FULL_PATH_RE.match(node.value)
+    ):
+        return issue.Issue(
+            severity="LOW",
+            confidence="HIGH",
+            cwe=issue.Cwe.OS_COMMAND_INJECTION,
+            text=f"Starting a process with a partial executable path: "
+            f"'{node.value}'. The PATH environment variable is searched, "
+            "which may allow a malicious actor to substitute a different "
+            "executable. Use an absolute path to the executable.",
+        )
     return None
