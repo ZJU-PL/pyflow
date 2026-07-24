@@ -9,10 +9,8 @@ Each test targets a specific gap from the CPG feature-gap analysis
 
 from __future__ import annotations
 
-import json
 import tempfile
 from pathlib import Path
-from typing import Any, Dict
 
 import pytest
 
