@@ -206,8 +206,9 @@ fields:</p>
 </section>
 <section id="taint-analysis">
 <h2>Taint Analysis<a class="headerlink" href="#taint-analysis" title="Link to this heading"></a></h2>
-<p>The CPG has its own graph-based taint propagation algorithm, but consumes the
-same strict-v2 typed taint policy as the IFDS and AST-dataflow engines:</p>
+<p>The CPG engine is a monotone fixed-point analysis over an immutable product
+lattice. It consumes the same strict-v2 typed taint policy and shared access-path
+domain as the IFDS and AST-dataflow engines:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.analysis.ifds.modeling.registry</span><span class="w"> </span><span class="kn">import</span> <span class="n">load_registry</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.ir.cpg.taint</span><span class="w"> </span><span class="kn">import</span> <span class="n">CPGTaintEngine</span>
 
@@ -220,19 +221,46 @@ same strict-v2 typed taint policy as the IFDS and AST-dataflow engines:</p>
 <p>Manual <code class="docutils literal notranslate"><span class="pre">add_source</span></code>, <code class="docutils literal notranslate"><span class="pre">add_sink</span></code>, and <code class="docutils literal notranslate"><span class="pre">add_sanitizer</span></code> calls remain
 available for programmatic one-off policies. They do not install hidden default
 models; a newly constructed engine has an empty policy unless one is supplied.</p>
+<p>Its formal state maps function-scoped access paths to origin- and kind-sensitive
+taint facts, plus a finite may-alias relation. CFG edges define executable
+order. DATA edges are consulted as dependence evidence for witness construction
+and reported in run statistics; they are deliberately not treated as executable
+shortcuts because doing so could jump over a strong overwrite. Local <code class="docutils literal notranslate"><span class="pre">CALL</span></code>
+and <code class="docutils literal notranslate"><span class="pre">RETURN_EDGE</span></code> edges use a bounded call string and returns are matched to
+the active call site.
+Every procedure is also analyzed as a potential public entry, so exported
+library functions and recursive call-graph SCCs are not lost merely because
+their external callers are absent. At recursion or the context bound, the
+engine applies a finite relational procedure summary (parameter-to-return,
+source-to-return, and parameter/source-to-sink dependencies).</p>
 <p>The engine supports:</p>
 <ul class="simple">
-<li><p>Context-sensitive visited state (call-context tuple in state key)</p></li>
+<li><p>Immutable lattice states with a monotone worklist and explicit bottom/join</p></li>
+<li><p>Context-sensitive call strings with matched call/return transitions</p></li>
+<li><p>Fixed-point relational summaries for nested and recursive local calls</p></li>
+<li><p>Strong local overwrites and refinement-controlled heap updates</p></li>
+<li><p>Shared syntactic or points-to-backed heap refinement providers</p></li>
 <li><p>AST-based call name resolution for source/sink matching</p></li>
-<li><p>Assign RHS propagation (alias, subscript, f-string, collections)</p></li>
-<li><p>Parameterized SQL detection</p></li>
-<li><p>isinstance type-guard stripping</p></li>
-<li><p>getattr dynamic dispatch detection</p></li>
-<li><p>Dict unpack (<code class="docutils literal notranslate"><span class="pre">**kwargs</span></code>) taint propagation</p></li>
 <li><p>Strict-v2 typed sources, sinks, sink ports, sanitizers, and flow rules</p></li>
-<li><p>Kind-scoped sanitizer propagation</p></li>
+<li><p>Kind-scoped sanitizer guarantees and sanitizer provenance</p></li>
+<li><p>Conservative unknown-call return and side-effect havoc</p></li>
+<li><p>Explicit <code class="docutils literal notranslate"><span class="pre">complete</span></code>/<code class="docutils literal notranslate"><span class="pre">partial</span></code> status, structured precision diagnostics,
+and state/time budgets</p></li>
+<li><p>Executable source-to-sink witness paths in JSON and SARIF <code class="docutils literal notranslate"><span class="pre">codeFlows</span></code></p></li>
 <li><p>SARIF output for CI/CD integration</p></li>
 </ul>
+<p><code class="docutils literal notranslate"><span class="pre">max_loop_iterations</span></code> is a convergence-reporting threshold, not an unsound
+loop cutoff: the solver continues to the lattice fixed point and records a
+conservative diagnostic if a loop needs more updates. <code class="docutils literal notranslate"><span class="pre">max_states</span></code> and
+<code class="docutils literal notranslate"><span class="pre">max_seconds</span></code> are explicit hard budgets and therefore make the result
+<code class="docutils literal notranslate"><span class="pre">partial</span></code> when exhausted.</p>
+<p>Soundness boundaries are surfaced rather than hidden. Unknown external calls
+produce an <code class="docutils literal notranslate"><span class="pre">unsupported</span></code> diagnostic and conservative havoc; AST-local PDG
+dependence fallback, missing graph entry/exit structure, unmatched return edges,
+and unsupported transfers likewise appear in <code class="docutils literal notranslate"><span class="pre">result.diagnostics</span></code>. A
+<code class="docutils literal notranslate"><span class="pre">complete</span></code> result means none of the encountered boundaries were classified as
+assumed or unsupported; it does not claim that the configured source, sink, and
+sanitizer policy is complete for every third-party library.</p>
 </section>
 <section id="cli-usage">
 <h2>CLI Usage<a class="headerlink" href="#cli-usage" title="Link to this heading"></a></h2>
