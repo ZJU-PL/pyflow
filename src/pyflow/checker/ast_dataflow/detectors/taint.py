@@ -6,6 +6,7 @@ from ._taint_models import (
     ASTDataflowTaintDiagnostic,
     ASTDataflowTaintFinding,
     ASTDataflowTaintResult,
+    ASTDataflowTraceStep,
 )
 
 __all__ = [
@@ -14,4 +15,5 @@ __all__ = [
     "ASTDataflowTaintDetector",
     "ASTDataflowTaintFinding",
     "ASTDataflowTaintResult",
+    "ASTDataflowTraceStep",
 ]

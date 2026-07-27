@@ -47,6 +47,15 @@ Run with a specific analysis engine:
    pyflow security input.py --engine ifds --function main --sources input --sinks eval
    pyflow security input.py --engine cpg --framework flask
 
+AST dataflow completion status
+------------------------------
+
+JSON and SARIF output from ``ast-dataflow`` includes ``status``, diagnostics,
+precision reasons, and a bounded source-to-sink ``trace`` for each finding.
+``complete`` means the fixed points converged without assumed or unsupported
+behavior. ``partial`` means findings remain useful, but one or more dynamic
+operations or user contracts crossed the documented soundness boundary.
+
 Available Security Checks
 ==========================
 

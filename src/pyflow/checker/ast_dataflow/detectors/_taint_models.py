@@ -5,6 +5,17 @@ from typing import Dict, FrozenSet, Set, Tuple
 
 
 @dataclass(frozen=True)
+class ASTDataflowTraceStep:
+    """One source, propagation, or sink step in a bounded witness."""
+
+    operation: str
+    location: str
+    filename: str | None = None
+    line: int | None = None
+    detail: str | None = None
+
+
+@dataclass(frozen=True)
 class ASTDataflowTaintDiagnostic:
     """One precision or completeness diagnostic produced by the detector."""
 
@@ -12,6 +23,10 @@ class ASTDataflowTaintDiagnostic:
     code: str
     affects_completeness: bool = False
     function: str | None = None
+    level: str | None = None
+    filename: str | None = None
+    line: int | None = None
+    operation: str | None = None
 
 
 @dataclass(frozen=True)
@@ -30,6 +45,7 @@ class ASTDataflowTaintFinding:
     suggestion: str | None = None
     confidence: str = "HIGH"
     precision_reasons: Tuple[str, ...] = ()
+    trace: Tuple[ASTDataflowTraceStep, ...] = ()
 
 
 @dataclass(frozen=True)

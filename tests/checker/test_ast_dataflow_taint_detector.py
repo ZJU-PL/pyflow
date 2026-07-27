@@ -22,13 +22,11 @@ def _make_session(sources_by_name, func_to_file=None):
 
 def test_ast_dataflow_taint_detector_reports_direct_eval_flow():
     session = _make_session(
-        {
-            "vuln": """
+        {"vuln": """
 def vuln():
     data = input()
     eval(data)
-"""
-        },
+"""},
         {"vuln": "sample.py"},
     )
 
@@ -55,6 +53,11 @@ def test_ast_dataflow_taint_detector_returns_typed_result_with_sink_line():
     assert result.statistics["findings"] == 1
     assert result.findings[0].sink_line == 3
     assert result.findings[0].source_kinds == frozenset({"user_input"})
+    assert [step.operation for step in result.findings[0].trace] == [
+        "source",
+        "assign",
+        "sink",
+    ]
 
 
 def test_ast_dataflow_taint_detector_propagates_interprocedural_taint():
@@ -186,3 +189,19 @@ def test_ast_dataflow_taint_detector_applies_kind_scoped_sanitizer():
 
     assert [finding.rule_id for finding in result.findings] == ["SHELL-FLOW"]
     assert result.findings[0].source_kinds == frozenset({"shell"})
+
+
+def test_formal_detector_merges_manual_models_with_explicit_policy():
+    policy = _typed_policy()
+    session = _make_session(
+        {"main": "def main():\n    value = custom_source()\n    custom_sink(value)\n"}
+    )
+
+    result = ASTDataflowTaintDetector(
+        policy=policy,
+        sources={"custom_source"},
+        sinks={"custom_sink"},
+    ).analyze(session)
+
+    assert len(result.findings) == 1
+    assert result.findings[0].rule_id == "PYFLOW-SEMANTIC-MANUAL"

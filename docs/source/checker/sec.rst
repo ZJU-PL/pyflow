@@ -11,9 +11,10 @@ PyFlow provides two distinct checker engines:
   Fast and suitable for quick scans.
 
 **AST dataflow checker** (``pyflow.checker.ast_dataflow``)
-  An interprocedural taint engine that propagates typed source kinds over the
-  Python AST and fixed-point function summaries. More thorough but slower than
-  pattern matching.
+  A CFG-backed abstract interpreter with typed taint kinds, shape-sensitive
+  heap access paths, strong/weak updates, outcome-sensitive relational
+  summaries, explicit uncertainty diagnostics, and bounded source-to-sink
+  witnesses. More thorough but slower than pattern matching.
 
 Checker Categories
 ==================

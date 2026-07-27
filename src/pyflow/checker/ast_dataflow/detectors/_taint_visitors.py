@@ -50,46 +50,21 @@ class _StatementVisitorMixin:
                 self.int_values.pop(target.id, None)
                 self._clear_paths_for_root(target.id)
 
-                # Special-case: model `array.array('u', taint_src)` as having taint on
-                # alternating indices (used by the SAST-Python3 microbench).
-                if (
-                    isinstance(node.value, ast.Call)
-                    and self._call_fullname(node.value.func) == "array.array"
-                    and len(node.value.args) >= 2
-                    and isinstance(node.value.args[1], ast.Name)
-                    and self._expr_is_tainted(node.value.args[1])
-                ):
-                    self.alternating_taint_arrays.add(target.id)
-                    self.tainted.discard(target.id)
-                    self._clear_container_taint(target.id)
-                    self.int_parity.pop(target.id, None)
-                    continue
-
-                # Track simple integer parity so we can reason about indices like
-                # `length = len(char_array)` in the array solver benchmarks.
                 if (
                     isinstance(node.value, ast.Call)
                     and self._call_fullname(node.value.func) == "len"
                     and node.value.args
                     and isinstance(node.value.args[0], ast.Name)
-                    and (
-                        node.value.args[0].id in self.alternating_taint_arrays
-                        or node.value.args[0].id in self.list_lengths
-                    )
+                    and node.value.args[0].id in self.list_lengths
                 ):
                     arg_name = node.value.args[0].id
-                    if arg_name in self.alternating_taint_arrays:
-                        # Assume an odd-length array in the benchmark suite.
-                        self.int_parity[target.id] = 1
-                    if arg_name in self.list_lengths:
-                        self.int_values[target.id] = self.list_lengths[arg_name]
+                    self.int_values[target.id] = self.list_lengths[arg_name]
                     self.tainted.discard(target.id)
                     self._clear_container_taint(target.id)
                     continue
                 elif isinstance(node.value, ast.Constant) and isinstance(
                     node.value.value, int
                 ):
-                    self.int_parity[target.id] = node.value.value % 2
                     self.int_values[target.id] = node.value.value
 
                 # Track dict literal key order for destructuring `k1, k2 = d`.
@@ -117,7 +92,6 @@ class _StatementVisitorMixin:
                         self._update_container_from_expr(target.id, node.value)
                     else:
                         self.tainted.add(target.id)
-                        self.int_parity.pop(target.id, None)
                         self.int_values.pop(target.id, None)
                 elif (
                     isinstance(node.value, ast.Name)
@@ -134,7 +108,6 @@ class _StatementVisitorMixin:
                 else:
                     self.tainted_attrs.pop(self._alias_key(target.id), None)
                     self._clear_container_taint(target.id)
-                    self.int_parity.pop(target.id, None)
                     self.int_values.pop(target.id, None)
             elif isinstance(target, ast.Attribute):
                 base, attr = self._attribute_base_and_attr(target)

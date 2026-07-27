@@ -63,12 +63,6 @@ class _ExpressionTaintMixin:
 
             base = self._subscript_base_name(expr.value)
             key = self._subscript_key(expr.slice)
-            if base and self._is_alternating_taint_array(base):
-                parity = self._expr_parity(expr.slice)
-                if parity is None:
-                    # Conservative: if we can't resolve parity, assume tainted.
-                    return True
-                return parity == 0
             if base and self._is_container_key_tainted(base, key):
                 return True
             # Dynamic indices are tainted only when the full container is.
@@ -178,37 +172,6 @@ class _ExpressionTaintMixin:
         if isinstance(expr, ast.FormattedValue):
             return self._expr_is_tainted(expr.value)
         return False
-
-    def _is_alternating_taint_array(self, name: str) -> bool:
-        for alias in self._aliases_for(name):
-            if alias in self.alternating_taint_arrays:
-                return True
-        return False
-
-    def _expr_parity(self, expr: ast.AST) -> Optional[int]:
-        """Return 0 (even), 1 (odd), or None (unknown) for integer expressions."""
-        if isinstance(expr, ast.Constant) and isinstance(expr.value, int):
-            return expr.value % 2
-        if isinstance(expr, ast.Name):
-            return self.int_parity.get(expr.id)
-        if isinstance(expr, ast.UnaryOp) and isinstance(expr.op, (ast.UAdd, ast.USub)):
-            return self._expr_parity(expr.operand)
-        if isinstance(expr, ast.BinOp) and isinstance(expr.op, (ast.Add, ast.Sub)):
-            left = self._expr_parity(expr.left)
-            right = self._expr_parity(expr.right)
-            if left is None or right is None:
-                return None
-            return (left + right) % 2
-        if (
-            isinstance(expr, ast.Call)
-            and self._call_fullname(expr.func) == "len"
-            and expr.args
-        ):
-            arg0 = expr.args[0]
-            if isinstance(arg0, ast.Name) and arg0.id in self.alternating_taint_arrays:
-                # Assume an odd-length array in the benchmark suite.
-                return 1
-        return None
 
     def _call_returns_tainted(self, node: ast.Call) -> bool:
         fullname = self._call_fullname(node.func)

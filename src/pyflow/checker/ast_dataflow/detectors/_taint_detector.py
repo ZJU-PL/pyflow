@@ -5,20 +5,24 @@ from __future__ import annotations
 import ast
 import textwrap
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 from pyflow.analysis.taint import TaintPolicy, TaintRule
 
 from ..core.base import Detector
 from ..core.context import AnalysisSession
 from ..core.issue import Issue
+from ..domain import ProvenanceEdge, ProvenanceNode, TaintFact
 from ._taint_local import _LocalTaintAnalyzer
 from ._taint_models import (
     FunctionSummary,
     ASTDataflowTaintDiagnostic,
     ASTDataflowTaintFinding,
     ASTDataflowTaintResult,
+    ASTDataflowTraceStep,
 )
+from ..semantics import TaintSinkEvent
+from ..solver.interprocedural import ASTInterproceduralAnalyzer
 
 
 class ASTDataflowTaintDetector(Detector):
@@ -44,13 +48,18 @@ class ASTDataflowTaintDetector(Detector):
         policy: TaintPolicy | None = None,
         frameworks: Sequence[str] | None = None,
         registry_paths: Sequence[str | Path] = (),
+        formal_semantics: bool = True,
+        shape_contracts=None,
     ):
         self._manual_sources = set(sources or ())
         self._manual_sinks = set(sinks or ())
         self._manual_sanitizers = set(sanitizers or ())
+        self._configured_policy = policy
         self.policy = policy
         self.frameworks = None if frameworks is None else tuple(frameworks)
         self.registry_paths = tuple(registry_paths)
+        self.formal_semantics = formal_semantics
+        self.shape_contracts = shape_contracts
         self.sources: Set[str] = set()
         self.sinks: Set[str] = set()
         self.sanitizers: Set[str] = set()
@@ -83,15 +92,23 @@ class ASTDataflowTaintDetector(Detector):
             )
             issue.fname = finding.filename
             issue.test = self.name
-            issue.taint_kinds = tuple(sorted(finding.source_kinds))
-            issue.precision_reasons = finding.precision_reasons
-            issue.suggestion = finding.suggestion
+            setattr(issue, "taint_kinds", tuple(sorted(finding.source_kinds)))
+            setattr(issue, "precision_reasons", finding.precision_reasons)
+            setattr(issue, "trace", finding.trace)
+            setattr(issue, "suggestion", finding.suggestion)
             reports.append(issue)
         return reports
 
     def analyze(self, session: AnalysisSession) -> ASTDataflowTaintResult:
         """Run typed AST dataflow analysis and retain completion metadata."""
-        self.policy = self.policy or self._policy_for_session(session)
+        if self._configured_policy is None:
+            self.policy = self._policy_for_session(session)
+        else:
+            self.policy = self._configured_policy
+            if self._manual_sources or self._manual_sinks or self._manual_sanitizers:
+                self.policy = self._merge_policies(
+                    self.policy, self._manual_policy(self.policy)
+                )
         self.sources = set(self.policy.source_names) | self._manual_sources
         self.sinks = set(self.policy.sink_names) | self._manual_sinks
         self.sanitizers = {
@@ -103,6 +120,9 @@ class ASTDataflowTaintDetector(Detector):
             name: set(positions)
             for name, positions in self.policy.sink_positions_by_call.items()
         }
+
+        if self.formal_semantics:
+            return self._analyze_formal(session)
 
         diagnostics: list[ASTDataflowTaintDiagnostic] = []
         findings: dict[tuple, ASTDataflowTaintFinding] = {}
@@ -190,8 +210,225 @@ class ASTDataflowTaintDetector(Detector):
             },
         )
 
+    def _analyze_formal(self, session: AnalysisSession) -> ASTDataflowTaintResult:
+        """Run the CFG/lattice-based engine and adapt its relational summaries."""
+
+        policy = self.policy
+        if policy is None:
+            raise RuntimeError("taint policy must be configured before analysis")
+        refinement = None
+        heap_graph = getattr(session, "heap_graph", None)
+        if heap_graph is not None:
+            from ..semantics import (
+                AdaptiveRefinementProvider,
+                HeapGraphRefinementProvider,
+                heap_location_adapter,
+            )
+
+            refinement = AdaptiveRefinementProvider(
+                (
+                    HeapGraphRefinementProvider(
+                        heap_graph, heap_location_adapter(heap_graph)
+                    ),
+                )
+            )
+        interprocedural = ASTInterproceduralAnalyzer(
+            policy,
+            refinement=refinement,
+            shape_contracts=self.shape_contracts,
+        ).analyze(
+            session.sources_by_name,
+            getattr(session, "func_to_file", {}),
+            self._entry_functions(session),
+        )
+        findings: dict[tuple, ASTDataflowTaintFinding] = {}
+        for name, analysis in interprocedural.analyses.items():
+            if name not in interprocedural.reachable:
+                continue
+            provenance = self._analysis_provenance(analysis)
+            for event in analysis.events:
+                if not isinstance(event, TaintSinkEvent):
+                    continue
+                actual_facts = frozenset(
+                    fact
+                    for fact in event.facts
+                    if not (fact.origin.symbol or "").startswith("parameter:")
+                )
+                source_kinds = frozenset(fact.kind for fact in actual_facts)
+                if not source_kinds:
+                    continue
+                sink_kinds = policy.sink_kinds_by_call.get(
+                    event.sink_name, frozenset({"dangerous"})
+                )
+                for rule in policy.matching_rules(source_kinds, sink_kinds):
+                    matched_source_kinds = frozenset(source_kinds & rule.source_kinds)
+                    if not matched_source_kinds:
+                        continue
+                    finding = ASTDataflowTaintFinding(
+                        function=event.procedure or name,
+                        filename=(
+                            event.filename
+                            or getattr(session, "func_to_file", {}).get(name, name)
+                        ),
+                        sink_name=event.sink_name,
+                        sink_line=event.line,
+                        source_kinds=matched_source_kinds,
+                        rule_id=rule.rule_id,
+                        rule_title=rule.title,
+                        severity=policy.sink_severity_by_call.get(
+                            event.sink_name, rule.severity
+                        ),
+                        cwe=(policy.sink_cwe_by_call.get(event.sink_name) or rule.cwe),
+                        suggestion=(
+                            policy.sink_suggestion_by_call.get(event.sink_name)
+                            or rule.suggestion
+                        ),
+                        precision_reasons=tuple(
+                            sorted(
+                                {
+                                    diagnostic.code
+                                    for diagnostic in interprocedural.diagnostics
+                                    if diagnostic.function
+                                    in {None, name, event.procedure}
+                                }
+                            )
+                        ),
+                        trace=self._build_trace(
+                            actual_facts,
+                            provenance,
+                            event.sink_name,
+                            event.filename,
+                            event.line,
+                        ),
+                    )
+                    key = (
+                        finding.function,
+                        finding.filename,
+                        finding.sink_name,
+                        finding.sink_line,
+                        finding.rule_id,
+                        finding.source_kinds,
+                    )
+                    findings[key] = finding
+
+        diagnostics = tuple(
+            ASTDataflowTaintDiagnostic(
+                message=diagnostic.message,
+                code=diagnostic.code,
+                affects_completeness=diagnostic.affects_completeness,
+                function=diagnostic.function,
+                level=diagnostic.level.value,
+                filename=diagnostic.filename,
+                line=diagnostic.line,
+                operation=diagnostic.operation,
+            )
+            for diagnostic in interprocedural.diagnostics
+        )
+        return ASTDataflowTaintResult(
+            findings=tuple(findings.values()),
+            status=interprocedural.status,
+            diagnostics=diagnostics,
+            statistics={
+                "source_kinds": len(
+                    {
+                        kind
+                        for kinds in policy.source_kinds_by_call.values()
+                        for kind in kinds
+                    }
+                ),
+                "summary_updates": interprocedural.rounds,
+                "summaries": len(interprocedural.summaries),
+                "refinement_requests": getattr(refinement, "refinement_requests", 0),
+                "successful_refinements": getattr(
+                    refinement, "successful_refinements", 0
+                ),
+                "findings": len(findings),
+            },
+        )
+
+    @staticmethod
+    def _entry_functions(session: AnalysisSession) -> tuple[str, ...]:
+        program = getattr(session, "program", None)
+        queries = getattr(session, "queries", None)
+        context = getattr(queries, "context", None)
+        names: list[str] = []
+        for entry in getattr(program, "entryPoints", ()) if program is not None else ():
+            code = getattr(entry, "code", None)
+            if code is None or context is None:
+                continue
+            try:
+                aliases = context.code_aliases(code)
+            except Exception:
+                aliases = ()
+            names.extend(alias for alias in aliases if isinstance(alias, str))
+        return tuple(dict.fromkeys(names))
+
+    @staticmethod
+    def _analysis_provenance(analysis) -> frozenset[ProvenanceEdge]:
+        edges: set[ProvenanceEdge] = set()
+        for state in analysis.cfg_result.in_states.values():
+            edges.update(state.provenance)
+        for state in analysis.cfg_result.edge_states.values():
+            edges.update(state.provenance)
+        for outcome in (
+            analysis.cfg_result.returned,
+            analysis.cfg_result.raised,
+            analysis.cfg_result.yielded,
+        ):
+            if outcome is not None:
+                edges.update(outcome.state.provenance)
+        return frozenset(edges)
+
+    @staticmethod
+    def _build_trace(
+        facts: Iterable[TaintFact],
+        provenance: Iterable[ProvenanceEdge],
+        sink: str,
+        filename: str | None,
+        line: int | None,
+    ) -> tuple[ASTDataflowTraceStep, ...]:
+        steps: list[ASTDataflowTraceStep] = []
+        seen_steps = set()
+        incoming: dict[ProvenanceNode, list[ProvenanceEdge]] = {}
+        for edge in provenance:
+            incoming.setdefault(edge.target, []).append(edge)
+        for fact in sorted(facts, key=repr):
+            chain = []
+            current = fact.provenance_node
+            seen_nodes = set()
+            while current not in seen_nodes and incoming.get(current):
+                seen_nodes.add(current)
+                edge = sorted(incoming[current], key=repr)[0]
+                chain.append(edge)
+                current = edge.source
+            origin = fact.origin
+            source_step = ASTDataflowTraceStep(
+                "source",
+                current.location.render(),
+                origin.filename,
+                origin.line,
+                origin.symbol or origin.kind,
+            )
+            if source_step not in seen_steps:
+                seen_steps.add(source_step)
+                steps.append(source_step)
+            for edge in reversed(chain):
+                step = ASTDataflowTraceStep(
+                    edge.operation.value,
+                    edge.target.location.render(),
+                    edge.filename,
+                    edge.line,
+                    edge.detail,
+                )
+                if step not in seen_steps:
+                    seen_steps.add(step)
+                    steps.append(step)
+        sink_step = ASTDataflowTraceStep("sink", sink, filename, line, sink)
+        if sink_step not in seen_steps:
+            steps.append(sink_step)
+        return tuple(steps)
+
     def _policy_for_session(self, session: AnalysisSession) -> TaintPolicy:
-        from pyflow.analysis.ifds.modeling.calls import CallModel, CallModelRegistry
         from pyflow.analysis.ifds.modeling.registry import load_registry
 
         registry = load_registry()
@@ -207,6 +444,18 @@ class ASTDataflowTaintDetector(Detector):
             registry.load_custom(*self.registry_paths)
         base = registry.as_taint_policy()
 
+        manual = self._manual_policy(base)
+        if not (
+            manual.source_kinds_by_call
+            or manual.sink_kinds_by_call
+            or manual.sanitizer_kinds_by_call
+        ):
+            return base
+        return self._merge_policies(base, manual)
+
+    def _manual_policy(self, base: TaintPolicy) -> TaintPolicy:
+        from pyflow.analysis.ifds.modeling.calls import CallModel, CallModelRegistry
+
         manual_models = [
             *(
                 CallModel(name, source_kinds=frozenset({"untrusted"}))
@@ -221,8 +470,6 @@ class ASTDataflowTaintDetector(Detector):
                 for name in self._manual_sanitizers
             ),
         ]
-        if not manual_models:
-            return base
         manual_rules: tuple[TaintRule, ...] = ()
         if self._manual_sinks:
             manual_rules = (
@@ -243,10 +490,9 @@ class ASTDataflowTaintDetector(Detector):
                     severity="high",
                 ),
             )
-        manual = TaintPolicy.from_call_models(
+        return TaintPolicy.from_call_models(
             CallModelRegistry(manual_models), manual_rules
         )
-        return self._merge_policies(base, manual)
 
     @staticmethod
     def _merge_policies(left: TaintPolicy, right: TaintPolicy) -> TaintPolicy:
@@ -283,15 +529,16 @@ class ASTDataflowTaintDetector(Detector):
         )
 
     def _rule_for_sink(self, sink: str) -> TaintRule | None:
-        sink_kinds = self.policy.sink_kinds_by_call.get(sink, frozenset())
+        policy = self.policy
+        if policy is None:
+            return None
+        sink_kinds = policy.sink_kinds_by_call.get(sink, frozenset())
         if not sink_kinds and sink in self._manual_sinks:
             sink_kinds = frozenset({"dangerous"})
         source_kinds = frozenset(
-            kind
-            for kinds in self.policy.source_kinds_by_call.values()
-            for kind in kinds
+            kind for kinds in policy.source_kinds_by_call.values() for kind in kinds
         ) | ({"untrusted"} if self._manual_sources else set())
-        matches = self.policy.matching_rules(source_kinds, sink_kinds)
+        matches = policy.matching_rules(source_kinds, sink_kinds)
         return matches[0] if matches else None
 
     @staticmethod
@@ -323,10 +570,10 @@ class ASTDataflowTaintDetector(Detector):
         diagnostics: List[ASTDataflowTaintDiagnostic] = []
         for fname, src in session.sources_by_name.items():
             try:
-                tree = ast.parse(textwrap.dedent(src))
-                function_trees[fname] = tree
-                param_names[fname] = self._extract_param_names(tree, fname)
-                vararg, kwarg = self._extract_var_kw_names(tree, fname)
+                parsed_tree = ast.parse(textwrap.dedent(src))
+                function_trees[fname] = parsed_tree
+                param_names[fname] = self._extract_param_names(parsed_tree, fname)
+                vararg, kwarg = self._extract_var_kw_names(parsed_tree, fname)
                 vararg_names[fname] = vararg
                 kwarg_names[fname] = kwarg
             except SyntaxError as error:
@@ -378,10 +625,10 @@ class ASTDataflowTaintDetector(Detector):
             call_param_taints: Dict[str, Dict[str, Set[str]]] = {}
             call_param_key_taints: Dict[str, Dict[str, Dict[str, Set[str]]]] = {}
 
-            for name, tree in function_trees.items():
+            for name, function_tree in function_trees.items():
                 summary, call_taints, call_key_taints = self._analyze_function(
                     name,
-                    tree,
+                    function_tree,
                     tainted_params.get(name, set()),
                     tainted_param_keys.get(name, {}),
                     callee_returns_tainted,
@@ -401,7 +648,7 @@ class ASTDataflowTaintDetector(Detector):
                 )
                 unconditional_summary, _, _ = self._analyze_function(
                     name,
-                    tree,
+                    function_tree,
                     set(),
                     {},
                     returns_unconditional,
@@ -436,8 +683,8 @@ class ASTDataflowTaintDetector(Detector):
             summaries = next_summaries
             returns_unconditional = next_unconditional
 
-            for callee_map in call_param_taints.values():
-                for callee, params in callee_map.items():
+            for parameter_callee_map in call_param_taints.values():
+                for callee, params in parameter_callee_map.items():
                     if not params:
                         continue
                     if callee not in tainted_params:
@@ -447,8 +694,8 @@ class ASTDataflowTaintDetector(Detector):
                         tainted_params[callee].update(new_params)
                         changed = True
 
-            for callee_map in call_param_key_taints.values():
-                for callee, param_map in callee_map.items():
+            for key_callee_map in call_param_key_taints.values():
+                for callee, param_map in key_callee_map.items():
                     if not param_map:
                         continue
                     current = tainted_param_keys.setdefault(callee, {})
@@ -532,7 +779,7 @@ class ASTDataflowTaintDetector(Detector):
     ) -> bool:
         if old is None:
             return True
-        return (
+        return bool(
             old.has_source != new.has_source
             or old.returns_tainted != new.returns_tainted
             or old.returns_tainted_unconditional != new.returns_tainted_unconditional

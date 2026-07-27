@@ -33,6 +33,7 @@ class AnalysisSession:
     func_to_file: Dict[str, str]  # Maps function name to its defining file
     file_imports: Dict[str, Dict[str, str]]  # Maps file -> {imported_name: source_file}
     all_source_code: Dict[str, str]  # Maps filename -> source code
+    heap_graph: Optional[object] = None
 
     @classmethod
     def from_paths(
@@ -80,6 +81,7 @@ class AnalysisSession:
 
         queries = program.get_semantic_queries(compiler)
         store_graph = cls._maybe_get_store_graph(queries)
+        heap_graph = cls._maybe_get_heap_graph(queries)
         lifetime = cls._maybe_get_lifetime(queries)
         sources_by_name, func_to_file, file_imports = cls._collect_sources_and_imports(
             program, all_source_code
@@ -90,6 +92,7 @@ class AnalysisSession:
             queries=queries,
             sources_by_name=sources_by_name,
             store_graph=store_graph,
+            heap_graph=heap_graph,
             lifetime=lifetime,
             func_to_file=func_to_file,
             file_imports=file_imports,
@@ -237,12 +240,12 @@ class AnalysisSession:
     def _semantic_pass_names() -> List[str]:
         """Return the analysis-only pass set needed by semantic detectors.
 
-        The security checker consumes IPA/CPA/lifetime facts but should not run
-        optimization cleanup passes. Those passes can mutate the program and
-        invalidate lifetime state after it has been computed, which is useful
-        for optimization but not for read-only bug finding.
+        The security checker consumes IPA, CPA, lifetime, and heap facts but
+        should not run optimization cleanup passes. Those passes can mutate the
+        program and invalidate analysis state after it has been computed, which
+        is useful for optimization but not for read-only bug finding.
         """
-        return ["ipa", "cpa", "lifetime"]
+        return ["ipa", "cpa", "lifetime", "heap"]
 
     # --------------------------------------------------------------- analysis
     @staticmethod
@@ -264,5 +267,12 @@ class AnalysisSession:
             return queries.get_lifetime()
         except TemporaryLimitation:
             return None
+        except Exception:
+            return None
+
+    @staticmethod
+    def _maybe_get_heap_graph(queries: SemanticQueryService) -> Optional[object]:
+        try:
+            return queries.get_heap_graph()
         except Exception:
             return None

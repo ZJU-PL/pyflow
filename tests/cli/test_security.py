@@ -6,9 +6,16 @@ from types import SimpleNamespace
 import pytest
 
 import pyflow.cli.security.command as security_cli
+from pyflow.checker.ast_dataflow.detectors._taint_models import (
+    ASTDataflowTaintDiagnostic,
+    ASTDataflowTaintFinding,
+    ASTDataflowTaintResult,
+    ASTDataflowTraceStep,
+)
 from pyflow.checker.formatters import json as json_formatter
 from pyflow.checker.formatters import text as text_formatter
 from pyflow.checker.pattern.core import constants as b_constants
+from pyflow.cli.security.reporting import _ast_dataflow_payload, _result_to_sarif
 
 
 def _totals() -> dict[str, int]:
@@ -236,6 +243,54 @@ def eval_from_input():
     assert "os.system" in out
     assert "eval" in out
     assert "Traceback" not in out
+
+
+def test_ast_dataflow_json_and_sarif_preserve_trace_and_diagnostics():
+    finding = ASTDataflowTaintFinding(
+        function="run",
+        filename="sample.py",
+        sink_name="eval",
+        sink_line=9,
+        source_kinds=frozenset({"code"}),
+        rule_id="PYFLOW-CODE",
+        rule_title="Code injection",
+        severity="high",
+        trace=(
+            ASTDataflowTraceStep("source", "run.payload", "sample.py", 3, "input"),
+            ASTDataflowTraceStep("sink", "eval", "sample.py", 9, "eval"),
+        ),
+    )
+    diagnostic = ASTDataflowTaintDiagnostic(
+        "Unknown library effect",
+        "unknown-call-effect",
+        True,
+        "run",
+        "unsupported",
+        "sample.py",
+        7,
+        "library.call",
+    )
+    manager = SimpleNamespace(
+        analysis_result=ASTDataflowTaintResult(
+            (finding,), status="partial", diagnostics=(diagnostic,)
+        )
+    )
+
+    payload = _ast_dataflow_payload(manager)
+    sarif = _result_to_sarif("ast-dataflow", manager, SimpleNamespace())
+
+    assert payload["findings"][0]["trace"][0]["operation"] == "source"
+    assert payload["diagnostics"][0]["operation"] == "library.call"
+    thread_locations = sarif["runs"][0]["results"][0]["codeFlows"][0]["threadFlows"][0][
+        "locations"
+    ]
+    assert [
+        item["location"]["physicalLocation"]["region"]["startLine"]
+        for item in thread_locations
+    ] == [
+        3,
+        9,
+    ]
 
 
 def test_security_cli_cpg_reports_nested_source_to_sink_flow(tmp_path):

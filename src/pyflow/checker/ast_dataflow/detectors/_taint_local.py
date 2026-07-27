@@ -68,9 +68,6 @@ class _LocalTaintAnalyzer(
         # Dict-key taint is distinct from value taint in
         # ``tainted_container_keys``.
         self.tainted_dict_keys: Dict[str, Set[str]] = {}
-        # Special-case modelling for `array.array('u', taint_src)` benchmarks.
-        self.alternating_taint_arrays: Set[str] = set()
-        self.int_parity: Dict[str, int] = {}
         self.int_values: Dict[str, int] = {}
         self.const_str_values: Dict[str, Set[str]] = {}
         self.dict_key_order: Dict[str, List[str]] = {}

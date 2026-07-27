@@ -278,8 +278,6 @@ class _TaintStateMixin:
                 self._merge_container_keys(left_root, member)
             if member in self.tainted_dict_keys:
                 self._merge_dict_keys(left_root, member)
-            if member in self.alternating_taint_arrays:
-                self.alternating_taint_arrays.add(left_root)
 
     def _aliases_for(self, name: str) -> Set[str]:
         root = self._find_alias(name)
@@ -294,8 +292,6 @@ class _TaintStateMixin:
 
     def _is_container_tainted(self, name: str) -> bool:
         for alias in self._aliases_for(name):
-            if alias in self.alternating_taint_arrays:
-                return True
             if alias in self.tainted_containers:
                 return True
             keys = self.tainted_container_keys.get(alias)
@@ -308,8 +304,6 @@ class _TaintStateMixin:
 
     def _is_container_values_tainted(self, name: str) -> bool:
         for alias in self._aliases_for(name):
-            if alias in self.alternating_taint_arrays:
-                return True
             if alias in self.tainted_containers:
                 return True
             keys = self.tainted_container_keys.get(alias)

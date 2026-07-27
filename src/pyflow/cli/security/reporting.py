@@ -8,7 +8,6 @@ from typing import Any, Dict, List
 
 from pyflow.checker.pattern.core import constants as b_constants
 
-
 _SARIF_SCHEMA = (
     "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/"
     "Schemata/sarif-schema-2.1.0.json"
@@ -292,6 +291,16 @@ def _ast_dataflow_payload(manager) -> Dict[str, Any]:
                 "suggestion": finding.suggestion,
                 "confidence": finding.confidence,
                 "precision_reasons": list(finding.precision_reasons),
+                "trace": [
+                    {
+                        "operation": step.operation,
+                        "location": step.location,
+                        "filename": step.filename,
+                        "line": step.line,
+                        "detail": step.detail,
+                    }
+                    for step in finding.trace
+                ],
             }
             for finding in analysis.findings
         ],
@@ -301,6 +310,10 @@ def _ast_dataflow_payload(manager) -> Dict[str, Any]:
                 "message": diagnostic.message,
                 "affects_completeness": diagnostic.affects_completeness,
                 "function": diagnostic.function,
+                "level": diagnostic.level,
+                "filename": diagnostic.filename,
+                "line": diagnostic.line,
+                "operation": diagnostic.operation,
             }
             for diagnostic in analysis.diagnostics
         ],
@@ -348,6 +361,43 @@ def _result_to_sarif(engine: str, result, args) -> Dict[str, Any]:
                         "precisionReasons": finding["precision_reasons"],
                         "analysisStatus": report["status"],
                     },
+                    "codeFlows": (
+                        [
+                            {
+                                "threadFlows": [
+                                    {
+                                        "locations": [
+                                            {
+                                                "location": {
+                                                    "message": {
+                                                        "text": (
+                                                            step.get("detail")
+                                                            or step["operation"]
+                                                        )
+                                                    },
+                                                    "physicalLocation": {
+                                                        "artifactLocation": {
+                                                            "uri": step.get("filename")
+                                                            or finding["filename"]
+                                                        },
+                                                        "region": {
+                                                            "startLine": step.get(
+                                                                "line"
+                                                            )
+                                                            or 1
+                                                        },
+                                                    },
+                                                }
+                                            }
+                                            for step in finding.get("trace", [])
+                                        ]
+                                    }
+                                ]
+                            }
+                        ]
+                        if finding.get("trace")
+                        else []
+                    ),
                 }
             )
         return {
