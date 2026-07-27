@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional, Union
 
 from pyflow.analysis.typeinfo import TypeFact, TypeInfoService
 from pyflow.analysis.typeinfo.core.typesystem import ProperType
+from pyflow.analysis.typeinfo.inference.models import FunctionSummary
 
 from .call_graph import CallGraphQueries
 from .capabilities import (
@@ -102,6 +103,38 @@ class SemanticQueryService:
         if self.type_info_service is None:
             return None
         return self.type_info_service.fact_of(module_name, name)
+
+    def get_expression_type(
+        self,
+        module_name: str,
+        lineno: int,
+        col_offset: int,
+    ) -> Optional[ProperType]:
+        """Return the inferred type of a source expression at a position."""
+        if self.type_info_service is None:
+            return None
+        result = self.type_info_service.inference_result(module_name)
+        if result is None:
+            return None
+        return result.expression_type(lineno, col_offset)
+
+    def get_function_type_summary(
+        self,
+        module_name: str,
+        qualified_name: str,
+    ) -> Optional[FunctionSummary]:
+        """Return a standalone interprocedural function summary."""
+        if self.type_info_service is None:
+            return None
+        result = self.type_info_service.inference_result(module_name)
+        if result is None:
+            return None
+        full_name = (
+            qualified_name
+            if qualified_name.startswith(f"{module_name}.")
+            else f"{module_name}.{qualified_name}"
+        )
+        return result.functions.get(full_name)
 
     # Control flow queries
     def get_cfg(self, function: Union[str, object]):
@@ -254,7 +287,8 @@ class SemanticQueryService:
         graph = self.get_heap_graph()
         if graph is None:
             raise RuntimeError(
-                "Flow-sensitive heap analysis not available; ensure the 'heap' pass has been run."
+                "Flow-sensitive heap analysis not available; ensure the "
+                "'heap' pass has been run."
             )
         return graph
 

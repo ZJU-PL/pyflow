@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import ast
 from pathlib import Path
-from typing import Iterator, cast
+from typing import Iterable, Iterator, cast
 
 from pyflow.analysis.typeinfo.resolution.annotations import (
     BuiltinTypeLookup,
@@ -37,6 +37,9 @@ from pyflow.analysis.typeinfo.core.typesystem import (
     TupleType,
     TypeSystem,
 )
+from pyflow.analysis.typeinfo.inference.engine import StaticTypeInferenceEngine
+from pyflow.analysis.typeinfo.inference.call_models import CallModelProvider
+from pyflow.analysis.typeinfo.inference.models import ModuleInferenceResult
 from pyflow.language.modules.project_resolution import ProjectContext
 
 
@@ -48,6 +51,8 @@ class TypeInfoService:
         project_context: ProjectContext | None = None,
         *,
         typeshed_roots: list[str | Path] | None = None,
+        enable_static_inference: bool = True,
+        call_model_providers: Iterable[CallModelProvider] = (),
     ) -> None:
         self.project_context = project_context or ProjectContext(None)
         self.type_system = TypeSystem()
@@ -63,6 +68,9 @@ class TypeInfoService:
         self._synthetic_types: dict[str, type] = {}
         self._collected_modules: set[str] = set()
         self._collecting_modules: set[str] = set()
+        self.enable_static_inference = enable_static_inference
+        self.call_model_providers = tuple(call_model_providers)
+        self._inference_results: dict[str, ModuleInferenceResult] = {}
 
     def collect_module(
         self,
@@ -132,6 +140,14 @@ class TypeInfoService:
     def diagnostics(self) -> list[StubDiagnostic]:
         """Return stub-resolution diagnostics."""
         return self.stub_resolver.get_diagnostics()
+
+    def inference_result(
+        self,
+        module_name: str,
+    ) -> ModuleInferenceResult | None:
+        """Return the standalone static-inference result for a module."""
+        self._ensure_collected(module_name)
+        return self._inference_results.get(module_name)
 
     def _ensure_collected(self, module_name: str) -> None:
         if module_name not in self._collected_modules:
@@ -244,6 +260,97 @@ class TypeInfoService:
                             source="inferred",
                             kind="variable",
                         )
+
+        if self.enable_static_inference:
+            self._collect_inferred_source_facts(module_name, source, path)
+
+    def _collect_inferred_source_facts(
+        self,
+        module_name: str,
+        source: str,
+        path: str | None,
+    ) -> None:
+        engine = StaticTypeInferenceEngine(
+            self.project_context,
+            type_system=self.type_system,
+            external_symbol_resolver=self._resolve_inference_external_symbol,
+            call_model_providers=self.call_model_providers,
+        )
+        result = engine.infer_source(module_name, source, filename=path)
+        self._inference_results[module_name] = result
+        facts = self._module_facts.setdefault(module_name, {})
+        prefix = f"{module_name}."
+        for qualified_name, symbol in result.symbols.items():
+            local_name = qualified_name.removeprefix(prefix)
+            if "." in local_name or symbol.typ is None:
+                continue
+            existing = facts.get(local_name)
+            if existing is not None and existing.source in {"annotation", "stub"}:
+                continue
+            facts[local_name] = TypeFact(
+                name=local_name,
+                typ=symbol.typ,
+                raw_annotation=str(symbol.typ),
+                source="static_inference",
+                kind=existing.kind if existing is not None else "variable",
+            )
+
+        functions = self._functions.setdefault(module_name, {})
+        for qualified_name, summary in result.functions.items():
+            local_name = qualified_name.removeprefix(prefix)
+            if "." in local_name or local_name not in functions:
+                continue
+            existing_function = functions[local_name]
+            params = dict(existing_function.params)
+            raw_params = dict(existing_function.raw_params)
+            for name, value in summary.parameters.items():
+                if name in params and params[name] is None:
+                    params[name] = value.public_type()
+                    public_type = value.public_type()
+                    raw_params[name] = (
+                        None if public_type is None else str(public_type)
+                    )
+            returns = existing_function.returns or summary.return_type
+            raw_returns = existing_function.raw_returns
+            if raw_returns is None and returns is not None:
+                raw_returns = str(returns)
+            updated = FunctionTypeInfo(
+                name=existing_function.name,
+                params=params,
+                returns=returns,
+                raw_params=raw_params,
+                raw_returns=raw_returns,
+                source=(
+                    existing_function.source
+                    if existing_function.source in {"annotation", "stub"}
+                    else "static_inference"
+                ),
+            )
+            functions[local_name] = updated
+            old_fact = facts.get(local_name)
+            facts[local_name] = TypeFact(
+                name=local_name,
+                typ=self._callable_type(updated),
+                raw_annotation=updated.raw_returns,
+                source=updated.source,
+                kind="function" if old_fact is None else old_fact.kind,
+            )
+
+    def _resolve_inference_external_symbol(
+        self,
+        qualified_name: str,
+    ) -> ProperType | None:
+        module_name, separator, name = qualified_name.rpartition(".")
+        if not separator:
+            return None
+        if module_name not in self._collected_modules:
+            if module_name in self._collecting_modules:
+                fact = self._module_facts.get(module_name, {}).get(name)
+                return None if fact is None else fact.typ
+            if self.project_context.find_module(module_name) is not None:
+                self.collect_module(module_name)
+        fact = self._module_facts.get(module_name, {}).get(name)
+        return None if fact is None else fact.typ
 
     def _collect_stub_module(
         self,

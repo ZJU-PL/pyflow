@@ -123,7 +123,9 @@ and authenticating OSV snapshots; ``--osv-trusted-digest`` binds data to trusted
 configuration while ``--osv-max-age-days`` enforces freshness. Install the optional
 ``supply-chain`` dependency group for JSON Schema and Sigstore tooling.
 
-See [CLI.md](CLI.md) for the command reference and `docs/` for broader project
+See [CLI.md](CLI.md) for the command reference,
+[docs/type-inference.md](docs/type-inference.md) for the standalone static
+type-inference engine, and `docs/` for broader project
 documentation.
 
 ### Running Tests

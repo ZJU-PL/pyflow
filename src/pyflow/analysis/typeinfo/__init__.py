@@ -14,6 +14,22 @@ from .query.evidence import (
 )
 from .query.models import ClassTypeInfo, FunctionTypeInfo, TypeFact
 from .query.service import TypeInfoService
+from .inference.engine import InferenceOptions, StaticTypeInferenceEngine
+from .inference.call_models import CallModelProvider, MappingCallModelProvider
+from .inference.models import (
+    FunctionSpecialization,
+    FunctionSummary,
+    InferenceDiagnostic,
+    ModuleInferenceResult,
+    ProjectInferenceResult,
+    SourceSpan,
+)
+from .inference.project import ProjectTypeInferenceEngine
+from .inference.validation import (
+    ObservedType,
+    SoundnessViolation,
+    validate_observed_types,
+)
 from .resolution.annotations import (
     BuiltinTypeLookup,
     TypeLookup,
@@ -36,7 +52,12 @@ from pyflow.language.modules.type_stubs import (
 __all__ = [
     "BuiltinTypeLookup",
     "ClassTypeInfo",
+    "CallModelProvider",
     "FunctionTypeInfo",
+    "FunctionSpecialization",
+    "FunctionSummary",
+    "InferenceDiagnostic",
+    "InferenceOptions",
     "ResolvedStub",
     "StubClassInfo",
     "StubDiagnostic",
@@ -44,6 +65,14 @@ __all__ = [
     "StubImportInfo",
     "StubInfo",
     "StubResolver",
+    "ModuleInferenceResult",
+    "MappingCallModelProvider",
+    "ObservedType",
+    "ProjectInferenceResult",
+    "ProjectTypeInferenceEngine",
+    "SourceSpan",
+    "StaticTypeInferenceEngine",
+    "SoundnessViolation",
     "TypeEvidence",
     "TypeEvidenceIndex",
     "TypeFact",
@@ -57,4 +86,5 @@ __all__ = [
     "parse_stub_source",
     "resolve_annotation",
     "resolve_forward_reference",
+    "validate_observed_types",
 ]

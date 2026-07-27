@@ -61,6 +61,26 @@ def make(name: str) -> int:
     assert signature.source == "annotation"
 
 
+def test_service_exposes_standalone_inference_results() -> None:
+    source = """
+def identity(value):
+    return value
+
+answer = identity(1)
+"""
+    service = TypeInfoService(ProjectContext(None))
+    service.collect_module("pkg.mod", source=source)
+
+    assert _builtin_instance(service.type_of("pkg.mod", "answer"), int)
+    signature = service.signature_of("pkg.mod", "identity")
+    assert signature is not None
+    assert _builtin_instance(signature.params["value"], int)
+    assert _builtin_instance(signature.returns, int)
+    result = service.inference_result("pkg.mod")
+    assert result is not None and result.converged
+    assert _builtin_instance(result.expression_type(5, 9), int)
+
+
 def test_service_infers_local_constructor_assignment() -> None:
     source = """
 class Client:
