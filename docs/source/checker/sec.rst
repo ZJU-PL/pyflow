@@ -129,7 +129,7 @@ AWS Cloud Security
 - Validates STS assume role with external ID
 - Flags security group open ports
 
-YM|Code Safety
+Code Safety
 -----------
 
 **exec_use.py**: Dangerous code execution
@@ -202,7 +202,7 @@ Semantic Checker Infrastructure
 
 **semantic/detectors/**: Semantic-based detectors
 - **semantic_taint.py**: Public semantic taint detector API
-- **_semantic_taint.py**: Taint propagation implementation
+- **_semantic_taint_detector.py** and supporting ``_semantic_taint_*`` modules: Taint propagation implementation
 - Uses semantic facts from PyFlow analyses rather than AST patterns
 
 Output Formatters
@@ -235,50 +235,10 @@ LLM Integration
 - Tests vulnerability hypotheses
 - Validates security issue impact
 
-Finding Quality
----------------
-
-**quality.py**: Post-processing helpers for security findings (framework-independent)
-
-Inline Suppression
-~~~~~~~~~~~~~~~~~~
-
-Suppress individual findings with ``# pyflow: ignore`` comments:
-
-.. code-block:: python
-
-   user_input = request.args.get("q")  # pyflow: ignore B608 -- validated above
-
-- ``parse_suppressions(source)`` — Parse ``# pyflow: ignore`` directives by line number. Supports per-rule suppression (``# pyflow: ignore B608``) and bare suppression (``# pyflow: ignore``).
-- ``is_suppressed(issue, suppressions)`` — Check whether an issue is covered by parsed suppressions.
-- Bare suppressions (no rule ID) emit a ``BareSuppressionWarning`` when ``warn_bare=True``.
-
-Baseline Management
-~~~~~~~~~~~~~~~~~~~
-
-Freeze known findings and only report new ones:
-
-- ``BaselineStore`` — Persistent set of issue fingerprints (BLAKE2b-based). ``generate(issues)`` creates a baseline; ``load(path)`` / ``save(path)`` persist to JSON; ``filter_new(issues)`` returns only issues not in the baseline.
-- ``issue_fingerprint(issue)`` — Stable BLAKE2b fingerprint from rule ID, file path, line number, and source text.
-
-Confidence Scoring
-~~~~~~~~~~~~~~~~~~
-
-- ``score_confidence(issue, has_taint_trace=…)`` — Normalized confidence score (0.0–1.0) combining severity, base confidence, and taint evidence. Injection/auth issues without taint traces are penalized.
-- ``confidence_level(score)`` — Map a numeric score to HIGH/MEDIUM/LOW.
-- ``apply_taint_aware_demotion(issue, has_taint_trace=…)`` — Demote injection/auth issues when no semantic taint evidence backs them up.
-
-Security Guard Detection
-~~~~~~~~~~~~~~~~~~~~~~~~
-
-- ``find_security_guards(source)`` — Extract auth-check and input-validation guards from ``if`` conditions and decorators (e.g., ``@login_required``, ``isinstance()`` checks).
-- ``is_guarded(issue, guards)`` — Check whether an issue's line is protected by a recognized guard.
-- ``apply_guard_aware_demotion(issue, guards)`` — Demote severity when a finding is structurally guarded.
-
 Local Supply-Chain Analysis
 ----------------------------
 
-**supply_chain.py**: Local-only supply-chain analysis for Python packages.
+**supply_chain/**: Local-only supply-chain analysis package for Python packages.
 
 SBOM Generation
 ~~~~~~~~~~~~~~~
@@ -336,12 +296,12 @@ claims until the exact attestation has passed Sigstore identity verification.
 Configuration and Testing
 -------------------------
 
-**core/config.py**: Configuration management
+**pattern/core/config.py**: Configuration management
 - Checker enable/disable settings
 - Severity threshold configuration
 - Custom rule definitions
 
-**core/test_loader.py**: Test case management
+**pattern/core/test_loader.py**: Test case management
 - Loads security test cases
 - Manages false positive/negative testing
 - Benchmarking and validation

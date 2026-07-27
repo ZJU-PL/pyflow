@@ -1,8 +1,8 @@
 .. _explanation-design-decisions:
 
-=============
+================
 Design Decisions
-=============
+================
 
 This document explains the key design decisions made in PyFlow's development,
 including the rationale behind them and alternatives considered.
@@ -37,6 +37,7 @@ Decision: Default to Sound, Possibly Imprecise Analysis
 | May have false pos   | Fewer false positives|
 | Slower (more checks) | Faster               |
 | Conservative         | Aggressive           |
++----------------------+----------------------+
 
 **Configuration Options**:
 
@@ -110,6 +111,7 @@ purposes.
 | Close to source      | Optimized for opt    |
 | Easy to understand   | Complex to build     |
 | Good for analysis    | Good for transform   |
++----------------------+----------------------+
 
 Optimization Pipeline
 =====================
@@ -181,6 +183,7 @@ generic framework adapted for Python.
 | Better precision     | Works for any lang   |
 | Faster for Python    | Shared development   |
 | Limited scope        | Broader impact       |
++----------------------+----------------------+
 
 Extensibility
 =============

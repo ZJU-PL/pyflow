@@ -162,6 +162,7 @@ Standard SARIF format for CI/CD integration:
     :caption: Analysis Modules
 
     callgraph
+    cfl
     fsdf
     ipa
     cpa

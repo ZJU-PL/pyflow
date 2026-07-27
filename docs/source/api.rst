@@ -244,7 +244,7 @@ PyFlow supports different server modes for different use cases:
    description = get_server_mode_description(MCPServerMode)
 
 Localization Queries
-~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Query for code localization (finding where variables are defined/used).
 

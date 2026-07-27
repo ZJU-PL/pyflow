@@ -13,10 +13,6 @@ System Overview
 PyFlow is built around a modular architecture that separates concerns into
 distinct layers:
 
-.. image:: architecture-diagram.png
-   :alt: PyFlow Architecture Overview
-   :align: center
-
 The architecture consists of five main layers:
 
 1. **Frontend Layer**: Parses and preprocesses Python code

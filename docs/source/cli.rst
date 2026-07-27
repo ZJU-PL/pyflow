@@ -138,7 +138,7 @@ Options:
 - ``--ifds-context-depth``: Maximum call-string depth
 - ``--ifds-trace-mode``: Retain no traces, finding traces, or all traces
 - ``--framework``: Framework rule packs for the CPG engine
-- ``--format``: Output format (``text``, ``json``, or ``sarif``)
+- ``--format``: Output format: ``text``, ``json``, ``sarif``, ``csv``, ``custom``, ``html``, ``screen``, ``xml``, or ``yaml``.
 - ``--output``: Output file path
 - ``-r, --recursive``: Scan directories recursively
 - ``-v, --verbose``: Verbose output

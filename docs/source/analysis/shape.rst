@@ -74,23 +74,28 @@ analysis:
 Key Classes
 -----------
 
-.. autosummary::
-
-   pyflow.analysis.shape.RegionBasedShapeAnalysis
-   pyflow.analysis.shape.HeapInformationProvider
-   pyflow.analysis.shape.OrderConstraints
+* ``RegionBasedShapeAnalysis`` — runs the region-based shape analysis.
+* ``HeapInformationProvider`` — exposes heap facts to the analysis.
+* ``OrderConstraints`` — orders constraints before fixed-point solving.
 
 Relationship to Other Modules
 -----------------------------
 
-+------------------+---------------------------------------+----------------------------+
-| Module           | Feeds into shape                      | Shape feeds into           |
-+==================+=======================================+============================+
-| ``storegraph``   | Object nodes, slots, regions          | —                          |
-+------------------+---------------------------------------+----------------------------+
-| ``cpa``          | Points-to results, canonical objects  | —                          |
-+------------------+---------------------------------------+----------------------------+
-| ``lifetimeanalysis`` | —                                | Shape ref-count data       |
-+------------------+---------------------------------------+----------------------------+
-| ``alias/flow_sensitive`` | — (separate subsystem)                | —                          |
-+------------------+---------------------------------------+----------------------------+
+.. list-table::
+   :header-rows: 1
+
+   * - Module
+     - Feeds into shape
+     - Shape feeds into
+   * - ``storegraph``
+     - Object nodes, slots, and regions
+     - —
+   * - ``cpa``
+     - Points-to results and canonical objects
+     - —
+   * - ``lifetimeanalysis``
+     - —
+     - Reference-count data
+   * - ``alias/flow_sensitive``
+     - — (a separate subsystem)
+     - —

@@ -1,8 +1,8 @@
 .. _tutorial-optimizing-python-programs:
 
-=======================
+========================================
 Optimizing Python Programs
-=======================
+========================================
 
 This tutorial covers how to use PyFlow's optimization passes to improve the
 performance of your Python programs.

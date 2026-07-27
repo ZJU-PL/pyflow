@@ -80,9 +80,9 @@ The Language module is primarily used internally by PyFlow's analysis pipeline. 
    local = ast.Local("x")
    assign = ast.Assign(const, [local])
 
-===============
+========================================
 Module Structure
-===============
+========================================
 
 .. toctree::
    :maxdepth: 2

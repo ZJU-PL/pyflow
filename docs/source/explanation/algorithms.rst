@@ -335,7 +335,7 @@ Replaces function calls with function body:
    5. Add return value handling
 
 Complexity Analysis
-==================
+========================================
 
 Time Complexity
 ---------------

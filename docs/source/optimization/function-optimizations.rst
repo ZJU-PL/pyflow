@@ -13,7 +13,7 @@ Inlining Criteria
 
 - Small size: ≤4 operations (configurable ``maxOps``)
 - Few call sites: ≤1 call (configurable ``maxInvokes``)
-- No complex features: no returns from loops/try, no ops after return, no *args/**kwargs
+- No complex features: no returns from loops/try, no operations after return, and no ``*args``/``**kwargs``
 - No recursion (checked via call graph)
 
 Context-sensitive: different contexts inlined separately. Prevents recursion via trace tracking. Counts operations to limit code growth. Immediately applies simplification after inlining.
@@ -28,9 +28,9 @@ Recognizes patterns: ``obj.attr`` → direct access, ``function.__get__()`` → 
 Argument Normalization (argumentnormalization.py)
 --------------------------------------------------
 
-Simplifies calling conventions by eliminating *args/**kwargs when possible.
+Simplifies calling conventions by eliminating ``*args``/``**kwargs`` when possible.
 
-Optimizes default arguments (makes explicit), normalizes keyword to positional arguments, eliminates *args/**kwargs when unused. Enables inlining, eliminates packing/unpacking overhead, enables further optimizations.
+Optimizes default arguments (makes explicit), normalizes keyword to positional arguments, and eliminates ``*args``/``**kwargs`` when unused. Enables inlining, eliminates packing/unpacking overhead, and enables further optimizations.
 
 Code Cloning (clone.py)
 -----------------------
@@ -42,7 +42,7 @@ Unifies similar contexts using union-find (reduces duplication), separates diffe
 Limitations
 -----------
 
-- **Inlining**: Code size growth, cannot inline recursive/complex functions, limited by *args/**kwargs
+- **Inlining**: Code size growth, cannot inline recursive/complex functions, limited by ``*args``/``**kwargs``
 - **Method Optimization**: Limited by type precision, struggles with high polymorphism
 - **Argument Normalization**: Cannot eliminate when actually used, limited by call site analysis
 - **Cloning**: Code size growth, context explosion risk

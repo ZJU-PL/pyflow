@@ -190,9 +190,9 @@ Typical workflow:
    program = extractor.extract_from_source(source, "example.py")
    code = extractor.convertFunction(add_func)
 
-===============
+========================================
 Integration with Analysis
-===============
+========================================
 
 The frontend integrates with PyFlow's analysis pipeline:
 

@@ -1,8 +1,8 @@
 .. _how-to-analyze-call-graph:
 
-=========================
+========================================
 How to Analyze Call Graphs
-=========================
+========================================
 
 This guide explains how to use PyFlow's call graph analysis to understand the
 function call structure of your Python programs.
@@ -153,7 +153,7 @@ Visualizing Call Graphs
 Create professional visualizations using DOT format:
 
 Basic visualization
-------------------
+----------------------------------------
 
 .. code-block:: bash
 

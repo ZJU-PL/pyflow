@@ -1,8 +1,8 @@
 .. _explanation-best-practices:
 
-=============
+========================================
 Best Practices
-=============
+========================================
 
 This page outlines best practices for using PyFlow effectively. Following these
 guidelines will help you get the most out of PyFlow's static analysis and
@@ -321,7 +321,7 @@ Choose Appropriate Analysis Depth
    pyflow security input.py --engine ifds --function main
 
 Use Caching
-----------
+----------------------------------------
 
 **Do**: Use PyFlow's internal caching capabilities for repeated analysis.
 

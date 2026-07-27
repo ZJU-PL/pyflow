@@ -52,9 +52,9 @@ Reference Nodes
 
    wildcard = ast.DoNotCare()
 
-===============
+========================================
 Expression Nodes
-===============
+========================================
 
 **Call**: Function call with dynamic dispatch
 
@@ -141,9 +141,9 @@ Statement Nodes
    # inherited ``annotation`` field used for per-node analysis metadata).
    # ``value`` is optional (annotation-only form).
 
-===============
+========================================
 Control Flow Nodes
-===============
+========================================
 
 **Switch**: Conditional execution (if/else)
 
@@ -232,9 +232,9 @@ Code Nodes
 
    class_def = ast.ClassDef(name="ClassName", bases=[base1], body=body_suite, decorators=[decor1])
 
-===============
+========================================
 Suite and Annotations
-===============
+========================================
 
 **Suite**: Sequence of statements
 
