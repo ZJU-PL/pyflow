@@ -4,7 +4,7 @@ Unified security analysis CLI — ``pyflow security``.
 Dispatches to one of four engine backends:
 
 - ``ast-scanner`` — fast AST pattern matching (Bandit-style), no analysis pipeline
-- ``cpa`` — PyFlow pipeline + CPA-backed security checks on the AST
+- ``ast-dataflow`` — interprocedural taint dataflow over the Python AST
 - ``ifds`` — IFDS solver over CFG supergraphs (interprocedural, flow-sensitive)
 - ``cpg`` — CPG-based context-sensitive security analysis with heap-aware alias tracking
 """
@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Sequence
 from pyflow.checker.pattern.core.manager import SecurityManager
 from pyflow.checker.pattern.core.config import SecurityConfig
 from pyflow.checker.pattern.core import constants as b_constants
-from pyflow.checker.semantic import BugFinderConfig, SemanticManager
+from pyflow.checker.ast_dataflow import ASTDataflowManager, BugFinderConfig
 from .reporting import (
     _ifds_result_to_dict,
     _nullness_result_to_dict,
@@ -161,14 +161,14 @@ def _run_ast_scanner(
     return manager
 
 
-def _run_cpa(
+def _run_ast_dataflow(
     targets: List[str],
     args,
     *,
     exclude: str = "",
     recursive: bool = False,
-) -> SemanticManager:
-    """Run the CPA-backed semantic security analysis (was 'semantic')."""
+) -> ASTDataflowManager:
+    """Run the AST-based interprocedural taint detector."""
     config = BugFinderConfig(
         verbose=getattr(args, "verbose", False),
         recursive=recursive,
@@ -179,7 +179,7 @@ def _run_cpa(
         frameworks=getattr(args, "framework", None),
         registry_paths=tuple(getattr(args, "registry_path", ()) or ()),
     )
-    manager = SemanticManager(
+    manager = ASTDataflowManager(
         config=config,
         debug=getattr(args, "debug", False),
         verbose=getattr(args, "verbose", False),
@@ -285,7 +285,8 @@ def _run_ifds(targets: List[str], args) -> Dict[str, Any]:
 
     if not call_models.as_mapping() or not taint_rules:
         print(
-            "No typed taint models or rules specified. Use --sources/--sinks --framework,"
+            "No typed taint models or rules specified. Use --sources/--sinks "
+            "--framework,"
             " or --registry-path.",
             file=sys.stderr,
         )
@@ -349,18 +350,31 @@ def _apply_session_diagnostics(result: Dict[str, Any], session) -> Dict[str, Any
     return result
 
 
-def _run_cpg(targets: List[str], args) -> List[Dict[str, Any]]:
+def _run_cpg(targets: List[str], args) -> Dict[str, Any]:
     """Run the CPG-based context-sensitive security analysis."""
     from pyflow.ir.cpg.build import build_cpg, build_cpg_from_directory
     from pyflow.ir.cpg.taint import CPGTaintEngine
     from pyflow.ir.cpg.rules import load_rules, detect_frameworks
 
-    findings: List = []
+    findings: List[Dict[str, Any]] = []
+    diagnostics: List[Dict[str, Any]] = []
+    statistics: Dict[str, int] = {}
+    status = "complete"
+    analyzed_targets = 0
 
     for target in targets:
         path = Path(target)
         if not path.exists():
             print(f"Error: '{target}' not found", file=sys.stderr)
+            diagnostics.append(
+                {
+                    "code": "cpg-target-not-found",
+                    "message": f"Target not found: {target}",
+                    "function": None,
+                    "affects_completeness": True,
+                }
+            )
+            status = "partial"
             continue
 
         if path.is_dir():
@@ -372,10 +386,25 @@ def _run_cpg(targets: List[str], args) -> List[Dict[str, Any]]:
             cpg = build_cpg(source, filename=str(target))
 
         if len(cpg.functions) == 0:
+            diagnostics.append(
+                {
+                    "code": "cpg-no-functions",
+                    "message": f"No analyzable functions found in {target}",
+                    "function": None,
+                    "affects_completeness": True,
+                }
+            )
+            status = "partial"
             continue
 
         cpg.build()
-        engine = CPGTaintEngine(cpg)
+        analyzed_targets += 1
+        engine = CPGTaintEngine(
+            cpg,
+            max_call_depth=getattr(args, "cpg_context_depth", 3),
+            max_states=getattr(args, "cpg_max_states", None),
+            max_seconds=getattr(args, "cpg_max_seconds", None),
+        )
 
         for src in getattr(args, "sources", []) or []:
             engine.add_source(src)
@@ -396,10 +425,32 @@ def _run_cpg(targets: List[str], args) -> List[Dict[str, Any]]:
         registry_paths = getattr(args, "registry_path", []) or []
         load_rules(engine, frameworks=frameworks, custom_paths=registry_paths)
 
-        result = engine.find_taint_paths()
-        findings.extend(f.to_dict() for f in result)
+        result = engine.analyze()
+        findings.extend(f.to_dict() for f in result.findings)
+        diagnostics.extend(
+            {
+                "code": diagnostic.code,
+                "message": diagnostic.message,
+                "function": diagnostic.function,
+                "affects_completeness": diagnostic.affects_completeness,
+            }
+            for diagnostic in result.diagnostics
+        )
+        for key, value in result.statistics.items():
+            statistics[key] = statistics.get(key, 0) + value
+        if result.status != "complete" and status == "complete":
+            status = result.status
 
-    return findings
+    if analyzed_targets == 0:
+        status = "failed"
+
+    return {
+        "engine": "cpg",
+        "status": status,
+        "findings": findings,
+        "diagnostics": diagnostics,
+        "statistics": statistics,
+    }
 
 
 # ── Shared helpers ────────────────────────────────────────────────────────
@@ -532,10 +583,15 @@ def run_security(args) -> int:
         issues = result.get_issue_list(b_constants.LOW, b_constants.LOW)
         return 1 if issues else 0
 
-    elif engine == "cpa":
-        result = _run_cpa(targets, args, exclude=exclude, recursive=recursive)
+    elif engine == "ast-dataflow":
+        result = _run_ast_dataflow(targets, args, exclude=exclude, recursive=recursive)
         _output_results(engine, result, args)
         issues = result.get_issue_list(b_constants.LOW, b_constants.LOW)
+        status = getattr(getattr(result, "analysis_result", None), "status", "complete")
+        if status == "partial":
+            return 3
+        if status == "failed":
+            return 4
         return 1 if issues else 0
 
     elif engine == "ifds":
@@ -559,7 +615,12 @@ def run_security(args) -> int:
     elif engine == "cpg":
         result = _run_cpg(targets, args)
         _output_results(engine, result, args)
-        return 1 if result else 0
+        status = result.get("status", "complete")
+        if status in {"partial", "cancelled"}:
+            return 3
+        if status == "failed":
+            return 4
+        return 1 if result.get("findings") else 0
 
     else:
         print(f"Unknown engine: {engine}", file=sys.stderr)

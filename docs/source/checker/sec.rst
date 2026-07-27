@@ -10,10 +10,10 @@ PyFlow provides two distinct checker engines:
   simple pattern matching to identify common security vulnerabilities.
   Fast and suitable for quick scans.
 
-**Semantic checker** (``pyflow.checker.semantic``)
-  A deep analysis engine that leverages PyFlow's full analysis pipeline
-  (IPA/CPA, store graph, lifetime analysis) to perform context-sensitive
-  vulnerability detection. More thorough but slower than pattern matching.
+**AST dataflow checker** (``pyflow.checker.ast_dataflow``)
+  An interprocedural taint engine that propagates typed source kinds over the
+  Python AST and fixed-point function summaries. More thorough but slower than
+  pattern matching.
 
 Checker Categories
 ==================
@@ -192,18 +192,18 @@ Pattern-Based Checker Infrastructure
 - AST pattern matching rules for various vulnerability types
 - Configurable blacklists and pattern definitions
 
-Semantic Checker Infrastructure
---------------------------------
+AST Dataflow Checker Infrastructure
+-----------------------------------
 
-**semantic/runner.py**: Semantic checker orchestration
+**ast_dataflow/runner.py**: AST dataflow checker orchestration
 - Runs the full PyFlow analysis pipeline
-- Coordinates semantic analysis passes (IPA/CPA/lifetime)
+- Coordinates supporting analysis passes (IPA/CPA/lifetime)
 - Feeds analysis results to detectors
 
-**semantic/detectors/**: Semantic-based detectors
-- **semantic_taint.py**: Public semantic taint detector API
-- **_semantic_taint_detector.py** and supporting ``_semantic_taint_*`` modules: Taint propagation implementation
-- Uses semantic facts from PyFlow analyses rather than AST patterns
+**ast_dataflow/detectors/**: AST dataflow detectors
+- **taint.py**: Public taint detector API
+- **_taint_detector.py** and supporting ``_taint_*`` modules: Taint propagation implementation
+- Uses dataflow facts and function summaries rather than AST patterns
 
 Output Formatters
 -----------------

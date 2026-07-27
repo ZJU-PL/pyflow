@@ -197,10 +197,9 @@ Unified security analysis frontend. Dispatches to one of four engines depending 
 
 - ``--engine ast-scanner`` — fast AST pattern matching (Bandit-style), no
   analysis pipeline required (default).
-- ``--engine cpa`` — CPA-backed taint propagation on the AST using PyFlow's
-  analysis pipeline (IPA/CPA/StoreGraph). This engine is boolean-taint
-  internally, so it applies universal sanitizers but does not distinguish
-  kind-scoped sanitizers during propagation.
+- ``--engine ast-dataflow`` — fixed-point taint dataflow over the Python AST
+  and interprocedural function summaries. It preserves source kinds, applies
+  kind-scoped sanitizers, and reports typed findings with completion diagnostics.
 - ``--engine ifds`` — IFDS solver over CFG supergraphs.  Interprocedural,
   flow-sensitive.  **Requires ``--function``.**
 - ``--engine cpg`` — CPG-based context-sensitive taint analysis with heap-aware
@@ -224,7 +223,7 @@ Unified security analysis frontend. Dispatches to one of four engines depending 
   IFDS analysis to run
 - ``--function FUNCTION`` — entry function (required for ``--engine ifds``)
 - ``--framework FRAMEWORK [FRAMEWORK ...]`` — framework rule pack(s) for taint
-  sources/sinks/sanitizers (shared by the ``cpa``, ``cpg``, and ``ifds``
+  sources/sinks/sanitizers (shared by the ``ast-dataflow``, ``cpg``, and ``ifds``
   engines).
   Pass with no values to auto-detect packs from imports.
   (choices: ``aiohttp``, ``cloud``, ``concurrency``, ``django``, ``falcon``,
@@ -232,12 +231,15 @@ Unified security analysis frontend. Dispatches to one of four engines depending 
   ``requests``, ``serialization``, ``sql``, ``sqlalchemy``, ``stdlib``,
   ``tornado``, ``wtforms``, ``xml``)
 - ``--registry-path`` — load custom rule-pack JSON file(s) or directories
-  (``cpa``, ``cpg``, and ``ifds`` engines)
+  (``ast-dataflow``, ``cpg``, and ``ifds`` engines)
   using the strict schema-v2 format documented in
   ``docs/taint-rule-packs-v2.md``. Only schema version 2 is accepted.
 - ``--typestate-protocol PROTOCOLS`` — typestate protocols for
   ``--analysis typestate``. May be repeated; supports ``resource``,
   ``python-builtins``, ``file``, ``socket``, ``lock``, ``transaction``
+- ``--cpg-max-states N`` / ``--cpg-max-seconds N`` — stop CPG propagation at
+  an explicit budget and return ``partial`` status rather than silent truncation
+- ``--cpg-context-depth N`` — CPG call-string depth (default: 3)
 
 The ``security`` command exits with ``1`` when findings are reported and ``0``
 otherwise.

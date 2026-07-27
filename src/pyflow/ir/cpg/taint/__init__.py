@@ -4,6 +4,8 @@ from .engine import CPGTaintEngine
 from .model import (
     MemoryCell,
     MemoryLayout,
+    CPGTaintDiagnostic,
+    CPGTaintResult,
     RuleMetadata,
     TaintFinding,
     TaintPath,
@@ -12,6 +14,8 @@ from .model import (
 
 __all__ = [
     "CPGTaintEngine",
+    "CPGTaintDiagnostic",
+    "CPGTaintResult",
     "MemoryCell",
     "MemoryLayout",
     "RuleMetadata",

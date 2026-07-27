@@ -7,8 +7,7 @@ from pathlib import Path
 from typing import Iterable, List, Optional, Sequence, Union
 
 from .context import AnalysisSession
-from .base import run_detectors
-from ..detectors.semantic_taint import SemanticTaintDetector
+from ..detectors.taint import ASTDataflowTaintDetector
 from .issue import Issue
 
 
@@ -32,13 +31,14 @@ class StaticBugFinder:
     def __init__(self, config: Optional[BugFinderConfig] = None):
         self.config = config or BugFinderConfig()
         self.detectors = self._create_detectors()
+        self.last_result = None
 
     def _create_detectors(self) -> List:
         sources = set(self.config.sources or ())
         sinks = set(self.config.sinks or ())
         sanitizers = set(self.config.sanitizers or ())
         return [
-            SemanticTaintDetector(
+            ASTDataflowTaintDetector(
                 sources=sources or None,
                 sinks=sinks or None,
                 sanitizers=sanitizers or None,
@@ -60,4 +60,6 @@ class StaticBugFinder:
             include=self.config.include,
             exclude=self.config.exclude,
         )
-        return run_detectors(session, self.detectors)
+        detector = self.detectors[0]
+        self.last_result = detector.analyze(session)
+        return detector.issues_from_result(self.last_result)

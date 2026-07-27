@@ -1,4 +1,4 @@
-"""Expression taint evaluation for local semantic taint analysis."""
+"""Expression taint evaluation for local AST dataflow analysis."""
 
 from __future__ import annotations
 
@@ -71,7 +71,7 @@ class _ExpressionTaintMixin:
                 return parity == 0
             if base and self._is_container_key_tainted(base, key):
                 return True
-            # For dynamic indices, only mark as tainted if the container is fully tainted
+            # Dynamic indices are tainted only when the full container is.
             if key is None and base and base in self.tainted_containers:
                 return True
         if isinstance(expr, ast.BinOp):
@@ -104,7 +104,7 @@ class _ExpressionTaintMixin:
         if isinstance(expr, ast.Call):
             fullname = self._call_fullname(expr.func)
 
-            # Model common container accessors that return an element/view derived from the container.
+            # Model accessors returning an element or view from the container.
             if isinstance(expr.func, ast.Attribute):
                 container = self._attribute_name(expr.func.value)
                 method = expr.func.attr

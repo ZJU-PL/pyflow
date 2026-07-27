@@ -33,7 +33,8 @@ class _TaintStateMixin:
                 if self._expr_is_tainted(value):
                     self._mark_container_key_tainted(container_name, None)
         elif method in {"extend", "insert"}:
-            # Unknown/shifted indices: conservatively taint an unknown element when inputs are tainted.
+            # Unknown or shifted indices conservatively taint an unknown
+            # element when inputs are tainted.
             if any(self._expr_is_tainted(arg) for arg in node.args):
                 self._mark_container_key_tainted(container_name, None)
         elif method == "add":
@@ -53,8 +54,8 @@ class _TaintStateMixin:
             ):
                 self._mark_container_key_tainted(container_name, None)
         elif method in {"setdefault"}:
-            # setdefault(key, default) writes when missing; we conservatively treat tainted
-            # key/default as tainting an unknown key.
+            # setdefault(key, default) writes when missing; conservatively
+            # treat a tainted key/default as tainting an unknown key.
             key_expr = node.args[0] if node.args else None
             default_expr = node.args[1] if len(node.args) > 1 else None
             if (key_expr is not None and self._expr_is_tainted(key_expr)) or (
@@ -405,7 +406,7 @@ class _TaintStateMixin:
         self._clear_paths_for_root(name)
 
     def _update_container_from_expr(self, name: str, expr: ast.AST) -> None:
-        # Dict key taint is tracked separately so we can model `keys()` vs `values()` precisely.
+        # Track dict-key taint separately to distinguish keys() from values().
         if isinstance(expr, ast.Dict):
             for k, v in zip(expr.keys, expr.values):
                 if k is None:
@@ -439,7 +440,7 @@ class _TaintStateMixin:
             tainted_keys: Set[str] = set()
             for k, v in zip(expr.keys, expr.values):
                 if k is None:
-                    # dict unpacking (**x): when possible, preserve per-key taint from the source map.
+                    # Preserve per-key source-map taint across dict unpacking.
                     if isinstance(v, ast.Name):
                         source = v.id
                         if self._is_container_values_tainted(source):
@@ -476,8 +477,8 @@ class _TaintStateMixin:
             cur_index = 0
             for elt in expr.elts:
                 if isinstance(elt, ast.Starred):
-                    # Attempt precise modelling for `[*xs]` when `xs` is a simple name with
-                    # known per-index taint and (optionally) known length.
+                    # Model `[*xs]` precisely when per-index taint and length
+                    # information are available.
                     if isinstance(elt.value, ast.Name):
                         src = elt.value.id
                         merged_keys: Set[str] = set()
@@ -497,7 +498,8 @@ class _TaintStateMixin:
                         if src in self.list_lengths:
                             cur_index += self.list_lengths[src]
                         else:
-                            # Length unknown; further indices become unknown if we saw any taint.
+                            # With unknown length, later indices become
+                            # unknown after observed taint.
                             if merged_keys:
                                 tainted_indices.add("*")
                                 return tainted_indices

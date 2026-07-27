@@ -9,6 +9,12 @@ from typing import Any, Dict, List
 from pyflow.checker.pattern.core import constants as b_constants
 
 
+_SARIF_SCHEMA = (
+    "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/"
+    "Schemata/sarif-schema-2.1.0.json"
+)
+
+
 def _format_output_text(engine: str, result) -> str:
     """Format analysis results as human-readable text."""
     if engine == "ast-scanner":
@@ -26,18 +32,30 @@ def _format_output_text(engine: str, result) -> str:
             lines.append("")
         return "\n".join(lines)
 
-    if engine == "cpa":
-        issues = result.get_issue_list(b_constants.LOW, b_constants.LOW)
-        if not issues:
+    if engine == "ast-dataflow":
+        report = _ast_dataflow_payload(result)
+        if not report["findings"]:
             return "No issues found."
-        lines = [f"Found {len(issues)} issue(s):\n"]
-        for iss in issues:
-            lines.append(f"  [{iss.test_id}] {iss.text}")
+        lines = [
+            f"Status: {report['status']}",
+            f"Found {len(report['findings'])} issue(s):\n",
+        ]
+        for finding in report["findings"]:
+            lines.append(f"  [{finding['rule_id']}] {finding['rule_title']}")
             lines.append(
-                f"       Severity: {iss.severity}  Confidence: {iss.confidence}"
+                f"       Severity: {finding['severity'].upper()}  "
+                f"Confidence: {finding['confidence']}"
             )
-            lines.append(f"       File: {iss.fname}:{iss.lineno}")
+            lines.append(f"       File: {finding['filename']}:{finding['sink_line']}")
+            lines.append(
+                f"       Sink: {finding['sink_name']}  "
+                f"Kinds: {', '.join(finding['source_kinds'])}"
+            )
             lines.append("")
+        if report["diagnostics"]:
+            lines.append("Diagnostics:")
+            for diagnostic in report["diagnostics"]:
+                lines.append(f"  [{diagnostic['code']}] {diagnostic['message']}")
         return "\n".join(lines)
 
     if engine == "ifds":
@@ -75,10 +93,13 @@ def _format_output_text(engine: str, result) -> str:
         return "\n".join(lines)
 
     if engine == "cpg":
-        findings = result
+        findings = result.get("findings", [])
         if not findings:
-            return "No security findings."
-        lines = [f"\n{len(findings)} security finding(s):\n"]
+            return f"Status: {result.get('status', 'complete')}\nNo security findings."
+        lines = [
+            f"Status: {result.get('status', 'complete')}",
+            f"\n{len(findings)} security finding(s):\n",
+        ]
         for i, f in enumerate(findings, 1):
             conf = f.get("confidence", 0)
             bar = "█" * int(conf * 10) + "░" * (10 - int(conf * 10))
@@ -91,7 +112,8 @@ def _format_output_text(engine: str, result) -> str:
                 f"(line {f.get('source_line', 0)})"
             )
             lines.append(
-                f"      sink:   {f.get('sink_label', '?')} (line {f.get('sink_line', 0)})"
+                f"      sink:   {f.get('sink_label', '?')} "
+                f"(line {f.get('sink_line', 0)})"
             )
             lines.append("")
         return "\n".join(lines)
@@ -103,10 +125,22 @@ def _output_results(engine: str, result, args) -> None:
     """Write analysis results in the requested format."""
     fmt = getattr(args, "format", "text")
 
-    # For scanner-based engines (ast-scanner, cpa), try using checker formatters
+    # Pattern scanning and non-normalized AST-dataflow formats use checker
+    # formatters.
     # which need a manager object. For ifds/cpg, use the inline formatters.
-    if engine in ("ast-scanner", "cpa") and fmt in (
-        "csv", "html", "screen", "text", "xml", "yaml", "json", "sarif", "custom"
+    if (
+        engine == "ast-scanner"
+        or (engine == "ast-dataflow" and fmt not in ("text", "json", "sarif"))
+    ) and fmt in (
+        "csv",
+        "html",
+        "screen",
+        "text",
+        "xml",
+        "yaml",
+        "json",
+        "sarif",
+        "custom",
     ):
         _output_via_formatter(engine, result, args, fmt)
         return
@@ -148,36 +182,48 @@ def _output_via_formatter(engine: str, result, args, fmt: str) -> None:
     out_file = None
     try:
         if getattr(args, "output", None):
-            out_file = open(args.output, "wb" if fmt in ("xml",) else "w",
-                            encoding="utf-8" if fmt != "xml" else None)
+            out_file = open(
+                args.output,
+                "wb" if fmt in ("xml",) else "w",
+                encoding="utf-8" if fmt != "xml" else None,
+            )
         fileobj = out_file or sys.stdout
 
         if fmt == "json":
             from pyflow.checker.formatters import json as json_fmt
+
             json_fmt.report(result, fileobj, sev_level, conf_level, lines)
         elif fmt == "sarif":
             from pyflow.checker.formatters import sarif as sarif_fmt
+
             sarif_fmt.report(result, fileobj, sev_level, conf_level, lines)
         elif fmt == "text":
             from pyflow.checker.formatters import text as text_fmt
+
             text_fmt.report(result, fileobj, sev_level, conf_level, lines)
         elif fmt == "csv":
             from pyflow.checker.formatters import csv as csv_fmt
+
             csv_fmt.report(result, fileobj, sev_level, conf_level, lines)
         elif fmt == "html":
             from pyflow.checker.formatters import html as html_fmt
+
             html_fmt.report(result, fileobj, sev_level, conf_level, lines)
         elif fmt == "screen":
             from pyflow.checker.formatters import screen as screen_fmt
+
             screen_fmt.report(result, fileobj, sev_level, conf_level, lines)
         elif fmt == "xml":
             from pyflow.checker.formatters import xml as xml_fmt
+
             xml_fmt.report(result, fileobj, sev_level, conf_level, lines)
         elif fmt == "yaml":
             from pyflow.checker.formatters import yaml as yaml_fmt
+
             yaml_fmt.report(result, fileobj, sev_level, conf_level, lines)
         elif fmt == "custom":
             from pyflow.checker.formatters import custom as custom_fmt
+
             template = getattr(args, "custom_template", None)
             custom_fmt.report(result, fileobj, sev_level, conf_level, template=template)
     finally:
@@ -203,31 +249,129 @@ def _result_to_json(engine: str, result) -> Any:
                 for iss in issues
             ],
         }
-    if engine == "cpa":
-        issues = result.get_issue_list(b_constants.LOW, b_constants.LOW)
-        return {
-            "engine": "cpa",
-            "results": [
-                {
-                    "test_id": iss.test_id,
-                    "text": iss.text,
-                    "severity": iss.severity,
-                    "confidence": iss.confidence,
-                    "filename": iss.fname,
-                    "line": iss.lineno,
-                }
-                for iss in issues
-            ],
-        }
+    if engine == "ast-dataflow":
+        return _ast_dataflow_payload(result)
     if engine == "ifds":
         return {"engine": "ifds", **result}
     if engine == "cpg":
-        return {"engine": "cpg", "results": result}
+        return result
     return {}
+
+
+def _ast_dataflow_payload(manager) -> Dict[str, Any]:
+    analysis = getattr(manager, "analysis_result", None)
+    if analysis is None:
+        return {
+            "engine": "ast-dataflow",
+            "status": "failed",
+            "findings": [],
+            "diagnostics": [
+                {
+                    "code": "ast-dataflow-missing-result",
+                    "message": "AST dataflow analysis did not produce a typed result",
+                    "affects_completeness": True,
+                    "function": None,
+                }
+            ],
+            "statistics": {},
+        }
+    return {
+        "engine": "ast-dataflow",
+        "status": analysis.status,
+        "findings": [
+            {
+                "function": finding.function,
+                "filename": finding.filename,
+                "sink_name": finding.sink_name,
+                "sink_line": finding.sink_line,
+                "source_kinds": sorted(finding.source_kinds),
+                "rule_id": finding.rule_id,
+                "rule_title": finding.rule_title,
+                "severity": finding.severity,
+                "cwe": finding.cwe,
+                "suggestion": finding.suggestion,
+                "confidence": finding.confidence,
+                "precision_reasons": list(finding.precision_reasons),
+            }
+            for finding in analysis.findings
+        ],
+        "diagnostics": [
+            {
+                "code": diagnostic.code,
+                "message": diagnostic.message,
+                "affects_completeness": diagnostic.affects_completeness,
+                "function": diagnostic.function,
+            }
+            for diagnostic in analysis.diagnostics
+        ],
+        "statistics": dict(analysis.statistics),
+    }
 
 
 def _result_to_sarif(engine: str, result, args) -> Dict[str, Any]:
     """Convert engine results to SARIF v2.1.0 format."""
+    if engine == "ast-dataflow":
+        report = _ast_dataflow_payload(result)
+        rules: List[Dict[str, Any]] = []
+        rule_indexes: Dict[str, int] = {}
+        sarif_results: List[Dict[str, Any]] = []
+        for finding in report["findings"]:
+            rule_id = finding["rule_id"]
+            if rule_id not in rule_indexes:
+                rule_indexes[rule_id] = len(rules)
+                rules.append(
+                    {
+                        "id": rule_id,
+                        "shortDescription": {"text": finding["rule_title"]},
+                        "help": {
+                            "text": finding.get("suggestion") or finding["rule_title"]
+                        },
+                    }
+                )
+            sarif_results.append(
+                {
+                    "ruleId": rule_id,
+                    "ruleIndex": rule_indexes[rule_id],
+                    "level": _sarif_level(finding.get("severity")),
+                    "message": {"text": f"Tainted data reaches {finding['sink_name']}"},
+                    "locations": [
+                        {
+                            "physicalLocation": {
+                                "artifactLocation": {"uri": finding["filename"]},
+                                "region": {"startLine": finding["sink_line"] or 1},
+                            }
+                        }
+                    ],
+                    "properties": {
+                        "sourceKinds": finding["source_kinds"],
+                        "confidence": finding["confidence"],
+                        "precisionReasons": finding["precision_reasons"],
+                        "analysisStatus": report["status"],
+                    },
+                }
+            )
+        return {
+            "$schema": _SARIF_SCHEMA,
+            "version": "2.1.0",
+            "runs": [
+                {
+                    "tool": {
+                        "driver": {
+                            "name": "pyflow-security-ast-dataflow",
+                            "rules": rules,
+                        }
+                    },
+                    "invocations": [
+                        {
+                            "executionSuccessful": report["status"] == "complete",
+                            "properties": {"analysisStatus": report["status"]},
+                        }
+                    ],
+                    "results": sarif_results,
+                }
+            ],
+        }
+
     if engine == "ifds":
         findings = result.get("findings", [])
         rules: List[Dict[str, Any]] = []
@@ -322,7 +466,7 @@ def _result_to_sarif(engine: str, result, args) -> Dict[str, Any]:
                 }
             ]
         return {
-            "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+            "$schema": _SARIF_SCHEMA,
             "version": "2.1.0",
             "runs": [
                 {
@@ -338,7 +482,7 @@ def _result_to_sarif(engine: str, result, args) -> Dict[str, Any]:
     if engine == "cpg":
         from pyflow.ir.cpg.taint import CPGTaintEngine
 
-        findings = result
+        findings = result.get("findings", [])
         artifact_uri = (
             (str(args.targets[0]) if getattr(args, "targets", None) else "")
             if hasattr(CPGTaintEngine, "deduplicate")
@@ -361,37 +505,69 @@ def _result_to_sarif(engine: str, result, args) -> Dict[str, Any]:
                         },
                     }
                 )
-            results_list.append(
-                {
-                    "ruleId": rule_id,
-                    "ruleIndex": seen_rules[rule_id],
-                    "level": (
-                        "error"
-                        if f.get("severity") in ("critical", "high")
-                        else "warning"
-                    ),
-                    "message": {
-                        "text": (
-                            f"Tainted data from {f.get('source_label', '?')} "
-                            f"reaches {f.get('sink_label', '?')}"
-                        )
-                    },
-                    "locations": [
-                        {
+            sink_line = max(int(f.get("sink_line") or 1), 1)
+            result_item = {
+                "ruleId": rule_id,
+                "ruleIndex": seen_rules[rule_id],
+                "level": (
+                    "error" if f.get("severity") in ("critical", "high") else "warning"
+                ),
+                "message": {
+                    "text": (
+                        f"Tainted data from {f.get('source_label', '?')} "
+                        f"reaches {f.get('sink_label', '?')}"
+                    )
+                },
+                "locations": [
+                    {
+                        "physicalLocation": {
+                            "artifactLocation": {"uri": artifact_uri},
+                            "region": {"startLine": sink_line},
+                        }
+                    }
+                ],
+                "properties": {
+                    "confidence": f.get("confidence_level"),
+                    "tags": f.get("tags", []),
+                    "precisionReasons": f.get("precision_reasons", []),
+                    "analysisStatus": result.get("status", "complete"),
+                },
+            }
+            thread_locations = []
+            for step in f.get("path_preview", []):
+                line = int(step.get("line") or 0)
+                if line <= 0:
+                    continue
+                thread_locations.append(
+                    {
+                        "location": {
                             "physicalLocation": {
                                 "artifactLocation": {"uri": artifact_uri},
-                                "region": {"startLine": f.get("source_line", 0)},
-                            }
+                                "region": {"startLine": line},
+                            },
+                            "message": {
+                                "text": step.get("label") or step.get("kind", "flow")
+                            },
                         }
-                    ],
-                }
-            )
+                    }
+                )
+            if thread_locations:
+                result_item["codeFlows"] = [
+                    {"threadFlows": [{"locations": thread_locations}]}
+                ]
+            results_list.append(result_item)
         return {
-            "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+            "$schema": _SARIF_SCHEMA,
             "version": "2.1.0",
             "runs": [
                 {
                     "tool": {"driver": {"name": "pyflow-security-cpg", "rules": rules}},
+                    "invocations": [
+                        {
+                            "executionSuccessful": result.get("status") == "complete",
+                            "properties": {"analysisStatus": result.get("status")},
+                        }
+                    ],
                     "results": results_list,
                 }
             ],
@@ -399,7 +575,7 @@ def _result_to_sarif(engine: str, result, args) -> Dict[str, Any]:
 
     # Default: generic SARIF wrapper
     return {
-        "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+        "$schema": _SARIF_SCHEMA,
         "version": "2.1.0",
         "runs": [
             {
@@ -417,6 +593,7 @@ def _sarif_level(severity: str | None) -> str:
     if normalized in {"low", "note", "info", "informational"}:
         return "note"
     return "warning"
+
 
 # ── Analysis result serialization ───────────────────────────────────────
 

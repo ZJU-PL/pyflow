@@ -1,7 +1,7 @@
 """Loop, call, return, and interprocedural transfer helpers."""
 
 from __future__ import annotations
-from typing import Any, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 from pyflow.ir.pdg.graph import PDGNode
 from pyflow.ir.cpg.graph import CPGEdgeKind
 from pyflow.language.python import ast as py_ast
@@ -57,6 +57,24 @@ class _TaintInterproceduralMixin:
                 result.append(getattr(p, "name", "") or "")
         return result
 
+    def _get_callee_params(self, func_name: str) -> Tuple[List[str], Dict[str, str]]:
+        """Return positional formal names and keyword spelling to local names."""
+        pdg = self._cpg._pdgs.get(func_name)
+        code_ast = getattr(getattr(pdg, "cfg", None), "code", None)
+        codeparams = getattr(code_ast, "codeparameters", None)
+        if codeparams is None:
+            return [], {}
+        positional = self._get_callee_param_names(func_name)
+        declared_names = list(getattr(codeparams, "posonlynames", None) or ()) + list(
+            getattr(codeparams, "paramnames", None) or ()
+        )
+        keyword_map = {
+            public_name: local_name
+            for public_name, local_name in zip(declared_names, positional)
+            if public_name and local_name
+        }
+        return positional, keyword_map
+
     @staticmethod
     def _get_call_arg_exprs(call_node: Any) -> List[Any]:
         """Extract positional argument expressions from a ``Call`` AST node."""
@@ -79,11 +97,17 @@ class _TaintInterproceduralMixin:
         args = self._get_call_arg_exprs(call_ast)
         if not args:
             return
-        param_names = self._get_callee_param_names(func_name)
+        param_names, keyword_params = self._get_callee_params(func_name)
         if not param_names:
             return
         for arg_expr, pname in zip(args, param_names):
             if isinstance(arg_expr, py_ast.Local):
+                aname = getattr(arg_expr, "name", "") or ""
+                if aname and mem.is_tainted(aname):
+                    new_mem.mark_tainted(pname, mem.read(aname))
+        for keyword, arg_expr in getattr(call_ast, "kwds", None) or ():
+            pname = keyword_params.get(keyword)
+            if pname and isinstance(arg_expr, py_ast.Local):
                 aname = getattr(arg_expr, "name", "") or ""
                 if aname and mem.is_tainted(aname):
                     new_mem.mark_tainted(pname, mem.read(aname))

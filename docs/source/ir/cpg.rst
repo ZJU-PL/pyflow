@@ -83,7 +83,7 @@ Taint Analysis
 --------------
 
 The CPG has its own graph-based taint propagation algorithm, but consumes the
-same strict-v2 typed taint policy as the IFDS and semantic engines:
+same strict-v2 typed taint policy as the IFDS and AST-dataflow engines:
 
 .. code-block:: python
 

@@ -3,7 +3,7 @@
 from .pattern.core.manager import SecurityManager
 from .pattern.core.config import SecurityConfig
 from .pattern.core.issue import Issue, Cwe
-from .semantic import StaticBugFinder, BugFinderConfig
+from .ast_dataflow import StaticBugFinder, BugFinderConfig
 
 __all__ = [
     "SecurityManager",
@@ -18,6 +18,5 @@ __all__ = [
 Security checker and analysis-backed bug finder for PyFlow.
 
 - pattern: Pattern-based AST matching for security checks (Bandit-style)
-- semantic: Semantic analysis-backed engine leveraging PyFlow's IPA/CPA, store
-  graph, shape, and lifetime analyses for taint/resource/escape detection.
+- ast_dataflow: Interprocedural taint dataflow over the Python AST.
 """

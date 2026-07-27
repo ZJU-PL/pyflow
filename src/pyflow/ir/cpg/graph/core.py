@@ -95,6 +95,7 @@ class CodePropertyGraph(_GraphAssemblyMixin, _GraphMetadataMixin, _GraphQueryMix
         Idempotent — calling again after modifications will recompute
         every index from scratch.
         """
+        self._ensure_unique_node_ids()
         self._cpg_edges_out.clear()
         self._cpg_edges_in.clear()
         self._ast_parent.clear()
@@ -137,6 +138,55 @@ class CodePropertyGraph(_GraphAssemblyMixin, _GraphMetadataMixin, _GraphQueryMix
             self._build_call_edges()
 
         self._built = True
+
+    def _ensure_unique_node_ids(self) -> None:
+        """Promote function-local PDG IDs to graph-global stable IDs.
+
+        PDGs number nodes independently from zero, while every CPG index is
+        keyed by ``node_id``. Rebuild the PDG edge sets after renumbering
+        because ``PDGEdge.__hash__`` depends on its endpoint IDs.
+        """
+        nodes = [node for pdg in self._pdgs.values() for node in pdg.nodes]
+        ids = [node.node_id for node in nodes]
+        if len(ids) == len(set(ids)):
+            next_id = max(ids, default=-1) + 1
+            for pdg in self._pdgs.values():
+                pdg._id = max(pdg._id, next_id)
+            return
+
+        edges = []
+        seen_edges: Set[int] = set()
+        for node in nodes:
+            for edge in tuple(node.edges_out):
+                marker = id(edge)
+                if marker not in seen_edges:
+                    seen_edges.add(marker)
+                    edges.append(edge)
+
+        for node_id, node in enumerate(nodes):
+            node.node_id = node_id
+            node.edges_in.clear()
+            node.edges_out.clear()
+
+        for edge in edges:
+            edge.source.edges_out.add(edge)
+            edge.target.edges_in.add(edge)
+
+        next_id = len(nodes)
+        for pdg in self._pdgs.values():
+            pdg._id = next_id
+
+    def _promote_new_node_id(self, node: PDGNode, pdg: ProgramDependenceGraph) -> None:
+        """Give a newly synthesized PDG node a graph-global ID."""
+        other_ids = {
+            existing.node_id
+            for other_pdg in self._pdgs.values()
+            for existing in other_pdg.nodes
+            if existing is not node
+        }
+        if node.node_id in other_ids:
+            node.node_id = max(other_ids, default=-1) + 1
+        pdg._id = max(pdg._id, node.node_id + 1)
 
     def _ensure_built(self) -> None:
         if not self._built:

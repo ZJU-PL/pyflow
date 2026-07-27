@@ -1,4 +1,4 @@
-"""Interprocedural orchestration for semantic taint analysis."""
+"""Interprocedural orchestration for AST dataflow taint analysis."""
 
 from __future__ import annotations
 
@@ -12,13 +12,18 @@ from pyflow.analysis.taint import TaintPolicy, TaintRule
 from ..core.base import Detector
 from ..core.context import AnalysisSession
 from ..core.issue import Issue
-from ._semantic_taint_local import _LocalSemanticTaintAnalyzer
-from ._semantic_taint_models import FunctionSummary
+from ._taint_local import _LocalTaintAnalyzer
+from ._taint_models import (
+    FunctionSummary,
+    ASTDataflowTaintDiagnostic,
+    ASTDataflowTaintFinding,
+    ASTDataflowTaintResult,
+)
 
 
-class SemanticTaintDetector(Detector):
+class ASTDataflowTaintDetector(Detector):
     """
-    Semantic taint detector leveraging PyFlow's analysis infrastructure.
+    AST dataflow taint detector leveraging PyFlow's analysis infrastructure.
 
     This detector uses:
     - IPA function summaries for interprocedural return-param dependencies
@@ -27,7 +32,7 @@ class SemanticTaintDetector(Detector):
     - Fixed-point iteration for interprocedural propagation
     """
 
-    name = "semantic_taint"
+    name = "ast_dataflow_taint"
     description = "Advanced taint detection using PyFlow's analysis infrastructure."
 
     def __init__(
@@ -61,6 +66,31 @@ class SemanticTaintDetector(Detector):
         Returns:
             List of issues for each detected taint flow
         """
+        return self.issues_from_result(self.analyze(session))
+
+    def issues_from_result(self, result: ASTDataflowTaintResult) -> List[Issue]:
+        """Adapt typed findings to the common checker ``Issue`` interface."""
+        reports: List[Issue] = []
+        for finding in result.findings:
+            issue = Issue(
+                severity=finding.severity.upper(),
+                confidence=finding.confidence,
+                cwe=self._cwe_number(finding.cwe),
+                text=f"Untrusted data can reach sink '{finding.sink_name}'.",
+                ident=finding.sink_name,
+                lineno=finding.sink_line,
+                test_id=finding.rule_id,
+            )
+            issue.fname = finding.filename
+            issue.test = self.name
+            issue.taint_kinds = tuple(sorted(finding.source_kinds))
+            issue.precision_reasons = finding.precision_reasons
+            issue.suggestion = finding.suggestion
+            reports.append(issue)
+        return reports
+
+    def analyze(self, session: AnalysisSession) -> ASTDataflowTaintResult:
+        """Run typed AST dataflow analysis and retain completion metadata."""
         self.policy = self.policy or self._policy_for_session(session)
         self.sources = set(self.policy.source_names) | self._manual_sources
         self.sinks = set(self.policy.sink_names) | self._manual_sinks
@@ -74,32 +104,91 @@ class SemanticTaintDetector(Detector):
             for name, positions in self.policy.sink_positions_by_call.items()
         }
 
-        # Build function summaries using hybrid approach
-        summaries = self._build_summaries(session)
+        diagnostics: list[ASTDataflowTaintDiagnostic] = []
+        findings: dict[tuple, ASTDataflowTaintFinding] = {}
+        summary_updates = 0
 
-        reports: List[Issue] = []
-        for name, summary in summaries.items():
-            for sink in summary.tainted_sinks:
-                rule = self._rule_for_sink(sink)
-                if rule is None:
-                    continue
-                cwe = self.policy.sink_cwe_by_call.get(sink) or rule.cwe
-                issue = Issue(
-                    severity=self.policy.sink_severity_by_call.get(
-                        sink, rule.severity
-                    ).upper(),
-                    confidence="HIGH",
-                    cwe=self._cwe_number(cwe),
-                    text=f"Untrusted data can reach sink '{sink}'.",
-                    ident=sink,
-                    lineno=None,
-                    test_id=rule.rule_id,
-                )
-                issue.fname = getattr(session, "func_to_file", {}).get(name, name)
-                issue.test = self.name
-                reports.append(issue)
+        source_kinds = sorted(
+            {
+                kind
+                for kinds in self.policy.source_kinds_by_call.values()
+                for kind in kinds
+            }
+        )
+        if self._manual_sources and "untrusted" not in source_kinds:
+            source_kinds.append("untrusted")
 
-        return reports
+        for source_kind in source_kinds:
+            active_sources = {
+                name
+                for name, kinds in self.policy.source_kinds_by_call.items()
+                if source_kind in kinds
+            }
+            if source_kind == "untrusted":
+                active_sources.update(self._manual_sources)
+            active_sanitizers = {
+                name
+                for name, kinds in self.policy.sanitizer_kinds_by_call.items()
+                if "*" in kinds or source_kind in kinds
+            } | self._manual_sanitizers
+            summaries, pass_diagnostics, updates = self._build_summaries(
+                session,
+                sources=active_sources,
+                sanitizers=active_sanitizers,
+            )
+            diagnostics.extend(pass_diagnostics)
+            summary_updates += updates
+            for name, summary in summaries.items():
+                for sink in summary.tainted_sinks:
+                    sink_kinds = self.policy.sink_kinds_by_call.get(
+                        sink, frozenset({"dangerous"})
+                    )
+                    rules = tuple(
+                        rule
+                        for rule in self.policy.rules
+                        if source_kind in rule.source_kinds
+                        and rule.sink_kinds & sink_kinds
+                    )
+                    for rule in rules:
+                        lines = summary.tainted_sink_lines.get(sink) or {None}
+                        for line in lines:
+                            finding = ASTDataflowTaintFinding(
+                                function=name,
+                                filename=getattr(session, "func_to_file", {}).get(
+                                    name, name
+                                ),
+                                sink_name=sink,
+                                sink_line=line,
+                                source_kinds=frozenset({source_kind}),
+                                rule_id=rule.rule_id,
+                                rule_title=rule.title,
+                                severity=self.policy.sink_severity_by_call.get(
+                                    sink, rule.severity
+                                ),
+                                cwe=self.policy.sink_cwe_by_call.get(sink) or rule.cwe,
+                                suggestion=self.policy.sink_suggestion_by_call.get(sink)
+                                or rule.suggestion,
+                            )
+                            findings[(name, sink, line, rule.rule_id, source_kind)] = (
+                                finding
+                            )
+
+        unique_diagnostics = tuple(dict.fromkeys(diagnostics))
+        status = (
+            "partial"
+            if any(d.affects_completeness for d in unique_diagnostics)
+            else "complete"
+        )
+        return ASTDataflowTaintResult(
+            findings=tuple(findings.values()),
+            status=status,
+            diagnostics=unique_diagnostics,
+            statistics={
+                "source_kinds": len(source_kinds),
+                "summary_updates": summary_updates,
+                "findings": len(findings),
+            },
+        )
 
     def _policy_for_session(self, session: AnalysisSession) -> TaintPolicy:
         from pyflow.analysis.ifds.modeling.calls import CallModel, CallModelRegistry
@@ -139,7 +228,7 @@ class SemanticTaintDetector(Detector):
             manual_rules = (
                 TaintRule(
                     "PYFLOW-SEMANTIC-MANUAL",
-                    "Untrusted data reaches configured semantic sink",
+                    "Untrusted data reaches configured AST dataflow sink",
                     frozenset(
                         {
                             "untrusted",
@@ -211,7 +300,17 @@ class SemanticTaintDetector(Detector):
             return int(cwe[4:])
         return 0
 
-    def _build_summaries(self, session: AnalysisSession) -> Dict[str, FunctionSummary]:
+    def _build_summaries(
+        self,
+        session: AnalysisSession,
+        *,
+        sources: Set[str] | None = None,
+        sanitizers: Set[str] | None = None,
+    ) -> Tuple[
+        Dict[str, FunctionSummary],
+        List[ASTDataflowTaintDiagnostic],
+        int,
+    ]:
         """Build function summaries using PyFlow infrastructure and local analysis."""
         # Get IPA return-param dependencies from PyFlow
         return_param_deps, returns_value = self._collect_ipa_return_metadata(session)
@@ -221,6 +320,7 @@ class SemanticTaintDetector(Detector):
         param_names: Dict[str, List[str]] = {}
         vararg_names: Dict[str, Optional[str]] = {}
         kwarg_names: Dict[str, Optional[str]] = {}
+        diagnostics: List[ASTDataflowTaintDiagnostic] = []
         for fname, src in session.sources_by_name.items():
             try:
                 tree = ast.parse(textwrap.dedent(src))
@@ -229,7 +329,15 @@ class SemanticTaintDetector(Detector):
                 vararg, kwarg = self._extract_var_kw_names(tree, fname)
                 vararg_names[fname] = vararg
                 kwarg_names[fname] = kwarg
-            except SyntaxError:
+            except SyntaxError as error:
+                diagnostics.append(
+                    ASTDataflowTaintDiagnostic(
+                        message=str(error),
+                        code="ast-dataflow-syntax-error",
+                        affects_completeness=True,
+                        function=fname,
+                    )
+                )
                 continue
 
         known_callees = set(function_trees.keys()) | set(return_param_deps.keys())
@@ -244,8 +352,8 @@ class SemanticTaintDetector(Detector):
             kwarg_names.setdefault(name, None)
 
         # Fixed-point iteration
-        max_iters = max(3, len(function_trees) * 2)
-        for _ in range(max_iters):
+        summary_updates = 0
+        while True:
             changed = False
             callee_returns_tainted = {
                 callee: summary.returns_tainted for callee, summary in summaries.items()
@@ -288,6 +396,8 @@ class SemanticTaintDetector(Detector):
                     vararg_names,
                     kwarg_names,
                     known_callees,
+                    sources=sources,
+                    sanitizers=sanitizers,
                 )
                 unconditional_summary, _, _ = self._analyze_function(
                     name,
@@ -306,6 +416,8 @@ class SemanticTaintDetector(Detector):
                     vararg_names,
                     kwarg_names,
                     known_callees,
+                    sources=sources,
+                    sanitizers=sanitizers,
                 )
                 summary.returns_tainted_unconditional = (
                     unconditional_summary.returns_tainted
@@ -319,6 +431,7 @@ class SemanticTaintDetector(Detector):
             for name, summary in next_summaries.items():
                 if self._summary_changed(summaries.get(name), summary):
                     changed = True
+                    summary_updates += 1
 
             summaries = next_summaries
             returns_unconditional = next_unconditional
@@ -351,7 +464,7 @@ class SemanticTaintDetector(Detector):
             if not changed:
                 break
 
-        return summaries
+        return summaries, diagnostics, summary_updates
 
     def _analyze_function(
         self,
@@ -371,12 +484,15 @@ class SemanticTaintDetector(Detector):
         vararg_names: Dict[str, Optional[str]],
         kwarg_names: Dict[str, Optional[str]],
         known_callees: Set[str],
+        *,
+        sources: Set[str] | None = None,
+        sanitizers: Set[str] | None = None,
     ) -> Tuple[FunctionSummary, Dict[str, Set[str]], Dict[str, Dict[str, Set[str]]]]:
         """Analyze a single function for taint flows."""
-        analyzer = _LocalSemanticTaintAnalyzer(
-            sources=self.sources,
+        analyzer = _LocalTaintAnalyzer(
+            sources=self.sources if sources is None else sources,
             sinks=self.sinks,
-            sanitizers=self.sanitizers,
+            sanitizers=self.sanitizers if sanitizers is None else sanitizers,
             sink_positions=self.sink_positions,
             entry_tainted_params=entry_tainted_params,
             entry_tainted_param_keys=entry_tainted_param_keys,
@@ -404,6 +520,7 @@ class SemanticTaintDetector(Detector):
             param_key_taint_writes=analyzer.param_key_taint_writes,
             sinks=analyzer.sinks_found,
             tainted_sinks=analyzer.tainted_sinks,
+            tainted_sink_lines=analyzer.tainted_sink_lines,
             tainted_sink=bool(analyzer.tainted_sinks),
             returns_value=returns_value.get(name, True),
             return_param_deps=return_param_deps.get(name, set()),
@@ -425,6 +542,7 @@ class SemanticTaintDetector(Detector):
             or old.param_key_taint_writes != new.param_key_taint_writes
             or old.sinks != new.sinks
             or old.tainted_sinks != new.tainted_sinks
+            or old.tainted_sink_lines != new.tainted_sink_lines
         )
 
     def _extract_param_names(self, tree: ast.AST, name: str) -> List[str]:

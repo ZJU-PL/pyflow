@@ -2,7 +2,7 @@
 Static bug finder built on PyFlow analyses.
 
   core/     - session, runner, manager, issue, detector base
-  detectors/ - semantic taint detection
+  detectors/ - AST dataflow taint detection
 """
 
 from .core import (
@@ -10,7 +10,13 @@ from .core import (
     Cwe,
     StaticBugFinder,
     BugFinderConfig,
-    SemanticManager,
+    ASTDataflowManager,
 )
 
-__all__ = ["StaticBugFinder", "BugFinderConfig", "SemanticManager", "Issue", "Cwe"]
+__all__ = [
+    "StaticBugFinder",
+    "BugFinderConfig",
+    "ASTDataflowManager",
+    "Issue",
+    "Cwe",
+]

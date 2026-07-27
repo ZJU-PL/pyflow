@@ -126,6 +126,7 @@ class _GraphMetadataMixin:
                 cfg_node=node.cfg_node,
                 label=lambda_label,
             )
+            self._promote_new_node_id(l_node, pdg)
             self._node_meta[l_node.node_id] = {
                 "node_type": "Lambda",
                 "lineno": getattr(ast_node, "lineno", 0) or 0,

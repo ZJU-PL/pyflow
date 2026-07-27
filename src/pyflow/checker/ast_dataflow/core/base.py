@@ -1,4 +1,4 @@
-"""Detector base and runner for the semantic bug finder."""
+"""Detector base and runner for the AST dataflow bug finder."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from .context import AnalysisSession
 
 
 class Detector:
-    """Base class for all semantic detectors."""
+    """Base class for all AST dataflow detectors."""
 
     name: str = "base-detector"
     description: str = ""

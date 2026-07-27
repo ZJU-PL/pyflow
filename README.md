@@ -29,7 +29,7 @@ If you use pyflow in your research or work, please cite the following:
   and type-analysis infrastructure
 - **Optimization pipeline**: modular passes such as simplify, method-call
   optimization, cloning, argument normalization, and load/store elimination
-- **Security checking**: pattern-based and semantic security analysis
+- **Security checking**: pattern-based and AST-dataflow security analysis
 - **Supply-chain analysis**: local SBOM generation, distribution integrity
   auditing, and dependency metadata extraction
 - **CLI tooling**: commands for optimization, call graph generation, IR dumps,
@@ -78,8 +78,8 @@ pyflow callgraph input.py --algorithm pycg
 # Run security analysis (fast AST scan)
 pyflow security input.py
 
-# Run security analysis with CPA-backed engine
-pyflow security input.py --engine cpa
+# Run AST-based interprocedural taint dataflow
+pyflow security input.py --engine ast-dataflow
 
 # Run IFDS-backed interprocedural security analysis
 pyflow security input.py --engine ifds --function main --sources input --sinks eval
@@ -150,7 +150,7 @@ The repository is organized around a few major subsystems:
 - `src/pyflow/analysis`: analysis engines such as call graph, IFDS, alias (flow-sensitive heap + k-CFA pointer), IPA, CPA, shape, lifetime, and type analysis.
 - `src/pyflow/application`: orchestration code including compiler context, pipeline execution, and the pass manager.
 - `src/pyflow/api`: query-facing interfaces and entrypoint construction.
-- `src/pyflow/checker`: pattern-based, semantic, and supply-chain analysis modules plus output formatters.
+- `src/pyflow/checker`: pattern-based, AST-dataflow, and supply-chain analysis modules plus output formatters.
 - `src/pyflow/cli`: command-line entrypoints for optimization, call graph, IR, alias, security, and supply-chain analysis.
 - `src/pyflow/frontend`: source-driven extraction, dependency resolution, object loading, and stub handling.
 - `src/pyflow/language`: Python IR/AST support, module-handling utilities, and AST tooling (cyclomatic complexity, decorator/visitor utilities).

@@ -4,7 +4,7 @@ from __future__ import annotations
 from typing import Any, FrozenSet, List, Optional
 from pyflow.ir.pdg.graph import PDGNode
 from pyflow.language.python import ast as py_ast
-from .model import MemoryLayout, TaintState, _CLEAN
+from .model import MemoryLayout, TaintState
 from .defaults import _DUNDER_PROPAGATE
 
 
@@ -22,20 +22,12 @@ class _TaintPropagationMixin:
         if ast_node is None:
             return tstate
 
-        src_label = src_node.label or ""
-        if src_label.startswith("isinstance_guard:"):
-            guarded_var = src_label.split(":", 1)[1]
-            if guarded_var:
-                mem.mark_tainted(guarded_var, _CLEAN)
-                return None
-
-        if self._isinstance_guard_strip(ast_node, mem):
-            return None
-
         if isinstance(ast_node, py_ast.Call):
             return self._propagate_call(ast_node, tstate, mem)
         if isinstance(ast_node, py_ast.Assign):
             return self._propagate_assign(ast_node, tstate, mem)
+        if isinstance(ast_node, py_ast.SetAttr):
+            return self._propagate_setattr(ast_node, tstate, mem)
         if isinstance(ast_node, py_ast.AnnAssign):
             return self._propagate_annassign(ast_node, tstate, mem)
         if isinstance(ast_node, py_ast.BinaryOp):
@@ -151,6 +143,10 @@ class _TaintPropagationMixin:
                 mem.alias(var_name, rhs_name)
             return tstate
 
+        if self._find_source_call(rhs):
+            mem.mark_tainted(var_name, tstate)
+            return tstate
+
         if self._looks_like_subscript(rhs):
             base_name = self._first_local_name(rhs)
             if base_name and mem.is_tainted(base_name):
@@ -166,8 +162,10 @@ class _TaintPropagationMixin:
                 return tstate
 
         if isinstance(rhs, py_ast.Call):
-            if tstate.is_tainted():
+            if self._contains_tainted_local(rhs, mem):
                 mem.mark_tainted(var_name, tstate)
+            else:
+                mem.clear(var_name)
             return tstate
 
         rhs_type = type(rhs).__name__
@@ -189,6 +187,22 @@ class _TaintPropagationMixin:
             mem.mark_tainted(var_name, tstate)
             return tstate
 
+        mem.clear(var_name)
+        return tstate
+
+    def _propagate_setattr(
+        self,
+        set_attr: py_ast.SetAttr,
+        tstate: TaintState,
+        mem: MemoryLayout,
+    ) -> Optional[TaintState]:
+        base = self._first_local_name(getattr(set_attr, "expr", None))
+        field = self._resolve_call_expr(getattr(set_attr, "name", None)) or ""
+        value = getattr(set_attr, "value", None)
+        if not base or not field:
+            return tstate
+        if value is not None and self._contains_tainted_local(value, mem):
+            mem.write(base, field, tstate)
         return tstate
 
     def _propagate_annassign(
@@ -364,10 +378,9 @@ class _TaintPropagationMixin:
             getattr(kargs, "name", "") or ""
         ):
             return True
-        for keyword in getattr(call_node, "keywords", None) or []:
-            key = getattr(keyword, "arg", None)
-            value = getattr(keyword, "value", None)
-            if key is None and isinstance(value, py_ast.Local):
-                if mem.is_tainted(getattr(value, "name", "") or ""):
-                    return True
+        for _key, value in getattr(call_node, "kwds", None) or []:
+            if isinstance(value, py_ast.Local) and mem.is_tainted(
+                getattr(value, "name", "") or ""
+            ):
+                return True
         return False

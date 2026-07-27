@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from pyflow.checker.semantic.detectors.semantic_taint import SemanticTaintDetector
+from pyflow.checker.ast_dataflow.detectors.taint import ASTDataflowTaintDetector
 from pyflow.analysis.ifds.modeling.calls import CallModel, CallModelRegistry
 from pyflow.analysis.taint import TaintPolicy, TaintRule
 
@@ -20,7 +20,7 @@ def _make_session(sources_by_name, func_to_file=None):
     )
 
 
-def test_semantic_taint_detector_reports_direct_eval_flow():
+def test_ast_dataflow_taint_detector_reports_direct_eval_flow():
     session = _make_session(
         {
             "vuln": """
@@ -32,18 +32,32 @@ def vuln():
         {"vuln": "sample.py"},
     )
 
-    issues = SemanticTaintDetector().run(session)
+    issues = ASTDataflowTaintDetector().run(session)
 
     assert len(issues) == 1
     issue = issues[0]
-    assert issue.test == "semantic_taint"
+    assert issue.test == "ast_dataflow_taint"
     assert issue.fname == "sample.py"
     assert issue.cwe.id == 95
     assert issue.test_id == "PYFLOW-STDLIB-RCE"
     assert "eval" in issue.text
 
 
-def test_semantic_taint_detector_propagates_interprocedural_taint():
+def test_ast_dataflow_taint_detector_returns_typed_result_with_sink_line():
+    session = _make_session(
+        {"vuln": "def vuln():\n    data = input()\n    eval(data)\n"},
+        {"vuln": "sample.py"},
+    )
+
+    result = ASTDataflowTaintDetector().analyze(session)
+
+    assert result.status == "complete"
+    assert result.statistics["findings"] == 1
+    assert result.findings[0].sink_line == 3
+    assert result.findings[0].source_kinds == frozenset({"user_input"})
+
+
+def test_ast_dataflow_taint_detector_propagates_interprocedural_taint():
     session = _make_session(
         {
             "source": """
@@ -67,7 +81,7 @@ def main():
         },
     )
 
-    issues = SemanticTaintDetector().run(session)
+    issues = ASTDataflowTaintDetector().run(session)
 
     assert len(issues) == 1
     issue = issues[0]
@@ -92,7 +106,7 @@ def _typed_policy(*models):
     )
 
 
-def test_semantic_taint_detector_respects_sink_parameter_ports():
+def test_ast_dataflow_taint_detector_respects_sink_parameter_ports():
     policy = _typed_policy(
         CallModel("input", source_kinds=frozenset({"user_input"})),
         CallModel(
@@ -109,13 +123,13 @@ def test_semantic_taint_detector_respects_sink_parameter_ports():
         {"main": "def main():\n    value = input()\n    target_sink('safe', value)\n"}
     )
 
-    assert SemanticTaintDetector(policy=policy).run(safe) == []
-    issues = SemanticTaintDetector(policy=policy).run(unsafe)
+    assert ASTDataflowTaintDetector(policy=policy).run(safe) == []
+    issues = ASTDataflowTaintDetector(policy=policy).run(unsafe)
     assert len(issues) == 1
     assert issues[0].test_id == "TEST-TYPED-FLOW"
 
 
-def test_semantic_taint_detector_applies_universal_sanitizer():
+def test_ast_dataflow_taint_detector_applies_universal_sanitizer():
     policy = _typed_policy(
         CallModel("input", source_kinds=frozenset({"user_input"})),
         CallModel("target_sink", sink_kinds=frozenset({"dangerous"})),
@@ -131,4 +145,44 @@ def test_semantic_taint_detector_applies_universal_sanitizer():
         }
     )
 
-    assert SemanticTaintDetector(policy=policy).run(session) == []
+    assert ASTDataflowTaintDetector(policy=policy).run(session) == []
+
+
+def test_ast_dataflow_taint_detector_applies_kind_scoped_sanitizer():
+    policy = TaintPolicy.from_call_models(
+        CallModelRegistry(
+            [
+                CallModel("input", source_kinds=frozenset({"html", "shell"})),
+                CallModel("target_sink", sink_kinds=frozenset({"dangerous"})),
+                CallModel("clean_html", sanitizer_kinds=frozenset({"html"})),
+            ]
+        ),
+        [
+            TaintRule(
+                "HTML-FLOW",
+                "HTML flow",
+                frozenset({"html"}),
+                frozenset({"dangerous"}),
+            ),
+            TaintRule(
+                "SHELL-FLOW",
+                "Shell flow",
+                frozenset({"shell"}),
+                frozenset({"dangerous"}),
+            ),
+        ],
+    )
+    session = _make_session(
+        {
+            "main": (
+                "def main():\n"
+                "    value = input()\n"
+                "    target_sink(clean_html(value))\n"
+            )
+        }
+    )
+
+    result = ASTDataflowTaintDetector(policy=policy).analyze(session)
+
+    assert [finding.rule_id for finding in result.findings] == ["SHELL-FLOW"]
+    assert result.findings[0].source_kinds == frozenset({"shell"})

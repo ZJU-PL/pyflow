@@ -3,10 +3,8 @@
 from __future__ import annotations
 from typing import Any, Dict, FrozenSet, List, Optional, Tuple
 from pyflow.ir.pdg.graph import PDGNode
-from pyflow.ir.cpg.graph import CPGEdgeKind
 from pyflow.language.python import ast as py_ast
 from .model import TaintFinding
-from .defaults import _SQL_SINKS
 
 
 class _TaintMatchingMixin:
@@ -19,10 +17,6 @@ class _TaintMatchingMixin:
         call_name = self._find_source_call(ast_node)
         if call_name and self._matches_source(call_name):
             return call_name
-        label = node.label or ""
-        for src in self._sources:
-            if src in label:
-                return src
         return None
 
     def _find_source_call(self, ast_node: Any) -> Optional[str]:
@@ -41,31 +35,56 @@ class _TaintMatchingMixin:
             call_name = self._extract_call_name(ast_node)
             if call_name:
                 sink_name = self._match_sink_name(call_name)
-                if sink_name and not self._is_parameterized_safe(ast_node, call_name):
-                    return sink_name, self._sinks[sink_name]
-        label = node.label or ""
-        for sink_name, cwe in self._sinks.items():
-            if sink_name in label:
-                return sink_name, cwe
-        # Strategy 3: Match via DATA edges — if this node uses a sink-named variable
-        cpg = self._cpg
-        for edge in cpg._cpg_edges_in.get(node.node_id, ()):
-            if edge.kind == CPGEdgeKind.DATA and edge.label:
-                sink_name = self._match_sink_name(edge.label)
                 if sink_name:
                     return sink_name, self._sinks[sink_name]
         return None, ""
 
-    def _is_parameterized_safe(self, ast_node: Any, call_name: str) -> bool:
-        sink_base = call_name.split(".")[-1]
-        if sink_base not in _SQL_SINKS:
+    def _sink_has_tainted_argument(
+        self,
+        node: PDGNode,
+        sink_name: str,
+        mem,
+        active_tags: FrozenSet[str],
+    ) -> bool:
+        """Require taint on a modeled sink port, not merely graph reachability."""
+        call = self._call_expr(node.ast_node)
+        if call is None:
             return False
-        args = getattr(ast_node, "args", None)
-        if args is None or len(args) < 2:
+        positions = self._sink_positions.get(sink_name, frozenset({0}))
+        for index, argument in enumerate(getattr(call, "args", ()) or ()):
+            if index not in positions:
+                continue
+            if self._expr_is_tainted(argument, mem, active_tags):
+                return True
+        for _name, value in getattr(call, "kwds", ()) or ():
+            if self._expr_is_tainted(value, mem, active_tags):
+                return True
+        return False
+
+    def _expr_is_tainted(self, expr: Any, mem, active_tags: FrozenSet[str]) -> bool:
+        """Evaluate taint evidence for one expression, including heap fields."""
+        if expr is None:
             return False
-        second = args[1]
-        second_type = type(second).__name__
-        return second_type in ("Tuple", "List", "Dict")
+        if isinstance(expr, py_ast.Local):
+            return mem.is_tainted(getattr(expr, "name", "") or "")
+        if isinstance(expr, py_ast.GetAttr):
+            base = self._first_local_name(getattr(expr, "expr", None))
+            field = self._resolve_call_expr(getattr(expr, "name", None)) or ""
+            if base and field and mem.read(base, field).is_tainted():
+                return True
+        if isinstance(expr, py_ast.Call):
+            call_name = self._extract_call_name(expr)
+            if call_name in self._sanitizers:
+                sanitized = self._sanitizers[call_name]
+                remaining = frozenset() if "*" in sanitized else active_tags - sanitized
+                if not remaining:
+                    return False
+            if call_name and self._matches_source(call_name):
+                return True
+        return any(
+            self._expr_is_tainted(child, mem, active_tags)
+            for child in self._iter_ast_children(expr)
+        )
 
     def _extract_call_name(self, ast_node: Any) -> Optional[str]:
         if not isinstance(ast_node, py_ast.Call):
@@ -127,13 +146,11 @@ class _TaintMatchingMixin:
     def _find_local_statement_flows(
         self, existing_findings: List[TaintFinding]
     ) -> List[TaintFinding]:
-        """Find simple intra-function flows when CFG/PDG edges are sparse.
+        """Deprecated compatibility helper; never used by graph analysis.
 
-        Source-loaded CPGs sometimes lower rich Python constructs into PDG nodes
-        without enough statement-to-statement edges for the graph worklist to
-        connect nested sources to later sinks. This pass stays within the CPG
-        abstraction but interprets each function's statement nodes in order,
-        tracking local variables and object fields at a shallow level.
+        Kept temporarily for callers that imported this private method. The
+        engine deliberately does not invoke it: incomplete CPGs are surfaced
+        through diagnostics instead of silently switching analyses.
         """
         seen = {
             (
@@ -323,16 +340,24 @@ class _TaintMatchingMixin:
         if not name:
             return False
         for src in self._sources:
-            if name == src or name.endswith("." + src) or src.endswith("." + name):
+            if name == src:
                 return True
-        return False
+            if "." not in src and name.rsplit(".", 1)[-1] == src:
+                return True
+        # Source-loaded ASTs may preserve an imported alias (``request``)
+        # rather than its registry-qualified module (``flask.request``).
+        suffix_matches = [src for src in self._sources if src.endswith("." + name)]
+        return len(suffix_matches) == 1
 
     def _match_sink_name(self, name: str) -> str:
         if not name:
             return ""
         for sink in self._sinks:
-            if name == sink or name.endswith("." + sink):
+            if name == sink:
                 return sink
-            if "." in name and sink.endswith("." + name):
+            if "." not in sink and name.rsplit(".", 1)[-1] == sink:
                 return sink
+        suffix_matches = [sink for sink in self._sinks if sink.endswith("." + name)]
+        if len(suffix_matches) == 1:
+            return suffix_matches[0]
         return ""

@@ -48,7 +48,7 @@ def test_cli_reference_matches_current_commands() -> None:
         "--dump-ddg FUNCTION",
         "--algorithm`, `-a`: `simple`, `constraint`, or `pycg`",
         "--engine ast-scanner",
-        "``--engine cpa``",
+        "``--engine ast-dataflow``",
         "``--engine ifds``",
         "``--engine cpg``",
         "--function FUNCTION",

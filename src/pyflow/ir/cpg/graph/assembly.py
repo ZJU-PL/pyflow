@@ -66,6 +66,7 @@ class _GraphAssemblyMixin:
 
             label = self._ast_value(ast_node) or _safe_type_name(ast_node)
             node = pdg.add_node("stmt", ast_node=ast_node, label=label)
+            self._promote_new_node_id(node, pdg)
             pdg_ast_ids.add(id(ast_node))
 
             meta = self._meta_for(node)
@@ -273,6 +274,15 @@ class _GraphAssemblyMixin:
                 cid = id(node.cfg_node)
                 self._cfg_node_to_pdg.setdefault(cid, []).append(node)
 
+        # Materialize executable order inside each CFG block. PDG statement
+        # nodes share their containing block as ``cfg_node``; without these
+        # edges the CPG jumps from the block anchor directly to its successor
+        # and graph analyses never execute the statements themselves.
+        for anchors in self._cfg_node_to_pdg.values():
+            local = [node for node in anchors if node in pdg.nodes]
+            for source, target in zip(local, local[1:]):
+                self._add_edge(source, target, CPGEdgeKind.CFG_NEXT, "statement")
+
         # Walk reachable CFG blocks.
         entry_term = getattr(cfg, "entryTerminal", None)
         if entry_term is None:
@@ -283,7 +293,7 @@ class _GraphAssemblyMixin:
             src_anchors = self._cfg_node_to_pdg.get(id(block), [])
             if not src_anchors:
                 continue
-            src_pdg = src_anchors[0]  # Use the first anchor node as source
+            src_pdg = src_anchors[-1]
 
             for exit_name, target_block in block.next.items():
                 tgt_anchors = self._cfg_node_to_pdg.get(id(target_block), [])

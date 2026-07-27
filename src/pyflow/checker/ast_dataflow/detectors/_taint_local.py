@@ -1,17 +1,17 @@
-"""Assembly and state initialization for local semantic taint analysis."""
+"""Assembly and state initialization for local AST taint dataflow."""
 
 from __future__ import annotations
 
 import ast
 from typing import Dict, List, Optional, Set, Tuple
 
-from ._semantic_taint_control import _ControlFlowMixin
-from ._semantic_taint_expressions import _ExpressionTaintMixin
-from ._semantic_taint_state import _TaintStateMixin
-from ._semantic_taint_visitors import _StatementVisitorMixin
+from ._taint_control import _ControlFlowMixin
+from ._taint_expressions import _ExpressionTaintMixin
+from ._taint_state import _TaintStateMixin
+from ._taint_visitors import _StatementVisitorMixin
 
 
-class _LocalSemanticTaintAnalyzer(
+class _LocalTaintAnalyzer(
     _StatementVisitorMixin,
     _ExpressionTaintMixin,
     _TaintStateMixin,
@@ -65,7 +65,8 @@ class _LocalSemanticTaintAnalyzer(
         self.tainted: Set[str] = set()
         self.tainted_containers: Set[str] = set()
         self.tainted_container_keys: Dict[str, Set[str]] = {}
-        # Dict key taint (distinct from dict value taint tracked in tainted_container_keys).
+        # Dict-key taint is distinct from value taint in
+        # ``tainted_container_keys``.
         self.tainted_dict_keys: Dict[str, Set[str]] = {}
         # Special-case modelling for `array.array('u', taint_src)` benchmarks.
         self.alternating_taint_arrays: Set[str] = set()
@@ -90,6 +91,7 @@ class _LocalSemanticTaintAnalyzer(
         self.param_key_taint_writes: Dict[str, Set[str]] = {}
         self.sinks_found: Set[str] = set()
         self.tainted_sinks: Set[str] = set()
+        self.tainted_sink_lines: Dict[str, Set[int]] = {}
         self.tainted_sink = False
         self.current_params: Set[str] = set()
         self.call_param_taints: Dict[str, Set[str]] = {}

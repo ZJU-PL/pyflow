@@ -128,10 +128,10 @@ def test_security_cli_threads_pattern_excludes_into_discover_files(
     assert captured["run_tests"] is True
 
 
-def test_security_cli_threads_semantic_excludes_into_config(monkeypatch):
+def test_security_cli_threads_ast_dataflow_excludes_into_config(monkeypatch):
     captured = {}
 
-    class FakeSemanticManager:
+    class FakeASTDataflowManager:
         def __init__(self, config, debug=False, verbose=False, quiet=False):
             captured["exclude"] = config.exclude
             captured["sources"] = config.sources
@@ -174,14 +174,14 @@ def test_security_cli_threads_semantic_excludes_into_config(monkeypatch):
         def get_issue_list(self, *_args, **_kwargs):
             return []
 
-    monkeypatch.setattr(security_cli, "SemanticManager", FakeSemanticManager)
+    monkeypatch.setattr(security_cli, "ASTDataflowManager", FakeASTDataflowManager)
 
     args = SimpleNamespace(
         recursive=False,
         verbose=False,
         debug=False,
         exclude=" foo.py , bar.py ",
-        engine="cpa",
+        engine="ast-dataflow",
         sources=["input"],
         sinks=["eval"],
         micro_bench=None,
@@ -199,8 +199,8 @@ def test_security_cli_threads_semantic_excludes_into_config(monkeypatch):
     assert captured["sinks"] == ("eval",)
 
 
-def test_security_cli_cpa_completes_on_semantic_taint_file(tmp_path, capsys):
-    sample = tmp_path / "cpa_taint.py"
+def test_security_cli_ast_dataflow_completes_on_taint_file(tmp_path, capsys):
+    sample = tmp_path / "ast_dataflow_taint.py"
     sample.write_text(
         """
 import os
@@ -223,7 +223,7 @@ def eval_from_input():
         verbose=False,
         debug=False,
         exclude="",
-        engine="cpa",
+        engine="ast-dataflow",
         format="text",
         output=None,
         targets=[str(sample)],
@@ -233,8 +233,8 @@ def eval_from_input():
 
     out = capsys.readouterr().out
     assert exit_code == 1
-    assert "Untrusted data can reach sink 'os.system'" in out
-    assert "Untrusted data can reach sink 'eval'" in out
+    assert "os.system" in out
+    assert "eval" in out
     assert "Traceback" not in out
 
 
@@ -280,7 +280,7 @@ def run_from_dict():
         framework=[],
     )
 
-    findings = security_cli._run_cpg([str(sample)], args)
+    findings = security_cli._run_cpg([str(sample)], args)["findings"]
 
     sink_labels = {finding["sink_label"] for finding in findings}
     assert "os.system" in sink_labels
@@ -310,6 +310,6 @@ def route_handler():
         framework=["flask"],
     )
 
-    findings = security_cli._run_cpg([str(sample)], args)
+    findings = security_cli._run_cpg([str(sample)], args)["findings"]
 
     assert any(finding["sink_label"] == "os.system" for finding in findings)

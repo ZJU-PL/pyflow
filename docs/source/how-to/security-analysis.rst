@@ -33,7 +33,7 @@ Full security analysis
 
 .. code-block:: bash
 
-   pyflow security input.py --engine cpa
+   pyflow security input.py --engine ast-dataflow
 
 Specific security engines
 -------------------------
@@ -43,7 +43,7 @@ Run with a specific analysis engine:
 .. code-block:: bash
 
    pyflow security input.py --engine ast-scanner
-   pyflow security input.py --engine cpa
+   pyflow security input.py --engine ast-dataflow
    pyflow security input.py --engine ifds --function main --sources input --sinks eval
    pyflow security input.py --engine cpg --framework flask
 

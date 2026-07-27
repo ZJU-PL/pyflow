@@ -855,6 +855,67 @@ class TestCPGConstruction(unittest.TestCase):
         paths = engine.find_taint_paths()
         self.assertIsInstance(paths, list)
 
+    def test_taint_engine_analyze_reports_status_and_statistics(self):
+        cpg = build_cpg("def main():\n    x = input()\n    eval(x)\n")
+        engine = CPGTaintEngine(cpg)
+        engine.add_source("input")
+        engine.add_sink("eval", cwe="CWE-95")
+
+        result = engine.analyze()
+
+        self.assertEqual(result.status, "complete")
+        self.assertEqual(len(result.findings), 1)
+        self.assertGreater(result.statistics["processed_states"], 0)
+
+    def test_taint_engine_clean_overwrite_kills_flow(self):
+        cpg = build_cpg(
+            "def main():\n"
+            "    value = input()\n"
+            "    value = 'safe'\n"
+            "    eval(value)\n"
+        )
+        engine = CPGTaintEngine(cpg)
+        engine.add_source("input")
+        engine.add_sink("eval", cwe="CWE-95")
+
+        self.assertEqual(engine.find_taint_paths(), [])
+
+    def test_taint_engine_respects_sink_parameter_ports(self):
+        cpg = build_cpg(
+            "def target_sink(first, second):\n"
+            "    pass\n"
+            "def main():\n"
+            "    value = input()\n"
+            "    target_sink(value, 'safe')\n"
+        )
+        engine = CPGTaintEngine(cpg)
+        engine.add_source("input")
+        engine.add_sink("target_sink", positions=frozenset({1}))
+
+        self.assertEqual(engine.find_taint_paths(), [])
+
+    def test_taint_engine_budget_reports_partial_status(self):
+        cpg = build_cpg("def main():\n    x = input()\n    eval(x)\n")
+        engine = CPGTaintEngine(cpg, max_states=1)
+        engine.add_source("input")
+        engine.add_sink("eval")
+
+        result = engine.analyze()
+
+        self.assertEqual(result.status, "partial")
+        self.assertIn("cpg-state-budget", {d.code for d in result.diagnostics})
+
+    def test_cpg_node_ids_are_unique_across_source_functions(self):
+        cpg = build_cpg(
+            "def first():\n    transform = lambda x: x\n    return transform(1)\n"
+            "def second(value):\n    transform = lambda x: x\n"
+            "    return transform(value)\n"
+        )
+        cpg.build()
+        node_ids = [node.node_id for node in cpg.nodes()]
+
+        self.assertEqual(len(node_ids), len(set(node_ids)))
+
     def test_taint_finding_has_source_and_sink_lines(self):
         cpg = self.build_cpg(simple_if)
         cpg.build()
@@ -1301,7 +1362,7 @@ class TestCPGConstruction(unittest.TestCase):
     def test_context_sensitivity_default_max_depth(self):
         cpg = self.build_cpg(simple_assignment)
         engine = CPGTaintEngine(cpg)
-        self.assertEqual(engine._max_call_depth, 5)
+        self.assertEqual(engine._max_call_depth, 3)
 
     def test_context_sensitivity_custom_max_depth(self):
         cpg = self.build_cpg(simple_assignment)

@@ -1,14 +1,14 @@
 """
-Core infrastructure for the semantic checker.
+Core infrastructure for the AST dataflow checker.
 
 This package holds shared types, session/context, runner, manager,
-and the detector base used by concrete detectors in semantic.detectors.
+and the detector base used by concrete detectors in ast_dataflow.detectors.
 """
 
 from .issue import Issue, Cwe
 from .context import AnalysisSession
 from .runner import StaticBugFinder, BugFinderConfig
-from .manager import SemanticManager
+from .manager import ASTDataflowManager
 from .base import Detector, run_detectors
 
 __all__ = [
@@ -17,7 +17,7 @@ __all__ = [
     "AnalysisSession",
     "StaticBugFinder",
     "BugFinderConfig",
-    "SemanticManager",
+    "ASTDataflowManager",
     "Detector",
     "run_detectors",
 ]

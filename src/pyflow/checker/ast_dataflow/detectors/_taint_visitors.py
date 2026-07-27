@@ -1,4 +1,4 @@
-"""AST statement visitors for local semantic taint analysis."""
+"""AST statement visitors for local taint dataflow."""
 
 from __future__ import annotations
 
@@ -155,20 +155,22 @@ class _StatementVisitorMixin:
                 key = self._subscript_key(target.slice)
                 key_expr_is_tainted = self._expr_is_tainted(target.slice)
 
-                # Tainted keys taint the container structure even if the stored value is safe.
+                # Tainted keys taint the container structure even when the
+                # stored value is safe.
                 if base and (
                     value_is_source or value_is_tainted or key_expr_is_tainted
                 ):
                     if key_expr_is_tainted:
-                        # Only dict keys are exposed via `keys()`; track this separately so
-                        # `values()` remains precise when only keys are tainted.
+                        # Only dict keys are exposed via `keys()`; keep this
+                        # separate so `values()` remains precise.
                         self._mark_dict_key_tainted(base, None)
 
                     if value_is_source or value_is_tainted:
                         self._mark_container_key_tainted(base, key)
                         self._record_param_key_write(base, key, True)
 
-                        # Record precise path taint when we can determine a constant access path.
+                        # Record path taint when a constant access path is
+                        # available.
                         path = self._expr_path(target)
                         if path is not None:
                             if isinstance(node.value, (ast.Dict, ast.List, ast.Tuple)):
@@ -183,7 +185,7 @@ class _StatementVisitorMixin:
                     self._record_param_key_write(base, key, False)
             elif isinstance(target, (ast.Tuple, ast.List)):
                 # Destructuring assignment / unpacking.
-                # 1) Dict key iteration destructuring: `k1, k2 = d` where `d` is a dict literal.
+                # 1) Dict-key iteration destructuring from a dict literal.
                 if (
                     isinstance(node.value, ast.Name)
                     and node.value.id in self.dict_key_order
@@ -436,6 +438,9 @@ class _StatementVisitorMixin:
             if tainted_arg:
                 self.tainted_sink = True
                 self.tainted_sinks.add(fullname)
+                lineno = getattr(node, "lineno", None)
+                if isinstance(lineno, int):
+                    self.tainted_sink_lines.setdefault(fullname, set()).add(lineno)
 
         if self._expr_is_source(node):
             self.has_source = True
@@ -478,7 +483,7 @@ class _StatementVisitorMixin:
                 self._visit_block(node.orelse)
                 return
             elif iter_fullname == "zip":
-                # Mark all loop variables as potentially tainted if any zip arg is tainted
+                # Mark loop variables if any zip argument is tainted.
                 any_tainted = any(self._expr_is_tainted(arg) for arg in node.iter.args)
                 if any_tainted:
                     for target in node.target.elts:

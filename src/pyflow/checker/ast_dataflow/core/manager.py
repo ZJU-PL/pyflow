@@ -1,7 +1,7 @@
 """
-Adapter manager for semantic checker to work with common formatters.
+Adapter manager for the AST dataflow checker to work with common formatters.
 
-Makes the semantic checker compatible with the pattern checker's manager
+Makes the AST dataflow checker compatible with the pattern checker's manager
 interface so it can use the shared formatters (text, JSON, SARIF).
 """
 
@@ -16,8 +16,8 @@ from .runner import StaticBugFinder, BugFinderConfig
 from .issue import Issue
 
 
-class SemanticManager:
-    """Adapter manager that makes semantic checker compatible with formatters."""
+class ASTDataflowManager:
+    """Adapter exposing AST dataflow results to shared formatters."""
 
     scope = []
 
@@ -29,7 +29,7 @@ class SemanticManager:
         quiet: bool = False,
     ):
         """
-        Initialize the semantic checker manager adapter.
+        Initialize the AST dataflow checker manager adapter.
 
         Args:
             config: Bug finder configuration
@@ -42,6 +42,7 @@ class SemanticManager:
         self.quiet = quiet
         self.finder = StaticBugFinder(config or BugFinderConfig(verbose=verbose))
         self.results: List[Issue] = []
+        self.analysis_result = None
         self.skipped: List[tuple] = []
         self.baseline: List[Issue] = []
         self.metrics = Metrics()
@@ -77,6 +78,7 @@ class SemanticManager:
             List of Issue objects found
         """
         self.results = self.finder.analyze(paths)
+        self.analysis_result = self.finder.last_result
 
         # Count lines of code from analyzed files
         total_lines = 0

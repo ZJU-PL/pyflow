@@ -116,6 +116,12 @@ class MemoryLayout:
     def mark_tainted(self, var: str, state: TaintState) -> None:
         self.write(var, "__scalar__", state)
 
+    def clear(self, var: str) -> None:
+        """Strongly clear one variable binding without mutating its aliases."""
+        addr = self._fresh_addr()
+        self._var_to_addr[var] = addr
+        self._heap[addr] = MemoryCell()
+
     def is_tainted(self, var: str) -> bool:
         return self.read(var, "__scalar__").is_tainted()
 
@@ -141,6 +147,54 @@ class MemoryLayout:
                     if state.is_tainted():
                         cell = self._cell_for(var)
                         cell.taint_field(fname, state)
+
+    def clone(self) -> MemoryLayout:
+        """Return an independent copy suitable for one worklist successor."""
+        cloned = MemoryLayout()
+        cloned.restore(self.snapshot())
+        return cloned
+
+    def fingerprint(self) -> Tuple[Any, ...]:
+        """Stable abstract-state key independent of allocation counter values."""
+        members: Dict[str, List[str]] = {}
+        for var, addr in self._var_to_addr.items():
+            members.setdefault(addr, []).append(var)
+        normalized = []
+        for addr, names in members.items():
+            cell = self._heap.get(addr, MemoryCell())
+            fields = tuple(
+                sorted(
+                    (
+                        field_name,
+                        tuple(sorted(state.tags)),
+                        tuple(sorted(state.sanitized_by)),
+                    )
+                    for field_name, state in cell.fields.items()
+                    if state.is_tainted() or state.sanitized_by
+                )
+            )
+            normalized.append((tuple(sorted(names)), fields))
+        return tuple(sorted(normalized))
+
+
+@dataclass(frozen=True)
+class CPGTaintDiagnostic:
+    """One graph or propagation diagnostic."""
+
+    message: str
+    code: str
+    affects_completeness: bool = False
+    function: str | None = None
+
+
+@dataclass(frozen=True)
+class CPGTaintResult:
+    """CPG findings with explicit completion and run statistics."""
+
+    findings: Tuple[TaintFinding, ...]
+    status: str = "complete"
+    diagnostics: Tuple[CPGTaintDiagnostic, ...] = ()
+    statistics: Dict[str, int] = field(default_factory=dict)
 
 
 @dataclass
@@ -299,6 +353,7 @@ class TaintFinding:
     rule_id: str = ""
     rule_title: str = ""
     suggestion: str = ""
+    precision_reasons: Tuple[str, ...] = ()
 
     @property
     def source_line(self) -> int:
@@ -318,30 +373,32 @@ class TaintFinding:
 
     @property
     def confidence(self) -> float:
-        """Confidence score 0.0–1.0 based on path quality signals.
-
-        - Base: 0.50
-        - +0.10 per path node (capped at +0.30): longer flow = more certain
-        - +0.10 if sanitizers are present (explicit sanitization = stronger flow signal)
-        - +0.10 if source_label is a known framework source (e.g., request.*)
-        - Capped at 1.0, floored at 0.05
-        """
-        score = 0.50
-        score += min(0.30, len(self.path_nodes) * 0.05)
-        if self.sanitizers:
-            score += 0.10
-        src_lower = self.source_label.lower()
-        if any(
-            kw in src_lower
-            for kw in ("request", "input", "environ", "argv", "get_json", "form.get")
-        ):
-            score += 0.10
-        return max(0.05, min(1.0, score))
+        """Evidence-based confidence; path length is not a confidence signal."""
+        if self.precision_reasons:
+            return 0.55
+        if self.source_line > 0 and self.sink_line > 0 and self.tags:
+            return 0.9
+        return 0.7
 
     @property
-    def dedup_key(self) -> Tuple[str, int, int]:
-        """Key for deduplication: (cwe, source_line, sink_line)."""
-        return (self.cwe, self.source_line, self.sink_line)
+    def confidence_level(self) -> str:
+        if self.confidence >= 0.85:
+            return "HIGH"
+        if self.confidence >= 0.6:
+            return "MEDIUM"
+        return "LOW"
+
+    @property
+    def dedup_key(self) -> Tuple[Any, ...]:
+        """Keep distinct rules, origins, kinds, and sinks separate."""
+        return (
+            self.effective_rule_id,
+            self.source_label,
+            self.source_line,
+            self.sink_label,
+            self.sink_line,
+            tuple(sorted(self.tags)),
+        )
 
     @property
     def effective_rule_id(self) -> str:
@@ -377,8 +434,10 @@ class TaintFinding:
             "sink_line": self.sink_line,
             "path_length": self.path_length,
             "confidence": round(self.confidence, 2),
+            "confidence_level": self.confidence_level,
             "tags": sorted(self.tags),
             "sanitizers": sorted(self.sanitizers),
+            "precision_reasons": list(self.precision_reasons),
             "rule": rule.to_dict(),
             "path_preview": [
                 {
