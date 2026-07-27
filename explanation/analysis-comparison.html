@@ -82,36 +82,8 @@
 </ul>
 </li>
 <li class="toctree-l2"><a class="reference internal" href="best-practices.html">Best Practices</a></li>
-<li class="toctree-l2"><a class="reference internal" href="architecture.html">Architecture</a></li>
-<li class="toctree-l2"><a class="reference internal" href="algorithms.html">Algorithms</a></li>
-<li class="toctree-l2"><a class="reference internal" href="memory-reasoning.html">Memory Reasoning Systems</a></li>
-<li class="toctree-l2"><a class="reference internal" href="design-decisions.html">Design Decisions</a></li>
-<li class="toctree-l2 current"><a class="current reference internal" href="#">Analysis Comparison</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="#comparison-with-other-tools">Comparison with Other Tools</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="#pyflow-vs-type-checkers">PyFlow vs. Type Checkers</a></li>
-<li class="toctree-l4"><a class="reference internal" href="#pyflow-vs-linters">PyFlow vs. Linters</a></li>
-<li class="toctree-l4"><a class="reference internal" href="#pyflow-vs-sast-tools">PyFlow vs. SAST Tools</a></li>
 </ul>
 </li>
-<li class="toctree-l3"><a class="reference internal" href="#analysis-depth-comparison">Analysis Depth Comparison</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#precision-comparison">Precision Comparison</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#performance-comparison">Performance Comparison</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#complementary-use">Complementary Use</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="#use-with-type-checkers">Use with Type Checkers</a></li>
-<li class="toctree-l4"><a class="reference internal" href="#use-with-linters">Use with Linters</a></li>
-<li class="toctree-l4"><a class="reference internal" href="#use-in-ci-cd">Use in CI/CD</a></li>
-</ul>
-</li>
-<li class="toctree-l3"><a class="reference internal" href="#recommendation-matrix">Recommendation Matrix</a></li>
-</ul>
-</li>
-<li class="toctree-l2"><a class="reference internal" href="best-practices.html">Best Practices</a></li>
-</ul>
-</li>
-</ul>
-<p class="caption" role="heading"><span class="caption-text">A3 Python</span></p>
-<ul>
-<li class="toctree-l1"><a class="reference internal" href="../a3_python/index.html"><code class="docutils literal notranslate"><span class="pre">a3_python</span></code></a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Reference</span></p>
 <ul>
@@ -171,6 +143,32 @@ analysis tools and explains the trade-offs.</p>
 <h2>Comparison with Other Tools<a class="headerlink" href="#comparison-with-other-tools" title="Link to this heading"></a></h2>
 <section id="pyflow-vs-type-checkers">
 <h3>PyFlow vs. Type Checkers<a class="headerlink" href="#pyflow-vs-type-checkers" title="Link to this heading"></a></h3>
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>Feature</p></th>
+<th class="head"><p>PyFlow</p></th>
+<th class="head"><p>Type Checkers</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Type inference
+Runtime behavior
+Call graph
+Optimization
+Precision</p></td>
+<td><p>Yes
+Static only
+Built-in
+Built-in
+Context-sensitive</p></td>
+<td><p>Yes
+Mostly static
+Limited
+None
+Mostly insensitive</p></td>
+</tr>
+</tbody>
+</table>
 <p><strong>When to use PyFlow</strong>:</p>
 <ul class="simple">
 <li><p>Need call graph analysis</p></li>
@@ -186,6 +184,32 @@ analysis tools and explains the trade-offs.</p>
 </section>
 <section id="pyflow-vs-linters">
 <h3>PyFlow vs. Linters<a class="headerlink" href="#pyflow-vs-linters" title="Link to this heading"></a></h3>
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>Feature</p></th>
+<th class="head"><p>PyFlow</p></th>
+<th class="head"><p>Linters (pylint)</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Bug detection
+Style checking
+Security analysis
+Performance analysis
+Call graph</p></td>
+<td><p>Yes
+Limited
+Yes
+Yes
+Built-in</p></td>
+<td><p>Yes
+Yes
+Some
+Limited
+Plugin</p></td>
+</tr>
+</tbody>
+</table>
 <p><strong>When to use PyFlow</strong>:</p>
 <ul class="simple">
 <li><p>Need security vulnerability detection</p></li>
@@ -201,6 +225,32 @@ analysis tools and explains the trade-offs.</p>
 </section>
 <section id="pyflow-vs-sast-tools">
 <h3>PyFlow vs. SAST Tools<a class="headerlink" href="#pyflow-vs-sast-tools" title="Link to this heading"></a></h3>
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>Feature</p></th>
+<th class="head"><p>PyFlow</p></th>
+<th class="head"><p>Commercial SAST</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Language support
+Integration
+Custom rules
+Accuracy
+Open source</p></td>
+<td><p>Python only
+CLI, API
+Via Python API
+High for Python
+Yes</p></td>
+<td><p>Multiple languages
+CI/CD, IDE
+DSL or GUI
+Varies
+Usually no</p></td>
+</tr>
+</tbody>
+</table>
 <p><strong>When to use PyFlow</strong>:</p>
 <ul class="simple">
 <li><p>Python-only codebase</p></li>

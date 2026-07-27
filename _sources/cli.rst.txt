@@ -119,11 +119,12 @@ Run security analysis on Python code using one of the available engines.
   pyflow security input.py
   pyflow security package/ --recursive
   pyflow security src/ -v --exclude tests/
+  pyflow security input.py --engine ast-dataflow
   pyflow security input.py --engine ifds --function main --sources input --sinks eval
   pyflow security input.py --engine cpg --framework flask
 
 Options:
-- ``--engine``: Analysis engine (``ast-scanner``, ``cpa``, ``ifds``, or ``cpg``)
+- ``--engine``: Analysis engine (``ast-scanner``, ``ast-dataflow``, ``ifds``, or ``cpg``)
 - ``--config``: JSON config file for IFDS analysis parameters (e.g., solver budgets, trace mode)
 - ``--sources`` / ``--sinks`` / ``--sanitizers``: Function names for taint-style dataflow checks
 - ``--function``: Entry function for the IFDS engine
@@ -137,8 +138,10 @@ Options:
 - ``--ifds-max-facts-per-node`` / ``--ifds-max-contexts-per-procedure``: Precision/cardinality budgets
 - ``--ifds-context-depth``: Maximum call-string depth
 - ``--ifds-trace-mode``: Retain no traces, finding traces, or all traces
+- ``--cpg-max-seconds`` / ``--cpg-max-states``: CPG time and state budgets; exhaustion is reported as ``partial``
+- ``--cpg-context-depth``: Maximum CPG call-string depth (default: 3)
 - ``--framework``: Framework rule packs for the CPG engine
-- ``--format``: Output format (``text``, ``json``, or ``sarif``)
+- ``--format``: Output format: ``text``, ``json``, ``sarif``, ``csv``, ``custom``, ``html``, ``screen``, ``xml``, or ``yaml``.
 - ``--output``: Output file path
 - ``-r, --recursive``: Scan directories recursively
 - ``-v, --verbose``: Verbose output
@@ -146,7 +149,9 @@ Options:
 - ``--exclude``: Comma-separated list of paths to exclude
 
 The default ``ast-scanner`` engine is a fast pattern-based checker. The command
-can also dispatch to CPA, IFDS, and CPG-backed security engines.
+can also dispatch to AST-dataflow, IFDS, and CPG-backed security engines. The
+AST-dataflow and CPG JSON/SARIF output includes an explicit ``complete`` or
+``partial`` status plus diagnostics when limitations affect completeness.
 
 Supply Chain Command
 --------------------

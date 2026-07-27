@@ -59,10 +59,6 @@
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../../explanation/index.html">Explanations</a></li>
 </ul>
-<p class="caption" role="heading"><span class="caption-text">A3 Python</span></p>
-<ul>
-<li class="toctree-l1"><a class="reference internal" href="../../a3_python/index.html"><code class="docutils literal notranslate"><span class="pre">a3_python</span></code></a></li>
-</ul>
 <p class="caption" role="heading"><span class="caption-text">Reference</span></p>
 <ul class="current">
 <li class="toctree-l1"><a class="reference internal" href="../../cli.html">Main Commands</a></li>
@@ -80,6 +76,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../index.html#json-output">JSON Output</a></li>
 <li class="toctree-l2 current"><a class="reference internal" href="../index.html#sarif-output">SARIF Output</a><ul class="current">
 <li class="toctree-l3"><a class="reference internal" href="../callgraph.html">Call Graph Analysis</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../cfl.html">Context-Free-Language Reachability</a></li>
 <li class="toctree-l3"><a class="reference internal" href="../fsdf.html">Flow-Sensitive Data Flow (FSDF)</a></li>
 <li class="toctree-l3"><a class="reference internal" href="../ipa.html">Inter-procedural Analysis (IPA)</a></li>
 <li class="toctree-l3"><a class="reference internal" href="../cpa.html">Constraint-based Analysis (CPA)</a></li>
@@ -158,6 +155,32 @@ through <code class="docutils literal notranslate"><span class="pre">PointsToGra
 <code class="docutils literal notranslate"><span class="pre">alias_evidence()</span></code>, and <code class="docutils literal notranslate"><span class="pre">analysis_metrics()</span></code> to rank or suppress findings.</p>
 <section id="how-the-analysis-differs-from-shape-and-storegraph">
 <span id="heap-vs-shape"></span><h2>How the analysis differs from shape and storegraph<a class="headerlink" href="#how-the-analysis-differs-from-shape-and-storegraph" title="Link to this heading"></a></h2>
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>Module</p></th>
+<th class="head"><p>Purpose</p></th>
+<th class="head"><p>Runs on</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Flow-sensitive alias analysis</p></td>
+<td><p>Canonical locations and strong/weak updates; primarily consumed by IFDS clients.</p></td>
+<td><p>CFG supergraph (for example, IFDS)</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">shape</span></code></p></td>
+<td><p>Region-based data-structure inference, including reference counts and paths.</p></td>
+<td><p>Store graph, after CPA</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">storegraph</span></code></p></td>
+<td><p>Foundational model for objects, slots, regions, and points-to relationships.</p></td>
+<td><p>Shared by CPA, IPA, shape, and lifetime analysis</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">lifetimeanalysis</span></code></p></td>
+<td><p>Read/modify and variable-lifetime tracking using CPA and shape results.</p></td>
+<td><p>Store graph, after shape analysis</p></td>
+</tr>
+</tbody>
+</table>
 <p>In short, the flow-sensitive alias analysis answers <em>“which abstract
 locations does this fact refer to, and can I strong-update it?”</em> <strong>shape</strong> answers <em>“what structural
 properties does this data structure have, and how many references point to

@@ -97,59 +97,12 @@
 </ul>
 </li>
 <li class="toctree-l2"><a class="reference internal" href="debug-analysis-issues.html">How to Debug Analysis Issues</a></li>
-<li class="toctree-l2"><a class="reference internal" href="analyze-call-graph.html">How to Analyze Call Graphs</a></li>
-<li class="toctree-l2"><a class="reference internal" href="analyze-control-flow.html">How to Analyze Control Flow</a></li>
-<li class="toctree-l2"><a class="reference internal" href="optimize-code.html">How to Optimize Code</a></li>
-<li class="toctree-l2"><a class="reference internal" href="security-analysis.html">How to Perform Security Analysis</a></li>
-<li class="toctree-l2"><a class="reference internal" href="customize-analysis.html">How to Customize Analysis</a></li>
-<li class="toctree-l2"><a class="reference internal" href="integrate-with-build-systems.html">Integrate with Build Systems</a></li>
-<li class="toctree-l2 current"><a class="current reference internal" href="#">How to Visualize Results</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="#visualization-formats">Visualization Formats</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="#call-graph-text-output">Call Graph Text Output</a></li>
-<li class="toctree-l4"><a class="reference internal" href="#ir-dumps-with-dot">IR Dumps with DOT</a></li>
-</ul>
-</li>
-<li class="toctree-l3"><a class="reference internal" href="#visualizing-call-graphs">Visualizing Call Graphs</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="#basic-call-graph">Basic call graph</a></li>
-<li class="toctree-l4"><a class="reference internal" href="#custom-styling">Custom styling</a></li>
-<li class="toctree-l4"><a class="reference internal" href="#interactive-visualization">Interactive visualization</a></li>
-</ul>
-</li>
-<li class="toctree-l3"><a class="reference internal" href="#visualizing-control-flow-graphs">Visualizing Control Flow Graphs</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="#basic-cfg-visualization">Basic CFG visualization</a></li>
-<li class="toctree-l4"><a class="reference internal" href="#complex-cfg-visualization">Complex CFG visualization</a></li>
-</ul>
-</li>
-<li class="toctree-l3"><a class="reference internal" href="#visualizing-analysis-results">Visualizing Analysis Results</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="#heatmaps-for-complexity">Heatmaps for complexity</a></li>
-<li class="toctree-l4"><a class="reference internal" href="#dependency-graphs">Dependency graphs</a></li>
-</ul>
-</li>
-<li class="toctree-l3"><a class="reference internal" href="#exporting-for-documentation">Exporting for Documentation</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#advanced-visualization-techniques">Advanced Visualization Techniques</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="#animated-visualizations">Animated visualizations</a></li>
-<li class="toctree-l4"><a class="reference internal" href="#interactive-web-visualizations">Interactive web visualizations</a></li>
-</ul>
-</li>
-<li class="toctree-l3"><a class="reference internal" href="#troubleshooting">Troubleshooting</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="#issue-graph-too-large">Issue: Graph too large</a></li>
-<li class="toctree-l4"><a class="reference internal" href="#issue-overlapping-nodes">Issue: Overlapping nodes</a></li>
-<li class="toctree-l4"><a class="reference internal" href="#issue-missing-edges">Issue: Missing edges</a></li>
-</ul>
-</li>
-</ul>
-</li>
-<li class="toctree-l2"><a class="reference internal" href="debug-analysis-issues.html">How to Debug Analysis Issues</a></li>
 </ul>
 </li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Explanations</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../explanation/index.html">Explanations</a></li>
-</ul>
-<p class="caption" role="heading"><span class="caption-text">A3 Python</span></p>
-<ul>
-<li class="toctree-l1"><a class="reference internal" href="../a3_python/index.html"><code class="docutils literal notranslate"><span class="pre">a3_python</span></code></a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Reference</span></p>
 <ul>
@@ -267,23 +220,23 @@ dot<span class="w"> </span>-Tpng<span class="w"> </span>cfg.dot<span class="w"> 
 <section id="interactive-visualization">
 <h3>Interactive visualization<a class="headerlink" href="#interactive-visualization" title="Link to this heading"></a></h3>
 <p>Use pygraphviz for interactive graphs:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">pygraphviz</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pgv</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>import<span class="w"> </span>pygraphviz<span class="w"> </span>as<span class="w"> </span>pgv
 
 <span class="c1"># Load DOT file</span>
-<span class="n">G</span> <span class="o">=</span> <span class="n">pgv</span><span class="o">.</span><span class="n">AGraph</span><span class="p">(</span><span class="s2">&quot;callgraph.dot&quot;</span><span class="p">)</span>
+<span class="nv">G</span><span class="w"> </span><span class="o">=</span><span class="w"> </span>pgv.AGraph<span class="o">(</span><span class="s2">&quot;callgraph.dot&quot;</span><span class="o">)</span>
 
 <span class="c1"># Add layout options</span>
-<span class="n">G</span><span class="o">.</span><span class="n">graph_attr</span><span class="p">[</span><span class="s2">&quot;rankdir&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;TB&quot;</span>
-<span class="n">G</span><span class="o">.</span><span class="n">node_attr</span><span class="p">[</span><span class="s2">&quot;shape&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;box&quot;</span>
-<span class="n">G</span><span class="o">.</span><span class="n">node_attr</span><span class="p">[</span><span class="s2">&quot;style&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;rounded,filled&quot;</span>
+G.graph_attr<span class="o">[</span><span class="s2">&quot;rankdir&quot;</span><span class="o">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;TB&quot;</span>
+G.node_attr<span class="o">[</span><span class="s2">&quot;shape&quot;</span><span class="o">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;box&quot;</span>
+G.node_attr<span class="o">[</span><span class="s2">&quot;style&quot;</span><span class="o">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;rounded,filled&quot;</span>
 
 <span class="c1"># Highlight specific nodes</span>
-<span class="n">G</span><span class="o">.</span><span class="n">get_node</span><span class="p">(</span><span class="s2">&quot;main&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">attr</span><span class="p">[</span><span class="s2">&quot;fillcolor&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;lightgreen&quot;</span>
-<span class="n">G</span><span class="o">.</span><span class="n">get_node</span><span class="p">(</span><span class="s2">&quot;recursive_func&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">attr</span><span class="p">[</span><span class="s2">&quot;fillcolor&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;lightyellow&quot;</span>
+G.get_node<span class="o">(</span><span class="s2">&quot;main&quot;</span><span class="o">)</span>.attr<span class="o">[</span><span class="s2">&quot;fillcolor&quot;</span><span class="o">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;lightgreen&quot;</span>
+G.get_node<span class="o">(</span><span class="s2">&quot;recursive_func&quot;</span><span class="o">)</span>.attr<span class="o">[</span><span class="s2">&quot;fillcolor&quot;</span><span class="o">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;lightyellow&quot;</span>
 
 <span class="c1"># Render</span>
-<span class="n">G</span><span class="o">.</span><span class="n">layout</span><span class="p">(</span><span class="n">prog</span><span class="o">=</span><span class="s2">&quot;dot&quot;</span><span class="p">)</span>
-<span class="n">G</span><span class="o">.</span><span class="n">draw</span><span class="p">(</span><span class="s2">&quot;callgraph.png&quot;</span><span class="p">)</span>
+G.layout<span class="o">(</span><span class="nv">prog</span><span class="o">=</span><span class="s2">&quot;dot&quot;</span><span class="o">)</span>
+G.draw<span class="o">(</span><span class="s2">&quot;callgraph.png&quot;</span><span class="o">)</span>
 </pre></div>
 </div>
 </section>
@@ -398,12 +351,8 @@ dot<span class="w"> </span>-Tpng<span class="w"> </span>cfg.dot<span class="w"> 
 </pre></div>
 </div>
 <p>Export for Jupyter notebooks:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">IPython.display</span><span class="w"> </span><span class="kn">import</span> <span class="n">Image</span><span class="p">,</span> <span class="n">display</span>
-
-<span class="c1"># Generate and display</span>
-<span class="err">!</span><span class="n">pyflow</span> <span class="n">callgraph</span> <span class="nb">input</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">output</span> <span class="n">temp</span><span class="o">.</span><span class="n">dot</span>
-<span class="err">!</span><span class="n">dot</span> <span class="o">-</span><span class="n">Tpng</span> <span class="n">temp</span><span class="o">.</span><span class="n">dot</span> <span class="o">-</span><span class="n">o</span> <span class="n">temp</span><span class="o">.</span><span class="n">png</span>
-<span class="n">display</span><span class="p">(</span><span class="n">Image</span><span class="p">(</span><span class="s2">&quot;temp.png&quot;</span><span class="p">))</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">pyflow</span> <span class="n">callgraph</span> <span class="nb">input</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">output</span> <span class="n">temp</span><span class="o">.</span><span class="n">dot</span>
+<span class="n">dot</span> <span class="o">-</span><span class="n">Tpng</span> <span class="n">temp</span><span class="o">.</span><span class="n">dot</span> <span class="o">-</span><span class="n">o</span> <span class="n">temp</span><span class="o">.</span><span class="n">png</span>
 </pre></div>
 </div>
 </section>

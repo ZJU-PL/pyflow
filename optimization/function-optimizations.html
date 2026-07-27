@@ -59,10 +59,6 @@
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../explanation/index.html">Explanations</a></li>
 </ul>
-<p class="caption" role="heading"><span class="caption-text">A3 Python</span></p>
-<ul>
-<li class="toctree-l1"><a class="reference internal" href="../a3_python/index.html"><code class="docutils literal notranslate"><span class="pre">a3_python</span></code></a></li>
-</ul>
 <p class="caption" role="heading"><span class="caption-text">Reference</span></p>
 <ul class="current">
 <li class="toctree-l1"><a class="reference internal" href="../cli.html">Main Commands</a></li>
@@ -145,7 +141,7 @@
 <ul class="simple">
 <li><p>Small size: ≤4 operations (configurable <code class="docutils literal notranslate"><span class="pre">maxOps</span></code>)</p></li>
 <li><p>Few call sites: ≤1 call (configurable <code class="docutils literal notranslate"><span class="pre">maxInvokes</span></code>)</p></li>
-<li><p>No complex features: no returns from loops/try, no ops after return, no <a href="#id1"><span class="problematic" id="id2">*</span></a>args/<a href="#id3"><span class="problematic" id="id4">**</span></a>kwargs</p></li>
+<li><p>No complex features: no returns from loops/try, no operations after return, and no <code class="docutils literal notranslate"><span class="pre">*args</span></code>/<code class="docutils literal notranslate"><span class="pre">**kwargs</span></code></p></li>
 <li><p>No recursion (checked via call graph)</p></li>
 </ul>
 <p>Context-sensitive: different contexts inlined separately. Prevents recursion via trace tracking. Counts operations to limit code growth. Immediately applies simplification after inlining.</p>
@@ -158,8 +154,8 @@
 </section>
 <section id="argument-normalization-argumentnormalization-py">
 <h2>Argument Normalization (argumentnormalization.py)<a class="headerlink" href="#argument-normalization-argumentnormalization-py" title="Link to this heading"></a></h2>
-<p>Simplifies calling conventions by eliminating <a href="#id5"><span class="problematic" id="id6">*</span></a>args/<a href="#id7"><span class="problematic" id="id8">**</span></a>kwargs when possible.</p>
-<p>Optimizes default arguments (makes explicit), normalizes keyword to positional arguments, eliminates <a href="#id9"><span class="problematic" id="id10">*</span></a>args/<a href="#id11"><span class="problematic" id="id12">**</span></a>kwargs when unused. Enables inlining, eliminates packing/unpacking overhead, enables further optimizations.</p>
+<p>Simplifies calling conventions by eliminating <code class="docutils literal notranslate"><span class="pre">*args</span></code>/<code class="docutils literal notranslate"><span class="pre">**kwargs</span></code> when possible.</p>
+<p>Optimizes default arguments (makes explicit), normalizes keyword to positional arguments, and eliminates <code class="docutils literal notranslate"><span class="pre">*args</span></code>/<code class="docutils literal notranslate"><span class="pre">**kwargs</span></code> when unused. Enables inlining, eliminates packing/unpacking overhead, and enables further optimizations.</p>
 </section>
 <section id="code-cloning-clone-py">
 <h2>Code Cloning (clone.py)<a class="headerlink" href="#code-cloning-clone-py" title="Link to this heading"></a></h2>
@@ -169,7 +165,7 @@
 <section id="limitations">
 <h2>Limitations<a class="headerlink" href="#limitations" title="Link to this heading"></a></h2>
 <ul class="simple">
-<li><p><strong>Inlining</strong>: Code size growth, cannot inline recursive/complex functions, limited by <a href="#id13"><span class="problematic" id="id14">*</span></a>args/<a href="#id15"><span class="problematic" id="id16">**</span></a>kwargs</p></li>
+<li><p><strong>Inlining</strong>: Code size growth, cannot inline recursive/complex functions, limited by <code class="docutils literal notranslate"><span class="pre">*args</span></code>/<code class="docutils literal notranslate"><span class="pre">**kwargs</span></code></p></li>
 <li><p><strong>Method Optimization</strong>: Limited by type precision, struggles with high polymorphism</p></li>
 <li><p><strong>Argument Normalization</strong>: Cannot eliminate when actually used, limited by call site analysis</p></li>
 <li><p><strong>Cloning</strong>: Code size growth, context explosion risk</p></li>

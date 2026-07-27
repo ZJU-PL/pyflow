@@ -18,13 +18,3 @@ how PyFlow works under the hood.
     design-decisions
     analysis-comparison
     best-practices
-
-.. toctree::
-    :hidden:
-
-    architecture
-    algorithms
-    memory-reasoning
-    design-decisions
-    analysis-comparison
-    best-practices

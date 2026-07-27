@@ -104,66 +104,12 @@
 <li class="toctree-l2"><a class="reference internal" href="integrate-with-build-systems.html">Integrate with Build Systems</a></li>
 <li class="toctree-l2"><a class="reference internal" href="visualize-results.html">How to Visualize Results</a></li>
 <li class="toctree-l2"><a class="reference internal" href="debug-analysis-issues.html">How to Debug Analysis Issues</a></li>
-<li class="toctree-l2"><a class="reference internal" href="analyze-call-graph.html">How to Analyze Call Graphs</a></li>
-<li class="toctree-l2"><a class="reference internal" href="analyze-control-flow.html">How to Analyze Control Flow</a></li>
-<li class="toctree-l2"><a class="reference internal" href="optimize-code.html">How to Optimize Code</a></li>
-<li class="toctree-l2 current"><a class="current reference internal" href="#">How to Perform Security Analysis</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="#when-to-use-security-analysis">When to Use Security Analysis</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#running-security-analysis">Running Security Analysis</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="#basic-security-scan">Basic security scan</a></li>
-<li class="toctree-l4"><a class="reference internal" href="#full-security-analysis">Full security analysis</a></li>
-<li class="toctree-l4"><a class="reference internal" href="#specific-security-engines">Specific security engines</a></li>
-</ul>
-</li>
-<li class="toctree-l3"><a class="reference internal" href="#available-security-checks">Available Security Checks</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="#injection-attacks">Injection Attacks</a></li>
-<li class="toctree-l4"><a class="reference internal" href="#authentication-issues">Authentication Issues</a></li>
-<li class="toctree-l4"><a class="reference internal" href="#dangerous-function-usage">Dangerous Function Usage</a></li>
-</ul>
-</li>
-<li class="toctree-l3"><a class="reference internal" href="#output-formats">Output Formats</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="#text-default">Text (default)</a></li>
-<li class="toctree-l4"><a class="reference internal" href="#json-programmatic">JSON (programmatic)</a></li>
-<li class="toctree-l4"><a class="reference internal" href="#sarif-ci-cd-integration">SARIF (CI/CD integration)</a></li>
-</ul>
-</li>
-<li class="toctree-l3"><a class="reference internal" href="#understanding-findings">Understanding Findings</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="#severity-levels">Severity Levels</a></li>
-</ul>
-</li>
-<li class="toctree-l3"><a class="reference internal" href="#remediation-examples">Remediation Examples</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="#sql-injection">SQL Injection</a></li>
-<li class="toctree-l4"><a class="reference internal" href="#hardcoded-credentials">Hardcoded Credentials</a></li>
-<li class="toctree-l4"><a class="reference internal" href="#deprecated-cryptography">Deprecated Cryptography</a></li>
-</ul>
-</li>
-<li class="toctree-l3"><a class="reference internal" href="#integrating-with-ci-cd">Integrating with CI/CD</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="#github-actions">GitHub Actions</a></li>
-<li class="toctree-l4"><a class="reference internal" href="#gitlab-ci">GitLab CI</a></li>
-</ul>
-</li>
-<li class="toctree-l3"><a class="reference internal" href="#troubleshooting">Troubleshooting</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="#issue-false-positives">Issue: False positives</a></li>
-<li class="toctree-l4"><a class="reference internal" href="#issue-missing-findings">Issue: Missing findings</a></li>
-<li class="toctree-l4"><a class="reference internal" href="#issue-performance-issues">Issue: Performance issues</a></li>
-</ul>
-</li>
-</ul>
-</li>
-<li class="toctree-l2"><a class="reference internal" href="customize-analysis.html">How to Customize Analysis</a></li>
-<li class="toctree-l2"><a class="reference internal" href="integrate-with-build-systems.html">Integrate with Build Systems</a></li>
-<li class="toctree-l2"><a class="reference internal" href="visualize-results.html">How to Visualize Results</a></li>
-<li class="toctree-l2"><a class="reference internal" href="debug-analysis-issues.html">How to Debug Analysis Issues</a></li>
 </ul>
 </li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Explanations</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../explanation/index.html">Explanations</a></li>
-</ul>
-<p class="caption" role="heading"><span class="caption-text">A3 Python</span></p>
-<ul>
-<li class="toctree-l1"><a class="reference internal" href="../a3_python/index.html"><code class="docutils literal notranslate"><span class="pre">a3_python</span></code></a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Reference</span></p>
 <ul>
@@ -240,7 +186,7 @@ vulnerabilities in your Python code.</p>
 </section>
 <section id="full-security-analysis">
 <h3>Full security analysis<a class="headerlink" href="#full-security-analysis" title="Link to this heading"></a></h3>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>security<span class="w"> </span>input.py<span class="w"> </span>--engine<span class="w"> </span>cpa
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>security<span class="w"> </span>input.py<span class="w"> </span>--engine<span class="w"> </span>ast-dataflow
 </pre></div>
 </div>
 </section>
@@ -248,7 +194,7 @@ vulnerabilities in your Python code.</p>
 <h3>Specific security engines<a class="headerlink" href="#specific-security-engines" title="Link to this heading"></a></h3>
 <p>Run with a specific analysis engine:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>security<span class="w"> </span>input.py<span class="w"> </span>--engine<span class="w"> </span>ast-scanner
-pyflow<span class="w"> </span>security<span class="w"> </span>input.py<span class="w"> </span>--engine<span class="w"> </span>cpa
+pyflow<span class="w"> </span>security<span class="w"> </span>input.py<span class="w"> </span>--engine<span class="w"> </span>ast-dataflow
 pyflow<span class="w"> </span>security<span class="w"> </span>input.py<span class="w"> </span>--engine<span class="w"> </span>ifds<span class="w"> </span>--function<span class="w"> </span>main<span class="w"> </span>--sources<span class="w"> </span>input<span class="w"> </span>--sinks<span class="w"> </span><span class="nb">eval</span>
 pyflow<span class="w"> </span>security<span class="w"> </span>input.py<span class="w"> </span>--engine<span class="w"> </span>cpg<span class="w"> </span>--framework<span class="w"> </span>flask
 </pre></div>

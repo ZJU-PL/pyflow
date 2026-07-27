@@ -3,9 +3,9 @@ Constraint-based Analysis (CPA)
 
 PyFlow's Constraint-based Analysis (CPA) is a sophisticated inter-procedural analysis system that uses constraint solving to perform precise analysis of Python objects, types, and their relationships. Unlike traditional points-to analysis, CPA models program behavior through a system of constraints that are iteratively solved to determine object aliasing, type information, and data flow properties.
 
-===============
+========================================
 Overview
-===============
+========================================
 
 CPA operates by:
 
@@ -16,9 +16,9 @@ CPA operates by:
 
 This constraint-based approach allows PyFlow to handle Python's dynamic nature while providing precise static analysis information.
 
-===============
+========================================
 Core Concepts
-===============
+========================================
 
 Constraint System
 -----------------
@@ -49,9 +49,9 @@ CPA maintains separate analysis contexts for different calling situations:
 - **Context-sensitive Analysis**: Distinguishes between different calling contexts to provide precise analysis
 - **Context Merging**: Combines information from multiple contexts when appropriate
 
-===============
+========================================
 Constraint Types
-===============
+========================================
 
 AssignmentConstraint
 --------------------
@@ -63,7 +63,7 @@ Models variable assignments and data flow between program variables:
    x = y  # Creates AssignmentConstraint(source=y, dest=x)
 
 IsConstraint
------------
+----------------------------------------
 
 Models type checking and conditional operations:
 
@@ -82,7 +82,7 @@ Model memory operations and object field access:
    x = obj.field      # Creates LoadConstraint
 
 AllocateConstraint
------------------
+----------------------------------------
 
 Models object creation and allocation:
 
@@ -99,9 +99,9 @@ Models function calls with context sensitivity:
 
    result = func(x, y)  # Creates CallConstraint with context information
 
-===============
+========================================
 Analysis Process
-===============
+========================================
 
 1. **Program Extraction**
    - Parse Python code into AST representation

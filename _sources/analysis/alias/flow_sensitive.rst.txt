@@ -25,29 +25,24 @@ through ``PointsToGraph``. Detectors can use ``degradations_at()``,
 How the analysis differs from shape and storegraph
 --------------------------------------------------
 
-+-----------------+--------------------------------------+----------------------------------------+
-| Module          | Purpose                              | Runs on                                |
-+=================+======================================+========================================+
-| flow-sensitive  | Canonical locations, alias tracking, | CFG supergraph (e.g., IFDS)            |
-| alias analysis  | strong/weak update policy.  Primarily|                                        |
-|                 | consumed by IFDS clients (taint,     |                                        |
-|                 | nullness, typestate).  Precision is  |                                        |
-|                 | fixed before solving.                |                                        |
-+-----------------+--------------------------------------+----------------------------------------+
-| ``shape``       | Region-based data-structure          | Store graph, post-CPA pipeline         |
-|                 | inference.  Tracks object shapes,    |                                        |
-|                 | reference counts, path information   |                                        |
-|                 | via iterative fixed-point refinement |                                        |
-|                 | using CPA points-to results.         |                                        |
-+-----------------+--------------------------------------+----------------------------------------+
-| ``storegraph``  | Foundational data model: objects,    | Shared by CPA, IPA, shape, lifetime    |
-|                 | slots, regions.  Represents           |                                        |
-|                 | points-to relationships.             |                                        |
-+-----------------+--------------------------------------+----------------------------------------+
-| ``lifetimeanalysis`` | Read/modify and variable lifetime | Store graph, post-shape pipeline       |
-|                      | tracking.  Uses CPA and shape     |                                        |
-|                      | results.                           |                                        |
-+-----------------+--------------------------------------+----------------------------------------+
+.. list-table::
+   :header-rows: 1
+
+   * - Module
+     - Purpose
+     - Runs on
+   * - Flow-sensitive alias analysis
+     - Canonical locations and strong/weak updates; primarily consumed by IFDS clients.
+     - CFG supergraph (for example, IFDS)
+   * - ``shape``
+     - Region-based data-structure inference, including reference counts and paths.
+     - Store graph, after CPA
+   * - ``storegraph``
+     - Foundational model for objects, slots, regions, and points-to relationships.
+     - Shared by CPA, IPA, shape, and lifetime analysis
+   * - ``lifetimeanalysis``
+     - Read/modify and variable-lifetime tracking using CPA and shape results.
+     - Store graph, after shape analysis
 
 In short, the flow-sensitive alias analysis answers *"which abstract
 locations does this fact refer to, and can I strong-update it?"* **shape** answers *"what structural

@@ -20,7 +20,7 @@
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" />
     <link rel="next" title="PyFlow API" href="api.html" />
-    <link rel="prev" title="Package Map" href="a3_python/package-map.html" /> 
+    <link rel="prev" title="Best Practices" href="explanation/best-practices.html" /> 
 </head>
 
 <body class="wy-body-for-nav"> 
@@ -58,10 +58,6 @@
 <p class="caption" role="heading"><span class="caption-text">Explanations</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="explanation/index.html">Explanations</a></li>
-</ul>
-<p class="caption" role="heading"><span class="caption-text">A3 Python</span></p>
-<ul>
-<li class="toctree-l1"><a class="reference internal" href="a3_python/index.html"><code class="docutils literal notranslate"><span class="pre">a3_python</span></code></a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Reference</span></p>
 <ul class="current">
@@ -241,12 +237,13 @@ well-known filenames (<code class="docutils literal notranslate"><span class="pr
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">pyflow</span> <span class="n">security</span> <span class="nb">input</span><span class="o">.</span><span class="n">py</span>
 <span class="n">pyflow</span> <span class="n">security</span> <span class="n">package</span><span class="o">/</span> <span class="o">--</span><span class="n">recursive</span>
 <span class="n">pyflow</span> <span class="n">security</span> <span class="n">src</span><span class="o">/</span> <span class="o">-</span><span class="n">v</span> <span class="o">--</span><span class="n">exclude</span> <span class="n">tests</span><span class="o">/</span>
+<span class="n">pyflow</span> <span class="n">security</span> <span class="nb">input</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">engine</span> <span class="n">ast</span><span class="o">-</span><span class="n">dataflow</span>
 <span class="n">pyflow</span> <span class="n">security</span> <span class="nb">input</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">engine</span> <span class="n">ifds</span> <span class="o">--</span><span class="n">function</span> <span class="n">main</span> <span class="o">--</span><span class="n">sources</span> <span class="nb">input</span> <span class="o">--</span><span class="n">sinks</span> <span class="nb">eval</span>
 <span class="n">pyflow</span> <span class="n">security</span> <span class="nb">input</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">engine</span> <span class="n">cpg</span> <span class="o">--</span><span class="n">framework</span> <span class="n">flask</span>
 </pre></div>
 </div>
 <p>Options:
-- <code class="docutils literal notranslate"><span class="pre">--engine</span></code>: Analysis engine (<code class="docutils literal notranslate"><span class="pre">ast-scanner</span></code>, <code class="docutils literal notranslate"><span class="pre">cpa</span></code>, <code class="docutils literal notranslate"><span class="pre">ifds</span></code>, or <code class="docutils literal notranslate"><span class="pre">cpg</span></code>)
+- <code class="docutils literal notranslate"><span class="pre">--engine</span></code>: Analysis engine (<code class="docutils literal notranslate"><span class="pre">ast-scanner</span></code>, <code class="docutils literal notranslate"><span class="pre">ast-dataflow</span></code>, <code class="docutils literal notranslate"><span class="pre">ifds</span></code>, or <code class="docutils literal notranslate"><span class="pre">cpg</span></code>)
 - <code class="docutils literal notranslate"><span class="pre">--config</span></code>: JSON config file for IFDS analysis parameters (e.g., solver budgets, trace mode)
 - <code class="docutils literal notranslate"><span class="pre">--sources</span></code> / <code class="docutils literal notranslate"><span class="pre">--sinks</span></code> / <code class="docutils literal notranslate"><span class="pre">--sanitizers</span></code>: Function names for taint-style dataflow checks
 - <code class="docutils literal notranslate"><span class="pre">--function</span></code>: Entry function for the IFDS engine
@@ -260,15 +257,19 @@ well-known filenames (<code class="docutils literal notranslate"><span class="pr
 - <code class="docutils literal notranslate"><span class="pre">--ifds-max-facts-per-node</span></code> / <code class="docutils literal notranslate"><span class="pre">--ifds-max-contexts-per-procedure</span></code>: Precision/cardinality budgets
 - <code class="docutils literal notranslate"><span class="pre">--ifds-context-depth</span></code>: Maximum call-string depth
 - <code class="docutils literal notranslate"><span class="pre">--ifds-trace-mode</span></code>: Retain no traces, finding traces, or all traces
+- <code class="docutils literal notranslate"><span class="pre">--cpg-max-seconds</span></code> / <code class="docutils literal notranslate"><span class="pre">--cpg-max-states</span></code>: CPG time and state budgets; exhaustion is reported as <code class="docutils literal notranslate"><span class="pre">partial</span></code>
+- <code class="docutils literal notranslate"><span class="pre">--cpg-context-depth</span></code>: Maximum CPG call-string depth (default: 3)
 - <code class="docutils literal notranslate"><span class="pre">--framework</span></code>: Framework rule packs for the CPG engine
-- <code class="docutils literal notranslate"><span class="pre">--format</span></code>: Output format (<code class="docutils literal notranslate"><span class="pre">text</span></code>, <code class="docutils literal notranslate"><span class="pre">json</span></code>, or <code class="docutils literal notranslate"><span class="pre">sarif</span></code>)
+- <code class="docutils literal notranslate"><span class="pre">--format</span></code>: Output format: <code class="docutils literal notranslate"><span class="pre">text</span></code>, <code class="docutils literal notranslate"><span class="pre">json</span></code>, <code class="docutils literal notranslate"><span class="pre">sarif</span></code>, <code class="docutils literal notranslate"><span class="pre">csv</span></code>, <code class="docutils literal notranslate"><span class="pre">custom</span></code>, <code class="docutils literal notranslate"><span class="pre">html</span></code>, <code class="docutils literal notranslate"><span class="pre">screen</span></code>, <code class="docutils literal notranslate"><span class="pre">xml</span></code>, or <code class="docutils literal notranslate"><span class="pre">yaml</span></code>.
 - <code class="docutils literal notranslate"><span class="pre">--output</span></code>: Output file path
 - <code class="docutils literal notranslate"><span class="pre">-r,</span> <span class="pre">--recursive</span></code>: Scan directories recursively
 - <code class="docutils literal notranslate"><span class="pre">-v,</span> <span class="pre">--verbose</span></code>: Verbose output
 - <code class="docutils literal notranslate"><span class="pre">-d,</span> <span class="pre">--debug</span></code>: Debug output
 - <code class="docutils literal notranslate"><span class="pre">--exclude</span></code>: Comma-separated list of paths to exclude</p>
 <p>The default <code class="docutils literal notranslate"><span class="pre">ast-scanner</span></code> engine is a fast pattern-based checker. The command
-can also dispatch to CPA, IFDS, and CPG-backed security engines.</p>
+can also dispatch to AST-dataflow, IFDS, and CPG-backed security engines. The
+AST-dataflow and CPG JSON/SARIF output includes an explicit <code class="docutils literal notranslate"><span class="pre">complete</span></code> or
+<code class="docutils literal notranslate"><span class="pre">partial</span></code> status plus diagnostics when limitations affect completeness.</p>
 </section>
 </section>
 <section id="supply-chain-command">
@@ -394,7 +395,7 @@ evidence; absence of an import is explicitly not treated as proof of safety</p><
            </div>
           </div>
           <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
-        <a href="a3_python/package-map.html" class="btn btn-neutral float-left" title="Package Map" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="explanation/best-practices.html" class="btn btn-neutral float-left" title="Best Practices" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
         <a href="api.html" class="btn btn-neutral float-right" title="PyFlow API" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
     </div>
 

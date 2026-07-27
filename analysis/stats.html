@@ -59,10 +59,6 @@
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../explanation/index.html">Explanations</a></li>
 </ul>
-<p class="caption" role="heading"><span class="caption-text">A3 Python</span></p>
-<ul>
-<li class="toctree-l1"><a class="reference internal" href="../a3_python/index.html"><code class="docutils literal notranslate"><span class="pre">a3_python</span></code></a></li>
-</ul>
 <p class="caption" role="heading"><span class="caption-text">Reference</span></p>
 <ul class="current">
 <li class="toctree-l1"><a class="reference internal" href="../cli.html">Main Commands</a></li>
@@ -80,6 +76,7 @@
 <li class="toctree-l2"><a class="reference internal" href="index.html#json-output">JSON Output</a></li>
 <li class="toctree-l2 current"><a class="reference internal" href="index.html#sarif-output">SARIF Output</a><ul class="current">
 <li class="toctree-l3"><a class="reference internal" href="callgraph.html">Call Graph Analysis</a></li>
+<li class="toctree-l3"><a class="reference internal" href="cfl.html">Context-Free-Language Reachability</a></li>
 <li class="toctree-l3"><a class="reference internal" href="fsdf.html">Flow-Sensitive Data Flow (FSDF)</a></li>
 <li class="toctree-l3"><a class="reference internal" href="ipa.html">Inter-procedural Analysis (IPA)</a></li>
 <li class="toctree-l3"><a class="reference internal" href="cpa.html">Constraint-based Analysis (CPA)</a></li>
@@ -188,19 +185,19 @@ runs to measure optimization effectiveness</p></li>
 context counts, operation frequencies, and variable access patterns.</p>
 <dl class="py method">
 <dt class="sig sig-object py" id="StatCollector.code">
-<span class="sig-name descname"><span class="pre">code</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">cls</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">code</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#StatCollector.code" title="Link to this definition"></a></dt>
+<span class="sig-name descname"><span class="pre">code</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">cls</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">code</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#StatCollector.code" title="Link to this definition"></a></dt>
 <dd><p>Record a function code object for classification counting.</p>
 </dd></dl>
 
 <dl class="py method">
 <dt class="sig sig-object py" id="StatCollector.op">
-<span class="sig-name descname"><span class="pre">op</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">cls</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">code</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">op</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#StatCollector.op" title="Link to this definition"></a></dt>
+<span class="sig-name descname"><span class="pre">op</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">cls</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">code</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">op</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#StatCollector.op" title="Link to this definition"></a></dt>
 <dd><p>Record an individual AST operation for frequency counting.</p>
 </dd></dl>
 
 <dl class="py method">
 <dt class="sig sig-object py" id="StatCollector.copies">
-<span class="sig-name descname"><span class="pre">copies</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">cls</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">code</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">count</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span></em><span class="sig-paren">)</span><a class="headerlink" href="#StatCollector.copies" title="Link to this definition"></a></dt>
+<span class="sig-name descname"><span class="pre">copies</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">cls</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">code</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">count</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#StatCollector.copies" title="Link to this definition"></a></dt>
 <dd><p>Record synthetic copy-local operations introduced by optimization.</p>
 </dd></dl>
 
@@ -212,7 +209,7 @@ context counts, operation frequencies, and variable access patterns.</p>
 
 <dl class="py method">
 <dt class="sig sig-object py" id="StatCollector.contextOps">
-<span class="sig-name descname"><span class="pre">contextOps</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.14)"><span class="pre">dict</span></a></span></span><a class="headerlink" href="#StatCollector.contextOps" title="Link to this definition"></a></dt>
+<span class="sig-name descname"><span class="pre">contextOps</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">dict</span></span></span><a class="headerlink" href="#StatCollector.contextOps" title="Link to this definition"></a></dt>
 <dd><p>Return context-weighted operation counts indexed by operation type name.</p>
 </dd></dl>
 
@@ -220,7 +217,7 @@ context counts, operation frequencies, and variable access patterns.</p>
 
 <dl class="py function">
 <dt class="sig sig-object py" id="contextStats">
-<span class="sig-name descname"><span class="pre">contextStats</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">compiler</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">prgm</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">name</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">classOK</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="#StatCollector" title="StatCollector"><span class="pre">StatCollector</span></a></span></span><a class="headerlink" href="#contextStats" title="Link to this definition"></a></dt>
+<span class="sig-name descname"><span class="pre">contextStats</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">compiler</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">prgm</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">name</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">classOK</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="#StatCollector" title="StatCollector"><span class="pre">StatCollector</span></a></span></span><a class="headerlink" href="#contextStats" title="Link to this definition"></a></dt>
 <dd><p>Run the full statistics pipeline for a program.  Requires
 <code class="docutils literal notranslate"><span class="pre">config.dumpStats</span></code> to be <code class="docutils literal notranslate"><span class="pre">True</span></code>.  Generates LaTeX tables and an index
 file in <code class="docutils literal notranslate"><span class="pre">outputDirectory/stats/{name}/</span></code>.</p>
@@ -257,14 +254,14 @@ tables.</p></li>
 
 <dl class="py function">
 <dt class="sig sig-object py" id="opRatios">
-<span class="sig-name descname"><span class="pre">opRatios</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">collect</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#StatCollector" title="StatCollector"><span class="pre">StatCollector</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">classOK</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><span class="pre">bool</span></a></span></em><span class="sig-paren">)</span><a class="headerlink" href="#opRatios" title="Link to this definition"></a></dt>
+<span class="sig-name descname"><span class="pre">opRatios</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">collect</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#StatCollector" title="StatCollector"><span class="pre">StatCollector</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">classOK</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#opRatios" title="Link to this definition"></a></dt>
 <dd><p>Generate <code class="docutils literal notranslate"><span class="pre">op-ratios.tex</span></code> — a LaTeX table comparing raw operation
 counts against context-weighted counts.</p>
 </dd></dl>
 
 <dl class="py function">
 <dt class="sig sig-object py" id="functionRatios">
-<span class="sig-name descname"><span class="pre">functionRatios</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">collect</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#StatCollector" title="StatCollector"><span class="pre">StatCollector</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">classOK</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><span class="pre">bool</span></a></span></em><span class="sig-paren">)</span><a class="headerlink" href="#functionRatios" title="Link to this definition"></a></dt>
+<span class="sig-name descname"><span class="pre">functionRatios</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">collect</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#StatCollector" title="StatCollector"><span class="pre">StatCollector</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">classOK</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#functionRatios" title="Link to this definition"></a></dt>
 <dd><p>Generate <code class="docutils literal notranslate"><span class="pre">context-ratios.tex</span></code> — a LaTeX table comparing function
 counts against context-weighted function counts.</p>
 </dd></dl>

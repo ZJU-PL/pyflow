@@ -1,8 +1,8 @@
 .. _how-to-optimize-code:
 
-==================
+========================================
 How to Optimize Code
-==================
+========================================
 
 This guide explains how to use PyFlow's optimization passes to improve the
 performance of your Python programs.

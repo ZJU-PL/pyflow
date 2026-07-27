@@ -16,11 +16,3 @@ understand how to use PyFlow effectively for static analysis and optimization.
     analyzing-python-code
     optimizing-python-programs
     understanding-analysis-results
-
-.. toctree::
-    :hidden:
-
-    getting-started
-    analyzing-python-code
-    optimizing-python-programs
-    understanding-analysis-results

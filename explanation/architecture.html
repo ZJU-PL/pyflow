@@ -97,51 +97,8 @@
 <li class="toctree-l2"><a class="reference internal" href="design-decisions.html">Design Decisions</a></li>
 <li class="toctree-l2"><a class="reference internal" href="analysis-comparison.html">Analysis Comparison</a></li>
 <li class="toctree-l2"><a class="reference internal" href="best-practices.html">Best Practices</a></li>
-<li class="toctree-l2 current"><a class="current reference internal" href="#">Architecture</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="#system-overview">System Overview</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#frontend-layer">Frontend Layer</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="#components">Components</a></li>
 </ul>
 </li>
-<li class="toctree-l3"><a class="reference internal" href="#ir-layer">IR Layer</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="#control-flow-graph-cfg">Control Flow Graph (CFG)</a></li>
-<li class="toctree-l4"><a class="reference internal" href="#data-flow-ir">Data Flow IR</a></li>
-<li class="toctree-l4"><a class="reference internal" href="#store-graph">Store Graph</a></li>
-</ul>
-</li>
-<li class="toctree-l3"><a class="reference internal" href="#analysis-layer">Analysis Layer</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="#constraint-based-analysis-cpa">Constraint-Based Analysis (CPA)</a></li>
-<li class="toctree-l4"><a class="reference internal" href="#inter-procedural-analysis-ipa">Inter-Procedural Analysis (IPA)</a></li>
-<li class="toctree-l4"><a class="reference internal" href="#shape-analysis">Shape Analysis</a></li>
-<li class="toctree-l4"><a class="reference internal" href="#call-graph-analysis">Call Graph Analysis</a></li>
-</ul>
-</li>
-<li class="toctree-l3"><a class="reference internal" href="#optimization-layer">Optimization Layer</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="#optimization-passes">Optimization Passes</a></li>
-<li class="toctree-l4"><a class="reference internal" href="#pass-manager">Pass Manager</a></li>
-</ul>
-</li>
-<li class="toctree-l3"><a class="reference internal" href="#application-layer">Application Layer</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="#analysis-pipeline">Analysis Pipeline</a></li>
-<li class="toctree-l4"><a class="reference internal" href="#analysis-context">Analysis Context</a></li>
-</ul>
-</li>
-<li class="toctree-l3"><a class="reference internal" href="#data-flow">Data Flow</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#key-design-principles">Key Design Principles</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#trade-offs">Trade-offs</a></li>
-</ul>
-</li>
-<li class="toctree-l2"><a class="reference internal" href="algorithms.html">Algorithms</a></li>
-<li class="toctree-l2"><a class="reference internal" href="memory-reasoning.html">Memory Reasoning Systems</a></li>
-<li class="toctree-l2"><a class="reference internal" href="design-decisions.html">Design Decisions</a></li>
-<li class="toctree-l2"><a class="reference internal" href="analysis-comparison.html">Analysis Comparison</a></li>
-<li class="toctree-l2"><a class="reference internal" href="best-practices.html">Best Practices</a></li>
-</ul>
-</li>
-</ul>
-<p class="caption" role="heading"><span class="caption-text">A3 Python</span></p>
-<ul>
-<li class="toctree-l1"><a class="reference internal" href="../a3_python/index.html"><code class="docutils literal notranslate"><span class="pre">a3_python</span></code></a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Reference</span></p>
 <ul>
@@ -201,7 +158,6 @@ its modular design, key components, and how they interact.</p>
 <h2>System Overview<a class="headerlink" href="#system-overview" title="Link to this heading"></a></h2>
 <p>PyFlow is built around a modular architecture that separates concerns into
 distinct layers:</p>
-<img alt="PyFlow Architecture Overview" class="align-center" src="explanation/architecture-diagram.png" />
 <p>The architecture consists of five main layers:</p>
 <ol class="arabic simple">
 <li><p><strong>Frontend Layer</strong>: Parses and preprocesses Python code</p></li>

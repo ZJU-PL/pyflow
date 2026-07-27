@@ -6,7 +6,7 @@
   <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Variable Lifetime Analysis &mdash; pyflow 0.1.0 documentation</title>
+  <title>Context-Free-Language Reachability &mdash; pyflow 0.1.0 documentation</title>
       <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
       <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=9edc463e" />
 
@@ -19,8 +19,8 @@
     <script src="../_static/js/theme.js"></script>
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="IFDS/IDE Data Flow Engine" href="ifds.html" />
-    <link rel="prev" title="Shape Analysis" href="shape.html" /> 
+    <link rel="next" title="Flow-Sensitive Data Flow (FSDF)" href="fsdf.html" />
+    <link rel="prev" title="Call Graph Analysis" href="callgraph.html" /> 
 </head>
 
 <body class="wy-body-for-nav"> 
@@ -76,18 +76,13 @@
 <li class="toctree-l2"><a class="reference internal" href="index.html#json-output">JSON Output</a></li>
 <li class="toctree-l2 current"><a class="reference internal" href="index.html#sarif-output">SARIF Output</a><ul class="current">
 <li class="toctree-l3"><a class="reference internal" href="callgraph.html">Call Graph Analysis</a></li>
-<li class="toctree-l3"><a class="reference internal" href="cfl.html">Context-Free-Language Reachability</a></li>
+<li class="toctree-l3 current"><a class="current reference internal" href="#">Context-Free-Language Reachability</a></li>
 <li class="toctree-l3"><a class="reference internal" href="fsdf.html">Flow-Sensitive Data Flow (FSDF)</a></li>
 <li class="toctree-l3"><a class="reference internal" href="ipa.html">Inter-procedural Analysis (IPA)</a></li>
 <li class="toctree-l3"><a class="reference internal" href="cpa.html">Constraint-based Analysis (CPA)</a></li>
 <li class="toctree-l3"><a class="reference internal" href="alias/index.html">Alias Analysis</a></li>
 <li class="toctree-l3"><a class="reference internal" href="shape.html">Shape Analysis</a></li>
-<li class="toctree-l3 current"><a class="current reference internal" href="#">Variable Lifetime Analysis</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="#analysis-domains">Analysis Domains</a></li>
-<li class="toctree-l4"><a class="reference internal" href="#lifetime-properties">Lifetime Properties</a></li>
-<li class="toctree-l4"><a class="reference internal" href="#applications">Applications</a></li>
-</ul>
-</li>
+<li class="toctree-l3"><a class="reference internal" href="lifetimeanalysis.html">Variable Lifetime Analysis</a></li>
 <li class="toctree-l3"><a class="reference internal" href="ifds.html">IFDS/IDE Data Flow Engine</a></li>
 <li class="toctree-l3"><a class="reference internal" href="typeinfo.html">Type Information System</a></li>
 <li class="toctree-l3"><a class="reference internal" href="numbering.html">Program Point Numbering</a></li>
@@ -125,9 +120,9 @@
   <ul class="wy-breadcrumbs">
       <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
           <li class="breadcrumb-item"><a href="index.html">Analysis Modules</a></li>
-      <li class="breadcrumb-item active">Variable Lifetime Analysis</li>
+      <li class="breadcrumb-item active">Context-Free-Language Reachability</li>
       <li class="wy-breadcrumbs-aside">
-            <a href="../_sources/analysis/lifetimeanalysis.rst.txt" rel="nofollow"> View page source</a>
+            <a href="../_sources/analysis/cfl.rst.txt" rel="nofollow"> View page source</a>
       </li>
   </ul>
   <hr/>
@@ -135,56 +130,26 @@
           <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
            <div itemprop="articleBody">
              
-  <section id="variable-lifetime-analysis">
-<h1>Variable Lifetime Analysis<a class="headerlink" href="#variable-lifetime-analysis" title="Link to this heading"></a></h1>
-<p>Lifetime analysis tracks when variables are created, used, and destroyed, enabling memory management and optimization.</p>
-<section id="analysis-domains">
-<h2>Analysis Domains<a class="headerlink" href="#analysis-domains" title="Link to this heading"></a></h2>
-<section id="read-modify-analysis">
-<h3>Read/Modify Analysis<a class="headerlink" href="#read-modify-analysis" title="Link to this heading"></a></h3>
-<ul class="simple">
-<li><p><strong>Read Operations</strong>: Identifies variable read points</p></li>
-<li><p><strong>Modify Operations</strong>: Tracks variable write operations</p></li>
-<li><p><strong>Lifetime Ranges</strong>: Determines variable live ranges</p></li>
-<li><p><strong>Dead Store Detection</strong>: Finds unnecessary assignments</p></li>
-</ul>
-</section>
-<section id="database-structure">
-<h3>Database Structure<a class="headerlink" href="#database-structure" title="Link to this heading"></a></h3>
-<ul class="simple">
-<li><p><strong>Lattice-based Analysis</strong>: Uses lattice theory for precision</p></li>
-<li><p><strong>Mapping Structures</strong>: Efficient storage of lifetime information</p></li>
-<li><p><strong>Tuple Sets</strong>: Complex lifetime relationship tracking</p></li>
-<li><p><strong>Incremental Updates</strong>: Updates analysis as code changes</p></li>
-</ul>
-</section>
-</section>
-<section id="lifetime-properties">
-<h2>Lifetime Properties<a class="headerlink" href="#lifetime-properties" title="Link to this heading"></a></h2>
-<ul class="simple">
-<li><p><strong>Live Variables</strong>: Variables that may be read before reassignment</p></li>
-<li><p><strong>Dead Variables</strong>: Variables that are no longer needed</p></li>
-<li><p><strong>Lifetime Holes</strong>: Gaps in variable lifetime due to control flow</p></li>
-<li><p><strong>Escaping Variables</strong>: Variables that outlive their scope</p></li>
-</ul>
-</section>
-<section id="applications">
-<h2>Applications<a class="headerlink" href="#applications" title="Link to this heading"></a></h2>
-<ul class="simple">
-<li><p><strong>Memory Management</strong>: Optimize heap allocations</p></li>
-<li><p><strong>Register Allocation</strong>: Compiler register assignment</p></li>
-<li><p><strong>Dead Code Elimination</strong>: Remove unused variable operations</p></li>
-<li><p><strong>Optimization</strong>: Lifetime-aware code transformations</p></li>
-</ul>
-</section>
+  <section id="context-free-language-reachability">
+<h1>Context-Free-Language Reachability<a class="headerlink" href="#context-free-language-reachability" title="Link to this heading"></a></h1>
+<p>The <code class="docutils literal notranslate"><span class="pre">pyflow.util.cfl</span></code> package provides experimental context-free-language
+(CFL) reachability utilities. It is a low-level library for analyses that need
+to query paths constrained by a grammar; it is not exposed by the <code class="docutils literal notranslate"><span class="pre">pyflow</span></code>
+command-line interface.</p>
+<p>The package contains graph, grammar, matrix, and solver implementations, plus
+demonstration inputs under <code class="docutils literal notranslate"><span class="pre">pyflow.util.cfl.demo</span></code>. Its API is still evolving,
+so consumers should import the specific implementation they need and pin their
+PyFlow revision rather than treating it as a stable public interface.</p>
+<p>For usage examples, see <code class="docutils literal notranslate"><span class="pre">src/pyflow/util/cfl/README.md</span></code> and the accompanying
+<code class="docutils literal notranslate"><span class="pre">demo/</span></code> directory in the source tree.</p>
 </section>
 
 
            </div>
           </div>
           <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
-        <a href="shape.html" class="btn btn-neutral float-left" title="Shape Analysis" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
-        <a href="ifds.html" class="btn btn-neutral float-right" title="IFDS/IDE Data Flow Engine" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+        <a href="callgraph.html" class="btn btn-neutral float-left" title="Call Graph Analysis" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="fsdf.html" class="btn btn-neutral float-right" title="Flow-Sensitive Data Flow (FSDF)" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
     </div>
 
   <hr/>

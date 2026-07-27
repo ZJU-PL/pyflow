@@ -206,7 +206,7 @@ Summary
 +-----------------+-------------+---------------------------+------------------+---------------------------+
 | k-CFA           | standalone  | Variables → pts-to sets   | k-CFA / k-obj    | Source-level points-to +  |
 |                 |             |                           | / hybrid         | call graph                |
-+-----------------+-------------+---------------------------+---------------------------+
++-----------------+-------------+---------------------------+------------------+---------------------------+
 
 StoreGraph itself is **infrastructure**, not an analysis — it has no solver,
 no fixpoint loop, and is never invoked directly.  It is the shared heap model

@@ -58,10 +58,6 @@
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../explanation/index.html">Explanations</a></li>
 </ul>
-<p class="caption" role="heading"><span class="caption-text">A3 Python</span></p>
-<ul>
-<li class="toctree-l1"><a class="reference internal" href="../a3_python/index.html"><code class="docutils literal notranslate"><span class="pre">a3_python</span></code></a></li>
-</ul>
 <p class="caption" role="heading"><span class="caption-text">Reference</span></p>
 <ul class="current">
 <li class="toctree-l1"><a class="reference internal" href="../cli.html">Main Commands</a></li>
@@ -85,21 +81,14 @@
 <li class="toctree-l1"><a class="reference internal" href="#checker-categories">Checker Categories</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="#web-framework-security">Web Framework Security</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#aws-cloud-security">AWS Cloud Security</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#ym-code-safety">YM|Code Safety</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#code-safety">Code Safety</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="#analysis-framework">Analysis Framework</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="#pattern-based-checker-infrastructure">Pattern-Based Checker Infrastructure</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#semantic-checker-infrastructure">Semantic Checker Infrastructure</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#ast-dataflow-checker-infrastructure">AST Dataflow Checker Infrastructure</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#output-formatters">Output Formatters</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#llm-integration">LLM Integration</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#finding-quality">Finding Quality</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="#inline-suppression">Inline Suppression</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#baseline-management">Baseline Management</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#confidence-scoring">Confidence Scoring</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#security-guard-detection">Security Guard Detection</a></li>
-</ul>
-</li>
 <li class="toctree-l2"><a class="reference internal" href="#local-supply-chain-analysis">Local Supply-Chain Analysis</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="#sbom-generation">SBOM Generation</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#distribution-auditing">Distribution Auditing</a></li>
@@ -149,9 +138,9 @@
 simple pattern matching to identify common security vulnerabilities.
 Fast and suitable for quick scans.</p>
 </dd>
-<dt><strong>Semantic checker</strong> (<code class="docutils literal notranslate"><span class="pre">pyflow.checker.semantic</span></code>)</dt><dd><p>A deep analysis engine that leverages PyFlow’s full analysis pipeline
-(IPA/CPA, store graph, lifetime analysis) to perform context-sensitive
-vulnerability detection. More thorough but slower than pattern matching.</p>
+<dt><strong>AST dataflow checker</strong> (<code class="docutils literal notranslate"><span class="pre">pyflow.checker.ast_dataflow</span></code>)</dt><dd><p>An interprocedural taint engine that propagates typed source kinds over the
+Python AST and fixed-point function summaries. More thorough but slower than
+pattern matching.</p>
 </dd>
 </dl>
 </section>
@@ -262,8 +251,8 @@ MX|JQ|</p>
 - Validates STS assume role with external ID
 - Flags security group open ports</p>
 </section>
-<section id="ym-code-safety">
-<h2>YM|Code Safety<a class="headerlink" href="#ym-code-safety" title="Link to this heading"></a></h2>
+<section id="code-safety">
+<h2>Code Safety<a class="headerlink" href="#code-safety" title="Link to this heading"></a></h2>
 <p><strong>exec_use.py</strong>: Dangerous code execution
 - Identifies use of exec() and eval()
 - Detects dynamic code execution patterns
@@ -315,16 +304,16 @@ Object-Oriented Safety
 - AST pattern matching rules for various vulnerability types
 - Configurable blacklists and pattern definitions</p>
 </section>
-<section id="semantic-checker-infrastructure">
-<h2>Semantic Checker Infrastructure<a class="headerlink" href="#semantic-checker-infrastructure" title="Link to this heading"></a></h2>
-<p><strong>semantic/runner.py</strong>: Semantic checker orchestration
+<section id="ast-dataflow-checker-infrastructure">
+<h2>AST Dataflow Checker Infrastructure<a class="headerlink" href="#ast-dataflow-checker-infrastructure" title="Link to this heading"></a></h2>
+<p><strong>ast_dataflow/runner.py</strong>: AST dataflow checker orchestration
 - Runs the full PyFlow analysis pipeline
-- Coordinates semantic analysis passes (IPA/CPA/lifetime)
+- Coordinates supporting analysis passes (IPA/CPA/lifetime)
 - Feeds analysis results to detectors</p>
-<p><strong>semantic/detectors/</strong>: Semantic-based detectors
-- <strong>semantic_taint.py</strong>: Public semantic taint detector API
-- <strong>_semantic_taint.py</strong>: Taint propagation implementation
-- Uses semantic facts from PyFlow analyses rather than AST patterns</p>
+<p><strong>ast_dataflow/detectors/</strong>: AST dataflow detectors
+- <strong>taint.py</strong>: Public taint detector API
+- <strong>_taint_detector.py</strong> and supporting <code class="docutils literal notranslate"><span class="pre">_taint_*</span></code> modules: Taint propagation implementation
+- Uses dataflow facts and function summaries rather than AST patterns</p>
 </section>
 <section id="output-formatters">
 <h2>Output Formatters<a class="headerlink" href="#output-formatters" title="Link to this heading"></a></h2>
@@ -352,49 +341,9 @@ Object-Oriented Safety
 - Tests vulnerability hypotheses
 - Validates security issue impact</p>
 </section>
-<section id="finding-quality">
-<h2>Finding Quality<a class="headerlink" href="#finding-quality" title="Link to this heading"></a></h2>
-<p><strong>quality.py</strong>: Post-processing helpers for security findings (framework-independent)</p>
-<section id="inline-suppression">
-<h3>Inline Suppression<a class="headerlink" href="#inline-suppression" title="Link to this heading"></a></h3>
-<p>Suppress individual findings with <code class="docutils literal notranslate"><span class="pre">#</span> <span class="pre">pyflow:</span> <span class="pre">ignore</span></code> comments:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">user_input</span> <span class="o">=</span> <span class="n">request</span><span class="o">.</span><span class="n">args</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;q&quot;</span><span class="p">)</span>  <span class="c1"># pyflow: ignore B608 -- validated above</span>
-</pre></div>
-</div>
-<ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">parse_suppressions(source)</span></code> — Parse <code class="docutils literal notranslate"><span class="pre">#</span> <span class="pre">pyflow:</span> <span class="pre">ignore</span></code> directives by line number. Supports per-rule suppression (<code class="docutils literal notranslate"><span class="pre">#</span> <span class="pre">pyflow:</span> <span class="pre">ignore</span> <span class="pre">B608</span></code>) and bare suppression (<code class="docutils literal notranslate"><span class="pre">#</span> <span class="pre">pyflow:</span> <span class="pre">ignore</span></code>).</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">is_suppressed(issue,</span> <span class="pre">suppressions)</span></code> — Check whether an issue is covered by parsed suppressions.</p></li>
-<li><p>Bare suppressions (no rule ID) emit a <code class="docutils literal notranslate"><span class="pre">BareSuppressionWarning</span></code> when <code class="docutils literal notranslate"><span class="pre">warn_bare=True</span></code>.</p></li>
-</ul>
-</section>
-<section id="baseline-management">
-<h3>Baseline Management<a class="headerlink" href="#baseline-management" title="Link to this heading"></a></h3>
-<p>Freeze known findings and only report new ones:</p>
-<ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">BaselineStore</span></code> — Persistent set of issue fingerprints (BLAKE2b-based). <code class="docutils literal notranslate"><span class="pre">generate(issues)</span></code> creates a baseline; <code class="docutils literal notranslate"><span class="pre">load(path)</span></code> / <code class="docutils literal notranslate"><span class="pre">save(path)</span></code> persist to JSON; <code class="docutils literal notranslate"><span class="pre">filter_new(issues)</span></code> returns only issues not in the baseline.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">issue_fingerprint(issue)</span></code> — Stable BLAKE2b fingerprint from rule ID, file path, line number, and source text.</p></li>
-</ul>
-</section>
-<section id="confidence-scoring">
-<h3>Confidence Scoring<a class="headerlink" href="#confidence-scoring" title="Link to this heading"></a></h3>
-<ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">score_confidence(issue,</span> <span class="pre">has_taint_trace=…)</span></code> — Normalized confidence score (0.0–1.0) combining severity, base confidence, and taint evidence. Injection/auth issues without taint traces are penalized.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">confidence_level(score)</span></code> — Map a numeric score to HIGH/MEDIUM/LOW.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">apply_taint_aware_demotion(issue,</span> <span class="pre">has_taint_trace=…)</span></code> — Demote injection/auth issues when no semantic taint evidence backs them up.</p></li>
-</ul>
-</section>
-<section id="security-guard-detection">
-<h3>Security Guard Detection<a class="headerlink" href="#security-guard-detection" title="Link to this heading"></a></h3>
-<ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">find_security_guards(source)</span></code> — Extract auth-check and input-validation guards from <code class="docutils literal notranslate"><span class="pre">if</span></code> conditions and decorators (e.g., <code class="docutils literal notranslate"><span class="pre">&#64;login_required</span></code>, <code class="docutils literal notranslate"><span class="pre">isinstance()</span></code> checks).</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">is_guarded(issue,</span> <span class="pre">guards)</span></code> — Check whether an issue’s line is protected by a recognized guard.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">apply_guard_aware_demotion(issue,</span> <span class="pre">guards)</span></code> — Demote severity when a finding is structurally guarded.</p></li>
-</ul>
-</section>
-</section>
 <section id="local-supply-chain-analysis">
 <h2>Local Supply-Chain Analysis<a class="headerlink" href="#local-supply-chain-analysis" title="Link to this heading"></a></h2>
-<p><strong>supply_chain.py</strong>: Local-only supply-chain analysis for Python packages.</p>
+<p><strong>supply_chain/</strong>: Local-only supply-chain analysis package for Python packages.</p>
 <section id="sbom-generation">
 <h3>SBOM Generation<a class="headerlink" href="#sbom-generation" title="Link to this heading"></a></h3>
 <ul class="simple">
@@ -452,11 +401,11 @@ claims until the exact attestation has passed Sigstore identity verification.</p
 </section>
 <section id="configuration-and-testing">
 <h2>Configuration and Testing<a class="headerlink" href="#configuration-and-testing" title="Link to this heading"></a></h2>
-<p><strong>core/config.py</strong>: Configuration management
+<p><strong>pattern/core/config.py</strong>: Configuration management
 - Checker enable/disable settings
 - Severity threshold configuration
 - Custom rule definitions</p>
-<p><strong>core/test_loader.py</strong>: Test case management
+<p><strong>pattern/core/test_loader.py</strong>: Test case management
 - Loads security test cases
 - Manages false positive/negative testing
 - Benchmarking and validation</p>

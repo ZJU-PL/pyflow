@@ -59,10 +59,6 @@
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../explanation/index.html">Explanations</a></li>
 </ul>
-<p class="caption" role="heading"><span class="caption-text">A3 Python</span></p>
-<ul>
-<li class="toctree-l1"><a class="reference internal" href="../a3_python/index.html"><code class="docutils literal notranslate"><span class="pre">a3_python</span></code></a></li>
-</ul>
 <p class="caption" role="heading"><span class="caption-text">Reference</span></p>
 <ul class="current">
 <li class="toctree-l1"><a class="reference internal" href="../cli.html">Main Commands</a></li>
@@ -211,7 +207,7 @@ fields:</p>
 <section id="taint-analysis">
 <h2>Taint Analysis<a class="headerlink" href="#taint-analysis" title="Link to this heading"></a></h2>
 <p>The CPG has its own graph-based taint propagation algorithm, but consumes the
-same strict-v2 typed taint policy as the IFDS and semantic engines:</p>
+same strict-v2 typed taint policy as the IFDS and AST-dataflow engines:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.analysis.ifds.modeling.registry</span><span class="w"> </span><span class="kn">import</span> <span class="n">load_registry</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.ir.cpg.taint</span><span class="w"> </span><span class="kn">import</span> <span class="n">CPGTaintEngine</span>
 

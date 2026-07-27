@@ -107,61 +107,8 @@
 </li>
 <li class="toctree-l2"><a class="reference internal" href="analysis-comparison.html">Analysis Comparison</a></li>
 <li class="toctree-l2"><a class="reference internal" href="best-practices.html">Best Practices</a></li>
-<li class="toctree-l2"><a class="reference internal" href="architecture.html">Architecture</a></li>
-<li class="toctree-l2"><a class="reference internal" href="algorithms.html">Algorithms</a></li>
-<li class="toctree-l2"><a class="reference internal" href="memory-reasoning.html">Memory Reasoning Systems</a></li>
-<li class="toctree-l2 current"><a class="current reference internal" href="#">Design Decisions</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="#overview">Overview</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#analysis-precision-vs-performance">Analysis Precision vs. Performance</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="#decision-default-to-sound-possibly-imprecise-analysis">Decision: Default to Sound, Possibly Imprecise Analysis</a></li>
 </ul>
 </li>
-<li class="toctree-l3"><a class="reference internal" href="#context-sensitivity">Context Sensitivity</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="#decision-support-multiple-context-sensitivity-strategies">Decision: Support Multiple Context Sensitivity Strategies</a></li>
-</ul>
-</li>
-<li class="toctree-l3"><a class="reference internal" href="#ir-design">IR Design</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="#decision-use-multiple-ir-forms">Decision: Use Multiple IR Forms</a></li>
-</ul>
-</li>
-<li class="toctree-l3"><a class="reference internal" href="#optimization-pipeline">Optimization Pipeline</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="#decision-ordered-composable-passes">Decision: Ordered, Composable Passes</a></li>
-</ul>
-</li>
-<li class="toctree-l3"><a class="reference internal" href="#language-support">Language Support</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="#decision-python-first-design">Decision: Python-First Design</a></li>
-</ul>
-</li>
-<li class="toctree-l3"><a class="reference internal" href="#extensibility">Extensibility</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="#decision-plugin-architecture-for-extensions">Decision: Plugin Architecture for Extensions</a></li>
-</ul>
-</li>
-<li class="toctree-l3"><a class="reference internal" href="#cli-design">CLI Design</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="#decision-subcommand-based-cli">Decision: Subcommand-Based CLI</a></li>
-</ul>
-</li>
-<li class="toctree-l3"><a class="reference internal" href="#output-format-design">Output Format Design</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="#decision-multiple-output-formats">Decision: Multiple Output Formats</a></li>
-</ul>
-</li>
-<li class="toctree-l3"><a class="reference internal" href="#error-handling">Error Handling</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="#decision-graceful-degradation">Decision: Graceful Degradation</a></li>
-</ul>
-</li>
-<li class="toctree-l3"><a class="reference internal" href="#performance-trade-offs">Performance Trade-offs</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="#decision-configurable-analysis-depth">Decision: Configurable Analysis Depth</a></li>
-</ul>
-</li>
-</ul>
-</li>
-<li class="toctree-l2"><a class="reference internal" href="analysis-comparison.html">Analysis Comparison</a></li>
-<li class="toctree-l2"><a class="reference internal" href="best-practices.html">Best Practices</a></li>
-</ul>
-</li>
-</ul>
-<p class="caption" role="heading"><span class="caption-text">A3 Python</span></p>
-<ul>
-<li class="toctree-l1"><a class="reference internal" href="../a3_python/index.html"><code class="docutils literal notranslate"><span class="pre">a3_python</span></code></a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Reference</span></p>
 <ul>
@@ -235,6 +182,24 @@ implications.</p>
 <li><p>False positives are better than false negatives in most use cases</p></li>
 </ul>
 <p><strong>Trade-offs</strong>:</p>
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>Sound Analysis</p></th>
+<th class="head"><p>Precise Analysis</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Catches all issues
+May have false pos
+Slower (more checks)
+Conservative</p></td>
+<td><p>May miss some issues
+Fewer false positives
+Faster
+Aggressive</p></td>
+</tr>
+</tbody>
+</table>
 <p><strong>Configuration Options</strong>:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Sound but potentially slow</span>
 pyflow<span class="w"> </span>optimize<span class="w"> </span>input.py<span class="w"> </span>--analysis<span class="w"> </span>all
@@ -294,6 +259,22 @@ purposes.</p>
 <li><p>Allows mixing analysis techniques</p></li>
 </ul>
 <p><strong>Trade-offs</strong>:</p>
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>AST</p></th>
+<th class="head"><p>SSA</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Close to source
+Easy to understand
+Good for analysis</p></td>
+<td><p>Optimized for opt
+Complex to build
+Good for transform</p></td>
+</tr>
+</tbody>
+</table>
 </section>
 </section>
 <section id="optimization-pipeline">
@@ -353,6 +334,22 @@ generic framework adapted for Python.</p>
 <li><p>Better integration with Python ecosystem</p></li>
 </ul>
 <p><strong>Trade-offs</strong>:</p>
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>Python-Specific</p></th>
+<th class="head"><p>Generic</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Better precision
+Faster for Python
+Limited scope</p></td>
+<td><p>Works for any lang
+Shared development
+Broader impact</p></td>
+</tr>
+</tbody>
+</table>
 </section>
 </section>
 <section id="extensibility">

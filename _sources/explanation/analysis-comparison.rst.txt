@@ -21,6 +21,7 @@ PyFlow vs. Type Checkers
 | Call graph           | Built-in             | Limited              |
 | Optimization         | Built-in             | None                 |
 | Precision            | Context-sensitive    | Mostly insensitive   |
++----------------------+----------------------+----------------------+
 
 **When to use PyFlow**:
 
@@ -45,6 +46,7 @@ PyFlow vs. Linters
 | Security analysis    | Yes                  | Some                 |
 | Performance analysis | Yes                  | Limited              |
 | Call graph           | Built-in             | Plugin               |
++----------------------+----------------------+----------------------+
 
 **When to use PyFlow**:
 
@@ -69,6 +71,7 @@ PyFlow vs. SAST Tools
 | Custom rules         | Via Python API       | DSL or GUI           |
 | Accuracy             | High for Python      | Varies               |
 | Open source          | Yes                  | Usually no           |
++----------------------+----------------------+----------------------+
 
 **When to use PyFlow**:
 

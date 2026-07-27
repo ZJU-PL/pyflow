@@ -1,8 +1,8 @@
 .. _how-to-visualize-results:
 
-======================
+========================================
 How to Visualize Results
-======================
+========================================
 
 This guide explains how to create professional visualizations of PyFlow's
 analysis results.
@@ -80,7 +80,7 @@ Interactive visualization
 
 Use pygraphviz for interactive graphs:
 
-.. code-block:: python
+.. code-block:: bash
 
    import pygraphviz as pgv
 
@@ -223,12 +223,8 @@ Export for Jupyter notebooks:
 
 .. code-block:: python
 
-   from IPython.display import Image, display
-
-   # Generate and display
-   !pyflow callgraph input.py --output temp.dot
-   !dot -Tpng temp.dot -o temp.png
-   display(Image("temp.png"))
+   pyflow callgraph input.py --output temp.dot
+   dot -Tpng temp.dot -o temp.png
 
 Advanced Visualization Techniques
 ==================================

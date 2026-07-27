@@ -20,7 +20,7 @@ Optimization Categories
 **Constant Folding and Propagation** (fold.py, dce.py, simplify.py)
   Compile-time evaluation of constant expressions, dead code elimination, and iterative simplification.
 
-**Data Flow Optimizations** (dataflow/*.py, loadelimination.py, storeelimination.py)
+**Data Flow Optimizations** (``dataflow/``, ``loadelimination.py``, ``storeelimination.py``)
   Forward/backward data flow analysis for reaching definitions, live variables, redundant load elimination, and dead store elimination.
 
 **Control Flow Optimizations** (simplify.py, cullprogram.py)
