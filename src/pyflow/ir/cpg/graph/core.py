@@ -24,6 +24,7 @@ class CodePropertyGraph(_GraphAssemblyMixin, _GraphMetadataMixin, _GraphQueryMix
         "_cfg_forward_map",
         "_cfg_node_to_pdg",
         "_node_meta",
+        "_construction_diagnostics",
     )
 
     def __init__(self) -> None:
@@ -42,6 +43,7 @@ class CodePropertyGraph(_GraphAssemblyMixin, _GraphMetadataMixin, _GraphQueryMix
         self._cfg_forward_map: Dict[Tuple[int, str], List[PDGNode]] = {}
         self._cfg_node_to_pdg: Dict[int, List[PDGNode]] = {}
         self._node_meta: Dict[int, Dict[str, Any]] = {}
+        self._construction_diagnostics: List[Dict[str, Any]] = []
 
     def add_function(self, name: str, pdg: ProgramDependenceGraph) -> None:
         """Register a function-level PDG.
@@ -64,6 +66,15 @@ class CodePropertyGraph(_GraphAssemblyMixin, _GraphMetadataMixin, _GraphQueryMix
         """
         self._call_graph = call_graph
         self._built = False
+
+    def add_construction_diagnostic(self, **diagnostic: Any) -> None:
+        """Record a front-end/CFG/PDG construction precision boundary."""
+
+        self._construction_diagnostics.append(dict(diagnostic))
+
+    @property
+    def construction_diagnostics(self) -> Tuple[Dict[str, Any], ...]:
+        return tuple(dict(item) for item in self._construction_diagnostics)
 
     @property
     def pdgs(self) -> Dict[str, ProgramDependenceGraph]:
@@ -136,6 +147,7 @@ class CodePropertyGraph(_GraphAssemblyMixin, _GraphMetadataMixin, _GraphQueryMix
 
         if self._call_graph is not None:
             self._build_call_edges()
+        self._build_inferred_call_edges()
 
         self._built = True
 

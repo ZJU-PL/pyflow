@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, Optional
 
 from pyflow.application import context
 from pyflow.frontend.extractor import Extractor
@@ -90,6 +90,7 @@ def build_cpg_from_directory(
         return CodePropertyGraph()
 
     file_cpgs: Dict[str, CodePropertyGraph] = {}
+    construction_diagnostics: List[Dict[str, object]] = []
     call_graph = CallGraph()
     module_to_file: Dict[str, str] = {}
 
@@ -99,6 +100,7 @@ def build_cpg_from_directory(
         except OSError:
             continue
         cpg = build_cpg(source, filename=str(f), **kwargs)
+        construction_diagnostics.extend(cpg.construction_diagnostics)
         if len(cpg.functions) == 0:
             continue
         file_cpgs[str(f)] = cpg
@@ -114,17 +116,17 @@ def build_cpg_from_directory(
             for mod_name in imported:
                 target_path = module_to_file.get(mod_name)
                 if target_path is None:
-                    target_path = _find_module_file(
-                        mod_name, root, files
-                    )
-                    if target_path:
-                        target_path = str(target_path)
+                    found_path = _find_module_file(mod_name, root, files)
+                    if found_path:
+                        target_path = str(found_path)
                 if target_path and target_path in file_cpgs:
                     for caller_fn in cpg.functions:
                         for callee_fn in file_cpgs[target_path].functions:
                             call_graph.add_edge(caller_fn, callee_fn)
 
     unified = CodePropertyGraph()
+    for diagnostic in construction_diagnostics:
+        unified.add_construction_diagnostic(**diagnostic)
     for cpg in file_cpgs.values():
         for fname, pdg in cpg.pdgs.items():
             unified.add_function(fname, pdg)
@@ -169,18 +171,52 @@ def build_cpg(
     compiler = context.CompilerContext(None)
     try:
         compiler.extractor = Extractor(compiler)
-    except Exception:
-        return CodePropertyGraph()
+    except Exception as error:
+        cpg = CodePropertyGraph()
+        cpg.add_construction_diagnostic(
+            code="cpg-extractor-initialization-failed",
+            message=f"Extractor initialization failed: {type(error).__name__}: {error}",
+            function=None,
+            stage="extractor",
+        )
+        return cpg
 
-    prog = compiler.extractor.extract_from_source(source, filename=filename)
+    try:
+        prog = compiler.extractor.extract_from_source(source, filename=filename)
+    except Exception as error:
+        cpg = CodePropertyGraph()
+        cpg.add_construction_diagnostic(
+            code="cpg-source-extraction-failed",
+            message=f"Source extraction failed: {type(error).__name__}: {error}",
+            function=None,
+            stage="extractor",
+        )
+        return cpg
     if prog is None:
-        return CodePropertyGraph()
+        cpg = CodePropertyGraph()
+        cpg.add_construction_diagnostic(
+            code="cpg-source-extraction-failed",
+            message="Source extraction returned no program",
+            function=None,
+            stage="extractor",
+        )
+        return cpg
 
     cpg = CodePropertyGraph()
     for code_obj in prog.liveCode:
+        func_name = getattr(code_obj, "codeName", lambda: filename)() or filename
         try:
             cfg = cfg_transform.evaluate(compiler, code_obj)
-        except Exception:
+        except Exception as error:
+            cpg.add_construction_diagnostic(
+                code="cpg-cfg-build-failed",
+                message=(
+                    f"CFG construction failed for {func_name!r}: "
+                    f"{type(error).__name__}: {error}"
+                ),
+                function=func_name,
+                stage="cfg",
+            )
             continue
         try:
             pdg = construct_pdg(
@@ -190,7 +226,7 @@ def build_cpg(
                 include_control=include_control,
                 include_data=include_data,
             )
-        except Exception:
+        except Exception as primary_error:
             # Fallback: build without SSA and data edges
             try:
                 pdg = construct_pdg(
@@ -200,9 +236,29 @@ def build_cpg(
                     include_control=False,
                     include_data=False,
                 )
-            except Exception:
+            except Exception as fallback_error:
+                cpg.add_construction_diagnostic(
+                    code="cpg-pdg-build-failed",
+                    message=(
+                        f"PDG construction failed for {func_name!r}: "
+                        f"{type(primary_error).__name__}: {primary_error}; "
+                        f"fallback failed with {type(fallback_error).__name__}: "
+                        f"{fallback_error}"
+                    ),
+                    function=func_name,
+                    stage="pdg",
+                )
                 continue
-        func_name = getattr(code_obj, "codeName", lambda: filename)() or filename
+            cpg.add_construction_diagnostic(
+                code="cpg-pdg-structural-fallback",
+                message=(
+                    f"PDG construction for {func_name!r} required a structural "
+                    f"fallback without control/data dependence: "
+                    f"{type(primary_error).__name__}: {primary_error}"
+                ),
+                function=func_name,
+                stage="pdg",
+            )
         cpg.add_function(func_name, pdg)
     return cpg
 

@@ -100,8 +100,11 @@ class _TaintMatchingMixin:
             expr = getattr(ast_node, "expr", None)
         elif isinstance(ast_node, py_ast.Discard):
             expr = getattr(ast_node, "expr", None)
+        elif isinstance(ast_node, py_ast.AnnAssign):
+            expr = getattr(ast_node, "value", None)
         elif isinstance(ast_node, py_ast.Return):
-            expr = getattr(ast_node, "expr", None)
+            values = tuple(getattr(ast_node, "exprs", None) or ())
+            expr = values[0] if len(values) == 1 else None
         if expr is None:
             return None
         if isinstance(expr, py_ast.Call):
@@ -330,10 +333,18 @@ class _TaintMatchingMixin:
     def _call_expr(self, ast_node: Any) -> Optional[Any]:
         if isinstance(ast_node, py_ast.Call):
             return ast_node
-        if isinstance(ast_node, (py_ast.Assign, py_ast.Discard, py_ast.Return)):
+        if isinstance(ast_node, (py_ast.Assign, py_ast.Discard)):
             expr = getattr(ast_node, "expr", None)
             if isinstance(expr, py_ast.Call):
                 return expr
+        if isinstance(ast_node, py_ast.AnnAssign):
+            expr = getattr(ast_node, "value", None)
+            if isinstance(expr, py_ast.Call):
+                return expr
+        if isinstance(ast_node, py_ast.Return):
+            values = tuple(getattr(ast_node, "exprs", None) or ())
+            if len(values) == 1 and isinstance(values[0], py_ast.Call):
+                return values[0]
         return None
 
     def _matches_source(self, name: str) -> bool:

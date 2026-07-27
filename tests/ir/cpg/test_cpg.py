@@ -1938,15 +1938,7 @@ class TestCPGConstruction(unittest.TestCase):
         self.assertGreaterEqual(len(engine._summary_cache), 0)
 
     def test_return_value_taint_cross_function(self):
-        """Verify that CALL and RETURN_EDGE edges exist between functions.
-
-        The underlying CFG→CPG edge mapping currently does not create
-        ``CFG_NEXT`` edges for statement-level PDG nodes inside a block,
-        which prevents the full worklist traversal from reaching statements.
-        This test validates that the infrastructure for the
-        ``_propagate_return`` fix is in place (CALL/RETURN_EDGE edges,
-        return-node AST mapping).
-        """
+        """Verify call/return graph structure and the legacy return helper."""
         from pyflow.analysis.callgraph.callgraph import CallGraph
 
         cfg_callee = self.build_cfg(tainted_return)

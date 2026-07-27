@@ -370,6 +370,49 @@ class _GraphAssemblyMixin:
                     callee_exit, call_site, CPGEdgeKind.RETURN_EDGE, caller_name
                 )
 
+    def _build_inferred_call_edges(self) -> None:
+        """Add unambiguous intra-CPG call/return edges from call-site syntax.
+
+        The optional repository call graph is often unavailable for a
+        source-built, single-file CPG.  Local calls are nevertheless explicit
+        in the PDG AST.  Resolving unique full or short names here gives every
+        CPG client the same call/return supergraph and also preserves recursive
+        self-edges, which the lightweight ``CallGraph`` intentionally omits.
+        """
+
+        by_short: Dict[str, List[str]] = {}
+        for name in self._pdgs:
+            by_short.setdefault(name.rsplit(".", 1)[-1], []).append(name)
+
+        for caller_name, caller_pdg in self._pdgs.items():
+            for call_site in caller_pdg.nodes:
+                ast_node = call_site.ast_node
+                if ast_node is None:
+                    continue
+                for raw_name in self._statement_call_names(ast_node):
+                    candidates: List[str]
+                    if raw_name in self._pdgs:
+                        candidates = [raw_name]
+                    else:
+                        candidates = by_short.get(raw_name.rsplit(".", 1)[-1], [])
+                    if len(candidates) != 1:
+                        continue
+                    callee_name = candidates[0]
+                    callee_pdg = self._pdgs[callee_name]
+                    callee_entry = callee_pdg.entry
+                    if callee_entry is None:
+                        continue
+                    self._add_edge(
+                        call_site, callee_entry, CPGEdgeKind.CALL, callee_name
+                    )
+                    for callee_exit in callee_pdg.exit_nodes:
+                        self._add_edge(
+                            callee_exit,
+                            call_site,
+                            CPGEdgeKind.RETURN_EDGE,
+                            caller_name,
+                        )
+
     def _find_call_site_node(
         self, caller_pdg: ProgramDependenceGraph, callee_name: str
     ) -> Optional[PDGNode]:
@@ -378,7 +421,7 @@ class _GraphAssemblyMixin:
             ast_node = node.ast_node
             if ast_node is None:
                 continue
-            for call_name in self._walk_call_names(ast_node):
+            for call_name in self._statement_call_names(ast_node):
                 if (
                     call_name == callee_name
                     or call_name == callee_tail
@@ -388,7 +431,11 @@ class _GraphAssemblyMixin:
         return None
 
     @classmethod
-    def _walk_call_names(cls, ast_node: Any) -> Iterator[str]:
+    def _statement_call_names(cls, ast_node: Any) -> Iterator[str]:
+        """Yield all calls owned by one PDG statement, excluding nested code."""
+
+        if isinstance(ast_node, (py_ast.FunctionDef, py_ast.ClassDef)):
+            return
         if isinstance(ast_node, py_ast.Call):
             call_name = cls._resolve_call_name(ast_node)
             if call_name:
@@ -400,6 +447,6 @@ class _GraphAssemblyMixin:
                 if isinstance(child, (list, tuple)):
                     for item in child:
                         if item is not None:
-                            yield from cls._walk_call_names(item)
+                            yield from cls._statement_call_names(item)
                 elif child is not None:
-                    yield from cls._walk_call_names(child)
+                    yield from cls._statement_call_names(child)

@@ -278,7 +278,6 @@ class _GraphQueryMixin:
             if e.kind == CPGEdgeKind.CFG_EXCEPT:
                 return True
         # Also check the block anchor node if this is a stmt/cond node
-        pdg = None
         for pdg_candidate in self._pdgs.values():
             anchor = pdg_candidate.get_cfg_anchor(cfg_block)
             if anchor is not None:
@@ -512,6 +511,9 @@ class _GraphQueryMixin:
         }
         return {
             "functions": list(self.functions),
+            "construction_diagnostics": [
+                dict(item) for item in self._construction_diagnostics
+            ],
             "nodes": nodes,
             "edges": edges,
             "defs": defs_dict,

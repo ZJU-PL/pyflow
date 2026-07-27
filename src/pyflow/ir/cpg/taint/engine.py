@@ -2,8 +2,16 @@
 
 from __future__ import annotations
 from collections import deque
+from dataclasses import replace
 from time import monotonic
 from typing import Dict, FrozenSet, List, Set, Tuple
+from pyflow.checker.ast_dataflow.semantics import (
+    AdaptiveRefinementProvider,
+    HeapGraphRefinementProvider,
+    RefinementProvider,
+    SyntacticRefinementProvider,
+    heap_location_adapter,
+)
 from pyflow.analysis.taint import TaintPolicy, TaintRule
 from pyflow.ir.pdg.graph import PDGNode
 from pyflow.ir.cpg.graph import CodePropertyGraph, CPGEdgeKind
@@ -38,7 +46,17 @@ class CPGTaintEngine(
         max_loop_iterations: int = 3,
         max_states: int | None = None,
         max_seconds: float | None = None,
+        heap_graph: object | None = None,
+        refinement: RefinementProvider | None = None,
     ) -> None:
+        if max_call_depth < 0:
+            raise ValueError("max_call_depth must be non-negative")
+        if max_loop_iterations < 1:
+            raise ValueError("max_loop_iterations must be positive")
+        if max_states is not None and max_states < 1:
+            raise ValueError("max_states must be positive when provided")
+        if max_seconds is not None and max_seconds <= 0:
+            raise ValueError("max_seconds must be positive when provided")
         self._cpg = cpg
         self._sources: Set[str] = set()
         self._source_kinds: Dict[str, FrozenSet[str]] = {}
@@ -53,6 +71,18 @@ class CPGTaintEngine(
         self._max_states = max_states
         self._max_seconds = max_seconds
         self._budget_diagnostic: CPGTaintDiagnostic | None = None
+        if refinement is not None:
+            self._refinement = refinement
+        elif heap_graph is not None:
+            self._refinement = AdaptiveRefinementProvider(
+                (
+                    HeapGraphRefinementProvider(
+                        heap_graph, heap_location_adapter(heap_graph)
+                    ),
+                )
+            )
+        else:
+            self._refinement = SyntacticRefinementProvider()
 
         if policy is not None:
             self.apply_policy(policy)
@@ -66,6 +96,14 @@ class CPGTaintEngine(
     def add_source(self, name: str, kind: str = "untrusted") -> None:
         self._sources.add(name)
         self._source_kinds[name] = self._source_kinds.get(name, frozenset()) | {kind}
+        self._rules = [
+            (
+                replace(rule, source_kinds=rule.source_kinds | {kind})
+                if rule.rule_id.startswith("CPG-MANUAL-")
+                else rule
+            )
+            for rule in self._rules
+        ]
 
     def add_sink(
         self,
@@ -85,7 +123,14 @@ class CPGTaintEngine(
                 TaintRule(
                     rule_id=f"CPG-MANUAL-{kind.upper()}",
                     title=f"Untrusted data reaches {kind} sink",
-                    source_kinds=frozenset({"untrusted"}),
+                    source_kinds=frozenset(
+                        {
+                            source_kind
+                            for kinds in self._source_kinds.values()
+                            for source_kind in kinds
+                        }
+                        or {"untrusted"}
+                    ),
                     sink_kinds=frozenset({kind}),
                     severity="high",
                     cwe=cwe or None,
@@ -139,43 +184,23 @@ class CPGTaintEngine(
         return tuple(self._rules)
 
     def analyze(self) -> CPGTaintResult:
-        """Analyze the graph and expose findings, diagnostics, and statistics."""
-        self._cpg._ensure_built()
-        diagnostics = self._validate_graph()
-        findings, processed_states = self._find_taint_paths()
-        if self._budget_diagnostic is not None:
-            diagnostics.append(self._budget_diagnostic)
-        findings = self.deduplicate(findings)
-        status = (
-            "partial"
-            if any(diagnostic.affects_completeness for diagnostic in diagnostics)
-            else "complete"
-        )
-        if status == "partial":
-            reasons = tuple(
-                sorted({d.code for d in diagnostics if d.affects_completeness})
-            )
-            for finding in findings:
-                finding.precision_reasons = tuple(
-                    sorted(set(finding.precision_reasons) | set(reasons))
-                )
-        return CPGTaintResult(
-            findings=tuple(findings),
-            status=status,
-            diagnostics=tuple(diagnostics),
-            statistics={
-                "functions": len(self._cpg.functions),
-                "seeds": len(self._collect_seeds()),
-                "processed_states": processed_states,
-                "findings": len(findings),
-            },
-        )
+        """Run the formal CPG supergraph solver."""
+
+        from .formal import FormalCPGTaintAnalysis
+
+        return FormalCPGTaintAnalysis(self).analyze()
 
     def find_taint_paths(self) -> List[TaintFinding]:
         """Compatibility wrapper returning only findings."""
         return list(self.analyze().findings)
 
     def _find_taint_paths(self) -> Tuple[List[TaintFinding], int]:
+        """Compatibility wrapper for the former private traversal API."""
+
+        result = self.analyze()
+        return list(result.findings), result.statistics.get("processed_states", 0)
+
+    def _find_taint_paths_legacy(self) -> Tuple[List[TaintFinding], int]:
         """Find source-to-sink flows using realizable execution edges."""
         self._node_taint.clear()
         self._summary_cache.clear()

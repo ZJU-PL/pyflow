@@ -93,12 +93,11 @@ def _format_output_text(engine: str, result) -> str:
 
     if engine == "cpg":
         findings = result.get("findings", [])
+        lines = [f"Status: {result.get('status', 'complete')}"]
         if not findings:
-            return f"Status: {result.get('status', 'complete')}\nNo security findings."
-        lines = [
-            f"Status: {result.get('status', 'complete')}",
-            f"\n{len(findings)} security finding(s):\n",
-        ]
+            lines.append("No security findings.")
+        else:
+            lines.append(f"\n{len(findings)} security finding(s):\n")
         for i, f in enumerate(findings, 1):
             conf = f.get("confidence", 0)
             bar = "█" * int(conf * 10) + "░" * (10 - int(conf * 10))
@@ -115,6 +114,20 @@ def _format_output_text(engine: str, result) -> str:
                 f"(line {f.get('sink_line', 0)})"
             )
             lines.append("")
+        diagnostics = result.get("diagnostics", [])
+        if diagnostics:
+            lines.append("Diagnostics:")
+            for diagnostic in diagnostics:
+                location = ""
+                if diagnostic.get("filename") or diagnostic.get("line"):
+                    location = (
+                        f" ({diagnostic.get('filename') or '<unknown>'}:"
+                        f"{diagnostic.get('line') or 0})"
+                    )
+                lines.append(
+                    f"  [{diagnostic.get('code', 'cpg-diagnostic')}] "
+                    f"{diagnostic.get('message', '')}{location}"
+                )
         return "\n".join(lines)
 
     return ""
@@ -606,18 +619,34 @@ def _result_to_sarif(engine: str, result, args) -> Dict[str, Any]:
                     {"threadFlows": [{"locations": thread_locations}]}
                 ]
             results_list.append(result_item)
+        invocation: Dict[str, Any] = {
+            "executionSuccessful": result.get("status") == "complete",
+            "properties": {"analysisStatus": result.get("status")},
+        }
+        diagnostics = result.get("diagnostics", [])
+        if diagnostics:
+            invocation["toolExecutionNotifications"] = [
+                {
+                    "level": (
+                        "warning" if diagnostic.get("affects_completeness") else "note"
+                    ),
+                    "message": {"text": diagnostic.get("message", "")},
+                    "descriptor": {"id": diagnostic.get("code", "cpg-diagnostic")},
+                    "properties": {
+                        "precisionLevel": diagnostic.get("level"),
+                        "function": diagnostic.get("function"),
+                        "operation": diagnostic.get("operation"),
+                    },
+                }
+                for diagnostic in diagnostics
+            ]
         return {
             "$schema": _SARIF_SCHEMA,
             "version": "2.1.0",
             "runs": [
                 {
                     "tool": {"driver": {"name": "pyflow-security-cpg", "rules": rules}},
-                    "invocations": [
-                        {
-                            "executionSuccessful": result.get("status") == "complete",
-                            "properties": {"analysisStatus": result.get("status")},
-                        }
-                    ],
+                    "invocations": [invocation],
                     "results": results_list,
                 }
             ],

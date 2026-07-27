@@ -1,6 +1,7 @@
 """Context-sensitive taint analysis over the Code Property Graph."""
 
 from .engine import CPGTaintEngine
+from .formal import CPGAbstractState, CPGProcedureSummary
 from .model import (
     MemoryCell,
     MemoryLayout,
@@ -16,6 +17,8 @@ __all__ = [
     "CPGTaintEngine",
     "CPGTaintDiagnostic",
     "CPGTaintResult",
+    "CPGAbstractState",
+    "CPGProcedureSummary",
     "MemoryCell",
     "MemoryLayout",
     "RuleMetadata",

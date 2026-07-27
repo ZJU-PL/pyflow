@@ -433,6 +433,10 @@ def _run_cpg(targets: List[str], args) -> Dict[str, Any]:
                 "message": diagnostic.message,
                 "function": diagnostic.function,
                 "affects_completeness": diagnostic.affects_completeness,
+                "level": diagnostic.level,
+                "filename": diagnostic.filename,
+                "line": diagnostic.line,
+                "operation": diagnostic.operation,
             }
             for diagnostic in result.diagnostics
         )

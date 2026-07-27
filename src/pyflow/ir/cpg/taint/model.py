@@ -22,6 +22,16 @@ class TaintState:
             sanitized_by=self.sanitized_by & other.sanitized_by,
         )
 
+    def join(self, other: TaintState) -> TaintState:
+        """Least upper bound; retained as ``merge`` for compatibility."""
+
+        return self.merge(other)
+
+    def leq(self, other: TaintState) -> bool:
+        """Order tags as may facts and sanitizer evidence as a must fact."""
+
+        return self.tags <= other.tags and self.sanitized_by >= other.sanitized_by
+
     def sanitize(
         self, sanitizer_name: str, kinds: FrozenSet[str] = frozenset({"*"})
     ) -> TaintState:
@@ -73,6 +83,10 @@ class MemoryCell:
 class MemoryLayout:
     """Maps variable names to abstract addresses, and addresses to
     ``MemoryCell`` objects.  Supports aliasing through shared addresses.
+
+    This mutable value is retained for compatibility with the legacy transfer
+    helpers. ``CPGTaintEngine.analyze`` uses ``CPGAbstractState`` instead, so
+    fixed-point states are immutable and safely joinable.
     """
 
     def __init__(self) -> None:
@@ -185,6 +199,10 @@ class CPGTaintDiagnostic:
     code: str
     affects_completeness: bool = False
     function: str | None = None
+    level: str | None = None
+    filename: str | None = None
+    line: int | None = None
+    operation: str | None = None
 
 
 @dataclass(frozen=True)

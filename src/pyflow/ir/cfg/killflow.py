@@ -134,6 +134,7 @@ class OpFlow(TypeDispatcher):
         ast.BuildSlice,
         ast.ShortCircutAnd,
         ast.ShortCircutOr,
+        ast.ConditionalExpr,
         ast.NamedExpr,
         ast.MakeFunction,
     )
