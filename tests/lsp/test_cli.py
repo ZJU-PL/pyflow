@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from argparse import Namespace
+from pathlib import Path
 
 import pytest
 
@@ -65,11 +66,11 @@ class TestLspParser:
     def test_lsp_with_root(self, lsp_parser):
         args = _parse(lsp_parser, ["lsp", "--root", "/tmp/project"])
         assert args.root is not None
-        assert str(args.root) == "/tmp/project"
+        assert args.root == Path("/tmp/project")
 
     def test_lsp_with_root_short(self, lsp_parser):
         args = _parse(lsp_parser, ["lsp", "-r", "/tmp/project"])
-        assert str(args.root) == "/tmp/project"
+        assert args.root == Path("/tmp/project")
 
     def test_lsp_has_func_default(self, lsp_parser):
         args = _parse(lsp_parser, ["lsp"])
@@ -85,7 +86,7 @@ class TestMcpParser:
 
     def test_mcp_with_root(self, mcp_parser):
         args = _parse(mcp_parser, ["mcp", "--root", "/tmp/project"])
-        assert str(args.root) == "/tmp/project"
+        assert args.root == Path("/tmp/project")
 
     def test_mcp_has_func_default(self, mcp_parser):
         args = _parse(mcp_parser, ["mcp"])
