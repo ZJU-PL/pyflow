@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from argparse import Namespace
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -11,7 +12,11 @@ from pyflow.cli.lsp import (
     add_lsp_parser,
     add_mcp_parser,
     add_query_parser,
+    _compute_required_passes,
+    _dispatch_callgraph_query,
     _dispatch_query,
+    _run_callgraph_analysis,
+    run_query,
 )
 from pyflow.lsp import PyflowAnalysisServer
 
@@ -210,3 +215,121 @@ class TestQueryParser:
 
         result = _dispatch_query(server, args)
         assert result == {"callgraph": True}
+
+
+class TestQueryRouting:
+    @pytest.mark.parametrize(
+        ("query_args", "expected_passes"),
+        [
+            ({}, []),
+            ({"list_functions": True}, []),
+            ({"get_cfg": "foo"}, []),
+            ({"get_type": ["mod", "1", "0"]}, []),
+            ({"get_callers": "foo"}, []),
+            ({"get_callees": "foo"}, []),
+            ({"get_callgraph": True}, []),
+            ({"get_aliases": "x"}, []),
+        ],
+    )
+    def test_compute_required_passes(self, query_args, expected_passes):
+        assert _compute_required_passes(Namespace(**query_args)) == expected_passes
+
+    @pytest.mark.parametrize(
+        ("query_args", "expected_run_pipeline", "expected_passes"),
+        [
+            ({"get_cfg": "foo"}, False, []),
+            ({"get_aliases": "x"}, False, []),
+        ],
+    )
+    def test_run_query_routes_file_to_minimal_analysis(
+        self,
+        monkeypatch,
+        tmp_path,
+        capsys,
+        query_args,
+        expected_run_pipeline,
+        expected_passes,
+    ):
+        source = tmp_path / "sample.py"
+        source.write_text("def foo():\n    return 1\n")
+        server = MagicMock(spec=PyflowAnalysisServer)
+        server.get_cfg_structure.return_value = {}
+        server.get_callers.return_value = []
+        server.get_aliases_for_variable.return_value = {}
+        monkeypatch.setattr("pyflow.cli.lsp.PyflowAnalysisServer", lambda **_: server)
+        values = {
+            "input_path": source,
+            "mode": "advanced",
+            "get_callers": None,
+            "get_callees": None,
+            "get_callgraph": False,
+            "get_type": None,
+            "get_cfg": None,
+            "get_aliases": None,
+            "list_functions": False,
+            "output": None,
+            "pretty": False,
+        }
+        values.update(query_args)
+        args = Namespace(**values)
+
+        run_query(args)
+
+        server.load_files.assert_called_once_with(
+            [source],
+            run_pipeline=expected_run_pipeline,
+            passes=expected_passes,
+        )
+        assert capsys.readouterr().out
+
+    def test_source_queries_do_not_construct_analysis_server(
+        self, monkeypatch, tmp_path, capsys
+    ):
+        source = tmp_path / "sample.py"
+        source.write_text(
+            "def callee():\n    return 1\n\ndef caller():\n    return callee()\n"
+        )
+
+        def fail_if_constructed(**_kwargs):
+            raise AssertionError("source queries must not construct analysis server")
+
+        monkeypatch.setattr("pyflow.cli.lsp.PyflowAnalysisServer", fail_if_constructed)
+        args = Namespace(
+            input_path=source,
+            mode="full",
+            get_callers=None,
+            get_callees=None,
+            get_callgraph=False,
+            get_type=None,
+            get_cfg=None,
+            get_aliases=None,
+            list_functions=True,
+            output=None,
+            pretty=False,
+        )
+
+        run_query(args)
+
+        assert "sample.caller" in capsys.readouterr().out
+
+    def test_dedicated_callgraph_analysis_answers_call_queries(self, tmp_path):
+        source = tmp_path / "sample.py"
+        source.write_text(
+            "def callee():\n    return 1\n\ndef caller():\n    return callee()\n"
+        )
+        graph = _run_callgraph_analysis(source)
+        defaults = {
+            "get_callers": None,
+            "get_callees": None,
+            "get_callgraph": False,
+        }
+
+        callers = dict(defaults, get_callers="callee")
+        callees = dict(defaults, get_callees="caller")
+
+        assert _dispatch_callgraph_query(graph, Namespace(**callers)) == [
+            "main.caller"
+        ]
+        assert _dispatch_callgraph_query(graph, Namespace(**callees)) == [
+            "main.callee"
+        ]

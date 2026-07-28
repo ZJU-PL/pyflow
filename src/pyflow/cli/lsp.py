@@ -15,9 +15,150 @@ from pyflow.lsp import (
     LspHandler,
     McpHandler,
 )
+from pyflow.lsp.workspace import SourceIndex
+from pyflow.analysis.callgraph.constraint_based import extract_call_graph_constraint
 from pyflow.api.queries import MCPServerMode
 
+from .callgraph import _detect_entry
+
 LOG = logging.getLogger(__name__)
+
+
+# One-shot queries intentionally avoid the IPA/CPA pipeline. Function listing
+# uses the lightweight AST index, while call queries use the dedicated
+# constraint-based callgraph analysis.
+_QUERY_REQUIRED_PASSES: dict[str, tuple[str, ...]] = {
+    "list_functions": (),
+    "get_cfg": (),
+    "get_type": (),
+    "get_callgraph": (),
+    "get_callers": (),
+    "get_callees": (),
+    "get_aliases": (),
+}
+
+_SOURCE_QUERY_FLAGS = {
+    "list_functions",
+}
+
+_CALLGRAPH_QUERY_FLAGS = {
+    "get_callgraph",
+    "get_callers",
+    "get_callees",
+}
+
+_IGNORED_DIRECTORY_NAMES = {
+    "site-packages",
+    "node_modules",
+    "build",
+    "dist",
+    "__pycache__",
+    "venv",
+}
+
+
+def _compute_required_passes(args) -> list[str]:
+    """Return the minimal pass targets needed for the requested queries."""
+    passes: list[str] = []
+    for attr_name, required in _QUERY_REQUIRED_PASSES.items():
+        if getattr(args, attr_name, None):
+            for p in required:
+                if p not in passes:
+                    passes.append(p)
+    return passes
+
+
+def _source_query_index(input_path: Path) -> SourceIndex:
+    """Build the lightweight AST index used by source-only queries."""
+    if input_path.is_file():
+        root = input_path.parent
+        python_files = [input_path]
+    else:
+        root = input_path
+        python_files = sorted(
+            path
+            for path in root.rglob("*.py")
+            if not any(
+                part.startswith(".") for part in path.relative_to(root).parts
+            )
+            and not set(path.parts).intersection(_IGNORED_DIRECTORY_NAMES)
+        )
+    source_files = {
+        str(path.absolute()): path.read_text(encoding="utf-8")
+        for path in python_files
+    }
+    return SourceIndex(source_files, str(root.absolute()))
+
+
+def _dispatch_source_query(index: SourceIndex, args) -> object:
+    """Dispatch queries that can be answered directly from Python source."""
+    return sorted(
+        symbol.qualified_name
+        for symbol in index.symbols
+        if symbol.kind in {6, 12}
+    )
+
+
+def _uses_source_index(args) -> bool:
+    return any(getattr(args, name, None) for name in _SOURCE_QUERY_FLAGS)
+
+
+def _uses_callgraph_analysis(args) -> bool:
+    return any(getattr(args, name, None) for name in _CALLGRAPH_QUERY_FLAGS)
+
+
+def _callgraph_entry(input_path: Path) -> Path:
+    if input_path.is_file():
+        return input_path
+    entry = _detect_entry(input_path)
+    if entry is None:
+        raise ValueError(
+            f"No callgraph entry point detected in '{input_path}'. "
+            "Use the 'pyflow callgraph' command with --entry for this project."
+        )
+    return input_path / str(entry)
+
+
+def _run_callgraph_analysis(input_path: Path) -> dict[str, list[str]]:
+    """Run the dedicated callgraph analysis without IPA or CPA."""
+    entry = _callgraph_entry(input_path).resolve()
+    source = entry.read_text(encoding="utf-8")
+    callgraph = extract_call_graph_constraint(
+        source,
+        source_path=str(entry),
+        allocation_site_sensitive_instances=False,
+        skip_stdlib_modules=True,
+    )
+    return {
+        caller: sorted(callees)
+        for caller, callees in sorted(callgraph.get().items())
+    }
+
+
+def _resolve_callgraph_node(graph: dict[str, list[str]], name: str) -> str | None:
+    if name in graph:
+        return name
+    matches = sorted(
+        node for node in graph
+        if node == name or node.endswith(f".{name}")
+    )
+    if len(matches) == 1:
+        return matches[0]
+    return None
+
+
+def _dispatch_callgraph_query(graph: dict[str, list[str]], args) -> object:
+    if args.get_callers:
+        target = _resolve_callgraph_node(graph, args.get_callers)
+        if target is None:
+            return []
+        return sorted(
+            caller for caller, callees in graph.items() if target in callees
+        )
+    if args.get_callees:
+        source = _resolve_callgraph_node(graph, args.get_callees)
+        return [] if source is None else graph.get(source, [])
+    return graph
 
 
 def _add_mode_argument(parser):
@@ -148,19 +289,54 @@ def run_mcp(args):
 
 def run_query(args):
     """Run a one-shot analysis query."""
-    mode = MCPServerMode(getattr(args, "mode", MCPServerMode.FULL.value))
-    server = PyflowAnalysisServer(server_mode=mode)
     input_path = args.input_path
 
+    if not input_path.exists():
+        print(f"Error: '{input_path}' not found", file=sys.stderr)
+        sys.exit(1)
+
+    if _uses_source_index(args):
+        result = _dispatch_source_query(_source_query_index(input_path), args)
+        _write_query_result(result, args)
+        return
+
+    if _uses_callgraph_analysis(args):
+        try:
+            graph = _run_callgraph_analysis(input_path)
+        except (OSError, ValueError) as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            sys.exit(1)
+        _write_query_result(_dispatch_callgraph_query(graph, args), args)
+        return
+
+    mode = MCPServerMode(getattr(args, "mode", MCPServerMode.FULL.value))
+    server = PyflowAnalysisServer(server_mode=mode)
+
+    required_passes = _compute_required_passes(args)
+    run_pipeline = bool(required_passes)
+
     if input_path.is_dir():
-        server.load(str(input_path))
+        server.load(
+            str(input_path),
+            run_pipeline=run_pipeline,
+            passes=required_passes,
+        )
     elif input_path.is_file():
-        server.load_files([input_path])
+        server.load_files(
+            [input_path],
+            run_pipeline=run_pipeline,
+            passes=required_passes,
+        )
     else:
         print(f"Error: '{input_path}' not found", file=sys.stderr)
         sys.exit(1)
 
     result = _dispatch_query(server, args)
+
+    _write_query_result(result, args)
+
+
+def _write_query_result(result: object, args) -> None:
     indent = 2 if args.pretty else None
     output = json.dumps(result, indent=indent, default=str)
 

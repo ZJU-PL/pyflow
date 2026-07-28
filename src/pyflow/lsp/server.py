@@ -66,11 +66,18 @@ class PyflowAnalysisServer:
     # Lifecycle
     # ------------------------------------------------------------------
 
-    def load(self, root_path: str, *, run_pipeline: bool = True) -> None:
+    def load(
+        self,
+        root_path: str,
+        *,
+        run_pipeline: bool = True,
+        passes: Optional[list[str]] = None,
+    ) -> None:
         """Load a project directory for analysis.
 
         Discovers Python files, extracts an interface, runs the default
-        analysis pipeline, and makes the ``SemanticQueryService`` ready.
+        analysis pipeline (or the specific *passes* if given), and makes
+        the ``SemanticQueryService`` ready.
         """
         root_path = os.path.abspath(root_path)
         root = Path(root_path)
@@ -98,7 +105,12 @@ class PyflowAnalysisServer:
             raise ValueError(f"No Python files found in {root_path}")
 
         self._root_path = root_path
-        self.load_files(python_files, run_pipeline=run_pipeline, root_path=root_path)
+        self.load_files(
+            python_files,
+            run_pipeline=run_pipeline,
+            root_path=root_path,
+            passes=passes,
+        )
 
     def load_files(
         self,
@@ -106,11 +118,13 @@ class PyflowAnalysisServer:
         *,
         run_pipeline: bool = True,
         root_path: Optional[str] = None,
+        passes: Optional[list[str]] = None,
     ) -> None:
         """Load a specific set of Python files for analysis.
 
         Builds the interface, extracts the program, runs the default
-        analysis pipeline, and initializes the query service.
+        analysis pipeline (or the specific *passes* if given),
+        and initializes the query service.
         """
         normalized_files = [Path(path).absolute() for path in python_files]
         if not normalized_files:
@@ -156,7 +170,7 @@ class PyflowAnalysisServer:
                     pipeline.run_custom_pipeline(
                         compiler,
                         program,
-                        self._analysis_passes(),
+                        passes if passes is not None else self._analysis_passes(),
                     )
 
             project_context = ProjectContext(
