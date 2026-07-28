@@ -6,7 +6,7 @@ import inspect
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, Optional, Sequence
+from typing import Iterable, Mapping, Optional, Sequence
 
 from pyflow.api.entrypoints import (
     ClassDeclaration,
@@ -41,9 +41,7 @@ class InterfaceBuildOptions:
         return cls(
             dependency_strategy=getattr(args, "dependency_strategy", "auto"),
             verbose=getattr(args, "verbose", False),
-            include_main_entry_points=getattr(
-                args, "include_main_entry_points", False
-            ),
+            include_main_entry_points=getattr(args, "include_main_entry_points", False),
             search_paths=(
                 tuple(str(path) for path in search_paths)
                 if search_paths is not None
@@ -132,9 +130,11 @@ def _add_class_entries(
             kind = (
                 "staticmethod"
                 if method_info.get("is_staticmethod", False)
-                else "classmethod"
-                if method_info.get("is_classmethod", False)
-                else "instance"
+                else (
+                    "classmethod"
+                    if method_info.get("is_classmethod", False)
+                    else "instance"
+                )
             )
             declaration.method(
                 method_name,
@@ -169,8 +169,15 @@ def _report_resolver_state(
 def build_interface_from_paths(
     python_files: Iterable[str | Path],
     options: InterfaceBuildOptions,
+    *,
+    source_overrides: Optional[Mapping[str, str]] = None,
 ):
-    """Build an interface and source map using explicit frontend options."""
+    """Build an interface and source map using explicit frontend options.
+
+    ``source_overrides`` lets editor and other in-memory clients analyze a
+    document snapshot without first writing it to disk.  Keys are normalized
+    to their string path representation, matching the returned source map.
+    """
 
     paths = list(python_files)
     interface = InterfaceDeclaration()
@@ -192,9 +199,13 @@ def build_interface_from_paths(
         max_runtime_fallback_ratio=options.max_runtime_fallback_ratio,
     )
 
+    overrides = {str(path): source for path, source in (source_overrides or {}).items()}
+
     for file_path in paths:
         try:
-            source = Path(file_path).read_text(encoding="utf-8")
+            source = overrides.get(str(file_path))
+            if source is None:
+                source = Path(file_path).read_text(encoding="utf-8")
             source_files[str(file_path)] = source
             resolver.source_files[str(file_path)] = source
             functions = resolver.extract_functions(source, str(file_path))

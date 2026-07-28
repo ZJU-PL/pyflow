@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, PropertyMock
+from unittest.mock import MagicMock
 
 import pytest
 
+from pyflow.api.queries import MCPServerMode
 from pyflow.lsp.server import PyflowAnalysisServer
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -30,18 +30,31 @@ def mock_service():
     svc.get_ipa_function_summaries.return_value = []
     svc.get_expression_type.return_value = "int"
     svc.get_aliases_for_variable.return_value = MagicMock(
-        variable="x", aliases=set(), is_aliased=False,
-        ref_count=1, is_escaped=False,
+        variable="x",
+        aliases=set(),
+        is_aliased=False,
+        ref_count=1,
+        is_escaped=False,
     )
     svc.get_points_to_for_variable.return_value = MagicMock(
-        variable="x", points_to=set(), may_be_null=False,
-        ref_count=1, is_escaped=False,
+        variable="x",
+        points_to=set(),
+        may_be_null=False,
+        ref_count=1,
+        is_escaped=False,
     )
     profile_mock = MagicMock()
     profile_mock.configure_mock(
-        name="f", signature="()", parameters=[], return_type="int",
-        calls=[], called_by=[], has_branches=False, has_loops=False,
-        complexity=1, external_dependencies=[],
+        name="f",
+        signature="()",
+        parameters=[],
+        return_type="int",
+        calls=[],
+        called_by=[],
+        has_branches=False,
+        has_loops=False,
+        complexity=1,
+        external_dependencies=[],
     )
     svc.get_function_test_profile.return_value = profile_mock
     return svc
@@ -49,7 +62,7 @@ def mock_service():
 
 @pytest.fixture
 def server(mock_service):
-    srv = PyflowAnalysisServer()
+    srv = PyflowAnalysisServer(server_mode=MCPServerMode.ADVANCED)
     srv._loaded = True
     srv._service = mock_service
     srv._compiler = MagicMock()
@@ -103,6 +116,13 @@ class TestCapabilities:
         assert caps == {"callgraph": True}
         server.service.capabilities.assert_called_once()
 
+    def test_full_mode_rejects_advanced_alias_query(self, mock_service):
+        server = PyflowAnalysisServer(server_mode=MCPServerMode.FULL)
+        server._loaded = True
+        server._service = mock_service
+        with pytest.raises(RuntimeError, match="ADVANCED|unavailable"):
+            server.get_aliases_for_variable("x")
+
 
 class TestCallGraph:
     def test_get_callgraph_data(self, server):
@@ -140,8 +160,8 @@ class TestControlFlow:
 
 class TestDataFlow:
     def test_get_reaching_defs(self, server):
-        result = server.get_reaching_defs("foo")
-        assert isinstance(result, dict)
+        with pytest.raises(RuntimeError, match="unavailable"):
+            server.get_reaching_defs("foo")
 
     def test_get_ipa_function_summaries(self, server):
         result = server.get_ipa_function_summaries()

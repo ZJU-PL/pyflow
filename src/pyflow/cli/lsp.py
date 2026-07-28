@@ -9,13 +9,24 @@ import logging
 from pathlib import Path
 
 from pyflow.lsp import (
+    JsonLineRpcServer,
     JsonRpcServer,
     PyflowAnalysisServer,
     LspHandler,
     McpHandler,
 )
+from pyflow.api.queries import MCPServerMode
 
 LOG = logging.getLogger(__name__)
+
+
+def _add_mode_argument(parser):
+    parser.add_argument(
+        "--mode",
+        choices=[mode.value for mode in MCPServerMode],
+        default=MCPServerMode.FULL.value,
+        help="Analysis depth: basic, full, or advanced",
+    )
 
 
 def add_lsp_parser(subparsers):
@@ -23,9 +34,12 @@ def add_lsp_parser(subparsers):
         "lsp", help="Run pyflow as a Language Server Protocol server"
     )
     p.add_argument(
-        "--root", "-r", type=Path,
+        "--root",
+        "-r",
+        type=Path,
         help="Project root directory",
     )
+    _add_mode_argument(p)
     p.set_defaults(func=run_lsp)
 
 
@@ -34,54 +48,72 @@ def add_mcp_parser(subparsers):
         "mcp", help="Run pyflow as a Model Context Protocol server"
     )
     p.add_argument(
-        "--root", "-r", type=Path,
+        "--root",
+        "-r",
+        type=Path,
         help="Project root directory",
     )
+    _add_mode_argument(p)
     p.set_defaults(func=run_mcp)
 
 
 def add_query_parser(subparsers):
-    p = subparsers.add_parser(
-        "query", help="Query pyflow analysis results (one-shot)"
-    )
+    p = subparsers.add_parser("query", help="Query pyflow analysis results (one-shot)")
     p.add_argument(
-        "input_path", type=Path,
+        "input_path",
+        type=Path,
         help="Python file or project directory to analyze",
     )
+    _add_mode_argument(p)
     p.add_argument(
-        "--get-callers", type=str, metavar="FUNCTION",
+        "--get-callers",
+        type=str,
+        metavar="FUNCTION",
         help="List callers of a function",
     )
     p.add_argument(
-        "--get-callees", type=str, metavar="FUNCTION",
+        "--get-callees",
+        type=str,
+        metavar="FUNCTION",
         help="List callees of a function",
     )
     p.add_argument(
-        "--get-callgraph", action="store_true",
+        "--get-callgraph",
+        action="store_true",
         help="Return the full call graph",
     )
     p.add_argument(
-        "--get-type", nargs=3, metavar=("MODULE", "LINE", "COL"),
+        "--get-type",
+        nargs=3,
+        metavar=("MODULE", "LINE", "COL"),
         help="Get type at source position",
     )
     p.add_argument(
-        "--get-cfg", type=str, metavar="FUNCTION",
+        "--get-cfg",
+        type=str,
+        metavar="FUNCTION",
         help="Get CFG structure for a function",
     )
     p.add_argument(
-        "--get-aliases", type=str, metavar="VARIABLE",
+        "--get-aliases",
+        type=str,
+        metavar="VARIABLE",
         help="Get alias information for a variable",
     )
     p.add_argument(
-        "--list-functions", action="store_true",
+        "--list-functions",
+        action="store_true",
         help="List all known functions",
     )
     p.add_argument(
-        "--output", "-o", type=Path,
+        "--output",
+        "-o",
+        type=Path,
         help="Write output to file instead of stdout",
     )
     p.add_argument(
-        "--pretty", action="store_true",
+        "--pretty",
+        action="store_true",
         help="Pretty-print JSON output",
     )
     p.set_defaults(func=run_query)
@@ -89,7 +121,8 @@ def add_query_parser(subparsers):
 
 def _run_server(args, handler_cls):
     """Run a JSON-RPC server (LSP or MCP) over stdio."""
-    server = PyflowAnalysisServer()
+    mode = MCPServerMode(getattr(args, "mode", MCPServerMode.FULL.value))
+    server = PyflowAnalysisServer(server_mode=mode)
 
     if hasattr(args, "root") and args.root:
         try:
@@ -98,7 +131,7 @@ def _run_server(args, handler_cls):
         except Exception as exc:
             LOG.warning("Deferred load failed: %s", exc)
 
-    rpc = JsonRpcServer()
+    rpc = JsonLineRpcServer() if handler_cls is McpHandler else JsonRpcServer()
     handler_cls(server).register_on(rpc)
     asyncio.run(rpc.run())
 
@@ -115,7 +148,8 @@ def run_mcp(args):
 
 def run_query(args):
     """Run a one-shot analysis query."""
-    server = PyflowAnalysisServer()
+    mode = MCPServerMode(getattr(args, "mode", MCPServerMode.FULL.value))
+    server = PyflowAnalysisServer(server_mode=mode)
     input_path = args.input_path
 
     if input_path.is_dir():
@@ -152,9 +186,12 @@ def _dispatch_query(server: PyflowAnalysisServer, args) -> object:
         return server.get_aliases_for_variable(args.get_aliases)
     if args.list_functions:
         return sorted(
-            getattr(code, "codeName", lambda: "?")()
-            if hasattr(code, "codeName") and callable(getattr(code, "codeName", None))
-            else str(getattr(code, "name", "?"))
+            (
+                getattr(code, "codeName", lambda: "?")()
+                if hasattr(code, "codeName")
+                and callable(getattr(code, "codeName", None))
+                else str(getattr(code, "name", "?"))
+            )
             for code in getattr(server.program, "liveCode", [])
         )
     return server.get_capabilities()

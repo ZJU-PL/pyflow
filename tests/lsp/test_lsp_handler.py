@@ -9,7 +9,6 @@ import pytest
 
 from pyflow.lsp import LspHandler, JsonRpcServer, PyflowAnalysisServer
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -74,33 +73,52 @@ def handlers(mock_server):
 
 
 class TestInitialize:
+    def test_registers_standard_call_hierarchy_methods(self, handlers):
+        assert "textDocument/prepareCallHierarchy" in handlers._handlers
+        assert "callHierarchy/incomingCalls" in handlers._handlers
+        assert "callHierarchy/outgoingCalls" in handlers._handlers
+
     def test_initialize_returns_capabilities(self, handlers):
-        sent = _dispatch(handlers, {
-            "id": 1, "method": "initialize",
-            "params": {"rootUri": None},
-        })
+        sent = _dispatch(
+            handlers,
+            {
+                "id": 1,
+                "method": "initialize",
+                "params": {"rootUri": None},
+            },
+        )
         caps = sent[0].get("result", {}).get("capabilities", {})
         assert caps.get("definitionProvider") is True
         assert caps.get("referencesProvider") is True
         assert caps.get("hoverProvider") is True
         assert caps.get("callHierarchyProvider") is True
+        assert caps.get("positionEncoding") == "utf-16"
 
     def test_initialize_loads_project_when_root_uri_provided(self, mock_server):
         rpc = JsonRpcServer()
         LspHandler(mock_server).register_on(rpc)
-        _dispatch(rpc, {
-            "id": 1, "method": "initialize",
-            "params": {"rootUri": "file:///tmp/testproj"},
-        })
+        _dispatch(
+            rpc,
+            {
+                "id": 1,
+                "method": "initialize",
+                "params": {"rootUri": "file:///tmp/testproj"},
+            },
+        )
         mock_server.load.assert_called_once_with("/tmp/testproj")
 
 
 class TestShutdown:
     def test_shutdown_calls_close(self, handlers):
         mock_srv = handlers._handlers["shutdown"].__self__._server  # noqa
-        _dispatch(handlers, {
-            "id": 2, "method": "shutdown", "params": None,
-        })
+        _dispatch(
+            handlers,
+            {
+                "id": 2,
+                "method": "shutdown",
+                "params": None,
+            },
+        )
         assert mock_srv.close.called
 
 
@@ -123,88 +141,142 @@ def unloaded_rpc(unloaded_server):
     return r
 
 
-class TestHandlersReturnNoneWhenUnloaded:
+class TestHandlersRejectRequestsWhenUnloaded:
     def test_definition(self, unloaded_rpc):
-        sent = _dispatch(unloaded_rpc, {
-            "id": 1, "method": "textDocument/definition",
-            "params": {"textDocument": {"uri": "file:///a.py"},
-                       "position": {"line": 0, "character": 0}},
-        })
-        assert sent[0]["result"] is None
+        sent = _dispatch(
+            unloaded_rpc,
+            {
+                "id": 1,
+                "method": "textDocument/definition",
+                "params": {
+                    "textDocument": {"uri": "file:///a.py"},
+                    "position": {"line": 0, "character": 0},
+                },
+            },
+        )
+        assert sent[0]["error"]["code"] == -32600
 
     def test_references(self, unloaded_rpc):
-        sent = _dispatch(unloaded_rpc, {
-            "id": 1, "method": "textDocument/references",
-            "params": {"textDocument": {"uri": "file:///a.py"},
-                       "position": {"line": 0, "character": 0}},
-        })
-        assert sent[0]["result"] is None
+        sent = _dispatch(
+            unloaded_rpc,
+            {
+                "id": 1,
+                "method": "textDocument/references",
+                "params": {
+                    "textDocument": {"uri": "file:///a.py"},
+                    "position": {"line": 0, "character": 0},
+                },
+            },
+        )
+        assert sent[0]["error"]["code"] == -32600
 
     def test_document_symbol(self, unloaded_rpc):
-        sent = _dispatch(unloaded_rpc, {
-            "id": 1, "method": "textDocument/documentSymbol",
-            "params": {"textDocument": {"uri": "file:///a.py"}},
-        })
-        assert sent[0]["result"] is None
+        sent = _dispatch(
+            unloaded_rpc,
+            {
+                "id": 1,
+                "method": "textDocument/documentSymbol",
+                "params": {"textDocument": {"uri": "file:///a.py"}},
+            },
+        )
+        assert sent[0]["error"]["code"] == -32600
 
     def test_completion(self, unloaded_rpc):
-        sent = _dispatch(unloaded_rpc, {
-            "id": 1, "method": "textDocument/completion",
-            "params": {"textDocument": {"uri": "file:///a.py"},
-                       "position": {"line": 0, "character": 0}},
-        })
-        assert sent[0]["result"] is None
+        sent = _dispatch(
+            unloaded_rpc,
+            {
+                "id": 1,
+                "method": "textDocument/completion",
+                "params": {
+                    "textDocument": {"uri": "file:///a.py"},
+                    "position": {"line": 0, "character": 0},
+                },
+            },
+        )
+        assert sent[0]["error"]["code"] == -32600
 
     def test_hover(self, unloaded_rpc):
-        sent = _dispatch(unloaded_rpc, {
-            "id": 1, "method": "textDocument/hover",
-            "params": {"textDocument": {"uri": "file:///a.py"},
-                       "position": {"line": 0, "character": 0}},
-        })
-        assert sent[0]["result"] is None
+        sent = _dispatch(
+            unloaded_rpc,
+            {
+                "id": 1,
+                "method": "textDocument/hover",
+                "params": {
+                    "textDocument": {"uri": "file:///a.py"},
+                    "position": {"line": 0, "character": 0},
+                },
+            },
+        )
+        assert sent[0]["error"]["code"] == -32600
 
     def test_call_hierarchy_prepare(self, unloaded_rpc):
-        sent = _dispatch(unloaded_rpc, {
-            "id": 1, "method": "textDocument/callHierarchy/prepare",
-            "params": {"textDocument": {"uri": "file:///a.py"},
-                       "position": {"line": 0, "character": 0}},
-        })
-        assert sent[0]["result"] is None
+        sent = _dispatch(
+            unloaded_rpc,
+            {
+                "id": 1,
+                "method": "textDocument/callHierarchy/prepare",
+                "params": {
+                    "textDocument": {"uri": "file:///a.py"},
+                    "position": {"line": 0, "character": 0},
+                },
+            },
+        )
+        assert sent[0]["error"]["code"] == -32600
 
     def test_workspace_symbol(self, unloaded_rpc):
-        sent = _dispatch(unloaded_rpc, {
-            "id": 1, "method": "workspace/symbol",
-            "params": {"query": "foo"},
-        })
-        assert sent[0]["result"] is None
+        sent = _dispatch(
+            unloaded_rpc,
+            {
+                "id": 1,
+                "method": "workspace/symbol",
+                "params": {"query": "foo"},
+            },
+        )
+        assert sent[0]["error"]["code"] == -32600
 
     def test_pyflow_callers(self, unloaded_rpc):
-        sent = _dispatch(unloaded_rpc, {
-            "id": 1, "method": "pyflow/getCallers",
-            "params": {"function": "foo"},
-        })
-        assert sent[0]["result"] is not None
+        sent = _dispatch(
+            unloaded_rpc,
+            {
+                "id": 1,
+                "method": "pyflow/getCallers",
+                "params": {"function": "foo"},
+            },
+        )
+        assert sent[0]["error"]["code"] == -32600
 
     def test_pyflow_callees(self, unloaded_rpc):
-        sent = _dispatch(unloaded_rpc, {
-            "id": 1, "method": "pyflow/getCallees",
-            "params": {"function": "foo"},
-        })
-        assert sent[0]["result"] is not None
+        sent = _dispatch(
+            unloaded_rpc,
+            {
+                "id": 1,
+                "method": "pyflow/getCallees",
+                "params": {"function": "foo"},
+            },
+        )
+        assert sent[0]["error"]["code"] == -32600
 
     def test_pyflow_callgraph(self, unloaded_rpc):
-        sent = _dispatch(unloaded_rpc, {
-            "id": 1, "method": "pyflow/getCallgraph",
-            "params": {},
-        })
-        assert sent[0]["result"] is not None
+        sent = _dispatch(
+            unloaded_rpc,
+            {
+                "id": 1,
+                "method": "pyflow/getCallgraph",
+                "params": {},
+            },
+        )
+        assert sent[0]["error"]["code"] == -32600
 
     def test_pyflow_type(self, unloaded_rpc):
-        sent = _dispatch(unloaded_rpc, {
-            "id": 1, "method": "pyflow/getType",
-            "params": {"module": "m", "line": 1, "column": 0},
-        })
-        assert sent[0]["result"] is not None
+        sent = _dispatch(
+            unloaded_rpc,
+            {
+                "id": 1,
+                "method": "pyflow/getType",
+                "params": {"module": "m", "line": 1, "column": 0},
+            },
+        )
+        assert sent[0]["error"]["code"] == -32600
 
 
 # ---------------------------------------------------------------------------
@@ -214,36 +286,56 @@ class TestHandlersReturnNoneWhenUnloaded:
 
 class TestPyflowExtensions:
     def test_get_callers(self, handlers):
-        sent = _dispatch(handlers, {
-            "id": 1, "method": "pyflow/getCallers",
-            "params": {"function": "foo"},
-        })
+        sent = _dispatch(
+            handlers,
+            {
+                "id": 1,
+                "method": "pyflow/getCallers",
+                "params": {"function": "foo"},
+            },
+        )
         assert sent[0]["result"] == ["caller_a"]
 
     def test_get_callees(self, handlers):
-        sent = _dispatch(handlers, {
-            "id": 1, "method": "pyflow/getCallees",
-            "params": {"function": "foo"},
-        })
+        sent = _dispatch(
+            handlers,
+            {
+                "id": 1,
+                "method": "pyflow/getCallees",
+                "params": {"function": "foo"},
+            },
+        )
         assert sent[0]["result"] == ["callee_b"]
 
     def test_get_callgraph(self, handlers):
-        sent = _dispatch(handlers, {
-            "id": 1, "method": "pyflow/getCallgraph",
-            "params": {},
-        })
+        sent = _dispatch(
+            handlers,
+            {
+                "id": 1,
+                "method": "pyflow/getCallgraph",
+                "params": {},
+            },
+        )
         assert sent[0]["result"] == {"nodes": []}
 
     def test_get_type(self, handlers):
-        sent = _dispatch(handlers, {
-            "id": 1, "method": "pyflow/getType",
-            "params": {"module": "m", "line": 1, "column": 0},
-        })
+        sent = _dispatch(
+            handlers,
+            {
+                "id": 1,
+                "method": "pyflow/getType",
+                "params": {"module": "m", "line": 1, "column": 0},
+            },
+        )
         assert sent[0]["result"] == {"type": "int"}
 
     def test_get_aliases(self, handlers):
-        sent = _dispatch(handlers, {
-            "id": 1, "method": "pyflow/getAliases",
-            "params": {"variable": "x"},
-        })
+        sent = _dispatch(
+            handlers,
+            {
+                "id": 1,
+                "method": "pyflow/getAliases",
+                "params": {"variable": "x"},
+            },
+        )
         assert sent[0]["result"]["variable"] == "x"

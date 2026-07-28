@@ -8,15 +8,13 @@ import json
 import pytest
 
 from pyflow.lsp.transport import (
-    CONTENT_LENGTH,
-    ENCODING,
     ErrorCodes,
     JsonRpcError,
     JsonRpcServer,
+    JsonLineRpcServer,
     _create_message,
     _parse_content_length,
 )
-
 
 # ---------------------------------------------------------------------------
 # Message framing helpers
@@ -126,8 +124,7 @@ class TestJsonRpcServer:
             return "ok"
 
         server.register("test/method", my_handler)
-        _run(server._dispatch(
-            {"id": 1, "method": "test/method", "params": {"x": 1}}))
+        _run(server._dispatch({"id": 1, "method": "test/method", "params": {"x": 1}}))
         assert calls == [{"x": 1}]
 
     def test_dispatch_returns_result_with_id(self, server):
@@ -197,8 +194,7 @@ class TestJsonRpcServer:
             sent.append(payload)
 
         server._send = capture_send  # type: ignore[assignment]
-        _run(server._dispatch(
-            {"id": 1, "method": "async/method", "params": None}))
+        _run(server._dispatch({"id": 1, "method": "async/method", "params": None}))
         assert sent[0]["result"] == "async-result"
 
     def test_dispatch_handler_raises_json_rpc_error(self, server):
@@ -227,8 +223,7 @@ class TestJsonRpcServer:
             sent.append(payload)
 
         server._send = capture_send  # type: ignore[assignment]
-        _run(server._dispatch(
-            {"id": 1, "method": "explodes", "params": None}))
+        _run(server._dispatch({"id": 1, "method": "explodes", "params": None}))
         assert sent[0]["error"]["code"] == ErrorCodes.InternalError
 
     # ------------------------------------------------------------------
@@ -254,11 +249,111 @@ class TestJsonRpcServer:
     def test_register_adds_handler(self, server):
         def h(p):
             pass
+
         server.register("x", h)
         assert server._handlers["x"] is h
 
     def test_register_notification_adds_handler(self, server):
         def h(p):
             pass
+
         server.register_notification("y", h)
         assert server._handlers["y"] is h
+
+    def test_strict_dispatch_rejects_missing_jsonrpc(self, server):
+        sent = []
+
+        async def capture(payload):
+            sent.append(payload)
+
+        server._send = capture  # type: ignore[assignment]
+        _run(server._dispatch({"id": 1, "method": "x"}, strict=True))
+        assert sent[0]["error"]["code"] == ErrorCodes.InvalidRequest
+
+    def test_null_id_is_a_request_not_a_notification(self, server):
+        server.register("ping", lambda params: "pong")
+        sent = []
+
+        async def capture(payload):
+            sent.append(payload)
+
+        server._send = capture  # type: ignore[assignment]
+        _run(server._dispatch({"jsonrpc": "2.0", "id": None, "method": "ping"}))
+        assert sent == [{"jsonrpc": "2.0", "id": None, "result": "pong"}]
+
+    def test_batch_returns_one_combined_response(self, server):
+        server.register("double", lambda params: params["value"] * 2)
+        sent = []
+
+        async def capture(payload):
+            sent.append(payload)
+
+        server._send = capture  # type: ignore[assignment]
+        _run(
+            server._dispatch(
+                [
+                    {
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "method": "double",
+                        "params": {"value": 2},
+                    },
+                    {"jsonrpc": "2.0", "method": "double", "params": {"value": 3}},
+                ]
+            )
+        )
+        assert sent == [[{"jsonrpc": "2.0", "id": 1, "result": 4}]]
+
+    def test_cancel_request_returns_request_cancelled_error(self, server):
+        async def scenario():
+            sent = []
+
+            async def capture(payload):
+                sent.append(payload)
+
+            async def slow(params):
+                await asyncio.Future()
+
+            server._send = capture  # type: ignore[assignment]
+            server.register("slow", slow)
+            request = asyncio.create_task(
+                server._dispatch({"jsonrpc": "2.0", "id": 9, "method": "slow"})
+            )
+            await asyncio.sleep(0)
+            await server._dispatch(
+                {
+                    "jsonrpc": "2.0",
+                    "method": "$/cancelRequest",
+                    "params": {"id": 9},
+                }
+            )
+            await request
+            return sent
+
+        sent = _run(scenario())
+        assert sent[0]["error"]["code"] == ErrorCodes.RequestCancelled
+
+
+def test_content_length_header_can_follow_other_headers():
+    async def read():
+        reader = asyncio.StreamReader()
+        body = b'{"jsonrpc":"2.0","method":"ping"}'
+        reader.feed_data(
+            b"Content-Type: application/vscode-jsonrpc; charset=utf-8\r\n"
+            + f"content-length: {len(body)}\r\n\r\n".encode()
+            + body
+        )
+        reader.feed_eof()
+        return await JsonRpcServer()._read_message(reader)
+
+    assert _run(read())["method"] == "ping"
+
+
+def test_json_line_transport_reads_mcp_message():
+    async def read():
+        reader = asyncio.StreamReader()
+        reader.feed_data(b'{"jsonrpc":"2.0","id":1,"method":"initialize"}\n')
+        reader.feed_eof()
+        return await JsonLineRpcServer()._read_message(reader)
+
+    assert _run(read())["method"] == "initialize"

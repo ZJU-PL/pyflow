@@ -25,8 +25,12 @@ class CapabilityInfo(TypedDict):
 def get_server_mode_description(mode: MCPServerMode) -> str:
     descriptions = {
         MCPServerMode.BASIC: "Lightweight mode exposing only CFG/callgraph facts.",
-        MCPServerMode.FULL: "Full mode including callgraph, CFG/SSA, axioms and store graph.",
-        MCPServerMode.ADVANCED: "Advanced mode adding alias, points-to, and lifetime facts.",
+        MCPServerMode.FULL: (
+            "Full mode including callgraph, CFG/SSA, axioms and store graph."
+        ),
+        MCPServerMode.ADVANCED: (
+            "Advanced mode adding alias, points-to, and lifetime facts."
+        ),
     }
     return descriptions.get(mode, "Custom MCP mode.")
 
@@ -91,15 +95,21 @@ def resolve_capabilities(mode: MCPServerMode) -> Dict[str, CapabilityInfo]:
         advanced = dict(full)
         advanced["aliases"] = {
             "available": True,
-            "note": "Requires store graph from IPA/CPA; precision depends on graph coverage.",
+            "note": (
+                "Requires store graph from IPA/CPA; precision depends on "
+                "graph coverage."
+            ),
         }
         advanced["points_to"] = {
             "available": True,
-            "note": "Requires store graph from IPA/CPA; precision depends on graph coverage.",
+            "note": (
+                "Requires store graph from IPA/CPA; precision depends on "
+                "graph coverage."
+            ),
         }
         advanced["reaching_defs"] = {
-            "available": True,
-            "note": "Derived from SSA in ADVANCED mode.",
+            "available": False,
+            "note": "Not exposed until source-level SSA locations are stable.",
         }
         return advanced
 

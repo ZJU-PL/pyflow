@@ -90,6 +90,15 @@ pyflow security input.py --engine cpg --framework flask
 # Run alias analysis (flow-sensitive heap or k-CFA pointer)
 pyflow alias input.py --verbose
 
+# Start the LSP server (Content-Length framed JSON-RPC)
+pyflow lsp --root . --mode full
+
+# Start the MCP server (newline-delimited JSON-RPC over stdio)
+pyflow mcp --root . --mode full
+
+# Run a one-shot semantic query
+pyflow query . --get-callers package.module.function --pretty
+
 # Generate a CycloneDX SBOM from local package metadata
 pyflow supply-chain sbom package/
 
@@ -124,6 +133,8 @@ configuration while ``--osv-max-age-days`` enforces freshness. Install the optio
 ``supply-chain`` dependency group for JSON Schema and Sigstore tooling.
 
 See [CLI.md](CLI.md) for the command reference,
+[docs/source/lsp.rst](docs/source/lsp.rst) for LSP, MCP, and semantic-query
+integration,
 [docs/type-inference.md](docs/type-inference.md) for the standalone static
 type-inference engine, and `docs/` for broader project
 documentation.

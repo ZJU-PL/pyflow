@@ -1,421 +1,325 @@
-"""
-LSP protocol handler — makes pyflow available as a language server.
+"""Language Server Protocol adapter for pyflow analysis snapshots."""
 
-Maps LSP ``textDocument/*`` requests to pyflow's analysis capabilities,
-using the JSON-RPC transport layer. Only requests that pyflow can answer
-better than a generic LSP server are implemented — the focus is on
-data-flow, call-graph, and alias analysis.
-"""
+from __future__ import annotations
 
+import asyncio
 import logging
-import re
+from pathlib import Path
 from typing import Any, Optional
 
-from .transport import JsonRpcServer
 from .server import PyflowAnalysisServer
+from .transport import ErrorCodes, JsonRpcError, JsonRpcServer
+from .workspace import SourceSymbol, uri_to_path
 
 LOG = logging.getLogger(__name__)
 
-# Match 'source(/absolute/path/file.py:42)' in the origin list.
-_SOURCE_PATTERN = re.compile(r"^source\((.+):(\d+)\)$")
-
 
 class LspHandler:
-    """Bridges pyflow's analysis engine to the LSP protocol.
-
-    Registers ``textDocument/*`` and ``workspace/*`` handlers on a
-    ``JsonRpcServer`` instance.  Each handler translates LSP parameters
-    into pyflow's SemanticQueryService calls and maps results back into
-    LSP response shapes.
-    """
+    """Translate source-oriented LSP requests into pyflow queries."""
 
     def __init__(self, server: PyflowAnalysisServer):
         self._server = server
         self._capabilities: dict[str, Any] = {}
+        self._shutdown = False
 
     def register_on(self, rpc: JsonRpcServer) -> None:
-        """Register all LSP handlers on a JSON-RPC server."""
-        # Lifecycle
         rpc.register("initialize", self._handle_initialize)
         rpc.register("shutdown", self._handle_shutdown)
         rpc.register_notification("initialized", self._handle_initialized)
         rpc.register_notification("exit", self._handle_exit)
 
-        # Text document synchronisation (minimal — we read from disk)
-        rpc.register_notification(
-            "textDocument/didOpen", self._handle_did_open)
-        rpc.register_notification(
-            "textDocument/didChange", self._handle_did_change)
-        rpc.register_notification(
-            "textDocument/didClose", self._handle_did_close)
+        rpc.register_notification("textDocument/didOpen", self._handle_did_open)
+        rpc.register_notification("textDocument/didChange", self._handle_did_change)
+        rpc.register_notification("textDocument/didClose", self._handle_did_close)
 
-        # Pyflow's differentiators
+        rpc.register("textDocument/definition", self._handle_definition)
+        rpc.register("textDocument/references", self._handle_references)
+        rpc.register("textDocument/documentSymbol", self._handle_document_symbol)
+        rpc.register("textDocument/completion", self._handle_completion)
+        rpc.register("textDocument/hover", self._handle_hover)
         rpc.register(
-            "textDocument/definition", self._handle_definition)
+            "textDocument/prepareCallHierarchy", self._handle_call_hierarchy_prepare
+        )
         rpc.register(
-            "textDocument/references", self._handle_references)
+            "callHierarchy/incomingCalls", self._handle_call_hierarchy_incoming
+        )
         rpc.register(
-            "textDocument/documentSymbol", self._handle_document_symbol)
+            "callHierarchy/outgoingCalls", self._handle_call_hierarchy_outgoing
+        )
+
+        # Compatibility aliases for the early experimental protocol.
         rpc.register(
-            "textDocument/completion", self._handle_completion)
-        rpc.register(
-            "textDocument/hover", self._handle_hover)
-        rpc.register(
-            "textDocument/callHierarchy/prepare",
-            self._handle_call_hierarchy_prepare)
+            "textDocument/callHierarchy/prepare", self._handle_call_hierarchy_prepare
+        )
         rpc.register(
             "textDocument/callHierarchy/incomingCalls",
-            self._handle_call_hierarchy_incoming)
+            self._handle_call_hierarchy_incoming,
+        )
         rpc.register(
             "textDocument/callHierarchy/outgoingCalls",
-            self._handle_call_hierarchy_outgoing)
+            self._handle_call_hierarchy_outgoing,
+        )
 
-        # Workspace
         rpc.register("workspace/symbol", self._handle_workspace_symbol)
-
-        # Pyflow custom extensions
         rpc.register("pyflow/getCallers", self._handle_pyflow_callers)
         rpc.register("pyflow/getCallees", self._handle_pyflow_callees)
         rpc.register("pyflow/getCallgraph", self._handle_pyflow_callgraph)
         rpc.register("pyflow/getType", self._handle_pyflow_type)
         rpc.register("pyflow/getAliases", self._handle_pyflow_aliases)
 
-    # ------------------------------------------------------------------
-    # Lifecycle
-    # ------------------------------------------------------------------
-
     async def _handle_initialize(self, params: Any) -> dict[str, Any]:
-        root_uri = params.get("rootUri") if params else None
+        if self._shutdown:
+            raise JsonRpcError(ErrorCodes.InvalidRequest, "Server has shut down")
+        params = params or {}
+        root_uri = params.get("rootUri")
+        if not root_uri:
+            folders = params.get("workspaceFolders") or []
+            root_uri = folders[0].get("uri") if folders else None
         if root_uri:
-            root_path = root_uri.replace("file://", "")
+            root_path = uri_to_path(root_uri)
             try:
-                self._server.load(root_path)
+                if not self._server.is_loaded or self._server.root_path != root_path:
+                    await asyncio.to_thread(self._server.load, root_path)
             except Exception as exc:
-                LOG.warning("Initial load failed (deferred): %s", exc)
+                raise JsonRpcError(
+                    ErrorCodes.InternalError,
+                    f"Unable to analyze workspace: {exc}",
+                ) from exc
 
-        text_doc_sync = {"openClose": True, "change": 1}
         self._capabilities = {
-            "textDocumentSync": text_doc_sync,
+            "positionEncoding": "utf-16",
+            "textDocumentSync": {"openClose": True, "change": 1, "save": False},
             "definitionProvider": True,
             "referencesProvider": True,
             "documentSymbolProvider": True,
             "completionProvider": {
-                "triggerCharacters": [".", "'", '"'],
+                "triggerCharacters": ["."],
                 "resolveProvider": False,
             },
-            "hoverProvider": True,
+            "hoverProvider": bool(
+                self._server.is_loaded and self._server.supports("type_info")
+            ),
             "callHierarchyProvider": True,
             "workspaceSymbolProvider": True,
         }
-        return {"capabilities": self._capabilities}
+        return {
+            "capabilities": self._capabilities,
+            "serverInfo": {"name": "pyflow", "version": self._version()},
+        }
 
     def _handle_initialized(self, params: Any) -> None:
-        pass
+        return None
 
-    def _handle_shutdown(self, params: Any) -> Optional[None]:
+    def _handle_shutdown(self, params: Any) -> None:
+        self._shutdown = True
         self._server.close()
         return None
 
     def _handle_exit(self, params: Any) -> None:
         self._server.close()
 
-    # ------------------------------------------------------------------
-    # Text document sync (no-op — pyflow reads from disk / IR)
-    # ------------------------------------------------------------------
+    async def _handle_did_open(self, params: Any) -> None:
+        document = (params or {}).get("textDocument", {})
+        uri = document.get("uri")
+        text = document.get("text")
+        if not uri or text is None:
+            return
+        self._server.open_document(uri, text, document.get("version"))
+        if self._server.is_loaded:
+            await asyncio.to_thread(self._server.reload)
+        else:
+            await asyncio.to_thread(
+                self._server.load, str(Path(uri_to_path(uri)).parent)
+            )
 
-    def _handle_did_open(self, params: Any) -> None:
-        pass
+    async def _handle_did_change(self, params: Any) -> None:
+        params = params or {}
+        document = params.get("textDocument", {})
+        changes = params.get("contentChanges") or []
+        if not document.get("uri") or not changes:
+            return
+        change = changes[-1]
+        if "range" in change:
+            raise JsonRpcError(
+                ErrorCodes.InvalidParams,
+                "Incremental changes are not supported; client must use full sync",
+            )
+        self._server.change_document(
+            document["uri"], change.get("text", ""), document.get("version")
+        )
+        if self._server.is_loaded:
+            await asyncio.to_thread(self._server.reload)
 
-    def _handle_did_change(self, params: Any) -> None:
-        pass
+    async def _handle_did_close(self, params: Any) -> None:
+        uri = ((params or {}).get("textDocument") or {}).get("uri")
+        if not uri:
+            return
+        self._server.close_document(uri)
+        if self._server.is_loaded:
+            await asyncio.to_thread(self._server.reload)
 
-    def _handle_did_close(self, params: Any) -> None:
-        pass
-
-    # ------------------------------------------------------------------
-    # LSP queries powered by pyflow
-    # ------------------------------------------------------------------
-
-    def _uri_to_path(self, uri: str) -> str:
-        return uri.replace("file://", "")
-
-    @staticmethod
-    def _get_origin_file(code: Any) -> Optional[str]:
-        """Extract origin file path from a liveCode annotation.
-
-        pyflow stores origin as a list of strings, e.g.
-        ``['converted_function(foo)', 'source(/path/file.py:1)']``.
-        Returns the file path portion of the ``source(...)`` entry, or
-        ``None`` when no source entry is found.
-        """
-        origin = LspHandler._get_origin_list(code)
-        if origin is None:
-            return None
-        for entry in origin:
-            m = _SOURCE_PATTERN.match(entry)
-            if m:
-                return m.group(1)
-        return None
-
-    @staticmethod
-    def _get_origin_line(code: Any) -> Optional[int]:
-        """Extract origin line number from a liveCode annotation.
-
-        Returns the 1-based line number from ``source(FILE:LINE)``, or
-        ``None`` if no source entry is present.
-        """
-        origin = LspHandler._get_origin_list(code)
-        if origin is None:
-            return None
-        for entry in origin:
-            m = _SOURCE_PATTERN.match(entry)
-            if m:
-                return int(m.group(2))
-        return None
-
-    @staticmethod
-    def _get_origin_list(code: Any) -> Optional[list[str]]:
-        """Extract the ``origin`` list from a code annotation."""
-        ann = getattr(code, "annotation", None)
-        if ann is None:
-            return None
-        origin = getattr(ann, "origin", None)
-        if not isinstance(origin, list):
-            return None
-        return origin
-
-    def _find_code_at(self, uri: str, line: int) -> Optional[dict[str, Any]]:
-        """Find the function code object containing a source line.
-
-        Returns a dict with keys: ``name``, ``filename``, ``line``, ``end_line``
-        (all 1-based) or ``None`` if no match is found.
-        """
-        path = self._uri_to_path(uri)
-        for code in getattr(self._server.program, "liveCode", []):
-            fn_path = self._get_origin_file(code)
-            if fn_path is None:
-                continue
-            if not path.endswith(fn_path) and fn_path not in path:
-                continue
-            fn_start = self._get_origin_line(code)
-            if fn_start is None:
-                continue
-            # pyflow only provides the start line; use it for both.
-            fn_end = fn_start
-            if fn_start <= line + 1 <= fn_end:
-                raw = getattr(code, "codeName", None)
-                fn_name = str(raw() if callable(raw) else raw) if raw else None
-                if fn_name:
-                    return {
-                        "name": fn_name,
-                        "filename": fn_path,
-                        "line": fn_start,
-                        "end_line": fn_end,
-                    }
-        return None
-
-    def _iter_functions(self) -> list[dict[str, Any]]:
-        """Iterate liveCode and yield function metadata.
-
-        Each entry has keys: ``name``, ``filename`` (or None),
-        ``line_0based``, ``end_line_0based``.
-        """
-        result: list[dict[str, Any]] = []
-        for code in getattr(self._server.program, "liveCode", []):
-            raw = getattr(code, "codeName", None)
-            name = str(raw() if callable(raw) else raw) if raw else str(getattr(code, "name", "?"))
-            fn_path = self._get_origin_file(code)
-            fn_start = self._get_origin_line(code)
-            fn_end = fn_start or 0
-            result.append({
-                "name": name,
-                "filename": fn_path,
-                "line_0based": max(fn_start - 1, 0) if fn_start else 0,
-                "end_line_0based": max(fn_end - 1, 0) if fn_end else 0,
-            })
-        return result
-
-    def _handle_definition(self, params: Any) -> Optional[list[dict[str, Any]]]:
-        """textDocument/definition — navigate to the function at the cursor."""
+    def _require_loaded(self) -> None:
         if not self._server.is_loaded:
-            return None
-        uri = params.get("textDocument", {}).get("uri", "")
-        line = params.get("position", {}).get("line", 0)
-        info = self._find_code_at(uri, line)
-        if info is None:
-            return None
-        return [{
-            "uri": f"file://{info['filename']}",
-            "range": {
-                "start": {"line": info["line"] - 1, "character": 0},
-                "end": {"line": info["end_line"] - 1, "character": 0},
-            },
-        }]
+            raise JsonRpcError(ErrorCodes.InvalidRequest, "Workspace is not loaded")
 
-    def _handle_references(self, params: Any) -> Optional[list[dict[str, Any]]]:
-        """textDocument/references — callers + callees of the function at cursor."""
-        if not self._server.is_loaded:
-            return None
-        uri = params.get("textDocument", {}).get("uri", "")
-        line = params.get("position", {}).get("line", 0)
-        info = self._find_code_at(uri, line)
-        if info is None:
-            return None
-        func = info["name"]
-        callers = self._server.get_callers(func)
-        callees = self._server.get_callees(func)
-        all_refs = list(set(callers + callees))
+    @staticmethod
+    def _position(params: Any) -> tuple[str, int, int]:
+        params = params or {}
+        uri = (params.get("textDocument") or {}).get("uri", "")
+        position = params.get("position") or {}
+        return uri, int(position.get("line", 0)), int(position.get("character", 0))
+
+    def _handle_definition(self, params: Any) -> list[dict[str, Any]]:
+        self._require_loaded()
+        uri, line, character = self._position(params)
         return [
-            {"uri": f"file://{info['filename']}",
-             "range": {"start": {"line": info["line"] - 1, "character": 0},
-                       "end": {"line": info["end_line"] - 1, "character": 0}}}
-            for _ in all_refs[:20]
+            item.location()
+            for item in self._server.source_index.definitions_at(uri, line, character)
         ]
 
-    def _handle_document_symbol(self, params: Any) -> Optional[list[dict[str, Any]]]:
-        """textDocument/documentSymbol — list functions from pyflow's program."""
-        if not self._server.is_loaded:
-            return None
-        symbols: list[dict[str, Any]] = []
-        for fn in self._iter_functions():
-            uri = f"file://{fn['filename']}" if fn["filename"] else f"file:///{fn['name']}"
-            rng = {"start": {"line": fn["line_0based"], "character": 0},
-                   "end": {"line": fn["end_line_0based"], "character": 0}}
-            symbols.append({
-                "name": fn["name"],
-                "kind": 12,
-                "location": {"uri": uri, "range": rng},
-                "range": rng,
-                "selectionRange": rng,
-            })
-        return symbols
+    def _handle_references(self, params: Any) -> list[dict[str, Any]]:
+        self._require_loaded()
+        uri, line, character = self._position(params)
+        include = bool(((params or {}).get("context") or {}).get("includeDeclaration"))
+        return [
+            item.location()
+            for item in self._server.source_index.references_at(
+                uri, line, character, include_declaration=include
+            )
+        ]
 
-    def _handle_completion(self, params: Any) -> Optional[dict[str, Any]]:
-        """textDocument/completion — returns known function names from pyflow."""
-        if not self._server.is_loaded:
-            return None
+    def _handle_document_symbol(self, params: Any) -> list[dict[str, Any]]:
+        self._require_loaded()
+        uri = ((params or {}).get("textDocument") or {}).get("uri", "")
+        return [
+            symbol.document_symbol()
+            for symbol in self._server.source_index.document_symbols(uri)
+        ]
+
+    def _handle_completion(self, params: Any) -> dict[str, Any]:
+        self._require_loaded()
+        uri, line, character = self._position(params)
+        prefix = self._server.source_index.word_at(uri, line, character) or ""
+        symbols = self._server.source_index.workspace_symbols(prefix)
         items = [
-            {"label": fn["name"], "kind": 3, "detail": "pyflow"}
-            for fn in self._iter_functions()
+            {
+                "label": symbol.name,
+                "kind": 3 if symbol.kind in {6, 12} else 7,
+                "detail": symbol.qualified_name,
+            }
+            for symbol in symbols[:200]
         ]
-        return {"isIncomplete": False, "items": items[:100]}
+        return {"isIncomplete": len(symbols) > len(items), "items": items}
 
     def _handle_hover(self, params: Any) -> Optional[dict[str, Any]]:
-        """textDocument/hover — type information from pyflow's type analysis."""
-        if not self._server.is_loaded:
+        self._require_loaded()
+        if not self._server.supports("type_info"):
             return None
-        uri = params.get("textDocument", {}).get("uri", "")
-        line = params.get("position", {}).get("line", 0)
-        col = params.get("position", {}).get("character", 0)
+        uri, line, character = self._position(params)
+        module = self._server.source_index.module_for_uri(uri)
+        if not module:
+            return None
+        column = self._server.source_index.python_column(uri, line, character)
+        result = self._server.get_expression_type(module, line + 1, column)
+        if result is None:
+            return None
+        return {
+            "contents": {
+                "kind": "markdown",
+                "value": f"```python\n{result['type']}\n```",
+            }
+        }
 
-        info = self._find_code_at(uri, line)
-        if info is None:
-            return None
-        mod = info["name"].rsplit(".", 1)[0] if "." in info["name"] else info["name"]
-        t = self._server.get_expression_type(mod, line + 1, col)
-        if t:
-            return {"contents": {"kind": "markdown",
-                                 "value": f"```python\n{t['type']}\n```"}}
-        return None
+    def _handle_call_hierarchy_prepare(self, params: Any) -> list[dict[str, Any]]:
+        self._require_loaded()
+        uri, line, character = self._position(params)
+        symbol = self._server.source_index.function_at(uri, line, character)
+        return [self._call_item(symbol)] if symbol else []
 
-    def _handle_call_hierarchy_prepare(self, params: Any) -> Optional[list[dict[str, Any]]]:
-        """textDocument/prepareCallHierarchy — function at position."""
-        if not self._server.is_loaded:
-            return None
-        uri = params.get("textDocument", {}).get("uri", "")
-        line = params.get("position", {}).get("line", 0)
-        info = self._find_code_at(uri, line)
-        if info is None:
-            return None
-        return [{
-            "name": info["name"],
-            "kind": 12,
-            "uri": f"file://{info['filename']}",
-            "range": {"start": {"line": info["line"] - 1, "character": 0},
-                      "end": {"line": info["end_line"] - 1, "character": 0}},
-            "selectionRange": {"start": {"line": info["line"] - 1, "character": 0},
-                               "end": {"line": info["end_line"] - 1, "character": 0}},
-        }]
-
-    def _handle_call_hierarchy_incoming(self, params: Any) -> Optional[list[dict[str, Any]]]:
-        if not self._server.is_loaded:
-            return None
-        item = params.get("item", {})
-        name = item.get("name", "")
-        callers = self._server.get_callers(name)
+    def _handle_call_hierarchy_incoming(self, params: Any) -> list[dict[str, Any]]:
+        self._require_loaded()
+        item = (params or {}).get("item") or {}
+        name = (item.get("data") or {}).get("qualifiedName", item.get("name", ""))
         return [
-            {"from": {
-                "name": c, "kind": 12,
-                "uri": item.get("uri", ""),
-                "range": item.get("range", {"start": {"line": 0, "character": 0},
-                                             "end": {"line": 0, "character": 0}}),
-                "selectionRange": item.get("selectionRange", item.get("range", {})),
-             },
-             "fromRanges": [item.get("range", {})]}
-            for c in callers[:20]
+            {
+                "from": self._call_item(symbol),
+                "fromRanges": [location.to_lsp() for location in locations],
+            }
+            for symbol, locations in self._server.source_index.incoming_calls(name)
         ]
 
-    def _handle_call_hierarchy_outgoing(self, params: Any) -> Optional[list[dict[str, Any]]]:
-        if not self._server.is_loaded:
-            return None
-        item = params.get("item", {})
-        name = item.get("name", "")
-        callees = self._server.get_callees(name)
+    def _handle_call_hierarchy_outgoing(self, params: Any) -> list[dict[str, Any]]:
+        self._require_loaded()
+        item = (params or {}).get("item") or {}
+        name = (item.get("data") or {}).get("qualifiedName", item.get("name", ""))
         return [
-            {"to": {
-                "name": c, "kind": 12,
-                "uri": item.get("uri", ""),
-                "range": item.get("range", {"start": {"line": 0, "character": 0},
-                                             "end": {"line": 0, "character": 0}}),
-                "selectionRange": item.get("selectionRange", item.get("range", {})),
-             },
-             "fromRanges": [item.get("range", {})]}
-            for c in callees[:20]
+            {
+                "to": self._call_item(symbol),
+                "fromRanges": [location.to_lsp() for location in locations],
+            }
+            for symbol, locations in self._server.source_index.outgoing_calls(name)
         ]
 
-    def _handle_workspace_symbol(self, params: Any) -> Optional[list[dict[str, Any]]]:
-        if not self._server.is_loaded:
-            return None
-        query = (params or {}).get("query", "").lower()
-        symbols: list[dict[str, Any]] = []
-        for fn in self._iter_functions():
-            if query and query not in fn["name"].lower():
-                continue
-            uri = f"file://{fn['filename']}" if fn["filename"] else f"file:///{fn['name']}"
-            symbols.append({
-                "name": fn["name"],
-                "kind": 12,
-                "location": {
-                    "uri": uri,
-                    "range": {"start": {"line": fn["line_0based"], "character": 0},
-                              "end": {"line": fn["end_line_0based"], "character": 0}},
-                },
-            })
-        return symbols
+    @staticmethod
+    def _call_item(symbol: SourceSymbol) -> dict[str, Any]:
+        return {
+            "name": symbol.name,
+            "detail": symbol.qualified_name,
+            "kind": symbol.kind,
+            "uri": symbol.full_range.uri,
+            "range": symbol.full_range.to_lsp(),
+            "selectionRange": symbol.selection_range.to_lsp(),
+            "data": {"qualifiedName": symbol.qualified_name},
+        }
 
-    # ------------------------------------------------------------------
-    # Pyflow custom extensions — return analysis data directly
-    # ------------------------------------------------------------------
+    def _handle_workspace_symbol(self, params: Any) -> list[dict[str, Any]]:
+        self._require_loaded()
+        query = (params or {}).get("query", "")
+        return [
+            symbol.symbol_information()
+            for symbol in self._server.source_index.workspace_symbols(query)[:500]
+        ]
 
     def _handle_pyflow_callers(self, params: Any) -> list[str]:
-        function = (params or {}).get("function", "")
-        return self._server.get_callers(function)
+        self._require_loaded()
+        return self._server.get_callers((params or {}).get("function", ""))
 
     def _handle_pyflow_callees(self, params: Any) -> list[str]:
-        function = (params or {}).get("function", "")
-        return self._server.get_callees(function)
+        self._require_loaded()
+        return self._server.get_callees((params or {}).get("function", ""))
 
     def _handle_pyflow_callgraph(self, params: Any) -> dict[str, Any]:
+        self._require_loaded()
         return self._server.get_callgraph_data()
 
     def _handle_pyflow_type(self, params: Any) -> Optional[dict[str, Any]]:
-        p = params or {}
+        self._require_loaded()
+        if not self._server.supports("type_info"):
+            return None
+        params = params or {}
         return self._server.get_expression_type(
-            p.get("module", ""),
-            p.get("line", 0),
-            p.get("column", 0),
+            params.get("module", ""),
+            int(params.get("line", 0)),
+            int(params.get("column", 0)),
         )
 
     def _handle_pyflow_aliases(self, params: Any) -> dict[str, Any]:
-        variable = (params or {}).get("variable", "")
-        return self._server.get_aliases_for_variable(variable)
+        self._require_loaded()
+        if not self._server.supports("aliases"):
+            raise JsonRpcError(
+                ErrorCodes.InvalidRequest,
+                "Alias analysis requires ADVANCED server mode",
+            )
+        return self._server.get_aliases_for_variable((params or {}).get("variable", ""))
+
+    @staticmethod
+    def _version() -> str:
+        try:
+            from pyflow import __version__
+
+            return __version__
+        except ImportError:
+            return "0.0.0"
+
+
+__all__ = ["LspHandler"]

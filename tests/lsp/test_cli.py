@@ -15,7 +15,6 @@ from pyflow.cli.lsp import (
 )
 from pyflow.lsp import PyflowAnalysisServer
 
-
 # ---------------------------------------------------------------------------
 # Fixture: parser builders
 # ---------------------------------------------------------------------------
@@ -24,6 +23,7 @@ from pyflow.lsp import PyflowAnalysisServer
 @pytest.fixture
 def lsp_parser():
     from argparse import ArgumentParser
+
     p = ArgumentParser()
     sub = p.add_subparsers(dest="command")
     add_lsp_parser(sub)
@@ -33,6 +33,7 @@ def lsp_parser():
 @pytest.fixture
 def mcp_parser():
     from argparse import ArgumentParser
+
     p = ArgumentParser()
     sub = p.add_subparsers(dest="command")
     add_mcp_parser(sub)
@@ -42,6 +43,7 @@ def mcp_parser():
 @pytest.fixture
 def query_parser():
     from argparse import ArgumentParser
+
     p = ArgumentParser()
     sub = p.add_subparsers(dest="command")
     add_query_parser(sub)
@@ -62,6 +64,10 @@ class TestLspParser:
         args = _parse(lsp_parser, ["lsp"])
         assert args.command == "lsp"
         assert args.root is None
+        assert args.mode == "full"
+
+    def test_lsp_accepts_analysis_mode(self, lsp_parser):
+        assert _parse(lsp_parser, ["lsp", "--mode", "basic"]).mode == "basic"
 
     def test_lsp_with_root(self, lsp_parser):
         args = _parse(lsp_parser, ["lsp", "--root", "/tmp/project"])
@@ -83,6 +89,10 @@ class TestMcpParser:
         args = _parse(mcp_parser, ["mcp"])
         assert args.command == "mcp"
         assert args.root is None
+        assert args.mode == "full"
+
+    def test_mcp_accepts_advanced_mode(self, mcp_parser):
+        assert _parse(mcp_parser, ["mcp", "--mode", "advanced"]).mode == "advanced"
 
     def test_mcp_with_root(self, mcp_parser):
         args = _parse(mcp_parser, ["mcp", "--root", "/tmp/project"])
@@ -101,7 +111,6 @@ class TestMcpParser:
 
 class TestQueryParser:
     def test_query_requires_input_path(self, query_parser):
-        from argparse import ArgumentError
         with pytest.raises(SystemExit):
             _parse(query_parser, ["query"])
 
@@ -133,8 +142,7 @@ class TestQueryParser:
     def test_query_get_type(self, query_parser, tmp_path):
         f = tmp_path / "sample.py"
         f.write_text("x = 1")
-        args = _parse(query_parser,
-                       ["query", str(f), "--get-type", "mod", "10", "3"])
+        args = _parse(query_parser, ["query", str(f), "--get-type", "mod", "10", "3"])
         assert args.get_type == ["mod", "10", "3"]
 
     def test_query_get_cfg(self, query_parser, tmp_path):
@@ -146,8 +154,7 @@ class TestQueryParser:
     def test_query_get_aliases(self, query_parser, tmp_path):
         f = tmp_path / "sample.py"
         f.write_text("x = 1")
-        args = _parse(query_parser,
-                       ["query", str(f), "--get-aliases", "var"])
+        args = _parse(query_parser, ["query", str(f), "--get-aliases", "var"])
         assert args.get_aliases == "var"
 
     def test_query_list_functions(self, query_parser, tmp_path):
@@ -160,8 +167,7 @@ class TestQueryParser:
         f = tmp_path / "sample.py"
         f.write_text("x = 1")
         out = tmp_path / "out.json"
-        args = _parse(query_parser,
-                       ["query", str(f), "--output", str(out)])
+        args = _parse(query_parser, ["query", str(f), "--output", str(out)])
         assert str(args.output) == str(out)
 
     def test_query_pretty(self, query_parser, tmp_path):
@@ -196,6 +202,7 @@ class TestQueryParser:
             func=lambda a: None,
         )
         from unittest.mock import MagicMock
+
         server = MagicMock(spec=PyflowAnalysisServer)
         server.get_capabilities.return_value = {"callgraph": True}
         server.program = MagicMock()

@@ -19,7 +19,6 @@ import pytest
 from pyflow.lsp import LspHandler, McpHandler, JsonRpcServer
 from pyflow.lsp.server import PyflowAnalysisServer
 
-
 # ---------------------------------------------------------------------------
 # Test helpers
 # ---------------------------------------------------------------------------
@@ -69,6 +68,14 @@ class TestSingleFileAnalysis:
         assert "callgraph" in caps
         assert "callers" in caps
         assert "callees" in caps
+        assert caps["type_info"]["available"] is True
+
+    def test_type_service_is_wired_to_real_source(self, tmp_path: Path) -> None:
+        sample = tmp_path / "typed.py"
+        sample.write_text("def typed(value: int) -> int:\n    return value\n")
+        server = PyflowAnalysisServer(verbose=False)
+        server.load_files([sample])
+        assert server.service.get_symbol_type("typed", "typed") is not None
 
     def test_callgraph_contains_function(self, tmp_path: Path) -> None:
         server = _analyze_simple(tmp_path)
@@ -214,11 +221,17 @@ class TestLspHandlerReal:
         server = _analyze_simple(tmp_path)
         rpc = JsonRpcServer()
         LspHandler(server).register_on(rpc)
-        sent = dispatch(rpc, {
-            "id": 1, "method": "textDocument/documentSymbol", "params": {
-                "textDocument": {"uri": "file:///any.py"},
+        uri = (tmp_path / "sample.py").as_uri()
+        sent = dispatch(
+            rpc,
+            {
+                "id": 1,
+                "method": "textDocument/documentSymbol",
+                "params": {
+                    "textDocument": {"uri": uri},
+                },
             },
-        })
+        )
         symbols = sent[0]["result"]
         assert isinstance(symbols, list)
         names = [s["name"] for s in symbols]
@@ -228,11 +241,16 @@ class TestLspHandlerReal:
         server = _analyze_simple(tmp_path)
         rpc = JsonRpcServer()
         LspHandler(server).register_on(rpc)
-        sent = dispatch(rpc, {
-            "id": 1, "method": "textDocument/documentSymbol", "params": {
-                "textDocument": {"uri": "file:///any.py"},
+        sent = dispatch(
+            rpc,
+            {
+                "id": 1,
+                "method": "textDocument/documentSymbol",
+                "params": {
+                    "textDocument": {"uri": "file:///any.py"},
+                },
             },
-        })
+        )
         symbols = sent[0]["result"]
         for s in symbols:
             uri = s["location"]["uri"]
@@ -245,12 +263,17 @@ class TestLspHandlerReal:
         rpc = JsonRpcServer()
         LspHandler(server).register_on(rpc)
         uri = f"file://{sample}"
-        sent = dispatch(rpc, {
-            "id": 1, "method": "textDocument/definition", "params": {
-                "textDocument": {"uri": uri},
-                "position": {"line": 0, "character": 0},
+        sent = dispatch(
+            rpc,
+            {
+                "id": 1,
+                "method": "textDocument/definition",
+                "params": {
+                    "textDocument": {"uri": uri},
+                    "position": {"line": 0, "character": 4},
+                },
             },
-        })
+        )
         result = sent[0]["result"]
         assert result is not None
         assert len(result) == 1
@@ -261,37 +284,99 @@ class TestLspHandlerReal:
         server = _analyze_simple(tmp_path)
         rpc = JsonRpcServer()
         LspHandler(server).register_on(rpc)
-        sent = dispatch(rpc, {
-            "id": 1, "method": "textDocument/definition", "params": {
-                "textDocument": {"uri": "file:///nonexistent.py"},
-                "position": {"line": 999, "character": 0},
+        sent = dispatch(
+            rpc,
+            {
+                "id": 1,
+                "method": "textDocument/definition",
+                "params": {
+                    "textDocument": {"uri": "file:///nonexistent.py"},
+                    "position": {"line": 999, "character": 0},
+                },
             },
-        })
-        assert sent[0]["result"] is None
+        )
+        assert sent[0]["result"] == []
 
     def test_completion_returns_function_names(self, tmp_path: Path) -> None:
         server = _analyze_simple(tmp_path)
         rpc = JsonRpcServer()
         LspHandler(server).register_on(rpc)
-        sent = dispatch(rpc, {
-            "id": 1, "method": "textDocument/completion", "params": {
-                "textDocument": {"uri": "file:///any.py"},
-                "position": {"line": 0, "character": 0},
+        sent = dispatch(
+            rpc,
+            {
+                "id": 1,
+                "method": "textDocument/completion",
+                "params": {
+                    "textDocument": {"uri": "file:///any.py"},
+                    "position": {"line": 0, "character": 0},
+                },
             },
-        })
+        )
         result = sent[0]["result"]
         assert result["isIncomplete"] is False
         items = result["items"]
         labels = [i["label"] for i in items]
         assert "foo" in labels
 
+    def test_did_change_reanalyzes_unsaved_document(self, tmp_path: Path) -> None:
+        server = _analyze_simple(tmp_path)
+        sample = tmp_path / "sample.py"
+        rpc = JsonRpcServer()
+        LspHandler(server).register_on(rpc)
+        dispatch(
+            rpc,
+            {
+                "method": "textDocument/didChange",
+                "params": {
+                    "textDocument": {"uri": sample.as_uri(), "version": 2},
+                    "contentChanges": [{"text": "def renamed(x): return x + 2\n"}],
+                },
+            },
+        )
+        names = [
+            symbol.name
+            for symbol in server.source_index.document_symbols(sample.as_uri())
+        ]
+        assert names == ["renamed"]
+
+    def test_did_open_can_initialize_a_single_file_workspace(
+        self, tmp_path: Path
+    ) -> None:
+        sample = tmp_path / "opened.py"
+        sample.write_text("def disk_version(): return 1\n")
+        server = PyflowAnalysisServer(verbose=False)
+        rpc = JsonRpcServer()
+        LspHandler(server).register_on(rpc)
+        dispatch(
+            rpc,
+            {
+                "method": "textDocument/didOpen",
+                "params": {
+                    "textDocument": {
+                        "uri": sample.as_uri(),
+                        "version": 1,
+                        "text": "def buffer_version(): return 2\n",
+                    }
+                },
+            },
+        )
+        assert server.is_loaded
+        names = [symbol.name for symbol in server.source_index.symbols]
+        assert "buffer_version" in names
+        assert "disk_version" not in names
+
     def test_workspace_symbol_filters_by_query(self, tmp_path: Path) -> None:
         server = _analyze_simple(tmp_path)
         rpc = JsonRpcServer()
         LspHandler(server).register_on(rpc)
-        sent = dispatch(rpc, {
-            "id": 1, "method": "workspace/symbol", "params": {"query": "foo"},
-        })
+        sent = dispatch(
+            rpc,
+            {
+                "id": 1,
+                "method": "workspace/symbol",
+                "params": {"query": "foo"},
+            },
+        )
         symbols = sent[0]["result"]
         assert any("foo" in s["name"] for s in symbols)
 
@@ -299,9 +384,14 @@ class TestLspHandlerReal:
         server = _analyze_simple(tmp_path)
         rpc = JsonRpcServer()
         LspHandler(server).register_on(rpc)
-        sent = dispatch(rpc, {
-            "id": 1, "method": "workspace/symbol", "params": {"query": ""},
-        })
+        sent = dispatch(
+            rpc,
+            {
+                "id": 1,
+                "method": "workspace/symbol",
+                "params": {"query": ""},
+            },
+        )
         symbols = sent[0]["result"]
         assert len(symbols) >= 1
 
@@ -309,9 +399,14 @@ class TestLspHandlerReal:
         server = _analyze_simple(tmp_path)
         rpc = JsonRpcServer()
         LspHandler(server).register_on(rpc)
-        sent = dispatch(rpc, {
-            "id": 1, "method": "workspace/symbol", "params": {"query": "FOO"},
-        })
+        sent = dispatch(
+            rpc,
+            {
+                "id": 1,
+                "method": "workspace/symbol",
+                "params": {"query": "FOO"},
+            },
+        )
         assert len(sent[0]["result"]) >= 1
 
     def test_call_hierarchy_prepare_returns_function(self, tmp_path: Path) -> None:
@@ -320,12 +415,17 @@ class TestLspHandlerReal:
         rpc = JsonRpcServer()
         LspHandler(server).register_on(rpc)
         uri = f"file://{sample}"
-        sent = dispatch(rpc, {
-            "id": 1, "method": "textDocument/callHierarchy/prepare", "params": {
-                "textDocument": {"uri": uri},
-                "position": {"line": 0, "character": 0},
+        sent = dispatch(
+            rpc,
+            {
+                "id": 1,
+                "method": "textDocument/callHierarchy/prepare",
+                "params": {
+                    "textDocument": {"uri": uri},
+                    "position": {"line": 0, "character": 0},
+                },
             },
-        })
+        )
         result = sent[0]["result"]
         assert result is not None
         # The module-level scope may be listed before foo at line 0
@@ -337,9 +437,14 @@ class TestLspHandlerReal:
         server = _analyze_simple(tmp_path)
         rpc = JsonRpcServer()
         LspHandler(server).register_on(rpc)
-        sent = dispatch(rpc, {
-            "id": 1, "method": "pyflow/getCallgraph", "params": {},
-        })
+        sent = dispatch(
+            rpc,
+            {
+                "id": 1,
+                "method": "pyflow/getCallgraph",
+                "params": {},
+            },
+        )
         result = sent[0]["result"]
         assert isinstance(result, dict)
         assert len(result) >= 1
@@ -348,10 +453,14 @@ class TestLspHandlerReal:
         server, _sample = _analyze_with_bar(tmp_path)
         rpc = JsonRpcServer()
         LspHandler(server).register_on(rpc)
-        sent = dispatch(rpc, {
-            "id": 1, "method": "pyflow/getCallers",
-            "params": {"function": "foo"},
-        })
+        sent = dispatch(
+            rpc,
+            {
+                "id": 1,
+                "method": "pyflow/getCallers",
+                "params": {"function": "foo"},
+            },
+        )
         callers = sent[0]["result"]
         assert isinstance(callers, list)
 
@@ -359,10 +468,14 @@ class TestLspHandlerReal:
         server, _sample = _analyze_with_bar(tmp_path)
         rpc = JsonRpcServer()
         LspHandler(server).register_on(rpc)
-        sent = dispatch(rpc, {
-            "id": 1, "method": "pyflow/getCallees",
-            "params": {"function": "bar"},
-        })
+        sent = dispatch(
+            rpc,
+            {
+                "id": 1,
+                "method": "pyflow/getCallees",
+                "params": {"function": "bar"},
+            },
+        )
         callees = sent[0]["result"]
         assert isinstance(callees, list)
 
@@ -372,16 +485,41 @@ class TestLspHandlerReal:
         rpc = JsonRpcServer()
         LspHandler(server).register_on(rpc)
         uri = f"file://{tmp_path / 'sample.py'}"
-        sent = dispatch(rpc, {
-            "id": 1, "method": "textDocument/hover", "params": {
-                "textDocument": {"uri": uri},
-                "position": {"line": 0, "character": 0},
+        sent = dispatch(
+            rpc,
+            {
+                "id": 1,
+                "method": "textDocument/hover",
+                "params": {
+                    "textDocument": {"uri": uri},
+                    "position": {"line": 0, "character": 0},
+                },
             },
-        })
+        )
         # Hover may or may not resolve types depending on pyflow's analysis,
         # but the handler should never throw an exception.
         result = sent[0]["result"]
         assert result is None or result.get("contents") is not None
+
+    def test_hover_returns_wired_type_information(self, tmp_path: Path) -> None:
+        sample = tmp_path / "typed_hover.py"
+        sample.write_text("def f():\n    value = 1\n    return value\n")
+        server = PyflowAnalysisServer(verbose=False)
+        server.load_files([sample])
+        rpc = JsonRpcServer()
+        LspHandler(server).register_on(rpc)
+        sent = dispatch(
+            rpc,
+            {
+                "id": 1,
+                "method": "textDocument/hover",
+                "params": {
+                    "textDocument": {"uri": sample.as_uri()},
+                    "position": {"line": 1, "character": 12},
+                },
+            },
+        )
+        assert "int" in sent[0]["result"]["contents"]["value"]
 
 
 # ---------------------------------------------------------------------------
@@ -397,20 +535,30 @@ class TestMcpHandlerReal:
         server = _analyze_simple(tmp_path)
         rpc = JsonRpcServer()
         McpHandler(server).register_on(rpc)
-        sent = dispatch(rpc, {
-            "id": 1, "method": "mcp.initialize", "params": {},
-        })
+        sent = dispatch(
+            rpc,
+            {
+                "id": 1,
+                "method": "mcp.initialize",
+                "params": {},
+            },
+        )
         result = sent[0]["result"]
-        assert result["protocolVersion"] == "2024-11-05"
+        assert result["protocolVersion"] == "2025-06-18"
         assert result["serverInfo"]["name"] == "pyflow"
 
     def test_list_resources(self, tmp_path: Path) -> None:
         server = _analyze_simple(tmp_path)
         rpc = JsonRpcServer()
         McpHandler(server).register_on(rpc)
-        sent = dispatch(rpc, {
-            "id": 1, "method": "mcp.resources.list", "params": {},
-        })
+        sent = dispatch(
+            rpc,
+            {
+                "id": 1,
+                "method": "mcp.resources.list",
+                "params": {},
+            },
+        )
         resources = sent[0]["result"]["resources"]
         uris = [r["uri"] for r in resources]
         assert "pyflow://functions" in uris
@@ -422,10 +570,14 @@ class TestMcpHandlerReal:
         server, _sample = _analyze_with_bar(tmp_path)
         rpc = JsonRpcServer()
         McpHandler(server).register_on(rpc)
-        sent = dispatch(rpc, {
-            "id": 1, "method": "mcp.resources.read",
-            "params": {"uri": "pyflow://functions"},
-        })
+        sent = dispatch(
+            rpc,
+            {
+                "id": 1,
+                "method": "mcp.resources.read",
+                "params": {"uri": "pyflow://functions"},
+            },
+        )
         text = sent[0]["result"]["contents"][0]["text"]
         assert "foo" in text
         assert "bar" in text
@@ -434,10 +586,14 @@ class TestMcpHandlerReal:
         server = _analyze_simple(tmp_path)
         rpc = JsonRpcServer()
         McpHandler(server).register_on(rpc)
-        sent = dispatch(rpc, {
-            "id": 1, "method": "mcp.resources.read",
-            "params": {"uri": "pyflow://capabilities"},
-        })
+        sent = dispatch(
+            rpc,
+            {
+                "id": 1,
+                "method": "mcp.resources.read",
+                "params": {"uri": "pyflow://capabilities"},
+            },
+        )
         text = sent[0]["result"]["contents"][0]["text"]
         assert "cfg" in text
         assert "callgraph" in text
@@ -446,10 +602,14 @@ class TestMcpHandlerReal:
         server = _analyze_simple(tmp_path)
         rpc = JsonRpcServer()
         McpHandler(server).register_on(rpc)
-        sent = dispatch(rpc, {
-            "id": 1, "method": "mcp.resources.read",
-            "params": {"uri": "pyflow://callgraph"},
-        })
+        sent = dispatch(
+            rpc,
+            {
+                "id": 1,
+                "method": "mcp.resources.read",
+                "params": {"uri": "pyflow://callgraph"},
+            },
+        )
         text = sent[0]["result"]["contents"][0]["text"]
         assert "foo" in text
 
@@ -457,19 +617,28 @@ class TestMcpHandlerReal:
         server = _analyze_simple(tmp_path)
         rpc = JsonRpcServer()
         McpHandler(server).register_on(rpc)
-        sent = dispatch(rpc, {
-            "id": 1, "method": "mcp.resources.read",
-            "params": {"uri": "pyflow://nonexistent"},
-        })
-        assert sent[0]["result"]["isError"] is True
+        sent = dispatch(
+            rpc,
+            {
+                "id": 1,
+                "method": "mcp.resources.read",
+                "params": {"uri": "pyflow://nonexistent"},
+            },
+        )
+        assert sent[0]["error"]["code"] == -32602
 
     def test_list_tools(self, tmp_path: Path) -> None:
         server = _analyze_simple(tmp_path)
         rpc = JsonRpcServer()
         McpHandler(server).register_on(rpc)
-        sent = dispatch(rpc, {
-            "id": 1, "method": "mcp.tools.list", "params": {},
-        })
+        sent = dispatch(
+            rpc,
+            {
+                "id": 1,
+                "method": "mcp.tools.list",
+                "params": {},
+            },
+        )
         tools = sent[0]["result"]["tools"]
         names = [t["name"] for t in tools]
         assert "get_callers" in names
@@ -480,10 +649,14 @@ class TestMcpHandlerReal:
         server, _sample = _analyze_with_bar(tmp_path)
         rpc = JsonRpcServer()
         McpHandler(server).register_on(rpc)
-        sent = dispatch(rpc, {
-            "id": 1, "method": "mcp.tools.call",
-            "params": {"name": "get_callers", "arguments": {"function": "foo"}},
-        })
+        sent = dispatch(
+            rpc,
+            {
+                "id": 1,
+                "method": "mcp.tools.call",
+                "params": {"name": "get_callers", "arguments": {"function": "foo"}},
+            },
+        )
         result = sent[0]["result"]
         assert "content" in result
 
@@ -491,10 +664,14 @@ class TestMcpHandlerReal:
         server, _sample = _analyze_with_bar(tmp_path)
         rpc = JsonRpcServer()
         McpHandler(server).register_on(rpc)
-        sent = dispatch(rpc, {
-            "id": 1, "method": "mcp.tools.call",
-            "params": {"name": "get_callees", "arguments": {"function": "bar"}},
-        })
+        sent = dispatch(
+            rpc,
+            {
+                "id": 1,
+                "method": "mcp.tools.call",
+                "params": {"name": "get_callees", "arguments": {"function": "bar"}},
+            },
+        )
         result = sent[0]["result"]
         assert "content" in result
 
@@ -502,21 +679,29 @@ class TestMcpHandlerReal:
         server = _analyze_simple(tmp_path)
         rpc = JsonRpcServer()
         McpHandler(server).register_on(rpc)
-        sent = dispatch(rpc, {
-            "id": 1, "method": "mcp.tools.call",
-            "params": {"name": "nonexistent", "arguments": {}},
-        })
+        sent = dispatch(
+            rpc,
+            {
+                "id": 1,
+                "method": "mcp.tools.call",
+                "params": {"name": "nonexistent", "arguments": {}},
+            },
+        )
         assert sent[0]["result"]["isError"] is True
 
     def test_call_tool_on_unloaded_server(self, tmp_path: Path) -> None:
         server = PyflowAnalysisServer(verbose=False)
         rpc = JsonRpcServer()
         McpHandler(server).register_on(rpc)
-        sent = dispatch(rpc, {
-            "id": 1, "method": "mcp.tools.call",
-            "params": {"name": "get_callers", "arguments": {"function": "foo"}},
-        })
-        assert sent[0]["result"]["isError"] is True
+        sent = dispatch(
+            rpc,
+            {
+                "id": 1,
+                "method": "mcp.tools.call",
+                "params": {"name": "get_callers", "arguments": {"function": "foo"}},
+            },
+        )
+        assert sent[0]["error"]["code"] == -32600
 
 
 # ---------------------------------------------------------------------------

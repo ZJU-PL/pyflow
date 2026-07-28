@@ -126,7 +126,9 @@ class Program(object):
         self.semantic_queries = None
         self.semantic_queries_mode = None
 
-    def get_semantic_queries(self, compiler, server_mode=None):
+    def get_semantic_queries(
+        self, compiler, server_mode=None, *, type_info_service=None
+    ):
         """Get or create a semantic query service for this program."""
         from pyflow.api.queries import SemanticQueryService, DEFAULT_MODE
 
@@ -137,11 +139,20 @@ class Program(object):
             or self.semantic_queries_mode is not mode
         ):
             self.semantic_queries = SemanticQueryService(
-                compiler, self, server_mode=mode
+                compiler,
+                self,
+                server_mode=mode,
+                type_info_service=type_info_service,
             )
             self.semantic_queries_mode = mode
+        elif type_info_service is not None:
+            self.semantic_queries.type_info_service = type_info_service
         return self.semantic_queries
 
-    def get_queries(self, compiler, server_mode=None):
+    def get_queries(self, compiler, server_mode=None, *, type_info_service=None):
         """Alias for get_semantic_queries."""
-        return self.get_semantic_queries(compiler, server_mode=server_mode)
+        return self.get_semantic_queries(
+            compiler,
+            server_mode=server_mode,
+            type_info_service=type_info_service,
+        )
