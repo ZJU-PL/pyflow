@@ -143,16 +143,24 @@ class CDGDumper:
             ("Control Dependents", "dependencies", "<-"),
         ]:
             f.write(f"{title}:\n{'-' * 40}\n")
-            for cfg_node, cdg_node in self.cdg.nodes.items():
+            for cfg_node, cdg_node in sorted(
+                self.cdg.nodes.items(), key=lambda item: item[1].node_id
+            ):
                 relations = getattr(cdg_node, attr)
                 if relations:
                     f.write(
                         f"\nNode {cdg_node.node_id} ({type(cfg_node).__name__}) {title.lower().replace(' ', ' ')}:"
                     )
-                    for rel in relations:
-                        edge_label = (
+                    for rel in sorted(relations, key=lambda item: item.node_id):
+                        controller = (
                             cdg_node if arrow == "->" else rel
-                        ).get_control_condition(rel if arrow == "->" else cdg_node)
+                        )
+                        dependent = rel if arrow == "->" else cdg_node
+                        edge_label = "|".join(
+                            sorted(
+                                controller.get_control_condition_labels(dependent)
+                            )
+                        )
                         f.write(
                             f"\n  {arrow} Node {rel.node_id} ({type(rel.cfg_node).__name__}) [{edge_label}]"
                         )
@@ -262,7 +270,9 @@ class CDGDumper:
             "statistics": self.cdg.get_statistics(),
             "nodes": [
                 self._node_to_dict(cfg_node, cdg_node)
-                for cfg_node, cdg_node in self.cdg.nodes.items()
+                for cfg_node, cdg_node in sorted(
+                    self.cdg.nodes.items(), key=lambda item: item[1].node_id
+                )
             ],
             "edges": [
                 {
@@ -292,8 +302,8 @@ class CDGDumper:
             "id": cdg_node.node_id,
             "type": type(cfg_node).__name__,
             "cfg_node_id": id(cfg_node),
-            "dependents": [dep.node_id for dep in cdg_node.dependents],
-            "dependencies": [dep.node_id for dep in cdg_node.dependencies],
+            "dependents": sorted(dep.node_id for dep in cdg_node.dependents),
+            "dependencies": sorted(dep.node_id for dep in cdg_node.dependencies),
         }
 
         # Add optional fields if present
@@ -337,7 +347,9 @@ class CDGDumper:
 
         # Group nodes by their primary controller (minimum node ID)
         groups = {}
-        for cfg_node, cdg_node in self.cdg.nodes.items():
+        for cfg_node, cdg_node in sorted(
+            self.cdg.nodes.items(), key=lambda item: item[1].node_id
+        ):
             controller = (
                 min(cdg_node.dependencies, key=lambda x: x.node_id)
                 if cdg_node.dependencies
@@ -346,16 +358,22 @@ class CDGDumper:
             groups.setdefault(controller, []).append(cdg_node)
 
         # Write groups hierarchically
-        for controller, dependents in groups.items():
+        for controller, dependents in sorted(
+            groups.items(),
+            key=lambda item: -1 if item[0] is None else item[0].node_id,
+        ):
             content += f"\n{'Root nodes' if controller is None else f'Controlled by Node {controller.node_id}'}:\n"
-            for dep in dependents:
+            for dep in sorted(dependents, key=lambda item: item.node_id):
                 content += f"  Node {dep.node_id} ({type(dep.cfg_node).__name__})\n"
                 if dep.dependents:
                     content += "    Controls:\n"
                     content += (
                         "\n".join(
-                            f"      -> Node {d.node_id} [{dep.get_control_condition(d)}]"
-                            for d in dep.dependents
+                            f"      -> Node {d.node_id} "
+                            f"[{'|'.join(sorted(dep.get_control_condition_labels(d)))}]"
+                            for d in sorted(
+                                dep.dependents, key=lambda item: item.node_id
+                            )
                         )
                         + "\n"
                     )

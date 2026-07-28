@@ -87,7 +87,9 @@ def evaluate(compiler, g):
         for prev in merge._prev:
             assert isinstance(prev, tuple), merge._prev
 
-        # HACK exposes the internals of merge
-        # Filter out unreachable predecessors
-        filtered = [prev for prev in merge._prev if live(prev[0])]
-        merge._prev = filtered
+        # Remove dead incoming edges through the public edge API.  In
+        # particular, Merge.removePrev() drops the matching phi argument so
+        # predecessor and phi positions cannot become misaligned.
+        for prev, exit_name in list(merge.iterprev()):
+            if not live(prev):
+                prev.killExit(exit_name)

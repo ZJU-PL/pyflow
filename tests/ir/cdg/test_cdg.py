@@ -28,6 +28,7 @@ from pyflow.ir.cdg import (
     dump_cdg,
 )
 from pyflow.ir.cdg.graph import ControlDependenceGraph, CDGNode, CDGEdge
+from pyflow.language.python import ast as pyflow_ast
 
 
 def simple_if(x):
@@ -430,6 +431,48 @@ class TestCDG(unittest.TestCase):
 
         self.assertTrue(switch_to_switch_edges)
         self.assertTrue(true_merge_edges)
+
+    def test_exceptional_control_dependence_can_be_enabled(self):
+        code = cfg_graph.Code()
+        operation = cfg_graph.Suite(None)
+        normal = cfg_graph.Merge(None)
+        error = cfg_graph.Merge(None)
+
+        code.entryTerminal.setExit("entry", operation)
+        operation.setExit("normal", normal)
+        operation.setExit("error", error)
+        normal.setExit("normal", code.normalTerminal)
+        error.setExit("normal", code.errorTerminal)
+
+        normal_only = construct_cdg(code)
+        exception_aware = construct_cdg(code, include_exceptional=True)
+
+        self.assertEqual(normal_only.get_all_edges(), [])
+        labels = {
+            edge.label
+            for edge in exception_aware.get_all_edges()
+            if edge.source.cfg_node is operation
+        }
+        self.assertEqual(labels, {"normal", "error"})
+
+    def test_cdg_preserves_parallel_control_labels(self):
+        code = cfg_graph.Code()
+        graph = ControlDependenceGraph(code)
+        controller = cfg_graph.Switch(None, pyflow_ast.Local("condition"))
+        dependent = cfg_graph.Merge(None)
+
+        graph.add_control_dependence(controller, dependent, "true")
+        graph.add_control_dependence(controller, dependent, "false")
+
+        node = graph.get_node(controller)
+        target = graph.get_node(dependent)
+        self.assertEqual(
+            node.get_control_condition_labels(target), {"true", "false"}
+        )
+        self.assertEqual(
+            graph.get_control_conditions(controller)[target], "false|true"
+        )
+        self.assertEqual(len(graph.get_all_edges()), 2)
 
 
 if __name__ == "__main__":

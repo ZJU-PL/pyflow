@@ -116,6 +116,17 @@ class CollectModifies(TypeDispatcher):
         if node.finally_ is not None:
             self(node.finally_)
 
+    @dispatch(ast.For)
+    def visitStructuredFor(self, node):
+        """Leave preserved source-level iteration outside CFG SSA.
+
+        The CFG intentionally keeps ``For`` structured until iterator-aware
+        lowering exists. Treating its nested assignments as if they all occur
+        in the containing basic block would manufacture invalid phi placement.
+        AST/PDG consumers retain the original def-use structure instead.
+        """
+        del node
+
     @dispatch(cfg.Suite)
     def visitSuite(self, node):
         self.order.append(node)
@@ -429,6 +440,11 @@ class SSARename(TypeDispatcher):
 
         self.currentFrame = final_frame
         return ast.TryExceptFinally(body, handlers, defaultHandler, else_, finally_)
+
+    @dispatch(ast.For)
+    def visitStructuredFor(self, node):
+        """Preserve structured iteration during CFG-local SSA renaming."""
+        return node
 
     @dispatch(
         ast.BinaryOp,

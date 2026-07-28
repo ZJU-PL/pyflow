@@ -319,7 +319,19 @@ class CFGTransformer(TypeDispatcher):
         Keep the compound statement intact so later reconstruction preserves
         Python semantics instead of emitting a miscompiled flat sequence.
         """
+        self._preserve_structured_statement(node)
+
+    def _preserve_structured_statement(self, node):
+        """Keep a compound statement semantically intact in one CFG suite.
+
+        Until a construct has a faithful block-level lowering, preserving the
+        source AST is safer than manufacturing an incorrect CFG. Escaping
+        return/break/continue edges are still recorded for consumers that need
+        the surrounding procedure/loop targets.
+        """
         self.emit(node)
+        if self.current.origin_ast is None:
+            self.current.origin_ast = node
         for exit_name in self._structured_abrupt_exits(node):
             handlers = self.handlers.get(exit_name, ())
             if handlers and exit_name not in self.current.next:
@@ -370,53 +382,13 @@ class CFGTransformer(TypeDispatcher):
 
     @dispatch(ast.For)
     def visitFor(self, node):
-        """Handle for loops conservatively using the same shape as while-loops."""
-        if hasattr(node, "loopPreamble") and node.loopPreamble:
-            self(node.loopPreamble)
+        """Preserve Python iteration semantics until iterator-aware CFG exists.
 
-        header = self.createMerge()
-        self.attachCurrent(header)
-
-        break_merge = cfg.Merge(self.region)
-        exit_merge = cfg.Merge(self.region)
-
-        self.pushRegion(header)
-
-        header.setExit("normal", self.makeNewSuite())
-        switch = self.createSwitchAfter(node.iterator, self.current)
-        switch.setExit("true", self.makeNewSuite(origin_ast=node))
-
-        if hasattr(node, "bodyPreamble") and node.bodyPreamble:
-            self(node.bodyPreamble)
-
-        self.pushHandler("continue", header)
-        self.pushHandler("break", break_merge)
-
-        try:
-            self(node.body)
-        except NoNormalFlow:
-            pass
-        else:
-            self.attachCurrent(header)
-
-        self.popHandler("continue")
-        self.popHandler("break")
-        self.popRegion()
-
-        switch.setExit("false", exit_merge)
-
-        try:
-            exit_merge.setExit("normal", self.makeNewSuite(origin_ast=node))
-            self(node.else_)
-        except NoNormalFlow:
-            pass
-        else:
-            self.attachCurrent(break_merge)
-
-        break_merge.setExit("normal", self.makeNewSuite())
-        self.optimizeMerge(header)
-        self.optimizeMerge(break_merge)
-        self.optimizeMerge(exit_merge)
+        Treating the iterable itself as a while-condition loses target binding,
+        StopIteration, and async iteration semantics. Keep the source-level
+        construct intact rather than returning a semantically different graph.
+        """
+        self._preserve_structured_statement(node)
 
     def optimizeMerge(self, m):
         m.simplify()

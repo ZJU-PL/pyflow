@@ -43,13 +43,29 @@ class CFGDFS(object):
         Args:
             node: CFG node to process.
         """
-        if node not in self.processed:
-            self.processed.add(node)
+        if node in self.processed:
+            return
 
-            self.pre(node)
+        # Explicit enter/exit events preserve recursive DFS semantics without
+        # depending on Python's recursion limit for large generated functions.
+        stack = [(node, False)]
+        while stack:
+            current, exiting = stack.pop()
 
-            # Iterate over a snapshot to avoid mutation during traversal
-            for child in list(node.forward()):
-                self.process(child)
+            if exiting:
+                self.post(current)
+                continue
 
-            self.post(node)
+            if current in self.processed:
+                continue
+
+            self.processed.add(current)
+            self.pre(current)
+            stack.append((current, True))
+
+            # Snapshot successors before callbacks can mutate the graph. Push
+            # in reverse so visitation order matches the recursive version.
+            children = list(current.forward())
+            for child in reversed(children):
+                if child not in self.processed:
+                    stack.append((child, False))

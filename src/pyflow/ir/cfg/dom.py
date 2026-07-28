@@ -76,14 +76,19 @@ class DJNode(object):
         Returns:
             int: Next available unique identifier after numbering this subtree.
         """
-        self.pre = uid
-        uid += 1
+        stack = [(self, False)]
+        while stack:
+            node, exiting = stack.pop()
+            if exiting:
+                node.post = uid
+                uid += 1
+                continue
 
-        for d in self.d:
-            uid = d.number(uid)
-
-        self.post = uid
-        uid += 1
+            node.pre = uid
+            uid += 1
+            stack.append((node, True))
+            for child in reversed(node.d):
+                stack.append((child, False))
 
         return uid
 
@@ -129,36 +134,59 @@ class MakeDJGraph(object):
         self.bindCallback = bindCallback
 
     def getNode(self, g):
-        if g not in self.nodes:
-            result = DJNode(g)
-            self.bindCallback(g, result)
-            self.nodes[g] = result
+        if g in self.nodes:
+            return self.nodes[g]
 
-            idom = self.idom[g]
-            if idom is not None:
-                result.setIDom(self.getNode(idom))
-                self.numLevels = max(self.numLevels, result.level)
-            else:
+        # Materialize the missing immediate-dominator chain from the root down
+        # instead of recursively walking it. Deep straight-line CFGs otherwise
+        # still overflow here even though dominator discovery is iterative.
+        chain = []
+        current = g
+        while current not in self.nodes:
+            chain.append(current)
+            parent = self.idom[current]
+            if parent is None:
+                break
+            current = parent
+
+        while chain:
+            current = chain.pop()
+            result = DJNode(current)
+            self.bindCallback(current, result)
+            self.nodes[current] = result
+
+            parent = self.idom[current]
+            if parent is None:
                 result.level = 0
-        else:
-            result = self.nodes[g]
-        return result
+            else:
+                result.setIDom(self.nodes[parent])
+                self.numLevels = max(self.numLevels, result.level)
+
+        return self.nodes[g]
 
     def process(self, node):
-        if node not in self.processed:
-            self.processed.add(node)
+        root = self.getNode(node)
+        pending = [node]
 
-            djnode = self.getNode(node)
+        while pending:
+            current = pending.pop()
+            if current in self.processed:
+                continue
 
-            for child in self.forwardCallback(node):
-                djchild = self.process(child)
+            self.processed.add(current)
+            djnode = self.getNode(current)
+            children = list(self.forwardCallback(current))
 
+            for child in children:
+                djchild = self.getNode(child)
                 if djchild.idom is not djnode:
                     djnode.j.append(djchild)
 
-            return djnode
-        else:
-            return self.getNode(node)
+            for child in reversed(children):
+                if child not in self.processed:
+                    pending.append(child)
+
+        return root
 
 
 # L2 fix: PlacePhi and its helper Bank were dead code.  PlacePhi was never
@@ -200,18 +228,24 @@ class FullIDF(object):
         Args:
             node: DJ node to process
         """
-        assert node.level == len(self.stack)
-        self.stack.append(node)
+        pending = [(node, False)]
+        while pending:
+            current, exiting = pending.pop()
+            if not exiting:
+                assert current.level == len(self.stack)
+                self.stack.append(current)
+                pending.append((current, True))
+                for child in reversed(current.d):
+                    pending.append((child, False))
+                continue
 
-        for d in node.d:
-            self.process(d)
+            for join in current.j:
+                if join.level <= current.level:
+                    for i in range(join.level, current.level + 1):
+                        self.stack[i].idf.add(join)
 
-        for j in node.j:
-            if j.level <= node.level:
-                for i in range(j.level, node.level + 1):
-                    self.stack[i].idf.add(j)
-
-        self.stack.pop()
+            popped = self.stack.pop()
+            assert popped is current
 
 
 def evaluate(roots, forwardCallback, bindCallback):

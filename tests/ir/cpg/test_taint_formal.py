@@ -415,3 +415,37 @@ def test_conditional_expression_in_loop_does_not_drop_the_procedure() -> None:
 
     assert "target" in engine._cpg.functions
     assert len(result.findings) == 1
+
+
+def test_structured_try_joins_handler_effects() -> None:
+    engine = _engine(
+        "def target():\n"
+        "    value = 'safe'\n"
+        "    try:\n"
+        "        value = 'still safe'\n"
+        "    except Exception:\n"
+        "        value = input()\n"
+        "    eval(value)\n"
+    )
+
+    result = engine.analyze()
+
+    assert len(result.findings) == 1
+    assert "cpg-exception-overapproximation" in {
+        item.code for item in result.diagnostics
+    }
+
+
+def test_structured_try_finally_strong_overwrite_kills_taint() -> None:
+    engine = _engine(
+        "def target():\n"
+        "    try:\n"
+        "        value = input()\n"
+        "    finally:\n"
+        "        value = 'safe'\n"
+        "    eval(value)\n"
+    )
+
+    result = engine.analyze()
+
+    assert result.findings == ()

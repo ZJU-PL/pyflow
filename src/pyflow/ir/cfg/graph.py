@@ -809,7 +809,15 @@ class Merge(MultiEntryBlock):
         index = self._prev.index((other, name))
         del self._prev[index]
 
-        self.phi = [phi.dropArgument(index) for phi in self.phi]
+        rewritten = []
+        for phi in self.phi:
+            arguments = list(phi.arguments)
+            del arguments[index]
+            replacement = type(phi)(arguments, phi.target)
+            if hasattr(phi, "annotation"):
+                replacement.annotation = phi.annotation
+            rewritten.append(replacement)
+        self.phi = rewritten
 
     def redirectEntries(self, other):
         """Redirect entries (only allowed when no phi nodes exist).

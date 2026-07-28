@@ -457,9 +457,6 @@ class _GraphMetadataMixin:
 
         _dfs(entry_term)
 
-        if not loop_cfg_blocks:
-            return
-
         for_loop_vars: List[Tuple[str, str]] = []
         code = getattr(cfg, "code", None)
         if code is not None:
@@ -467,7 +464,11 @@ class _GraphMetadataMixin:
 
         for node in pdg.nodes:
             cfg_node = getattr(node, "cfg_node", None)
-            if cfg_node is not None and id(cfg_node) in loop_cfg_blocks:
+            ast_node = getattr(node, "ast_node", None)
+            is_structured_for = isinstance(ast_node, py_ast.For)
+            if (
+                cfg_node is not None and id(cfg_node) in loop_cfg_blocks
+            ) or is_structured_for:
                 meta = self._meta_for(node)
                 meta["loop_header"] = True
                 if for_loop_vars:

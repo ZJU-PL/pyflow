@@ -6,7 +6,7 @@ import tempfile
 import unittest
 
 from pyflow.ir.dataflow import graph as df
-from pyflow.ir.ddg import construct_ddg
+from pyflow.ir.ddg import construct_ddg, DDGConstructor
 from pyflow.ir.ddg.dump import DDGDumper
 from pyflow.ir.ddg.graph import DataDependenceGraph
 
@@ -166,6 +166,95 @@ class TestDDGConstructionRegression(unittest.TestCase):
         edges = [edge for edge in ddg.all_edges() if edge.kind == "memory"]
 
         self.assertEqual(edges, [])
+
+    def test_memory_dependencies_keep_all_reaching_branch_writes(self):
+        field = FakeSlot("field")
+        entry = FakeOp("entry")
+        write_a = FakeOp("write_a", heap_modifies={"field": field})
+        write_b = FakeOp("write_b", heap_modifies={"field": field})
+        join_read = FakeOp("join_read", heap_reads={"field": field})
+
+        entry.connect(write_a, write_b)
+        write_a.connect(join_read)
+        write_b.connect(join_read)
+
+        ddg = construct_ddg(FakeDataflow(entry))
+        memory = {
+            (edge.source.ir_node.name, edge.target.ir_node.name, edge.label)
+            for edge in ddg.all_edges()
+            if edge.kind == "memory"
+        }
+
+        self.assertEqual(
+            memory,
+            {
+                ("write_a", "join_read", "RAW"),
+                ("write_b", "join_read", "RAW"),
+            },
+        )
+
+    def test_memory_dependencies_reach_a_loop_fixed_point(self):
+        field = FakeSlot("field")
+        entry = FakeOp("entry")
+        write_a = FakeOp("write_a", heap_modifies={"field": field})
+        read = FakeOp("read", heap_reads={"field": field})
+        write_b = FakeOp("write_b", heap_modifies={"field": field})
+
+        entry.connect(write_a)
+        write_a.connect(read)
+        read.connect(write_b)
+        write_b.connect(write_a)
+
+        ddg = construct_ddg(FakeDataflow(entry))
+        memory = {
+            (edge.source.ir_node.name, edge.target.ir_node.name, edge.label)
+            for edge in ddg.all_edges()
+            if edge.kind == "memory"
+        }
+
+        self.assertEqual(
+            memory,
+            {
+                ("write_a", "read", "RAW"),
+                ("read", "write_b", "WAR"),
+                ("write_a", "write_b", "WAW"),
+                ("write_b", "write_a", "WAW"),
+            },
+        )
+
+    def test_indexing_traverses_existing_value_roots(self):
+        entry = FakeOp("entry")
+        external = FakeSlot("external")
+        producer = FakeOp("producer")
+        produced = FakeSlot("produced")
+        consumer = FakeOp("consumer")
+        external.add_user(producer)
+        producer.connect(produced)
+        produced.defn = producer
+        produced.add_user(consumer)
+
+        dataflow = FakeDataflow(entry)
+        dataflow.existing["external"] = external
+        ddg = construct_ddg(dataflow)
+
+        self.assertIn(produced, ddg.slot_node_map)
+        self.assertIn(consumer, ddg.op_node_map)
+
+    def test_constructor_reuse_starts_a_fresh_graph(self):
+        entry = FakeOp("entry")
+        producer = FakeOp("producer")
+        value = FakeSlot("value")
+        value.defn = producer
+        entry.connect(producer)
+        producer.connect(value)
+        dataflow = FakeDataflow(entry)
+        constructor = DDGConstructor()
+
+        first = constructor.construct_from_dataflow(dataflow)
+        second = constructor.construct_from_dataflow(dataflow)
+
+        self.assertIsNot(first, second)
+        self.assertEqual(first.stats(), second.stats())
 
 
 class TestDDGDumpRegression(unittest.TestCase):

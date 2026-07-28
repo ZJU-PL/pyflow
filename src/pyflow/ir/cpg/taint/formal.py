@@ -592,13 +592,28 @@ class FormalCPGTaintAnalysis:
 
     # -------------------------------------------------------------- transfer
     def _transfer_node(
-        self, node: PDGNode, state: CPGAbstractState
+        self,
+        node: PDGNode,
+        state: CPGAbstractState,
+        ast_override: Any | None = None,
     ) -> tuple[CPGAbstractState, tuple[tuple[str, frozenset[TaintFact]], ...]]:
-        ast_node = node.ast_node
+        ast_node = node.ast_node if ast_override is None else ast_override
         if ast_node is None:
             return state, ()
         function = self.cpg.node_func_name(node)
         events: list[tuple[str, frozenset[TaintFact]]] = []
+
+        if isinstance(ast_node, py_ast.Suite):
+            current = state
+            for statement in ast_node.blocks or ():
+                current, statement_events = self._transfer_node(
+                    node, current, statement
+                )
+                events.extend(statement_events)
+            return current, tuple(events)
+
+        if isinstance(ast_node, py_ast.For):
+            return self._transfer_structured_for(node, ast_node, state)
 
         # A resolved local call is interpreted by the matched CALL/RETURN
         # transitions below.  Evaluating the enclosing assignment here would
@@ -787,20 +802,7 @@ class FormalCPGTaintAnalysis:
             return state, ()
 
         if isinstance(ast_node, py_ast.TryExceptFinally):
-            return (
-                state.with_uncertainty(
-                    AnalysisUncertainty(
-                        "cpg-exception-overapproximation",
-                        "Exception handler feasibility is conservatively joined",
-                        PrecisionLevel.CONSERVATIVE,
-                        function,
-                        self._filename(node),
-                        self.cpg.node_lineno(node),
-                        "try",
-                    )
-                ),
-                (),
-            )
+            return self._transfer_structured_try(node, ast_node, state)
 
         if isinstance(
             ast_node,
@@ -828,6 +830,160 @@ class FormalCPGTaintAnalysis:
             ),
             (),
         )
+
+    def _transfer_structured_for(
+        self, node: PDGNode, loop: py_ast.For, state: CPGAbstractState
+    ) -> tuple[CPGAbstractState, tuple[tuple[str, frozenset[TaintFact]], ...]]:
+        """Conservatively summarize a source-level ``for`` in one PDG node.
+
+        The CFG deliberately preserves ``For`` until iterator-aware lowering is
+        available.  This transfer computes a finite loop fixed point so nested
+        assignments and calls remain visible to formal taint analysis.  The
+        zero-iteration path and possible ``break`` path are retained by joins.
+        """
+        events: set[tuple[str, frozenset[TaintFact]]] = set()
+        current, preamble_events = self._transfer_node(
+            node, state, loop.loopPreamble
+        )
+        events.update(preamble_events)
+        iterator = self._evaluate(loop.iterator, current, node)
+        current = iterator.state
+        events.update(self._sink_events(loop.iterator, iterator, node))
+
+        if isinstance(loop.index, py_ast.Local) and loop.index.name:
+            destination = self._local(
+                self.cpg.node_func_name(node), loop.index.name
+            )
+            current = current.clear_binding(destination).write(
+                destination,
+                iterator.facts,
+                strong=True,
+                source_base=iterator.location,
+                operation=ProvenanceOperation.ASSIGN,
+                filename=self._filename(node),
+                line=self.cpg.node_lineno(node),
+                detail="for-index",
+            )
+
+        entry = current
+        head = entry
+        converged = False
+        for _ in range(32):
+            body_state, body_preamble_events = self._transfer_node(
+                node, head, loop.bodyPreamble
+            )
+            events.update(body_preamble_events)
+            body_state, body_events = self._transfer_node(
+                node, body_state, loop.body
+            )
+            events.update(body_events)
+            next_head = entry.join(body_state)
+            if next_head == head:
+                head = next_head
+                converged = True
+                break
+            head = next_head
+
+        if not converged:
+            head = head.with_uncertainty(
+                AnalysisUncertainty(
+                    "cpg-loop-fixed-point-limit",
+                    "Structured loop summary reached its iteration limit",
+                    PrecisionLevel.CONSERVATIVE,
+                    self.cpg.node_func_name(node),
+                    self._filename(node),
+                    self.cpg.node_lineno(node),
+                    "for",
+                )
+            )
+
+        else_state, else_events = self._transfer_node(node, head, loop.else_)
+        events.update(else_events)
+        result = head.join(else_state).with_uncertainty(
+            AnalysisUncertainty(
+                "cpg-structured-loop-overapproximation",
+                "Structured loop exits are conservatively joined",
+                PrecisionLevel.CONSERVATIVE,
+                self.cpg.node_func_name(node),
+                self._filename(node),
+                self.cpg.node_lineno(node),
+                "for",
+            )
+        )
+        return result, tuple(sorted(events, key=lambda item: item[0]))
+
+    def _transfer_structured_try(
+        self,
+        node: PDGNode,
+        statement: py_ast.TryExceptFinally,
+        state: CPGAbstractState,
+    ) -> tuple[CPGAbstractState, tuple[tuple[str, frozenset[TaintFact]], ...]]:
+        """Conservatively join normal and exceptional structured branches."""
+        events: set[tuple[str, frozenset[TaintFact]]] = set()
+        body_state, body_events = self._transfer_node(node, state, statement.body)
+        events.update(body_events)
+
+        else_state, else_events = self._transfer_node(
+            node, body_state, statement.else_
+        )
+        events.update(else_events)
+        branches = [else_state]
+
+        # An exception can arise after any prefix of the body.  Joining the
+        # entry and completed-body states safely over-approximates that prefix.
+        handler_entry = state.join(body_state)
+        handlers = list(statement.handlers or ())
+        if statement.defaultHandler is not None:
+            handlers.append(statement.defaultHandler)
+        for handler in handlers:
+            handler_state, preamble_events = self._transfer_node(
+                node, handler_entry, handler.preamble
+            )
+            events.update(preamble_events)
+            if handler.type is not None:
+                handler_type = self._evaluate(handler.type, handler_state, node)
+                handler_state = handler_type.state
+                events.update(self._sink_events(handler.type, handler_type, node))
+            if isinstance(handler.value, py_ast.Local) and handler.value.name:
+                exception_location = self._local(
+                    self.cpg.node_func_name(node), handler.value.name
+                )
+                handler_state = handler_state.clear_binding(
+                    exception_location
+                ).write(
+                    exception_location,
+                    handler_entry.taint.facts,
+                    strong=True,
+                    operation=ProvenanceOperation.ASSIGN,
+                    filename=self._filename(node),
+                    line=self.cpg.node_lineno(node),
+                    detail="caught-exception",
+                )
+            handler_state, handler_events = self._transfer_node(
+                node, handler_state, handler.body
+            )
+            events.update(handler_events)
+            branches.append(handler_state)
+
+        joined = branches[0]
+        for branch in branches[1:]:
+            joined = joined.join(branch)
+        final_state, finally_events = self._transfer_node(
+            node, joined, statement.finally_
+        )
+        events.update(finally_events)
+        final_state = final_state.with_uncertainty(
+            AnalysisUncertainty(
+                "cpg-exception-overapproximation",
+                "Exception handler feasibility is conservatively joined",
+                PrecisionLevel.CONSERVATIVE,
+                self.cpg.node_func_name(node),
+                self._filename(node),
+                self.cpg.node_lineno(node),
+                "try",
+            )
+        )
+        return final_state, tuple(sorted(events, key=lambda item: item[0]))
 
     def _evaluate(
         self, expression: Any, state: CPGAbstractState, node: PDGNode

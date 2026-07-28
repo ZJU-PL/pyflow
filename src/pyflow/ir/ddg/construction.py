@@ -38,11 +38,10 @@ The constructor takes a dataflow IR.DataflowGraph which contains:
 - Forward/reverse edges connecting operations and slots
 """
 
-from collections import defaultdict
-from typing import Optional, Any
+from collections import deque
+from typing import Any
 
 from pyflow.ir.dataflow import graph as df
-from pyflow.ir.dataflow import ordering
 from .graph import DataDependenceGraph, DDGNode
 
 
@@ -107,7 +106,11 @@ class DDGConstructor(object):
         Returns:
             The constructed Data Dependence Graph
         """
-        # Create nodes for all ops and slots reachable from entry/exit
+        # Constructors are reusable, but each construction represents exactly
+        # one input graph.
+        self.ddg = DataDependenceGraph()
+
+        # Create nodes for all ops and slots reachable from graph roots.
         self._index_dataflow(dataflow)
 
         # Connect def-use edges for local and heap flows
@@ -147,9 +150,9 @@ class DDGConstructor(object):
         """
         Index all operations and slots in the dataflow graph.
 
-        Performs a forward traversal from the entry node to collect all
-        reachable operations and slots. Also indexes entry/exit operations
-        and existing/null slots which may not be reachable via forward edges.
+        Performs a forward traversal from every semantic graph root to collect
+        all reachable operations and slots. This includes entry/exit,
+        entry-predicate, existing values, and the null value.
 
         **Traversal Strategy:**
         Uses depth-first traversal starting from entry node, following
@@ -158,20 +161,17 @@ class DDGConstructor(object):
         Args:
             dataflow: DataflowIR graph to index
         """
-        # Index entry and exit operations (special nodes)
-        self._index_op(dataflow.entry)
+        roots = [dataflow.entry, *dataflow.existing.values(), dataflow.null]
+        if dataflow.entryPredicate is not None:
+            roots.append(dataflow.entryPredicate)
         if dataflow.exit is not None:
-            self._index_op(dataflow.exit)
+            roots.append(dataflow.exit)
 
-        # Index existing and null slots (global slots)
-        for slot in dataflow.existing.values():
-            self._index_slot(slot)
-        self._index_slot(dataflow.null)
-
-        # Walk from entry following forward edges to collect ops/slots
-        # This discovers all nodes reachable from the entry point
+        # Walk from every graph root. Existing/null values are independent
+        # sources and may feed operations that are not discovered from entry in
+        # partially constructed or transformed dataflow graphs.
         visited = set()
-        stack = list(dataflow.entry.forward())
+        stack = list(roots)
         while stack:
             node = stack.pop()
             if node in visited:
@@ -233,8 +233,9 @@ class DDGConstructor(object):
         - WAW (Write After Write): Write depends on previous write to same location
 
         **Temporal Ordering:**
-        Operations are processed in dataflow topological order so that
-        consumers are visited after all reachable producers.
+        A forward fixed point propagates reaching writes and intervening reads
+        over the operation graph. At joins the states are unioned, retaining
+        dependencies from every feasible predecessor.
 
         **Slot Identification:**
         Heap slots are identified by their name (for FieldNode) or by the
@@ -242,56 +243,114 @@ class DDGConstructor(object):
         considered to potentially alias.
 
         **Algorithm:**
-        1. Compute a topological order for operations
-        2. For each operation, collect heap reads and writes
-        3. Track the last writer and readers since that write for each heap slot
-        4. Add memory edges for RAW, WAR, WAW hazards
+        1. Build operation predecessor/successor relations
+        2. Collect heap reads and writes for each operation
+        3. Compute reaching writes and reads-since-write to a fixed point
+        4. Add RAW, WAR, and WAW edges from each operation's input state
         """
-        # Use the dataflow topological order rather than DDG discovery order.
-        op_order = ordering.evaluateDataflow(dataflow)
-        ops = [self.ddg.get_or_create_op_node(op) for op in op_order]
+        ir_ops = list(self.ddg.op_node_map)
+        op_nodes = {ir: self.ddg.get_or_create_op_node(ir) for ir in ir_ops}
+        op_set = set(ir_ops)
 
-        # Track the most recent writer and the readers since that write.
-        last_write = {}
-        reads_since_write = defaultdict(set)
+        def operation_successors(ir_op):
+            result = set()
+            for child in ir_op.forward():
+                if isinstance(child, df.OpNode):
+                    result.add(child)
+                elif isinstance(child, df.SlotNode):
+                    result.update(
+                        user for user in child.forward() if isinstance(user, df.OpNode)
+                    )
+            return result & op_set
 
-        for op in ops:
-            ir = op.ir_node
-            writes = []
+        successors = {ir: operation_successors(ir) for ir in ir_ops}
+        predecessors = {ir: set() for ir in ir_ops}
+        for source, targets in successors.items():
+            for target in targets:
+                predecessors[target].add(source)
+
+        accesses = {}
+        for ir in ir_ops:
             reads = []
-
-            # Collect heap reads and writes from the operation
-            # Different operation types expose heap access differently:
-            # - GenericOp: has heapModifies/heapReads dictionaries
-            # - Entry: can define entry slots
-            # - Merge/Gate: can also define slots
-            if hasattr(ir, "heapModifies") and isinstance(
-                getattr(ir, "heapModifies"), dict
-            ):
-                writes.extend(ir.heapModifies.values())
-            if hasattr(ir, "heapReads") and isinstance(getattr(ir, "heapReads"), dict):
+            writes = []
+            if isinstance(getattr(ir, "heapReads", None), dict):
                 reads.extend(ir.heapReads.values())
-            if hasattr(ir, "heapPsedoReads") and isinstance(
-                getattr(ir, "heapPsedoReads"), dict
-            ):
+            if isinstance(getattr(ir, "heapPsedoReads", None), dict):
                 reads.extend(ir.heapPsedoReads.values())
+            if isinstance(getattr(ir, "heapModifies", None), dict):
+                writes.extend(ir.heapModifies.values())
+            accesses[ir] = (
+                {_memory_slot_key(slot) for slot in reads},
+                {_memory_slot_key(slot) for slot in writes},
+            )
 
-            for slot in reads:
-                k = _memory_slot_key(slot)
-                if k in last_write:
-                    self.ddg.add_mem_dep(last_write[k], op, label="RAW")
-                reads_since_write[k].add(op)
+        # State maps a location to (reaching writes, reads since those writes).
+        # Union at joins preserves all branch definitions instead of selecting
+        # whichever writer happens to be last in a DFS order.
+        in_states = {ir: {} for ir in ir_ops}
+        out_states = {ir: {} for ir in ir_ops}
 
-            for slot in writes:
-                k = _memory_slot_key(slot)
-                for reader in sorted(
-                    reads_since_write.pop(k, ()), key=lambda node: node.node_id
-                ):
-                    if reader is not op:
-                        self.ddg.add_mem_dep(reader, op, label="WAR")
-                if k in last_write:
-                    self.ddg.add_mem_dep(last_write[k], op, label="WAW")
-                last_write[k] = op
+        def merge_predecessors(ir):
+            merged = {}
+            for pred in predecessors[ir]:
+                for key, (writes, reads) in out_states[pred].items():
+                    old_writes, old_reads = merged.get(key, (set(), set()))
+                    merged[key] = (old_writes | set(writes), old_reads | set(reads))
+            return {
+                key: (frozenset(writes), frozenset(reads))
+                for key, (writes, reads) in merged.items()
+            }
+
+        def transfer(ir, state):
+            result = dict(state)
+            reads, writes = accesses[ir]
+            for key in reads:
+                reaching, prior_reads = result.get(
+                    key, (frozenset(), frozenset())
+                )
+                result[key] = (reaching, prior_reads | frozenset((ir,)))
+            for key in writes:
+                result[key] = (frozenset((ir,)), frozenset())
+            return result
+
+        worklist = deque(ir_ops)
+        queued = set(ir_ops)
+        while worklist:
+            ir = worklist.popleft()
+            queued.discard(ir)
+            incoming = merge_predecessors(ir)
+            outgoing = transfer(ir, incoming)
+            if incoming == in_states[ir] and outgoing == out_states[ir]:
+                continue
+            in_states[ir] = incoming
+            out_states[ir] = outgoing
+            for successor in successors[ir]:
+                if successor not in queued:
+                    queued.add(successor)
+                    worklist.append(successor)
+
+        # Materialize dependencies from the fixed-point input states.
+        for ir in ir_ops:
+            op = op_nodes[ir]
+            reads, writes = accesses[ir]
+            for key in reads:
+                reaching_writes, _ = in_states[ir].get(
+                    key, (frozenset(), frozenset())
+                )
+                for writer in reaching_writes:
+                    if writer is not ir:
+                        self.ddg.add_mem_dep(op_nodes[writer], op, label="RAW")
+
+            for key in writes:
+                reaching_writes, reaching_reads = in_states[ir].get(
+                    key, (frozenset(), frozenset())
+                )
+                for reader in reaching_reads:
+                    if reader is not ir:
+                        self.ddg.add_mem_dep(op_nodes[reader], op, label="WAR")
+                for writer in reaching_writes:
+                    if writer is not ir:
+                        self.ddg.add_mem_dep(op_nodes[writer], op, label="WAW")
 
 
 def construct_ddg(dataflow: df.DataflowGraph) -> DataDependenceGraph:

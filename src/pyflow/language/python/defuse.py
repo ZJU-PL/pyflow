@@ -181,6 +181,19 @@ class DefUseVisitor(TypeDispatcher):
         self.use(node, node.left)
         self.use(node, node.right)
 
+    @dispatch(ast.ConditionalExpr)
+    def visitConditionalExpr(self, node):
+        """Record all values that can contribute to a conditional expression."""
+        self.use(node, node.test)
+        self.use(node, node.body)
+        self.use(node, node.orelse)
+
+    @dispatch(ast.For)
+    def visitFor(self, node):
+        """Record the iterable read and the per-iteration target binding."""
+        self.use(node, node.iterator)
+        self.define(node, node.index)
+
     @dispatch(ast.Assert)
     def visitAssert(self, node):
         self.use(node, node.test)
@@ -324,7 +337,6 @@ class DefUseVisitor(TypeDispatcher):
     @dispatch(
         ast.Break,
         ast.Continue,
-        ast.For,
         ast.While,
         ast.TryExceptFinally,
         ast.ShortCircutAnd,

@@ -11,7 +11,7 @@ between operations.
 
 **Edge Types:**
 - **def-use**: Operation defines a slot, another operation uses it
-- **memory**: Memory dependencies (RAW: Read After Write, WAR: Write After Read, WAW: Write After Write)
+- **memory**: Memory dependencies (RAW, WAR, and WAW hazards)
 
 **Graph Structure:**
 The DDG maintains bidirectional edges (edges_in, edges_out) for efficient
@@ -19,7 +19,7 @@ traversal in both directions. Nodes are indexed by their dataflow IR counterpart
 for efficient lookup.
 """
 
-from typing import Dict, List, Set, Optional, Any
+from typing import Any, Dict, List, Set
 
 
 class DDGEdge(object):
@@ -66,6 +66,18 @@ class DDGEdge(object):
 
     def __repr__(self):
         return "DDGEdge(%r -> %r, %s)" % (self.source, self.target, self.kind)
+
+    def __hash__(self):
+        return hash((self.source, self.target, self.kind, self.label))
+
+    def __eq__(self, other):
+        return (
+            isinstance(other, DDGEdge)
+            and self.source is other.source
+            and self.target is other.target
+            and self.kind == other.kind
+            and self.label == other.label
+        )
 
 
 class DDGNode(object):

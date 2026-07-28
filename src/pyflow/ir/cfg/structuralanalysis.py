@@ -14,17 +14,29 @@ class Search(object):
         self.order = []
 
     def process(self, node):
-        if node not in self.processed:
-            self.current.add(node)
-            self.processed.add(node)
+        if node in self.processed:
+            return
 
-            for child in node.forward():
-                self.process(child)
+        self.current.add(node)
+        self.processed.add(node)
+        stack = [(node, iter(list(node.forward())))]
 
-            self.order.append(node)
-            self.current.remove(node)
-        elif node in self.current:
-            self.loops.add(node)
+        while stack:
+            current, children = stack[-1]
+            try:
+                child = next(children)
+            except StopIteration:
+                self.order.append(current)
+                self.current.remove(current)
+                stack.pop()
+                continue
+
+            if child not in self.processed:
+                self.current.add(child)
+                self.processed.add(child)
+                stack.append((child, iter(list(child.forward()))))
+            elif child in self.current:
+                self.loops.add(child)
 
 
 class KillContinues(TypeDispatcher):
@@ -374,13 +386,15 @@ def processLoop(dj):
 
 
 def findLoops(dj):
-    if isinstance(dj.node, graph.Merge):
-        for prev in dj.node.reverse():
-            if dj.dominates(prev.data):
-                processLoop(dj)
+    pending = [dj]
+    while pending:
+        current = pending.pop()
+        if isinstance(current.node, graph.Merge):
+            for prev in current.node.reverse():
+                if current.dominates(prev.data):
+                    processLoop(current)
 
-    for d in dj.d:
-        findLoops(d)
+        pending.extend(reversed(current.d))
 
 
 def evaluate(compiler, g):

@@ -5,6 +5,9 @@ from pyflow.application.errors import TemporaryLimitation
 from pyflow.ir.cdg import construct_cdg
 from pyflow.frontend.extractor import Extractor
 from pyflow.ir.cfg import (
+    dfs,
+    dom,
+    gc,
     graph as cfg_graph,
     inline,
     killflow,
@@ -244,6 +247,82 @@ def iterate(items):
 
         graph = transform.evaluate(self.compiler, code)
         self.assertIsNotNone(graph)
+
+    def test_for_loop_is_preserved_instead_of_rewritten_as_while(self):
+        source = """
+def iterate(items):
+    for item in items:
+        consume(item)
+"""
+        ns = {}
+        exec(source, ns)
+        self.compiler.extractor.source_code = source
+        code = self.compiler.extractor.convertFunction(ns["iterate"], ssa=False)
+
+        graph = transform.evaluate(self.compiler, code)
+        structuralanalysis.evaluate(self.compiler, graph)
+
+        self.assertEqual(len(graph.code.ast.blocks), 1)
+        self.assertIsInstance(graph.code.ast.blocks[0], pyflow_ast.For)
+        self.assertEqual(graph.code.ast.blocks[0].index.name, "item")
+
+    def test_gc_removes_matching_phi_argument_with_dead_predecessor(self):
+        code = cfg_graph.Code()
+        live = cfg_graph.Suite(None)
+        dead = cfg_graph.Suite(None)
+        merge = cfg_graph.Merge(None)
+
+        code.entryTerminal.setExit("entry", live)
+        live.setExit("normal", merge)
+        dead.setExit("normal", merge)
+        merge.setExit("normal", code.normalTerminal)
+        merge.phi = [
+            pyflow_ast.Phi(
+                [pyflow_ast.Local("live"), pyflow_ast.Local("dead")],
+                pyflow_ast.Local("target"),
+            )
+        ]
+
+        gc.evaluate(self.compiler, code)
+
+        self.assertEqual(merge.iterprev(), [(live, "normal")])
+        self.assertEqual([arg.name for arg in merge.phi[0].arguments], ["live"])
+        self.assertIsNone(dead.getExit("normal"))
+
+    def test_cfg_dfs_handles_deep_linear_graph_iteratively(self):
+        entry = cfg_graph.Entry(None)
+        previous = entry
+        exit_name = "entry"
+        for _ in range(1500):
+            current = cfg_graph.Suite(None)
+            previous.setExit(exit_name, current)
+            previous = current
+            exit_name = "normal"
+
+        traversal = dfs.CFGDFS()
+        traversal.process(entry)
+        self.assertEqual(len(traversal.processed), 1501)
+
+    def test_dominator_construction_handles_deep_linear_graph_iteratively(self):
+        entry = cfg_graph.Entry(None)
+        previous = entry
+        exit_name = "entry"
+        for _ in range(1500):
+            current = cfg_graph.Suite(None)
+            previous.setExit(exit_name, current)
+            previous = current
+            exit_name = "normal"
+
+        bound = {}
+        roots = dom.evaluate(
+            [entry],
+            lambda node: node.forward(),
+            lambda node, dj_node: bound.setdefault(node, dj_node),
+        )
+
+        self.assertEqual(len(bound), 1501)
+        self.assertEqual(len(roots), 1)
+        self.assertIs(roots[0].node, entry)
 
 
 if __name__ == "__main__":

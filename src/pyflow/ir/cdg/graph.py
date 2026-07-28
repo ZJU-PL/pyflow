@@ -60,7 +60,7 @@ class CDGEdge:
         return f"CDGEdge({self.source} -> {self.target}, '{self.label}')"
 
     def __hash__(self):
-        return hash((id(self.source), id(self.target), self.label))
+        return hash((self.source, self.target, self.label))
 
     def __eq__(self, other):
         if not isinstance(other, CDGEdge):
@@ -123,12 +123,14 @@ class CDGNode:
             dependent: The node that becomes control dependent on this node
             edge_label: Label indicating the control condition (e.g., "true", "false")
         """
-        if dependent not in self.dependents:
-            edge = CDGEdge(self, dependent, edge_label)
-            self.dependents.add(dependent)
-            dependent.dependencies.add(self)
-            self.edges_out.add(edge)
-            dependent.edges_in.add(edge)
+        edge = CDGEdge(self, dependent, edge_label)
+        if edge in self.edges_out:
+            return
+
+        self.dependents.add(dependent)
+        dependent.dependencies.add(self)
+        self.edges_out.add(edge)
+        dependent.edges_in.add(edge)
 
     def remove_dependent(self, dependent: "CDGNode"):
         """
@@ -142,16 +144,12 @@ class CDGNode:
             dependent: The node to remove from this node's dependents
         """
         if dependent in self.dependents:
-            # Find and remove the edge
-            edge_to_remove = None
-            for edge in self.edges_out:
-                if edge.target == dependent:
-                    edge_to_remove = edge
-                    break
-
-            if edge_to_remove:
-                self.edges_out.remove(edge_to_remove)
-                dependent.edges_in.remove(edge_to_remove)
+            edges_to_remove = [
+                edge for edge in self.edges_out if edge.target == dependent
+            ]
+            for edge in edges_to_remove:
+                self.edges_out.remove(edge)
+                dependent.edges_in.remove(edge)
 
             self.dependents.remove(dependent)
             dependent.dependencies.remove(self)
@@ -198,10 +196,16 @@ class CDGNode:
             The edge label (e.g., "true", "false", "normal") or None if
             no such relationship exists
         """
-        for edge in self.edges_out:
-            if edge.target == dependent:
-                return edge.label
-        return None
+        labels = self.get_control_condition_labels(dependent)
+        if not labels:
+            return None
+        return sorted(labels)[0]
+
+    def get_control_condition_labels(self, dependent: "CDGNode") -> Set[str]:
+        """Return every branch label connecting this controller to a node."""
+        return {
+            edge.label for edge in self.edges_out if edge.target == dependent
+        }
 
     def __repr__(self):
         return f"CDGNode({self.node_id}, {type(self.cfg_node).__name__})"
@@ -387,7 +391,14 @@ class ControlDependenceGraph:
         edges = []
         for node in self.nodes.values():
             edges.extend(node.edges_out)
-        return edges
+        return sorted(
+            edges,
+            key=lambda edge: (
+                edge.source.node_id,
+                edge.target.node_id,
+                edge.label,
+            ),
+        )
 
     def get_control_conditions(
         self, cfg_node: cfg_graph.CFGBlock
@@ -410,7 +421,10 @@ class ControlDependenceGraph:
 
         conditions = {}
         for edge in cdg_node.edges_out:
-            conditions[edge.target] = edge.label
+            # Preserve the historical target -> string API. If parallel labels
+            # exist, expose them deterministically as a disjunction.
+            labels = cdg_node.get_control_condition_labels(edge.target)
+            conditions[edge.target] = "|".join(sorted(labels))
         return conditions
 
     def get_statistics(self) -> Dict[str, Any]:
@@ -453,4 +467,7 @@ class ControlDependenceGraph:
 
     def __repr__(self):
         stats = self.get_statistics()
-        return f"ControlDependenceGraph(nodes={stats['total_nodes']}, edges={stats['total_edges']})"
+        return (
+            "ControlDependenceGraph("
+            f"nodes={stats['total_nodes']}, edges={stats['total_edges']})"
+        )

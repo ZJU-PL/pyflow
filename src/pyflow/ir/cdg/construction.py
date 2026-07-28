@@ -25,8 +25,9 @@ class CDGConstructor:
 
     _EXIT_SINK = object()
 
-    def __init__(self, cfg: cfg_graph.Code):
+    def __init__(self, cfg: cfg_graph.Code, *, include_exceptional: bool = False):
         self.cfg = cfg
+        self.include_exceptional = include_exceptional
         self.cdg = ControlDependenceGraph(cfg)
         self.dominance_frontiers: Dict[cfg_graph.CFGBlock, Set[cfg_graph.CFGBlock]] = {}
         self.post_dominators: Dict[cfg_graph.CFGBlock, Set[cfg_graph.CFGBlock]] = {}
@@ -124,6 +125,10 @@ class CDGConstructor:
         return mapping
 
     def _get_postdom_dj_node(self, node: cfg_graph.CFGBlock) -> Optional[Any]:
+        if self.include_exceptional:
+            return self._exception_postdom_nodes.get(
+                node
+            ) or self._postdom_nodes.get(node)
         return self._postdom_nodes.get(node) or self._exception_postdom_nodes.get(node)
 
     def _post_dominates(
@@ -152,13 +157,19 @@ class CDGConstructor:
             self.cdg.add_node(cfg_node)
 
         for controller in all_cfg_nodes:
-            successors = [succ for succ in controller.normalForward() if succ is not None]
+            successors = []
+            for label, successor in controller.next.items():
+                if successor is None or label == "yield":
+                    continue
+                if not self.include_exceptional and label in ("error", "fail"):
+                    continue
+                successors.append((label, successor))
+
             if len(successors) <= 1:
                 continue
 
             stop = self._get_immediate_post_dominator(controller)
-            for successor in successors:
-                label = controller.findExit(successor) or ""
+            for label, successor in successors:
                 runner = successor
                 seen: Set[cfg_graph.CFGBlock] = set()
                 while runner is not None and runner != stop and runner not in seen:
@@ -223,19 +234,26 @@ class CDGConstructor:
         return dependent in self.dominance_frontiers.get(controller, set())
 
 
-def construct_cdg(cfg: cfg_graph.Code) -> ControlDependenceGraph:
-    constructor = CDGConstructor(cfg)
+def construct_cdg(
+    cfg: cfg_graph.Code, *, include_exceptional: bool = False
+) -> ControlDependenceGraph:
+    """Construct a CDG, optionally treating exceptional exits as branches."""
+    constructor = CDGConstructor(cfg, include_exceptional=include_exceptional)
     return constructor.construct()
 
 
-def analyze_control_dependencies(cfg: cfg_graph.Code) -> Dict[str, Any]:
+def analyze_control_dependencies(
+    cfg: cfg_graph.Code, *, include_exceptional: bool = False
+) -> Dict[str, Any]:
     """
     Analyze control dependencies in a CFG and return statistics.
 
     ``dominance_frontiers`` is retained as a compatibility key, but it now
-    reports controller -> control-dependent nodes.
+    reports controller -> control-dependent nodes. Set ``include_exceptional``
+    to include ``fail`` and ``error`` successors in post-dominance and control
+    dependence; the default preserves the historical normal-flow-only result.
     """
-    constructor = CDGConstructor(cfg)
+    constructor = CDGConstructor(cfg, include_exceptional=include_exceptional)
     cdg = constructor.construct()
 
     def node_key(node: cfg_graph.CFGBlock) -> str:
@@ -246,11 +264,11 @@ def analyze_control_dependencies(cfg: cfg_graph.Code) -> Dict[str, Any]:
 
     stats = cdg.get_statistics()
     stats["dominance_frontiers"] = {
-        node_key(node): [node_key(frontier_node) for frontier_node in frontier]
+        node_key(node): sorted(node_key(frontier_node) for frontier_node in frontier)
         for node, frontier in constructor.dominance_frontiers.items()
     }
     stats["post_dominators"] = {
-        node_key(node): [node_key(pdom) for pdom in pdoms]
+        node_key(node): sorted(node_key(pdom) for pdom in pdoms)
         for node, pdoms in constructor.post_dominators.items()
     }
     return stats
