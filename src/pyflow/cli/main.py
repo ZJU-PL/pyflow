@@ -28,6 +28,7 @@ from .security import run_security, add_security_parser
 from . import callgraph
 from .alias import run_alias_analysis, add_alias_parser
 from .supply_chain import add_supply_chain_parser, run_supply_chain
+from .lsp import add_lsp_parser, add_mcp_parser, add_query_parser, run_lsp, run_mcp, run_query
 
 
 def main():
@@ -62,6 +63,11 @@ def main():
 
     # Supply-chain analysis command
     add_supply_chain_parser(subparsers)
+
+    # LSP / MCP / Query commands
+    add_lsp_parser(subparsers)
+    add_mcp_parser(subparsers)
+    add_query_parser(subparsers)
 
     args = parser.parse_args()
 
@@ -116,6 +122,15 @@ def main():
         return run_security(args)
     elif args.command == "supply-chain":
         return run_supply_chain(args)
+    elif args.command == "lsp":
+        run_lsp(args)
+        return 0
+    elif args.command == "mcp":
+        run_mcp(args)
+        return 0
+    elif args.command == "query":
+        run_query(args)
+        return 0
     else:
         parser.print_help()
         return 1
