@@ -39,6 +39,7 @@ If you are new to PyFlow, start with the :ref:`tutorials`.
     :caption: Reference
 
     cli
+    lsp
     api
     ir/index
     analysis/index
