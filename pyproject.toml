@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "pyflow-analysis"
 dynamic = ["version"]
-description = "A static compiler for Python"
+description = "A static analysis framework for Python"
 readme = "README.md"
 license = {text = "Apache-2.0"}
 authors = [
