@@ -15,8 +15,8 @@ def add_security_parser(subparsers):
             "Run security analysis using one of four engines. "
             "Use --engine to choose: 'ast-scanner' (fast AST matching, default), "
             "'ast-dataflow' (taint dataflow over the Python AST), "
-            "'ifds' (interprocedural dataflow, "
-            "requires --function), or 'cpg' (CPG-based context-sensitive analysis)."
+            "'ifds' (interprocedural dataflow rooted at an entry file), or "
+            "'cpg' (CPG-based context-sensitive analysis)."
         ),
     )
     p.add_argument(
@@ -65,10 +65,13 @@ def add_security_parser(subparsers):
         default=argparse.SUPPRESS,
         help="Sanitizer function names for taint-style checks (repeatable)",
     )
-    # IFDS-specific
     p.add_argument(
-        "--function",
-        help="Entry function name (required for --engine ifds)",
+        "--entry",
+        type=Path,
+        help=(
+            "Entry point file relative to the project root for --engine ifds "
+            "(auto-detected for directory targets; a file target is its own entry)"
+        ),
     )
     p.add_argument(
         "--framework",

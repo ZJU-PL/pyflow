@@ -61,7 +61,7 @@ class _EmptyResult:
 
 def _make_args(output_format: str) -> SimpleNamespace:
     return SimpleNamespace(
-        function="main",
+        entry=None,
         analysis="taint",
         engine="ifds",
         targets=None,
@@ -121,11 +121,11 @@ def main():
     assert calls == [True]
     if output_format == "json":
         payload = json.loads(out)
-        assert payload["function"] == "main"
+        assert payload["entry"] == str(target)
         assert payload["diagnostics"] == []
         assert payload["findings"][0]["tainted_arguments"] == ["b"]
     else:
-        assert "Function: main" in out
+        assert f"Entry: {target}" in out
         assert "Diagnostics:" not in out
         assert "sink=sink procedure=sinkproc args=[b]" in out
 
@@ -202,6 +202,55 @@ def test_security_cli_forwards_dynamic_model_options(monkeypatch, tmp_path, caps
     assert captured["collection_mutator_names"] == ["append_safe"]
     assert captured["collection_accessor_names"] == ["fetch"]
     assert captured["conservative_unresolved_call_side_effects"] is True
+
+
+def test_security_cli_auto_detects_directory_entry(monkeypatch, tmp_path, capsys):
+    project = tmp_path / "project"
+    project.mkdir()
+    entry = project / "main.py"
+    entry.write_text("print('main')\n", encoding="utf-8")
+
+    captured = {}
+
+    def fake_run_taint_analysis(*_args, **kwargs):
+        captured.update(kwargs)
+        session = SimpleNamespace(compiler=object(), diagnostics=())
+        return session, _EmptyResult(), None
+
+    monkeypatch.setattr(ifds_api, "run_taint_analysis", fake_run_taint_analysis)
+
+    args = _make_args("json")
+    args.targets = [project]
+
+    assert security_cli.run_security(args) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["entry"] == "main.py"
+    assert captured["entry_file"] == entry.resolve()
+
+
+def test_security_cli_accepts_explicit_directory_entry(monkeypatch, tmp_path, capsys):
+    project = tmp_path / "project"
+    project.mkdir()
+    entry = project / "train.py"
+    entry.write_text("print('train')\n", encoding="utf-8")
+
+    captured = {}
+
+    def fake_run_taint_analysis(*_args, **kwargs):
+        captured.update(kwargs)
+        session = SimpleNamespace(compiler=object(), diagnostics=())
+        return session, _EmptyResult(), None
+
+    monkeypatch.setattr(ifds_api, "run_taint_analysis", fake_run_taint_analysis)
+
+    args = _make_args("json")
+    args.targets = [project]
+    args.entry = "train.py"
+
+    assert security_cli.run_security(args) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["entry"] == "train.py"
+    assert captured["entry_file"] == entry.resolve()
 
 
 def test_security_cli_forwards_typestate_protocol_options(

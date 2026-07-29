@@ -19,7 +19,7 @@ from pyflow.lsp.workspace import SourceIndex
 from pyflow.analysis.callgraph.constraint_based import extract_call_graph_constraint
 from pyflow.api.queries import MCPServerMode
 
-from .callgraph import _detect_entry
+from pyflow.frontend.entry_discovery import detect_entry_file
 
 LOG = logging.getLogger(__name__)
 
@@ -110,7 +110,7 @@ def _uses_callgraph_analysis(args) -> bool:
 def _callgraph_entry(input_path: Path) -> Path:
     if input_path.is_file():
         return input_path
-    entry = _detect_entry(input_path)
+    entry = detect_entry_file(input_path)
     if entry is None:
         raise ValueError(
             f"No callgraph entry point detected in '{input_path}'. "

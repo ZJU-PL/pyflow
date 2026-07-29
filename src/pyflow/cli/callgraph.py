@@ -2,11 +2,9 @@
 CLI functionality for call graph analysis.
 """
 
-import ast
 import json
 import sys
 from pathlib import Path
-from typing import Optional
 
 from pyflow.analysis.callgraph.ast_based import analyze_file as analyze_file_ast
 from pyflow.analysis.callgraph.constraint_based import (
@@ -14,112 +12,7 @@ from pyflow.analysis.callgraph.constraint_based import (
     extract_value_flow_graph_constraint,
 )
 from pyflow.analysis.callgraph.pycg_based import analyze_file_pycg
-
-
-_KNOWN_ENTRY_NAMES = ["main.py", "app.py", "cli.py", "run.py", "launch.py"]
-
-
-def _module_to_path(module: str, repo: Path) -> Optional[str]:
-    parts = module.split(".")
-    for base in (repo, repo / "src"):
-        py_file = base / f"{'/'.join(parts)}.py"
-        if py_file.exists():
-            return str(py_file.relative_to(repo))
-        pkg_init = base / f"{'/'.join(parts)}" / "__init__.py"
-        if pkg_init.exists():
-            return str(pkg_init.relative_to(repo))
-    return None
-
-
-def _entry_from_pyproject(repo: Path) -> Optional[str]:
-    pyproject = repo / "pyproject.toml"
-    if not pyproject.exists():
-        return None
-
-    try:
-        import tomllib
-    except ImportError:
-        try:
-            import tomli as tomllib  # type: ignore[no-redef]
-        except ImportError:
-            return None
-
-    try:
-        with open(pyproject, "rb") as fh:
-            data = tomllib.load(fh)
-    except Exception:
-        return None
-
-    scripts = data.get("project", {}).get("scripts", {})
-    if not scripts:
-        scripts = data.get("tool", {}).get("poetry", {}).get("scripts", {})
-
-    for ref in scripts.values():
-        module = ref.split(":")[0].strip()
-        entry = _module_to_path(module, repo)
-        if entry:
-            return entry
-    return None
-
-
-def _entry_from_setup_py(repo: Path) -> Optional[str]:
-    setup = repo / "setup.py"
-    if not setup.exists():
-        return None
-
-    try:
-        with open(setup) as fh:
-            tree = ast.parse(fh.read())
-    except SyntaxError:
-        return None
-
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Call) or getattr(node.func, "id", None) != "setup":
-            continue
-        for kw in node.keywords:
-            if kw.arg != "entry_points" or not isinstance(kw.value, ast.Dict):
-                continue
-            for key, val in zip(kw.value.keys, kw.value.values):
-                if not (
-                    isinstance(key, ast.Constant)
-                    and key.value == "console_scripts"
-                    and isinstance(val, ast.List)
-                ):
-                    continue
-                for elt in val.elts:
-                    if not (isinstance(elt, ast.Constant) and isinstance(elt.value, str)):
-                        continue
-                    module = elt.value.split(":")[0].strip()
-                    module = module.split("=")[-1].strip()
-                    entry = _module_to_path(module, repo)
-                    if entry:
-                        return entry
-    return None
-
-
-def _detect_entry(repo: Path) -> Optional[str]:
-    # Priority: pyproject.toml → setup.py → __main__.py → known filenames
-    entry = _entry_from_pyproject(repo)
-    if entry:
-        return entry
-
-    entry = _entry_from_setup_py(repo)
-    if entry:
-        return entry
-
-    for child in sorted(repo.iterdir()):
-        if not child.is_dir() or child.name.startswith(".") or child.name == "tests":
-            continue
-        main_py = child / "__main__.py"
-        if main_py.exists():
-            return str(main_py.relative_to(repo))
-
-    for name in _KNOWN_ENTRY_NAMES:
-        entry = repo / name
-        if entry.is_file():
-            return name
-
-    return None
+from pyflow.frontend.entry_discovery import detect_entry_file, resolve_entry_file
 
 
 def _validate_algorithm_options(args) -> bool:
@@ -143,8 +36,7 @@ def _validate_algorithm_options(args) -> bool:
     if incompatible_flags:
         joined = ", ".join(incompatible_flags)
         print(
-            "Error: "
-            f"{joined} are only supported with --algorithm constraint",
+            "Error: " f"{joined} are only supported with --algorithm constraint",
             file=sys.stderr,
         )
         return False
@@ -169,7 +61,9 @@ def _analyze_file(file_path: Path, args) -> int:
             context_depth=args.context_depth,
             fixpoint_max_iterations=args.fixpoint_max_iterations,
             warn_on_fixpoint_truncation=not args.no_fixpoint_warning,
-            allocation_site_sensitive_instances=args.allocation_site_sensitive_instances,
+            allocation_site_sensitive_instances=(
+                args.allocation_site_sensitive_instances
+            ),
             skip_stdlib_modules=args.skip_stdlib,
         )
     elif args.algorithm == "pycg":
@@ -188,7 +82,8 @@ def _analyze_file(file_path: Path, args) -> int:
     if args.as_graph_output:
         if args.algorithm != "constraint":
             print(
-                "Error: --as-graph-output is currently supported only with --algorithm constraint",
+                "Error: --as-graph-output is currently supported only with "
+                "--algorithm constraint",
                 file=sys.stderr,
             )
             return 1
@@ -202,7 +97,9 @@ def _analyze_file(file_path: Path, args) -> int:
             context_depth=args.context_depth,
             fixpoint_max_iterations=args.fixpoint_max_iterations,
             warn_on_fixpoint_truncation=not args.no_fixpoint_warning,
-            allocation_site_sensitive_instances=args.allocation_site_sensitive_instances,
+            allocation_site_sensitive_instances=(
+                args.allocation_site_sensitive_instances
+            ),
             skip_stdlib_modules=args.skip_stdlib,
         )
         with open(args.as_graph_output, "w", encoding="utf-8") as handle:
@@ -227,7 +124,7 @@ def _run_callgraph_on_dir(repo_path: Path, args) -> int:
         entry_rel = entry
         source_desc = "user-specified"
     else:
-        detected = _detect_entry(repo_path)
+        detected = detect_entry_file(repo_path)
         if not detected:
             print(
                 f"Error: No entry point detected in '{repo_path}'.\n"
@@ -235,7 +132,7 @@ def _run_callgraph_on_dir(repo_path: Path, args) -> int:
                 file=sys.stderr,
             )
             return 1
-        entry_rel = detected
+        entry_rel = str(detected)
         source_desc = "auto-detected"
 
     if args.verbose:
@@ -246,14 +143,15 @@ def _run_callgraph_on_dir(repo_path: Path, args) -> int:
         print(entry_rel)
         return 0
 
-    full_path = (repo_path / entry_rel).resolve()
-    if not full_path.exists():
+    try:
+        full_path = resolve_entry_file(repo_path, entry_rel)
+    except ValueError as error:
         print(
-            f"Error: Entry point '{entry_rel}' not found in '{repo_path}'",
+            f"Error: {error}",
             file=sys.stderr,
         )
         return 1
-
+    assert full_path is not None
     return _analyze_file(full_path, args)
 
 

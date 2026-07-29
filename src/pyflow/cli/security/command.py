@@ -21,6 +21,7 @@ from pyflow.checker.pattern.core.manager import SecurityManager
 from pyflow.checker.pattern.core.config import SecurityConfig
 from pyflow.checker.pattern.core import constants as b_constants
 from pyflow.checker.ast_dataflow import ASTDataflowManager, BugFinderConfig
+from pyflow.frontend.entry_discovery import resolve_entry_file
 from .reporting import (
     _ifds_result_to_dict,
     _nullness_result_to_dict,
@@ -194,24 +195,31 @@ def _run_ifds(targets: List[str], args) -> Dict[str, Any]:
         run_taint_analysis,
         run_typestate_analysis,
     )
+
     solver_options = _ifds_solver_options(args)
 
     files = _discover_python_files(targets, getattr(args, "recursive", False))
-    if not files:
-        print("No Python files found to analyze", file=sys.stderr)
+    try:
+        entry_file = _resolve_ifds_entry_file(targets, getattr(args, "entry", None))
+    except ValueError as error:
+        print(f"Error: {error}", file=sys.stderr)
         return {
-            "function": args.function or "<unknown>",
+            "entry": "<unknown>",
             "findings": [],
-            "diagnostics": [],
-            "status": "failed",
-            "termination_reason": "No Python files found to analyze",
+            "diagnostics": [str(error)],
+            "status": "invalid",
+            "termination_reason": str(error),
         }
+
+    if entry_file not in files:
+        files.append(entry_file)
+    entry_label = _entry_label(entry_file, targets)
 
     if getattr(args, "analysis", "taint") == "typestate":
         try:
             _session, typestate_result = run_typestate_analysis(
                 files,
-                function=args.function or "",
+                entry_file=entry_file,
                 enabled_protocols=_parse_typestate_protocols(args),
                 registry_frameworks=getattr(args, "framework", ()) or (),
                 registry_paths=getattr(args, "registry_path", []) or (),
@@ -224,23 +232,21 @@ def _run_ifds(targets: List[str], args) -> Dict[str, Any]:
         except Exception as e:
             print(f"IFDS analysis failed: {e}", file=sys.stderr)
             return {
-                "function": args.function or "<unknown>",
+                "entry": entry_label,
                 "analysis": "typestate",
                 "findings": [],
                 "diagnostics": [str(e)],
                 "status": "failed",
                 "termination_reason": str(e),
             }
-        result = _typestate_result_to_dict(
-            args.function or "<unknown>", typestate_result
-        )
+        result = _typestate_result_to_dict(entry_label, typestate_result)
         return _apply_session_diagnostics(result, _session)
 
     if getattr(args, "analysis", "taint") == "nullness":
         try:
             _session, nullness_result = run_nullness_analysis(
                 files,
-                function=args.function or "",
+                entry_file=entry_file,
                 registry_frameworks=getattr(args, "framework", ()) or (),
                 registry_paths=getattr(args, "registry_path", []) or (),
                 dependency_strategy=getattr(args, "dependency_strategy", "auto"),
@@ -250,14 +256,14 @@ def _run_ifds(targets: List[str], args) -> Dict[str, Any]:
         except Exception as e:
             print(f"IFDS analysis failed: {e}", file=sys.stderr)
             return {
-                "function": args.function or "<unknown>",
+                "entry": entry_label,
                 "analysis": "nullness",
                 "findings": [],
                 "diagnostics": [str(e)],
                 "status": "failed",
                 "termination_reason": str(e),
             }
-        result = _nullness_result_to_dict(args.function or "<unknown>", nullness_result)
+        result = _nullness_result_to_dict(entry_label, nullness_result)
         return _apply_session_diagnostics(result, _session)
 
     try:
@@ -265,7 +271,7 @@ def _run_ifds(targets: List[str], args) -> Dict[str, Any]:
     except (OSError, ValueError) as error:
         print(f"Invalid taint policy configuration: {error}", file=sys.stderr)
         return {
-            "function": args.function or "<unknown>",
+            "entry": entry_label,
             "findings": [],
             "diagnostics": [str(error)],
             "status": "invalid",
@@ -280,7 +286,7 @@ def _run_ifds(targets: List[str], args) -> Dict[str, Any]:
             file=sys.stderr,
         )
         return {
-            "function": args.function or "<unknown>",
+            "entry": entry_label,
             "findings": [],
             "diagnostics": [],
             "status": "invalid",
@@ -290,7 +296,7 @@ def _run_ifds(targets: List[str], args) -> Dict[str, Any]:
     try:
         _session, taint_result, _shadow_matches = run_taint_analysis(
             files,
-            function=args.function or "",
+            entry_file=entry_file,
             call_models=call_models,
             rules=taint_rules,
             collection_mutator_names=getattr(args, "collection_mutators", None),
@@ -305,14 +311,14 @@ def _run_ifds(targets: List[str], args) -> Dict[str, Any]:
     except Exception as e:
         print(f"IFDS analysis failed: {e}", file=sys.stderr)
         return {
-            "function": args.function or "<unknown>",
+            "entry": entry_label,
             "findings": [],
             "diagnostics": [str(e)],
             "status": "failed",
             "termination_reason": str(e),
         }
 
-    result = _ifds_result_to_dict(args.function or "<unknown>", taint_result)
+    result = _ifds_result_to_dict(entry_label, taint_result)
     return _apply_session_diagnostics(result, _session)
 
 
@@ -466,6 +472,48 @@ def _discover_python_files(targets: Sequence[str], recursive: bool) -> list[Path
     return files
 
 
+def _resolve_ifds_entry_file(
+    targets: Sequence[str | Path], entry: str | Path | None
+) -> Path:
+    paths = [Path(target) for target in targets]
+    if len(paths) != 1:
+        raise ValueError(
+            "IFDS analysis requires exactly one file or project directory."
+        )
+
+    target = paths[0]
+    if target.is_file():
+        if entry is not None:
+            raise ValueError("--entry is only valid when the target is a directory.")
+        if target.suffix != ".py":
+            raise ValueError(f"Target '{target}' is not a Python file.")
+        return target.resolve()
+
+    if not target.is_dir():
+        raise ValueError(f"Target '{target}' does not exist.")
+
+    resolved = resolve_entry_file(target, entry)
+    if resolved is None:
+        raise ValueError(
+            f"No entry point detected in '{target}'. Use --entry to specify one "
+            "relative to the project root."
+        )
+    return resolved
+
+
+def _entry_label(entry_file: Path, targets: Sequence[str | Path]) -> str:
+    if len(targets) == 1:
+        target = Path(targets[0])
+        if target.is_file():
+            return str(target)
+        if target.is_dir():
+            try:
+                return str(entry_file.relative_to(target.resolve()))
+            except ValueError:
+                pass
+    return str(entry_file)
+
+
 def _build_taint_configuration(
     args,
     source_files: Sequence[Path] = (),
@@ -587,12 +635,6 @@ def run_security(args) -> int:
         return 1 if issues else 0
 
     elif engine == "ifds":
-        if not args.function:
-            print(
-                "Error: --function is required for 'ifds' engine",
-                file=sys.stderr,
-            )
-            return 2
         result = _run_ifds(targets, args)
         _output_results(engine, result, args)
         status = result.get("status", "complete")

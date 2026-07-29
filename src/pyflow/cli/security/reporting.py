@@ -60,7 +60,7 @@ def _format_output_text(engine: str, result) -> str:
     if engine == "ifds":
         report = result
         lines = [
-            f"Function: {report.get('function', '<unknown>')}",
+            f"Entry: {report.get('entry', '<unknown>')}",
             f"Findings: {len(report.get('findings', []))}",
         ]
         stats = report.get("statistics", {})
@@ -702,7 +702,7 @@ def _statistics_to_dict(statistics) -> dict[str, Any]:
     return dict(statistics)
 
 
-def _ifds_result_to_dict(function: str, taint_result) -> Dict[str, Any]:
+def _ifds_result_to_dict(entry: str, taint_result) -> Dict[str, Any]:
     """Convert an IFDS TaintAnalysisResult to a JSON-compatible dict."""
     from collections import defaultdict, deque
     from pyflow.analysis.ifds.reporting import normalized_taint_findings
@@ -749,7 +749,7 @@ def _ifds_result_to_dict(function: str, taint_result) -> Dict[str, Any]:
 
     status, termination_reason = _result_status(taint_result)
     return {
-        "function": function,
+        "entry": entry,
         "analysis": "taint",
         "findings": findings,
         "statistics": statistics,
@@ -758,7 +758,7 @@ def _ifds_result_to_dict(function: str, taint_result) -> Dict[str, Any]:
     }
 
 
-def _typestate_result_to_dict(function: str, typestate_result) -> Dict[str, Any]:
+def _typestate_result_to_dict(entry: str, typestate_result) -> Dict[str, Any]:
     """Convert an IFDS TypestateAnalysisResult to a JSON-compatible dict."""
     from pyflow.analysis.ifds.reporting import normalized_typestate_findings
 
@@ -811,7 +811,7 @@ def _typestate_result_to_dict(function: str, typestate_result) -> Dict[str, Any]
 
     status, termination_reason = _result_status(typestate_result)
     return {
-        "function": function,
+        "entry": entry,
         "analysis": "typestate",
         "findings": findings,
         "statistics": statistics,
@@ -820,7 +820,7 @@ def _typestate_result_to_dict(function: str, typestate_result) -> Dict[str, Any]
     }
 
 
-def _nullness_result_to_dict(function: str, nullness_result) -> Dict[str, Any]:
+def _nullness_result_to_dict(entry: str, nullness_result) -> Dict[str, Any]:
     """Convert an IFDS nullness result to a JSON-compatible dictionary."""
     from pyflow.analysis.ifds.reporting import normalized_nullness_findings
 
@@ -859,7 +859,7 @@ def _nullness_result_to_dict(function: str, nullness_result) -> Dict[str, Any]:
         findings.append(item)
     status, termination_reason = _result_status(nullness_result)
     return {
-        "function": function,
+        "entry": entry,
         "analysis": "nullness",
         "findings": findings,
         "statistics": _statistics_to_dict(nullness_result.statistics),
