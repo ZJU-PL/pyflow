@@ -366,10 +366,10 @@ class FlatCallConstraint(AbstractCall):
                     arg.attachTypeSplit(self.splitChanged)
         else:
             # The call shape cannot be represented by the current transfer model.
-            # Keep the engine running and surface this as a warning instead of
-            # trying to build impossible invocations.
+            # Keep the engine running and retain debug detail instead of trying
+            # to build impossible invocations.
             if not self._invalid_info_logged:
-                LOG.warning(
+                LOG.debug(
                     "skipping call binding for %r: %s",
                     self.op,
                     self.info.reason,
@@ -398,7 +398,7 @@ class FlatCallConstraint(AbstractCall):
         info = self.info
         if not info.maybeOK():
             if not self._invalid_info_logged:
-                LOG.warning(
+                LOG.debug(
                     "skipping call binding for %r: %s",
                     self.op,
                     info.reason,

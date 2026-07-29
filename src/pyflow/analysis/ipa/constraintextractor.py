@@ -146,7 +146,7 @@ class ConstraintExtractor(TypeDispatcher):
     def _assignUnknownTargets(self, targets, prefix, warning):
         if not targets:
             return
-        LOG.warning(warning)
+        LOG.debug(warning)
         unknown = self._unknownValueNode(prefix)
         for target in targets:
             self.context.assign(unknown, target)
@@ -174,7 +174,7 @@ class ConstraintExtractor(TypeDispatcher):
         if kargs is not None:
             normalized.append(kargs)
 
-        LOG.warning(
+        LOG.debug(
             "call %r uses keyword arguments; lowering to conservative positional flow",
             node,
         )
@@ -677,7 +677,7 @@ class ConstraintExtractor(TypeDispatcher):
         name = self(node.name)
         if obj is None:
             if targets is None:
-                LOG.warning(
+                LOG.debug(
                     "unresolved attribute read at %r; returning conservative unknown",
                     node,
                 )
