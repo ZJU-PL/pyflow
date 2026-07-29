@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple, Union
 
 from pyflow.application.context import CompilerContext
-from pyflow.application.pipeline import Pipeline
 from pyflow.application.program import Program
 from pyflow.api.queries import SemanticQueryService
 from pyflow.frontend.extractor import Extractor, extract_program
@@ -65,17 +64,8 @@ class AnalysisSession:
         with console.scope("extraction"):
             extract_program(compiler, program)
 
-        pipeline = Pipeline(use_pass_manager=use_pass_manager)
+        del use_pass_manager
         compiler.program = program
-        with console.scope("analysis"):
-            if use_pass_manager:
-                pipeline.run_custom_pipeline(
-                    compiler,
-                    program,
-                    AnalysisSession._semantic_pass_names(),
-                )
-            else:
-                pipeline.run(program, compiler=compiler, name="semantic")
 
         queries = program.get_semantic_queries(compiler)
         analysis_facts = queries.get_analysis_facts()
@@ -229,17 +219,3 @@ class AnalysisSession:
                     func_to_file[node.name] = filename
 
         return name_to_source, func_to_file, file_imports
-
-    @staticmethod
-    def _semantic_pass_names() -> List[str]:
-        """Return the analysis-only pass set needed by semantic detectors.
-
-        The security checker consumes IPA, CPA, and lifetime facts. Heap facts
-        are an optional precision refinement in the formal taint engine, but the
-        standalone flow-sensitive heap pass can dominate runtime on ordinary
-        projects, so it is not part of the default security pipeline.
-
-        Optimization cleanup passes are also excluded because they can mutate
-        the program and invalidate analysis state after it has been computed.
-        """
-        return ["ipa", "cpa", "lifetime"]

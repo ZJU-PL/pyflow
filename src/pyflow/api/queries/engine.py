@@ -40,11 +40,22 @@ class GraphQueryEngine:
         self._callgraph_cache = None
         self._callgraph_aliases = {}
 
-    def get_cfg(self, function: Union[str, object]):
+    def get_cfg(
+        self, function: Union[str, object], *, commit_revision: bool = True
+    ):
         """Return a CFG for the given function."""
         code = self.context.resolve_function(function)
         if code not in self._cfg_cache:
-            self._cfg_cache[code] = cfg_transform.evaluate(self.context.compiler, code)
+            if commit_revision:
+                self._cfg_cache[code] = cfg_transform.evaluate(
+                    self.context.compiler, code
+                )
+            else:
+                self._cfg_cache[code] = cfg_transform.evaluate(
+                    self.context.compiler,
+                    code,
+                    commit_revision=False,
+                )
         return self._cfg_cache[code]
 
     def get_ssa(self, function: Union[str, object]):
