@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+import os
 from pathlib import Path
 from typing import Iterable
 
@@ -32,21 +33,65 @@ def _target_codes(catalog, name: str):
     return tuple(matches)
 
 
-def publish_constraint_callgraph_facts(program, paths: Iterable[str | Path]) -> int:
+def _source_filename(catalog, code) -> str | None:
+    try:
+        origin = catalog.source_of(code, code=code)
+    except KeyError:
+        origin = None
+    span = getattr(origin, "span", None)
+    filename = getattr(span, "path", None)
+    if not filename:
+        filename = catalog.procedure(code).code_id.anchor.filename
+    return os.path.realpath(filename) if filename else None
+
+
+def _source_line(catalog, code, operation) -> int | None:
+    try:
+        origin = catalog.source_of(operation, code=code)
+    except KeyError:
+        return None
+    span = getattr(origin, "span", None)
+    return getattr(span, "start_line", None)
+
+
+def publish_constraint_callgraph_facts(
+    program,
+    paths: Iterable[str | Path],
+    *,
+    entry_path: str | Path | None = None,
+    analyze_reachable_only: bool = False,
+) -> int:
     """Publish a complete, context-conservative call-target snapshot."""
     catalog = program.ir
     edges = defaultdict(set)
-    for path in paths:
-        source_path = Path(path)
-        source = source_path.read_text(encoding="utf-8")
-        for site, targets in extract_call_site_edge_index_constraint(
-            source,
-            source_path=str(source_path),
-            context_sensitive=True,
-            context_depth=1,
-            allow_fixture_graph_loading=False,
-        ).items():
-            edges[(site.caller_scope, site.ordinal)].update(targets)
+    module_edges = defaultdict(set)
+    source_paths = tuple(Path(path).resolve() for path in paths)
+    if entry_path is None:
+        if not source_paths:
+            return 0
+        analysis_entry = source_paths[0]
+    else:
+        analysis_entry = Path(entry_path).resolve()
+    source = analysis_entry.read_text(encoding="utf-8")
+    additional_sources = {
+        str(path): path.read_text(encoding="utf-8")
+        for path in source_paths
+        if path != analysis_entry
+    }
+    for site, targets in extract_call_site_edge_index_constraint(
+        source,
+        source_path=str(analysis_entry),
+        context_sensitive=False,
+        fixpoint_max_iterations=2000,
+        allow_fixture_graph_loading=False,
+        skip_external_modules=True,
+        analyze_reachable_only=analyze_reachable_only,
+        additional_sources=additional_sources,
+    ).items():
+        site_source = os.path.realpath(site.source_path or analysis_entry)
+        edges[(site_source, site.caller_scope, site.ordinal)].update(targets)
+        if site.is_module_scope:
+            module_edges[(site_source, site.line)].update(targets)
 
     contexts_by_code = {}
     for procedure in catalog.procedures():
@@ -59,13 +104,27 @@ def publish_constraint_callgraph_facts(program, paths: Iterable[str | Path]) -> 
     for procedure in catalog.procedures():
         code = catalog.code(procedure.code_id)
         calls = tuple(op for op in getOps(code)[0] if isinstance(op, call_types))
+        source_filename = _source_filename(catalog, code)
+        is_module = procedure.construct_kind == "synthetic_module"
         caller_scopes = {
-            scope for scope, _ordinal in edges if _scope_matches(code, scope)
+            scope
+            for edge_source, scope, _ordinal in edges
+            if edge_source == source_filename
+            and (_scope_matches(code, scope) or (is_module and scope == "main"))
         }
         for ordinal, operation in enumerate(calls):
-            target_names = set()
-            for scope in caller_scopes:
-                target_names.update(edges.get((scope, ordinal), ()))
+            if is_module:
+                target_names = set(
+                    module_edges.get(
+                        (source_filename, _source_line(catalog, code, operation)), ()
+                    )
+                )
+            else:
+                target_names = set()
+                for scope in caller_scopes:
+                    target_names.update(
+                        edges.get((source_filename, scope, ordinal), ())
+                    )
             target_codes = {
                 target
                 for target_name in target_names

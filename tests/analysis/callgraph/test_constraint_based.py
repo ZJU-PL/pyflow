@@ -2,10 +2,12 @@
 
 import json
 import os
+import sys
 import tempfile
 import textwrap
 import unittest
 import warnings
+from unittest import mock
 
 from pyflow.analysis.callgraph.ast_based import (
     extract_call_graph as extract_call_graph_legacy,
@@ -73,6 +75,32 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
         site, callees = apply_sites[0]
         self.assertEqual(site.ordinal, 0)
         self.assertIn("main.target", callees)
+
+    def test_call_site_edge_index_includes_explicit_additional_modules(self):
+        with tempfile.TemporaryDirectory() as directory:
+            entry_path = os.path.join(directory, "entry.py")
+            extra_path = os.path.join(directory, "configurator.py")
+            with open(entry_path, "w", encoding="utf-8") as handle:
+                handle.write("pass\n")
+            extra_source = "def configure():\n    return 1\nconfigure()\n"
+            with open(extra_path, "w", encoding="utf-8") as handle:
+                handle.write(extra_source)
+
+            index = extract_call_site_edge_index_constraint(
+                "pass\n",
+                source_path=entry_path,
+                additional_sources={extra_path: extra_source},
+            )
+
+        sites = [
+            (site, callees)
+            for site, callees in index.items()
+            if site.source_path == os.path.realpath(extra_path)
+        ]
+        self.assertEqual(len(sites), 1)
+        site, callees = sites[0]
+        self.assertTrue(site.is_module_scope)
+        self.assertIn("configurator.configure", callees)
 
     def test_dynamic_dispatch_tracks_runtime_receiver_types(self):
         source = textwrap.dedent("""
@@ -2305,6 +2333,112 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
         self.assertIn("main.B.f", run_edges)
         self.assertIn("main.C.f", run_edges)
 
+    def test_cyclic_inheritance_uses_conservative_dispatch(self):
+        source = textwrap.dedent("""
+            class A(B):
+                def f(self):
+                    return 1
+
+            class B(A):
+                def g(self):
+                    return 2
+
+            def run(value):
+                if isinstance(value, A):
+                    return value.f()
+                return 0
+
+            run(A())
+            """)
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            improved = extract_call_graph_constraint(source).get()
+
+        self.assertTrue(
+            any("Inconsistent MRO detected" in str(item.message) for item in caught),
+            caught,
+        )
+        self.assertIn("main.A.f", improved.get("main.run", set()))
+
+    def test_joined_string_combinations_are_bounded(self):
+        source = textwrap.dedent("""
+            def choose(flag):
+                if flag:
+                    return "left"
+                return "right"
+
+            def run():
+                first = choose(True)
+                second = choose(False)
+                return f"{first}:{second}"
+
+            run()
+            """)
+        builder = ConstraintCallGraphBuilder(
+            source,
+            options=AnalysisOptions(max_values_per_binding=2),
+        )
+
+        improved = builder.build().get()
+
+        self.assertIn("main.choose", improved.get("main.run", set()))
+
+    def test_skip_external_modules_keeps_analysis_within_project(self):
+        with (
+            tempfile.TemporaryDirectory() as project_dir,
+            tempfile.TemporaryDirectory() as external_dir,
+        ):
+            entry_path = os.path.join(project_dir, "main.py")
+            external_path = os.path.join(external_dir, "external_dependency.py")
+            source = textwrap.dedent("""
+                from external_dependency import Map
+
+                class App:
+                    url_map_class = Map
+
+                    def make_map(self):
+                        return self.url_map_class()
+
+                App().make_map()
+                """)
+            with open(entry_path, "w", encoding="utf-8") as handle:
+                handle.write(source)
+            with open(external_path, "w", encoding="utf-8") as handle:
+                handle.write("class Map:\n    pass\n")
+
+            with mock.patch.object(sys, "path", [external_dir, *sys.path]):
+                builder = ConstraintCallGraphBuilder(
+                    source,
+                    entry_path=entry_path,
+                    options=AnalysisOptions(skip_external_modules=True),
+                )
+                builder.build()
+
+        self.assertNotIn("external_dependency", builder.modules)
+
+    def test_reachable_only_call_sites_exclude_dead_function_bodies(self):
+        source = textwrap.dedent("""
+            def target():
+                return 1
+
+            def live():
+                return target()
+
+            def dead():
+                return target()
+
+            live()
+            """)
+
+        sites = extract_call_site_edge_index_constraint(
+            source,
+            analyze_reachable_only=True,
+        )
+
+        caller_scopes = {site.caller_scope for site in sites}
+        self.assertIn("main.live", caller_scopes)
+        self.assertNotIn("main.dead", caller_scopes)
+
     def test_fixpoint_iteration_cap_emits_warning(self):
         source = textwrap.dedent("""
             def a():
@@ -2395,7 +2529,12 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
     def test_invalid_fixture_json_falls_back_to_analysis(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             snippet_dir = os.path.join(
-                temp_dir, "tests", "analysis", "callgraph", "snippets", "invalid_fixture"
+                temp_dir,
+                "tests",
+                "analysis",
+                "callgraph",
+                "snippets",
+                "invalid_fixture",
             )
             os.makedirs(snippet_dir, exist_ok=True)
             main_path = os.path.join(snippet_dir, "main.py")

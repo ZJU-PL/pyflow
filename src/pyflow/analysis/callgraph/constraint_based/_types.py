@@ -363,18 +363,27 @@ class _TypeAnalysisMixin:
         return False
 
     def _is_protocol_class(self, class_name: str) -> bool:
-        class_info = self.classes.get(class_name)
-        if class_info is None:
-            return False
         protocol_markers = {
             "Protocol",
             "typing.Protocol",
             "typing_extensions.Protocol",
         }
-        return any(
-            base in protocol_markers or self._is_protocol_class(base)
-            for base in class_info.bases
-        )
+        pending = [class_name]
+        seen: Set[str] = set()
+        while pending:
+            current = pending.pop()
+            if current in seen:
+                continue
+            seen.add(current)
+            class_info = self.classes.get(current)
+            if class_info is None:
+                continue
+            for base in class_info.bases:
+                if base in protocol_markers:
+                    return True
+                if base not in seen:
+                    pending.append(base)
+        return False
 
     def _protocol_required_attrs(self, class_name: str) -> Set[str]:
         out: Set[str] = set()

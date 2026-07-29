@@ -18,6 +18,7 @@ from typing import (
     DefaultDict,
     Dict,
     Iterable,
+    Mapping,
     MutableSet,
     Optional,
     Set,
@@ -88,17 +89,21 @@ class ConstraintCallGraphBuilder(
         entry_path: Optional[str] = None,
         verbose: bool = False,
         options: Optional[AnalysisOptions] = None,
+        additional_sources: Optional[Mapping[str, str]] = None,
     ) -> None:
         self.source_code = source_code
         self.entry_path = os.path.abspath(entry_path) if entry_path else None
         self.verbose = verbose
         self.options = options or AnalysisOptions()
+        self.additional_sources = dict(additional_sources or {})
         self.project_root = (
             self._infer_project_root(self.entry_path)
             if self.entry_path
             else os.getcwd()
         )
-        self.project_context = ProjectContext(self.project_root)
+        self.project_context = ProjectContext(
+            self.project_root, source_files=self.additional_sources
+        )
         self.stub_resolver = StubResolver(self.project_context)
         self.entry_module_import_name = (
             self._infer_entry_module_import_name(self.entry_path)
@@ -107,6 +112,7 @@ class ConstraintCallGraphBuilder(
         )
 
         self.modules: Dict[str, ModuleInfo] = {}
+        self._module_source_paths: Dict[str, Optional[str]] = {}
         self.scopes: Dict[str, ScopeInfo] = {}
         self.functions: Dict[str, FunctionInfo] = {}
         self.classes: Dict[str, ClassInfo] = {}
@@ -291,6 +297,8 @@ class ConstraintCallGraphBuilder(
             line=int(getattr(call_node, "lineno", -1) or -1),
             column=int(getattr(call_node, "col_offset", -1) or -1),
             ordinal=self._callsite_ordinals.get(id(call_node), -1),
+            source_path=self._scope_source_path(caller_scope),
+            is_module_scope=caller_scope.name in self.modules,
         )
         self.callsite_callees[site].add(callee_name)
 
@@ -312,6 +320,8 @@ class ConstraintCallGraphBuilder(
             line=int(getattr(call_node, "lineno", -1) or -1),
             column=int(getattr(call_node, "col_offset", -1) or -1),
             ordinal=self._callsite_ordinals.get(id(call_node), -1),
+            source_path=self._scope_source_path(caller_scope),
+            is_module_scope=caller_scope.name in self.modules,
         )
         callees = self.callsite_callees.get(site)
         if callees is None:
@@ -319,6 +329,15 @@ class ConstraintCallGraphBuilder(
         callees.discard(callee_name)
         if not callees:
             self.callsite_callees.pop(site, None)
+
+    def _scope_source_path(self, scope: ScopeInfo) -> Optional[str]:
+        if scope.module in self._module_source_paths:
+            return self._module_source_paths[scope.module]
+        module = self.modules.get(scope.module)
+        path = getattr(module, "path", None)
+        normalized = os.path.realpath(str(path)) if path is not None else None
+        self._module_source_paths[scope.module] = normalized
+        return normalized
 
     def _root_context(self) -> ContextKey:
         return GLOBAL_CONTEXT

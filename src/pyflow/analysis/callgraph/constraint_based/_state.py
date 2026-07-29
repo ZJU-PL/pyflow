@@ -560,19 +560,7 @@ class _StateAnalysisMixin:
         classes with invalid/inconsistent MRO.
         """
         if class_name in self._invalid_mro_classes:
-            queue = [class_name]
-            seen: Set[str] = set()
-            order: List[str] = []
-            while queue:
-                current = queue.pop(0)
-                if current in seen:
-                    continue
-                seen.add(current)
-                order.append(current)
-                class_info = self.classes.get(current)
-                if class_info:
-                    queue.extend(class_info.bases)
-            return order
+            return self._conservative_mro(class_name)
         return self._mro(class_name)
 
     def _lookup_name(
@@ -779,7 +767,9 @@ class _StateAnalysisMixin:
             return None
         return function_info.owner_class
 
-    def _mro(self, class_name: str) -> List[str]:
+    def _mro(
+        self, class_name: str, active: Optional[Set[str]] = None
+    ) -> List[str]:
         """Compute and cache class MRO (C3) with conservative fallback on failure."""
         if class_name in self._mro_cache:
             return list(self._mro_cache[class_name])
@@ -789,7 +779,32 @@ class _StateAnalysisMixin:
             self._mro_cache[class_name] = [class_name]
             return [class_name]
 
-        base_mros = [self._mro(base) for base in class_info.bases]
+        if active is None:
+            active = set()
+        if class_name in active:
+            cyclic_classes = active | {class_name}
+            newly_invalid = cyclic_classes - self._invalid_mro_classes
+            self._invalid_mro_classes.update(cyclic_classes)
+            if newly_invalid:
+                warnings.warn(
+                    (
+                        f"Inconsistent MRO detected for {class_name}; "
+                        "falling back to conservative attribute dispatch."
+                    ),
+                    RuntimeWarning,
+                    stacklevel=2,
+                )
+            return self._conservative_mro(class_name)
+
+        active.add(class_name)
+        try:
+            base_mros = [self._mro(base, active) for base in class_info.bases]
+        finally:
+            active.remove(class_name)
+
+        if class_name in self._invalid_mro_classes:
+            return self._conservative_mro(class_name)
+
         merge_input = [list(seq) for seq in base_mros]
         merge_input.append(list(class_info.bases))
 
@@ -805,19 +820,31 @@ class _StateAnalysisMixin:
                 RuntimeWarning,
                 stacklevel=2,
             )
-            seen = {class_name}
-            queue = list(class_info.bases)
-            while queue:
-                base = queue.pop(0)
-                if base in seen:
-                    continue
-                seen.add(base)
-                linearized.append(base)
-                base_info = self.classes.get(base)
-                if base_info:
-                    queue.extend(base_info.bases)
+            return self._conservative_mro(class_name)
         else:
             linearized.extend(merged)
+        self._mro_cache[class_name] = list(linearized)
+        return linearized
+
+    def _conservative_mro(self, class_name: str) -> List[str]:
+        """Return a cycle-safe breadth-first class lookup order."""
+        cached = self._mro_cache.get(class_name)
+        if cached is not None:
+            return list(cached)
+
+        linearized: List[str] = []
+        seen: Set[str] = set()
+        queue = [class_name]
+        while queue:
+            current = queue.pop(0)
+            if current in seen:
+                continue
+            seen.add(current)
+            linearized.append(current)
+            class_info = self.classes.get(current)
+            if class_info:
+                queue.extend(class_info.bases)
+
         self._mro_cache[class_name] = list(linearized)
         return linearized
 

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import ast
 import os
-import sys
 from collections import deque
 from typing import Dict, Iterable, Mapping, Optional, Set
 
@@ -31,6 +30,16 @@ def _is_stdlib_path(path: str) -> bool:
     return common == stdlib_dir
 
 
+def _is_within_path(path: str, root: str) -> bool:
+    """Return whether *path* is located within *root*."""
+    try:
+        return os.path.commonpath(
+            [os.path.realpath(path), os.path.realpath(root)]
+        ) == os.path.realpath(root)
+    except ValueError:
+        return False
+
+
 class _ModuleAnalysisMixin:
     """Load modules and model import bindings."""
 
@@ -47,7 +56,23 @@ class _ModuleAnalysisMixin:
         if not self.entry_path:
             return
 
-        queue: deque[str] = deque(["main"])
+        entry_path = os.path.realpath(self.entry_path)
+        for source_path, source in sorted(self.additional_sources.items()):
+            normalized_path = os.path.realpath(source_path)
+            if normalized_path == entry_path:
+                continue
+            module_name = self.project_context.module_name_from_path(normalized_path)
+            if module_name in self.modules:
+                continue
+            try:
+                tree = ast.parse(source)
+            except SyntaxError:
+                continue
+            self.modules[module_name] = ModuleInfo(
+                module_name, tree, normalized_path
+            )
+
+        queue: deque[str] = deque(self.modules)
         visited: Set[str] = set()
 
         while queue:
@@ -85,6 +110,10 @@ class _ModuleAnalysisMixin:
                             imported_path = stub_path
                 if self.options.skip_stdlib_modules and _is_stdlib_path(
                     str(imported_path)
+                ):
+                    continue
+                if self.options.skip_external_modules and not _is_within_path(
+                    str(imported_path), self.project_root
                 ):
                     continue
                 try:

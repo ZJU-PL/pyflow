@@ -689,6 +689,8 @@ class _FixpointSolverMixin:
         """
 
         def _is_seed_scope(scope_name: str) -> bool:
+            if self.options.analyze_reachable_only:
+                return scope_name in self.modules
             if scope_name in self.modules:
                 return True
             class_info = self.classes.get(scope_name)

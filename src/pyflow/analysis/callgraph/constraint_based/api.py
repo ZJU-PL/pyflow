@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import inspect
 import os
-from typing import Dict, Optional, List
+from typing import Dict, List, Mapping, Optional
 
 from ..callgraph import CallGraph
 from ..formats import generate_text_output
@@ -212,6 +212,9 @@ def extract_call_site_edge_index_constraint(
     emit_solver_stats: bool = False,
     strict_precision_mode: bool = False,
     skip_stdlib_modules: bool = True,
+    skip_external_modules: bool = False,
+    analyze_reachable_only: bool = False,
+    additional_sources: Optional[Mapping[str, str]] = None,
 ) -> CallSiteEdgeIndex:
     """Extract direct call-site edges from the constraint analyser."""
     entry_path = source_path or _discover_entry_path_from_stack()
@@ -230,12 +233,15 @@ def extract_call_site_edge_index_constraint(
         emit_solver_stats=emit_solver_stats,
         strict_precision_mode=strict_precision_mode,
         skip_stdlib_modules=skip_stdlib_modules,
+        skip_external_modules=skip_external_modules,
+        analyze_reachable_only=analyze_reachable_only,
     )
     builder = ConstraintCallGraphBuilder(
         source_code,
         entry_path=entry_path,
         verbose=verbose,
         options=options,
+        additional_sources=additional_sources,
     )
     builder.build()
     return builder.call_site_edge_index()

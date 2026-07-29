@@ -819,6 +819,11 @@ class _CallTargetMixin:
             elif target.kind == BOUND_METHOD_KIND:
                 method_name, receiver_instance = parse_bound_method(target)
                 add_direct_callee(method_name)
+                if method_name not in self.scopes:
+                    unresolved_dynamic = True
+                    unresolved_reasons.add("external_bound_method")
+                    out.add(UNKNOWN_VALUE)
+                    continue
                 receiver_class, receiver_alloc = parse_instance_name(receiver_instance)
                 implicit_values = [
                     {make_instance(receiver_class, receiver_alloc)}
@@ -863,6 +868,11 @@ class _CallTargetMixin:
             elif target.kind == BOUND_CLASS_METHOD_KIND:
                 method_name, receiver_class = parse_bound_class_method(target)
                 add_direct_callee(method_name)
+                if method_name not in self.scopes:
+                    unresolved_dynamic = True
+                    unresolved_reasons.add("external_bound_class_method")
+                    out.add(UNKNOWN_VALUE)
+                    continue
                 implicit_values = [{make_class(receiver_class)}] + arg_values
                 callee_context = self._derive_callee_context(
                     caller_scope.name, caller_context, call_node

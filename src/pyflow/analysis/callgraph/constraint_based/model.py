@@ -70,6 +70,8 @@ class AnalysisOptions:
     emit_solver_stats: bool = False
     strict_precision_mode: bool = False
     skip_stdlib_modules: bool = True
+    skip_external_modules: bool = False
+    analyze_reachable_only: bool = False
 
 
 @dataclass
@@ -191,6 +193,8 @@ class ConstraintCallSite:
     line: int
     column: int
     ordinal: int
+    source_path: Optional[str] = None
+    is_module_scope: bool = False
 
 
 CallSiteEdgeIndex: TypeAlias = Mapping[ConstraintCallSite, FrozenSet[str]]
@@ -300,5 +304,3 @@ def join_envs(
     for name, values in right.items():
         out[name].update(values)
     return dict(out)
-
-

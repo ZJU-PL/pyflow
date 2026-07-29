@@ -945,6 +945,12 @@ class _ExpressionAnalysisMixin:
                 pieces.append(strings)
             if not pieces:
                 return {make_string("")}
+            combination_count = 1
+            combination_cap = max(1, int(self.options.max_values_per_binding))
+            for strings in pieces:
+                combination_count *= len(strings)
+                if combination_count > combination_cap:
+                    return {make_string("<joined>")}
             return {make_string("".join(parts)) for parts in product(*pieces)}
 
         if isinstance(expr, ast.NamedExpr):
