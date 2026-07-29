@@ -16,6 +16,31 @@ from pyflow.language.python.default_markers import MISSING_DEFAULT
 from tests.analysis.ifds._support import build_cfg, make_code
 
 
+def test_cfg_adapter_batches_semantic_rebuilds(monkeypatch):
+    from pyflow.analysis.ifds.frontend import cfg_adapter as cfg_adapter_module
+
+    compiler = context.CompilerContext(None)
+    code_a, _ = make_code("a", [], [ast.Return([])], return_name="a_ret")
+    code_b, _ = make_code("b", [], [ast.Return([])], return_name="b_ret")
+    cfgs = [build_cfg(compiler, code_a), build_cfg(compiler, code_b)]
+
+    calls = []
+    original = cfg_adapter_module.index_cfg
+
+    def recording_index(catalog, cfg, **kwargs):
+        calls.append(kwargs)
+        return original(catalog, cfg, **kwargs)
+
+    monkeypatch.setattr(cfg_adapter_module, "index_cfg", recording_index)
+
+    build_supergraph_from_cfgs(cfgs)
+
+    assert calls == [
+        {"rebuild_semantics": False},
+        {"rebuild_semantics": False},
+    ]
+
+
 def test_cfg_adapter_discovers_direct_call_edges_and_return_sites():
     compiler = context.CompilerContext(None)
 

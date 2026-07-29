@@ -383,10 +383,12 @@ def sink(value):
 def main():
     value = source()
     sink(value)
+
+main()
 """
     )
     args = SimpleNamespace(
-        function="main",
+        entry=None,
         analysis="taint",
         engine="ifds",
         targets=[target],
@@ -460,10 +462,11 @@ def test_cli_uses_distinct_invalid_and_partial_exit_codes(tmp_path, capsys):
 def source(): return 1
 def sink(value): return value
 def main(): sink(source())
+main()
 """
     )
     base = dict(
-        function="main",
+        entry=None,
         analysis="taint",
         engine="ifds",
         targets=[target],

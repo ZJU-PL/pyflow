@@ -16,6 +16,7 @@ class PreparedIFDSArtifacts:
 
     cfgs: tuple[object, ...]
     diagnostics: tuple[IFDSDiagnostic, ...] = ()
+    catalog: object | None = None
 
 
 def prepare_program_for_ifds(
@@ -41,7 +42,7 @@ def prepare_program_for_ifds(
     if not cfgs:
         raise TemporaryLimitation("Unable to build any CFGs for IFDS analysis.")
 
-    from pyflow.ir.core import ensure_codes_indexed
+    from pyflow.ir.core import ensure_codes_indexed, index_cfg
 
     from pyflow.language.python import ast as py_ast
 
@@ -51,6 +52,17 @@ def prepare_program_for_ifds(
         if isinstance(getattr(cfg, "code", None), py_ast.Code)
     )
     if indexed_codes:
-        program.ir = ensure_codes_indexed(indexed_codes)
+        program.ir = ensure_codes_indexed(
+            indexed_codes, rebuild_semantics=False
+        )
+        for cfg in cfgs:
+            if isinstance(getattr(cfg, "code", None), py_ast.Code):
+                index_cfg(program.ir, cfg, rebuild_semantics=False)
 
-    return PreparedIFDSArtifacts(tuple(cfgs))
+        from pyflow.ir.core.build_semantics import build_semantics
+
+        build_semantics(program.ir)
+
+    return PreparedIFDSArtifacts(
+        tuple(cfgs), catalog=getattr(program, "ir", None)
+    )

@@ -337,6 +337,8 @@ class CFGSupergraphAdapter:
         call_resolver: CallResolver | None = None,
         include_exceptional_edges: bool = True,
         procedure_heap_summaries: dict[object, object] | None = None,
+        catalog=None,
+        cfgs_indexed: bool = False,
     ) -> None:
         self.cfgs = tuple(cfgs)
         self.call_resolver = call_resolver or composite_cfg_resolver(
@@ -346,17 +348,27 @@ class CFGSupergraphAdapter:
         self.include_exceptional_edges = include_exceptional_edges
         self.procedure_heap_summaries = dict(procedure_heap_summaries or {})
         self.catalog_by_procedure = {}
-        catalog = ensure_codes_indexed(
-            cfg.code
-            for cfg in self.cfgs
-            if isinstance(getattr(cfg, "code", None), py_ast.Code)
-        )
+        if catalog is None:
+            catalog = ensure_codes_indexed(
+                (
+                    cfg.code
+                    for cfg in self.cfgs
+                    if isinstance(getattr(cfg, "code", None), py_ast.Code)
+                ),
+                rebuild_semantics=False,
+            )
         for cfg in self.cfgs:
             code = getattr(cfg, "code", None)
             if not isinstance(code, py_ast.Code):
                 continue
-            index_cfg(catalog, cfg)
+            if not cfgs_indexed:
+                index_cfg(catalog, cfg, rebuild_semantics=False)
             self.catalog_by_procedure[cfg] = catalog
+
+        if self.catalog_by_procedure and not cfgs_indexed:
+            from pyflow.ir.core.build_semantics import build_semantics
+
+            build_semantics(catalog)
 
         self.cfg_by_ast_code = {
             cfg.code: cfg for cfg in self.cfgs if getattr(cfg, "code", None) is not None
@@ -1466,10 +1478,14 @@ def build_supergraph_from_cfgs(
     *,
     call_resolver: CallResolver | None = None,
     include_exceptional_edges: bool = True,
+    catalog=None,
+    cfgs_indexed: bool = False,
 ) -> CFGSupergraphAdapter:
     """Convenience wrapper for building a CFG-backed supergraph."""
     return CFGSupergraphAdapter(
         cfgs,
         call_resolver=call_resolver,
         include_exceptional_edges=include_exceptional_edges,
+        catalog=catalog,
+        cfgs_indexed=cfgs_indexed,
     )
