@@ -109,6 +109,13 @@ class TestCFGRegressions(unittest.TestCase):
         self.assertIsNone(node.getExit("fail"))
         self.assertIsNone(node.getExit("error"))
 
+    def test_opflow_handles_not_expression(self):
+        op_flow = killflow.OpFlow()
+
+        op_flow.process(pyflow_ast.Not(pyflow_ast.Local("flag")))
+
+        self.assertTrue(op_flow.errors)
+
     def test_constant_switch_optimization_detaches_dead_switch_edges(self):
         predecessor = cfg_graph.Suite(None)
         switch = cfg_graph.Switch(

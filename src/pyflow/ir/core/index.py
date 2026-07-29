@@ -392,7 +392,9 @@ def ensure_code_indexed(code: ast.Code) -> IRCatalog:
     return catalog
 
 
-def ensure_codes_indexed(codes: Iterable[ast.Code]) -> IRCatalog:
+def ensure_codes_indexed(
+    codes: Iterable[ast.Code], *, rebuild_semantics: bool = True
+) -> IRCatalog:
     """Return one catalog spanning a related set of procedures.
 
     Program-extracted procedures already share their program catalog.  Ad-hoc
@@ -431,9 +433,10 @@ def ensure_codes_indexed(codes: Iterable[ast.Code]) -> IRCatalog:
                     filename=procedure.code_id.anchor.filename or None,
                     seen_codes=seen_codes,
                 )
-            from .build_semantics import build_semantics
+            if rebuild_semantics:
+                from .build_semantics import build_semantics
 
-            build_semantics(catalog)
+                build_semantics(catalog)
             return catalog
 
     catalog = IRCatalog()
@@ -446,13 +449,14 @@ def ensure_codes_indexed(codes: Iterable[ast.Code]) -> IRCatalog:
             qualname=code.codeName(),
             seen_codes=seen_codes,
         )
-    from .build_semantics import build_semantics
+    if rebuild_semantics:
+        from .build_semantics import build_semantics
 
-    build_semantics(catalog)
+        build_semantics(catalog)
     return catalog
 
 
-def index_cfg(catalog: IRCatalog, cfg) -> None:
+def index_cfg(catalog: IRCatalog, cfg, *, rebuild_semantics: bool = True) -> None:
     """Index AST operations introduced or cloned by CFG transformations."""
     from pyflow.ir.cfg import graph as cfg_graph
 
@@ -568,6 +572,7 @@ def index_cfg(catalog: IRCatalog, cfg) -> None:
         tuple(edge_specs),
     )
 
-    from .build_semantics import build_semantics
+    if rebuild_semantics:
+        from .build_semantics import build_semantics
 
-    build_semantics(catalog)
+        build_semantics(catalog)

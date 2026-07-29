@@ -103,6 +103,7 @@ class OpFlow(TypeDispatcher):
         ast.Call,
         ast.MethodCall,
         ast.BinaryOp,
+        ast.Not,
         ast.UnaryPrefixOp,
         ast.ConvertToBool,
         ast.DirectCall,

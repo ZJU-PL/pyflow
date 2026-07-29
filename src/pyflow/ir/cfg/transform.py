@@ -529,7 +529,7 @@ class CFGTransformer(TypeDispatcher):
         return self.code
 
 
-def evaluate(compiler, code):
+def evaluate(compiler, code, *, commit_revision=True):
     """Transform AST code to CFG and simplify.
 
     Args:
@@ -541,6 +541,6 @@ def evaluate(compiler, code):
     """
     cfg = CFGTransformer().process(code)
 
-    simplify.evaluate(compiler, cfg)
+    simplify.evaluate(compiler, cfg, commit_revision=commit_revision)
 
     return cfg

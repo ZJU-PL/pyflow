@@ -82,24 +82,6 @@ def _definition_references(node) -> tuple[object, ...]:
     return ()
 
 
-def _local_occurrences(node, *, skipped: frozenset[object] = frozenset()):
-    if node is None or isinstance(node, ast.leafTypes):
-        return
-    if isinstance(node, (tuple, list)):
-        for child in node:
-            yield from _local_occurrences(child, skipped=skipped)
-        return
-    if node in skipped:
-        return
-    if isinstance(node, ast.Local):
-        yield node
-        return
-    if isinstance(node, ast.Code):
-        return
-    for child in _children(node):
-        yield from _local_occurrences(child, skipped=skipped)
-
-
 def _literal_name(node) -> object:
     if isinstance(node, ast.Existing):
         return getattr(node.object, "pyobj", repr(node.object))
@@ -270,6 +252,16 @@ def _register_call(catalog: IRCatalog, node, node_id):
 
 def build_semantics(catalog: IRCatalog) -> None:
     """Populate structural semantics for every indexed Python IR node."""
+    children_by_identity: dict[int, tuple[object, ...]] = {}
+
+    def children(node) -> tuple[object, ...]:
+        identity = id(node)
+        cached = children_by_identity.get(identity)
+        if cached is None:
+            cached = _children(node)
+            children_by_identity[identity] = cached
+        return cached
+
     # Transformations may replace a parent container in place while creating
     # fresh child objects.  Close the catalog over the current child relation
     # before building records so semantics never contain dangling NodeIds.
@@ -278,7 +270,7 @@ def build_semantics(catalog: IRCatalog) -> None:
     while cursor < len(pending):
         parent_id, parent = pending[cursor]
         cursor += 1
-        for child in _children(parent):
+        for child in children(parent):
             if not isinstance(child, ast.PythonASTNode) or isinstance(child, ast.Code):
                 continue
             if catalog.has_node(child, parent_id.code):
@@ -311,25 +303,54 @@ def build_semantics(catalog: IRCatalog) -> None:
                 catalog.bind_symbol(child, symbol.id)
             pending.append((child_id, child))
 
+    local_occurrences_by_identity: dict[int, tuple[ast.Local, ...]] = {}
+
+    def local_occurrences(node) -> tuple[ast.Local, ...]:
+        if node is None or isinstance(node, ast.leafTypes):
+            return ()
+        if isinstance(node, (tuple, list)):
+            return tuple(
+                local
+                for child in node
+                for local in local_occurrences(child)
+            )
+        identity = id(node)
+        cached = local_occurrences_by_identity.get(identity)
+        if cached is not None:
+            return cached
+        if isinstance(node, ast.Local):
+            result = (node,)
+        elif isinstance(node, ast.Code):
+            result = ()
+        else:
+            result = tuple(
+                local
+                for child in children(node)
+                for local in local_occurrences(child)
+            )
+        local_occurrences_by_identity[identity] = result
+        return result
+
     catalog.semantics.clear()
     for node_id, node in catalog.nodes():
+        definition_references = _definition_references(node)
         definition_symbols = tuple(
             catalog.symbol_id(reference, node_id.code)
-            for reference in _definition_references(node)
+            for reference in definition_references
             if catalog.has_symbol(reference, node_id.code)
         )
         definitions = tuple(
             catalog.value_id(reference, node_id.code)
             if catalog.has_value(reference, node_id.code)
             else catalog.symbol_id(reference, node_id.code)
-            for reference in _definition_references(node)
+            for reference in definition_references
             if catalog.has_symbol(reference, node_id.code)
         )
-        skipped = frozenset(_definition_references(node))
+        skipped = frozenset(definition_references)
         use_locals = tuple(
             local
-            for local in _local_occurrences(node, skipped=skipped)
-            if catalog.has_symbol(local, node_id.code)
+            for local in local_occurrences(node)
+            if local not in skipped and catalog.has_symbol(local, node_id.code)
         )
         use_symbols = _dedupe(
             catalog.symbol_id(local, node_id.code) for local in use_locals
@@ -352,7 +373,9 @@ def build_semantics(catalog: IRCatalog) -> None:
         reads.extend(explicit_reads)
         writes.extend(explicit_writes)
         allocations = (
-            (AllocationSiteId(node_id, 0),) if isinstance(node, _ALLOCATION_TYPES) else ()
+            (AllocationSiteId(node_id, 0),)
+            if isinstance(node, _ALLOCATION_TYPES)
+            else ()
         )
         calls = _register_call(catalog, node, node_id)
         complete = not isinstance(node, _CALL_TYPES)
@@ -375,7 +398,7 @@ def build_semantics(catalog: IRCatalog) -> None:
                 calls=calls,
                 evaluation_order=tuple(
                     catalog.node_id(child, node_id.code)
-                    for child in _children(node)
+                    for child in children(node)
                     if isinstance(child, ast.PythonASTNode)
                     and not isinstance(child, ast.Code)
                 ),
