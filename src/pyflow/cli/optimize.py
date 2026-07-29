@@ -233,7 +233,7 @@ def run_analysis(input_path, args):
                 with console.scope("ipa-only"):
                     result = ipa_module.evaluate(compiler, program)
                     if result:
-                        program.ipa_analysis = result
+                        program.set_analysis_result("ipa", result)
             else:
                 run_analysis_passes(compiler, program, args.analysis)
 
@@ -295,9 +295,7 @@ def run_analysis_passes(compiler, program, analysis_type):
         pipeline_evaluate(compiler, program, f"dummy_{analysis_type}")
         print(f"{analysis_type.upper()} analysis completed as part of full pipeline")
 
-        if analysis_type == "ipa" and not (
-            hasattr(program, "ipa_analysis") and program.ipa_analysis
-        ):
+        if analysis_type == "ipa" and program.get_analysis_result("ipa") is None:
             print("Warning: IPA analysis results not available from pipeline run")
     else:
         module_name, func_name = ANALYSIS_MODULES[analysis_type]
@@ -312,7 +310,7 @@ def run_analysis_passes(compiler, program, analysis_type):
             # Store analysis result in program for later dumping
             analysis_result = func(compiler, program)
             if analysis_result and hasattr(analysis_result, "contexts"):
-                setattr(program, f"{analysis_type}_analysis", analysis_result)
+                program.set_analysis_result(analysis_type, analysis_result)
 
 
 def dump_specific_results(compiler, program, input_path, args):
@@ -332,12 +330,14 @@ def dump_ipa_results(compiler, program, input_path, output_file):
         from pyflow.analysis.ipa.dump import Dumper
         from pyflow.analysis import ipa as ipa_module
 
-        if not (hasattr(program, "ipa_analysis") and program.ipa_analysis):
+        analysis = program.get_analysis_result("ipa")
+        if analysis is None:
             result = ipa_module.evaluate(compiler, program)
             if result:
-                program.ipa_analysis = result
+                program.set_analysis_result("ipa", result)
+                analysis = result
 
-        if not (hasattr(program, "ipa_analysis") and program.ipa_analysis):
+        if analysis is None:
             print("IPA analysis results not available for dumping")
             return
 
@@ -345,9 +345,9 @@ def dump_ipa_results(compiler, program, input_path, output_file):
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
         dumper = Dumper(str(output_path))
-        dumper.index(program.ipa_analysis.contexts.values(), program.ipa_analysis.root)
+        dumper.index(analysis.contexts.values(), analysis.root)
 
-        for context in program.ipa_analysis.contexts.values():
+        for context in analysis.contexts.values():
             dumper.dumpContext(context)
 
         print(f"IPA analysis results dumped to: {output_path}")
@@ -438,15 +438,12 @@ def run_suggestions(compiler, program):
         # Run full IPA analysis first
         ipa_result = ipa.evaluate(compiler, program)
         if ipa_result:
-            program.ipa_analysis = ipa_result
+            program.set_analysis_result("ipa", ipa_result)
 
         # Capture initial metrics
         initial_code_count = len(getattr(program, "liveCode", []))
-        initial_contexts = (
-            len(program.ipa_analysis.contexts)
-            if hasattr(program, "ipa_analysis") and program.ipa_analysis
-            else 0
-        )
+        ipa_analysis = program.get_analysis_result("ipa")
+        initial_contexts = len(ipa_analysis.contexts) if ipa_analysis else 0
         initial_funcs = set()
         for code in getattr(program, "liveCode", []):
             if code and hasattr(code, "name") and code.name:
@@ -466,11 +463,7 @@ def run_suggestions(compiler, program):
                         funcs_with_kwargs.append(func_name)
 
         # Capture initial context count for clone analysis
-        contexts_before_clone = (
-            len(program.ipa_analysis.contexts)
-            if hasattr(program, "ipa_analysis") and program.ipa_analysis
-            else 0
-        )
+        contexts_before_clone = len(ipa_analysis.contexts) if ipa_analysis else 0
 
         with compiler.console.scope("analyzing"):
             Pipeline(use_pass_manager=True).run_custom_pipeline(
@@ -481,7 +474,7 @@ def run_suggestions(compiler, program):
 
         refreshed_ipa = ipa.evaluate(compiler, program)
         if refreshed_ipa:
-            program.ipa_analysis = refreshed_ipa
+            program.set_analysis_result("ipa", refreshed_ipa)
 
         # Capture final metrics
         final_code_count = len(getattr(program, "liveCode", []))
@@ -490,11 +483,8 @@ def run_suggestions(compiler, program):
             if code and hasattr(code, "name") and code.name:
                 final_funcs.add(code.name)
 
-        contexts_after_clone = (
-            len(program.ipa_analysis.contexts)
-            if hasattr(program, "ipa_analysis") and program.ipa_analysis
-            else 0
-        )
+        ipa_analysis = program.get_analysis_result("ipa")
+        contexts_after_clone = len(ipa_analysis.contexts) if ipa_analysis else 0
 
         # Find removed functions
         removed_funcs = initial_funcs - final_funcs
@@ -522,9 +512,10 @@ def run_suggestions(compiler, program):
             )
 
         # Check for unresolved calls (type hints needed)
-        if hasattr(program, "cpa_analysis") and program.cpa_analysis:
-            if hasattr(program.cpa_analysis, "unresolved"):
-                unresolved = getattr(program.cpa_analysis, "unresolved", [])
+        cpa_analysis = program.get_analysis_result("cpa")
+        if cpa_analysis is not None:
+            if hasattr(cpa_analysis, "unresolved"):
+                unresolved = getattr(cpa_analysis, "unresolved", [])
                 unresolved_count = (
                     len(unresolved) if isinstance(unresolved, list) else 0
                 )

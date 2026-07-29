@@ -635,13 +635,22 @@ class Registry:
 
     def __init__(self) -> None:
         self._active_packs: list[RulePack] = []
-        self._activated_sources: set[int] = set()
+        self._activated_sources: set[tuple[str, str, str, str]] = set()
 
     # ── helpers ──────────────────────────────────────────────────────
 
     @staticmethod
     def _pack_type(pack: RulePack) -> str:
         return getattr(pack, "type", "taint")
+
+    @classmethod
+    def _pack_key(cls, pack: RulePack) -> tuple[str, str, str, str]:
+        return (
+            str(pack.source_path or ""),
+            pack.framework,
+            cls._pack_type(pack),
+            pack.version,
+        )
 
     # ── activation & detection ───────────────────────────────────────
 
@@ -654,7 +663,7 @@ class Registry:
                 "Unknown PyFlow rule-pack framework(s): " + ", ".join(unknown)
             )
         for pack in _available_packs():
-            pid = id(pack)
+            pid = self._pack_key(pack)
             if pack.framework not in framework_names:
                 continue
             if type is not None and self._pack_type(pack) != type:
@@ -670,7 +679,7 @@ class Registry:
         lines = tuple(source_lines)
         detected_frameworks: set[str] = set()
         for pack in _available_packs():
-            pid = id(pack)
+            pid = self._pack_key(pack)
             if pid in self._activated_sources:
                 continue
             if type is not None and self._pack_type(pack) != type:
@@ -684,7 +693,7 @@ class Registry:
     def activate_all(self, *, type: str | None = None) -> None:
         """Activate every available pack, optionally filtered by *type*."""
         for pack in _available_packs():
-            pid = id(pack)
+            pid = self._pack_key(pack)
             if type is not None and self._pack_type(pack) != type:
                 continue
             if pid not in self._activated_sources:

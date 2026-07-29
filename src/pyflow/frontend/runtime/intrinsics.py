@@ -261,17 +261,11 @@ class IntrinsicManager:
             code = pyflow_ast.Code(name, params, body)
             dyn_fold = dynfold.get(name)
             code.annotation = CodeAnnotation(
-                contexts=None,
                 descriptive=False,
                 primitive=False,
                 staticFold=None,
                 dynamicFold=dyn_fold,
                 origin=[f"stub_{name}"],
-                live=None,
-                killed=None,
-                codeReads=None,
-                codeModifies=None,
-                codeAllocates=None,
                 lowered=False,
                 runtime=False,
                 interpreter=True,

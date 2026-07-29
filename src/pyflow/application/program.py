@@ -20,22 +20,18 @@ class Program(object):
     2. Configuration: Interface is populated with function/class declarations
     3. Extraction: Program extractor processes interface and creates entry points
     4. Analysis: Various analysis passes populate storeGraph, liveCode, etc.
-    5. Results: Analysis results are stored (e.g., ipa_analysis)
-
-    Analysis outputs are kept in a small central registry so pass-manager based
-    invalidation has a single place to clear and refresh them. The legacy
-    attributes (`ipa_analysis`, `cpa_analysis`, `lifetime_analysis`) remain as
-    compatibility mirrors for existing analysis code.
+    5. Results: transient solver objects are stored in one analysis registry;
+       client-facing semantic results are published through ``program.ir``.
     """
 
-    ANALYSIS_ATTRS = {
-        "ipa": "ipa_analysis",
-        "ipa_refresh": "ipa_analysis",
-        "cpa": "cpa_analysis",
-        "cpa_path_sensitive": "cpa_analysis",
-        "lifetime": "lifetime_analysis",
-        "lifetime_refresh": "lifetime_analysis",
-        "heap": "heap_analysis",
+    ANALYSIS_KEYS = {
+        "ipa": "ipa",
+        "ipa_refresh": "ipa",
+        "cpa": "cpa",
+        "cpa_path_sensitive": "cpa",
+        "lifetime": "lifetime",
+        "lifetime_refresh": "lifetime",
+        "heap": "heap",
     }
 
     __slots__ = (
@@ -45,16 +41,13 @@ class Program(object):
         "entryPoints",
         "liveCode",
         "stats",
-        "ipa_analysis",
-        "cpa_analysis",
-        "lifetime_analysis",
-        "heap_analysis",
         "semantic_queries",
         "semantic_queries_mode",
         "class_hierarchy",
         "cross_module_resolver",
         "frontend_telemetry",
         "analysis_results",
+        "ir",
     )
 
     def __init__(self):
@@ -75,45 +68,35 @@ class Program(object):
         self.entryPoints = []
         self.liveCode = set()
         self.stats = None
-        self.ipa_analysis = None
-        self.cpa_analysis = None
-        self.lifetime_analysis = None
-        self.heap_analysis = None
         self.semantic_queries = None
         self.semantic_queries_mode = None
         self.class_hierarchy = None
         self.cross_module_resolver = None
         self.frontend_telemetry = None
-        self.analysis_results = {
-            "ipa_analysis": None,
-            "cpa_analysis": None,
-            "lifetime_analysis": None,
-            "heap_analysis": None,
-        }
+        from pyflow.ir.core import IRCatalog
+
+        self.ir = IRCatalog()
+        self.analysis_results = {}
 
     def set_analysis_result(self, pass_name: str, result) -> None:
-        """Record an analysis result in the canonical registry and legacy slot."""
-        attr = self.ANALYSIS_ATTRS.get(pass_name)
-        if attr is None:
+        """Record an internal solver result in the canonical registry."""
+        key = self.ANALYSIS_KEYS.get(pass_name)
+        if key is None:
             raise KeyError(f"Unknown analysis pass '{pass_name}'")
-        setattr(self, attr, result)
-        self.analysis_results[attr] = result
+        self.analysis_results[key] = result
         self.invalidate_semantic_queries()
 
     def get_analysis_result(self, analysis_name: str):
         """Return an analysis result from the central registry."""
-        if analysis_name not in self.analysis_results:
-            raise KeyError(f"Unknown analysis result '{analysis_name}'")
-        return self.analysis_results[analysis_name]
+        key = self.ANALYSIS_KEYS.get(analysis_name, analysis_name)
+        return self.analysis_results.get(key)
 
     def clear_analysis_result(self, pass_name: str) -> None:
         """Clear one analysis result and dependent semantic-query caches."""
-        attr = self.ANALYSIS_ATTRS.get(pass_name)
-        if attr is None:
+        key = self.ANALYSIS_KEYS.get(pass_name)
+        if key is None:
             return
-        if getattr(self, attr, None) is not None:
-            setattr(self, attr, None)
-            self.analysis_results[attr] = None
+        if self.analysis_results.pop(key, None) is not None:
             self.invalidate_semantic_queries()
 
     def clear_analysis_results(self, pass_names) -> None:

@@ -5,7 +5,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from pyflow.optimization.codeinlining import (
-    CodeInliningAnalysis,
+    CodeInliningAnalysis as _CodeInliningAnalysis,
     OpInliningTransform,
     CodeInliningTransform,
     evaluate,
@@ -13,11 +13,34 @@ from pyflow.optimization.codeinlining import (
 from pyflow.language.python import ast
 from pyflow.language.python.default_markers import MISSING_DEFAULT
 from pyflow.language.python.program import Object
+from pyflow.ir.core import CodeId, IRCatalog, NodeId
 
 
 class MockAnnotation:
     def contextSubset(self, remap):
         return self
+
+
+class _Facts:
+    def merged_call_targets(self, _code, _node):
+        return frozenset()
+
+    def contexts(self, _code):
+        return ()
+
+    def call_targets(self, _code, _node, _context):
+        return frozenset()
+
+
+def CodeInliningAnalysis():
+    return _CodeInliningAnalysis(_Facts())
+
+
+def make_op_transform(analysis):
+    catalog = Mock()
+    catalog.node_id.return_value = NodeId(CodeId("test", "inline"), 0)
+    catalog.source_of.return_value = None
+    return OpInliningTransform(analysis, catalog, [])
 
 
 class TestCodeInliningAnalysis(unittest.TestCase):
@@ -97,13 +120,13 @@ class TestOpInliningTransform(unittest.TestCase):
     def test_init(self):
         """Test OpInliningTransform initialization."""
         analysis = CodeInliningAnalysis()
-        transform = OpInliningTransform(analysis)
+        transform = make_op_transform(analysis)
         self.assertEqual(transform.analysis, analysis)
 
     def test_visitLeaf(self):
         """Test visitLeaf returns node unchanged."""
         analysis = CodeInliningAnalysis()
-        transform = OpInliningTransform(analysis)
+        transform = make_op_transform(analysis)
         
         node = ast.Local("x")
         result = transform.visitLeaf(node)
@@ -112,7 +135,7 @@ class TestOpInliningTransform(unittest.TestCase):
     def test_visitDoNotCare(self):
         """Test visitDoNotCare returns new DoNotCare."""
         analysis = CodeInliningAnalysis()
-        transform = OpInliningTransform(analysis)
+        transform = make_op_transform(analysis)
         
         node = ast.DoNotCare()
         result = transform.visitDoNotCare(node)
@@ -122,7 +145,7 @@ class TestOpInliningTransform(unittest.TestCase):
     def test_visitCode(self):
         """Test visitCode returns node unchanged."""
         analysis = CodeInliningAnalysis()
-        transform = OpInliningTransform(analysis)
+        transform = make_op_transform(analysis)
         
         class MockCode:
             pass
@@ -133,7 +156,7 @@ class TestOpInliningTransform(unittest.TestCase):
 
     def test_process_binds_posonly_and_default_parameters(self):
         analysis = CodeInliningAnalysis()
-        transform = OpInliningTransform(analysis)
+        transform = make_op_transform(analysis)
 
         posonly = ast.Local("posonly")
         regular = ast.Local("regular")
@@ -162,7 +185,7 @@ class TestOpInliningTransform(unittest.TestCase):
         )()
 
         arg = ast.Local("arg")
-        result = transform.process(None, None, code, [], None, [arg], None)
+        result = transform.process(None, None, code, None, [arg], None)
 
         self.assertEqual(len(result), 3)
         self.assertIs(result[0].expr, arg)
@@ -170,7 +193,7 @@ class TestOpInliningTransform(unittest.TestCase):
 
     def test_process_skips_missing_default_sentinel(self):
         analysis = CodeInliningAnalysis()
-        transform = OpInliningTransform(analysis)
+        transform = make_op_transform(analysis)
 
         regular = ast.Local("regular")
         regular.annotation = MockAnnotation()
@@ -196,7 +219,7 @@ class TestOpInliningTransform(unittest.TestCase):
             },
         )()
 
-        result = transform.process(None, None, code, [], None, [], None)
+        result = transform.process(None, None, code, None, [], None)
 
         self.assertEqual(len(result), 1)
         self.assertIsInstance(result[0], ast.DoNotCare)
@@ -248,8 +271,17 @@ class TestCodeInliningTransform(unittest.TestCase):
         transform = CodeInliningTransform(
             analysis,
             compiler=SimpleNamespace(),
-            prgm=SimpleNamespace(),
+            prgm=SimpleNamespace(ir=IRCatalog()),
             intrinsics=lambda *_args: None,
+        )
+        transform.facts = SimpleNamespace(
+            contexts=lambda code: (caller_context,) if code is caller else (),
+            call_targets=lambda code, op, context: (
+                {(callee, callee_context)}
+                if code is caller and op is node and context is caller_context
+                else set()
+            ),
+            merged_call_targets=lambda _code, _op: {(callee, callee_context)},
         )
         transform.code = caller
         transform.opinline = SimpleNamespace(process=Mock())
@@ -288,23 +320,28 @@ class TestCodeInliningEvaluate(unittest.TestCase):
         entry = object()
         prgm = SimpleNamespace(
             liveCode=[entry],
+            ir=IRCatalog(),
             interface=SimpleNamespace(entryCode=lambda: [entry]),
         )
 
         class _Transform:
             def __init__(self, *_args, **_kwargs):
                 self.changed = True
+                self.provenance_seeds = []
 
             def process(self, _code):
                 return None
 
         class _Analysis:
+            def __init__(self, *_args):
+                pass
+
             def process(self, _code):
                 return None
 
         with patch("pyflow.optimization.codeinlining.CodeInliningAnalysis", _Analysis), patch(
             "pyflow.optimization.codeinlining.CodeInliningTransform", _Transform
-        ):
+        ), patch("pyflow.optimization.codeinlining.rebuild_program_ir"):
             changed = evaluate(compiler, prgm)
 
         self.assertTrue(changed)

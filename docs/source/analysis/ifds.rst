@@ -142,14 +142,14 @@ elapsed time, completion status, termination reason, and solver statistics.
 The IFDS test suite also includes a small concrete reference solver and
 randomized differential tests for regression detection.
 
-Annotation Synthesis
---------------------
+IR semantics and facts
+----------------------
 
-The IFDS frontend includes an annotation synthesis engine
-(``frontend/annotations.py``) that generates syntactic annotations to prepare
-code for IFDS analysis. A fallback mechanism
-(``frontend/annotation_fallback.py``) handles cases where synthesis cannot be
-applied.
+The IFDS frontend consumes context-independent operation semantics and
+revisioned analysis facts from the program IR catalog.  Calls, storage effects,
+and source identities are therefore shared with CFG, DDG, IPA, and CPA rather
+than reconstructed from AST annotations.  Missing required facts remain
+explicitly unavailable; IFDS does not synthesize a private fallback view.
 
 See Also
 --------

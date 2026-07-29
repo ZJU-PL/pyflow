@@ -18,15 +18,15 @@ from .constraintextractor import ExtractDataflow
 from .constraints import AssignmentConstraint, DirectCallConstraint
 
 from . import codecloner
+from .publication import CodeFacts, OperationFacts, ReferenceFacts, publish_cpa_facts
 
 # Only used for creating return variables
 from pyflow.language.python import ast
 from pyflow.language.python import program
-from pyflow.language.python import annotations
 
 from pyflow.optimization.callconverter import callConverter
 
-from pyflow.util.python.apply import applyFunction
+from pyflow.util.python.apply import ApplyError, applyFunction
 
 from pyflow.analysis.astcollector import getOps
 from pyflow import analysis  # for references like analysis.cpasignature
@@ -270,8 +270,12 @@ class InterproceduralDataflow(object):
         if code.annotation.dynamicFold:
             # It's foldable.
             p = code.codeparameters
-            assert p.vparam is None, code.name
-            assert p.kparam is None, code.name
+            if p.vparam is not None or p.kparam is not None:
+                # The constant folder has no variadic argument binding model.
+                # Keep the ordinary call constraints instead of aborting the
+                # complete analysis for variadic intrinsics such as
+                # ``interpreter_call``.
+                return False
 
             # TODO folding with constant vargs?
             # HACK the internal selfparam is usually not "constant" as it's a function, so we ignore it?
@@ -281,7 +285,15 @@ class InterproceduralDataflow(object):
                     return False
 
             params = [param.obj for param in sig.params]
-            result = foldFunctionIR(self.extractor, code.annotation.dynamicFold, params)
+            try:
+                result = foldFunctionIR(
+                    self.extractor, code.annotation.dynamicFold, params
+                )
+            except ApplyError:
+                # Constant inputs do not imply that the runtime operation is
+                # defined for their types.  A failed speculative fold leaves
+                # the context to normal constraint evaluation.
+                return False
             resultxtype = self.canonical.existingType(result)
 
             # Set the return value
@@ -403,81 +415,6 @@ class InterproceduralDataflow(object):
 
         self.solveTime = end - start - self.decompileTime
 
-    ### Annotation methods ###
-
-    def collectContexts(self, lut, contexts):
-        cdata = [annotations.annotationSet(lut[context]) for context in contexts]
-        data = annotations.makeContextualAnnotation(cdata)
-
-        data = self.annotationCache.setdefault(data, data)
-        self.annotationCount += 1
-
-        return data
-
-    def collectRMA(self, code, contexts, op):
-        creads = [
-            annotations.annotationSet(self.opReads[(code, op, context)])
-            for context in contexts
-        ]
-        reads = annotations.makeContextualAnnotation(creads)
-
-        cmodifies = [
-            annotations.annotationSet(self.opModifies[(code, op, context)])
-            for context in contexts
-        ]
-        modifies = annotations.makeContextualAnnotation(cmodifies)
-
-        callocates = [
-            annotations.annotationSet(self.opAllocates[(code, op, context)])
-            for context in contexts
-        ]
-        allocates = annotations.makeContextualAnnotation(callocates)
-
-        reads = self.annotationCache.setdefault(reads, reads)
-        modifies = self.annotationCache.setdefault(modifies, modifies)
-        allocates = self.annotationCache.setdefault(allocates, allocates)
-        self.annotationCount += 3
-
-        return reads, modifies, allocates
-
-    def annotateCode(self, code, contexts, cloner):
-        newcode = cloner.code(code)
-
-        contexts = tuple(contexts)
-        newcode.rewriteAnnotation(contexts=contexts)
-
-        # Creating vparam and kparam objects produces side effects...
-        # Store them in the code annotation
-        reads, modifies, allocates = self.collectRMA(code, contexts, None)
-        newcode.rewriteAnnotation(
-            codeReads=reads, codeModifies=modifies, codeAllocates=allocates
-        )
-
-        return contexts
-
-    def mergeAbstractCode(self, code, cloner):
-        newcode = cloner.code(code)
-
-        # This is done after the ops and locals are annotated as the "abstractReads", etc. may depends on the annotations.
-        reads = annotations.mergeContextualAnnotation(
-            newcode.annotation.codeReads, newcode.abstractReads()
-        )
-        modifies = annotations.mergeContextualAnnotation(
-            newcode.annotation.codeModifies, newcode.abstractModifies()
-        )
-        allocates = annotations.mergeContextualAnnotation(
-            newcode.annotation.codeAllocates, newcode.abstractAllocates()
-        )
-
-        reads = self.annotationCache.setdefault(reads, reads)
-        modifies = self.annotationCache.setdefault(modifies, modifies)
-        allocates = self.annotationCache.setdefault(allocates, allocates)
-        self.annotationCount += 3
-
-        newcode.rewriteAnnotation(
-            codeReads=reads, codeModifies=modifies, codeAllocates=allocates
-        )
-
     def annotateEntryPoints(self, cloner):
         # TODO redirect code?
 
@@ -487,7 +424,7 @@ class InterproceduralDataflow(object):
             contexts = [ccontext.context for ccontext in self.opInvokes[op]]
             entryPoint.contexts = contexts
 
-    def reindexAnnotations(self, cloner):
+    def reindexResults(self, cloner):
         # Re-index the invocations
         invokeLUT = collections.defaultdict(lambda: collections.defaultdict(set))
         for srcop, dsts in self.opInvokes.items():
@@ -508,34 +445,7 @@ class InterproceduralDataflow(object):
                 lclLUT[(name.code, name.object)][name.context] = slot
         self.lclLUT = lclLUT
 
-    def annotateOps(self, code, contexts, ops, cloner):
-        for op in ops:
-            invokes = self.collectContexts(self.invokeLUT[(code, op)], contexts)
-            reads, modifies, allocates = self.collectRMA(code, contexts, op)
-
-            newop = cloner.op(op)
-
-            newop.rewriteAnnotation(
-                invokes=invokes,
-                opReads=reads,
-                opModifies=modifies,
-                opAllocates=allocates,
-            )
-
-    def annotateLocals(self, code, contexts, lcls, cloner):
-        for lcl in lcls:
-            if isinstance(lcl, ast.Existing):
-                contextLclLUT = self.lclLUT[(code, lcl.object)]
-                newlcl = cloner.op(lcl)  # HACK?
-            else:
-                contextLclLUT = self.lclLUT[(code, lcl)]
-                newlcl = cloner.lcl(lcl)
-
-            references = self.collectContexts(contextLclLUT, contexts)
-
-            newlcl.rewriteAnnotation(references=references)
-
-    def annotate(self):
+    def annotate(self, prgm=None):
         if self.clone:
             cloner = codecloner.FunctionCloner(self.codeContexts.keys())
 
@@ -544,12 +454,10 @@ class InterproceduralDataflow(object):
         else:
             cloner = codecloner.NullCloner(self.codeContexts.keys())
 
-        self.annotationCount = 0
-        self.annotationCache = {}
-
-        self.reindexAnnotations(cloner)
+        self.reindexResults(cloner)
 
         self.annotateEntryPoints(cloner)
+        published_records = []
 
         for code, contexts in self.codeContexts.items():
             if code is self.externalFunction:
@@ -557,25 +465,79 @@ class InterproceduralDataflow(object):
 
             cloner.process(code)
 
-            contexts = self.annotateCode(code, contexts, cloner)
+            contexts = tuple(contexts)
 
             ops, lcls = getOps(code)
 
-            self.annotateOps(code, contexts, ops, cloner)
-            self.annotateLocals(code, contexts, lcls, cloner)
+            newcode = cloner.code(code)
+            operation_facts = []
+            for op in ops:
+                newop = cloner.op(op)
+                for context in contexts:
+                    operation_facts.append(
+                        OperationFacts(
+                            newop,
+                            context,
+                            frozenset(self.opReads[(code, op, context)]),
+                            frozenset(self.opModifies[(code, op, context)]),
+                            frozenset(self.opAllocates[(code, op, context)]),
+                            frozenset(self.invokeLUT[(code, op)][context]),
+                        )
+                    )
 
-            self.mergeAbstractCode(code, cloner)
+            reference_facts = []
+            for lcl in lcls:
+                if isinstance(lcl, ast.Existing):
+                    context_lut = self.lclLUT[(code, lcl.object)]
+                    newlcl = cloner.op(lcl)
+                else:
+                    context_lut = self.lclLUT[(code, lcl)]
+                    newlcl = cloner.lcl(lcl)
+                for context in contexts:
+                    reference_facts.append(
+                        ReferenceFacts(
+                            newlcl,
+                            context,
+                            frozenset(context_lut[context]),
+                        )
+                    )
 
-        self.console.output(
-            "Annotation compression %f - %d"
-            % (
-                float(len(self.annotationCache)) / max(self.annotationCount, 1),
-                self.annotationCount,
+            published_records.append(
+                CodeFacts(
+                    newcode,
+                    tuple(contexts),
+                    {
+                        context: frozenset(self.opReads[(code, None, context)])
+                        for context in contexts
+                    },
+                    {
+                        context: frozenset(self.opModifies[(code, None, context)])
+                        for context in contexts
+                    },
+                    {
+                        context: frozenset(self.opAllocates[(code, None, context)])
+                        for context in contexts
+                    },
+                    tuple(operation_facts),
+                    tuple(reference_facts),
+                )
             )
-        )
 
-        del self.annotationCache
-        del self.annotationCount
+        if prgm is not None:
+            from pyflow.ir.core import Capabilities, ensure_codes_indexed
+
+            previous_catalog = prgm.ir
+            prgm.liveCode = set(self.liveCode)
+            catalog = ensure_codes_indexed(self.liveCode)
+            if catalog is not previous_catalog:
+                catalog.import_contexts_from(previous_catalog)
+                catalog.facts.import_producer(
+                    previous_catalog.facts,
+                    "ipa",
+                    (Capabilities.CONTEXTS, Capabilities.CALL_TARGETS),
+                )
+            prgm.ir = catalog
+            publish_cpa_facts(catalog, published_records)
 
     ### Debugging methods ###
 
@@ -644,10 +606,12 @@ def evaluateWithImage(compiler, prgm, opPathLength=0, firstPass=True, clone=Fals
                 del dataflow.constraints
                 dataflow.storeGraph.removeObservers()
 
-            with compiler.console.scope("annotate"):
-                dataflow.annotate()
+        # Publication is a commit step and must never run with a partially
+        # solved dataflow system after an exception.
+        with compiler.console.scope("annotate"):
+            dataflow.annotate(prgm)
 
-            prgm.liveCode = dataflow.liveCode
+        prgm.liveCode = dataflow.liveCode
 
         return dataflow
 

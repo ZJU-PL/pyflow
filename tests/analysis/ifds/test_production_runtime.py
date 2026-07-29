@@ -31,7 +31,6 @@ from pyflow.analysis.ifds.modeling.registry import (
     validate_rule_pack_data,
 )
 from pyflow.analysis.ifds.frontend.preparation import (
-    PreparationMode,
     prepare_program_for_ifds,
 )
 
@@ -450,9 +449,7 @@ def test_strict_preparation_propagates_pipeline_failure():
             None,
             program,
             get_cfg=lambda code: code,
-            describe_code=str,
             run_pipeline=lambda: (_ for _ in ()).throw(RuntimeError("pipeline failed")),
-            mode=PreparationMode.STRICT,
         )
 
 

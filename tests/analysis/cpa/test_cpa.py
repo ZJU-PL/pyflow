@@ -5,6 +5,7 @@ import builtins
 import pyflow.analysis.cpa
 import pyflow.application.makefile
 import pyflow.application.program
+from pyflow.ir.core import AnalysisFacts, Capabilities, ContextualKey, Precision
 from pyflow.frontend.extractor import extract_program
 
 
@@ -21,18 +22,22 @@ class TestCPA(unittest.TestCase):
         if first not in second:
             raise self.failureException((msg or "%r not in %r" % (first, second)))
 
-    def assertLocalRefTypes(self, lcl, types):
-        refs = lcl.annotation.references[0]
+    def localRefs(self, program, code, lcl):
+        facts = AnalysisFacts(program.ir)
+        return facts.merged_references(code, lcl)
+
+    def assertLocalRefTypes(self, program, code, lcl, types):
+        refs = self.localRefs(program, code, lcl)
 
         # There's one reference returned, and it's an integer.
         self.assertEqual(len(refs), len(types))
         for ref in refs:
             self.assertIn(ref.xtype.obj.type, types)
 
-    def assertLocalRefTypesIfPresent(self, lcl, types):
+    def assertLocalRefTypesIfPresent(self, program, code, lcl, types):
         """Assert type refs only when present. Return params may have no refs
         when binary ops (__mul__, __add__) are unresolved during CPA solve."""
-        refs = lcl.annotation.references[0]
+        refs = self.localRefs(program, code, lcl)
         if not refs:
             return  # Skip when no type info flowed (e.g. unresolved calls)
         self.assertEqual(len(refs), len(types))
@@ -76,15 +81,33 @@ class TestCPA(unittest.TestCase):
         
         if func_code is None:
             self.fail(f"Could not find function {func.__name__} in program.liveCode")
+
+        code_id = program.ir.procedure(func_code).code_id
+        published_contexts = program.ir.facts.query(
+            Capabilities.CONTEXTS, code_id
+        )
+        self.assertEqual(published_contexts.precision, Precision.EXACT)
+        self.assertTrue(published_contexts.values)
+
+        param_symbol = program.ir.symbol_id(
+            func_code.codeparameters.params[0], func_code
+        )
+        first_context = next(iter(published_contexts.values))
+        published_references = program.ir.facts.query(
+            Capabilities.REFERENCES,
+            ContextualKey(param_symbol, first_context),
+        )
+        self.assertEqual(published_references.precision, Precision.EXACT)
+        self.assertTrue(published_references.values)
         
         types = set([compiler.extractor.getObject(int)])
 
         for param in func_code.codeparameters.params:
-            self.assertLocalRefTypes(param, types)
+            self.assertLocalRefTypes(program, func_code, param, types)
 
         # Return params may have no refs when __mul__/__add__ stubs are unresolved
         for param in func_code.codeparameters.returnparams:
-            self.assertLocalRefTypesIfPresent(param, types)
+            self.assertLocalRefTypesIfPresent(program, func_code, param, types)
 
     def test_conditional_execution(self):
         """Test CPA with conditional statements."""

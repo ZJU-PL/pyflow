@@ -636,7 +636,9 @@ def test_nullness_propagates_default_none_parameter():
         "main",
         [],
         [
-            ast.Assign(ast.Call(ast.Local("helper"), [], [], None, None), [out]),
+            ast.Assign(
+                ast.DirectCall(helper_code, None, [], [], None, None), [out]
+            ),
             ast.Discard(ast.GetAttr(out, payload)),
             ast.Return([]),
         ],

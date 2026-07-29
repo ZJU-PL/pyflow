@@ -118,12 +118,6 @@ def add_security_parser(subparsers):
             "as the bundled rule-packs under pyflow/config/."
         ),
     )
-    p.add_argument(
-        "--ifds-mode",
-        choices=["strict", "best-effort"],
-        default=argparse.SUPPRESS,
-        help="Fail on preparation gaps or continue with explicit partial status",
-    )
     p.add_argument("--ifds-max-seconds", type=_positive_float)
     p.add_argument("--ifds-max-path-edges", type=_positive_int)
     p.add_argument("--ifds-max-queue-size", type=_positive_int)

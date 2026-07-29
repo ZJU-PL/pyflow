@@ -4,6 +4,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from pyflow.ir.core import IRCatalog
 from pyflow.language.python import ast
 from pyflow.optimization.argumentnormalization import (
     ArgumentNormalizationAnalysis,
@@ -15,7 +16,7 @@ from pyflow.optimization.argumentnormalization import (
 
 class TestArgumentNormalizationAnalysis(unittest.TestCase):
     def test_visit_call_marks_vargs_usage_inapplicable(self):
-        analysis = ArgumentNormalizationAnalysis(None)
+        analysis = ArgumentNormalizationAnalysis(None, None)
         analysis.applicable = True
         analysis.vparam = ast.Local("args")
 
@@ -26,7 +27,7 @@ class TestArgumentNormalizationAnalysis(unittest.TestCase):
         self.assertFalse(analysis.applicable)
 
     def test_visit_direct_call_marks_vargs_usage_inapplicable(self):
-        analysis = ArgumentNormalizationAnalysis(None)
+        analysis = ArgumentNormalizationAnalysis(None, None)
         analysis.applicable = True
         analysis.vparam = ast.Local("args")
 
@@ -147,7 +148,9 @@ class TestArgumentNormalizationEvaluate(unittest.TestCase):
             codeparameters=SimpleNamespace(vparam=object(), selfparam=None),
             ast=ast.Suite([]),
         )
-        prgm = SimpleNamespace(storeGraph=None, liveCode=[candidate])
+        prgm = SimpleNamespace(
+            storeGraph=None, liveCode=[candidate], ir=IRCatalog()
+        )
 
         def _blocked(self, _code, _vlen):
             self.last_skip_reason = "vparam_local_referenced_in_body"
@@ -187,6 +190,7 @@ class TestArgumentNormalizationEvaluate(unittest.TestCase):
         prgm = SimpleNamespace(
             storeGraph=None,
             liveCode=[candidate],
+            ir=IRCatalog(),
             interface=SimpleNamespace(entryCode=lambda: frozenset((candidate,))),
         )
 
@@ -244,7 +248,14 @@ class TestArgumentNormalizationEvaluate(unittest.TestCase):
         prgm = SimpleNamespace(
             storeGraph=None,
             liveCode=[candidate, caller],
+            ir=IRCatalog(),
             interface=SimpleNamespace(entryCode=lambda: frozenset()),
+        )
+
+        facts = SimpleNamespace(
+            merged_call_targets=lambda code, op: (
+                {(candidate, context)} if code is caller and op is incoming else set()
+            )
         )
 
         def _process_analysis(self, code):
@@ -255,7 +266,7 @@ class TestArgumentNormalizationEvaluate(unittest.TestCase):
             "process",
             autospec=True,
             side_effect=_process_analysis,
-        ), patch("pyflow.optimization.argumentnormalization.codeOps") as mock_code_ops, patch.object(
+        ), patch("pyflow.optimization.argumentnormalization.AnalysisFacts", return_value=facts), patch("pyflow.optimization.argumentnormalization.codeOps") as mock_code_ops, patch.object(
             ArgumentNormalizationTransform,
             "process",
             autospec=True,
@@ -307,7 +318,14 @@ class TestArgumentNormalizationEvaluate(unittest.TestCase):
         prgm = SimpleNamespace(
             storeGraph=None,
             liveCode=[candidate, caller],
+            ir=IRCatalog(),
             interface=SimpleNamespace(entryCode=lambda: frozenset()),
+        )
+
+        facts = SimpleNamespace(
+            merged_call_targets=lambda code, op: (
+                {(candidate, context)} if code is caller and op is incoming else set()
+            )
         )
 
         def _process_analysis(self, code):
@@ -318,7 +336,7 @@ class TestArgumentNormalizationEvaluate(unittest.TestCase):
             "process",
             autospec=True,
             side_effect=_process_analysis,
-        ), patch("pyflow.optimization.argumentnormalization.codeOps") as mock_code_ops, patch.object(
+        ), patch("pyflow.optimization.argumentnormalization.AnalysisFacts", return_value=facts), patch("pyflow.optimization.argumentnormalization.codeOps") as mock_code_ops, patch.object(
             ArgumentNormalizationTransform,
             "process",
             autospec=True,

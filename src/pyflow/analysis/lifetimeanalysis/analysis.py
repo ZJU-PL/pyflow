@@ -22,7 +22,7 @@ import time
 from pyflow.analysis.cpa import base
 from pyflow.ir.storegraph import storegraph
 from pyflow.language.python import ast
-from pyflow.language.python import annotations
+from pyflow.ir.core import AnalysisFacts, Capabilities, ContextualKey, FactResult
 
 from pyflow.util.PADS.StrongConnectivity import StronglyConnectedComponents
 
@@ -223,7 +223,7 @@ class ReadModifyAnalysis(object):
         killed: Dictionary mapping (code, op, context) -> (dstCode, dstContext) to killed objects
     """
 
-    def __init__(self, liveCode, invokeSources):
+    def __init__(self, liveCode, invokeSources, facts):
         """Initialize read/modify analysis.
 
         Args:
@@ -231,35 +231,51 @@ class ReadModifyAnalysis(object):
             invokeSources: Invocation source mapping
         """
         self.invokeSources = invokeSources
+        self.facts = facts
 
         self.contextReads = collections.defaultdict(set)
         self.contextModifies = collections.defaultdict(set)
 
         self.collectDB(liveCode)
 
-    def handleModifies(self, code, op, modifies):
-        if modifies[0]:
-            for cindex, context in enumerate(code.annotation.contexts):
-                slots = modifies[1][cindex]
-                if op is not None:
-                    self.opModifyDB[code][op].merge(context, slots)
-                self.contextModifies[(code, context)].update(slots)
-                self.allModifies.update(slots)
+    def handleModifies(self, code, op):
+        for context in self.facts.contexts(code):
+            if op is None:
+                slots = self.facts.code_effect(Capabilities.CODE_WRITES, code, context)
+            else:
+                slots = self.facts.operation_effect(
+                    Capabilities.OP_WRITES, code, op, context
+                )
+                self.opModifyDB[code][op].merge(context, slots)
+            self.contextModifies[(code, context)].update(slots)
+            self.allModifies.update(slots)
 
-    def handleReads(self, code, op, reads):
-        if reads[0]:
-            for cindex, context in enumerate(code.annotation.contexts):
-                slots = reads[1][cindex]
-                filtered = set([slot for slot in slots if slot in self.allModifies])
-                if op is not None:
-                    self.opReadDB[code][op].merge(context, filtered)
-                self.contextReads[(code, context)].update(filtered)
-                self.allReads.update(slots)
+    def handleReads(self, code, op):
+        for context in self.facts.contexts(code):
+            if op is None:
+                slots = self.facts.code_effect(Capabilities.CODE_READS, code, context)
+            else:
+                slots = self.facts.operation_effect(
+                    Capabilities.OP_READS, code, op, context
+                )
+            filtered = {slot for slot in slots if slot in self.allModifies}
+            if op is not None:
+                self.opReadDB[code][op].merge(context, filtered)
+            self.contextReads[(code, context)].update(filtered)
+            self.allReads.update(slots)
 
-    def handleAllocates(self, code, op, allocates):
-        if allocates[0]:
-            for cindex, context in enumerate(code.annotation.contexts):
-                self.allocations[(code, context)].update(allocates[1][cindex])
+    def handleAllocates(self, code, op):
+        capability = (
+            Capabilities.CODE_ALLOCATIONS
+            if op is None
+            else Capabilities.OP_ALLOCATIONS
+        )
+        for context in self.facts.contexts(code):
+            if op is None:
+                slots = self.facts.code_effect(capability, code, context)
+            else:
+                slots = self.facts.operation_effect(capability, code, op, context)
+            self.allocations[(code, context)].update(slots)
 
     def collectDB(self, liveCode):
         """Collect read/modify/allocate information from live code.
@@ -284,20 +300,20 @@ class ReadModifyAnalysis(object):
 
         # Copy modifies
         for code in liveCode:
-            self.handleModifies(code, None, code.annotation.codeModifies)
+            self.handleModifies(code, None)
             ops, lcls = getOps(code)
             for op in ops:
-                self.handleModifies(code, op, op.annotation.opModifies)
+                self.handleModifies(code, op)
 
         # Copy reads
         for code in liveCode:
-            self.handleReads(code, None, code.annotation.codeReads)
-            self.handleAllocates(code, None, code.annotation.codeAllocates)
+            self.handleReads(code, None)
+            self.handleAllocates(code, None)
 
             ops, lcls = getOps(code)
             for op in ops:
-                self.handleReads(code, op, op.annotation.opReads)
-                self.handleAllocates(code, op, op.annotation.opAllocates)
+                self.handleReads(code, op)
+                self.handleAllocates(code, op)
 
     def process(self, killed):
         self.killed = killed
@@ -736,29 +752,21 @@ class LifetimeAnalysis(object):
         self.entries = set()
 
         for code in liveCode:
-            for context in code.annotation.contexts:
+            for context in self.facts.contexts(code):
                 if context in entryContexts:
                     self.entries.add((code, context))
 
             assert code.isCode(), type(code)
             ops, lcls = getOps(code)
             for op in ops:
-                invokes = op.annotation.invokes
-                if invokes is not None:
-                    for cindex, context in enumerate(code.annotation.contexts):
-                        opInvokes = invokes[1][cindex]
-
-                        for dstF, dstC in opInvokes:
-                            assert dstF.isCode(), type(dstF)
-                            invokesDB[code][op][context].add(dstF, dstC)
+                for context in self.facts.contexts(code):
+                    for dstF, dstC in self.facts.call_targets(code, op, context):
+                        assert dstF.isCode(), type(dstF)
+                        invokesDB[code][op][context].add(dstF, dstC)
 
             for lcl in lcls:
-                refs = lcl.annotation.references
-                if refs is None:
-                    continue
-
-                for cindex, context in enumerate(code.annotation.contexts):
-                    for ref in refs[1][cindex]:
+                for context in self.facts.contexts(code):
+                    for ref in self.facts.references(code, lcl, context):
                         obj = self.getObjectInfo(ref)
                         obj.localReference.add(code)
 
@@ -767,9 +775,9 @@ class LifetimeAnalysis(object):
         self.invokes = invokesDB
         self.invokeSources = invertInvokes(invokesDB)
 
-    def markVisible(self, lcl, cindex):
+    def markVisible(self, code, lcl, context):
         if lcl is not None:
-            refs = lcl.annotation.references[1][cindex]
+            refs = self.facts.references(code, lcl, context)
             for ref in refs:
                 obj = self.getObjectInfo(ref)
                 obj.externallyVisible = True
@@ -783,14 +791,14 @@ class LifetimeAnalysis(object):
 
             ops, lcls = getOps(code)
             for lcl in lcls:
-                for ref in lcl.annotation.references[0]:
+                for ref in self.facts.merged_references(code, lcl):
                     searcher.enqueue(ref)
 
             # Mark the return parameters for external contexts as visible.
-            for cindex, context in enumerate(code.annotation.contexts):
+            for context in self.facts.contexts(code):
                 if context in entryContexts:
                     for param in callee.returnparams:
-                        self.markVisible(param, cindex)
+                        self.markVisible(code, param, context)
 
         searcher.process()
 
@@ -814,6 +822,7 @@ class LifetimeAnalysis(object):
             LifetimeAnalysis: Self (for chaining)
         """
         with compiler.console.scope("solve"):
+            self.facts = AnalysisFacts(prgm.ir)
             entryContexts = prgm.interface.entryContexts()
 
             self.gatherSlots(prgm.liveCode, entryContexts)
@@ -822,7 +831,7 @@ class LifetimeAnalysis(object):
             self.propagateVisibility()
             self.propagateHeld()
 
-            self.rm = ReadModifyAnalysis(prgm.liveCode, self.invokeSources)
+            self.rm = ReadModifyAnalysis(prgm.liveCode, self.invokeSources, self.facts)
             self.inferScope()
             self.rm.process(self.killed)
 
@@ -833,88 +842,81 @@ class LifetimeAnalysis(object):
         return self
 
     def createDB(self, compiler, prgm):
-        self.annotationCount = 0
-        self.annotationCache = {}
-
         readDB = self.rm.opReadDB
         modifyDB = self.rm.opModifyDB
         self.allocations = self.rm.allocations
+        catalog = prgm.ir
+        capabilities = {
+            capability: {}
+            for capability in Capabilities.LIFETIME
+        }
 
         for code in prgm.liveCode:
-            # Annotate the code
-            live = []
-            killed = []
-            for cindex, context in enumerate(code.annotation.contexts):
+            code_id = catalog.procedure(code).code_id
+            contexts = self.facts.contexts(code)
+            for context in contexts:
+                context_id = catalog.context_id(code, context)
+                code_key = ContextualKey(code_id, context_id)
                 key = (code, context)
-                live.append(annotations.annotationSet(self.live[key]))
-                killed.append(annotations.annotationSet(self.contextKilled[key]))
-
-            code.rewriteAnnotation(
-                live=annotations.makeContextualAnnotation(live),
-                killed=annotations.makeContextualAnnotation(killed),
-            )
-
-            # Annotate the ops
-            ops, lcls = getOps(code)
-            for op in ops:
-                # TODO is this a good HACK?
-                # if not op.annotation.invokes[0]: continue
-
-                reads = readDB[code][op]
-                modifies = modifyDB[code][op]
-
-                rout = []
-                mout = []
-                aout = []
-
-                for cindex, context in enumerate(code.annotation.contexts):
-                    # HACK if an operation directly reads a field, but it is never modified
-                    # it still must appear in the reads annotation so cloning behaves correctly!
-                    reads.merge(context, op.annotation.opReads[1][cindex])
-
-                    creads = reads[context]
-                    creads = annotations.annotationSet(creads) if creads else ()
-                    rout.append(creads)
-
-                    cmod = modifies[context]
-                    cmod = annotations.annotationSet(cmod) if cmod else ()
-                    mout.append(cmod)
-
-                    kills = self.killed[(code, op, context)]
-
-                    calloc = set()
-                    for dstCode, dstContext in op.annotation.invokes[1][cindex]:
-                        live = self.live[(dstCode, dstContext)]
-                        killed = kills[(dstCode, dstContext)]
-                        calloc.update(live - killed)
-
-                    calloc.update(op.annotation.opAllocates[1][cindex])
-
-                    aout.append(annotations.annotationSet(calloc))
-
-                opReads = annotations.makeContextualAnnotation(rout)
-                opModifies = annotations.makeContextualAnnotation(mout)
-                opAllocates = annotations.makeContextualAnnotation(aout)
-
-                opReads = self.annotationCache.setdefault(opReads, opReads)
-                opModifies = self.annotationCache.setdefault(opModifies, opModifies)
-                opAllocates = self.annotationCache.setdefault(opAllocates, opAllocates)
-                self.annotationCount += 3
-
-                op.rewriteAnnotation(
-                    reads=opReads, modifies=opModifies, allocates=opAllocates
+                capabilities[Capabilities.LIFETIME_CODE_LIVE][code_key] = (
+                    FactResult.exact(self.live[key], "lifetime")
+                )
+                capabilities[Capabilities.LIFETIME_CODE_KILLED][code_key] = (
+                    FactResult.exact(self.contextKilled[key], "lifetime")
+                )
+                capabilities[Capabilities.LIFETIME_CODE_READS][code_key] = (
+                    FactResult.exact(self.rm.contextReads[key], "lifetime")
+                )
+                capabilities[Capabilities.LIFETIME_CODE_WRITES][code_key] = (
+                    FactResult.exact(self.rm.contextModifies[key], "lifetime")
+                )
+                capabilities[Capabilities.LIFETIME_CODE_ALLOCATIONS][code_key] = (
+                    FactResult.exact(self.allocations[key], "lifetime")
                 )
 
-        compiler.console.output(
-            "Annotation compression %f - %d"
-            % (
-                float(len(self.annotationCache)) / max(self.annotationCount, 1),
-                self.annotationCount,
-            )
-        )
+            ops, lcls = getOps(code)
+            for op in ops:
+                reads = readDB[code][op]
+                modifies = modifyDB[code][op]
+                node_id = catalog.node_id(op, code)
+                for context in contexts:
+                    context_id = catalog.context_id(code, context)
+                    op_key = ContextualKey(node_id, context_id)
+                    direct_reads = self.facts.operation_effect(
+                        Capabilities.OP_READS, code, op, context
+                    )
+                    # The sparse read/modify database returns ``None`` for a
+                    # context with a known-empty set.  Publication must encode
+                    # that as an explicit empty fact, not attempt to iterate
+                    # the storage sentinel.
+                    creads = set(reads[context] or ())
+                    creads.update(direct_reads)
+                    cmod = set(modifies[context] or ())
+                    kills = self.killed[(code, op, context)]
+                    calloc = set()
+                    for dstCode, dstContext in self.facts.call_targets(
+                        code, op, context
+                    ):
+                        callee_live = self.live[(dstCode, dstContext)]
+                        callee_killed = kills[(dstCode, dstContext)]
+                        calloc.update(callee_live - callee_killed)
+                    calloc.update(
+                        self.facts.operation_effect(
+                            Capabilities.OP_ALLOCATIONS, code, op, context
+                        )
+                    )
+                    capabilities[Capabilities.LIFETIME_OP_READS][op_key] = (
+                        FactResult.exact(creads, "lifetime")
+                    )
+                    capabilities[Capabilities.LIFETIME_OP_WRITES][op_key] = (
+                        FactResult.exact(cmod, "lifetime")
+                    )
+                    capabilities[Capabilities.LIFETIME_OP_ALLOCATIONS][op_key] = (
+                        FactResult.exact(calloc, "lifetime")
+                    )
 
-        del self.annotationCache
-        del self.annotationCount
+        revision = catalog.facts.publish_many("lifetime", capabilities)
+        compiler.console.output(f"Published lifetime facts at revision {revision}.")
 
 
 def evaluate(compiler, prgm):

@@ -50,14 +50,14 @@ class HeapValueSnapshot:
     absent: "frozenset[HeapLocation]"
     complete_roots: "frozenset[object]"
     scalar_present: "frozenset[HeapLocation]" = frozenset()
-    locals: "dict[tuple[int, str], frozenset[HeapLocation]]" = field(
+    locals: "dict[tuple[object, str], frozenset[HeapLocation]]" = field(
         default_factory=dict
     )
-    returns: "dict[int, tuple[frozenset[HeapLocation], ...]]" = field(
+    returns: "dict[object, tuple[frozenset[HeapLocation], ...]]" = field(
         default_factory=dict
     )
-    yields: "dict[int, frozenset[HeapLocation]]" = field(default_factory=dict)
-    raised: "dict[int, frozenset[HeapLocation]]" = field(default_factory=dict)
+    yields: "dict[object, frozenset[HeapLocation]]" = field(default_factory=dict)
+    raised: "dict[object, frozenset[HeapLocation]]" = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -144,30 +144,31 @@ class PointsToGraph:
         default_factory=dict
     )
     program_point_values: (
-        "dict[int, tuple[dict[HeapLocation, frozenset[HeapLocation]], dict[HeapLocation, frozenset[HeapLocation]]]]"
+        "dict[object, tuple[dict[HeapLocation, frozenset[HeapLocation]], dict[HeapLocation, frozenset[HeapLocation]]]]"
     ) = field(default_factory=dict)
     program_point_contaminants: (
-        "dict[int, tuple[dict[HeapLocation, frozenset[HeapLocation]], dict[HeapLocation, frozenset[HeapLocation]]]]"
+        "dict[object, tuple[dict[HeapLocation, frozenset[HeapLocation]], dict[HeapLocation, frozenset[HeapLocation]]]]"
     ) = field(default_factory=dict)
     heap_absent: "frozenset[HeapLocation]" = frozenset()
     heap_scalar_present: "frozenset[HeapLocation]" = frozenset()
     complete_roots: "frozenset[object]" = frozenset()
     program_point_absent: (
-        "dict[int, tuple[frozenset[HeapLocation], frozenset[HeapLocation]]]"
+        "dict[object, tuple[frozenset[HeapLocation], frozenset[HeapLocation]]]"
     ) = field(default_factory=dict)
     program_point_scalar_present: (
-        "dict[int, tuple[frozenset[HeapLocation], frozenset[HeapLocation]]]"
+        "dict[object, tuple[frozenset[HeapLocation], frozenset[HeapLocation]]]"
     ) = field(default_factory=dict)
     program_point_complete_roots: (
-        "dict[int, tuple[frozenset[object], frozenset[object]]]"
+        "dict[object, tuple[frozenset[object], frozenset[object]]]"
     ) = field(default_factory=dict)
-    program_point_outcomes: "dict[int, dict[str, HeapValueSnapshot]]" = field(
+    program_point_outcomes: "dict[object, dict[str, HeapValueSnapshot]]" = field(
         default_factory=dict
     )
     program_point_locals: (
-        "dict[int, tuple[dict[tuple[int, str], frozenset[HeapLocation]], dict[tuple[int, str], frozenset[HeapLocation]]]]"
+        "dict[object, tuple[dict[tuple[object, str], frozenset[HeapLocation]], dict[tuple[object, str], frozenset[HeapLocation]]]]"
     ) = field(default_factory=dict)
-    precision_degradations: "dict[int, frozenset[str]]" = field(default_factory=dict)
+    precision_degradations: "dict[object, frozenset[str]]" = field(default_factory=dict)
+    operation_identities: "dict[object, object]" = field(default_factory=dict)
 
     # ── query methods ──────────────────────────────────────────────────
 
@@ -219,7 +220,7 @@ class PointsToGraph:
             raise ValueError("outcome is only valid for post-state queries")
         if operation is not None:
             if outcome is not None:
-                snapshot = self.program_point_outcomes.get(id(operation), {}).get(
+                snapshot = self.program_point_outcomes.get(self._operation_key(operation), {}).get(
                     outcome
                 )
                 if snapshot is None:
@@ -234,15 +235,16 @@ class PointsToGraph:
                 complete_roots = snapshot.complete_roots
             else:
                 index = 0 if before else 1
-                point_values = self.program_point_values.get(id(operation))
-                point_contaminants = self.program_point_contaminants.get(id(operation))
+                operation_key = self._operation_key(operation)
+                point_values = self.program_point_values.get(operation_key)
+                point_contaminants = self.program_point_contaminants.get(operation_key)
                 if point_values is not None:
                     values = point_values[index]
                 if point_contaminants is not None:
                     contaminants = point_contaminants[index]
-                point_absent = self.program_point_absent.get(id(operation))
-                point_complete = self.program_point_complete_roots.get(id(operation))
-                point_scalar = self.program_point_scalar_present.get(id(operation))
+                point_absent = self.program_point_absent.get(operation_key)
+                point_complete = self.program_point_complete_roots.get(operation_key)
+                point_scalar = self.program_point_scalar_present.get(operation_key)
                 if point_absent is not None:
                     absent = point_absent[index]
                 if point_complete is not None:
@@ -304,14 +306,16 @@ class PointsToGraph:
         if before and outcome is not None:
             raise ValueError("outcome is only valid for post-state queries")
         name = getattr(local, "name", local)
-        key = (id(procedure), str(name))
+        key = (self._procedure_key(procedure), str(name))
         if outcome is not None:
-            snapshot = self.program_point_outcomes.get(id(operation), {}).get(outcome)
+            snapshot = self.program_point_outcomes.get(
+                self._operation_key(operation), {}
+            ).get(outcome)
             if snapshot is None:
                 return PossibleValues(frozenset(), definitely_absent=True)
             locations = snapshot.locals.get(key, frozenset())
         else:
-            pair = self.program_point_locals.get(id(operation))
+            pair = self.program_point_locals.get(self._operation_key(operation))
             if pair is None:
                 return PossibleValues(frozenset(), definitely_absent=True)
             locations = pair[0 if before else 1].get(key, frozenset())
@@ -329,7 +333,7 @@ class PointsToGraph:
         operation: object,
         outcome: str,
     ) -> HeapValueSnapshot | None:
-        return self.program_point_outcomes.get(id(operation), {}).get(outcome)
+        return self.program_point_outcomes.get(self._operation_key(operation), {}).get(outcome)
 
     def returned_values_at(
         self,
@@ -339,7 +343,7 @@ class PointsToGraph:
         outcome: str = "return",
     ) -> tuple[frozenset[HeapLocation], ...]:
         snapshot = self.outcome_snapshot(operation, outcome)
-        return () if snapshot is None else snapshot.returns.get(id(procedure), ())
+        return () if snapshot is None else snapshot.returns.get(self._procedure_key(procedure), ())
 
     def yielded_values_at(
         self,
@@ -352,7 +356,7 @@ class PointsToGraph:
         return (
             frozenset()
             if snapshot is None
-            else snapshot.yields.get(id(procedure), frozenset())
+            else snapshot.yields.get(self._procedure_key(procedure), frozenset())
         )
 
     def raised_values_at(
@@ -366,7 +370,7 @@ class PointsToGraph:
         return (
             frozenset()
             if snapshot is None
-            else snapshot.raised.get(id(procedure), frozenset())
+            else snapshot.raised.get(self._procedure_key(procedure), frozenset())
         )
 
     def never_escapes(self, location: "HeapLocation") -> bool:
@@ -597,7 +601,19 @@ class PointsToGraph:
 
     def degradations_at(self, operation: object) -> "frozenset[str]":
         """Return reasons this program point was conservatively degraded."""
-        return self.precision_degradations.get(id(operation), frozenset())
+        return self.precision_degradations.get(
+            self._operation_key(operation), frozenset()
+        )
+
+    def _operation_key(self, operation: object) -> object:
+        return self.operation_identities.get(operation, operation)
+
+    @staticmethod
+    def _procedure_key(procedure: object) -> object:
+        catalog = getattr(procedure, "ir_catalog", None)
+        if catalog is not None:
+            return catalog.procedure(procedure).code_id
+        return procedure
 
     def has_precision_degradation(self, operation: object | None = None) -> bool:
         if operation is None:

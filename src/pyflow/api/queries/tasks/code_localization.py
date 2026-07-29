@@ -7,7 +7,6 @@ from typing import Any, Dict, List, Optional, Set, Union
 
 from pyflow.application.errors import TemporaryLimitation
 
-from .._cfg_utils import get_block_statements, iter_cfg_blocks
 from .._models import (
     ChangeImpactReport,
     LocalizationCandidate,
@@ -141,31 +140,12 @@ class LocalizationQueries:
         func_name = self.context.resolve_function_name(function)
         trace = VariableFlowTrace(variable=variable, origin_function=func_name)
 
-        try:
-            ssa = self.control_flow.get_ssa(function)
-            trace.definitions = self._extract_definitions_from_ssa(ssa, variable)
-            trace.uses = self._extract_uses_from_ssa(ssa, variable)
-        except (ValueError, TypeError, AttributeError):
-            LOG.debug("Unable to derive SSA trace for %r", function, exc_info=True)
-
-        fallback_defs: List[str] = []
-        fallback_uses: List[str] = []
-
-        try:
-            defs_by_var = self.data_flow.get_reaching_defs(function)
-            fallback_defs = [
-                self._format_reaching_def(item) for item in defs_by_var.get(variable, [])
-            ]
-        except (TemporaryLimitation, ValueError, TypeError, AttributeError):
-            LOG.debug("Unable to derive fallback reaching defs for %r", function, exc_info=True)
-
-        try:
-            fallback_uses = self.data_flow.get_variable_uses(function, variable)
-        except (TemporaryLimitation, ValueError, TypeError, AttributeError):
-            LOG.debug("Unable to derive fallback variable uses for %r", function, exc_info=True)
-
-        trace.definitions = self._merge_strings(trace.definitions, fallback_defs)
-        trace.uses = self._merge_strings(trace.uses, fallback_uses)
+        defs_by_var = self.data_flow.get_reaching_defs(function)
+        trace.definitions = [
+            self._format_reaching_def(item)
+            for item in defs_by_var.get(variable, [])
+        ]
+        trace.uses = self.data_flow.get_variable_uses(function, variable)
         trace.upstream_functions = self.call_graph.get_upstream_functions(function, max_depth=2)
         trace.downstream_functions = self.call_graph.get_downstream_functions(function, max_depth=2)
         trace.dependency_summary = self._dependency_summary(function)
@@ -391,35 +371,3 @@ class LocalizationQueries:
         if value:
             return str(value)
         return str(reaching_def)
-
-    def _extract_definitions_from_ssa(self, ssa, variable: str) -> List[str]:
-        definitions: List[str] = []
-        for block in iter_cfg_blocks(ssa):
-            for stmt in get_block_statements(block):
-                for target in getattr(stmt, "targets", []):
-                    if getattr(target, "id", None) == variable:
-                        line = getattr(stmt, "lineno", None)
-                        prefix = f"line {line}: " if line is not None else ""
-                        definitions.append(f"{prefix}{type(stmt).__name__}")
-        return definitions
-
-    def _extract_uses_from_ssa(self, ssa, variable: str) -> List[str]:
-        uses: List[str] = []
-        for block in iter_cfg_blocks(ssa):
-            for stmt in get_block_statements(block):
-                value = getattr(stmt, "value", None)
-                if getattr(value, "id", None) == variable:
-                    line = getattr(stmt, "lineno", None)
-                    prefix = f"line {line}: " if line is not None else ""
-                    uses.append(f"{prefix}{type(stmt).__name__}")
-        return uses
-
-    def _merge_strings(self, primary: List[str], fallback: List[str]) -> List[str]:
-        merged: List[str] = []
-        seen: Set[str] = set()
-        for item in primary + fallback:
-            if item in seen:
-                continue
-            seen.add(item)
-            merged.append(item)
-        return merged

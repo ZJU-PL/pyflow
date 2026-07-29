@@ -195,7 +195,9 @@ def test_typestate_propagates_closed_state_through_helper():
         [],
         [
             ast.Assign(ast.Call(ast.Local("open"), [], [], None, None), [resource]),
-            ast.Discard(ast.Call(ast.Local("helper"), [resource], [], None, None)),
+            ast.Discard(
+                ast.DirectCall(helper_code, None, [resource], [], None, None)
+            ),
             ast.Discard(ast.Call(ast.Local("read"), [resource], [], None, None)),
             ast.Return([]),
         ],

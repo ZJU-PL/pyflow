@@ -4,8 +4,8 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from pyflow.language.asttools.annotation import annotationSet, makeContextualAnnotation
 from pyflow.language.python import ast
+from pyflow.ir.core import ensure_code_indexed
 from pyflow.optimization import dataflow
 from pyflow.optimization.methodcall import (
     MethodAnalysis,
@@ -37,19 +37,20 @@ class TestMethodMeet(unittest.TestCase):
 
 
 class TestMethodPatternFinder(unittest.TestCase):
-    def test_resolve_invoke_targets_falls_back_to_original_target(self):
+    def test_resolve_invoke_targets_keeps_leaf_target(self):
         finder = MethodPatternFinder()
         finder.invokeLUT = {}
 
         target = ("callee", "ctx")
 
-        self.assertEqual(finder.resolveInvokeTargets(target), annotationSet((target,)))
+        self.assertEqual(finder.resolveInvokeTargets(target), frozenset((target,)))
 
     def test_build_invoke_lut_skips_codes_without_unique_invocation_op(self):
         class DummyCode:
             pass
 
         finder = MethodPatternFinder()
+        finder.facts = object()
         context = object()
         code = DummyCode()
         code.annotation = SimpleNamespace(contexts=[context])
@@ -63,40 +64,68 @@ class TestMethodPatternFinder(unittest.TestCase):
 
 
 class TestOpThatInvokes(unittest.TestCase):
+    class Facts:
+        def __init__(self, targets):
+            self.targets = targets
+
+        def merged_call_targets(self, _func, op):
+            return self.targets.get(op, ())
+
     def test_returns_none_when_no_invoking_operation_exists(self):
         func = object()
-        op = SimpleNamespace(annotation=SimpleNamespace(invokes=None))
+        op = object()
+        facts = self.Facts({})
 
         with patch("pyflow.optimization.methodcall.tools.codeOps", return_value=[op]):
-            self.assertIsNone(opThatInvokes(func))
+            self.assertIsNone(opThatInvokes(facts, func))
 
     def test_returns_none_when_multiple_invoking_operations_exist(self):
         func = object()
-        op1 = SimpleNamespace(annotation=SimpleNamespace(invokes=((1,), [()])))
-        op2 = SimpleNamespace(annotation=SimpleNamespace(invokes=((1,), [()])))
+        op1 = object()
+        op2 = object()
+        facts = self.Facts({op1: {("a", "ctx")}, op2: {("b", "ctx")}})
 
         with patch("pyflow.optimization.methodcall.tools.codeOps", return_value=[op1, op2]):
-            self.assertIsNone(opThatInvokes(func))
+            self.assertIsNone(opThatInvokes(facts, func))
 
 
 class TestMethodRewrite(unittest.TestCase):
     def test_transfer_op_info_keeps_original_targets_when_lookup_missing(self):
         pattern = MethodPatternFinder()
         pattern.invokeLUT = {}
-        rewrite = MethodRewrite(pattern)
+        rewrite = MethodRewrite(pattern, code=None)
 
         node = ast.Call(ast.Local("func"), [], [], None, None)
-        target = ("callee", "ctx")
-        node.annotation = MockAnnotation(invokes=((), [annotationSet((target,))]))
+        node.annotation = MockAnnotation()
 
         rewritten = ast.MethodCall(ast.Local("obj"), ast.Local("name"), [], [], None, None)
         rewrite.transferOpInfo(node, rewritten)
 
-        expected = makeContextualAnnotation([annotationSet((target,))])
-        self.assertEqual(rewritten.annotation.invokes, expected)
+        self.assertIs(rewritten.annotation, node.annotation)
 
 
 class TestMethodAnalysis(unittest.TestCase):
+    @staticmethod
+    def indexed_code_for(expr):
+        code = ast.Code(
+            "test",
+            ast.CodeParameters(
+                selfparam=None,
+                posonlyparams=(),
+                posonlynames=(),
+                params=(),
+                paramnames=(),
+                defaults=(),
+                vparam=None,
+                kparam=None,
+                returnparams=(),
+                type_params=None,
+            ),
+            ast.Suite([ast.Discard(expr)]),
+        )
+        ensure_code_indexed(code)
+        return code
+
     def test_delete_kills_tracked_method_binding(self):
         analysis = MethodAnalysis(pattern=None)
         analysis.flow = dataflow.base.FlowDict()
@@ -117,19 +146,16 @@ class TestMethodAnalysis(unittest.TestCase):
         self.assertIs(analysis.flow.lookup(("meth", meth)), dataflow.base.undefined)
 
     def test_side_effecting_op_invalidates_all_tracked_method_bindings(self):
-        analysis = MethodAnalysis(pattern=None)
-        analysis.flow = dataflow.base.FlowDict()
-
         expr = ast.Local("expr")
         name = ast.Local("name")
         meth = ast.Local("meth")
         key = (expr, name, meth)
+        call = ast.Call(ast.Local("callee"), [], [], None, None)
+        analysis = MethodAnalysis(pattern=None, code=self.indexed_code_for(call))
+        analysis.flow = dataflow.base.FlowDict()
         analysis.flow.define(("expr", expr), key)
         analysis.flow.define(("name", name), key)
         analysis.flow.define(("meth", meth), key)
-
-        call = ast.Call(ast.Local("callee"), [], [], None, None)
-        call.annotation = SimpleNamespace(modifies=None)
 
         analysis.visitMayLeak(call)
 
@@ -138,19 +164,16 @@ class TestMethodAnalysis(unittest.TestCase):
         self.assertIs(analysis.flow.lookup(("meth", meth)), dataflow.base.undefined)
 
     def test_non_effecting_op_preserves_method_binding(self):
-        analysis = MethodAnalysis(pattern=None)
-        analysis.flow = dataflow.base.FlowDict()
-
         expr = ast.Local("expr")
         name = ast.Local("name")
         meth = ast.Local("meth")
         key = (expr, name, meth)
+        load = ast.Load(ast.Local("other_obj"), "LowLevel", ast.Local("other_name"))
+        analysis = MethodAnalysis(pattern=None, code=self.indexed_code_for(load))
+        analysis.flow = dataflow.base.FlowDict()
         analysis.flow.define(("expr", expr), key)
         analysis.flow.define(("name", name), key)
         analysis.flow.define(("meth", meth), key)
-
-        load = ast.Load(ast.Local("other_obj"), "LowLevel", ast.Local("other_name"))
-        load.annotation = SimpleNamespace(modifies=((),))
 
         analysis.visitMayLeak(load)
 

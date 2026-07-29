@@ -20,6 +20,7 @@ from pyflow.analysis.numbering.dominance import MakeForwardDominance
 from pyflow.analysis.numbering.ssa import ForwardESSA
 
 from pyflow.optimization import rewrite
+from pyflow.ir.core import AnalysisFacts, Capabilities
 
 # For debugging
 from pyflow.util.io.xmloutput import XMLOutput
@@ -52,7 +53,7 @@ class RedundantLoadEliminator(object):
         eliminated: Count of loads eliminated
     """
 
-    def __init__(self, compiler, prgm, readNumbers, writeNumbers, dom):
+    def __init__(self, compiler, prgm, readNumbers, writeNumbers, dom, facts=None, code=None):
         """
         Initialize redundant load eliminator.
 
@@ -68,6 +69,8 @@ class RedundantLoadEliminator(object):
         self.readNumbers = readNumbers
         self.writeNumbers = writeNumbers
         self.dom = dom
+        self.facts = facts
+        self.code = code
 
         self.eliminated = 0
 
@@ -167,12 +170,16 @@ class RedundantLoadEliminator(object):
         if isinstance(node, ast.Load):
             fields = [
                 (field, self.readNumber(op, field))
-                for field in node.annotation.reads[0]
+                for field in self.facts.merged_operation_effect(
+                    Capabilities.LIFETIME_OP_READS, self.code, node
+                )
             ]
         elif isinstance(node, ast.Store):
             fields = [
                 (field, self.writeNumber(op, field))
-                for field in node.annotation.modifies[0]
+                for field in self.facts.merged_operation_effect(
+                    Capabilities.LIFETIME_OP_WRITES, self.code, node
+                )
             ]
         else:
             # Unsupported node shape: conservatively skip
@@ -272,14 +279,22 @@ def evaluateCode(compiler, prgm, code, simplify=True):
     Returns:
         int: Number of loads eliminated
     """
-    rm = FindReadModify().processCode(code)
+    facts = AnalysisFacts(prgm.ir)
+    rm = FindReadModify(facts, code).processCode(code)
+    killed = set()
+    for context in facts.contexts(code):
+        killed.update(
+            facts.code_effect(Capabilities.LIFETIME_CODE_KILLED, code, context)
+        )
 
     dom = MakeForwardDominance().processCode(code)
 
-    fessa = ForwardESSA(rm)
+    fessa = ForwardESSA(rm, killed)
     fessa.processCode(code)
 
-    rle = RedundantLoadEliminator(compiler, prgm, fessa.readLUT, fessa.writeLUT, dom)
+    rle = RedundantLoadEliminator(
+        compiler, prgm, fessa.readLUT, fessa.writeLUT, dom, facts, code
+    )
     eliminated = rle.processCode(code, simplify)
     if eliminated:
         print("\t", code, eliminated)
@@ -290,7 +305,7 @@ def evaluateCode(compiler, prgm, code, simplify=True):
 def evaluate(compiler, prgm):
     """Main entry point for redundant load elimination.
 
-    CRITICAL: This pass requires lifetime analysis annotations (codeReads, reads, modifies).
+    This pass requires the revision-tagged lifetime fact snapshot.
     Using stale annotations can cause miscompilation by reusing values from wrong contexts.
 
     Args:
@@ -306,7 +321,7 @@ def evaluate(compiler, prgm):
     with compiler.console.scope("redundant load elimination"):
         # Require a fresh lifetime pass result rather than trusting possibly-stale
         # annotations left on code objects after earlier transformations.
-        if getattr(prgm, "lifetime_analysis", None) is None:
+        if not prgm.ir.facts.has(Capabilities.LIFETIME_OP_READS):
             raise RuntimeError(
                 "Load elimination requires lifetime analysis. "
                 "Ensure 'lifetime' pass has run before 'load_elimination'."
@@ -318,8 +333,16 @@ def evaluate(compiler, prgm):
         for code in prgm.liveCode:
             if code.isStandardCode() and not code.annotation.descriptive:
                 # Count loads before elimination
-                rm = FindReadModify().processCode(code)
-                fessa = ForwardESSA(rm)
+                facts = AnalysisFacts(prgm.ir)
+                rm = FindReadModify(facts, code).processCode(code)
+                killed = set()
+                for context in facts.contexts(code):
+                    killed.update(
+                        facts.code_effect(
+                            Capabilities.LIFETIME_CODE_KILLED, code, context
+                        )
+                    )
+                fessa = ForwardESSA(rm, killed)
                 fessa.processCode(code)
                 loads, stores = RedundantLoadEliminator(
                     None, None, fessa.readLUT, fessa.writeLUT, {}

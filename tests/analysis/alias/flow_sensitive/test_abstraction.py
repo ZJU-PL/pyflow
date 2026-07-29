@@ -41,8 +41,8 @@ def test_heap_abstraction_aliases_direct_local_assignments():
     heap.alias_locals(None, y, x)
 
     assert heap.locations_for_local(None, y) == heap.locations_for_local(None, x)
-    assert heap.allocation_sites[(id(None), id(y))] == heap.allocation_sites[
-        (id(None), id(x))
+    assert heap.allocation_sites[heap._local_key(None, y)] == heap.allocation_sites[
+        heap._local_key(None, x)
     ]
 
 
@@ -53,13 +53,13 @@ def test_heap_abstraction_strong_update_breaks_local_alias():
     heap = HeapAbstraction(lambda _procedure, local: raw[id(local)])
 
     heap.alias_locals(None, y, x)
-    old_site = heap.allocation_sites[(id(None), id(y))]
+    old_site = heap.allocation_sites[heap._local_key(None, y)]
     heap.unalias_local(None, y)
 
     assert tuple(location.root.label for location in heap.locations_for_local(None, y)) == (
         "y",
     )
-    assert heap.allocation_sites[(id(None), id(y))] != old_site
+    assert heap.allocation_sites[heap._local_key(None, y)] != old_site
 
 
 def test_heap_abstraction_matches_location_access_path_prefixes():
@@ -155,7 +155,10 @@ def test_heap_abstraction_binds_allocation_targets_to_site_objects():
     assert x_location == y_location
     assert x_location.root.kind is HeapObjectKind.ALLOCATION
     assert x_location.root.label == "list literal"
-    assert x_location.root.allocation_site == ("allocation", id(site))
+    assert x_location.root.allocation_site == (
+        "allocation",
+        ("opaque-site", 0, "object"),
+    )
 
 
 def test_heap_abstraction_distinguishes_allocation_sites_by_default():
@@ -349,8 +352,8 @@ def test_equivalence_class_alias_locals_unifies_sites():
     heap = HeapAbstraction(lambda _procedure, local: raw[id(local)])
 
     heap.alias_locals(None, y, x)
-    x_site = heap.allocation_sites[(id(None), id(x))]
-    y_site = heap.allocation_sites[(id(None), id(y))]
+    x_site = heap.allocation_sites[heap._local_key(None, x)]
+    y_site = heap.allocation_sites[heap._local_key(None, y)]
 
     assert heap._find(x_site) == heap._find(y_site)
 
@@ -362,9 +365,9 @@ def test_equivalence_class_unalias_local_breaks_unification():
     heap = HeapAbstraction(lambda _procedure, local: raw[id(local)])
 
     heap.alias_locals(None, y, x)
-    x_site = heap.allocation_sites[(id(None), id(x))]
+    x_site = heap.allocation_sites[heap._local_key(None, x)]
     heap.unalias_local(None, y)
-    y_site = heap.allocation_sites[(id(None), id(y))]
+    y_site = heap.allocation_sites[heap._local_key(None, y)]
 
     assert heap._find(x_site) != heap._find(y_site)
 

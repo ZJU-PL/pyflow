@@ -10,6 +10,7 @@ from pyflow.ir.cfg import graph as cfg
 from pyflow.ir.cfg.dfs import CFGDFS
 
 from . import simplify
+from .revision import CFGTransformTransaction
 
 
 def memoizeMethod(getter):
@@ -38,7 +39,7 @@ def memoizeMethod(getter):
 
 
 class ASTCloner(TypeDispatcher):
-    """Clones AST nodes with origin tracking.
+    """Clone AST nodes while recording explicit provenance edges.
 
     This class provides functionality to clone AST nodes while preserving
     and updating origin information for debugging and analysis purposes.
@@ -48,35 +49,13 @@ class ASTCloner(TypeDispatcher):
         cache: Cache for memoized cloning operations.
     """
 
-    def __init__(self, origin):
-        """Initialize the AST cloner.
-
-        Args:
-            origin: Origin information for cloned nodes.
-        """
-        self.origin = origin
+    def __init__(self):
         self.cache = {}
+        self.generated_from = {}
 
-    def adjustOrigin(self, node):
-        """Adjust the origin information of a node.
-
-        Args:
-            node: AST node to adjust origin for.
-
-        Returns:
-            AST node with adjusted origin.
-        """
-        if not hasattr(node, "annotation") or not hasattr(node.annotation, "origin"):
-            return node
-
-        origin = node.annotation.origin
-        if origin is None:
-            origin = [None]
-        else:
-            origin = list(origin)
-
-        new_origin = list(self.origin) + origin
-        node.rewriteAnnotation(origin=new_origin)
+    def record_clone(self, original, node):
+        if node is not original and isinstance(node, ast.PythonASTNode):
+            self.generated_from[node] = (original,)
         return node
 
     @dispatch(str, type(None))
@@ -107,8 +86,7 @@ class ASTCloner(TypeDispatcher):
             Cloned local variable node.
         """
         result = ast.Local(node.name)
-        result.annotation = node.annotation
-        return self.adjustOrigin(result)
+        return self.record_clone(node, result)
 
     @dispatch(ast.Existing)
     def visitExisting(self, node):
@@ -130,11 +108,11 @@ class ASTCloner(TypeDispatcher):
         ast.Phi,
     )
     def visitOK(self, node):
-        return self.adjustOrigin(node.rewriteChildren(self))
+        return self.record_clone(node, node.rewriteChildren(self))
 
     @defaultdispatch
     def visitDefault(self, node):
-        return self.adjustOrigin(node.rewriteChildren(self))
+        return self.record_clone(node, node.rewriteChildren(self))
 
 
 class CFGClonerPre(TypeDispatcher):
@@ -158,9 +136,28 @@ class CFGClonerPre(TypeDispatcher):
     def visitSwitch(self, node):
         return cfg.Switch(node.region, self.astcloner(node.condition))
 
+    @dispatch(cfg.TypeSwitch)
+    def visitTypeSwitch(self, node):
+        return cfg.TypeSwitch(node.region, self.astcloner(node.original))
+
+    @dispatch(cfg.ForIter)
+    def visitForIter(self, node):
+        return cfg.ForIter(
+            node.region,
+            self.astcloner(node.iterator),
+            self.astcloner(node.index),
+        )
+
+    @dispatch(cfg.State)
+    def visitState(self, node):
+        return cfg.State(node.region, node.name)
+
     @dispatch(cfg.Suite)
     def visitSuite(self, node):
-        suite = cfg.Suite(node.region)
+        origin_ast = (
+            self.astcloner(node.origin_ast) if node.origin_ast is not None else None
+        )
+        suite = cfg.Suite(node.region, origin_ast=origin_ast)
         for op in node.ops:
             suite.ops.append(self.astcloner(op))
         return suite
@@ -183,12 +180,16 @@ class CFGClonerPost(TypeDispatcher):
 
 
 class CFGCloner(object):
-    def __init__(self, origin):
-        self.cloner = CFGDFS(CFGClonerPre(ASTCloner(origin)), CFGClonerPost())
+    def __init__(self):
+        self.cloner = CFGDFS(CFGClonerPre(ASTCloner()), CFGClonerPost())
         self.cloner.post.cache = self.cloner.pre.cache
         self.cfgCache = self.cloner.pre.cache
 
         self.lcl = self.cloner.pre.astcloner
+
+    @property
+    def generated_from(self):
+        return self.lcl.generated_from
 
     def process(self, g):
         self.cloner.process(g.entryTerminal)
@@ -209,7 +210,7 @@ class CFGCloner(object):
             posonlynames=original.posonlynames,
             params=[self.lcl(p) for p in original.params],
             paramnames=original.paramnames,
-            defaults=[self(d) for d in original.defaults],
+            defaults=[self.lcl(d) for d in original.defaults],
             vparam=self.lcl(original.vparam),
             kparam=self.lcl(original.kparam),
             returnparams=[self.lcl(p) for p in (original.returnparams or [source_return])],
@@ -232,6 +233,7 @@ class InlineTransform(TypeDispatcher):
         self.compiler = compiler
         self.g = g
         self.lut = lut
+        self.generated_from = {}
 
     @dispatch(cfg.Entry, cfg.Exit, cfg.Merge, cfg.Yield)
     def visitOK(self, node):
@@ -240,6 +242,100 @@ class InlineTransform(TypeDispatcher):
     @dispatch(cfg.Switch)
     def visitSwitch(self, node):
         pass
+
+    @dispatch(cfg.TypeSwitch, cfg.ForIter, cfg.State)
+    def visitControl(self, node):
+        pass
+
+    def bind_call(self, codeparameters, call):
+        """Return ordered parameter initializers for a statically bindable call.
+
+        CFG inlining is only valid after Python's argument binding succeeds.
+        Handle positional, named, default, ``*args``-parameter and
+        ``**kwargs``-parameter binding here; dynamic ``*expr``/``**expr`` calls
+        remain ordinary calls because expanding them requires runtime checks.
+        """
+        if call.vargs is not None or call.kargs is not None:
+            return None
+        if codeparameters.selfparam is not None:
+            return None
+
+        formals = list(codeparameters.posonlyparams) + list(codeparameters.params)
+        names = list(codeparameters.posonlynames) + list(codeparameters.paramnames)
+        positional_only = len(codeparameters.posonlyparams)
+        bound = {}
+
+        if len(call.args) > len(formals) and codeparameters.vparam is None:
+            return None
+        for index, argument in enumerate(call.args[: len(formals)]):
+            bound[index] = argument
+
+        extra_keywords = []
+        name_to_index = {
+            name: index
+            for index, name in enumerate(names)
+            if index >= positional_only and name is not None
+        }
+        for name, argument in call.kwds:
+            index = name_to_index.get(name)
+            if index is None:
+                if codeparameters.kparam is None:
+                    return None
+                extra_keywords.extend(
+                    [ast.Existing(ast.program.Object(name)), argument]
+                )
+                continue
+            if index in bound:
+                return None
+            bound[index] = argument
+
+        defaults = list(codeparameters.defaults)
+        default_start = len(formals) - len(defaults)
+        for index in range(len(formals)):
+            if index not in bound:
+                if index < default_start:
+                    return None
+                bound[index] = defaults[index - default_start]
+
+        initializers = [(formal, bound[index]) for index, formal in enumerate(formals)]
+        if codeparameters.vparam is not None:
+            initializers.append(
+                (codeparameters.vparam, ast.BuildTuple(list(call.args[len(formals) :])))
+            )
+        if codeparameters.kparam is not None:
+            initializers.append((codeparameters.kparam, ast.BuildMap(extra_keywords)))
+        return initializers
+
+    def materialize_returns(self, cloned):
+        """Turn cloned Return operations into writes to formal return locals."""
+        returnparams = list(cloned.code.codeparameters.returnparams)
+        pending = [cloned.entryTerminal]
+        seen = set()
+        while pending:
+            block = pending.pop()
+            if block in seen:
+                continue
+            seen.add(block)
+            pending.extend(block.forward())
+            if not isinstance(block, cfg.Suite):
+                continue
+
+            rewritten = []
+            for op in block.ops:
+                if not isinstance(op, ast.Return):
+                    rewritten.append(op)
+                    continue
+                expressions = list(op.exprs)
+                if not expressions and len(returnparams) == 1:
+                    expressions = [ast.Existing(ast.program.Object(None))]
+                if len(expressions) != len(returnparams):
+                    return False
+                rewritten.extend(
+                    ast.Assign(expression, [parameter])
+                    for parameter, expression in zip(returnparams, expressions)
+                )
+            block.ops = rewritten
+        return True
 
     @dispatch(cfg.Suite)
     def visitSuite(self, node):
@@ -264,23 +360,30 @@ class InlineTransform(TypeDispatcher):
         for op in node.ops:
             invokes = self.getInline(op)
             if invokes is not None:
-                inlined = True
-
                 call = op.expr
 
-                cloner = CFGCloner(call.annotation.origin)
+                cloner = CFGCloner()
                 cloned = cloner.process(invokes)
+
+                bindings = self.bind_call(cloned.code.codeparameters, call)
+                if bindings is None or not self.materialize_returns(cloned):
+                    current.ops.append(op)
+                    continue
+                inlined = True
+                for generated, sources in cloner.generated_from.items():
+                    self.generated_from[generated] = (call, *sources)
 
                 # Bug A fix: stray debug print removed.
                 # print("\t", invokes.code.name)
 
                 # PREAMBLE, evaluate arguments
-                for p, a in zip(cloned.code.params, call.arguments):
-                    current.ops.append(ast.Assign(p, a))
+                for parameter, argument in bindings:
+                    assignment = ast.Assign(argument, [parameter])
+                    current.ops.append(assignment)
+                    self.generated_from[assignment] = (call,)
 
                 # Connect into the cloned code
                 current.transferExit("normal", cloned.entryTerminal, "entry")
-                current.simplify()
 
                 cloned.failTerminal.redirectEntries(failTerminal)
                 cloned.errorTerminal.redirectEntries(errorTerminal)
@@ -297,7 +400,9 @@ class InlineTransform(TypeDispatcher):
                 # Bug 3 fix: ast.Assign stores targets in op.lcls (a list),
                 # not op.target.  Also the argument order is (expr, lcls).
                 if isinstance(op, ast.Assign):
-                    current.ops.append(ast.Assign(cloned.returnParam, op.lcls))
+                    assignment = ast.Assign(cloned.returnParam, op.lcls)
+                    current.ops.append(assignment)
+                    self.generated_from[assignment] = (call, op)
             else:
                 current.ops.append(op)
 
@@ -325,13 +430,15 @@ class InlineTransform(TypeDispatcher):
             if isinstance(expr, ast.Call):
                 expr = expr.expr
                 if isinstance(expr, ast.Existing):
-                    if expr.object.data in self.lut:
-                        return self.lut[expr.object.data]
+                    return self.lut.get(expr.object)
 
         return None
 
 
 def evaluate(compiler, g, lut):
-    transform = CFGDFS(post=InlineTransform(compiler, g, lut))
+    transaction = CFGTransformTransaction(g, "cfg-inline")
+    inline_transform = InlineTransform(compiler, g, lut)
+    transform = CFGDFS(post=inline_transform)
     transform.process(g.entryTerminal)
-    simplify.evaluate(compiler, g)
+    simplify.evaluate(compiler, g, commit_revision=False)
+    return transaction.commit(inline_transform.generated_from)

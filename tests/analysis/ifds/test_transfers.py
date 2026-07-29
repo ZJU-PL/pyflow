@@ -7,9 +7,9 @@ from pyflow.analysis.ifds.core.transfers import (
     collect_locals,
     formal_parameters,
     identity_unless_killed,
-    resolve_call_name,
 )
 from pyflow.language.python import ast
+from pyflow.language.python.ir_metadata import resolve_call_name
 
 
 def test_collect_locals_finds_locals_in_expression():
@@ -262,20 +262,6 @@ def test_resolve_call_name_call_existing_no_pyobj():
 def test_resolve_call_name_direct_call_no_code():
     call = ast.DirectCall(None, None, [], [], None, None)
     name = resolve_call_name(call)
-    assert name is None
-
-
-def test_resolve_call_name_fallback():
-    method_name = ast.Existing(ast.program.Object(None))
-    call = ast.MethodCall(ast.Local("obj"), method_name, [], [], None, None)
-    name = resolve_call_name(call, fallback_callee_names=("fallback_name",))
-    assert name == "fallback_name"
-
-
-def test_resolve_call_name_fallback_multiple_returns_none():
-    method_name = ast.Existing(ast.program.Object(None))
-    call = ast.MethodCall(ast.Local("obj"), method_name, [], [], None, None)
-    name = resolve_call_name(call, fallback_callee_names=("a", "b"))
     assert name is None
 
 

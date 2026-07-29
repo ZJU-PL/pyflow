@@ -174,7 +174,7 @@ class DataflowToDot(TypeDispatcher):
                 settings = self.compoundStyle(node)
             else:
                 settings = self.style(node)
-            result = pydot.Node(id(key), **settings)
+            result = pydot.Node(f"df{len(self.nodes)}", **settings)
             self.g.add_node(result)
             self.nodes[key] = result
         else:

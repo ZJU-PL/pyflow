@@ -11,6 +11,7 @@ from pyflow.analysis.alias.flow_sensitive import (
 )
 from pyflow.analysis.alias.flow_sensitive.heap_effects import HeapEffectBuilder
 from pyflow.analysis.alias.flow_sensitive.model import HeapLocation
+from pyflow.ir.core import AnalysisFacts, Precision
 from pyflow.language.python.ir_metadata import register_code_definition_metadata
 from pyflow.language.python import ast as py_ast
 
@@ -1305,6 +1306,24 @@ def test_program_point_queries_expose_before_and_after_heap_values():
     ).locations
 
 
+def test_heap_analysis_publishes_revision_aware_alias_facts():
+    value = py_ast.Local("value")
+    operation = py_ast.Assign(py_ast.BuildList([]), [value])
+    code = _code("published_alias", py_ast.Suite([operation]))
+
+    analysis = HeapAnalysis()
+    graph = analysis.analyze(None, code)
+    heap = analysis.heap
+    assert heap is not None
+    location = heap.locations_for_local(code, value)[0]
+    facts = AnalysisFacts.for_code(code)
+
+    assert facts.points_to(location) == graph.points_to(location)
+    assert facts.is_escaped(location) == graph.is_escaped(location)
+    assert facts.reference_count(location) == graph.reference_count(location)
+    assert facts.alias_precision(code, operation).precision is Precision.EXACT
+
+
 def test_generator_instances_advance_one_yield_per_resume():
     first = py_ast.Local("first")
     second = py_ast.Local("second")
@@ -1827,11 +1846,18 @@ def test_globals_from_distinct_source_modules_do_not_share_slots():
     graph = analysis.analyze(None, [first, second])
     heap = analysis.heap
     assert heap is not None
+    catalog = first.ir_catalog
     first_global = HeapLocation(
-        heap.global_object("value", module=("source-module", "first.py"))
+        heap.global_object(
+            "value",
+            module=("code-module", catalog.procedure(first).code_id),
+        )
     )
     second_global = HeapLocation(
-        heap.global_object("value", module=("source-module", "second.py"))
+        heap.global_object(
+            "value",
+            module=("code-module", catalog.procedure(second).code_id),
+        )
     )
     assert graph.possible_values_at(first_global) != graph.possible_values_at(
         second_global
@@ -2939,7 +2965,7 @@ def test_definitely_invalid_known_call_has_raise_only_outcome():
     analysis = HeapAnalysis()
     graph = analysis.analyze(None, code)
 
-    outcomes = graph.program_point_outcomes[id(invalid_call)]
+    outcomes = graph.program_point_outcomes[graph._operation_key(invalid_call)]
     assert "raise" in outcomes
     assert "normal" not in outcomes
 
@@ -2949,7 +2975,7 @@ def _direct_call_outcomes(callee, call):
     caller = _code("caller", py_ast.Suite([operation]))
     analysis = HeapAnalysis()
     graph = analysis.analyze(None, caller)
-    return graph.program_point_outcomes[id(operation)]
+    return graph.program_point_outcomes[graph._operation_key(operation)]
 
 
 def test_missing_required_argument_has_raise_only_outcome():
@@ -3047,7 +3073,7 @@ def test_unknown_positional_spread_preserves_normal_and_type_error_paths():
     analysis = HeapAnalysis()
     graph = analysis.analyze(None, caller)
 
-    outcomes = graph.program_point_outcomes[id(operation)]
+    outcomes = graph.program_point_outcomes[graph._operation_key(operation)]
     assert "normal" in outcomes
     assert "raise" in outcomes
 

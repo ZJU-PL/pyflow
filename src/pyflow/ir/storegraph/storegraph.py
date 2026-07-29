@@ -381,7 +381,10 @@ class ObjectNode(MergableNode):
         return iter(self.slots.values())
 
     def __repr__(self):
-        return "obj(%r, %r)" % (self.xtype, id(self.region))
+        return "obj(%r, region=%s)" % (
+            self.xtype,
+            type(self.region.getForward()).__qualname__,
+        )
 
     def removeObservers(self, processed):
         self = self.getForward()

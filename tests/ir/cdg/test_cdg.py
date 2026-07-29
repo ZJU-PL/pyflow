@@ -241,7 +241,7 @@ class TestCDG(unittest.TestCase):
         # Should return a dictionary with statistics
         self.assertIsInstance(analysis, dict)
         self.assertIn('total_nodes', analysis)
-        self.assertIn('dominance_frontiers', analysis)
+        self.assertIn('control_dependences', analysis)
         self.assertIn('post_dominators', analysis)
 
     def test_analyze_control_dependencies_uses_unique_node_keys(self):
@@ -249,7 +249,7 @@ class TestCDG(unittest.TestCase):
         cfg = self.build_cfg(simple_if)
         analysis = analyze_control_dependencies(cfg)
 
-        self.assertEqual(len(analysis["dominance_frontiers"]), analysis["total_nodes"])
+        self.assertEqual(len(analysis["control_dependences"]), analysis["total_nodes"])
         self.assertEqual(len(analysis["post_dominators"]), analysis["total_nodes"])
 
     def test_cdg_node_relationships(self):
@@ -318,8 +318,8 @@ class TestCDG(unittest.TestCase):
         self.assertIsInstance(repr_str, str)
         self.assertIn('ControlDependenceGraph', repr_str)
 
-    def test_simple_if_has_switch_to_branch_edges(self):
-        """Simple if should create exactly the true/false branch dependences."""
+    def test_simple_if_has_normal_and_exceptional_control_edges(self):
+        """The total CDG keeps ordinary branches and possible errors."""
         cdg = self.build_cdg(simple_if)
 
         edges = sorted(
@@ -331,20 +331,16 @@ class TestCDG(unittest.TestCase):
             for edge in cdg.get_all_edges()
         )
 
-        self.assertEqual(
-            edges,
-            [
-                ("Switch", "Suite", "false"),
-                ("Switch", "Suite", "true"),
-            ],
-        )
+        self.assertIn(("Switch", "Suite", "false"), edges)
+        self.assertIn(("Switch", "Suite", "true"), edges)
+        self.assertTrue(any(label == "error" for _, _, label in edges))
 
     def test_control_dependence_sources_are_branching_nodes(self):
-        """Controllers in the CDG should be CFG nodes with multiple normal successors."""
+        """Controllers have multiple total successors, including exceptions."""
         cdg = self.build_cdg(if_with_loop)
 
         for edge in cdg.get_all_edges():
-            self.assertGreater(len(edge.source.cfg_node.normalForward()), 1)
+            self.assertGreater(len(edge.source.cfg_node.next), 1)
 
     def test_loop_self_edges_are_limited_to_loop_switches(self):
         """Any loop self-dependence should stay on the loop condition itself."""
@@ -371,19 +367,21 @@ class TestCDG(unittest.TestCase):
 
         self.assertIn(("Switch", "Merge", "true"), labeled_merge_edges)
 
-    def test_post_dominators_for_simple_if_are_sane(self):
-        """Post-dominator relationships should match the if/else join structure."""
-        constructor = self.build_constructor(simple_if)
-        cfg_nodes = constructor._get_all_cfg_nodes()
-
-        switch = next(node for node in cfg_nodes if isinstance(node, cfg_graph.Switch))
-        join = next(
-            node
-            for node in cfg_nodes
-            if isinstance(node, cfg_graph.Merge)
-            and len(node.reverse()) == 2
-            and all(isinstance(pred, cfg_graph.Suite) for pred in node.reverse())
-        )
+    def test_post_dominators_for_pure_if_are_sane(self):
+        """A branch join post-dominates a switch when no other exit exists."""
+        code = cfg_graph.Code()
+        switch = cfg_graph.Switch(None, pyflow_ast.Local("condition"))
+        left = cfg_graph.Suite(None)
+        right = cfg_graph.Suite(None)
+        join = cfg_graph.Merge(None)
+        code.entryTerminal.setExit("entry", switch)
+        switch.setExit("true", left)
+        switch.setExit("false", right)
+        left.setExit("normal", join)
+        right.setExit("normal", join)
+        join.setExit("normal", code.normalTerminal)
+        constructor = CDGConstructor(code)
+        constructor.construct()
 
         self.assertIn(join, constructor.get_post_dominators(switch))
         self.assertNotIn(constructor.cfg.entryTerminal, constructor.get_post_dominators(join))
@@ -400,8 +398,8 @@ class TestCDG(unittest.TestCase):
 
         self.assertIn("Control Dependence Graph for function: simple_if", content)
 
-    def test_exceptional_only_nested_if_keeps_transitive_control_dependence(self):
-        """Exceptional-only branches should still keep a full postdom chain."""
+    def test_exceptional_only_nested_if_has_no_synthetic_normal_flow(self):
+        """Explicit raises terminate their branches instead of reaching a fake join."""
         func = self.load_function_from_source(
             "tmp_cdg_exceptional_only",
             """
@@ -422,17 +420,17 @@ class TestCDG(unittest.TestCase):
             edge for edge in cdg.get_all_edges() if isinstance(edge.source.cfg_node, cfg_graph.Switch)
             and isinstance(edge.target.cfg_node, cfg_graph.Switch)
         ]
-        true_merge_edges = [
-            edge for edge in cdg.get_all_edges()
-            if isinstance(edge.source.cfg_node, cfg_graph.Switch)
-            and isinstance(edge.target.cfg_node, cfg_graph.Merge)
-            and edge.label == "true"
-        ]
-
         self.assertTrue(switch_to_switch_edges)
-        self.assertTrue(true_merge_edges)
+        raise_suites = [
+            node
+            for node in cdg.nodes
+            if isinstance(node, cfg_graph.Suite)
+            and any(isinstance(op, pyflow_ast.Raise) for op in node.ops)
+        ]
+        self.assertTrue(raise_suites)
+        self.assertTrue(all(node.getExit("normal") is None for node in raise_suites))
 
-    def test_exceptional_control_dependence_can_be_enabled(self):
+    def test_exceptional_control_dependence_is_always_present(self):
         code = cfg_graph.Code()
         operation = cfg_graph.Suite(None)
         normal = cfg_graph.Merge(None)
@@ -444,16 +442,50 @@ class TestCDG(unittest.TestCase):
         normal.setExit("normal", code.normalTerminal)
         error.setExit("normal", code.errorTerminal)
 
-        normal_only = construct_cdg(code)
-        exception_aware = construct_cdg(code, include_exceptional=True)
-
-        self.assertEqual(normal_only.get_all_edges(), [])
+        exception_aware = construct_cdg(code)
         labels = {
             edge.label
             for edge in exception_aware.get_all_edges()
             if edge.source.cfg_node is operation
         }
         self.assertEqual(labels, {"normal", "error"})
+
+    def test_cdg_nodes_from_different_graphs_do_not_alias_by_display_id(self):
+        first = ControlDependenceGraph(cfg_graph.Code())
+        second = ControlDependenceGraph(cfg_graph.Code())
+
+        first_node = first.add_node(first.cfg.entryTerminal)
+        second_node = second.add_node(second.cfg.entryTerminal)
+
+        self.assertEqual(first_node.node_id, second_node.node_id)
+        self.assertIsNot(first_node, second_node)
+        self.assertNotEqual(first_node, second_node)
+
+    def test_nonterminating_sink_regions_receive_total_postdominance(self):
+        code = cfg_graph.Code()
+        header = cfg_graph.Merge(None)
+        switch = cfg_graph.Switch(None, pyflow_ast.Local("condition"))
+        backedge = cfg_graph.Suite(None)
+        sink = cfg_graph.Merge(None)
+        code.entryTerminal.setExit("entry", header)
+        header.setExit("normal", switch)
+        switch.setExit("true", backedge)
+        switch.setExit("false", sink)
+        backedge.setExit("normal", header)
+        sink.setExit("normal", sink)
+
+        constructor = CDGConstructor(code)
+        graph = constructor.construct()
+
+        self.assertEqual(
+            len(constructor._postdom_nodes), len(constructor._get_all_cfg_nodes())
+        )
+        labels = {
+            edge.label
+            for edge in graph.get_all_edges()
+            if edge.source.cfg_node is switch
+        }
+        self.assertIn("true", labels)
 
     def test_cdg_preserves_parallel_control_labels(self):
         code = cfg_graph.Code()

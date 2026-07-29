@@ -6,7 +6,12 @@ import tempfile
 import unittest
 
 from pyflow.ir.dataflow import graph as df
-from pyflow.ir.ddg import construct_ddg, DDGConstructor
+from pyflow.ir.ddg import (
+    construct_ddg,
+    DDGConstructor,
+    MalformedForwardingCycleError,
+)
+from pyflow.ir.ddg.construction import _memory_slot_key
 from pyflow.ir.ddg.dump import DDGDumper
 from pyflow.ir.ddg.graph import DataDependenceGraph
 
@@ -77,6 +82,34 @@ class FakeDataflow(object):
         self.existing = {}
         self.null = FakeSlot("null")
         self.entryPredicate = None
+
+
+class ForwardedValue:
+    def __init__(self):
+        self.forward = self
+
+    def getForward(self):
+        return self.forward
+
+
+class TestForwardingDiagnostics(unittest.TestCase):
+    def test_malformed_forwarding_cycle_is_diagnosed(self):
+        left = ForwardedValue()
+        right = ForwardedValue()
+        left.forward = right
+        right.forward = left
+
+        with self.assertRaises(MalformedForwardingCycleError):
+            _memory_slot_key(left)
+
+
+class ForwardingFieldName(object):
+    def __init__(self, name, forward=None):
+        self.slotName = name
+        self.forward = forward
+
+    def getForward(self):
+        return self.forward.getForward() if self.forward is not None else self
 
 
 class TestDDGConstructionRegression(unittest.TestCase):
@@ -166,6 +199,22 @@ class TestDDGConstructionRegression(unittest.TestCase):
         edges = [edge for edge in ddg.all_edges() if edge.kind == "memory"]
 
         self.assertEqual(edges, [])
+
+    def test_memory_dependencies_canonicalize_forwarded_field_names(self):
+        canonical = ForwardingFieldName("field")
+        alias = ForwardingFieldName("field", canonical)
+        entry = FakeOp("entry")
+        writer = FakeOp("writer", heap_modifies={"field": FakeSlot(alias)})
+        reader = FakeOp("reader", heap_reads={"field": FakeSlot(canonical)})
+        entry.connect(writer)
+        writer.connect(reader)
+
+        ddg = construct_ddg(FakeDataflow(entry))
+        memory = [edge for edge in ddg.all_edges() if edge.kind == "memory"]
+
+        self.assertEqual(len(memory), 1)
+        self.assertEqual(memory[0].label, "RAW")
+        self.assertIs(memory[0].location, canonical)
 
     def test_memory_dependencies_keep_all_reaching_branch_writes(self):
         field = FakeSlot("field")
@@ -266,7 +315,7 @@ class TestDDGDumpRegression(unittest.TestCase):
 
         producer.add_edge_to(slot, "def-use", "slot_x")
         slot.add_edge_to(consumer, "def-use", "slot_x")
-        ddg.add_mem_dep(producer, consumer, "RAW")
+        ddg.add_mem_dep(producer, consumer, "RAW", location="heap.x")
 
         dumper = DDGDumper(ddg)
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -289,6 +338,9 @@ class TestDDGDumpRegression(unittest.TestCase):
             self.assertIn("ir", json_output["nodes"][0])
             self.assertTrue(any(edge["label"] == "slot_x" for edge in json_output["edges"]))
             self.assertTrue(any(edge["label"] == "RAW" for edge in json_output["edges"]))
+            self.assertTrue(
+                any(edge["location"] == "'heap.x'" for edge in json_output["edges"])
+            )
 
             with open(dot_path) as f:
                 dot_output = f.read()

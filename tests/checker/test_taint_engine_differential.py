@@ -15,7 +15,7 @@ from pyflow.ir.cpg.taint import CPGTaintEngine
 
 
 class _NoQueries:
-    def get_ipa_analysis(self):
+    def get_ipa_function_summaries(self):
         raise RuntimeError("IPA is intentionally unavailable in this corpus")
 
 

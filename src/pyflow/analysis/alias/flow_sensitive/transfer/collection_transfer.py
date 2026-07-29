@@ -77,9 +77,13 @@ class _CollectionMutationMixin:
         if container is None:
             return
         evaluated = (
-            self._last_call_operands.get(id(call), {}) if call is not None else {}
+            self._last_call_operands.get(
+                self._program_point_identity(procedure, call), {}
+            )
+            if call is not None
+            else {}
         )
-        roots = evaluated.get(id(container))
+        roots = evaluated.get(self._program_point_identity(procedure, container))
         if roots is None:
             roots = self.locations_for_expression(procedure, container)
         for root in roots:

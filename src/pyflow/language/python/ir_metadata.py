@@ -185,8 +185,21 @@ def actual_argument_expressions(call) -> tuple[object, ...]:
     return tuple(actuals)
 
 
-def resolve_call_name(call, fallback_callee_names=()) -> str | None:
-    """Resolve a best-effort symbolic name for a call expression."""
+def resolve_call_name(call, *, code=None) -> str | None:
+    """Return the indexed structural call name, or inspect standalone syntax.
+
+    Analysis clients must pass ``code`` so missing semantics is visible rather
+    than reconstructed privately.  The syntax-only form remains for frontend
+    construction utilities and isolated AST tests.
+    """
+    if code is not None:
+        owner = getattr(code, "code", code)
+        catalog = owner.ir_catalog
+        node_id = catalog.node_id(call, owner)
+        sites = catalog.semantics.calls_for(node_id)
+        if len(sites) != 1:
+            return None
+        return sites[0].symbolic_name
     if isinstance(call, py_ast.DirectCall) and call.code is not None:
         return call.code.codeName()
     if isinstance(call, py_ast.Call):
@@ -209,7 +222,4 @@ def resolve_call_name(call, fallback_callee_names=()) -> str | None:
             pyobj = getattr(name.object, "pyobj", None)
             if isinstance(pyobj, str):
                 return pyobj
-    fallback = tuple(fallback_callee_names)
-    if len(fallback) == 1:
-        return fallback[0]
     return None

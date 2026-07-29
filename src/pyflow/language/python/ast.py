@@ -60,11 +60,12 @@ class Existing(Reference):
 
 
 class Local(Reference):
-    """Represents a local variable reference.
+    """Represents one occurrence of a local symbol.
 
-    Used for function parameters, local variables, and other named values.
-    The name field may be None for anonymous locals. Local nodes are shared
-    across the AST (same Local object represents the same variable).
+    ``Local`` is syntax, not the identity of a variable.  Once a code object is
+    indexed, :class:`pyflow.ir.core.IRCatalog` maps every occurrence to its
+    deterministic ``SymbolId`` (and SSA passes may additionally assign a
+    ``ValueId``).  Object identity remains only an internal AST sharing detail.
     """
 
     __fields__ = "name:str?"
@@ -76,13 +77,10 @@ class Local(Reference):
         self.annotation = self.__emptyAnnotation__
 
     def __repr__(self):
-        if self.name:
-            return "Local(%s/%d)" % (self.name, id(self))
-        else:
-            return "Local(%d)" % id(self)
+        return f"Local(%{self.name})" if self.name else "Local(%<anonymous>)"
 
     def __hash__(self):
-        return id(self)
+        return object.__hash__(self)
 
     def isPure(self):
         return True
@@ -659,12 +657,22 @@ class Code(BaseCode):
     __fields__ = """name:str
             codeparameters:CodeParameters
             ast:Suite"""
+    __slots__ = ("ir_catalog",)
     __shared__ = True
 
     __emptyAnnotation__ = annotations.emptyCodeAnnotation
 
+    def __postinit__(self):
+        self.ir_catalog = None
+
     def __repr__(self):
-        return "Code(%s/%d)" % (self.name, id(self))
+        catalog = self.ir_catalog
+        if catalog is not None:
+            try:
+                return f"Code(@{catalog.procedure(self).code_id})"
+            except KeyError:
+                pass
+        return f"Code(@{self.name})"
 
     ### The abstract code interface ###
     def isStandardCode(self):

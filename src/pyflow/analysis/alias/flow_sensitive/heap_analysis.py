@@ -9,6 +9,8 @@ optimization passes and the semantic query API.
 
 from __future__ import annotations
 
+from pyflow.ir.core.index import ensure_codes_indexed
+
 from .domain.abstraction import (
     HeapAbstraction,
 )
@@ -22,6 +24,7 @@ from .model import (
 )
 from .semantics.intrinsics import DEFAULT_HEAP_INTRINSICS, HeapIntrinsicModels
 from .transfer import HeapTransferEngine
+from .publication import publish_alias_facts
 
 
 class HeapAnalysis:
@@ -38,7 +41,7 @@ class HeapAnalysis:
 
     Typical query usage::
 
-        graph = program.heap_analysis
+        graph = program.get_analysis_result("heap")
         if graph.never_escapes(location):
             ...  # safe to stack-allocate / eliminate
         if graph.must_alias(a, b):
@@ -81,6 +84,12 @@ class HeapAnalysis:
         """
         provider = raw_storage_provider or self._raw_storage_provider
         self._raw_storage_provider = provider
+        # Standalone clients are allowed to pass raw ``Code`` objects rather
+        # than an application ``Program``.  Give every discovered procedure
+        # the same mandatory metadata/identity catalog before transfer starts.
+        codes = tuple(HeapTransferEngine.iter_code_objects(program))
+        if codes:
+            ensure_codes_indexed(codes)
         self._heap = HeapAbstraction(
             provider,
             policy=self._policy,
@@ -92,9 +101,10 @@ class HeapAnalysis:
         engine = HeapTransferEngine(self._heap, intrinsics=self._intrinsics)
         engine.analyze_program(program)
         self._procedure_summaries = dict(engine.procedure_summaries)
-        degradations: dict[int, set[str]] = {}
+        degradations: dict[object, set[str]] = {}
         for operation, reason in engine.precision_degradations:
-            degradations.setdefault(id(operation), set()).add(reason)
+            identity = engine.program_point_identities.get(operation, operation)
+            degradations.setdefault(identity, set()).add(reason)
         self._precision_degradations = {
             operation_id: frozenset(reasons)
             for operation_id, reasons in degradations.items()
@@ -104,8 +114,16 @@ class HeapAnalysis:
             program_point_states=engine.program_point_states,
             program_point_outcomes=engine.program_point_outcomes,
             precision_degradations=self._precision_degradations,
+            operation_identities=engine.program_point_identities,
         )
         self._graph = graph
+        catalogs = {
+            code.ir_catalog
+            for code in codes
+            if getattr(code, "ir_catalog", None) is not None
+        }
+        if len(catalogs) == 1:
+            publish_alias_facts(next(iter(catalogs)), graph, self._heap, codes)
         return graph
 
     @property

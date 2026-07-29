@@ -26,6 +26,7 @@ from pyflow.ir.dataflow import graph
 from pyflow.ir.storegraph import storegraph
 
 from pyflow.ir.dataflow.transform import dce
+from pyflow.ir.core import AnalysisFacts, Capabilities
 
 
 class UnsupportedDataflowConstructError(Exception):
@@ -298,9 +299,9 @@ class DeferedEntryPoint(AbstractState):
             return self.dataflow.getExisting(slot)
         else:
             # Fields from killed object cannot come from beyond the entry point.
-            annotation = getattr(self.code, "annotation", None)
-            killed = getattr(getattr(annotation, "killed", None), "merged", ())
-            if slot.object in killed:
+            killed = self.dataflow.killed
+            storage_object = getattr(slot, "object", slot)
+            if storage_object in killed:
                 return self.dataflow.null
             else:
                 field = graph.FieldNode(self.hyperblock, slot)
@@ -344,6 +345,15 @@ class CodeToDataflow(TypeDispatcher):
 
         self.code = code
         self.dataflow = graph.DataflowGraph(hyperblock)
+        self.dataflow.code = code
+        catalog = getattr(code, "ir_catalog", None)
+        if catalog is not None and catalog.facts.has(
+            Capabilities.LIFETIME_CODE_KILLED
+        ):
+            self.dataflow.killed = AnalysisFacts(catalog).merged_code_effect(
+                Capabilities.LIFETIME_CODE_KILLED,
+                code,
+            )
         self.dataflow.initPredicate()
 
         self.entryState = DeferedEntryPoint(
@@ -432,18 +442,20 @@ class CodeToDataflow(TypeDispatcher):
             g.addLocalModify(lcl, target)
 
     def handleMemory(self, node, g):
-        annotation = getattr(node, "annotation", None)
-        if annotation is None:
+        catalog = getattr(self.code, "ir_catalog", None)
+        if catalog is None or not catalog.has_node(node, self.code):
             return
+        semantics = catalog.semantics_of(node, code=self.code)
 
-        # Reads
-        reads = getattr(getattr(annotation, "reads", None), "merged", ())
+        # Structural reads and writes use the same canonical StorageLocation
+        # identities consumed by IFDS and PDG.
+        reads = semantics.reads
         for read in reads:
             slot = self.get(read)
             g.addRead(read, slot)
 
-        # Psedo reads
-        modifies = getattr(getattr(annotation, "modifies", None), "merged", ())
+        # A write depends on the prior value for conservative WAR ordering.
+        modifies = semantics.writes
         for modify in modifies:
             slot = self.get(modify)
             g.addPsedoRead(modify, slot)
@@ -752,8 +764,7 @@ class CodeToDataflow(TypeDispatcher):
             self.dataflow.exit.setPredicate(self.dataflow.entryPredicate)
             return
 
-        annotation = getattr(self.code, "annotation", None)
-        killed = getattr(getattr(annotation, "killed", None), "merged", ())
+        killed = self.dataflow.killed
 
         self.dataflow.exit = graph.Exit(state.hyperblock)
         self.dataflow.exit.setPredicate(state.predicate)
@@ -762,8 +773,9 @@ class CodeToDataflow(TypeDispatcher):
             if isinstance(name, ast.Local):
                 if name in self.code.codeparameters.returnparams:
                     self.dataflow.exit.addExit(name, state.get(name))
-            elif isinstance(name, storegraph.SlotNode):
-                if name.object not in killed:
+            else:
+                storage_object = getattr(name, "object", name)
+                if storage_object not in killed:
                     self.dataflow.exit.addExit(name, state.get(name))
 
     def setParameter(self, param):

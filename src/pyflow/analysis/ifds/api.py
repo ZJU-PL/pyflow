@@ -12,6 +12,7 @@ from typing import Iterable, Sequence
 from pyflow.application.context import CompilerContext
 from pyflow.application.pipeline import Pipeline
 from pyflow.application.program import Program
+from pyflow.analysis.callgraph.publication import publish_constraint_callgraph_facts
 from pyflow.frontend.extractor import Extractor, extract_program
 from pyflow.frontend.interface_builder import (
     InterfaceBuildOptions,
@@ -22,11 +23,6 @@ from pyflow.util.application.console import Console
 from .frontend.cfg_adapter import (
     CFGSupergraphAdapter,
     build_supergraph_from_cfgs,
-    composite_cfg_resolver,
-    constraint_callgraph_cfg_resolver,
-    direct_call_cfg_resolver,
-    annotation_invokes_cfg_resolver,
-    named_call_cfg_resolver,
 )
 from .analyses.nullness import (
     NullnessAnalysisResult,
@@ -42,7 +38,7 @@ from .analyses.typestate import (
     analyze_typestate,
 )
 from .diagnostics import IFDSDiagnostic
-from .frontend.preparation import PreparationMode, prepare_program_for_ifds
+from .frontend.preparation import prepare_program_for_ifds
 from .core.solver import SolverOptions
 
 
@@ -79,11 +75,11 @@ def _path_options(
 def _entry_nodes_from_program(
     session: AnalysisSession,
     *,
-    fallback_function: str | None = None,
+    function_name: str | None = None,
 ):
     queries = session.program.get_queries(session.compiler)
-    if fallback_function is not None:
-        target_code = queries.context.resolve_function(fallback_function)
+    if function_name is not None:
+        target_code = queries.context.resolve_function(function_name)
         candidate_codes = [target_code]
         target_source = _source_filename_from_code(target_code)
         if target_source is not None:
@@ -131,18 +127,15 @@ def _entry_nodes_from_program(
 
 
 def _source_filename_from_code(code) -> str | None:
-    annotation = getattr(code, "annotation", None)
-    origin = getattr(annotation, "origin", ()) or ()
-    for item in origin:
-        if not isinstance(item, str):
-            continue
-        if not (item.startswith("source(") and item.endswith(")")):
-            continue
-        payload = item[len("source(") : -1]
-        filename, _sep, _lineno = payload.rpartition(":")
-        if filename:
-            return os.path.realpath(filename)
-    return None
+    catalog = getattr(code, "ir_catalog", None)
+    if catalog is None:
+        return None
+    origin = catalog.source_of(code, code=code)
+    span = getattr(origin, "span", None)
+    filename = getattr(span, "path", None)
+    if not filename:
+        filename = catalog.procedure(code).code_id.anchor.filename
+    return os.path.realpath(filename) if filename else None
 
 
 def _code_display_name(code) -> str:
@@ -160,11 +153,10 @@ def _code_display_name(code) -> str:
 
 
 def _is_synthetic_module_code(code) -> bool:
-    annotation = getattr(code, "annotation", None)
-    origin = getattr(annotation, "origin", ()) or ()
-    return any(
-        isinstance(item, str) and item.startswith("synthetic_module(")
-        for item in origin
+    catalog = getattr(code, "ir_catalog", None)
+    return bool(
+        catalog is not None
+        and catalog.procedure(code).construct_kind == "synthetic_module"
     )
 
 
@@ -221,11 +213,11 @@ def _resolve_requested_entry_code(program: Program, queries, function_name: str)
     seen = set()
     for ep in getattr(program.interface, "entryPoint", ()):
         code = getattr(ep, "code", None)
-        if code is None or id(code) in seen:
+        if code is None or code in seen:
             continue
         if function_name in queries.context.code_aliases(code):
             interface_matches.append(code)
-            seen.add(id(code))
+            seen.add(code)
 
     if len(interface_matches) == 1:
         return interface_matches[0]
@@ -236,46 +228,6 @@ def _resolve_requested_entry_code(program: Program, queries, function_name: str)
     return queries.context.resolve_function(function_name)
 
 
-def _constraint_call_resolver_for_files(files: Sequence[Path], root_file: str | None):
-    if not files:
-        return None
-    selected = files[0]
-    if root_file is not None:
-        root_real = os.path.realpath(root_file)
-        for candidate in files:
-            if os.path.realpath(candidate) == root_real:
-                selected = candidate
-                break
-    try:
-        source = selected.read_text(encoding="utf-8")
-    except OSError:
-        return None
-
-    try:
-        from pyflow.analysis.callgraph.constraint_based import (
-            extract_call_site_edge_index_constraint,
-        )
-
-        call_site_edges = extract_call_site_edge_index_constraint(
-            source,
-            source_path=str(selected),
-            context_sensitive=True,
-            context_depth=1,
-            allow_fixture_graph_loading=False,
-        )
-    except Exception:
-        return None
-
-    if not call_site_edges:
-        return None
-    return composite_cfg_resolver(
-        constraint_callgraph_cfg_resolver(call_site_edges),
-        direct_call_cfg_resolver,
-        annotation_invokes_cfg_resolver,
-        named_call_cfg_resolver,
-    )
-
-
 def load_analysis_session(
     python_files: Sequence[str | Path],
     *,
@@ -284,7 +236,6 @@ def load_analysis_session(
     search_paths: Sequence[str] | None = None,
     include_exceptional_edges: bool = True,
     root_function: str | None = None,
-    preparation_mode: PreparationMode = PreparationMode.BEST_EFFORT,
 ) -> AnalysisSession:
     """Load source files into a PyFlow program and build CFGs for all live code."""
     files = [Path(path) for path in python_files]
@@ -320,18 +271,15 @@ def load_analysis_session(
             compiler,
             program,
             get_cfg=lambda code: program.get_queries(compiler).get_cfg(code),
-            describe_code=_code_display_name,
             run_pipeline=lambda: Pipeline(use_pass_manager=True).run_custom_pipeline(
                 compiler, program, ["ipa", "cpa"]
             ),
             supplemental_live_codes=preserved_codes,
-            mode=preparation_mode,
         )
-    call_resolver = _constraint_call_resolver_for_files(files, target_source)
+        publish_constraint_callgraph_facts(program, files)
     adapter = build_supergraph_from_cfgs(
         prepared.cfgs,
         include_exceptional_edges=include_exceptional_edges,
-        call_resolver=call_resolver,
     )
     return AnalysisSession(
         compiler,
@@ -356,7 +304,6 @@ def run_taint_analysis(
     include_exceptional_edges: bool = True,
     shadow_scan: bool = False,
     solver_options: SolverOptions | None = None,
-    preparation_mode: PreparationMode = PreparationMode.BEST_EFFORT,
 ) -> tuple[AnalysisSession, TaintAnalysisResult, list | None]:
     """Load files, resolve a function, and run the shipped taint analysis.
 
@@ -372,7 +319,6 @@ def run_taint_analysis(
         search_paths=search_paths,
         include_exceptional_edges=include_exceptional_edges,
         root_function=function,
-        preparation_mode=preparation_mode,
     )
     result = analyze_taint(
         session.adapter,
@@ -395,7 +341,7 @@ def run_taint_analysis(
                 conservative_unresolved_call_side_effects
             ),
         ),
-        entry_nodes=_entry_nodes_from_program(session, fallback_function=function),
+        entry_nodes=_entry_nodes_from_program(session, function_name=function),
         **({"solver_options": solver_options} if solver_options is not None else {}),
     )
 
@@ -425,7 +371,6 @@ def run_nullness_analysis(
     search_paths: Sequence[str] | None = None,
     include_exceptional_edges: bool = True,
     solver_options: SolverOptions | None = None,
-    preparation_mode: PreparationMode = PreparationMode.BEST_EFFORT,
 ) -> tuple[AnalysisSession, NullnessAnalysisResult]:
     """Load files, resolve a function, and run the shipped nullness analysis."""
     files = [Path(path) for path in python_files]
@@ -436,7 +381,6 @@ def run_nullness_analysis(
         search_paths=search_paths,
         include_exceptional_edges=include_exceptional_edges,
         root_function=function,
-        preparation_mode=preparation_mode,
     )
     result = analyze_nullness(
         session.adapter,
@@ -459,7 +403,7 @@ def run_nullness_analysis(
                 else NullnessConfiguration().collection_accessor_names
             ),
         ),
-        entry_nodes=_entry_nodes_from_program(session, fallback_function=function),
+        entry_nodes=_entry_nodes_from_program(session, function_name=function),
         **({"solver_options": solver_options} if solver_options is not None else {}),
     )
     return session, result
@@ -482,7 +426,6 @@ def run_typestate_analysis(
     search_paths: Sequence[str] | None = None,
     include_exceptional_edges: bool = True,
     solver_options: SolverOptions | None = None,
-    preparation_mode: PreparationMode = PreparationMode.BEST_EFFORT,
 ) -> tuple[AnalysisSession, TypestateAnalysisResult]:
     """Load files, resolve a function, and run the shipped typestate analysis."""
     files = [Path(path) for path in python_files]
@@ -493,7 +436,6 @@ def run_typestate_analysis(
         search_paths=search_paths,
         include_exceptional_edges=include_exceptional_edges,
         root_function=function,
-        preparation_mode=preparation_mode,
     )
     result = analyze_typestate(
         session.adapter,
@@ -519,7 +461,7 @@ def run_typestate_analysis(
                 else TypestateConfiguration().collection_accessor_names
             ),
         ),
-        entry_nodes=_entry_nodes_from_program(session, fallback_function=function),
+        entry_nodes=_entry_nodes_from_program(session, function_name=function),
         **({"solver_options": solver_options} if solver_options is not None else {}),
     )
     return session, result

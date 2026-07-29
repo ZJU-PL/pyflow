@@ -11,22 +11,17 @@ def test_context_is_backward_compatible_compiler_context():
     assert hasattr(context, "stats")
 
 
-def test_program_analysis_registry_tracks_legacy_slots():
+def test_program_analysis_registry_has_one_canonical_entry_per_analysis():
     program = Program()
 
     program.set_analysis_result("ipa", "ipa-value")
     program.set_analysis_result("cpa", "cpa-value")
     program.set_analysis_result("lifetime", "lifetime-value")
 
-    assert program.ipa_analysis == "ipa-value"
-    assert program.cpa_analysis == "cpa-value"
-    assert program.lifetime_analysis == "lifetime-value"
-    assert program.get_analysis_result("ipa_analysis") == "ipa-value"
-    assert program.get_analysis_result("cpa_analysis") == "cpa-value"
-    assert program.get_analysis_result("lifetime_analysis") == "lifetime-value"
+    assert program.get_analysis_result("ipa") == "ipa-value"
+    assert program.get_analysis_result("cpa") == "cpa-value"
+    assert program.get_analysis_result("lifetime") == "lifetime-value"
 
     program.clear_analysis_results({"ipa", "cpa_path_sensitive", "lifetime_refresh"})
 
-    assert program.ipa_analysis is None
-    assert program.cpa_analysis is None
-    assert program.lifetime_analysis is None
+    assert program.analysis_results == {}

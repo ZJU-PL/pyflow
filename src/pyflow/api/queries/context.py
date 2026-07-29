@@ -2,10 +2,7 @@
 Shared context for PyFlow query engines.
 """
 
-import os
 from typing import List, Optional, Union
-
-from pyflow.application.errors import TemporaryLimitation
 
 
 class QueryContext:
@@ -19,12 +16,6 @@ class QueryContext:
     def __init__(self, compiler, program):
         self.compiler = compiler
         self.program = program
-
-    def require_ipa(self):
-        """Ensure IPA analysis is available and return it."""
-        if getattr(self.program, "ipa_analysis", None) is None:
-            raise TemporaryLimitation("IPA analysis not available; run IPA first.")
-        return self.program.ipa_analysis
 
     def resolve_function(self, function: Union[str, object]):
         """Resolve a function name or object to a code object."""
@@ -44,24 +35,19 @@ class QueryContext:
         if isinstance(function, str):
             return function
         if hasattr(function, "codeName"):
-            return function.codeName()
+            return str(function.codeName())
         if hasattr(function, "__name__"):
-            return function.__name__
+            return str(function.__name__)
         raise TypeError("Expected a function name or a PyFlow code object.")
 
     def code_identifier(self, code) -> Optional[str]:
         """Get a collision-resistant identifier for a code object."""
         if code is None:
             return None
-        name = self.code_name(code)
-        if name is None:
+        catalog = getattr(self.program, "ir", None)
+        if catalog is None or not catalog.has_procedure(code):
             return None
-
-        filename, lineno = self._origin_location(code)
-        if filename:
-            location = f"{os.path.abspath(filename)}:{lineno if lineno is not None else '?'}"
-            return f"{name}@{location}"
-        return f"{name}@id:{id(code):x}"
+        return str(catalog.procedure(code).code_id)
 
     def code_aliases(self, code) -> List[str]:
         """Return aliases that may refer to a code object in public queries."""
@@ -84,9 +70,9 @@ class QueryContext:
         if code is None:
             return None
         if hasattr(code, "codeName"):
-            return code.codeName()
+            return str(code.codeName())
         if hasattr(code, "__name__"):
-            return code.__name__
+            return str(code.__name__)
         return str(code)
 
     def _find_function_by_name(self, function_name: str):
@@ -125,28 +111,26 @@ class QueryContext:
         return matches[0]
 
     def _dedupe_key(self, code):
-        name = self.code_name(code)
-        filename, lineno = self._origin_location(code)
-        if filename:
-            return ("source", name, os.path.realpath(filename), lineno or "?")
-        return ("id", id(code))
+        catalog = getattr(self.program, "ir", None)
+        if catalog is None or not catalog.has_procedure(code):
+            return code
+        identity = catalog.procedure(code).code_id
+        # The frontend may expose two object instances for the same extracted
+        # declaration through liveCode and the public interface.  Ordinals
+        # distinguish catalog objects, but source/name resolution should treat
+        # an identical declaration anchor as one function.
+        return identity.module, identity.qualname, identity.anchor
 
     def _origin_location(self, code) -> tuple[Optional[str], Optional[object]]:
-        annotation = getattr(code, "annotation", None)
-        origin = getattr(annotation, "origin", None)
-        filename = getattr(origin, "filename", None)
-        lineno = getattr(origin, "lineno", None)
-        if filename:
-            return filename, lineno
-
-        if isinstance(origin, (tuple, list)):
-            for item in origin:
-                if not isinstance(item, str):
-                    continue
-                if item.startswith("source(") and item.endswith(")"):
-                    payload = item[len("source(") : -1]
-                    parsed_filename, _sep, parsed_lineno = payload.rpartition(":")
-                    if parsed_filename:
-                        return parsed_filename, parsed_lineno or "?"
-
-        return None, None
+        catalog = getattr(self.program, "ir", None)
+        if catalog is None or not catalog.has_procedure(code):
+            return None, None
+        try:
+            origin = catalog.source_of(code, code=code)
+        except KeyError:
+            origin = None
+        span = getattr(origin, "span", None)
+        if span is None:
+            anchor = catalog.procedure(code).code_id.anchor
+            return (anchor.filename or None, anchor.line or None)
+        return (span.path or None, span.start_line or None)

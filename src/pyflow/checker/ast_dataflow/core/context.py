@@ -27,13 +27,11 @@ class AnalysisSession:
     program: Program
     queries: SemanticQueryService
     sources_by_name: Dict[str, str]
-    store_graph: Optional[object]
-    lifetime: Optional[object]
+    analysis_facts: object
     # Cross-module tracking
     func_to_file: Dict[str, str]  # Maps function name to its defining file
     file_imports: Dict[str, Dict[str, str]]  # Maps file -> {imported_name: source_file}
     all_source_code: Dict[str, str]  # Maps filename -> source code
-    heap_graph: Optional[object] = None
 
     @classmethod
     def from_paths(
@@ -80,9 +78,7 @@ class AnalysisSession:
                 pipeline.run(program, compiler=compiler, name="semantic")
 
         queries = program.get_semantic_queries(compiler)
-        store_graph = cls._maybe_get_store_graph(queries)
-        heap_graph = cls._maybe_get_heap_graph(queries)
-        lifetime = cls._maybe_get_lifetime(queries)
+        analysis_facts = queries.get_analysis_facts()
         sources_by_name, func_to_file, file_imports = cls._collect_sources_and_imports(
             program, all_source_code
         )
@@ -91,9 +87,7 @@ class AnalysisSession:
             program=program,
             queries=queries,
             sources_by_name=sources_by_name,
-            store_graph=store_graph,
-            heap_graph=heap_graph,
-            lifetime=lifetime,
+            analysis_facts=analysis_facts,
             func_to_file=func_to_file,
             file_imports=file_imports,
             all_source_code=all_source_code,
@@ -246,33 +240,3 @@ class AnalysisSession:
         is useful for optimization but not for read-only bug finding.
         """
         return ["ipa", "cpa", "lifetime", "heap"]
-
-    # --------------------------------------------------------------- analysis
-    @staticmethod
-    def _maybe_get_store_graph(queries: SemanticQueryService) -> Optional[object]:
-        from pyflow.application.errors import TemporaryLimitation
-
-        try:
-            return queries.get_store_graph()
-        except TemporaryLimitation:
-            return None
-        except Exception:
-            return None
-
-    @staticmethod
-    def _maybe_get_lifetime(queries: SemanticQueryService) -> Optional[object]:
-        from pyflow.application.errors import TemporaryLimitation
-
-        try:
-            return queries.get_lifetime()
-        except TemporaryLimitation:
-            return None
-        except Exception:
-            return None
-
-    @staticmethod
-    def _maybe_get_heap_graph(queries: SemanticQueryService) -> Optional[object]:
-        try:
-            return queries.get_heap_graph()
-        except Exception:
-            return None

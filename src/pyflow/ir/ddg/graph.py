@@ -45,10 +45,15 @@ class DDGEdge(object):
         label: Optional label for additional information (e.g., slot name, "RAW")
     """
 
-    __slots__ = ("source", "target", "kind", "label")
+    __slots__ = ("source", "target", "kind", "label", "location")
 
     def __init__(
-        self, source: "DDGNode", target: "DDGNode", kind: str, label: str = ""
+        self,
+        source: "DDGNode",
+        target: "DDGNode",
+        kind: str,
+        label: str = "",
+        location: Any = None,
     ):
         """
         Initialize a data dependence edge.
@@ -63,12 +68,13 @@ class DDGEdge(object):
         self.target = target
         self.kind = kind  # e.g., "def-use", "mem-read", "mem-write", "phi"
         self.label = label
+        self.location = location
 
     def __repr__(self):
         return "DDGEdge(%r -> %r, %s)" % (self.source, self.target, self.kind)
 
     def __hash__(self):
-        return hash((self.source, self.target, self.kind, self.label))
+        return hash((self.source, self.target, self.kind, self.label, self.location))
 
     def __eq__(self, other):
         return (
@@ -77,6 +83,7 @@ class DDGEdge(object):
             and self.target is other.target
             and self.kind == other.kind
             and self.label == other.label
+            and self.location == other.location
         )
 
 
@@ -108,9 +115,22 @@ class DDGNode(object):
         edges_out: Set of outgoing edges (dependents)
     """
 
-    __slots__ = ("node_id", "ir_node", "category", "edges_in", "edges_out")
+    __slots__ = (
+        "node_id",
+        "semantic_id",
+        "ir_node",
+        "category",
+        "edges_in",
+        "edges_out",
+    )
 
-    def __init__(self, node_id: int, ir_node: Any, category: str):
+    def __init__(
+        self,
+        node_id: int,
+        ir_node: Any,
+        category: str,
+        semantic_id: Any = None,
+    ):
         """
         Initialize a DDG node.
 
@@ -120,12 +140,15 @@ class DDGNode(object):
             category: Node category ("op", "slot", or "phi")
         """
         self.node_id = node_id
+        self.semantic_id = semantic_id
         self.ir_node = ir_node  # dataflow IR.OpNode, SlotNode, or SSA Phi/Local
         self.category = category  # "op", "slot", "phi"
         self.edges_in: Set[DDGEdge] = set()
         self.edges_out: Set[DDGEdge] = set()
 
-    def add_edge_to(self, other: "DDGNode", kind: str, label: str = ""):
+    def add_edge_to(
+        self, other: "DDGNode", kind: str, label: str = "", location: Any = None
+    ):
         """
         Add an edge from this node to another node.
 
@@ -139,7 +162,7 @@ class DDGNode(object):
         Returns:
             The created DDGEdge
         """
-        edge = DDGEdge(self, other, kind, label)
+        edge = DDGEdge(self, other, kind, label, location)
         self.edges_out.add(edge)
         other.edges_in.add(edge)
         return edge
@@ -147,11 +170,15 @@ class DDGNode(object):
     def __repr__(self):
         return "DDGNode(%d,%s)" % (self.node_id, self.category)
 
+    @property
+    def stable_id(self) -> str:
+        return str(self.semantic_id) if self.semantic_id is not None else f"ddg.{self.node_id}"
+
     def __hash__(self):
-        return self.node_id
+        return object.__hash__(self)
 
     def __eq__(self, other):
-        return isinstance(other, DDGNode) and self.node_id == other.node_id
+        return self is other
 
 
 class DataDependenceGraph(object):
@@ -182,14 +209,30 @@ class DataDependenceGraph(object):
         slot_node_map: Mapping from dataflow IR SlotNode to DDGNode
     """
 
-    __slots__ = ("nodes", "_id", "op_node_map", "slot_node_map")
+    __slots__ = ("nodes", "_id", "op_node_map", "slot_node_map", "code", "catalog")
 
-    def __init__(self):
+    def __init__(self, code=None):
         """Initialize an empty Data Dependence Graph."""
         self.nodes: List[DDGNode] = []
         self._id = 0
         self.op_node_map: Dict[Any, DDGNode] = {}
         self.slot_node_map: Dict[Any, DDGNode] = {}
+        self.code = code
+        self.catalog = getattr(code, "ir_catalog", None)
+
+    def _semantic_id(self, ir_node: Any, category: str):
+        if self.catalog is None or self.code is None:
+            return None
+        operation = getattr(ir_node, "op", None)
+        if operation is not None and self.catalog.has_node(operation, self.code):
+            return self.catalog.node_id(operation, self.code)
+        if category == "slot":
+            for reference in getattr(ir_node, "names", ()):
+                if self.catalog.has_value(reference, self.code):
+                    return self.catalog.value_id(reference, self.code)
+                if self.catalog.has_symbol(reference, self.code):
+                    return self.catalog.symbol_id(reference, self.code)
+        return None
 
     def _new_id(self) -> int:
         """
@@ -217,7 +260,12 @@ class DataDependenceGraph(object):
         """
         node = self.op_node_map.get(ir_op)
         if node is None:
-            node = DDGNode(self._new_id(), ir_op, "op")
+            node = DDGNode(
+                self._new_id(),
+                ir_op,
+                "op",
+                self._semantic_id(ir_op, "op"),
+            )
             self.nodes.append(node)
             self.op_node_map[ir_op] = node
         return node
@@ -237,7 +285,12 @@ class DataDependenceGraph(object):
         """
         node = self.slot_node_map.get(ir_slot)
         if node is None:
-            node = DDGNode(self._new_id(), ir_slot, "slot")
+            node = DDGNode(
+                self._new_id(),
+                ir_slot,
+                "slot",
+                self._semantic_id(ir_slot, "slot"),
+            )
             self.nodes.append(node)
             self.slot_node_map[ir_slot] = node
         return node
@@ -259,7 +312,9 @@ class DataDependenceGraph(object):
         """
         return def_node.add_edge_to(use_node, "def-use", label)
 
-    def add_mem_dep(self, src: DDGNode, dst: DDGNode, label: str = ""):
+    def add_mem_dep(
+        self, src: DDGNode, dst: DDGNode, label: str = "", location: Any = None
+    ):
         """
         Add a memory dependence edge.
 
@@ -274,7 +329,7 @@ class DataDependenceGraph(object):
         Returns:
             The created DDGEdge
         """
-        return src.add_edge_to(dst, "memory", label)
+        return src.add_edge_to(dst, "memory", label, location)
 
     def all_edges(self) -> List[DDGEdge]:
         """
@@ -286,7 +341,16 @@ class DataDependenceGraph(object):
         result: List[DDGEdge] = []
         for n in self.nodes:
             result.extend(n.edges_out)
-        return result
+        return sorted(
+            result,
+            key=lambda edge: (
+                edge.source.node_id,
+                edge.target.node_id,
+                edge.kind,
+                edge.label,
+                repr(edge.location),
+            ),
+        )
 
     def stats(self) -> Dict[str, Any]:
         """

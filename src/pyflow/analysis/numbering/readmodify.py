@@ -14,6 +14,7 @@ Key concepts:
 
 from pyflow.util.typedispatch import *
 from pyflow.language.python import ast
+from pyflow.ir.core import Capabilities
 
 
 class ReadModifyInfo(object):
@@ -31,7 +32,7 @@ class ReadModifyInfo(object):
 
     __slots__ = "localRead", "localModify", "fieldRead", "fieldModify"
 
-    def __init__(self):
+    def __init__(self, facts, code):
         """Initialize empty read/modify info."""
         self.localRead = set()
         self.localModify = set()
@@ -66,6 +67,11 @@ class FindReadModify(TypeDispatcher):
     def __init__(self):
         """Initialize read/modify finder."""
         self.lut = {}
+        self.facts = facts
+        self.code = code
+
+    def _effects(self, capability, node):
+        return self.facts.merged_operation_effect(capability, self.code, node)
 
     def getListInfo(self, l):
         """Get combined read/modify info for a list of nodes.
@@ -97,23 +103,23 @@ class FindReadModify(TypeDispatcher):
     @dispatch(ast.Load, ast.Check)
     def visitMemoryExpr(self, node, info):
         node.visitChildrenArgs(self, info)
-        info.fieldRead.update(node.annotation.reads[0])
-        info.fieldModify.update(node.annotation.modifies[0])
+        info.fieldRead.update(self._effects(Capabilities.LIFETIME_OP_READS, node))
+        info.fieldModify.update(self._effects(Capabilities.LIFETIME_OP_WRITES, node))
 
     @dispatch(ast.Store)
     def visitStore(self, node):
         info = ReadModifyInfo()
         node.visitChildrenArgs(self, info)
-        info.fieldRead.update(node.annotation.reads[0])
-        info.fieldModify.update(node.annotation.modifies[0])
+        info.fieldRead.update(self._effects(Capabilities.LIFETIME_OP_READS, node))
+        info.fieldModify.update(self._effects(Capabilities.LIFETIME_OP_WRITES, node))
         self.lut[node] = info
         return info
 
     @dispatch(ast.DirectCall, ast.Call, ast.MethodCall)
     def visitDirectCall(self, node, info):
         node.visitChildrenArgs(self, info)
-        info.fieldRead.update(node.annotation.reads[0])
-        info.fieldModify.update(node.annotation.modifies[0])
+        info.fieldRead.update(self._effects(Capabilities.LIFETIME_OP_READS, node))
+        info.fieldModify.update(self._effects(Capabilities.LIFETIME_OP_WRITES, node))
 
     @dispatch(ast.Assign)
     def visitAssign(self, node):

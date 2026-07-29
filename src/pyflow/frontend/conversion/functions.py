@@ -256,17 +256,11 @@ class FunctionExtractor:
 
     def _make_code_annotation(self, origin: list[str]) -> CodeAnnotation:
         return CodeAnnotation(
-            contexts=None,
             descriptive=False,
             primitive=False,
             staticFold=False,
             dynamicFold=False,
             origin=origin,
-            live=None,
-            killed=None,
-            codeReads=None,
-            codeModifies=None,
-            codeAllocates=None,
             lowered=False,
             runtime=False,
             interpreter=False,

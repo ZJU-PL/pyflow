@@ -1357,13 +1357,12 @@ class FormalCPGTaintAnalysis:
                         edge.kind.value,
                     )
                 )
-            elif edge.kind is CPGEdgeKind.DATA and self._data_edge_is_live(
-                edge.label, state, node
-            ):
+            elif edge.kind is CPGEdgeKind.DATA:
                 # DATA edges are dependence evidence, not executable control
                 # flow.  Jumping across the CFG can bypass a strong overwrite
                 # (and produced false positives in the original traversal).
-                # Count the consulted edge; summaries and witnesses consume
+                # Count every consulted edge, including evidence rejected by
+                # the current abstract state; summaries and witnesses consume
                 # the same relation without transporting the whole state.
                 self._data_transitions += 1
             elif edge.kind is CPGEdgeKind.CALL and not skip_call_edges:
@@ -2295,15 +2294,6 @@ class FormalCPGTaintAnalysis:
             or procedure.rsplit(".", 1)[-1] == name.rsplit(".", 1)[-1]
         ]
         return candidates[0] if len(candidates) == 1 else None
-
-    def _data_edge_is_live(
-        self, label: str, state: CPGAbstractState, node: PDGNode
-    ) -> bool:
-        if not label:
-            return self._state_has_taint(state)
-        base = label.rsplit("_", 1)[0] if label.rsplit("_", 1)[-1].isdigit() else label
-        function = self.cpg.node_func_name(node)
-        return bool(state.taint.is_tainted(self._local(function, base)))
 
     @staticmethod
     def _state_has_taint(state: CPGAbstractState) -> bool:

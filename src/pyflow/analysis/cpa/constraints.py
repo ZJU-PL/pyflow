@@ -466,8 +466,8 @@ class LoadConstraint(CachedConstraint):
     load is being discarded (e.g., in a descriptive stub).
 
     For container slot types ("Array" and "Dictionary") a summary-slot
-    fallback is applied: when the exact per-index/per-key slot is absent
-    (or empty) on the object, the constraint also connects the summary
+    abstraction is joined explicitly: alongside the exact per-index/per-key
+    slot, the constraint also connects the summary
     slot (keyed by ``_CONTAINER_SUMMARY_KEY``) to the target.  This
     ensures that loads from lists/dicts modelled with array-smashing still
     propagate element types to their consumers.
@@ -633,7 +633,9 @@ class AllocateConstraint(CachedConstraint):
     def concreteUpdate(self, type_):
         if type_.obj.isType():
             xtype = self.sys.extendedInstanceType(
-                self.op.context, type_, id(self.op.op)
+                self.op.context,
+                type_,
+                (self.op.code.codeName(), self.op.op),
             )
             obj = self.target.initializeType(xtype)
             self.sys.logAllocation(self.op, obj)

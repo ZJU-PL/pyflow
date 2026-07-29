@@ -88,6 +88,17 @@ class OpFlow(TypeDispatcher):
         # TODO get info via callback?
         self.errors |= True
 
+    def summarize(self, node):
+        summary = type(self)()
+        summary.process(node)
+        return summary
+
+    def include_abnormal(self, *summaries):
+        for summary in summaries:
+            self.fails |= summary.fails
+            self.errors |= summary.errors
+            self.yields |= summary.yields
+
     @dispatch(
         ast.Call,
         ast.MethodCall,
@@ -163,10 +174,23 @@ class OpFlow(TypeDispatcher):
     def visitTypeAlias(self, node):
         del node
 
-    @dispatch(ast.For, ast.While)
-    def visitLoop(self, node):
-        node.visitChildren(self)
-        # Loops can have normal flow
+    @dispatch(ast.For)
+    def visitFor(self, node):
+        setup = self.summarize((node.loopPreamble, node.iterator))
+        body = self.summarize((node.bodyPreamble, node.body))
+        else_ = self.summarize(node.else_)
+        self.include_abnormal(setup, body, else_)
+        # A for-loop may execute zero times; only iterable setup can prevent
+        # reaching either the body or the exhausted path.
+        self.normal = setup.normal and else_.normal
+
+    @dispatch(ast.While)
+    def visitWhile(self, node):
+        condition = self.summarize(node.condition)
+        body = self.summarize(node.body)
+        else_ = self.summarize(node.else_)
+        self.include_abnormal(condition, body, else_)
+        self.normal = condition.normal and else_.normal
 
     @dispatch(ast.Break, ast.Continue)
     def visitControlFlow(self, node):
@@ -175,13 +199,49 @@ class OpFlow(TypeDispatcher):
 
     @dispatch(ast.TryExceptFinally)
     def visitTryExceptFinally(self, node):
-        node.visitChildren(self)
-        # Exception handling can have normal flow
+        body = self.summarize(node.body)
+        handlers = [self.summarize(handler) for handler in node.handlers]
+        default = (
+            self.summarize(node.defaultHandler)
+            if node.defaultHandler is not None
+            else None
+        )
+        else_ = self.summarize(node.else_) if node.else_ is not None else None
+        finally_ = (
+            self.summarize(node.finally_) if node.finally_ is not None else None
+        )
 
-    @dispatch(ast.Switch, ast.TypeSwitch)
-    def visitSwitch(self, node):
-        node.visitChildren(self)
-        # Conditional branches can have normal flow
+        normal = body.normal and (else_ is None or else_.normal)
+        if body.fails or body.errors:
+            normal |= any(handler.normal for handler in handlers)
+            normal |= default is not None and default.normal
+        if finally_ is not None:
+            normal &= finally_.normal
+        self.normal = normal
+
+        summaries = [body, *handlers]
+        if default is not None:
+            summaries.append(default)
+        if else_ is not None:
+            summaries.append(else_)
+        if finally_ is not None:
+            summaries.append(finally_)
+        self.include_abnormal(*summaries)
+
+    @dispatch(ast.Switch)
+    def visitStructuredSwitch(self, node):
+        condition = self.summarize(node.condition)
+        true = self.summarize(node.t)
+        false = self.summarize(node.f)
+        self.include_abnormal(condition, true, false)
+        self.normal = condition.normal and (true.normal or false.normal)
+
+    @dispatch(ast.TypeSwitch)
+    def visitStructuredTypeSwitch(self, node):
+        condition = self.summarize(node.conditional)
+        cases = [self.summarize(case.body) for case in node.cases]
+        self.include_abnormal(condition, *cases)
+        self.normal = condition.normal and any(case.normal for case in cases)
 
     @dispatch(ast.ExceptionHandler, ast.Suite, ast.Condition)
     def visitCompound(self, node):
@@ -190,12 +250,13 @@ class OpFlow(TypeDispatcher):
     @dispatch(ast.Raise)
     def visitRaise(self, node):
         node.visitChildren(self)
-        # Raises can cause abnormal flow but don't generate errors in analysis
+        self.fails = True
+        self.normal = False
 
     @dispatch(ast.Assert)
     def visitAssert(self, node):
         node.visitChildren(self)
-        # Asserts can raise AssertionError but don't generate errors in analysis
+        self.fails = True
 
     @dispatch(ast.FunctionDef, ast.ClassDef)
     def visitDefinition(self, node):
@@ -246,7 +307,7 @@ class FlowKiller(TypeDispatcher):
         """
         self.yields = True
 
-    @dispatch(cfg.Entry, cfg.Exit, cfg.Merge)
+    @dispatch(cfg.Entry, cfg.Exit, cfg.Merge, cfg.State)
     def visitOK(self, node):
         """Visit structural blocks (no operations to analyze).
 
@@ -343,6 +404,18 @@ class FlowKiller(TypeDispatcher):
         if not self.opFlow.fails:
             node.killExit("fail")
 
+        if not self.opFlow.errors:
+            node.killExit("error")
+
+    @dispatch(cfg.ForIter)
+    def visitForIter(self, node):
+        self.opFlow.process(node.iterator)
+        self.yields |= self.opFlow.yields
+        if not self.opFlow.normal:
+            node.killExit("body")
+            node.killExit("exit")
+        if not self.opFlow.fails:
+            node.killExit("fail")
         if not self.opFlow.errors:
             node.killExit("error")
 

@@ -56,6 +56,7 @@ from __future__ import print_function
 
 from pyflow.util.typedispatch import *
 from pyflow.language.python import ast
+from pyflow.ir.core import AnalysisFacts, Capabilities
 
 import collections
 
@@ -465,9 +466,12 @@ class BuildDataflowNetwork(TypeDispatcher):
         contextStack: Stack of contexts for nested operations
     """
 
-    def __init__(self):
+    def __init__(self, facts, catalog):
         """Initialize a data flow network builder."""
         self.fms = FindMergeSplit()
+        self.facts = facts
+        self.catalog = catalog
+        self.currentCode = None
 
         self.contexts = 0
         self.contextLUT = {}
@@ -493,7 +497,7 @@ class BuildDataflowNetwork(TypeDispatcher):
             op: Operation node to add to the context
         """
         self.contextStack.append(self.currentContext)
-        self.currentContext += (id(op),)
+        self.currentContext += (self.catalog.node_id(op, self.currentCode),)
 
     def popContext(self):
         """
@@ -517,7 +521,9 @@ class BuildDataflowNetwork(TypeDispatcher):
         else:
             dst = self.uniqueAllocated
 
-        for obj in node.annotation.allocates[0]:
+        for obj in self.facts.merged_operation_effect(
+            Capabilities.LIFETIME_OP_ALLOCATIONS, self.currentCode, node
+        ):
             dst.add(obj)
             # dst.add((obj, self.currentContext))
 
@@ -547,7 +553,7 @@ class BuildDataflowNetwork(TypeDispatcher):
         This enables inter-procedural analysis with context sensitivity.
         """
         targets = set()
-        for code, context in node.annotation.invokes[0]:
+        for code, context in self.facts.merged_call_targets(self.currentCode, node):
             targets.add(code)
 
         self.pushContext(node)
@@ -594,8 +600,11 @@ class BuildDataflowNetwork(TypeDispatcher):
         else:
             self.contextLUT[node] += 1
 
+        previous = self.currentCode
+        self.currentCode = node
         for child in node.children():
             self(child)
+        self.currentCode = previous
 
 
 class Operation(object):
@@ -698,7 +707,7 @@ class Slot(object):
         op.defs.append(self)
 
     def __repr__(self):
-        return "Slot(%r/%d)" % (self.name, id(self))
+        return "Slot(%r)" % (self.name,)
 
 
 class HeapSlot(object):
@@ -757,7 +766,7 @@ class HeapSlot(object):
         op.heapdefs.append(self)
 
     def __repr__(self):
-        return "HeapSlot(%r/%d)" % (self.name, id(self))
+        return "HeapSlot(%r)" % (self.name,)
 
 
 class MarkUses(TypeDispatcher):
@@ -834,9 +843,11 @@ class BuildCorrelatedDataflow(TypeDispatcher):
         returns: List of return value slots (for return statements)
     """
 
-    def __init__(self):
+    def __init__(self, facts=None):
         """Initialize a correlated data flow builder."""
         self.markUses = MarkUses(self)
+        self.facts = facts
+        self.code = None
 
     def getSlot(self, name):
         """
@@ -949,16 +960,22 @@ class BuildCorrelatedDataflow(TypeDispatcher):
         op = self.getOp(node)
 
         # Track heap reads
-        for name in node.annotation.reads[0]:
+        for name in self.facts.merged_operation_effect(
+            Capabilities.LIFETIME_OP_READS, self.code, node
+        ):
             self.getHeapSlot(name).addUse(op)
 
         # For weak updates: read before write
         # Must be done before the defs, as they will overwrite.
-        for name in node.annotation.modifies[0]:
+        for name in self.facts.merged_operation_effect(
+            Capabilities.LIFETIME_OP_WRITES, self.code, node
+        ):
             self.getHeapSlot(name).addUse(op)
 
         # Track heap writes
-        for name in node.annotation.modifies[0]:
+        for name in self.facts.merged_operation_effect(
+            Capabilities.LIFETIME_OP_WRITES, self.code, node
+        ):
             slot = HeapSlot(name)
             self.slots[name] = slot
             slot.addDef(op)
@@ -1003,6 +1020,7 @@ class BuildCorrelatedDataflow(TypeDispatcher):
         pass
 
     def processCode(self, node):
+        self.code = node
         self.operations = {}
         self.slots = {}
         self.returns = None
@@ -1032,6 +1050,7 @@ class BuildCorrelatedDataflow(TypeDispatcher):
             for defn in op.heapdefs:
                 print()
             print()
+        self.code = None
 
         print()
 
@@ -1080,7 +1099,8 @@ def evaluate(compiler):
             return False
 
         # Build data flow network
-        bdfn = BuildDataflowNetwork()
+        facts = AnalysisFacts(compiler.ir)
+        bdfn = BuildDataflowNetwork(facts, compiler.ir)
 
         for code in compiler.interface.entryCode():
             bdfn.processCode(code)

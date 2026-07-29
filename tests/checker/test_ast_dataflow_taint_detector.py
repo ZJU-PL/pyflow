@@ -8,7 +8,7 @@ from pyflow.analysis.taint import TaintPolicy, TaintRule
 
 
 class _DummyQueries:
-    def get_ipa_analysis(self):
+    def get_ipa_function_summaries(self):
         raise RuntimeError("IPA unavailable in unit test")
 
 

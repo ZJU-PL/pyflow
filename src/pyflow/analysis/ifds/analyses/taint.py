@@ -131,7 +131,7 @@ class TaintAnalysisResult:
         return self._ifds_result.is_complete
 
     def fact_for_local(self, node: CFGNode, local: py_ast.Local) -> TaintFact | None:
-        fallback: TaintFact | None = None
+        storage_candidate: TaintFact | None = None
         locations = set(self._problem.local_locations(node.procedure, local))
         for fact in self._ifds_result.facts_at(node):
             if isinstance(fact, TaintFact) and fact.location in locations:
@@ -141,9 +141,9 @@ class TaintAnalysisResult:
                     and location.root.kind is not HeapObjectKind.STORAGE
                 ):
                     return fact
-                if fallback is None:
-                    fallback = fact
-        return fallback
+                if storage_candidate is None:
+                    storage_candidate = fact
+        return storage_candidate
 
 
 class InterproceduralTaintProblem(
@@ -208,7 +208,7 @@ class InterproceduralTaintProblem(
         )
         if dynamic_setattr_locations:
             outputs = set(self._identity_outputs(fact, killed))
-            value = self._dynamic_setattr_value(operation)
+            value = self._dynamic_setattr_value(node.procedure, operation)
             if value is not None:
                 for template in self._templates_for_expression(
                     node.procedure, value, fact

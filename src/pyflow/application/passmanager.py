@@ -634,31 +634,7 @@ class PassManager:
         self, program, analysis_pass_names: Set[str]
     ) -> None:
         """Clear program-level analysis objects that are no longer valid."""
-        if hasattr(program, "clear_analysis_results"):
-            program.clear_analysis_results(analysis_pass_names)
-            return
-
-        pass_to_attr = {
-            "ipa": "ipa_analysis",
-            "ipa_refresh": "ipa_analysis",
-            "cpa": "cpa_analysis",
-            "cpa_path_sensitive": "cpa_analysis",
-            "lifetime": "lifetime_analysis",
-            "lifetime_refresh": "lifetime_analysis",
-            "heap": "heap_analysis",
-        }
-        cleared = False
-        for pass_name in analysis_pass_names:
-            attr = pass_to_attr.get(pass_name)
-            if attr is None or not hasattr(program, attr):
-                continue
-            setattr(program, attr, None)
-            cleared = True
-
-        if cleared and hasattr(program, "semantic_queries"):
-            program.semantic_queries = None
-        if cleared and hasattr(program, "semantic_queries_mode"):
-            program.semantic_queries_mode = None
+        program.clear_analysis_results(analysis_pass_names)
 
     def get_pass_info(self, pass_name: str) -> Optional[PassInfo]:
         """Get metadata for a registered pass."""

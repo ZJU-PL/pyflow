@@ -38,7 +38,7 @@ The DDG is built from dataflow IR graphs by:
 """
 
 from .graph import DataDependenceGraph, DDGNode, DDGEdge
-from .construction import construct_ddg, DDGConstructor
+from .construction import construct_ddg, DDGConstructor, MalformedForwardingCycleError
 from .dump import dump_ddg, DDGDumper, dump_ddg_to_directory
 
 __all__ = [
@@ -46,6 +46,7 @@ __all__ = [
     "DDGNode",
     "DDGEdge",
     "DDGConstructor",
+    "MalformedForwardingCycleError",
     "construct_ddg",
     "DDGDumper",
     "dump_ddg",

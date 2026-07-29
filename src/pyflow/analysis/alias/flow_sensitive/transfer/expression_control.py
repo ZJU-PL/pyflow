@@ -166,7 +166,10 @@ class _ExpressionControlMixin:
         return (
             HeapLocation(
                 self.heap.external_object(
-                    ("existing", id(expression.object)),
+                    (
+                        "existing",
+                        self._program_point_identity(procedure, expression),
+                    ),
                     label=repr(value),
                     stable_identity=True,
                 )

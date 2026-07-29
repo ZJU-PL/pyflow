@@ -838,6 +838,11 @@ class TestFrontendPipelineCompatibility(unittest.TestCase):
         )
         ipa.evaluate(compiler, program)
 
+        from pyflow.ir.core import Capabilities
+
+        assert program.ir.facts.has(Capabilities.CONTEXTS)
+        assert program.ir.facts.has(Capabilities.CALL_TARGETS)
+
     def test_ipa_accepts_await(self):
         compiler, program = self._build_program(
             "async def f(x):\n"

@@ -6,7 +6,6 @@ from pyflow.language.python import simplecodegen
 
 from pyflow.util.io.xmloutput import XMLOutput
 from pyflow.language.asttools import astpprint
-from pyflow.language.asttools.origin import originString
 import pyflow.util.graphalgorithim.dominator as dominator
 from pyflow.util.io.filesystem import ensureDirectoryExists
 
@@ -19,6 +18,12 @@ from pyflow.analysis.dump import dumputil
 from pyflow.analysis import tools
 
 from pyflow.language.python import ast
+from pyflow.ir.core import (
+    AnalysisFacts,
+    Capabilities,
+    format_source,
+    source_filename,
+)
 
 
 # Filter an iterable into keys and values, and collect
@@ -63,29 +68,8 @@ def outputOrigin(out, tabs, originTrace):
     for origin in originTrace:
         out << tabs
         if origin:
-            # Handle case where origin might be a list or origin.filename might be a list or string
-            try:
-                if isinstance(origin, list):
-                    if origin and hasattr(origin[0], "filename"):
-                        filename = origin[0].filename
-                        if isinstance(filename, list):
-                            filename = filename[0] if filename else ""
-                    else:
-                        filename = ""
-                elif hasattr(origin, "filename"):
-                    filename = origin.filename
-                    if isinstance(filename, list):
-                        filename = filename[0] if filename else ""
-                else:
-                    filename = ""
-                out.begin("a", href="file:%s" % (quote(filename),))
-            except Exception as e:
-                # Fallback for any unexpected origin structure
-                out.begin("a", href="file:")
-        try:
-            out << originString(origin)
-        except Exception as e:
-            out << f"<origin error: {e}>"
+            out.begin("a", href="file:%s" % (quote(source_filename(origin)),))
+        out << format_source(origin)
         if origin:
             out.end("a")
         out.endl()
@@ -181,7 +165,8 @@ def dumpFunctionInfo(func, compiler, derived, links, reportDir):
     if code.annotation.dynamicFold:
         printLabel(out, "dynamic fold")
 
-    origin = code.annotation.origin
+    catalog = code.ir_catalog
+    origin = catalog.source_of(code, code=code)
     if origin:
         out.begin("div")
         outputOrigin(out, "", (origin,))
@@ -200,24 +185,11 @@ def dumpFunctionInfo(func, compiler, derived, links, reportDir):
         astpprint.pprint(func, out)
         out.end("pre")
 
-    contexts_count = 0
-    if code.annotation.contexts is not None:
-        try:
-            contexts_count = len(code.annotation.contexts)
-        except TypeError:
-            # Handle case where contexts is not a sequence
-            contexts_count = 0
+    facts = AnalysisFacts.for_code(code)
+    contexts_list = list(facts.contexts(code))
+    contexts_count = len(contexts_list)
 
     printLabel(out, "%d contexts" % contexts_count)
-
-    if code.annotation.contexts is None:
-        return
-
-    try:
-        contexts_list = list(code.annotation.contexts)
-    except (TypeError, AttributeError):
-        # Handle case where contexts is not iterable or not a sequence
-        return
 
     for cindex, context in enumerate(contexts_list):
         out.tag("hr")
@@ -241,47 +213,17 @@ def dumpFunctionInfo(func, compiler, derived, links, reportDir):
 
         sig = context.signature
         if isinstance(callee.selfparam, ast.Local):
-            refs = callee.selfparam.annotation.references
-            if refs and len(refs) > 1:
-                context_refs = refs[1]
-                if isinstance(context_refs, (list, tuple)) and cindex < len(
-                    context_refs
-                ):
-                    objs = context_refs[cindex]
-                else:
-                    objs = ("?",)
-            else:
-                objs = ("?",)
+            objs = facts.references(code, callee.selfparam, context)
             tableRow(out, links, "self", *objs)
 
         numParam = len(callee.params)
         for i, param in enumerate(callee.params):
             if isinstance(param, ast.Local):
-                refs = param.annotation.references
-                if refs and len(refs) > 1:
-                    context_refs = refs[1]
-                    if isinstance(context_refs, (list, tuple)) and cindex < len(
-                        context_refs
-                    ):
-                        objs = context_refs[cindex]
-                    else:
-                        objs = ("?",)
-                else:
-                    objs = ("?",)
+                objs = facts.references(code, param, context)
                 tableRow(out, links, "param %d" % i, *objs)
 
         if isinstance(callee.vparam, ast.Local):
-            refs = callee.vparam.annotation.references
-            if refs and len(refs) > 1:
-                context_refs = refs[1]
-                if isinstance(context_refs, (list, tuple)) and cindex < len(
-                    context_refs
-                ):
-                    objs = context_refs[cindex]
-                else:
-                    objs = ("?",)
-            else:
-                objs = ("?",)
+            objs = facts.references(code, callee.vparam, context)
             tableRow(out, links, "vparamObj", *objs)
 
             for vparamObj in objs:
@@ -295,32 +237,12 @@ def dumpFunctionInfo(func, compiler, derived, links, reportDir):
                     tableRow(out, links, "vparam %d" % i, *lut.get(i, ()))
 
         if isinstance(callee.kparam, ast.Local):
-            refs = callee.kparam.annotation.references
-            if refs and len(refs) > 1:
-                context_refs = refs[1]
-                if isinstance(context_refs, (list, tuple)) and cindex < len(
-                    context_refs
-                ):
-                    objs = context_refs[cindex]
-                else:
-                    objs = ("?",)
-            else:
-                objs = ("?",)
+            objs = facts.references(code, callee.kparam, context)
             tableRow(out, links, "kparamObj", *objs)
 
         for i, param in enumerate(callee.returnparams):
             if isinstance(param, ast.Local):
-                refs = param.annotation.references
-                if refs and len(refs) > 1:
-                    context_refs = refs[1]
-                    if isinstance(context_refs, (list, tuple)) and cindex < len(
-                        context_refs
-                    ):
-                        objs = context_refs[cindex]
-                    else:
-                        objs = ("?",)
-                else:
-                    objs = ("?",)
+                objs = facts.references(code, param, context)
                 tableRow(out, links, "return %d" % i, *objs)
 
         out.end("table")
@@ -332,28 +254,18 @@ def dumpFunctionInfo(func, compiler, derived, links, reportDir):
 
         out.begin("pre")
         for op in funcOps:
-            currentOrigin = op.annotation.origin
+            currentOrigin = catalog.source_of(op, code=code)
             if currentOrigin != origin:
                 origin = currentOrigin
-                outputOrigin(out, "\t", origin)
+                outputOrigin(out, "\t", (origin,))
                 out.endl()
 
             out << "\t\t"
             out << op
             out.endl()
 
-            if op.annotation.invokes:
-                invokes = op.annotation.invokes
-                if len(invokes) > 1:
-                    context_invokes = invokes[1]
-                    if isinstance(context_invokes, (list, tuple)) and cindex < len(
-                        context_invokes
-                    ):
-                        callees = context_invokes[cindex]
-                    else:
-                        callees = []
-                else:
-                    callees = []
+            callees = facts.call_targets(code, op, context)
+            if callees:
                 for dstF, dstC in callees:
                     out << "\t\t\t"
                     outputCodeShortName(out, dstF, links, dstC)
@@ -363,65 +275,27 @@ def dumpFunctionInfo(func, compiler, derived, links, reportDir):
                 out.endl()
 
             # dump read/modify/allocate information for this op
-            read = op.annotation.reads
-            modify = op.annotation.modifies
-            allocate = op.annotation.allocates
+            read = facts.operation_effect(
+                Capabilities.LIFETIME_OP_READS, code, op, context
+            )
+            modify = facts.operation_effect(
+                Capabilities.LIFETIME_OP_WRITES, code, op, context
+            )
+            allocate = facts.operation_effect(
+                Capabilities.LIFETIME_OP_ALLOCATIONS, code, op, context
+            )
 
             s = ""
-            if read and len(read) > 1:
-                context_read = read[1]
-                if (
-                    isinstance(context_read, (list, tuple))
-                    and cindex < len(context_read)
-                    and context_read[cindex]
-                ):
-                    s += "R"
-            if modify and len(modify) > 1:
-                context_modify = modify[1]
-                if (
-                    isinstance(context_modify, (list, tuple))
-                    and cindex < len(context_modify)
-                    and context_modify[cindex]
-                ):
-                    s += "M"
-            if allocate and len(allocate) > 1:
-                context_allocate = allocate[1]
-                if (
-                    isinstance(context_allocate, (list, tuple))
-                    and cindex < len(context_allocate)
-                    and context_allocate[cindex]
-                ):
-                    s += "A"
+            if read:
+                s += "R"
+            if modify:
+                s += "M"
+            if allocate:
+                s += "A"
 
             if False:
                 # For debugging intermediate information
-                read = op.annotation.opReads
-                modify = op.annotation.opModifies
-                allocate = op.annotation.opAllocates
-                if read and len(read) > 1:
-                    context_read = read[1]
-                    if (
-                        isinstance(context_read, (list, tuple))
-                        and cindex < len(context_read)
-                        and context_read[cindex]
-                    ):
-                        s += "(R)"
-                if modify and len(modify) > 1:
-                    context_modify = modify[1]
-                    if (
-                        isinstance(context_modify, (list, tuple))
-                        and cindex < len(context_modify)
-                        and context_modify[cindex]
-                    ):
-                        s += "(M)"
-                if allocate and len(allocate) > 1:
-                    context_allocate = allocate[1]
-                    if (
-                        isinstance(context_allocate, (list, tuple))
-                        and cindex < len(context_allocate)
-                        and context_allocate[cindex]
-                    ):
-                        s += "(A)"
+                pass
 
             if s:
                 out << "\t\t\t"
@@ -450,18 +324,7 @@ def dumpFunctionInfo(func, compiler, derived, links, reportDir):
                 out.endl()
 
         for lcl in funcLocals:
-            crefs = lcl.annotation.references
-            if crefs is not None and len(crefs) > 1:
-                context_refs = crefs[1]
-                if isinstance(context_refs, (list, tuple)) and cindex < len(
-                    context_refs
-                ):
-                    refs = context_refs[cindex]
-                else:
-                    refs = ("?",)
-            else:
-                print("No refs for local?", code, lcl)
-                refs = ("?",)
+            refs = facts.references(code, lcl, context)
 
             if isinstance(lcl, ast.Local):
                 lclName = str(lcl) + " / " + scg.getLocalName(lcl)
@@ -500,38 +363,24 @@ def dumpFunctionInfo(func, compiler, derived, links, reportDir):
             out.end("ul")
             out.end("p")
 
-        live = code.annotation.live
-        killed = code.annotation.killed
+        live = facts.code_effect(Capabilities.LIFETIME_CODE_LIVE, code, context)
+        killed = facts.code_effect(
+            Capabilities.LIFETIME_CODE_KILLED, code, context
+        )
 
-        if live is not None and len(live) > 1:
-            context_live = live[1]
-            if isinstance(context_live, (list, tuple)) and cindex < len(context_live):
-                live = context_live[cindex]
-            else:
-                live = set()
-
-        if killed is not None and len(killed) > 1:
-            context_killed = killed[1]
-            if isinstance(context_killed, (list, tuple)) and cindex < len(
-                context_killed
-            ):
-                killed = context_killed[cindex]
-            else:
-                killed = set()
-
-            out.begin("h3")
-            out << "Live"
-            out.end("h3")
-            out.begin("p")
-            out.begin("ul")
-            for obj in live:
-                out.begin("li")
-                outputObjectShortName(out, obj, links)
-                if obj in killed:
-                    out << " (killed)"
-                out.end("li")
-            out.end("ul")
-            out.end("p")
+        out.begin("h3")
+        out << "Live"
+        out.end("h3")
+        out.begin("p")
+        out.begin("ul")
+        for obj in live:
+            out.begin("li")
+            outputObjectShortName(out, obj, links)
+            if obj in killed:
+                out << " (killed)"
+            out.end("li")
+        out.end("ul")
+        out.end("p")
 
         reads = derived.funcReads[func][context]
         if reads:
@@ -747,7 +596,8 @@ def dumpReport(name, compiler, prgm, derived, liveInvocations, liveHeap, heapCon
 
 
 class DerivedData(object):
-    def __init__(self, liveCode):
+    def __init__(self, liveCode, facts):
+        self.facts = facts
         self.invokeDestination = collections.defaultdict(set)
         self.invokeSource = collections.defaultdict(set)
         self.funcReads = collections.defaultdict(lambda: collections.defaultdict(set))
@@ -756,8 +606,17 @@ class DerivedData(object):
         )
 
         for code in liveCode:
-            self.handleReads(code, code.annotation.codeReads)
-            self.handleModifies(code, code.annotation.codeModifies)
+            for context in facts.contexts(code):
+                self.funcReads[code][context].update(
+                    facts.code_effect(
+                        Capabilities.LIFETIME_CODE_READS, code, context
+                    )
+                )
+                self.funcModifies[code][context].update(
+                    facts.code_effect(
+                        Capabilities.LIFETIME_CODE_WRITES, code, context
+                    )
+                )
 
             ops = tools.codeOps(code)
             for op in ops:
@@ -766,61 +625,27 @@ class DerivedData(object):
                 self.handleOpModifies(code, op)
 
     def handleOpInvokes(self, code, op):
-        invokes = op.annotation.invokes
-        if invokes is not None:
-            for cindex, context in enumerate(code.annotation.contexts):
-                src = (code, context)
-
-                if len(invokes) > 1:
-                    context_invokes = invokes[1]
-                    if isinstance(context_invokes, (list, tuple)) and cindex < len(
-                        context_invokes
-                    ):
-                        dsts = context_invokes[cindex]
-                    else:
-                        dsts = []
-                else:
-                    dsts = []
-                for dst in dsts:
-                    self.invokeDestination[src].add(dst)
-                    self.invokeSource[dst].add(src)
+        for context in self.facts.contexts(code):
+            src = (code, context)
+            for dst in self.facts.call_targets(code, op, context):
+                self.invokeDestination[src].add(dst)
+                self.invokeSource[dst].add(src)
 
     def handleOpReads(self, code, op):
-        reads = op.annotation.reads
-        self.handleReads(code, reads)
-
-    def handleReads(self, code, reads):
-        if reads is not None:
-            contexts = code.annotation.contexts
-            assert len(reads.context) == len(contexts), (
-                code,
-                len(reads.context),
-                len(contexts),
+        for context in self.facts.contexts(code):
+            self.funcReads[code][context].update(
+                self.facts.operation_effect(
+                    Capabilities.LIFETIME_OP_READS, code, op, context
+                )
             )
-            for cindex, context in enumerate(contexts):
-                creads = reads.context[cindex]
-                self.funcReads[code][context].update(creads)
 
     def handleOpModifies(self, code, op):
-        modifies = op.annotation.modifies
-        self.handleModifies(code, modifies)
-
-    def handleModifies(self, code, modifies):
-        if modifies is not None:
-            contexts = code.annotation.contexts
-            assert len(modifies.context) == len(contexts), (modifies, len(contexts))
-            for cindex, context in enumerate(contexts):
-                if len(modifies) > 1:
-                    context_modifies = modifies[1]
-                    if isinstance(context_modifies, (list, tuple)) and cindex < len(
-                        context_modifies
-                    ):
-                        cmods = context_modifies[cindex]
-                    else:
-                        cmods = set()
-                else:
-                    cmods = set()
-                self.funcModifies[code][context].update(cmods)
+        for context in self.facts.contexts(code):
+            self.funcModifies[code][context].update(
+                self.facts.operation_effect(
+                    Capabilities.LIFETIME_OP_WRITES, code, op, context
+                )
+            )
 
     def callers(self, function, context):
         return self.invokeSource[(function, context)]
@@ -834,7 +659,7 @@ def evaluate(compiler, prgm, name):
         liveCode, liveInvocations = programculler.findLiveCode(prgm)
         liveHeap, heapContexts = programculler.findLiveHeap(prgm)
 
-        derived = DerivedData(prgm.liveCode)
+        derived = DerivedData(prgm.liveCode, AnalysisFacts(prgm.ir))
 
         dumpReport(
             name, compiler, prgm, derived, liveInvocations, liveHeap, heapContexts

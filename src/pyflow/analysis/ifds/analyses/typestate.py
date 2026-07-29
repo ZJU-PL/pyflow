@@ -209,7 +209,7 @@ class InterproceduralTypestateProblem(
         )
         if dynamic_setattr_locations:
             outputs = set(self._identity_outputs(fact, killed))
-            value = self._dynamic_setattr_value(operation)
+            value = self._dynamic_setattr_value(node.procedure, operation)
             state = self._fact_state(fact)
             if (
                 value is not None
@@ -1144,11 +1144,7 @@ class InterproceduralTypestateProblem(
         locations = tuple(
             dict.fromkeys(
                 (
-                    *self._annotation_locations(
-                        getattr(
-                            getattr(operation, "annotation", None), "opModifies", None
-                        )
-                    ),
+                    *self._semantic_locations(procedure, operation, "writes"),
                     *self._static_attribute_write_locations(procedure, operation),
                 )
             )

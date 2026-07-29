@@ -14,6 +14,16 @@ def dumpGraph(directory, name, format, g, prog="dot"):
 
 @async_limited
 def dump(compiler, liveInvoke, links, reportDir):
+    from pyflow.ir.core import index_program
+
+    catalog = index_program(compiler.program)
+
+    def graph_id(code):
+        return "entry" if code is None else str(catalog.procedure(code).code_id)
+
+    def sort_key(code):
+        return graph_id(code)
+
     # Filter out primitive nodes
     def keepCode(code):
         return code is None or not code.annotation.primitive
@@ -50,7 +60,7 @@ def dump(compiler, liveInvoke, links, reportDir):
                 nodecolor = "#33FF33"
             sg.add_node(
                 pydot.Node(
-                    str(id(node)),
+                    graph_id(node),
                     label=dumputil.codeShortName(code),
                     shape="box",
                     style="filled",
@@ -62,7 +72,7 @@ def dump(compiler, liveInvoke, links, reportDir):
         else:
             sg.add_node(
                 pydot.Node(
-                    str(id(node)),
+                    graph_id(node),
                     label="entry",
                     shape="point",
                     style="filled",
@@ -72,22 +82,22 @@ def dump(compiler, liveInvoke, links, reportDir):
 
         children = tree.get(node)
         if children:
-            csg = pydot.Cluster(str(id(node)))
+            csg = pydot.Cluster(f"cluster_{graph_id(node)}")
             sg.add_subgraph(csg)
-            for child in children:
+            for child in sorted(children, key=sort_key):
                 makeNode(tree, csg, child)
 
     makeNode(tree, g, head)
 
     # Create edges
-    for src, dsts in invokeLUT.items():
+    for src, dsts in sorted(invokeLUT.items(), key=lambda item: sort_key(item[0])):
         # if src is head: continue
-        for dst in dsts:
+        for dst in sorted(dsts, key=sort_key):
             if idoms.get(dst) is src:
                 weight = 10
             else:
                 weight = 1
-            g.add_edge(pydot.Edge(str(id(src)), str(id(dst)), weight=weight))
+            g.add_edge(pydot.Edge(graph_id(src), graph_id(dst), weight=weight))
 
     # Output
     dumpGraph(reportDir, "invocations", "svg", g)

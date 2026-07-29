@@ -173,22 +173,6 @@ class _DeferredTransferMixin:
         rebased.escaped.update(current.escaped - previous.escaped)
         self.state = rebased
 
-    @staticmethod
-    def _context_token(node: object) -> object:
-        origin = getattr(getattr(node, "annotation", None), "origin", ()) or ()
-        meaningful_origin = tuple(item for item in origin if item is not None)
-        if meaningful_origin:
-            return (
-                type(node).__name__,
-                tuple(repr(item) for item in meaningful_origin),
-                getattr(node, "name", None),
-            )
-        line = getattr(node, "line", None)
-        column = getattr(node, "column", None)
-        if line is not None or column is not None:
-            return type(node).__name__, line, column
-        return type(node).__name__, id(node)
-
     def _copy_call_result_contents(
         self,
         procedure: object,
@@ -237,14 +221,19 @@ class _DeferredTransferMixin:
             source_exprs = actuals[:1]
         if not source_exprs:
             return
-        evaluated = self._last_call_operands.get(id(call), {})
+        evaluated = self._last_call_operands.get(
+            self._program_point_identity(procedure, call), {}
+        )
         source_locations = tuple(
             dict.fromkeys(
                 location
                 for source_expr in source_exprs
                 for location in (
-                    evaluated.get(id(source_expr))
-                    if id(source_expr) in evaluated
+                    evaluated.get(
+                        self._program_point_identity(procedure, source_expr)
+                    )
+                    if self._program_point_identity(procedure, source_expr)
+                    in evaluated
                     else self.locations_for_expression(procedure, source_expr)
                 )
             )

@@ -63,7 +63,7 @@ class CFGBlock(object):
         region_name = getattr(self.region, "name", None)
         if region_name:
             return f"<CFGBlock '{region_name}'>"
-        return f"<CFGBlock>"
+        return "<CFGBlock>"
 
     def validExitName(self, name):
         """Check if an exit name is valid for this block type.
@@ -553,10 +553,12 @@ class MultiEntryBlock(CFGBlock):
         Args:
             other: Block to redirect entries to
         """
-        old, self._prev = self._prev, []
-
-        for prev, prevName in old:
-            prev.redirectExit(self, other)
+        for prev, prevName in tuple(self._prev):
+            # Remove the exact labelled edge.  Looking the edge up by target is
+            # ambiguous when a branch has two labels that lead to the same
+            # merge, and clearing ``_prev`` first breaks killExit/removePrev.
+            prev.killExit(prevName)
+            prev.setExit(prevName, other)
 
     def numPrev(self):
         """Get the number of predecessors.
@@ -736,6 +738,23 @@ class TypeSwitch(SingleEntryBlock):
         )
 
 
+class ForIter(SingleEntryBlock):
+    """Iterator-aware loop header.
+
+    ``iterator`` is evaluated once when the block is first entered. Each visit
+    then either binds the next value to ``index`` and takes ``body``, or takes
+    ``exit`` after exhaustion. Evaluation/advancement may fail or error.
+    """
+
+    __slots__ = ("iterator", "index")
+    exitNames = ("body", "exit", "fail", "error")
+
+    def __init__(self, region, iterator, index):
+        SingleEntryBlock.__init__(self, region)
+        self.iterator = iterator
+        self.index = index
+
+
 class State(SingleEntryBlock):
     __slots__ = "name"
 
@@ -831,13 +850,7 @@ class Merge(MultiEntryBlock):
         assert isinstance(other, CFGBlock)
         assert not self.phi
 
-        # Use self._prev (the actual attribute), not self.prev (which does not
-        # exist on MultiEntryBlock).  Swap atomically so that redirectExit
-        # calls below see an empty predecessor list and don't recurse.
-        old, self._prev = self._prev, []
-
-        for prev, prevName in old:
-            prev.redirectExit(self, other)
+        MultiEntryBlock.redirectEntries(self, other)
 
 
 class Yield(SingleEntryBlock):

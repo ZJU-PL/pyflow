@@ -167,7 +167,7 @@ class InterproceduralNullnessProblem(
         )
         if dynamic_setattr_locations:
             outputs = set(self._identity_outputs(fact, killed))
-            value = self._dynamic_setattr_value(operation)
+            value = self._dynamic_setattr_value(node.procedure, operation)
             if value is not None and (
                 self._direct_expression_fact(value, fact) is not None
                 or self._expr_is_nullable(node.procedure, value, fact)

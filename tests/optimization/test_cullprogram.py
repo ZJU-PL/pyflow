@@ -1,113 +1,90 @@
-"""Tests for optimization/cullprogram.py - Program culling optimization."""
+"""Tests for FactStore-based program context culling."""
 
-import unittest
-from pyflow.optimization.cullprogram import CodeContextCuller, evaluateCode
+from pyflow.ir.core import (
+    CallTarget,
+    Capabilities,
+    ContextualKey,
+    FactResult,
+    ensure_code_indexed,
+)
 from pyflow.language.python import ast
+from pyflow.optimization.cullprogram import retain_live_contexts
 
 
-class MockAnnotation:
-    """Mock annotation for testing."""
-
-    def __init__(self, contexts=None):
-        self.contexts = contexts or []
-
-    def contextSubset(self, remap):
-        """Return a new annotation with subset of contexts."""
-        new_annotation = MockAnnotation()
-        new_annotation.contexts = [self.contexts[i] for i in remap]
-        return new_annotation
-
-
-class MockCode:
-    """Mock code object for testing."""
-
-    def __init__(self, contexts=None):
-        self.annotation = MockAnnotation(contexts)
-
-    def visitChildren(self, visitor):
-        return self
-
-    def visitChildrenForced(self, visitor):
-        return self
+def _code_with_call():
+    local = ast.Local("callee")
+    call = ast.Call(local, [], [], None, None)
+    code = ast.Code(
+        "caller",
+        ast.CodeParameters(
+            selfparam=None,
+            posonlyparams=(),
+            posonlynames=(),
+            params=(),
+            paramnames=(),
+            defaults=(),
+            vparam=None,
+            kparam=None,
+            returnparams=(),
+            type_params=None,
+        ),
+        ast.Suite([ast.Discard(call)]),
+    )
+    return code, local, call
 
 
-class TestCodeContextCuller(unittest.TestCase):
-    """Test cases for CodeContextCuller class."""
+def test_retain_live_contexts_filters_contextual_facts_and_targets():
+    code, local, call = _code_with_call()
+    catalog = ensure_code_indexed(code)
+    first, dead = object(), object()
+    first_id = catalog.register_context(code, first, 0)
+    dead_id = catalog.register_context(code, dead, 1)
+    code_id = catalog.procedure(code).code_id
+    symbol_id = catalog.symbol_id(local, code)
+    call_id = catalog.node_id(call, code)
 
-    def test_init(self):
-        """Test CodeContextCuller initialization."""
-        culler = CodeContextCuller()
-        # Initialize locals and remap as process would do
-        culler.locals = set()
-        culler.remap = []
-        self.assertEqual(culler.locals, set())
-        self.assertEqual(culler.remap, [])
+    catalog.facts.publish_many(
+        "test",
+        {
+            Capabilities.CONTEXTS: {
+                code_id: FactResult.exact((first_id, dead_id), "test")
+            },
+            Capabilities.REFERENCES: {
+                ContextualKey(symbol_id, first_id): FactResult.exact(("live",), "test"),
+                ContextualKey(symbol_id, dead_id): FactResult.exact(("dead",), "test"),
+            },
+            Capabilities.CALL_TARGETS: {
+                ContextualKey(call_id, first_id): FactResult.exact(
+                    (CallTarget(code_id, dead_id),), "test"
+                ),
+                ContextualKey(call_id, dead_id): FactResult.exact((), "test"),
+            },
+        },
+    )
 
-    def test_visitLeaf_does_nothing(self):
-        """Test that visitLeaf does nothing for leaf types."""
-        culler = CodeContextCuller()
-        culler.locals = set()
-        culler.remap = []
-        # Should not raise
-        culler.visitLeaf(ast.Local("x"))
-
-    def test_visitLocal_adds_to_locals(self):
-        """Test that visitLocal adds local to locals set."""
-        culler = CodeContextCuller()
-        culler.locals = set()
-        culler.remap = []
-        local = ast.Local("x")
-        culler.visitLocal(local)
-        self.assertIn(local, culler.locals)
-
-    def test_process_empty_contexts(self):
-        """Test process with empty contexts."""
-        code = MockCode(contexts=["context1", "context2"])
-        culler = CodeContextCuller()
-        culler.process(code, set())
-        # All contexts should be removed
-        self.assertEqual(len(code.annotation.contexts), 0)
-
-    def test_process_all_contexts(self):
-        """Test process with all contexts."""
-        contexts = ["context1", "context2", "context3"]
-        code = MockCode(contexts=contexts)
-        culler = CodeContextCuller()
-        culler.process(code, set(contexts))
-        # All contexts should be preserved
-        self.assertEqual(len(code.annotation.contexts), 3)
-
-    def test_process_subset_contexts(self):
-        """Test process with subset of contexts."""
-        contexts = ["context1", "context2", "context3"]
-        code = MockCode(contexts=contexts)
-        culler = CodeContextCuller()
-        culler.process(code, {"context1", "context3"})
-        # Only 2 contexts should remain
-        self.assertEqual(len(code.annotation.contexts), 2)
+    assert retain_live_contexts(catalog, {code: {first}})
+    assert catalog.facts.query(Capabilities.CONTEXTS, code_id).values == {first_id}
+    assert catalog.facts.query(
+        Capabilities.REFERENCES, ContextualKey(symbol_id, first_id)
+    ).values == {"live"}
+    assert not catalog.facts.query(
+        Capabilities.CALL_TARGETS, ContextualKey(call_id, first_id)
+    ).values
+    assert not catalog.facts.query(
+        Capabilities.REFERENCES, ContextualKey(symbol_id, dead_id)
+    ).values
 
 
-class TestEvaluateCode(unittest.TestCase):
-    """Test cases for evaluateCode function."""
+def test_retain_live_contexts_reports_no_change_for_complete_live_set():
+    code, _local, _call = _code_with_call()
+    catalog = ensure_code_indexed(code)
+    context = object()
+    context_id = catalog.register_context(code, context, 0)
+    code_id = catalog.procedure(code).code_id
+    catalog.facts.publish(
+        Capabilities.CONTEXTS,
+        "test",
+        {code_id: FactResult.exact((context_id,), "test")},
+    )
 
-    def test_no_change_needed(self):
-        """Test when no contexts need to be removed."""
-        contexts = ["context1", "context2"]
-        code = MockCode(contexts=contexts)
-        ccc = CodeContextCuller()
-        evaluateCode(code, set(contexts), ccc)
-        # All contexts should remain
-        self.assertEqual(len(code.annotation.contexts), 2)
-
-    def test_contexts_removed(self):
-        """Test when some contexts are removed."""
-        contexts = ["context1", "context2", "context3"]
-        code = MockCode(contexts=contexts)
-        ccc = CodeContextCuller()
-        evaluateCode(code, {"context1", "context3"}, ccc)
-        # Only 2 contexts should remain
-        self.assertEqual(len(code.annotation.contexts), 2)
-
-
-if __name__ == "__main__":
-    unittest.main()
+    assert not retain_live_contexts(catalog, {code: {context}})

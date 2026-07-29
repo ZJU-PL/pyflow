@@ -14,6 +14,14 @@ from pyflow.api.queries.localization import LocalizationCandidate, LocalizationQ
 from pyflow.api.queries.service import SemanticQueryService
 from pyflow.api.queries.test_generation import TestGenerationQueries as _TestGenerationQueries
 from pyflow.language.modules.project_resolution import ProjectContext
+from pyflow.ir.core import (
+    Capabilities,
+    FactResult,
+    IRCatalog,
+    SourceAnchor,
+    SourceOrigin,
+    SourceSpan,
+)
 
 
 class DummyCode:
@@ -107,9 +115,21 @@ def f(x):
 
     cfg = SimpleNamespace(entryTerminal=entry)
     code = DummyCode("f", str(source_path), 2)
+    catalog = IRCatalog()
+    procedure = catalog.register_code(
+        code,
+        module="sample",
+        qualname="f",
+        anchor=SourceAnchor(str(source_path), 2, 0),
+    )
+    catalog.register_node(
+        procedure.code_id,
+        code,
+        origin=SourceOrigin(SourceSpan(str(source_path), 2, 0)),
+    )
     context = QueryContext(
         compiler=object(),
-        program=SimpleNamespace(liveCode=[code], interface=None),
+        program=SimpleNamespace(liveCode=[code], interface=None, ir=catalog),
     )
     queries = _TestGenerationQueries(
         context=context,
@@ -158,14 +178,35 @@ def test_function_test_profile_falls_back_to_cfg_complexity():
 def test_callgraph_uses_disambiguated_node_ids():
     src = DummyCode("foo", "/tmp/a.py", 10)
     dst = DummyCode("foo", "/tmp/b.py", 22)
-    src_ctx = DummyIpaContext(src)
-    dst_ctx = DummyIpaContext(dst)
-    src_ctx.invokeOut = {(None, dst_ctx): None}
-    ipa = SimpleNamespace(contexts={"a": src_ctx, "b": dst_ctx})
+    catalog = IRCatalog()
+    src_procedure = catalog.register_code(
+        src,
+        module="a",
+        qualname="foo",
+        anchor=SourceAnchor("/tmp/a.py", 10, 0),
+    )
+    dst_procedure = catalog.register_code(
+        dst,
+        module="b",
+        qualname="foo",
+        anchor=SourceAnchor("/tmp/b.py", 22, 0),
+    )
+    call_id = catalog.register_node(src_procedure.code_id, object())
+    catalog.facts.publish(
+        Capabilities.CALL_TARGET_CODES,
+        "test",
+        {
+            call_id: FactResult.exact((dst_procedure.code_id,), "test"),
+        },
+    )
 
     context = QueryContext(
         compiler=object(),
-        program=SimpleNamespace(ipa_analysis=ipa, liveCode=[src, dst], interface=None),
+        program=SimpleNamespace(
+            liveCode=[src, dst],
+            interface=None,
+            ir=catalog,
+        ),
     )
     engine = GraphQueryEngine(context)
     queries = CallGraphQueries(context, engine)
@@ -338,9 +379,24 @@ def test_entrypoint_maps_keyword_arguments_to_positional():
 def test_resolve_function_errors_on_ambiguous_short_name():
     code_a = DummyCode("foo", "/tmp/a.py", 1)
     code_b = DummyCode("foo", "/tmp/b.py", 2)
+    catalog = IRCatalog()
+    catalog.register_code(
+        code_a,
+        module="a",
+        qualname="foo",
+        anchor=SourceAnchor("/tmp/a.py", 1, 0),
+    )
+    catalog.register_code(
+        code_b,
+        module="b",
+        qualname="foo",
+        anchor=SourceAnchor("/tmp/b.py", 2, 0),
+    )
     context = QueryContext(
         compiler=object(),
-        program=SimpleNamespace(liveCode=[code_a, code_b], interface=None),
+        program=SimpleNamespace(
+            liveCode=[code_a, code_b], interface=None, ir=catalog
+        ),
     )
 
     with pytest.raises(ValueError, match="ambiguous"):
@@ -353,9 +409,24 @@ def test_resolve_function_errors_on_ambiguous_short_name():
 def test_get_all_cfgs_raises_when_any_cfg_construction_fails(monkeypatch):
     code_a = DummyCode("ok", "/tmp/a.py", 1)
     code_b = DummyCode("broken", "/tmp/b.py", 2)
+    catalog = IRCatalog()
+    catalog.register_code(
+        code_a,
+        module="a",
+        qualname="ok",
+        anchor=SourceAnchor("/tmp/a.py", 1, 0),
+    )
+    catalog.register_code(
+        code_b,
+        module="b",
+        qualname="broken",
+        anchor=SourceAnchor("/tmp/b.py", 2, 0),
+    )
     context = QueryContext(
         compiler=object(),
-        program=SimpleNamespace(liveCode=[code_a, code_b], interface=None),
+        program=SimpleNamespace(
+            liveCode=[code_a, code_b], interface=None, ir=catalog
+        ),
     )
     engine = GraphQueryEngine(context)
 
@@ -375,7 +446,7 @@ def test_get_all_cfgs_raises_when_any_cfg_construction_fails(monkeypatch):
         engine.get_all_cfgs()
 
 
-def test_get_ifds_supergraph_ignores_unrelated_cfg_failures(monkeypatch):
+def test_get_ifds_supergraph_propagates_cfg_failures(monkeypatch):
     code_a = DummyCode("ok", "/tmp/a.py", 1)
     code_b = DummyCode("broken", "/tmp/b.py", 2)
     context = QueryContext(
@@ -397,9 +468,8 @@ def test_get_ifds_supergraph_ignores_unrelated_cfg_failures(monkeypatch):
         return DummyCfg(code)
 
     monkeypatch.setattr(engine_module.cfg_transform, "evaluate", fake_evaluate)
-    adapter = engine.get_ifds_supergraph()
-
-    assert adapter.supergraph.procedures() == frozenset({engine.get_cfg(code_a)})
+    with pytest.raises(RuntimeError, match="CFG boom"):
+        engine.get_ifds_supergraph()
 
 
 def test_get_ifds_supergraph_rebuilds_after_reset_cache(monkeypatch):

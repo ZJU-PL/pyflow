@@ -58,7 +58,6 @@ def _ifds_solver_options(args):
 _CONFIG_SCALAR_MAP: dict[str, str] = {
     "analysis": "analysis",
     "function": "function",
-    "ifds_mode": "ifds_mode",
     "ifds_trace_mode": "ifds_trace_mode",
     "ifds_context_depth": "ifds_context_depth",
 }
@@ -110,7 +109,6 @@ def _apply_ifds_config(args) -> None:
         "sanitizers",
         "analysis",
         "function",
-        "ifds_mode",
         "ifds_trace_mode",
         "ifds_context_depth",
         "registry_path",
@@ -196,14 +194,7 @@ def _run_ifds(targets: List[str], args) -> Dict[str, Any]:
         run_taint_analysis,
         run_typestate_analysis,
     )
-    from pyflow.analysis.ifds.frontend.preparation import PreparationMode
-
     solver_options = _ifds_solver_options(args)
-    preparation_mode = (
-        PreparationMode.STRICT
-        if getattr(args, "ifds_mode", "best-effort") == "strict"
-        else PreparationMode.BEST_EFFORT
-    )
 
     files = _discover_python_files(targets, getattr(args, "recursive", False))
     if not files:
@@ -229,7 +220,6 @@ def _run_ifds(targets: List[str], args) -> Dict[str, Any]:
                 dependency_strategy=getattr(args, "dependency_strategy", "auto"),
                 verbose=getattr(args, "verbose", False),
                 solver_options=solver_options,
-                preparation_mode=preparation_mode,
             )
         except Exception as e:
             print(f"IFDS analysis failed: {e}", file=sys.stderr)
@@ -256,7 +246,6 @@ def _run_ifds(targets: List[str], args) -> Dict[str, Any]:
                 dependency_strategy=getattr(args, "dependency_strategy", "auto"),
                 verbose=getattr(args, "verbose", False),
                 solver_options=solver_options,
-                preparation_mode=preparation_mode,
             )
         except Exception as e:
             print(f"IFDS analysis failed: {e}", file=sys.stderr)
@@ -312,7 +301,6 @@ def _run_ifds(targets: List[str], args) -> Dict[str, Any]:
             dependency_strategy=getattr(args, "dependency_strategy", "auto"),
             verbose=getattr(args, "verbose", False),
             solver_options=solver_options,
-            preparation_mode=preparation_mode,
         )
     except Exception as e:
         print(f"IFDS analysis failed: {e}", file=sys.stderr)

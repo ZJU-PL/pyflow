@@ -11,8 +11,11 @@ class IpaFunctionSummary:
     """Container for IPA summaries per analyzed context."""
 
     name: str
-    signature: object
-    summary: object
+    context_id: object
+    parameter_names: tuple[str, ...]
+    return_dependencies: tuple[str, ...]
+    returns_value: bool
+    examples: tuple[object, ...] = ()
 
 
 @dataclass

@@ -36,7 +36,7 @@ class _CallTransferMixin:
         call = self._call_expression(operation)
         if call is None:
             return
-        application_key = self._call_application_key(call)
+        application_key = self._call_application_key(procedure, call)
         if application_key in self._applied_calls:
             return
         self._applied_calls.add(application_key)
@@ -55,7 +55,9 @@ class _CallTransferMixin:
         )
         if callback_returns:
             self._callback_call_results[application_key] = callback_returns
-            pending = self._pending_call_results.get(id(operation))
+            pending = self._pending_call_results.get(
+                self._program_point_identity(procedure, operation)
+            )
             if pending is not None:
                 _targets, slots = pending
                 for roots in slots:
@@ -262,11 +264,17 @@ class _CallTransferMixin:
         actuals = tuple(actual_argument_expressions(call))
         if protocol is None or not actuals:
             return ()
-        operands = self._last_call_operands.get(id(call))
+        call_id = self._program_point_identity(procedure, call)
+        operands = self._last_call_operands.get(call_id)
         if operands is None:
             operands = self._evaluate_call_operands(procedure, call)
-        receivers = operands.get(id(actuals[0]), ())
-        groups = tuple(operands.get(id(actual), ()) for actual in actuals[1:])
+        receivers = operands.get(
+            self._program_point_identity(procedure, actuals[0]), ()
+        )
+        groups = tuple(
+            operands.get(self._program_point_identity(procedure, actual), ())
+            for actual in actuals[1:]
+        )
         returned = self._evaluate_known_protocol(
             procedure,
             receivers,
@@ -275,11 +283,12 @@ class _CallTransferMixin:
         )
         if not returned:
             return ()
-        pending = self._pending_call_results.get(id(operation))
+        operation_id = self._program_point_identity(procedure, operation)
+        pending = self._pending_call_results.get(operation_id)
         if pending is None:
             return returned
         targets, slots = pending
-        self._pending_call_results[id(operation)] = (
+        self._pending_call_results[operation_id] = (
             targets,
             tuple(tuple(dict.fromkeys((*slot, *returned))) for slot in slots),
         )
@@ -352,7 +361,9 @@ class _CallTransferMixin:
             if self._operation_normal_possible[-1]:
                 normal_states.append(self._capture_flow_state())
                 possible_returns.extend(returned)
-                summary = self._last_direct_call_summary.get(id(direct))
+                summary = self._last_direct_call_summary.get(
+                    self._program_point_identity(caller, direct)
+                )
                 if summary is not None:
                     while len(return_slots) < len(summary.returns):
                         return_slots.append([])
@@ -387,18 +398,22 @@ class _CallTransferMixin:
                     )
                     for index, _target in enumerate(targets)
                 )
-            self._pending_call_results[id(operation)] = (
+            self._pending_call_results[
+                self._program_point_identity(caller, operation)
+            ] = (
                 targets,
                 slots,
             )
-        self._finite_call_results[self._call_application_key(call)] = tuple(
+        self._finite_call_results[self._call_application_key(caller, call)] = tuple(
             dict.fromkeys(possible_returns)
         )
         return True
 
-    def _call_application_key(self, call: object) -> tuple[object, ...]:
+    def _call_application_key(
+        self, procedure: object, call: object
+    ) -> tuple[object, ...]:
         return (
-            id(call),
+            self._program_point_identity(procedure, call),
             self._evaluation_epoch,
             self._current_context,
         )
@@ -408,11 +423,15 @@ class _CallTransferMixin:
         procedure: object,
         call: object,
     ) -> tuple[tuple[py_ast.Code, tuple[HeapLocation, ...]], ...]:
-        operands = self._last_call_operands.get(id(call))
+        operands = self._last_call_operands.get(
+            self._program_point_identity(procedure, call)
+        )
         if operands is None:
             operands = self._evaluate_call_operands(procedure, call)
         if isinstance(call, py_ast.Call):
-            functions = operands.get(id(call.expr), ())
+            functions = operands.get(
+                self._program_point_identity(procedure, call.expr), ()
+            )
             if not functions:
                 return ()
             codes: list[tuple[py_ast.Code, tuple[HeapLocation, ...]]] = []
@@ -446,7 +465,9 @@ class _CallTransferMixin:
         if not isinstance(call, py_ast.MethodCall):
             return ()
         name = self.effect_builder._constant_string(call.name)
-        receivers = operands.get(id(call.expr), ())
+        receivers = operands.get(
+            self._program_point_identity(procedure, call.expr), ()
+        )
         if name is None or not receivers:
             return ()
         candidates: list[tuple[py_ast.Code, tuple[HeapLocation, ...]]] = []
@@ -520,7 +541,7 @@ class _CallTransferMixin:
     ) -> None:
         callee = call.code
         if getattr(callee, "module", None) is None:
-            self._module_owners.setdefault(id(callee), self._module_owner(caller))
+            self._module_owners.setdefault(callee, self._module_owner(caller))
         binding_result = self._direct_call_actual_locations(caller, callee, call)
         actual_bindings = binding_result.bindings
         possible_returns = self._evaluate_direct_call_with_bindings(
@@ -539,12 +560,13 @@ class _CallTransferMixin:
                     possible_returns,
                 )
             return
-        if id(call) not in self._last_direct_call_summary:
+        call_id = self._program_point_identity(caller, call)
+        if call_id not in self._last_direct_call_summary:
             for target in targets:
                 if possible_returns:
                     self._bind_runtime_local(caller, target, possible_returns)
             return
-        summary = self._last_direct_call_summary[id(call)]
+        summary = self._last_direct_call_summary[call_id]
         for index, target in enumerate(targets):
             if index >= len(summary.returns):
                 continue
@@ -607,7 +629,7 @@ class _CallTransferMixin:
                     dict(self._definition_default_locations),
                 )
             )
-        cache_key = self._direct_call_cache_key(call, actual_bindings)
+        cache_key = self._direct_call_cache_key(caller, call, actual_bindings)
         cached = self._direct_call_evaluation_cache.get(cache_key)
         if cached is not None:
             return cached
@@ -617,7 +639,10 @@ class _CallTransferMixin:
             deferred = HeapLocation(
                 self.heap.allocation_object(
                     caller,
-                    (deferred_kind, id(call)),
+                    (
+                        deferred_kind,
+                        self._program_point_identity(caller, call),
+                    ),
                     label=deferred_kind,
                     context=self._current_context,
                 )
@@ -649,14 +674,16 @@ class _CallTransferMixin:
         previous_context = self._current_context
         self._current_context = (
             *previous_context,
-            self._context_token(call),
+            self._program_point_identity(caller, call),
             self._evaluation_epoch,
         )
         try:
             summary = self._callee_summary(callee, actual_bindings)
         finally:
             self._current_context = previous_context
-        self._last_direct_call_summary[id(call)] = summary
+        self._last_direct_call_summary[
+            self._program_point_identity(caller, call)
+        ] = summary
         if summary.raise_state is not None and self._operation_call_raises:
             raised_state = summary.raise_state.copy()
             if summary.raises:
@@ -858,22 +885,26 @@ class _CallTransferMixin:
 
     @staticmethod
     def _deferred_code_kind(callee: py_ast.Code) -> str | None:
-        origin = getattr(getattr(callee, "annotation", None), "origin", ()) or ()
-        if "converted_generator" in origin or "converted_genexpr" in origin:
+        catalog = getattr(callee, "ir_catalog", None)
+        if catalog is None:
+            return None
+        procedure = catalog.procedure(callee)
+        if procedure.is_generator:
             return "generator"
-        if "converted_async_function" in origin:
+        if procedure.is_async:
             return "coroutine"
         return None
 
     def _direct_call_cache_key(
         self,
+        caller: object,
         call: py_ast.DirectCall,
         actual_bindings: dict[int, tuple[HeapLocation, ...]],
     ) -> tuple[object, ...]:
         return (
             "direct-call",
             self._evaluation_epoch,
-            id(call),
+            self._program_point_identity(caller, call),
             self._summary_key(call.code, actual_bindings),
         )
 
@@ -1282,14 +1313,19 @@ class _CallTransferMixin:
         params = callee.codeparameters
         formals = self._callee_formals(callee)
         evaluated_operands = self._evaluate_call_operands(caller, call)
-        formal_indices = {id(formal): index for index, formal in enumerate(formals)}
+        formal_indices = {
+            self._reference_identity(callee, formal): index
+            for index, formal in enumerate(formals)
+        }
         bindings: dict[int, list[HeapLocation]] = {
             index: [] for index in range(len(formals))
         }
         uncertainly_bound: set[int] = set()
 
         def evaluate(expression_procedure, expression):
-            cached = evaluated_operands.get(id(expression))
+            cached = evaluated_operands.get(
+                self._program_point_identity(expression_procedure, expression)
+            )
             if cached is not None:
                 return cached
             return self.locations_for_expression(
@@ -1298,7 +1334,9 @@ class _CallTransferMixin:
             )
 
         def bind(formal, locations):
-            bindings[formal_indices[id(formal)]].extend(locations)
+            bindings[
+                formal_indices[self._reference_identity(callee, formal)]
+            ].extend(locations)
 
         selfparam = getattr(params, "selfparam", None)
         selfarg = getattr(call, "selfarg", None)
@@ -1339,7 +1377,11 @@ class _CallTransferMixin:
                     for formal in positional_slots[positional_index:]:
                         if isinstance(formal, py_ast.Local):
                             bind(formal, possible)
-                            uncertainly_bound.add(formal_indices[id(formal)])
+                            uncertainly_bound.add(
+                                formal_indices[
+                                    self._reference_identity(callee, formal)
+                                ]
+                            )
                     extra_positional.append(possible)
                     uncertain_spread = True
                     continue
@@ -1347,7 +1389,11 @@ class _CallTransferMixin:
                     for formal in positional_slots[positional_index:]:
                         if isinstance(formal, py_ast.Local):
                             bind(formal, expanded)
-                            uncertainly_bound.add(formal_indices[id(formal)])
+                            uncertainly_bound.add(
+                                formal_indices[
+                                    self._reference_identity(callee, formal)
+                                ]
+                            )
                     extra_positional.append(expanded)
                     continue
                 for item_locations in (
@@ -1428,13 +1474,13 @@ class _CallTransferMixin:
             for formal in positional_slots:
                 if not isinstance(formal, py_ast.Local):
                     continue
-                index = formal_indices[id(formal)]
+                index = formal_indices[self._reference_identity(callee, formal)]
                 if not bindings[index]:
                     bind(formal, expanded_vargs)
 
         if kargs_locations:
             for name, formal in named_formals.items():
-                index = formal_indices[id(formal)]
+                index = formal_indices[self._reference_identity(callee, formal)]
                 if bindings[index]:
                     continue
                 possible: list[HeapLocation] = []
@@ -1472,7 +1518,7 @@ class _CallTransferMixin:
                     and getattr(default.object, "pyobj", None) is MISSING_DEFAULT
                 ):
                     continue
-                index = formal_indices[id(formal)]
+                index = formal_indices[self._reference_identity(callee, formal)]
                 if (
                     not bindings[index]
                     or index in uncertainly_bound
@@ -1482,7 +1528,7 @@ class _CallTransferMixin:
                     )
                 ):
                     locations = self._definition_default_locations.get(
-                        (id(callee), default_index)
+                        (self._procedure_identity(callee), default_index)
                     )
                     if locations is None:
                         locations = evaluate(callee, default)
@@ -1492,7 +1538,11 @@ class _CallTransferMixin:
         if isinstance(vparam, py_ast.Local):
             packed = HeapLocation(
                 self.heap.summary_object(
-                    ("varargs", id(callee), id(call)),
+                    (
+                        "varargs",
+                        self._procedure_identity(callee),
+                        self._program_point_identity(caller, call),
+                    ),
                     label="*args",
                 )
             )
@@ -1523,7 +1573,11 @@ class _CallTransferMixin:
         if isinstance(kparam, py_ast.Local):
             packed = HeapLocation(
                 self.heap.summary_object(
-                    ("kwargs", id(callee), id(call)),
+                    (
+                        "kwargs",
+                        self._procedure_identity(callee),
+                        self._program_point_identity(caller, call),
+                    ),
                     label="**kwargs",
                 )
             )

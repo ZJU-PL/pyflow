@@ -2,7 +2,9 @@ from pyflow.util.typedispatch import *
 from pyflow.language.python import ast
 from . import graph, dom
 
-import pyflow.util.pydot as pydot
+
+class StructuralAnalysisError(Exception):
+    """Raised when a CFG cannot be represented by PyFlow's structured AST."""
 
 
 class Search(object):
@@ -154,6 +156,12 @@ class Compactor(TypeDispatcher):
 
         self.simplifySuite(result)
 
+    @dispatch(graph.ForIter)
+    def visitForIter(self, node):
+        # Iterator headers are reconstructed together with their loop-header
+        # Merge; compacting them independently would lose the backedge.
+        pass
+
     @dispatch(graph.TypeSwitch)
     def visitTypeSwitch(self, node):
         exits = [self.getSwitchExit(node, i) for i in range(len(node.original.cases))]
@@ -266,25 +274,20 @@ class Compactor(TypeDispatcher):
         if node not in self.loops:
             node.simplify()
         else:
-            # Bug 7 fix: loop header merge nodes legitimately have two predecessors
-            # (the pre-loop entry edge and the back-edge from the loop body).
-            # The original assertion ``assert node.numPrev() == 1`` fired for any
-            # loop whose back-edge had not yet been removed, crashing structural
-            # analysis.  Replace with a tighter sanity check.
-            # Bug K fix: the previous fix used ``<= 2`` which also allowed zero
-            # predecessors.  A loop merge with zero predecessors is degenerate
-            # and would crash on ``node.getExit("normal")`` returning None.
-            # Require at least one predecessor.
-            assert 1 <= node.numPrev() <= 2, node.numPrev()
+            if node.numPrev() < 1:
+                raise StructuralAnalysisError("loop header has no predecessor")
 
             preamble = node.getExit("normal")
 
-            if isinstance(preamble, graph.Switch):
+            if isinstance(preamble, (graph.Switch, graph.ForIter)):
                 # No preamble code, the switch is directly connected
                 switch = preamble
                 preamble = graph.Suite(switch.region)
             else:
-                assert isinstance(preamble, graph.Suite)
+                if not isinstance(preamble, graph.Suite):
+                    raise StructuralAnalysisError(
+                        f"loop header has unsupported successor {type(preamble).__name__}"
+                    )
                 switch = preamble.getExit("normal")
 
             # 			print(preamble.ops)
@@ -302,13 +305,21 @@ class Compactor(TypeDispatcher):
 
                 else_ = graph.Suite(body.region)
             else:
-                assert isinstance(switch, graph.Switch)
+                if not isinstance(switch, (graph.Switch, graph.ForIter)):
+                    raise StructuralAnalysisError(
+                        f"loop condition has unsupported block {type(switch).__name__}"
+                    )
 
-                body = self.getSwitchExit(switch, "true")
-                else_ = self.getSwitchExit(switch, "false", ignoreRegion=True)
-
-                switch.killExit("true")
-                switch.killExit("false")
+                if isinstance(switch, graph.ForIter):
+                    body = self.getSwitchExit(switch, "body")
+                    else_ = self.getSwitchExit(switch, "exit", ignoreRegion=True)
+                    switch.killExit("body")
+                    switch.killExit("exit")
+                else:
+                    body = self.getSwitchExit(switch, "true")
+                    else_ = self.getSwitchExit(switch, "false", ignoreRegion=True)
+                    switch.killExit("true")
+                    switch.killExit("false")
 
             # 			print("pre", preamble.ops)
             # 			print("cond", switch.condition)
@@ -334,11 +345,21 @@ class Compactor(TypeDispatcher):
             bodyast = ast.Suite(body.ops)
             bodyast = KillContinues()(bodyast)
 
-            loop = ast.While(
-                ast.Condition(ast.Suite(preamble.ops), switch.condition),
-                bodyast,
-                ast.Suite(else_.ops),
-            )
+            if isinstance(switch, graph.ForIter):
+                loop = ast.For(
+                    switch.iterator,
+                    switch.index,
+                    ast.Suite(preamble.ops),
+                    ast.Suite([]),
+                    bodyast,
+                    ast.Suite(else_.ops),
+                )
+            else:
+                loop = ast.While(
+                    ast.Condition(ast.Suite(preamble.ops), switch.condition),
+                    bodyast,
+                    ast.Suite(else_.ops),
+                )
 
             result = graph.Suite(node.region)
             result.ops.append(loop)
@@ -374,15 +395,24 @@ class Compactor(TypeDispatcher):
 
 
 def processLoop(dj):
-    assert len(dj.d) == 1
+    if len(dj.d) != 1:
+        raise StructuralAnalysisError(
+            "irreducible or multi-entry loop cannot be represented structurally"
+        )
 
     switch = dj.d[0]
 
     if isinstance(switch.node, graph.Suite):
-        assert len(switch.d) == 1, [d.node for d in switch.d]
+        if len(switch.d) != 1:
+            raise StructuralAnalysisError(
+                "loop preheader does not have a unique condition block"
+            )
         switch = switch.d[0]
 
-    assert isinstance(switch.node, graph.Switch), switch.node
+    if not isinstance(switch.node, (graph.Switch, graph.ForIter)):
+        raise StructuralAnalysisError(
+            f"unsupported loop condition block {type(switch.node).__name__}"
+        )
 
 
 def findLoops(dj):

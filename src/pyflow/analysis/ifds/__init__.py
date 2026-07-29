@@ -1,20 +1,18 @@
 """IFDS/IDE interprocedural dataflow engine."""
 
 from .frontend.cfg_adapter import (
-    annotation_invokes_cfg_resolver,
     CallEffect,
     CFGNode,
     CFGSupergraphAdapter,
     assigned_locals,
     build_supergraph_from_cfgs,
     composite_cfg_resolver,
-    constraint_callgraph_cfg_resolver,
     direct_call_cfg_resolver,
     extract_call_expression,
     iter_call_expressions,
     iter_call_expressions_in_eval_order,
     iter_suspension_expressions,
-    named_call_cfg_resolver,
+    fact_call_targets_cfg_resolver,
     ProcedureSemantics,
     SuspensionEffect,
 )
@@ -77,7 +75,6 @@ from .core.solver import (
 )
 from .core.solver import PropagationTrace, SolverStatistics
 from .diagnostics import IFDSDiagnostic
-from .frontend.preparation import PreparationMode
 from .queries import is_reached_prefix, verify_call_chain
 from .reporting import AnalysisFinding, FlowStep, SourceSpan
 from .core.supergraph import Supergraph, SupergraphError
@@ -143,8 +140,8 @@ from .core.transfers import (
     collect_locals,
     formal_parameters,
     identity_unless_killed,
-    resolve_call_name,
 )
+from pyflow.language.python.ir_metadata import resolve_call_name
 from .shadow_scan import (
     DiffEntry,
     ShadowMatch,
@@ -199,7 +196,6 @@ __all__ = [
     "PathEdge",
     "PropagationTrace",
     "ProcedureSemantics",
-    "PreparationMode",
     "NullnessAnalysisResult",
     "NullnessConfiguration",
     "NullnessFinding",
@@ -236,7 +232,6 @@ __all__ = [
     "ValueTransition",
     "verify_call_chain",
     "actual_parameters",
-    "annotation_invokes_cfg_resolver",
     "analyze_nullness",
     "analyze_taint",
     "analyze_typestate",
@@ -246,7 +241,6 @@ __all__ = [
     "build_supergraph_from_cfgs",
     "collect_locals",
     "composite_cfg_resolver",
-    "constraint_callgraph_cfg_resolver",
     "diff_scans",
     "DiffEntry",
     "direct_call_cfg_resolver",
@@ -274,7 +268,7 @@ __all__ = [
     "iter_call_expressions",
     "iter_call_expressions_in_eval_order",
     "iter_suspension_expressions",
-    "named_call_cfg_resolver",
+    "fact_call_targets_cfg_resolver",
     "resolve_call_name",
     "resource_lifecycle_protocol",
     "run_shadow_scan",

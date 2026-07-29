@@ -20,6 +20,7 @@ from pyflow.util.typedispatch import TypeDispatcher, dispatch
 from pyflow.language.python import ast
 
 from pyflow.language.python.fold import existingConstant
+from pyflow.ir.core import MissingAnalysisFact
 
 
 class ForwardFlowTraverse(TypeDispatcher):
@@ -83,7 +84,16 @@ class ForwardFlowTraverse(TypeDispatcher):
     def visitLeaf(self, node):
         return node
 
-    def processExpr(self, node):
+    def recordFactSource(self, original, replacement):
+        """Tell a rewrite strategy which analyzed node a fresh node replaces."""
+        recorder = getattr(self.rewrite, "recordFactSource", None)
+        if recorder is not None:
+            recorder(original, replacement)
+        return replacement
+
+    def processExpr(self, node, fact_source=None):
+        if fact_source is not None and node is not fact_source:
+            self.recordFactSource(fact_source, node)
         node = self.rewrite(node)
 
         # Assuming exception handing only cares about locals, save the state before the assign.
@@ -246,13 +256,20 @@ class ForwardFlowTraverse(TypeDispatcher):
 
     def simplifyTypeSwitch(self, node):
         cases = node.cases
-        refs = node.conditional.annotation.references
         changed = False
+        code = getattr(self.rewrite, "code", None) or getattr(self.analyze, "code", None)
+        facts = getattr(self.rewrite, "facts", None)
+        if facts is None:
+            facts = getattr(getattr(self.analyze, "pattern", None), "facts", None)
+        try:
+            refs = facts.merged_references(code, node.conditional) if facts else None
+        except MissingAnalysisFact:
+            refs = None
 
         # Filter out types and cases that are dead.
         # Requires knowing what node.conditional may point to.
         if refs is not None:
-            reftypes = frozenset([ref.xtype.obj.type for ref in refs.merged])
+            reftypes = frozenset(ref.xtype.obj.type for ref in refs)
 
             newcases = []
             for case in cases:
@@ -611,7 +628,7 @@ class ForwardFlowTraverse(TypeDispatcher):
         kargs = self(node.kargs)
         result = ast.Call(expr, args, kwds, vargs, kargs)
         result.annotation = node.annotation
-        return self.processExpr(result)
+        return self.processExpr(result, node)
 
     @dispatch(ast.DirectCall)
     def visitDirectCall(self, node):
@@ -622,7 +639,7 @@ class ForwardFlowTraverse(TypeDispatcher):
         kargs = self(node.kargs)
         result = ast.DirectCall(node.code, selfarg, args, kwds, vargs, kargs)
         result.annotation = node.annotation
-        return self.processExpr(result)
+        return self.processExpr(result, node)
 
     @dispatch(ast.Existing)
     def visitExisting(self, node):
@@ -647,7 +664,7 @@ class ForwardFlowTraverse(TypeDispatcher):
         exprs = self(node.exprs)
         result = ast.Return(exprs)
         result.annotation = node.annotation
-        result = self.processExpr(result)
+        result = self.processExpr(result, node)
         self.flow.save("return")
         return result
 
@@ -658,7 +675,7 @@ class ForwardFlowTraverse(TypeDispatcher):
         traceback = self(node.traceback)
         result = ast.Raise(exception, parameter, traceback)
         result.annotation = node.annotation
-        result = self.processExpr(result)
+        result = self.processExpr(result, node)
         self.flow.save("raise")
         return result
 

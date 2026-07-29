@@ -8,7 +8,6 @@ from types import SimpleNamespace
 
 import pyflow.analysis.ifds.api as ifds_api
 from pyflow.analysis.ifds.api import (
-    IFDSDiagnostic,
     load_analysis_session,
     run_nullness_analysis,
     run_taint_analysis,
@@ -475,7 +474,7 @@ def main():
     )
 
     assert len(result.findings) == 1
-    assert any("best-effort mode" in diagnostic for diagnostic in session.diagnostics)
+    assert session.diagnostics == ()
 
 
 def test_run_taint_analysis_handles_nested_and_computed_sink_expressions(tmp_path):
@@ -515,7 +514,7 @@ def main():
     )
     assert findings == [
         ([], ("source()",)),
-        (["a"], ()),
+        (["a"], ("interpreter__add__()",)),
         (["b"], ()),
     ]
 
@@ -711,12 +710,8 @@ def f(a, b, xs):
     session = load_analysis_session([target], verbose=False)
 
     assert {code.codeName() for code in session.program.liveCode} >= {"f"}
-    assert any("best-effort mode" in diagnostic for diagnostic in session.diagnostics)
-    assert all(
-        isinstance(diagnostic, IFDSDiagnostic) for diagnostic in session.diagnostics
-    )
-    assert any(diagnostic.phase == "pipeline" for diagnostic in session.diagnostics)
-    assert any("best-effort mode" in message for message in session.diagnostic_messages)
+    assert session.diagnostics == ()
+    assert session.diagnostic_messages == ()
 
 
 def test_load_analysis_session_handles_annotated_assignments(tmp_path):

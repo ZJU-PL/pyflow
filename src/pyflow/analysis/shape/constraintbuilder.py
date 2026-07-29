@@ -13,6 +13,7 @@ from __future__ import absolute_import
 
 from pyflow.util.typedispatch import *
 from pyflow.language.python import ast
+from pyflow.ir.core import Capabilities
 
 from .model import expressions
 from . import constraints
@@ -380,9 +381,7 @@ class ShapeConstraintBuilder(TypeDispatcher):
 
     @dispatch(ast.DirectCall)
     def visitDirectCall(self, node, targets):
-        assert node.annotation.invokes is not None
-
-        invocations = node.annotation.invokes[0]
+        invocations = self.sys.facts.merged_call_targets(self.function, node)
         callerargs = self.makeCallerArgs(node, targets)
 
         pre = self.pre(node)
@@ -398,9 +397,7 @@ class ShapeConstraintBuilder(TypeDispatcher):
 
     @dispatch(ast.Call)
     def visitCall(self, node, targets):
-        assert node.annotation.invokes is not None
-
-        invocations = node.annotation.invokes[0]
+        invocations = self.sys.facts.merged_call_targets(self.function, node)
         callerargs = self.makeCallerArgs(node, targets)
 
         pre = self.pre(node)
@@ -436,7 +433,7 @@ class ShapeConstraintBuilder(TypeDispatcher):
         return info
 
     def indexExpr(self, expr, index):
-        slot = self.sys.info.indexSlotName(expr.slot.lcl, index)
+        slot = self.sys.info.indexSlotName(self.function, expr.slot.lcl, index)
         field = self.sys.canonical.fieldSlot(None, slot)
         return self.sys.canonical.fieldExpr(expr, field)
 
@@ -553,7 +550,9 @@ class ShapeConstraintBuilder(TypeDispatcher):
             max_varg = self.maxVArgLength()
             for i in range(max_varg):
                 paramSlot = self.sys.canonical.localSlot(base + i)
-                idxName = self.sys.info.indexSlotName(callerargs.vargs.slot.lcl, i)
+                idxName = self.sys.info.indexSlotName(
+                    self.function, callerargs.vargs.slot.lcl, i
+                )
                 fieldSlot = self.sys.canonical.fieldSlot(None, idxName)
                 splitMergeInfo.mapping[paramSlot] = fieldSlot
 
@@ -656,8 +655,6 @@ class ShapeConstraintBuilder(TypeDispatcher):
 
     @dispatch(ast.Allocate)
     def visitAllocate(self, node, targets):
-        assert node.annotation.allocates is not None
-
         assert len(targets) == 1
         target = targets[0]
         targetExpr = self.localExpr(target)
@@ -665,7 +662,9 @@ class ShapeConstraintBuilder(TypeDispatcher):
         fields = set()
 
         # Collect field names from allocated object nodes
-        for obj in node.annotation.allocates[0]:
+        for obj in self.sys.facts.merged_operation_effect(
+            Capabilities.LIFETIME_OP_ALLOCATIONS, self.function, node
+        ):
             if hasattr(obj, "slots"):
                 for fieldName in obj.slots.keys():
                     fields.add(fieldName)
@@ -685,14 +684,14 @@ class ShapeConstraintBuilder(TypeDispatcher):
         assert len(targets) == 1
         target = targets[0]
 
-        field = self.sys.info.loadSlotName(node)
+        field = self.sys.info.loadSlotName(self.function, node)
         self.assign(self.fieldExpr(node.expr, field), self.localExpr(target))
 
     @dispatch(ast.Store)
     def visitStore(self, node):
         try:
             self.pre(node)
-            field = self.sys.info.storeSlotName(node)
+            field = self.sys.info.storeSlotName(self.function, node)
             self.assign(self.localExpr(node.value), self.fieldExpr(node.expr, field))
             self.post(node)
         except Exception:

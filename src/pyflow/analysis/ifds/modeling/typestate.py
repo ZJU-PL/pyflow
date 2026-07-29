@@ -133,6 +133,9 @@ class TypestateProtocol:
                         typestate_action_protocols=frozenset(
                             {(action_model.action, self.name)}
                         ),
+                        return_kind=(
+                            "fresh" if action_model.creates_resource else None
+                        ),
                     )
                 )
         return CallModelRegistry(models)

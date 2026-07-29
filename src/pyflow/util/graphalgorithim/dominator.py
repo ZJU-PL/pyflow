@@ -496,10 +496,70 @@ def findIDoms(roots, forwardCallback):
     dict
         Mapping from each node to its immediate dominator (None for roots)
     """
-    idf = IDomFinder(forwardCallback)
-    for root in roots:
-        idf.process(root)
-    return idf.findIDoms()
+    # Cooper-Harvey-Kennedy iterative dominance.  The previous DFS-interval
+    # heuristic was not a dominator algorithm: on irreducible graphs it could
+    # select a predecessor that did not dominate the node at all.  A synthetic
+    # root also gives multiple-entry graphs well-defined results.
+    roots = tuple(dict.fromkeys(roots))
+    if not roots:
+        return {}
+
+    synthetic_root = object()
+    successors = {synthetic_root: roots}
+    seen = {synthetic_root}
+    postorder = []
+    stack = [(synthetic_root, iter(roots))]
+
+    while stack:
+        node, children = stack[-1]
+        try:
+            child = next(children)
+            if child not in seen:
+                seen.add(child)
+                child_successors = tuple(forwardCallback(child))
+                successors[child] = child_successors
+                stack.append((child, iter(child_successors)))
+        except StopIteration:
+            postorder.append(node)
+            stack.pop()
+
+    rpo = list(reversed(postorder))
+    rpo_index = {node: index for index, node in enumerate(rpo)}
+    predecessors = {node: [] for node in rpo}
+    for source, targets in successors.items():
+        for target in targets:
+            if target in predecessors and source is not target:
+                predecessors[target].append(source)
+
+    idoms = {synthetic_root: synthetic_root}
+
+    def intersect(left, right):
+        while left is not right:
+            while rpo_index[left] > rpo_index[right]:
+                left = idoms[left]
+            while rpo_index[right] > rpo_index[left]:
+                right = idoms[right]
+        return left
+
+    changed = True
+    while changed:
+        changed = False
+        for node in rpo[1:]:
+            available = [pred for pred in predecessors[node] if pred in idoms]
+            if not available:
+                continue
+            new_idom = available[0]
+            for pred in available[1:]:
+                new_idom = intersect(pred, new_idom)
+            if idoms.get(node) is not new_idom:
+                idoms[node] = new_idom
+                changed = True
+
+    return {
+        node: (None if idoms.get(node) is synthetic_root else idoms.get(node))
+        for node in rpo
+        if node is not synthetic_root
+    }
 
 
 def treeFromIDoms(idoms):

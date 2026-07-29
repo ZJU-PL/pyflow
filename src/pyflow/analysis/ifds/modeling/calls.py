@@ -32,6 +32,7 @@ class CallModel:
     receiver_types: FrozenSet[str] = frozenset()
     callee_qualnames: FrozenSet[str] = frozenset()
     module_prefixes: FrozenSet[str] = frozenset()
+    return_kind: str | None = None
 
     def merged(self, other: "CallModel") -> "CallModel":
         if self.name != other.name:
@@ -62,6 +63,7 @@ class CallModel:
             receiver_types=self.receiver_types | other.receiver_types,
             callee_qualnames=self.callee_qualnames | other.callee_qualnames,
             module_prefixes=self.module_prefixes | other.module_prefixes,
+            return_kind=self.return_kind or other.return_kind,
         )
 
 

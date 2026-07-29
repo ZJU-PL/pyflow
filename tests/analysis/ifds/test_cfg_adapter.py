@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from types import SimpleNamespace
-
 from pyflow.application import context
 from pyflow.analysis.ifds import bind_call_arguments, build_supergraph_from_cfgs
 from pyflow.analysis.ifds.frontend.cfg_adapter import (
@@ -11,7 +9,6 @@ from pyflow.analysis.ifds.frontend.cfg_adapter import (
     ExceptionalEffect,
     GuardEffect,
     StoreEffect,
-    annotation_invokes_cfg_resolver,
 )
 from pyflow.language.python import ast
 from pyflow.language.python.default_markers import MISSING_DEFAULT
@@ -60,7 +57,7 @@ def test_cfg_adapter_discovers_direct_call_edges_and_return_sites():
     assert isinstance(adapter.operation_of(next(iter(successors))), ast.Return)
 
 
-def test_cfg_adapter_resolves_source_level_named_calls_without_directcall_nodes():
+def test_cfg_adapter_does_not_guess_source_level_named_calls():
     compiler = context.CompilerContext(None)
 
     x = ast.Local("x")
@@ -89,7 +86,7 @@ def test_cfg_adapter_resolves_source_level_named_calls_without_directcall_nodes(
         if adapter.call_expression_of(node) is not None
     ]
     assert len(call_nodes) == 1
-    assert adapter.callees_of(call_nodes[0]) == (helper_cfg,)
+    assert adapter.callees_of(call_nodes[0]) == ()
 
 
 def test_cfg_adapter_does_not_resolve_ambiguous_named_calls_by_short_name():
@@ -627,17 +624,6 @@ def test_cfg_adapter_creates_call_nodes_for_nested_calls_in_evaluation_order():
     ]
 
     assert call_names == ["source", "wrapper", "sink"]
-
-
-def test_annotation_invokes_cfg_resolver_uses_adapter_lookup():
-    adapter = SimpleNamespace(cfg_by_ast_code={"target": "cfg_target"})
-    call = SimpleNamespace(
-        annotation=SimpleNamespace(invokes=((("target", object()),),))
-    )
-
-    resolved = annotation_invokes_cfg_resolver(adapter, None, call)
-
-    assert resolved == ("cfg_target",)
 
 
 def test_bind_call_arguments_does_not_bind_keyword_only_marker_positionally():

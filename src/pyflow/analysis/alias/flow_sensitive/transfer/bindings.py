@@ -13,15 +13,13 @@ class _BindingTransferMixin:
         self,
         local: py_ast.Local,
     ) -> tuple[HeapLocation, ...]:
-        local_id = id(local)
         local_name = getattr(local, "name", None)
         locations: list[HeapLocation] = []
         keys = set(self.heap.storage_overrides) | set(self.heap.allocation_sites)
         for key in keys:
-            if key[1] != local_id and (
-                not isinstance(local_name, str)
-                or self.heap._local_names.get(key) != local_name
-            ):
+            if not isinstance(local_name, str) or self.heap._local_names.get(
+                key
+            ) != local_name:
                 continue
             storage = self.heap.storage_overrides.get(key)
             if storage is None:
@@ -40,21 +38,24 @@ class _BindingTransferMixin:
         name = getattr(local, "name", None)
         if not name:
             return None
-        if name in self._global_declarations.get(id(procedure), set()):
+        procedure_id = self._procedure_identity(procedure)
+        if name in self._global_declarations.get(procedure_id, set()):
             return self.effect_builder.global_location(procedure, name)
-        if name in self._nonlocal_declarations.get(id(procedure), set()):
-            owner = self._nonlocal_owners.get((id(procedure), name))
+        if name in self._nonlocal_declarations.get(procedure_id, set()):
+            owner = self._nonlocal_owners.get((procedure_id, name))
             if owner is None:
                 owner = self._register_nonlocal_binding(procedure, name)
             return self._lexical_cell_location(owner, name)
-        if name in self._captured_names_by_scope.get(id(procedure), set()):
+        if name in self._captured_names_by_scope.get(procedure_id, set()):
             return self._lexical_cell_location(procedure, name)
         return None
 
     def _register_nonlocal_binding(self, procedure: object, name: str) -> object:
         owner = self._nearest_lexical_binding(procedure, name)
-        self._nonlocal_owners[(id(procedure), name)] = owner
-        self._captured_names_by_scope.setdefault(id(owner), set()).add(name)
+        procedure_id = self._procedure_identity(procedure)
+        owner_id = self._procedure_identity(owner)
+        self._nonlocal_owners[(procedure_id, name)] = owner
+        self._captured_names_by_scope.setdefault(owner_id, set()).add(name)
         cell = self._lexical_cell_location(owner, name)
         existing = self._scope_name_locations(owner, name)
         if existing:
@@ -67,12 +68,12 @@ class _BindingTransferMixin:
         return owner
 
     def _nearest_lexical_binding(self, procedure: object, name: str) -> object:
-        parent = self._lexical_parents.get(id(procedure))
+        parent = self._lexical_parents.get(procedure)
         fallback = parent if parent is not None else procedure
         while parent is not None:
             if self._scope_defines_name(parent, name):
                 return parent
-            parent = self._lexical_parents.get(id(parent))
+            parent = self._lexical_parents.get(parent)
         return fallback
 
     def _scope_defines_name(self, procedure: object, name: str) -> bool:
@@ -81,7 +82,7 @@ class _BindingTransferMixin:
             for formal in self._callee_formals(procedure):
                 if getattr(formal, "name", None) == name:
                     return True
-        if (id(procedure), name) in self._definition_locals:
+        if (self._procedure_identity(procedure), name) in self._definition_locals:
             return True
         if self._scope_name_locations(procedure, name):
             return True
@@ -106,7 +107,9 @@ class _BindingTransferMixin:
         locations: list[HeapLocation] = []
         keys = set(self.heap.storage_overrides) | set(self.heap.allocation_sites)
         for key in keys:
-            if key[0] != id(procedure) or self.heap._local_names.get(key) != name:
+            if key[0] != self.heap._procedure_key(
+                procedure
+            ) or self.heap._local_names.get(key) != name:
                 continue
             storage = self.heap.storage_overrides.get(key)
             if storage is None:
@@ -122,7 +125,7 @@ class _BindingTransferMixin:
         owner: object,
         name: str,
     ) -> HeapLocation:
-        key = (id(owner), name)
+        key = (self._procedure_identity(owner), name)
         cell = self._lexical_cells.get(key)
         if cell is None:
             cell = py_ast.Cell(name)
@@ -135,7 +138,7 @@ class _BindingTransferMixin:
         local: py_ast.Local,
         locations: tuple[HeapLocation, ...],
         *,
-        include_raw_fallback: bool = False,
+        include_provider_storage: bool = False,
     ) -> None:
         declared = self._declared_location(procedure, local)
         if declared is not None:
@@ -145,7 +148,7 @@ class _BindingTransferMixin:
             procedure,
             local,
             locations,
-            include_raw_fallback=include_raw_fallback,
+            include_provider_storage=include_provider_storage,
         )
 
     def _clear_runtime_local(
@@ -162,15 +165,14 @@ class _BindingTransferMixin:
     @classmethod
     def iter_code_objects(cls, root: object):
         """Yield code objects reachable from *root* without recursing into bodies."""
-        seen: set[int] = set()
+        seen: set[object] = set()
 
         def visit(value: object):
             if value is None or isinstance(value, py_ast.leafTypes):
                 return
             if isinstance(value, py_ast.Code):
-                key = id(value)
-                if key not in seen:
-                    seen.add(key)
+                if value not in seen:
+                    seen.add(value)
                     yield value
                 return
             if isinstance(value, (list, tuple, set, frozenset)):

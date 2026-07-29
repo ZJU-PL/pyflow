@@ -41,15 +41,16 @@ class _ExpressionResolverMixin(
                 py_ast.Input,
             ),
         )
+        cache_key = self._program_point_identity(procedure, expression)
         if cache is not None and cacheable:
-            cached = cache.get(id(expression))
+            cached = cache.get(cache_key)
             if cached is not None:
                 return cached
         self._record_exception_prefix()
         result = self._locations_for_expression_impl(procedure, expression)
         self._record_exception_prefix()
         if cache is not None and cacheable:
-            cache[id(expression)] = result
+            cache[cache_key] = result
         return result
 
     def _locations_for_expression_impl(
@@ -57,7 +58,7 @@ class _ExpressionResolverMixin(
         procedure: object,
         expression: object,
     ) -> tuple[HeapLocation, ...]:
-        """Best-effort locations read by an expression."""
+        """Conservative locations read by an expression."""
         if expression is None:
             return ()
         if isinstance(expression, HeapLocation):
@@ -157,7 +158,7 @@ class _ExpressionResolverMixin(
     def _external_value_location(self, procedure: object) -> HeapLocation:
         return HeapLocation(
             self.heap.unknown_object(
-                ("external-value", id(procedure)),
+                ("external-value", self._procedure_identity(procedure)),
                 label="external value",
             )
         )

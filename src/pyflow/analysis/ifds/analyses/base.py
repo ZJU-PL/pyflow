@@ -7,6 +7,7 @@ from typing import Generic, Iterable, Sequence, TypeVar
 
 from pyflow.application.errors import TemporaryLimitation
 from pyflow.ir.cfg import graph as cfg_graph
+from pyflow.ir.core import LocalStorage, ensure_code_indexed
 from pyflow.language.python import ast as py_ast
 
 from ...alias.flow_sensitive.domain.abstraction import HeapAbstraction
@@ -32,7 +33,6 @@ from ..core.transfers import (
     bind_call_arguments,
     collect_locals,
     formal_parameters,
-    resolve_call_name,
 )
 from ..modeling.calls import CallModelRegistry
 
@@ -71,7 +71,7 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
             site_storage=self._site_storage,
             next_site=self._site_counter,
         )
-        self._require_complete_annotations()
+        self._require_semantics()
 
     def _heap(self) -> HeapAbstraction:
         heap = getattr(self, "heap", None)
@@ -143,9 +143,34 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
     def _locations_for_local_raw(
         self, procedure: cfg_graph.Code, local: object
     ) -> tuple[object, ...]:
-        del procedure
-        refs = getattr(getattr(local, "annotation", None), "references", None)
-        return self._annotation_locations(refs)
+        code = getattr(procedure, "code", None)
+        if code is None:
+            return ()
+        catalog = ensure_code_indexed(code)
+        if not catalog.has_symbol(local, code):
+            return ()
+        return (LocalStorage(catalog.symbol_id(local, code)),)
+
+    def _semantic_locations(
+        self,
+        procedure: cfg_graph.Code | None,
+        operation: object,
+        attribute: str,
+    ) -> tuple[object, ...]:
+        code = getattr(procedure, "code", None) if procedure is not None else None
+        if code is None:
+            return ()
+        catalog = ensure_code_indexed(code)
+        try:
+            semantics = catalog.semantics.operation(
+                catalog.node_id(operation, code)
+            )
+        except KeyError:
+            return ()
+        return tuple(
+            self._heap().location_for_raw(location)
+            for location in getattr(semantics, attribute)
+        )
 
     @abstractmethod
     def _make_location_fact(
@@ -228,7 +253,7 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
         )
 
     def _heap_summary_for_procedure(self, procedure: cfg_graph.Code) -> HeapSummary:
-        key = id(procedure)
+        key = procedure
         summaries = getattr(self, "_heap_summaries", None)
         if summaries is None:
             summaries = {}
@@ -456,7 +481,7 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
             callee,
             selfparam,
             obj,
-            include_raw_fallback=True,
+            include_provider_storage=True,
         )
 
     def _project_constructor_heap_fact_to_caller(
@@ -822,7 +847,18 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
     ) -> None:
         heap = self._heap()
         builder = self._heap_effect_builder()
-        kind = builder.call_return_kind(call_expression)
+        model = self.call_models.model_for_name(
+            self.adapter.call_name(call_expression, procedure)
+        )
+        kind = (
+            model.return_kind
+            if model is not None and model.return_kind is not None
+            else (
+                CALL_RETURN_FRESH
+                if model is not None and model.source_kinds
+                else builder.call_return_kind(call_expression)
+            )
+        )
         site = builder.call_return_site(call_expression, return_index, kind)
         label = self._call_result_label(call_expression)
         if kind in {CALL_RETURN_FRESH, CALL_RETURN_COPY}:
@@ -830,12 +866,11 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
         elif kind == CALL_RETURN_SUMMARY or default_to_summary:
             heap.bind_summary_targets(procedure, (target,), site, label=label)
         elif kind == CALL_RETURN_OPAQUE:
-            heap.bind_call_result_targets(
-                procedure,
-                (target,),
-                (call_expression, return_index),
-                label=label,
-            )
+            # A resolved opaque call must not eagerly sever the target's
+            # current binding: call/return flow will project the actual return
+            # facts.  Truly unresolved calls are materialized separately as
+            # summaries by ``_materialize_unresolved_call_summary``.
+            return
         self._site_counter = heap.next_site
 
     def _materialize_unresolved_call_summary(
@@ -1050,11 +1085,7 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
         locations = tuple(
             dict.fromkeys(
                 (
-                    *self._annotation_locations(
-                        getattr(
-                            getattr(operation, "annotation", None), "opModifies", None
-                        )
-                    ),
+                    *self._semantic_locations(procedure, operation, "writes"),
                     *self._static_attribute_write_locations(procedure, operation),
                 )
             )
@@ -1218,7 +1249,7 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
         mutator_names: frozenset[str],
     ) -> tuple[tuple[HeapLocation, ...], tuple[HeapLocation, ...]]:
         call = self._call_from_expression_or_statement(operation)
-        call_name = resolve_call_name(call) if call is not None else None
+        call_name = self.adapter.call_name(call, procedure) if call is not None else None
         if call is None or call_name not in mutator_names:
             return (), ()
         if call_name not in {"extend", "update"}:
@@ -1371,7 +1402,7 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
         ):
             return ()
 
-        source_exprs = self._collection_copy_result_sources(expr)
+        source_exprs = self._collection_copy_result_sources(procedure, expr)
         if not source_exprs:
             return ()
         source_roots = tuple(
@@ -1392,11 +1423,13 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
             for base in target_bases
         )
 
-    def _collection_copy_result_sources(self, expr: object) -> tuple[object, ...]:
+    def _collection_copy_result_sources(
+        self, procedure: cfg_graph.Code, expr: object
+    ) -> tuple[object, ...]:
         call = self._call_from_expression_or_statement(expr)
         if call is None:
             return ()
-        call_name = resolve_call_name(call)
+        call_name = self.adapter.call_name(call, procedure)
         actuals = actual_argument_expressions(call)
         if isinstance(call, py_ast.MethodCall) and call_name == "copy":
             return (call.expr,)
@@ -1419,7 +1452,7 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
         accessor_names: frozenset[str],
     ) -> tuple[HeapLocation, ...]:
         call = self._call_from_expression_or_statement(expr)
-        if call is None or resolve_call_name(call) not in accessor_names:
+        if call is None or self.adapter.call_name(call, procedure) not in accessor_names:
             return ()
 
         actuals = actual_argument_expressions(call)
@@ -1438,8 +1471,12 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
             subscripts = (subscript, DYNAMIC_SUBSCRIPT_WILDCARD)
         return self._dynamic_subscript_locations(procedure, container, subscripts)
 
-    def _dynamic_setattr_value(self, operation: object) -> object | None:
-        call = self._dynamic_attribute_call(operation, {"setattr", "builtins.setattr"})
+    def _dynamic_setattr_value(
+        self, procedure: cfg_graph.Code, operation: object
+    ) -> object | None:
+        call = self._dynamic_attribute_call(
+            procedure, operation, {"setattr", "builtins.setattr"}
+        )
         if call is None:
             return None
         actuals = actual_argument_expressions(call)
@@ -1448,12 +1485,12 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
         return actuals[2]
 
     def _dynamic_attribute_call(
-        self, expr: object, names: set[str]
+        self, procedure: cfg_graph.Code, expr: object, names: set[str]
     ) -> py_ast.PythonASTNode | None:
         candidate = self._call_from_expression_or_statement(expr)
         if candidate is None:
             return None
-        if resolve_call_name(candidate) not in names:
+        if self.adapter.call_name(candidate, procedure) not in names:
             return None
         return candidate
 
@@ -1490,32 +1527,11 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
     ) -> tuple[object, ...]:
         if isinstance(node, py_ast.Local):
             return self._locations_for_local(procedure, node)
-        if isinstance(node, (py_ast.GetGlobal, py_ast.GetCellDeref)):
-            return self._annotation_locations(getattr(node.annotation, "opReads", None))
-        annotation = getattr(node, "annotation", None)
-        locations = list(
-            self._annotation_locations(getattr(annotation, "opReads", None))
-        )
+        locations = list(self._semantic_locations(procedure, node, "reads"))
         locations.extend(self._static_attribute_read_locations(procedure, node))
         locations.extend(self._dynamic_getattr_locations(procedure, node))
         locations.extend(self._dynamic_subscript_read_locations(procedure, node))
         return tuple(dict.fromkeys(locations))
-
-    def _annotation_locations(self, annotation) -> tuple[object, ...]:
-        if annotation is None:
-            return ()
-        merged = getattr(annotation, "merged", None)
-        if merged is None:
-            # Some pipelines may store a plain annotationSet/tuple here rather
-            # than a ContextualAnnotation. In that case, treat the entire
-            # iterable as the location list (not just annotation[0]).
-            if isinstance(annotation, (str, bytes)):
-                return ()
-            if isinstance(annotation, (list, tuple, set, frozenset)):
-                merged = tuple(annotation)
-            else:
-                return ()
-        return tuple(self._canonical_locations(merged))
 
     def _canonical_location(self, location: object) -> object:
         return self._heap().location_for_raw(location)
@@ -1527,18 +1543,11 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
 
     def _call_name(self, node: CFGNode) -> str | None:
         call = self.adapter.call_expression_of(node)
-        return resolve_call_name(
-            call,
-            fallback_callee_names=tuple(
-                cfg.code.codeName()
-                for cfg in self.adapter.callees_of(node)
-                if cfg.code is not None
-            ),
-        )
+        return self.adapter.call_name(call, node.procedure)
 
     def _call_name_from_expression(self, expr: object) -> str | None:
         if isinstance(expr, (py_ast.DirectCall, py_ast.Call, py_ast.MethodCall)):
-            return resolve_call_name(expr)
+            return self.adapter.call_name(expr)
         return None
 
     def _is_allocation_expression(self, expr: object) -> bool:
@@ -1666,53 +1675,28 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
             return None
         return self._object_name(existing.object)
 
-    def _require_complete_annotations(self) -> None:
+    def _require_semantics(self) -> None:
         problems: list[str] = []
-        seen_codes: set[object] = set()
         for cfg in self.adapter.cfgs:
             code = getattr(cfg, "code", None)
-            if code is None or code in seen_codes:
+            if code is None:
                 continue
-            seen_codes.add(code)
-            code_annotation = getattr(code, "annotation", None)
-            if getattr(code_annotation, "contexts", None) is None:
-                problems.append(f"{code.codeName()}: missing code contexts")
-                continue
-
-            for node in self._iter_ast_nodes(code):
-                annotation = getattr(node, "annotation", None)
-                if annotation is None:
+            catalog = self.adapter.catalog_by_procedure[cfg]
+            for cfg_node in self.adapter.supergraph.nodes_of(cfg):
+                operation = self.adapter.operation_of(cfg_node)
+                if operation is None:
                     continue
-                if (
-                    hasattr(annotation, "opReads")
-                    and getattr(annotation, "opReads", None) is None
-                ):
+                try:
+                    catalog.semantics.operation(catalog.node_id(operation, code))
+                except KeyError:
                     problems.append(
-                        f"{code.codeName()}: {type(node).__name__} missing opReads"
-                    )
-                    break
-                if (
-                    hasattr(annotation, "opModifies")
-                    and getattr(annotation, "opModifies", None) is None
-                ):
-                    problems.append(
-                        f"{code.codeName()}: {type(node).__name__} missing opModifies"
-                    )
-                    break
-                if (
-                    hasattr(annotation, "references")
-                    and getattr(annotation, "references", None) is None
-                ):
-                    name = getattr(node, "name", None)
-                    label = name if name is not None else "<anon>"
-                    problems.append(
-                        f"{code.codeName()}: local {label} missing references"
+                        f"{code.codeName()}: {type(operation).__name__} missing semantics"
                     )
                     break
 
         if problems:
             raise TemporaryLimitation(
-                f"{self.analysis_name} requires annotation-complete programs (run IPA/CPA first): "
+                f"{self.analysis_name} requires indexed IR semantics: "
                 + "; ".join(problems[:5])
             )
 

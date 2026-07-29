@@ -71,7 +71,7 @@ def test_argument_normalization_blocks_methods():
     program.interface.entryCode = Mock(return_value=[])
 
     # Should block normalization due to descriptor risk
-    blocker = argumentnormalization._normalization_blocker(program, code, 2)
+    blocker = argumentnormalization._normalization_blocker(program, None, code, 2)
     assert blocker == "method_descriptor_risk"
 
 
@@ -87,8 +87,9 @@ def test_method_call_optimization_checks_single_target():
 
     pattern = Mock()
     pattern.icallsC = node.annotation.invokes[0]
+    pattern.allow_safe_rewrite = False
 
-    rewriter = methodcall.MethodRewrite(pattern)
+    rewriter = methodcall.MethodRewrite(pattern, code=None)
     rewriter.flow = Mock()
     rewriter.flow.lookup = Mock(return_value=("expr", "name", "meth"))
 
@@ -132,7 +133,7 @@ def test_store_elimination_checks_aliasing():
     compiler.console.output = Mock()
 
     program = Program()
-    program.lifetime_analysis = Mock()  # Present but not None
+    program.set_analysis_result("lifetime", Mock())
 
     # Create a code object with a store
     code = Mock()
@@ -163,48 +164,6 @@ def test_store_elimination_checks_aliasing():
         # Store should NOT be eliminated due to aliasing
         # Result should be a boolean (True if stores eliminated, False otherwise)
         assert result in (True, False, None)  # Accept any valid return value
-
-
-def test_clone_fixup_filters_invocations_to_live_code():
-    """Clone fixup should drop invocation targets that no longer exist in liveCode."""
-    from pyflow.optimization.clone import _fix_invocation_annotations_after_clone
-
-    live_code = Mock()
-    live_code.annotation = SimpleNamespace(contexts=("ctx",))
-    dead_code = Mock()
-    dead_code.annotation = SimpleNamespace(contexts=("dead_ctx",))
-    op = Mock()
-    op.annotation = SimpleNamespace(invokes=((), [((live_code, "ctx"), (dead_code, "dead_ctx"))]))
-    op.rewriteAnnotation = Mock()
-    code = Mock()
-    program = Mock()
-    program.liveCode = {code, live_code}
-    cloner = Mock()
-
-    with patch("pyflow.optimization.clone.tools.codeOps", return_value=[op]):
-        _fix_invocation_annotations_after_clone(program, cloner)
-
-    rewritten_invokes = op.rewriteAnnotation.call_args.kwargs["invokes"]
-    assert tuple(rewritten_invokes[1][0]) == ((live_code, "ctx"),)
-
-
-def test_clone_fixup_tolerates_missing_contexts():
-    """Clone fixup should drop targets whose contexts disappeared during rewriting."""
-    from pyflow.optimization.clone import _fix_invocation_annotations_after_clone
-
-    target = Mock()
-    target.annotation = SimpleNamespace(contexts=("other",))
-    op = Mock()
-    op.annotation = SimpleNamespace(invokes=((), [((target, "missing"),)]))
-    op.rewriteAnnotation = Mock()
-    code = Mock()
-    program = Mock(liveCode={code, target})
-
-    with patch("pyflow.optimization.clone.tools.codeOps", return_value=[op]):
-        _fix_invocation_annotations_after_clone(program, Mock())
-
-    rewritten_invokes = op.rewriteAnnotation.call_args.kwargs["invokes"]
-    assert tuple(rewritten_invokes[1][0]) == ()
 
 
 def test_simplify_change_detection_includes_annotations():

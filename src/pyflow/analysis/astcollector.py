@@ -52,6 +52,7 @@ class GetOps(TypeDispatcher):
         ast.YieldFrom,
         ast.TypeParam,
         ast.TypeParams,
+        ast.AnnAssign,
     )
     def visitOK(self, node):
         """Visit nodes that contain child nodes.
@@ -144,6 +145,13 @@ class GetOps(TypeDispatcher):
     def visitOp(self, node):
         node.visitChildren(self)
         self.ops.append(node)
+
+    @defaultdispatch
+    def visitStructuralNode(self, node):
+        if isinstance(node, ast.PythonASTNode):
+            node.visitChildren(self)
+            return
+        raise TypeError(f"unsupported AST collector value: {node!r}")
 
     @dispatch(list)
     def visitList(self, node):

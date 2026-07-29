@@ -333,7 +333,6 @@ class ProgramDescription(object):
         self.objects = []
         self.functions = []
         self.callLUT = {}
-        self.origin = {}
 
     def clusterObjects(self):
         children = collections.defaultdict(set)
@@ -368,4 +367,3 @@ class ProgramDescription(object):
         assert not isinstance(func, AbstractObject), func
         assert obj not in self.callLUT, obj
         self.callLUT[obj] = func
-        self.origin[obj] = func.annotation.origin

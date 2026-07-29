@@ -15,16 +15,26 @@ This enables better optimization by making call targets more explicit.
 
 from pyflow.util.typedispatch import *
 from pyflow.language.python import ast
-from pyflow.language.python import annotations
 
 from pyflow.analysis import tools
 from pyflow.language.python.ir_metadata import copy_call_argument_metadata
 from pyflow.optimization import dataflow
 
 from pyflow.optimization import simplify
+from pyflow.ir.core import AnalysisFacts, MissingAnalysisFact
 
 
-def contextsThatOnlyInvoke(funcs, invocations):
+def _source_identity(code):
+    catalog = getattr(code, "ir_catalog", None)
+    if catalog is None or not catalog.has_node(code, code):
+        raise MissingAnalysisFact(f"code has no indexed source metadata: {code!r}")
+    origin = catalog.source_of(code, code=code)
+    if origin is None:
+        raise MissingAnalysisFact(f"code has no source identity: {code!r}")
+    return origin
+
+
+def contextsThatOnlyInvoke(facts, funcs, invocations):
     """Find contexts that only invoke specific functions.
 
     Args:
@@ -39,21 +49,17 @@ def contextsThatOnlyInvoke(funcs, invocations):
     # HACK There's only one op in the object getter that will invoke?
     for func in funcs:
         for op in tools.codeOps(func):
-            invokes = op.annotation.invokes
-            if invokes is not None:
-                for cindex, context in enumerate(func.annotation.contexts):
-                    cinvokes = invokes[1][cindex]
+            for context in facts.contexts(func):
+                invokesSet = set(facts.call_targets(func, op, context))
+                match = invokesSet.intersection(invocations)
 
-                    invokesSet = set(cinvokes)
-                    match = invokesSet.intersection(invocations)
-
-                    # There must be invocations, and they must all be to fget.
-                    if match and match == invokesSet:
-                        output.add((func, context))
+                # There must be invocations, and they must all be to fget.
+                if match and match == invokesSet:
+                    output.add((func, context))
     return output
 
 
-def opThatInvokes(func):
+def opThatInvokes(facts, func):
     """Find the operation in a function that performs invocation.
 
     Args:
@@ -67,8 +73,8 @@ def opThatInvokes(func):
     invokeOp = None
     multiple = False
     for op in tools.codeOps(func):
-        invokes = op.annotation.invokes
-        if invokes is not None and invokes[0]:
+        invokes = facts.merged_call_targets(func, op)
+        if invokes:
             if invokeOp is not None:
                 multiple = True
                 break
@@ -85,7 +91,9 @@ class MethodPatternFinder(TypeDispatcher):
     into direct method calls, such as obj.attr() patterns.
     """
 
-    def findOriginals(self, extractor):
+    def findOriginals(self, extractor, catalog):
+        from pyflow.ir.core import index_code
+
         exports = extractor.intrinsic_manager.stubs.exports
         self.iget = exports["interpreter_getattribute"]
         self.oget = exports["object__getattribute__"]
@@ -96,13 +104,22 @@ class MethodPatternFinder(TypeDispatcher):
         self.icall = exports["interpreter_call"]
         self.mcall = exports["method__call__"]
 
-        assert self.iget.annotation.origin
-        assert self.oget.annotation.origin
-        assert self.fget.annotation.origin
-        assert self.mdget.annotation.origin
-
-        assert self.icall.annotation.origin
-        assert self.mcall.annotation.origin
+        for code in (
+            self.iget,
+            self.oget,
+            self.fget,
+            self.mdget,
+            self.icall,
+            self.mcall,
+        ):
+            if not catalog.has_procedure(code):
+                index_code(
+                    catalog,
+                    code,
+                    module="__intrinsics__",
+                    qualname=code.codeName(),
+                )
+            _source_identity(code)
 
         return True
 
@@ -114,29 +131,29 @@ class MethodPatternFinder(TypeDispatcher):
         self.icalls = set()
         self.mcalls = set()
 
-        igetO = self.iget.annotation.origin
-        ogetO = self.oget.annotation.origin
-        fgetO = self.fget.annotation.origin
-        mdgetO = self.mdget.annotation.origin
+        igetO = _source_identity(self.iget)
+        ogetO = _source_identity(self.oget)
+        fgetO = _source_identity(self.fget)
+        mdgetO = _source_identity(self.mdget)
 
-        icallO = self.icall.annotation.origin
-        mcallO = self.mcall.annotation.origin
+        icallO = _source_identity(self.icall)
+        mcallO = _source_identity(self.mcall)
 
         for code in liveCode:
-            origin = code.annotation.origin
+            origin = _source_identity(code)
 
-            if origin is igetO:
+            if origin == igetO:
                 self.igets.add(code)
-            if origin is ogetO:
+            if origin == ogetO:
                 self.ogets.add(code)
-            if origin is fgetO:
+            if origin == fgetO:
                 self.fgets.add(code)
-            if origin is mdgetO:
+            if origin == mdgetO:
                 self.fgets.add(code)
 
-            if origin is icallO:
+            if origin == icallO:
                 self.icalls.add(code)
-            if origin is mcallO:
+            if origin == mcallO:
                 self.mcalls.add(code)
 
     def findContexts(self):
@@ -145,15 +162,15 @@ class MethodPatternFinder(TypeDispatcher):
             return False
         self.fgetsC = set()
         for func in self.fgets:
-            for context in func.annotation.contexts:
+            for context in self.facts.contexts(func):
                 self.fgetsC.add((func, context))
 
         # HACK There's only one op in the object getter that will invoke?
-        self.ogetsC = contextsThatOnlyInvoke(self.ogets, self.fgetsC)
+        self.ogetsC = contextsThatOnlyInvoke(self.facts, self.ogets, self.fgetsC)
         if not self.ogetsC:
             return False
 
-        self.igetsC = contextsThatOnlyInvoke(self.igets, self.ogetsC)
+        self.igetsC = contextsThatOnlyInvoke(self.facts, self.igets, self.ogetsC)
         if not self.igetsC:
             return False
 
@@ -162,10 +179,10 @@ class MethodPatternFinder(TypeDispatcher):
             return False
         self.mcallsC = set()
         for code in self.mcalls:
-            for context in code.annotation.contexts:
+            for context in self.facts.contexts(code):
                 self.mcallsC.add((code, context))
 
-        self.icallsC = contextsThatOnlyInvoke(self.icalls, self.mcallsC)
+        self.icallsC = contextsThatOnlyInvoke(self.facts, self.icalls, self.mcallsC)
         if not self.icallsC:
             return False
 
@@ -177,33 +194,32 @@ class MethodPatternFinder(TypeDispatcher):
         self.invokeLUT = {}
 
         for code, context in self.mcallsC:
-            cindex = code.annotation.contexts.index(context)
-            op = opThatInvokes(code)
+            op = opThatInvokes(self.facts, code)
             if op is None:
                 continue
-            targets = op.annotation.invokes[1][cindex]
+            targets = self.facts.call_targets(code, op, context)
             self.invokeLUT[(code, context)] = targets
 
         for code, context in self.icallsC:
-            cindex = code.annotation.contexts.index(context)
-            op = opThatInvokes(code)
+            op = opThatInvokes(self.facts, code)
             if op is None:
                 continue
-            targets = op.annotation.invokes[1][cindex]
+            targets = self.facts.call_targets(code, op, context)
 
             reach = set()
             for target in targets:
                 reach.update(self.resolveInvokeTargets(target))
-            self.invokeLUT[(code, context)] = annotations.annotationSet(reach)
+            self.invokeLUT[(code, context)] = frozenset(reach)
 
     def resolveInvokeTargets(self, target):
         resolved = self.invokeLUT.get(target)
         if resolved is None:
-            return annotations.annotationSet((target,))
+            return frozenset((target,))
         return resolved
 
     def preprocess(self, compiler, prgm):
-        if not self.findOriginals(compiler.extractor):
+        self.facts = AnalysisFacts(prgm.ir)
+        if not self.findOriginals(compiler.extractor, prgm.ir):
             return False
         self.findExisting(prgm.liveCode)
         return self.findContexts()
@@ -247,8 +263,9 @@ class MethodAnalysis(TypeDispatcher):
         pattern: MethodPatternFinder instance with pattern information
     """
 
-    def __init__(self, pattern):
+    def __init__(self, pattern, code=None):
         self.pattern = pattern
+        self.code = code
 
     def target(self, node):
         assert isinstance(node, ast.Local), type(node)
@@ -351,7 +368,7 @@ class MethodAnalysis(TypeDispatcher):
     )
     def visitMayLeak(self, node):
         node.visitChildren(self)
-        if tools.mightHaveSideEffect(node):
+        if tools.mightHaveSideEffect(self.code, node):
             self.invalidateAllMethodBindings()
         return node
 
@@ -361,9 +378,9 @@ class MethodAnalysis(TypeDispatcher):
         self.targets(node.lcls)
 
         if not isinstance(node.expr, (ast.Local, ast.Existing)):
-            invokes = node.expr.annotation.invokes
-            if invokes is not None:
-                flag, expr, name = self.pattern(node.expr, invokes[0])
+            invokes = self.pattern.facts.merged_call_targets(self.code, node.expr)
+            if invokes:
+                flag, expr, name = self.pattern(node.expr, invokes)
 
                 if flag and len(node.lcls) == 1:
                     lcl = node.lcls[0]
@@ -398,8 +415,9 @@ class MethodRewrite(TypeDispatcher):
         pattern: MethodPatternFinder instance with pattern information
     """
 
-    def __init__(self, pattern):
+    def __init__(self, pattern, code):
         self.pattern = pattern
+        self.code = code
         self.rewritten = set()
         # Conservatively disabled until the optimizer can prove descriptor and
         # callable-object identity stability for Python's dynamic semantics.
@@ -424,17 +442,17 @@ class MethodRewrite(TypeDispatcher):
         if not self.allow_rewrite:
             return False, None, None
 
-        invokes = node.annotation.invokes
-        if invokes is not None:
-            if self.pattern.icallsC.issuperset(invokes[0]):
+        invokes = self.pattern.facts.merged_call_targets(self.code, node)
+        if invokes:
+            if self.pattern.icallsC.issuperset(invokes):
                 key = self.flow.lookup(("meth", meth))
                 if isinstance(key, tuple):
                     expr, name, meth = key
 
                     # CRITICAL FIX #5: Verify single dispatch target
                     # Check that all invocations target the same code AND function object
-                    if invokes[0]:
-                        codes = {code for code, _context in invokes[0]}
+                    if invokes:
+                        codes = {code for code, _context in invokes}
                         if len(codes) > 1:
                             # Multiple code targets - not safe to optimize
                             return False, None, None
@@ -449,20 +467,7 @@ class MethodRewrite(TypeDispatcher):
         return False, None, None
 
     def transferOpInfo(self, node, rewrite):
-        invokes = node.annotation.invokes
-        if invokes is not None:
-            cinvokesNew = []
-            for cinvokes in invokes[1]:
-                cinvokesM = set()
-                for f, c in cinvokes:
-                    newinv = self.pattern.resolveInvokeTargets((f, c))
-                    cinvokesM.update(newinv)
-                cinvokesNew.append(annotations.annotationSet(cinvokesM))
-
-            invokes = annotations.makeContextualAnnotation(cinvokesNew)
-            rewrite.annotation = node.annotation.rewrite(invokes=invokes)
-        else:
-            rewrite.annotation = node.annotation
+        rewrite.annotation = node.annotation
 
     def rewriteCall(self, node, expr, name):
         rewrite = ast.MethodCall(
@@ -470,7 +475,7 @@ class MethodRewrite(TypeDispatcher):
         )
         copy_call_argument_metadata(node, rewrite)
         self.transferOpInfo(node, rewrite)
-        self.rewritten.add(id(node))
+        self.rewritten.add(node)
         return rewrite
 
     @dispatch(ast.Call)
@@ -527,8 +532,8 @@ def evaluate(compiler, prgm):
 
         numrewritten = 0
         for code in prgm.liveCode:
-            analyze = MethodAnalysis(pattern)
-            rewrite = MethodRewrite(pattern)
+            analyze = MethodAnalysis(pattern, code)
+            rewrite = MethodRewrite(pattern, code)
 
             meet = methodMeet
 

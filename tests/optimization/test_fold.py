@@ -73,15 +73,14 @@ class TestFoldRewrite(unittest.TestCase):
         
         self.assertEqual(fr.storeGraph, sg)
 
-    def test_init_with_contexts(self):
-        """Test FoldRewrite with contexts for annotations."""
+    def test_legacy_annotation_contexts_do_not_enable_fact_based_folding(self):
         extractor = MockExtractor()
         code = MockCode()
         code.annotation.contexts = ["context1", "context2"]
         
         fr = FoldRewrite(extractor, MockStoreGraph(), code)
         
-        self.assertTrue(fr.annotationsExist)
+        self.assertFalse(fr.annotationsExist)
 
     def test_init_without_contexts(self):
         """Test FoldRewrite without contexts."""

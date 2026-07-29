@@ -67,12 +67,11 @@ class CPAContextSignature(canonical.CanonicalObject):
         self.setCanonical(code, selfparam, params, vparams)
 
     def __repr__(self):
-        return "cpa(%r, %r, %r, %r/%d)" % (
+        return "cpa(%r, %r, %r, %r)" % (
             self.code,
             self.selfparam,
             self.params,
             self.vparams,
-            id(self),
         )
 
 

@@ -8,6 +8,7 @@ from pyflow.util.typedispatch import *
 from pyflow.language.python import ast
 from . import graph as cfg
 from .dfs import CFGDFS
+from .revision import CFGTransformTransaction
 
 
 class CFGOptPost(TypeDispatcher):
@@ -27,21 +28,6 @@ class CFGOptPost(TypeDispatcher):
             compiler: Compiler context for optimization.
         """
         self.compiler = compiler
-
-    def isConst(self, node):
-        """Check if a node represents a constant value.
-
-        Args:
-            node: AST node to check.
-
-        Returns:
-            bool: True if the node represents a constant.
-
-        Note:
-            This is currently unsound - only checks for Existing nodes.
-        """
-        # HACK unsound
-        return isinstance(node, ast.Existing)
 
     def isSafeFoldCondition(self, node):
         """Return True only for conditions that are sound to fold.
@@ -97,20 +83,24 @@ class CFGOptPost(TypeDispatcher):
             if not result:
                 normal, culled = culled, normal
 
+            fail_exit = node.getExit("fail")
+            error_exit = node.getExit("error")
             suite = cfg.Suite(node.region)
-            suite.setExit("fail", node.getExit("fail"))
-            suite.setExit("error", node.getExit("error"))
 
             if not isinstance(node.condition, ast.Existing):
                 suite.ops.append(ast.Discard(node.condition))
 
             node.redirectEntries(suite)
 
-            # TODO don't remove prev, redirect?
-            if normal[0] is not None:
-                normal[0].removePrev(node, normal[1])
-            if culled[0] is not None:
-                culled[0].removePrev(node, culled[1])
+            # The replacement suite already owns the surviving normal and
+            # exceptional edges.  Detach every edge from the dead switch so
+            # unreachable predecessors cannot leak into reverse traversal,
+            # phi construction, or dominance analysis.
+            for exit_name in tuple(node.next):
+                node.killExit(exit_name)
+
+            suite.setExit("fail", fail_exit)
+            suite.setExit("error", error_exit)
             if normal[0] is not None:
                 suite.setExit("normal", normal[0])
 
@@ -158,7 +148,11 @@ class CFGOptPost(TypeDispatcher):
                     node.stealExit(normal, "error")
 
 
-def evaluate(compiler, g):
+def evaluate(compiler, g, *, commit_revision=True):
+    transaction = (
+        CFGTransformTransaction(g, "cfg-optimize") if commit_revision else None
+    )
     post = CFGOptPost(compiler)
     dfs = CFGDFS(post=post)
     dfs.process(g.entryTerminal)
+    return transaction.commit() if transaction is not None else None

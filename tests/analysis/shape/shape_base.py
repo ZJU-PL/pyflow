@@ -21,15 +21,30 @@ from pyflow.util.tvl import *
 class MockInformationProvider(object):
     def __init__(self, sys):
         self.sys = sys
+        self.facts = self
+        self._call_targets = {}
+        self._operation_effects = {}
 
-    def loadSlotName(self, node):
+    def loadSlotName(self, _code, node):
         return (node.fieldtype, node.name.object)
 
-    def storeSlotName(self, node):
+    def storeSlotName(self, _code, node):
         return (node.fieldtype, node.name.object)
 
-    def indexSlotName(self, lcl, i):
+    def indexSlotName(self, _code, lcl, i):
         return ("Array", self.sys.extractor.getObject(i))
+
+    def merged_call_targets(self, _code, node):
+        return self._call_targets.get(node, ())
+
+    def merged_operation_effect(self, capability, _code, node):
+        return self._operation_effects.get((capability, node), ())
+
+    def set_call_targets(self, node, targets):
+        self._call_targets[node] = tuple(targets)
+
+    def set_operation_effect(self, capability, node, values):
+        self._operation_effects[(capability, node)] = tuple(values)
 
 
 class TestConstraintBase(unittest.TestCase):

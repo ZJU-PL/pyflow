@@ -314,6 +314,10 @@ class _GraphAssemblyMixin:
             return CPGEdgeKind.CFG_BRANCH_TRUE
         if exit_name == "false":
             return CPGEdgeKind.CFG_BRANCH_FALSE
+        if exit_name == "body":
+            return CPGEdgeKind.CFG_BRANCH_TRUE
+        if exit_name == "exit":
+            return CPGEdgeKind.CFG_BRANCH_FALSE
         if exit_name in ("fail", "error", "yield"):
             return CPGEdgeKind.CFG_EXCEPT
         if isinstance(exit_name, int):

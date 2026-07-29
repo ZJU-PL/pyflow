@@ -224,7 +224,7 @@ class Dumper(object):
                 with o.scope("title"):
                     o << context.signature.code
                     o << " - "
-                    o << id(context)
+                    o << repr(context.signature)
             with o.scope("body"):
                 with o.scope("p"):
                     o << "["

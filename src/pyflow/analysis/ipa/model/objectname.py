@@ -39,7 +39,7 @@ class ObjectName(object):
         Returns:
             str: Representation showing type and qualifier
         """
-        return "ao(%r, %s/%d)" % (self.xtype, self.qualifier, id(self))
+        return "ao(%r, %s)" % (self.xtype, self.qualifier)
 
     def cpaType(self):
         """Get CPA type for this object.

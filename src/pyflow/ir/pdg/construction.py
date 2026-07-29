@@ -4,16 +4,14 @@ Program Dependence Graph (PDG) construction.
 Construction sources:
 - Control dependences are derived from the CDG constructed from a CFG.
 - Data dependences are derived from the DDG constructed from dataflow IR and
-  projected back onto PDG statement/condition nodes. AST-local def/use is used
-  only as a fallback for PDG nodes that the current DDG does not represent
-  directly (for example, returns and local-copy assignments).
+  projected back onto PDG statement/condition nodes. Mandatory shared IR
+  semantics supply local def/use edges for nodes outside the dataflow IR.
 
 This module focuses on intraprocedural PDGs (single function).
 """
 
 from __future__ import annotations
 
-import warnings
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
@@ -21,47 +19,13 @@ from pyflow.ir.cfg import expandphi, ssa
 from pyflow.ir.cfg import graph as cfg_graph
 from pyflow.ir.cdg import construct_cdg
 from pyflow.ir.ddg import construct_ddg
+from pyflow.ir.core import SymbolKind, ValueId, ensure_code_indexed, index_cfg
 from pyflow.ir.dataflow import convert
 from pyflow.ir.dataflow import graph as df_graph
+from pyflow.ir.dataflow.convert import UnsupportedDataflowConstructError
 from pyflow.language.python import ast as py_ast
-from pyflow.language.python import defuse as py_defuse
 
 from .graph import ProgramDependenceGraph, PDGNode
-
-
-class _IntraproceduralDFS:
-    """
-    A DFS that does not traverse into nested `ast.Code` objects.
-
-    The built-in `pyflow.language.python.defuse.DFS` intentionally forces
-    traversal into nested code objects (e.g., MakeFunction), which is useful
-    for whole-program def-use but undesirable for intraprocedural PDGs.
-    """
-
-    __slots__ = ("pre", "_root_code", "_visited_code")
-
-    def __init__(self, pre, *, root_code: Optional[py_ast.Code] = None):
-        self.pre = pre
-        self._root_code = root_code
-        self._visited_code: Set[py_ast.Code] = set()
-
-    def visit(self, node: Any) -> None:
-        if isinstance(node, py_ast.Code):
-            if self._root_code is not None and node is not self._root_code:
-                return
-            if node in self._visited_code:
-                return
-            self._visited_code.add(node)
-
-        self.pre(node)
-
-        if isinstance(node, py_ast.leafTypes):
-            return
-
-        node.visitChildren(self.visit)
-
-    def process(self, node: Any) -> None:
-        self.visit(node)
 
 
 @dataclass(frozen=True)
@@ -70,7 +34,6 @@ class PDGConstructionOptions:
     include_data: bool = True
     run_ssa: bool = False
     expand_phi: bool = True
-    allow_ast_fallback_on_ddg_failure: bool = True
 
 
 def _safe_ast_label(node: Any) -> str:
@@ -87,14 +50,6 @@ def _safe_cfg_label(node: Any) -> str:
         return type(node).__name__
     except Exception:
         return "CFG"
-
-
-def _collect_local_defs_uses(
-    root: Any, *, root_code: Optional[py_ast.Code]
-) -> Tuple[Set[py_ast.Local], Set[py_ast.Local]]:
-    duv = py_defuse.DefUseVisitor()
-    _IntraproceduralDFS(duv, root_code=root_code).process(root)
-    return set(duv.lcldef.keys()), set(duv.lcluse.keys())
 
 
 def _flatten_children(child: Any, into: List[Any]) -> None:
@@ -115,8 +70,8 @@ def _iter_ast_children(node: Any) -> List[Any]:
     return children
 
 
-def _build_ast_parent_map(root: Any) -> Dict[int, Any]:
-    parents: Dict[int, Any] = {}
+def _build_ast_parent_map(root: Any) -> Dict[Any, Any]:
+    parents: Dict[Any, Any] = {}
     visited_code: Set[py_ast.Code] = set()
 
     def walk(node: Any) -> None:
@@ -131,7 +86,7 @@ def _build_ast_parent_map(root: Any) -> Dict[int, Any]:
             return
 
         for child in _iter_ast_children(node):
-            parents[id(child)] = node
+            parents[child] = node
             walk(child)
 
     walk(root)
@@ -237,6 +192,16 @@ class PDGConstructor:
                 )
                 pdg.add_cfg_content(cnode, n)
                 pdg.set_cfg_anchor(cnode, n)
+            elif isinstance(cnode, cfg_graph.ForIter):
+                iterator = cnode.iterator
+                n = pdg.add_node(
+                    "cond",
+                    cfg_node=cnode,
+                    ast_node=iterator,
+                    label=_safe_ast_label(iterator),
+                )
+                pdg.add_cfg_content(cnode, n)
+                pdg.set_cfg_anchor(cnode, n)
             elif isinstance(cnode, cfg_graph.Merge):
                 for phi in list(getattr(cnode, "phi", ())):
                     n = pdg.add_node(
@@ -260,21 +225,21 @@ class PDGConstructor:
         self,
         pdg: ProgramDependenceGraph,
         ast_node: Any,
-        parent_map: Dict[int, Any],
+        parent_map: Dict[Any, Any],
     ) -> Optional[PDGNode]:
         node = ast_node
         while node is not None:
             pdg_node = pdg.get_node_for_ast(node)
             if pdg_node is not None:
                 return pdg_node
-            node = parent_map.get(id(node))
+            node = parent_map.get(node)
         return None
 
     def _resolve_pdg_node_for_ddg_op(
         self,
         pdg: ProgramDependenceGraph,
         ddg_node: Any,
-        parent_map: Dict[int, Any],
+        parent_map: Dict[Any, Any],
     ) -> Optional[PDGNode]:
         ir = ddg_node.ir_node
         if isinstance(ir, df_graph.Entry):
@@ -303,6 +268,8 @@ class PDGConstructor:
 
     def _ddg_edge_label(self, edge: Any) -> str:
         if edge.kind == "memory":
+            if getattr(edge, "location", None) is not None:
+                return f"{edge.label}@{edge.location!r}"
             return edge.label
 
         slot_node = None
@@ -318,7 +285,7 @@ class PDGConstructor:
     def _add_data_edges_from_ddg(
         self,
         pdg: ProgramDependenceGraph,
-        parent_map: Dict[int, Any],
+        parent_map: Dict[Any, Any],
     ) -> Set[PDGNode]:
         root_code = getattr(pdg.cfg, "code", None)
         if root_code is None:
@@ -364,75 +331,69 @@ class PDGConstructor:
 
         return backed_nodes
 
-    def _add_ast_fallback_data_edges(
-        self, pdg: ProgramDependenceGraph, backed_nodes: Set[PDGNode]
-    ) -> None:
+    def _add_semantic_data_edges(self, pdg: ProgramDependenceGraph) -> None:
         root_code = getattr(pdg.cfg, "code", None)
         if root_code is None:
             return
+        catalog = ensure_code_indexed(root_code)
+        index_cfg(catalog, pdg.cfg)
+        procedure = catalog.procedure(root_code)
 
-        def key_for_local(lcl: py_ast.Local) -> str:
-            # PyFlow's frontend does not guarantee `ast.Local` object identity is shared
-            # across occurrences of the same variable. Use a stable key based on name.
-            return lcl.name if lcl.name is not None else f"<anon:{id(lcl)}>"
+        var_to_defs: Dict[object, List[PDGNode]] = {}
+        if pdg.entry is not None:
+            for symbol in catalog.symbols:
+                if (
+                    symbol.id.scope == procedure.root_scope
+                    and symbol.kind is SymbolKind.PARAMETER
+                ):
+                    var_to_defs.setdefault(symbol.id, []).append(pdg.entry)
+                    for value in catalog.values:
+                        if value.id.symbol == symbol.id and value.definition is None:
+                            var_to_defs.setdefault(value.id, []).append(pdg.entry)
 
-        # Seed parameter definitions at entry (keyed by name).
-        var_to_defs: Dict[str, List[PDGNode]] = {}
-        if pdg.entry is not None and root_code is not None:
-            params = getattr(root_code, "codeparameters", None)
-            if params is not None:
-                for p in [params.selfparam, params.vparam, params.kparam]:
-                    if isinstance(p, py_ast.Local):
-                        var_to_defs.setdefault(key_for_local(p), []).append(pdg.entry)
-                for p in getattr(params, "params", ()):
-                    if isinstance(p, py_ast.Local):
-                        var_to_defs.setdefault(key_for_local(p), []).append(pdg.entry)
-
-        # Collect per-node def/use summaries.
-        node_uses: Dict[PDGNode, Set[py_ast.Local]] = {}
+        node_uses: Dict[PDGNode, tuple[object, ...]] = {}
         for node in pdg.nodes:
             if node.ast_node is None:
                 continue
-            defs, uses = _collect_local_defs_uses(node.ast_node, root_code=root_code)
-            defs = {d for d in defs if isinstance(d, py_ast.Local)}
-            uses = {u for u in uses if isinstance(u, py_ast.Local)}
-            node_uses[node] = uses
-            for d in defs:
-                var_to_defs.setdefault(key_for_local(d), []).append(node)
+            try:
+                semantics = catalog.semantics.operation(
+                    catalog.node_id(node.ast_node, root_code)
+                )
+            except KeyError:
+                continue
+            node_uses[node] = semantics.uses
+            for symbol_id in semantics.definitions:
+                var_to_defs.setdefault(symbol_id, []).append(node)
 
-        # Add edges from defs to uses.
         for use_node, uses in node_uses.items():
-            for lcl in uses:
-                def_nodes = var_to_defs.get(key_for_local(lcl), [])
+            for symbol_id in uses:
+                def_nodes = var_to_defs.get(symbol_id, [])
                 for def_node in def_nodes:
                     if def_node is use_node:
                         continue
-                    if def_node in backed_nodes and use_node in backed_nodes:
-                        continue
-                    label = lcl.name or "local"
+                    identity = (
+                        catalog.values[symbol_id].id.symbol
+                        if isinstance(symbol_id, ValueId)
+                        else symbol_id
+                    )
+                    symbol = catalog.symbols.get(identity)
+                    label = symbol.display_name if symbol is not None else str(symbol_id)
                     def_node.add_edge_to(use_node, "data", label)
 
     def _add_data_edges(
-        self, pdg: ProgramDependenceGraph, parent_map: Dict[int, Any]
+        self, pdg: ProgramDependenceGraph, parent_map: Dict[Any, Any]
     ) -> None:
         try:
-            backed_nodes = self._add_data_edges_from_ddg(pdg, parent_map)
-        except Exception as exc:
-            pdg.data_dependence_reason = f"{type(exc).__name__}: {exc}"
-            if not self.options.allow_ast_fallback_on_ddg_failure:
-                raise
-            pdg.data_dependence_mode = "ast-fallback"
-            warnings.warn(
-                "PDG DDG-backed data dependence is unavailable; "
-                f"falling back to AST-local def/use ({pdg.data_dependence_reason})",
-                RuntimeWarning,
-                stacklevel=2,
-            )
-            backed_nodes = set()
+            self._add_data_edges_from_ddg(pdg, parent_map)
+        except UnsupportedDataflowConstructError as exc:
+            # Shared IRSemantics is the authoritative representation for
+            # constructs the optional dataflow lowering does not model.
+            pdg.data_dependence_mode = "semantics"
+            pdg.data_dependence_reason = str(exc)
         else:
             pdg.data_dependence_mode = "hybrid"
             pdg.data_dependence_reason = ""
-        self._add_ast_fallback_data_edges(pdg, backed_nodes)
+        self._add_semantic_data_edges(pdg)
 
 
 def construct_pdg(cfg: cfg_graph.Code, **kwargs) -> ProgramDependenceGraph:

@@ -5,7 +5,6 @@ expressions at compile time and replaces them with their computed values.
 """
 
 from pyflow.util.typedispatch import *
-from ..language.asttools import annotation
 
 from pyflow.optimization.dataflow.forward import *
 from pyflow.optimization.dataflow.base import top, undefined, MutateCode
@@ -16,6 +15,13 @@ from pyflow.optimization import termrewrite
 from pyflow.optimization.termrewrite import DirectCallRewriter
 
 from . import rewrite
+from pyflow.ir.core import (
+    AnalysisFacts,
+    Capabilities,
+    MissingAnalysisFact,
+    build_semantics,
+    index_code,
+)
 
 
 def floatMulRewrite(self, node):
@@ -59,12 +65,12 @@ def convertToBoolRewrite(self, node):
     if not termrewrite.hasNumArgs(node, 1):
         return
 
-    if termrewrite.isAnalysisInstance(node.args[0], bool):
+    if termrewrite.isAnalysisInstance(node.args[0], bool, self.facts, self.code):
         return node.args[0]
 
 
-def makeCallRewrite(extractor):
-    callRewrite = DirectCallRewriter(extractor)
+def makeCallRewrite(extractor, catalog=None):
+    callRewrite = DirectCallRewriter(extractor, catalog)
     callRewrite.addRewrite("prim_float_mul", floatMulRewrite)
     callRewrite.addRewrite("prim_float_add", floatAddRewrite)
     callRewrite.addRewrite("convertToBool", convertToBoolRewrite)
@@ -109,16 +115,28 @@ class FoldRewrite(TypeDispatcher):
         self.extractor = extractor
         self.storeGraph = storeGraph
         self.code = code
+        catalog = getattr(code, "ir_catalog", None)
+        self.facts = AnalysisFacts(catalog) if catalog is not None else None
 
         # Track objects created during folding
         self.created = set()
+        # Bottom-up reconstruction creates fresh syntax objects before the
+        # rewrite strategy consults facts from the analyzed IR revision.  Keep
+        # an explicit transform-local remap to the analyzed occurrence; never
+        # attempt to recover it by name or structural equality.
+        self.fact_sources = {}
+        self.fact_replacements = {}
 
         # Term rewriter for call optimizations
-        self.callRewrite = makeCallRewrite(extractor)
+        self.callRewrite = makeCallRewrite(
+            extractor, getattr(code, "ir_catalog", None)
+        )
 
         # Check if we have context annotations for type-based optimizations
-        self.annotationsExist = (
-            code.annotation.contexts is not None and storeGraph is not None
+        self.annotationsExist = bool(
+            catalog is not None
+            and catalog.facts.has(Capabilities.CONTEXTS)
+            and storeGraph is not None
         )
 
     def descriptive(self):
@@ -153,36 +171,64 @@ class FoldRewrite(TypeDispatcher):
 
     @dispatch(ast.Call)
     def visitCall(self, node):
-        func = tools.singleCall(node)
+        func = tools.singleCall(self.code, self.factNode(node))
         if func is not None:
             result = ast.DirectCall(
                 func, node.expr, node.args, node.kwds, node.vargs, node.kargs
             )
             copy_call_argument_metadata(node, result)
             result.annotation = node.annotation
+            self.recordFactSource(node, result)
             return self(result)
 
         return node
 
     def getObjects(self, ref):
-        if isinstance(ref, (ast.Local, ast.Existing)):
-            refs = ref.annotation.references
-            if refs is not None:
-                return refs[0]
-            else:
-                return ()  # HACK?
-        else:
-            # Unsupported reference shape. Be conservative and avoid crashing
-            # the optimization pipeline.
+        if not isinstance(ref, (ast.Local, ast.Existing)) or self.facts is None:
             return ()
+        try:
+            return self.facts.merged_references(self.code, ref)
+        except MissingAnalysisFact:
+            return ()
+
+    def recordFactSource(self, original, replacement):
+        source = self.fact_sources.get(original, original)
+        self.fact_sources[replacement] = source
+        if replacement is not source:
+            self.fact_replacements[source] = replacement
+        return replacement
+
+    def factNode(self, node):
+        return self.fact_sources.get(node, node)
+
+    def commitFactRemap(self):
+        catalog = getattr(self.code, "ir_catalog", None)
+        if catalog is None:
+            return
+        for original, replacement in self.fact_replacements.items():
+            catalog.replace_node(
+                self.code,
+                original,
+                replacement,
+                transform="fold",
+            )
+        procedure = catalog.procedure(self.code)
+        index_code(
+            catalog,
+            self.code,
+            module=procedure.code_id.module,
+            qualname=procedure.code_id.qualname,
+            filename=procedure.code_id.anchor.filename or None,
+        )
+        build_semantics(catalog)
+        if self.fact_replacements:
+            catalog.commit_revision(
+                preserved_capabilities=catalog.facts.capabilities()
+            )
 
     def getExistingNames(self, ref):
         if isinstance(ref, ast.Local):
-            refs = ref.annotation.references
-            if refs is not None:
-                return [ref.xtype.obj for ref in refs[0]]
-            else:
-                return ()  # HACK?
+            return [ref.xtype.obj for ref in self.getObjects(ref)]
 
         elif isinstance(ref, ast.Existing):
             return (ref.object,)
@@ -222,17 +268,6 @@ class FoldRewrite(TypeDispatcher):
     def typeMatch(self, ref, group):
         return ref.xtype.obj.type in group
 
-    # Filter out all the references that don't match the type.
-    def filterReferenceAnnotationByType(self, a, group):
-        filtered = [
-            annotation.annotationSet(
-                [ref for ref in crefs if self.typeMatch(ref, group)]
-            )
-            for crefs in a.references.context
-        ]
-        filtered = annotation.makeContextualAnnotation(filtered)
-        return a.rewrite(references=filtered)
-
     # If the argument at pos in the invocation context does not have a
     # type in group, kill the invocation
     def filterInvokesByType(self, invokes, group, pos):
@@ -243,34 +278,22 @@ class FoldRewrite(TypeDispatcher):
                 newinvokes.append(inv)
         return tuple(newinvokes)
 
-    # It is obvious that some invocations will no longer occur, as they
-    # require the wrong type for the argument under consideration.
-    # Filter out these invocations.
-    def filterOpAnnotationByType(self, a, group, pos):
-        newcinvokes = [
-            self.filterInvokesByType(invokes, group, pos)
-            for invokes in a.invokes.context
-        ]
-        invokes = annotation.makeContextualAnnotation(newcinvokes)
-        return a.rewrite(invokes=invokes)
-
-    # Make a mask to kill contexts that have no references... they will never be evaluated.
-    def makeRemapMask(self, a):
-        return [i if crefs else -1 for i, crefs in enumerate(a.references.context)]
-
     # This is the policy that determined how a node is split into a type switch.
     # Currently, it groups the types by what code is called.  Similar invocation targets get grouped.
     def groupTypes(self, node, arg, pos):
-        types = sorted(
-            set([ref.xtype.obj.type for ref in arg.annotation.references.merged])
-        )
+        types = sorted(set(ref.xtype.obj.type for ref in self.getObjects(arg)))
 
         # Trivial case, less that two types.
         if len(types) <= 1:
             return None
 
         groupLUT = {}
-        invmerged = node.annotation.invokes.merged
+        try:
+            invmerged = self.facts.merged_call_targets(
+                self.code, self.factNode(node)
+            )
+        except MissingAnalysisFact:
+            return None
         for type in types:
             # Find the code that this type may call.
             invfiltered = self.filterInvokesByType(invmerged, (type,), pos)
@@ -298,29 +321,11 @@ class FoldRewrite(TypeDispatcher):
             # Create a filtered version of the argument.
             name = arg.name if isinstance(arg, ast.Local) else None
             expr = ast.Local(name)
-            expr.annotation = self.filterReferenceAnnotationByType(
-                arg.annotation, group
-            )
-
-            # Create the new op
-            opannotation = node.annotation
-
-            # Kill contexts where the filtered expression has no references.
-            # (In these contexts, the new op will never be evaluated.)
-            mask = self.makeRemapMask(expr.annotation)
-            if -1 in mask:
-                opannotation = opannotation.contextSubset(mask)
-
-            # Filter out invocations that don't have the right type for the given parameter.
-            opannotation = self.filterOpAnnotationByType(opannotation, group, pos)
 
             # Rewrite the op to use expr instead of the original arg.
             newop = rewrite.rewriteTerm(node, {arg: expr})
             assert newop is not node
-            newop.annotation = opannotation
-
-            # Try to reduce it to a direct call
-            newop = self(newop)
+            newop.annotation = node.annotation
 
             # Create the suite for this case
             stmts = []
@@ -341,7 +346,7 @@ class FoldRewrite(TypeDispatcher):
 
     @dispatch(ast.MethodCall)
     def visitMethodCall(self, node):
-        func = tools.singleCall(node)
+        func = tools.singleCall(self.code, self.factNode(node))
         if func is not None:
             funcobj = self.getMethodFunction(node.expr, node.name)
 
@@ -356,6 +361,7 @@ class FoldRewrite(TypeDispatcher):
             )
             copy_call_argument_metadata(node, result)
             result.annotation = node.annotation
+            self.recordFactSource(node, result)
             return self(result)
         return node
 
@@ -385,12 +391,7 @@ class FoldRewrite(TypeDispatcher):
         return node
 
     def existingFromNode(self, cobj):
-        node = ast.Existing(cobj.xtype.obj)
-        references = annotation.makeContextualAnnotation(
-            [(cobj,) for context in self.code.annotation.contexts]
-        )
-        node.rewriteAnnotation(references=references)
-        return node
+        return ast.Existing(cobj.xtype.obj)
 
     def storeGraphForExistingObject(self, obj):
         slotName = self.storeGraph.canonical.existingName(self.code, obj, None)
@@ -409,7 +410,7 @@ class FoldRewrite(TypeDispatcher):
     @dispatch(ast.Local)
     def visitLocal(self, node):
         # Replace with query
-        obj = tools.singleObject(node)
+        obj = tools.singleObject(self.code, node)
         if obj is not None:
             return self.localToExisting(node, obj)
 
@@ -586,6 +587,11 @@ class FoldTraverse(TypeDispatcher):
         self.strategy = strategy
         self.code = function
 
+    def recordFactSource(self, original, replacement):
+        recorder = getattr(self.strategy, "recordFactSource", None)
+        if recorder is not None:
+            recorder(original, replacement)
+
     @dispatch(ast.leafTypes)
     def visitLeaf(self, node):
         """Visit leaf nodes (no children to process)."""
@@ -637,7 +643,9 @@ class FoldTraverse(TypeDispatcher):
             Transformed node
         """
         # Bottom up: process children first
-        return self.strategy(node.rewriteChildren(self))
+        rewritten = node.rewriteChildren(self)
+        self.recordFactSource(node, rewritten)
+        return self.strategy(rewritten)
 
     @dispatch(ast.CodeParameters)
     def visitCodeParameters(self, node):
@@ -670,9 +678,10 @@ class FoldTraverse(TypeDispatcher):
         """
         # Modified bottom up
         # Avoids folding assignment targets
+        original = node
         node = ast.Assign(self(node.expr), node.lcls)
-        node = self.strategy(node)
-        return node
+        self.recordFactSource(original, node)
+        return self.strategy(node)
 
     @dispatch(ast.Delete)
     def visitDelete(self, node):
@@ -776,5 +785,7 @@ def evaluateCode(compiler, prgm, node):
 
     for obj in newobj:
         compiler.extractor.desc.objects.append(obj)
+
+    rewrite.commitFactRemap()
 
     return node

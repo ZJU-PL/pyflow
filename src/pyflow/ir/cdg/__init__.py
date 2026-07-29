@@ -16,11 +16,9 @@ In simpler terms: B is control dependent on A if A's decision (e.g., in an if/wh
 determines whether B executes.
 
 **Construction Algorithm:**
-The CDG is constructed using dominance frontiers:
-- The dominance frontier of node X is the set of nodes Y where X dominates a
-  predecessor of Y, but X does not strictly dominate Y
-- Control dependencies are derived from dominance frontiers: if Y is in the
-  dominance frontier of X, then Y is control dependent on X
+The CDG is constructed from a total reverse-CFG post-dominator tree spanning
+normal, failure, error, and non-terminating sink regions. Branch successors are
+walked up to the controller's immediate post-dominator to derive dependence.
 
 **Use Cases:**
 - Program slicing: Extract code that affects a specific variable or statement

@@ -1566,12 +1566,7 @@ class GenericOp(PredicatedOpNode):
 
 
 def refFromExisting(node):
-    annotation = getattr(node, "annotation", None)
-    references = getattr(annotation, "references", None)
-    if references and getattr(references, "merged", None):
-        return references.merged[0]
-    # Source-loaded code often lacks full CPA reference annotations.
-    # Keep Existing nodes usable for local DDG/PDG construction anyway.
+    """Return the structural identity of an existing-object reference."""
     return node.object
 
 
@@ -1596,7 +1591,15 @@ class DataflowGraph(object):
         entryPredicate: PredicateNode for entry control flow
     """
 
-    __slots__ = "entry", "exit", "existing", "null", "entryPredicate"
+    __slots__ = (
+        "entry",
+        "exit",
+        "existing",
+        "null",
+        "entryPredicate",
+        "code",
+        "killed",
+    )
 
     def __init__(self, hyperblock):
         """Initialize a dataflow graph.
@@ -1608,6 +1611,8 @@ class DataflowGraph(object):
         self.exit = None  # Defer creation, as we don't know the hyperblock.
         self.existing = {}
         self.null = NullNode()
+        self.code = None
+        self.killed = frozenset()
 
         self.entryPredicate = None
 

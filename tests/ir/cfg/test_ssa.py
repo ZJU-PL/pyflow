@@ -11,6 +11,8 @@ from pyflow.ir.cfg import (
     structuralanalysis,
 )
 from pyflow.language.python.simplecodegen import SimpleCodeGen
+from pyflow.language.python import ast
+from pyflow.ir.core import IRRemap, ValueId, verify_catalog
 
 
 def split(a, b):
@@ -126,6 +128,40 @@ class TestSSA(unittest.TestCase):
 
     def testPSimp(self):
         self.runFunction(psimp)
+
+    def test_ssa_registers_typed_values_and_value_semantics(self):
+        code = self.decompile(split)
+        graph = transform.evaluate(self.compiler, code)
+
+        before = code.ir_catalog.revision
+        remap = ssa.evaluate(self.compiler, graph)
+
+        self.assertIsInstance(remap, IRRemap)
+        self.assertEqual(remap.before, before)
+        self.assertTrue(remap.changed)
+        self.assertEqual(remap.after, code.ir_catalog.revision)
+
+        catalog = code.ir_catalog
+        values = tuple(catalog.values)
+        self.assertTrue(values)
+        self.assertTrue(all(value.id.symbol in {s.id for s in catalog.symbols} for value in values))
+
+        assignments = [
+            op
+            for block_id, block in catalog.blocks()
+            if block_id.code == catalog.procedure(code).code_id
+            and hasattr(block, "ops")
+            for op in block.ops
+            if isinstance(op, ast.Assign)
+        ]
+        self.assertTrue(assignments)
+        self.assertTrue(
+            any(
+                any(isinstance(identity, ValueId) for identity in catalog.semantics_of(op, code=code).definitions)
+                for op in assignments
+            )
+        )
+        verify_catalog(catalog)
 
 
 if __name__ == "__main__":

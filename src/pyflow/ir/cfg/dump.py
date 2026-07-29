@@ -95,6 +95,28 @@ class NodeStyle(TypeDispatcher):
             fontsize=8,
         )
 
+    @dispatch(cfg.ForIter)
+    def handleForIter(self, node):
+        label = makeStr("%r <- next(%r)" % (node.index, node.iterator))
+        return dict(
+            label=label,
+            shape="trapezium",
+            style="filled",
+            fillcolor=self.switchColor,
+            fontsize=8,
+        )
+
+    @dispatch(cfg.TypeSwitch)
+    def handleTypeSwitch(self, node):
+        label = makeStr(repr(node.original.conditional))
+        return dict(
+            label=label,
+            shape="trapezium",
+            style="filled",
+            fillcolor=self.switchColor,
+            fontsize=8,
+        )
+
     @dispatch(cfg.Merge)
     def handleMerge(self, node):
         """Handle merge nodes.
@@ -152,7 +174,7 @@ class CFGToDot(TypeDispatcher):
         if key not in self.nodes:
             node.sanityCheck()
             settings = self.style(node)
-            result = pydot.Node(id(key), **settings)
+            result = pydot.Node(f"bb{len(self.nodes)}", **settings)
 
             region = self.region(node)
 
@@ -166,7 +188,7 @@ class CFGToDot(TypeDispatcher):
     def region(self, node):
         region = node.region
         if region not in self.regions:
-            result = pydot.Cluster(str(id(region)))
+            result = pydot.Cluster(f"region{len(self.regions)}")
             self.regions[region] = result
 
             if region is not None:

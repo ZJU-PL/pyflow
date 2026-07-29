@@ -96,9 +96,9 @@ class _DefinitionTransferMixin:
             defaults = tuple(getattr(operation.code.codeparameters, "defaults", ()))
             for index, default in enumerate(defaults):
                 locations = self.locations_for_expression(procedure, default)
-                self._definition_default_locations[(id(operation.code), index)] = (
-                    locations
-                )
+                self._definition_default_locations[
+                    (self._procedure_identity(operation.code), index)
+                ] = locations
                 default_locations.extend(locations)
 
         related_expressions = self._definition_header_expressions(operation)
@@ -123,7 +123,7 @@ class _DefinitionTransferMixin:
                 definition
             )
             self._class_locations_by_root[definition.root] = definition
-            self._class_locations_by_definition[id(operation)] = definition
+            self._class_locations_by_definition[operation] = definition
         if self._is_module_scope(procedure):
             target = self.effect_builder.global_location(
                 procedure,
@@ -287,31 +287,32 @@ class _DefinitionTransferMixin:
     def _is_module_scope(self, procedure: object) -> bool:
         return (
             isinstance(procedure, py_ast.Code)
-            and id(procedure) not in self._lexical_parents
+            and procedure not in self._lexical_parents
         )
 
     def _module_owner(self, procedure: object) -> object:
         explicit = getattr(procedure, "module", None)
         if explicit is not None:
             return explicit
-        cached = self._module_owners.get(id(procedure))
+        cached = self._module_owners.get(procedure)
         if cached is not None:
             return cached
-        parent = self._lexical_parents.get(id(procedure))
+        parent = self._lexical_parents.get(procedure)
         if parent is not None:
             owner = self._module_owner(parent)
-            self._module_owners[id(procedure)] = owner
+            self._module_owners[procedure] = owner
             return owner
-        origin = getattr(getattr(procedure, "annotation", None), "origin", ()) or ()
-        for item in origin:
-            if isinstance(item, str) and item.startswith("source("):
-                payload = item[len("source(") :].rstrip(")")
-                filename = payload.rsplit(":", 1)[0]
-                owner = ("source-module", filename)
-                self._module_owners[id(procedure)] = owner
-                return owner
-        owner = ("code-module", id(procedure))
-        self._module_owners[id(procedure)] = owner
+        catalog = getattr(procedure, "ir_catalog", None)
+        if catalog is not None:
+            owner = ("code-module", catalog.procedure(procedure).code_id)
+        else:
+            owner = (
+                "unindexed-code",
+                type(procedure).__module__,
+                type(procedure).__qualname__,
+                getattr(procedure, "name", None),
+            )
+        self._module_owners[procedure] = owner
         return owner
 
     def _bind_definition_local(
@@ -320,7 +321,7 @@ class _DefinitionTransferMixin:
         name: str,
         locations: tuple[HeapLocation, ...],
     ) -> None:
-        key = (id(procedure), name)
+        key = (self._procedure_identity(procedure), name)
         local = self._definition_locals.get(key)
         if local is None:
             local = py_ast.Local(name)
@@ -333,7 +334,7 @@ class _DefinitionTransferMixin:
         environment: HeapEnvironment,
     ) -> dict[str, tuple[HeapLocation, ...]]:
         members: dict[str, list[HeapLocation]] = {}
-        procedure_id = id(procedure)
+        procedure_id = self.heap._procedure_key(procedure)
         keys = set(environment.storage_overrides) | set(environment.allocation_sites)
         for key in keys:
             if key[0] != procedure_id:

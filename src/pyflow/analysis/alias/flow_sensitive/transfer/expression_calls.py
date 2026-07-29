@@ -30,7 +30,7 @@ class _ExpressionCallMixin:
         # effects must be applied even when nested inside another
         # expression rather than materialized by an Assign/Discard node.
         self._apply_call_transfer(procedure, expression)
-        application_key = self._call_application_key(expression)
+        application_key = self._call_application_key(procedure, expression)
         finite_values = self._finite_call_results.get(application_key)
         if finite_values is not None:
             return finite_values
@@ -195,9 +195,9 @@ class _ExpressionCallMixin:
         if isinstance(expression.code, py_ast.Code):
             self._function_codes_by_root[function.root] = expression.code
             self._function_binding_kinds[function.root] = "instance"
-            self._lexical_parents.setdefault(id(expression.code), procedure)
+            self._lexical_parents.setdefault(expression.code, procedure)
             self._module_owners.setdefault(
-                id(expression.code),
+                expression.code,
                 self._module_owner(procedure),
             )
         return (function,)

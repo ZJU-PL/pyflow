@@ -118,7 +118,9 @@ class _ValueMaterializationMixin:
                 expr,
                 bind=False,
             )
-            self._pending_call_results[id(operation)] = (targets, slots)
+            self._pending_call_results[
+                self._program_point_identity(procedure, operation)
+            ] = (targets, slots)
             return
         if expr is not None and not isinstance(expr, py_ast.Local):
             expr_locations = self.locations_for_expression(procedure, expr)

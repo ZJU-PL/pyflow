@@ -19,6 +19,7 @@ from pyflow.analysis.tools import codeOps
 import collections
 
 from pyflow.optimization import rewrite
+from pyflow.ir.core import AnalysisFacts, Capabilities
 
 
 def evaluate(compiler, prgm, simplify=False):
@@ -35,7 +36,7 @@ def evaluate(compiler, prgm, simplify=False):
         bool: True if any stores were eliminated, False otherwise
     """
     with compiler.console.scope("dead store elimination"):
-        if getattr(prgm, "lifetime_analysis", None) is None:
+        if not prgm.ir.facts.has(Capabilities.LIFETIME_OP_READS):
             raise RuntimeError(
                 "Dead store elimination requires lifetime analysis. "
                 "Ensure 'lifetime' pass has run before 'store_elimination'."
@@ -43,25 +44,32 @@ def evaluate(compiler, prgm, simplify=False):
 
         live = set()
         stores = collections.defaultdict(list)
+        facts = AnalysisFacts(prgm.ir)
 
         # Analysis pass
-        saw_annotation_data = False
+        saw_lifetime_data = False
         for code in prgm.liveCode:
-            if code.annotation.codeReads:
-                live.update(code.annotation.codeReads[0])
-                saw_annotation_data = True
+            for context in facts.contexts(code):
+                live.update(
+                    facts.code_effect(
+                        Capabilities.LIFETIME_CODE_READS, code, context
+                    )
+                )
+                saw_lifetime_data = True
 
             for op in codeOps(code):
-                op_ann = getattr(op, "annotation", None)
-                if op_ann is not None and op_ann.reads:
-                    live.update(op_ann.reads[0])
-                    saw_annotation_data = True
+                for context in facts.contexts(code):
+                    live.update(
+                        facts.operation_effect(
+                            Capabilities.LIFETIME_OP_READS, code, op, context
+                        )
+                    )
                 if isinstance(op, ast.Store):
                     stores[code].append(op)
 
-        if not saw_annotation_data:
+        if not saw_lifetime_data:
             compiler.console.output(
-                "Skipping dead store elimination: missing read/modify annotations."
+                "Skipping dead store elimination: missing lifetime facts."
             )
             return False
 
@@ -84,11 +92,12 @@ def evaluate(compiler, prgm, simplify=False):
 
             # Look for dead stores
             for store in stores[code]:
-                store_ann = getattr(store, "annotation", None)
-                if store_ann is not None and store_ann.modifies:
-                    # Check if any modified location is live
+                modifies = facts.merged_operation_effect(
+                    Capabilities.LIFETIME_OP_WRITES, code, store
+                )
+                if modifies:
                     is_live = False
-                    for modify in store_ann.modifies[0]:
+                    for modify in modifies:
                         if modify in live:
                             # Location is live, store is needed
                             is_live = True

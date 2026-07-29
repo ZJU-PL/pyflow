@@ -45,16 +45,38 @@ from pyflow.ir.dataflow import graph as df
 from .graph import DataDependenceGraph, DDGNode
 
 
-def _memory_slot_key(slot: Any) -> Any:
-    canonical = slot.canonical() if hasattr(slot, "canonical") else slot
+class MalformedForwardingCycleError(ValueError):
+    """Raised when a dataflow slot's forwarding chain contains a cycle."""
 
-    slot_name = getattr(canonical, "name", None)
+
+def _memory_slot_key(slot: Any) -> Any:
+    def canonicalize(value):
+        seen = []
+        while value is not None:
+            if any(candidate is value for candidate in seen):
+                raise MalformedForwardingCycleError(
+                    f"cyclic forwarding chain for {type(value).__qualname__}"
+                )
+            seen.append(value)
+            replacement = value
+            if hasattr(replacement, "getForward"):
+                replacement = replacement.getForward()
+            if hasattr(replacement, "canonical"):
+                replacement = replacement.canonical()
+            if replacement is value:
+                break
+            value = replacement
+        return value
+
+    canonical = canonicalize(slot)
+
+    slot_name = canonicalize(getattr(canonical, "name", None))
     if slot_name is not None and (
-        hasattr(slot_name, "object") or hasattr(slot_name, "name")
+        hasattr(slot_name, "object") or hasattr(slot_name, "slotName")
     ):
         return slot_name
 
-    slot_object = getattr(canonical, "object", None)
+    slot_object = canonicalize(getattr(canonical, "object", None))
     if slot_object is not None:
         return (slot_object, slot_name)
 
@@ -108,7 +130,7 @@ class DDGConstructor(object):
         """
         # Constructors are reusable, but each construction represents exactly
         # one input graph.
-        self.ddg = DataDependenceGraph()
+        self.ddg = DataDependenceGraph(getattr(dataflow, "code", None))
 
         # Create nodes for all ops and slots reachable from graph roots.
         self._index_dataflow(dataflow)
@@ -284,73 +306,78 @@ class DDGConstructor(object):
                 {_memory_slot_key(slot) for slot in writes},
             )
 
-        # State maps a location to (reaching writes, reads since those writes).
-        # Union at joins preserves all branch definitions instead of selecting
-        # whichever writer happens to be last in a DFS order.
-        in_states = {ir: {} for ir in ir_ops}
-        out_states = {ir: {} for ir in ir_ops}
+        # Solve one abstract location at a time.  The previous product state
+        # copied a growing location->state dictionary at every operation; its
+        # peak memory was O(operations * locations).  This formulation keeps
+        # only two scalar reaching sets per operation and releases them before
+        # moving to the next location.
+        locations = sorted(
+            {key for read, write in accesses.values() for key in read | write},
+            key=repr,
+        )
+        empty_state = (frozenset(), frozenset())
 
-        def merge_predecessors(ir):
-            merged = {}
-            for pred in predecessors[ir]:
-                for key, (writes, reads) in out_states[pred].items():
-                    old_writes, old_reads = merged.get(key, (set(), set()))
-                    merged[key] = (old_writes | set(writes), old_reads | set(reads))
-            return {
-                key: (frozenset(writes), frozenset(reads))
-                for key, (writes, reads) in merged.items()
-            }
+        for key in locations:
+            in_states = {ir: empty_state for ir in ir_ops}
+            out_states = {ir: empty_state for ir in ir_ops}
+            worklist = deque(ir_ops)
+            queued = set(ir_ops)
 
-        def transfer(ir, state):
-            result = dict(state)
-            reads, writes = accesses[ir]
-            for key in reads:
-                reaching, prior_reads = result.get(
-                    key, (frozenset(), frozenset())
+            while worklist:
+                ir = worklist.popleft()
+                queued.discard(ir)
+
+                reaching_writes = set()
+                reaching_reads = set()
+                for predecessor in predecessors[ir]:
+                    writes, reads = out_states[predecessor]
+                    reaching_writes.update(writes)
+                    reaching_reads.update(reads)
+                incoming = (
+                    frozenset(reaching_writes),
+                    frozenset(reaching_reads),
                 )
-                result[key] = (reaching, prior_reads | frozenset((ir,)))
-            for key in writes:
-                result[key] = (frozenset((ir,)), frozenset())
-            return result
 
-        worklist = deque(ir_ops)
-        queued = set(ir_ops)
-        while worklist:
-            ir = worklist.popleft()
-            queued.discard(ir)
-            incoming = merge_predecessors(ir)
-            outgoing = transfer(ir, incoming)
-            if incoming == in_states[ir] and outgoing == out_states[ir]:
-                continue
-            in_states[ir] = incoming
-            out_states[ir] = outgoing
-            for successor in successors[ir]:
-                if successor not in queued:
-                    queued.add(successor)
-                    worklist.append(successor)
+                reads, writes = accesses[ir]
+                if key in reads:
+                    outgoing = (incoming[0], incoming[1] | frozenset((ir,)))
+                else:
+                    outgoing = incoming
+                if key in writes:
+                    outgoing = (frozenset((ir,)), frozenset())
 
-        # Materialize dependencies from the fixed-point input states.
-        for ir in ir_ops:
-            op = op_nodes[ir]
-            reads, writes = accesses[ir]
-            for key in reads:
-                reaching_writes, _ = in_states[ir].get(
-                    key, (frozenset(), frozenset())
-                )
-                for writer in reaching_writes:
-                    if writer is not ir:
-                        self.ddg.add_mem_dep(op_nodes[writer], op, label="RAW")
+                if incoming == in_states[ir] and outgoing == out_states[ir]:
+                    continue
+                in_states[ir] = incoming
+                out_states[ir] = outgoing
+                for successor in successors[ir]:
+                    if successor not in queued:
+                        queued.add(successor)
+                        worklist.append(successor)
 
-            for key in writes:
-                reaching_writes, reaching_reads = in_states[ir].get(
-                    key, (frozenset(), frozenset())
-                )
-                for reader in reaching_reads:
-                    if reader is not ir:
-                        self.ddg.add_mem_dep(op_nodes[reader], op, label="WAR")
-                for writer in reaching_writes:
-                    if writer is not ir:
-                        self.ddg.add_mem_dep(op_nodes[writer], op, label="WAW")
+            for ir in ir_ops:
+                reads, writes = accesses[ir]
+                if key not in reads and key not in writes:
+                    continue
+                op = op_nodes[ir]
+                reaching_writes, reaching_reads = in_states[ir]
+                if key in reads:
+                    for writer in reaching_writes:
+                        if writer is not ir:
+                            self.ddg.add_mem_dep(
+                                op_nodes[writer], op, label="RAW", location=key
+                            )
+                if key in writes:
+                    for reader in reaching_reads:
+                        if reader is not ir:
+                            self.ddg.add_mem_dep(
+                                op_nodes[reader], op, label="WAR", location=key
+                            )
+                    for writer in reaching_writes:
+                        if writer is not ir:
+                            self.ddg.add_mem_dep(
+                                op_nodes[writer], op, label="WAW", location=key
+                            )
 
 
 def construct_ddg(dataflow: df.DataflowGraph) -> DataDependenceGraph:

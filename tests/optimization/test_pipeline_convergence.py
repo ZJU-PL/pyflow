@@ -131,9 +131,9 @@ def test_pipeline_invalidates_analysis_between_passes():
         manager.run_passes(compiler, program, ["ipa", "cpa", "lifetime", "simplify", "clone"])
 
         # Analysis should be cleared after transformation
-        assert program.ipa_analysis is None
-        assert program.cpa_analysis is None
-        assert program.lifetime_analysis is None
+        assert program.get_analysis_result("ipa") is None
+        assert program.get_analysis_result("cpa") is None
+        assert program.get_analysis_result("lifetime") is None
 
         # Run ipa_refresh - should actually call IPA again
         mock_ipa.reset_mock()

@@ -101,7 +101,7 @@ class HeapState:
         """
         result: list[HeapLocation] = []
         seen: set[HeapLocation] = set()
-        root_id = id(container.root)
+        root = container.root
         # Direct wildcard lookup
         for val in self.read(container, fallback=()):
             if val not in seen:
@@ -109,14 +109,14 @@ class HeapState:
                 result.append(val)
         # Precise sub-element values under the same root
         for loc, values in self.values.items():
-            if id(loc.root) == root_id and loc.selectors:
+            if loc.root == root and loc.selectors:
                 for val in values:
                     if val not in seen:
                         seen.add(val)
                         result.append(val)
         # Contaminant sub-element values under the same root
         for loc, values in self.contaminants.items():
-            if id(loc.root) == root_id and loc.selectors:
+            if loc.root == root and loc.selectors:
                 for val in values:
                     if val not in seen:
                         seen.add(val)

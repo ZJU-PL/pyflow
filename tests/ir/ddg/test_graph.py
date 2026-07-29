@@ -97,11 +97,11 @@ class TestDDGNode(unittest.TestCase):
         self.assertIn("op", repr_str)
 
     def test_hash(self):
-        """Test DDGNode hashing."""
+        """Node IDs are display-local and do not define graph identity."""
         node1 = DDGNode(1, "ir_node", "op")
         node2 = DDGNode(1, "different_ir", "op")
-        
-        self.assertEqual(hash(node1), hash(node2))
+
+        self.assertNotEqual(hash(node1), hash(node2))
 
     def test_equality(self):
         """Test DDGNode equality."""
@@ -109,8 +109,18 @@ class TestDDGNode(unittest.TestCase):
         node2 = DDGNode(1, "different_ir", "op")
         node3 = DDGNode(2, "ir_node", "op")
         
-        self.assertEqual(node1, node2)
+        self.assertNotEqual(node1, node2)
         self.assertNotEqual(node1, node3)
+
+    def test_memory_edges_keep_distinct_locations(self):
+        source = DDGNode(1, "write", "op")
+        target = DDGNode(2, "read", "op")
+
+        first = source.add_edge_to(target, "memory", "RAW", location="a.x")
+        second = source.add_edge_to(target, "memory", "RAW", location="b.x")
+
+        self.assertNotEqual(first, second)
+        self.assertEqual(len(source.edges_out), 2)
 
     def test_equality_with_different_type(self):
         """Test DDGNode equality with different types."""

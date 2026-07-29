@@ -63,17 +63,21 @@ class DDGDumper(object):
                 edge.target.node_id,
                 edge.kind,
                 edge.label,
+                repr(edge.location),
             ),
         )
 
     @staticmethod
     def _node_text(node: DDGNode) -> str:
-        return "%d [%s] %r" % (node.node_id, node.category, node.ir_node)
+        return "%s [%s] %r" % (node.stable_id, node.category, node.ir_node)
 
     @staticmethod
     def _edge_text(edge: DDGEdge) -> str:
-        if edge.label:
-            return "%s:%s" % (edge.kind, edge.label)
+        detail = edge.label
+        if edge.location is not None:
+            detail = "%s@%r" % (detail, edge.location) if detail else repr(edge.location)
+        if detail:
+            return "%s:%s" % (edge.kind, detail)
         return edge.kind
 
     def dump_text(self, path: str, title: str = "Data Dependence Graph") -> None:
@@ -102,8 +106,8 @@ class DDGDumper(object):
             f.write("\nEdges (source -> target) [kind[:label]]:\n")
             for e in self._sorted_edges(self.ddg.all_edges()):
                 f.write(
-                    "  %d -> %d [%s]\n"
-                    % (e.source.node_id, e.target.node_id, self._edge_text(e))
+                    "  %s -> %s [%s]\n"
+                    % (e.source.stable_id, e.target.stable_id, self._edge_text(e))
                 )
 
     def dump_dot(self, path: str, title: str = "DDG") -> None:
@@ -122,7 +126,7 @@ class DDGDumper(object):
 
         # Add nodes with category-specific shapes
         for n in self._sorted_nodes(self.ddg.nodes):
-            label = "%d\\n%s\\n%r" % (n.node_id, n.category, n.ir_node)
+            label = "%s\\n%s\\n%r" % (n.stable_id, n.category, n.ir_node)
             shape = "ellipse" if n.category == "op" else "box"
             g.add_node(pydot.Node(n.node_id, label=label, shape=shape))
 
@@ -157,15 +161,16 @@ class DDGDumper(object):
             "title": title,
             "stats": self.ddg.stats(),
             "nodes": [
-                {"id": n.node_id, "category": n.category, "ir": repr(n.ir_node)}
+                {"id": n.stable_id, "category": n.category, "ir": repr(n.ir_node)}
                 for n in self._sorted_nodes(self.ddg.nodes)
             ],
             "edges": [
                 {
-                    "src": e.source.node_id,
-                    "dst": e.target.node_id,
+                    "src": e.source.stable_id,
+                    "dst": e.target.stable_id,
                     "kind": e.kind,
                     "label": e.label,
+                    "location": repr(e.location) if e.location is not None else None,
                 }
                 for e in self._sorted_edges(self.ddg.all_edges())
             ],

@@ -35,4 +35,9 @@ from . import (
     dump,
     expandphi,
     killflow,
+    verifier,
 )
+
+from .verifier import CFGVerificationError, verify_cfg
+
+__all__ = ["CFGVerificationError", "verify_cfg"]

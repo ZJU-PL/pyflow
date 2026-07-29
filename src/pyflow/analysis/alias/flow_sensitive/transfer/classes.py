@@ -16,17 +16,21 @@ class _ClassTransferMixin:
         self,
         procedure: object,
         call: object,
-        operand_locations: dict[int, tuple[HeapLocation, ...]] | None = None,
+        operand_locations: dict[object, tuple[HeapLocation, ...]] | None = None,
     ) -> tuple[HeapLocation, ...]:
         if not isinstance(call, py_ast.Call):
             return ()
-        operands = operand_locations or self._last_call_operands.get(id(call))
+        operands = operand_locations or self._last_call_operands.get(
+            self._program_point_identity(procedure, call)
+        )
         if operands is None:
             operands = self._evaluate_call_operands(procedure, call)
         return tuple(
             dict.fromkeys(
                 self._class_locations_by_root[location.root]
-                for location in operands.get(id(call.expr), ())
+                for location in operands.get(
+                    self._program_point_identity(procedure, call.expr), ()
+                )
                 if location.root in self._class_locations_by_root
             )
         )
@@ -36,7 +40,7 @@ class _ClassTransferMixin:
         procedure: object,
         call: object,
         classes: tuple[HeapLocation, ...],
-        operand_locations: dict[int, tuple[HeapLocation, ...]],
+        operand_locations: dict[object, tuple[HeapLocation, ...]],
         label: str,
     ) -> tuple[HeapLocation, ...]:
         if not classes:
@@ -65,7 +69,11 @@ class _ClassTransferMixin:
                     HeapLocation(
                         self.heap.allocation_object(
                             procedure,
-                            ("class-instance", id(call), class_location.root),
+                            (
+                                "class-instance",
+                                self._program_point_identity(procedure, call),
+                                class_location.root,
+                            ),
                             label=label,
                             context=self._current_context,
                         )
@@ -93,7 +101,7 @@ class _ClassTransferMixin:
         procedure: object,
         call: object,
         class_location: HeapLocation,
-        operand_locations: dict[int, tuple[HeapLocation, ...]],
+        operand_locations: dict[object, tuple[HeapLocation, ...]],
     ) -> tuple[HeapLocation, ...]:
         allocator = self._resolve_class_method(
             class_location,
@@ -108,7 +116,9 @@ class _ClassTransferMixin:
         for index, actual in enumerate(getattr(call, "args", ()), start=1):
             if index >= len(formals):
                 break
-            locations = operand_locations.get(id(actual))
+            locations = operand_locations.get(
+                self._program_point_identity(procedure, actual)
+            )
             if locations is None:
                 locations = self.locations_for_expression(procedure, actual)
             bindings[index] = locations
@@ -125,7 +135,9 @@ class _ClassTransferMixin:
             index = named_indices.get(name)
             if index is None:
                 continue
-            locations = operand_locations.get(id(actual))
+            locations = operand_locations.get(
+                self._program_point_identity(procedure, actual)
+            )
             if locations is None:
                 locations = self.locations_for_expression(procedure, actual)
             bindings[index] = locations
@@ -193,35 +205,48 @@ class _ClassTransferMixin:
         if (
             initializer is None
             or not compatible
-            or (id(call), class_location.root) in self._initialized_class_calls
+            or (
+                self._program_point_identity(procedure, call),
+                class_location.root,
+            )
+            in self._initialized_class_calls
         ):
             return
-        self._initialized_class_calls.add((id(call), class_location.root))
+        self._initialized_class_calls.add(
+            (self._program_point_identity(procedure, call), class_location.root)
+        )
         formals = self._callee_formals(initializer)
         bindings: dict[int, tuple[HeapLocation, ...]] = {}
         if formals:
             bindings[0] = tuple(compatible)
         actuals = tuple(getattr(call, "args", ()))
-        evaluated = self._last_call_operands.get(id(call), {})
+        evaluated = self._last_call_operands.get(
+            self._program_point_identity(procedure, call), {}
+        )
         for index, actual in enumerate(actuals, start=1):
             if index >= len(formals):
                 break
-            locations = evaluated.get(id(actual))
+            locations = evaluated.get(
+                self._program_point_identity(procedure, actual)
+            )
             if locations is None:
                 locations = self.locations_for_expression(procedure, actual)
             bindings[index] = locations
         params = initializer.codeparameters
         encoded_names = list(getattr(params, "paramnames", ()))
         encoded_formals = list(getattr(params, "params", ()))
-        formal_indices = {id(formal): index for index, formal in enumerate(formals)}
+        formal_indices = {
+            self._reference_identity(initializer, formal): index
+            for index, formal in enumerate(formals)
+        }
         named = {
             (
                 name[len("kwonly:") :] if name.startswith("kwonly:") else name
-            ): formal_indices[id(formal)]
+            ): formal_indices[self._reference_identity(initializer, formal)]
             for name, formal in zip(encoded_names, encoded_formals)
             if isinstance(name, str)
             and isinstance(formal, py_ast.Local)
-            and id(formal) in formal_indices
+            and self._reference_identity(initializer, formal) in formal_indices
         }
         for keyword in getattr(call, "kwds", ()):
             if not (isinstance(keyword, tuple) and len(keyword) == 2):
@@ -230,7 +255,9 @@ class _ClassTransferMixin:
             index = named.get(name)
             if index is None:
                 continue
-            locations = evaluated.get(id(actual))
+            locations = evaluated.get(
+                self._program_point_identity(procedure, actual)
+            )
             if locations is None:
                 locations = self.locations_for_expression(procedure, actual)
             bindings[index] = tuple(
@@ -627,7 +654,9 @@ class _ClassTransferMixin:
         procedure: object,
         operation: object,
     ) -> None:
-        pending = self._pending_call_results.pop(id(operation), None)
+        pending = self._pending_call_results.pop(
+            self._program_point_identity(procedure, operation), None
+        )
         if pending is None:
             return
         targets, slots = pending
@@ -642,16 +671,18 @@ class _ClassTransferMixin:
         self,
         procedure: object,
         call: object,
-    ) -> dict[int, tuple[HeapLocation, ...]]:
+    ) -> dict[object, tuple[HeapLocation, ...]]:
         """Evaluate a non-resolved call's operands once, in Python order."""
-        evaluated: dict[int, tuple[HeapLocation, ...]] = {}
+        evaluated: dict[object, tuple[HeapLocation, ...]] = {}
 
         def evaluate(expression: object) -> None:
             if expression is None:
                 return
-            evaluated[id(expression)] = self.locations_for_expression(
+            evaluated[self._program_point_identity(procedure, expression)] = (
+                self.locations_for_expression(
                 procedure,
                 expression,
+            )
             )
 
         if isinstance(call, py_ast.Call):
@@ -667,7 +698,9 @@ class _ClassTransferMixin:
             if isinstance(call, py_ast.DirectCall) and actual is call.selfarg:
                 continue
             evaluate(actual)
-        self._last_call_operands[id(call)] = evaluated
+        self._last_call_operands[
+            self._program_point_identity(procedure, call)
+        ] = evaluated
         return evaluated
 
     def _modeled_call_return_locations(
@@ -675,7 +708,7 @@ class _ClassTransferMixin:
         procedure: object,
         call: object,
         kind: str,
-        operand_locations: dict[int, tuple[HeapLocation, ...]] | None = None,
+        operand_locations: dict[object, tuple[HeapLocation, ...]] | None = None,
     ) -> tuple[HeapLocation, ...]:
         call_name = resolve_call_name(call)
         actuals = tuple(actual_argument_expressions(call))
@@ -687,7 +720,9 @@ class _ClassTransferMixin:
 
         def operand_locs(expression: object) -> tuple[HeapLocation, ...]:
             if operand_locations is not None:
-                cached = operand_locations.get(id(expression))
+                cached = operand_locations.get(
+                    self._program_point_identity(procedure, expression)
+                )
                 if cached is not None:
                     return cached
             return self.locations_for_expression(procedure, expression)
@@ -716,8 +751,8 @@ class _ClassTransferMixin:
                     )
 
         if call_name in {"super", "builtins.super"}:
-            enclosing = self._lexical_parents.get(id(procedure))
-            current_class = self._class_locations_by_definition.get(id(enclosing))
+            enclosing = self._lexical_parents.get(procedure)
+            current_class = self._class_locations_by_definition.get(enclosing)
             if actuals:
                 explicit_class = operand_locs(actuals[0])
                 current_class = explicit_class[0] if explicit_class else current_class
@@ -735,7 +770,11 @@ class _ClassTransferMixin:
                 proxy = HeapLocation(
                     self.heap.allocation_object(
                         procedure,
-                        ("super", id(call), current_class.root),
+                        (
+                            "super",
+                            self._program_point_identity(procedure, call),
+                            current_class.root,
+                        ),
                         label="super proxy",
                         context=self._current_context,
                     )
@@ -824,7 +863,11 @@ class _ClassTransferMixin:
             return (
                 HeapLocation(
                     self.heap.unknown_object(
-                        ("type-result", id(call), self._evaluation_epoch),
+                        (
+                            "type-result",
+                            self._program_point_identity(procedure, call),
+                            self._evaluation_epoch,
+                        ),
                         label="unknown type result",
                         type_hint="type",
                     )

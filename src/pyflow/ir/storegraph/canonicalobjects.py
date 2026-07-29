@@ -16,6 +16,15 @@ from pyflow.util.monkeypatch import xcollections
 from . import extendedtypes
 
 
+def _context_label(context):
+    if context is None:
+        return "*"
+    signature = getattr(context, "signature", None)
+    if signature is not None:
+        return repr(signature)
+    return type(context).__qualname__
+
+
 class BaseSlotName(canonical.CanonicalObject):
     """Base class for slot names.
 
@@ -95,10 +104,10 @@ class LocalSlotName(BaseSlotName):
         return True
 
     def __repr__(self):
-        return "local(%s, %r, %d)" % (
+        return "local(%s, %r, %s)" % (
             self.code.codeName(),
             self.local,
-            id(self.context),
+            _context_label(self.context),
         )
 
 
@@ -141,10 +150,10 @@ class ExistingSlotName(BaseSlotName):
         return True
 
     def __repr__(self):
-        return "existing(%s, %r, %d)" % (
+        return "existing(%s, %r, %s)" % (
             self.code.codeName(),
             self.object,
-            id(self.context),
+            _context_label(self.context),
         )
 
 

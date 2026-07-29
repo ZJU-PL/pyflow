@@ -25,10 +25,16 @@ import collections
 from pyflow.util.PADS.UnionFind import UnionFind
 from pyflow.util.typedispatch import *
 from pyflow.language.python import ast
-from pyflow.language.python import annotations
 import pyflow.optimization.simplify as simplify
 from pyflow.analysis import programculler
 from pyflow.analysis import tools
+from pyflow.ir.core import (
+    AnalysisFacts,
+    Capabilities,
+    RebuildProvenanceSeed,
+    rebuild_program_ir,
+)
+from pyflow.ir.core.order import stable_ir_key
 
 
 class GroupUnifier(object):
@@ -92,9 +98,12 @@ class ProgramCloner(object):
     different fields, invoke different functions, or allocate different types.
     """
 
-    def __init__(self, liveContexts):
+    def __init__(self, liveContexts, catalog):
         self.liveFunctions = set(liveContexts.keys())
         self.liveContexts = liveContexts
+        self.catalog = catalog
+        self.facts = AnalysisFacts(catalog)
+        self.provenance_seeds = []
 
         self.liveOps = {}
         for code in self.liveFunctions:
@@ -210,13 +219,18 @@ class ProgramCloner(object):
         self.groupLUT = {}
         self.numGroups = 0
         for func, groups in self.groups.items():
-            for group in groups:
+            ordered = sorted(
+                groups,
+                key=lambda group: tuple(
+                    sorted(stable_ir_key(context, self.catalog, func) for context in group)
+                ),
+            )
+            self.groups[func] = ordered
+            for ordinal, group in enumerate(ordered):
                 self.numGroups += 1
                 for context in group:
                     assert not context in self.groupLUT, context
-                    self.groupLUT[context] = id(
-                        group
-                    )  # HACK, as sets are not hashable.
+                    self.groupLUT[context] = ordinal
 
         return self.numGroups
 
@@ -251,59 +265,34 @@ class ProgramCloner(object):
         return [slot.slotName for slot in slots]
 
     def labelLoad(self, code, op, group):
-        reads = op.annotation.reads
-
-        if reads is None or not reads[0]:
-            label = None
-        else:
-            contexts = self.unifier.group(group)
-
-            slots = set()
-            for context in contexts:
-                cindex = code.annotation.contexts.index(context)
-                slots.update(self.slotNames(reads[1][cindex]))
-
-            if slots:
-                label = frozenset(slots)
-            else:
-                label = False
-
-        return label
+        slots = set()
+        for context in self.unifier.group(group):
+            slots.update(
+                self.facts.operation_effect(
+                    Capabilities.LIFETIME_OP_READS, code, op, context
+                )
+            )
+        return frozenset(self.slotNames(slots)) if slots else None
 
     def labelStore(self, code, op, group):
-        modifies = op.annotation.modifies
-
-        if modifies is None or not modifies[0]:
-            label = None
-        else:
-            contexts = self.unifier.group(group)
-
-            slots = set()
-            for context in contexts:
-                cindex = code.annotation.contexts.index(context)
-                slots.update(self.slotNames(modifies[1][cindex]))
-
-            if slots:
-                label = frozenset(slots)
-            else:
-                label = False
-        return label
+        slots = set()
+        for context in self.unifier.group(group):
+            slots.update(
+                self.facts.operation_effect(
+                    Capabilities.LIFETIME_OP_WRITES, code, op, context
+                )
+            )
+        return frozenset(self.slotNames(slots)) if slots else None
 
     def labelAllocate(self, code, op, group):
         contexts = self.unifier.group(group)
 
-        crefs = op.expr.annotation.references
-
         types = set()
-
-        if crefs is not None:
-            for context in contexts:
-                cindex = code.annotation.contexts.index(context)
-                refs = crefs[1][cindex]
-                ctypes = frozenset([ref.xtype.obj for ref in refs])
-
-                if ctypes:
-                    types.update(ctypes)
+        for context in contexts:
+            refs = self.facts.references(code, op.expr, context)
+            ctypes = frozenset(ref.xtype.obj for ref in refs)
+            if ctypes:
+                types.update(ctypes)
 
         if types:
             if len(types) > 1:
@@ -449,6 +438,17 @@ class ProgramCloner(object):
             uid = 0
             for group in groups:
                 newcode = code.clone()
+                source_id = self.catalog.node_id(code, code)
+                self.provenance_seeds.append(
+                    RebuildProvenanceSeed(
+                        newcode,
+                        newcode,
+                        self.catalog.source_of(source_id),
+                        (source_id,),
+                        "clone",
+                        "cloned procedure",
+                    )
+                )
 
                 # If there's more that one group, make sure they're named differently.
                 if len(groups) > 1:
@@ -456,7 +456,7 @@ class ProgramCloner(object):
                     uid += 1
                     newcode.setCodeName(name)
 
-                newfunc[code][id(group)] = newcode
+                newfunc[code][self.groupLUT[next(iter(group))]] = newcode
                 self.newLive.add(newcode)
 
         # All live functions accounted for?
@@ -485,9 +485,17 @@ class ProgramCloner(object):
         # Clone all of the functions.
         for code, groups in self.groups.items():
             for group in groups:
-                newcode = newfunc[code][id(group)]
+                newcode = newfunc[code][self.groupLUT[next(iter(group))]]
 
-                fc = FunctionCloner(newfunc, self.groupLUT, newcode, group)
+                fc = FunctionCloner(
+                    newfunc,
+                    self.groupLUT,
+                    code,
+                    newcode,
+                    group,
+                    self.catalog,
+                    self.provenance_seeds,
+                )
                 fc.process()
                 simplify.evaluateCode(compiler, prgm, newcode)
 
@@ -524,19 +532,23 @@ class FunctionCloner(TypeDispatcher):
     remapping contexts and local variables appropriately.
     """
 
-    def __init__(self, newfuncLUT, groupLUT, code, group):
+    def __init__(
+        self,
+        newfuncLUT,
+        groupLUT,
+        source_code,
+        code,
+        group,
+        catalog,
+        provenance_seeds,
+    ):
         self.newfuncLUT = newfuncLUT
         self.groupLUT = groupLUT
         self.code = code
+        self.source_code = source_code
         self.group = group
-
-        # Remap contexts.
-        self.contextRemap = []
-        for i, context in enumerate(code.annotation.contexts):
-            if context in group:
-                self.contextRemap.append(i)
-
-        code.annotation = code.annotation.contextSubset(self.contextRemap)
+        self.catalog = catalog
+        self.provenance_seeds = provenance_seeds
 
         self.localMap = {}
 
@@ -571,14 +583,13 @@ class FunctionCloner(TypeDispatcher):
     def visitDirectCall(self, node):
         tempresult = self.default(node)
 
-        invokes = tempresult.annotation.invokes
-        assert invokes is not None, "All invocations must be resolved to clone."
-
-        if invokes[0]:
-            # We do this computation after transfer, as it can reduce the number of invocations.
-            func = tools.singleCall(tempresult)
+        targets = AnalysisFacts.for_code(self.source_code).merged_call_targets(
+            self.source_code, node
+        )
+        if targets:
+            func = tools.singleCall(self.source_code, node)
             if not func:
-                names = tuple(set([code.name for code, context in invokes[0]]))
+                names = tuple(sorted({code.name for code, _context in targets}))
                 raise Exception(
                     "Cannot clone the direct call in %r, as it has multiple targets. %r"
                     % (self.code, names)
@@ -609,19 +620,24 @@ class FunctionCloner(TypeDispatcher):
         return newcode, context
 
     def transferAnalysisData(self, original, replacement):
-        if not isinstance(original, (ast.Expression, ast.Statement)):
+        if not isinstance(original, ast.PythonASTNode):
             return
-        if not isinstance(replacement, (ast.Expression, ast.Statement)):
+        if not isinstance(replacement, ast.PythonASTNode):
             return
-
-        # TODO this is dead code?
         assert original is not replacement, original
-        replacement.annotation = original.annotation.contextSubset(
-            self.contextRemap, self.annotationMapper
+        source_id = self.catalog.node_id(original, self.source_code)
+        self.provenance_seeds.append(
+            RebuildProvenanceSeed(
+                replacement,
+                self.code,
+                self.catalog.source_of(source_id),
+                (source_id,),
+                "clone",
+            )
         )
 
     def transferLocal(self, original, replacement):
-        replacement.annotation = original.annotation.contextSubset(self.contextRemap)
+        del original, replacement
 
     def process(self):
         self.code.replaceChildren(self)
@@ -652,51 +668,12 @@ def rewriteProgram(compiler, prgm, cloner):
             liveCode = cloner.newLive
             changed = True
 
-            # CRITICAL FIX #4: Update invocation annotations in all callers
-            # After cloning, invokes annotations may reference old context objects
-            # that have been remapped. We need to update these references.
-            _fix_invocation_annotations_after_clone(prgm, cloner)
-
     prgm.liveCode = liveCode
     if set(prgm.liveCode) != old_live:
         changed = True
+    if changed:
+        rebuild_program_ir(prgm, provenance_seeds=cloner.provenance_seeds)
     return changed
-
-
-def _fix_invocation_annotations_after_clone(prgm, cloner):
-    """Fix invocation annotations after cloning to reference new contexts.
-
-    CRITICAL FIX #4: After cloning, invokes annotations contain (code, context) tuples
-    that may reference old context objects. This function updates them to reference
-    the new cloned contexts.
-
-    Args:
-        prgm: Program with cloned code
-        cloner: ProgramCloner with context mapping information
-    """
-    live_code = set(getattr(prgm, "liveCode", ()))
-
-    for code in live_code:
-        ops = tools.codeOps(code)
-        for op in ops:
-            op_ann = getattr(op, "annotation", None)
-            invokes = getattr(op_ann, "invokes", None)
-            if not invokes:
-                continue
-
-            contextual = []
-            for cindex, cinvokes in enumerate(invokes[1]):
-                filtered = []
-                for target_code, target_context in cinvokes:
-                    if target_code not in live_code:
-                        continue
-                    target_contexts = getattr(target_code.annotation, "contexts", ())
-                    if target_context not in target_contexts:
-                        continue
-                    filtered.append((target_code, target_context))
-                contextual.append(annotations.annotationSet(filtered))
-
-            op.rewriteAnnotation(invokes=annotations.makeContextualAnnotation(contextual))
 
 
 def evaluate(compiler, prgm):
@@ -725,7 +702,7 @@ def evaluate(compiler, prgm):
 
             liveContexts = programculler.findLiveContexts(prgm)
 
-            cloner = ProgramCloner(liveContexts)
+            cloner = ProgramCloner(liveContexts, prgm.ir)
 
             cloner.unifyContexts(prgm.interface)
             cloner.findInitialConflicts()

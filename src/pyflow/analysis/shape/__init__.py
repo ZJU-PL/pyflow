@@ -14,6 +14,7 @@ from . import regionanalysis
 from . import transferfunctions
 from . import constraintbuilder
 from . import dataflow
+from pyflow.ir.core import AnalysisFacts, Capabilities
 
 
 class HeapInformationProvider(object):
@@ -27,7 +28,7 @@ class HeapInformationProvider(object):
         regions: Region information for heap analysis.
     """
 
-    def __init__(self, storeGraph, regions):
+    def __init__(self, storeGraph, regions, facts):
         """Initialize the heap information provider.
 
         Args:
@@ -36,8 +37,9 @@ class HeapInformationProvider(object):
         """
         self.storeGraph = storeGraph
         self.regions = regions
+        self.facts = facts
 
-    def loadSlotName(self, node):
+    def loadSlotName(self, code, node):
         """Get the slot name for a load operation.
 
         Args:
@@ -46,10 +48,16 @@ class HeapInformationProvider(object):
         Returns:
             Slot name for the load operation.
         """
-        return node.annotation.reads[0][0]
+        return next(
+            iter(
+                self.facts.merged_operation_effect(
+                    Capabilities.LIFETIME_OP_READS, code, node
+                )
+            )
+        )
         # return (node.fieldtype, node.name.object)
 
-    def storeSlotName(self, node):
+    def storeSlotName(self, code, node):
         """Get the slot name for a store operation.
 
         Args:
@@ -58,10 +66,16 @@ class HeapInformationProvider(object):
         Returns:
             Slot name for the store operation.
         """
-        return node.annotation.modifies[0][0]
+        return next(
+            iter(
+                self.facts.merged_operation_effect(
+                    Capabilities.LIFETIME_OP_WRITES, code, node
+                )
+            )
+        )
         # return (node.fieldtype, node.name.object)
 
-    def indexSlotName(self, lcl, i):
+    def indexSlotName(self, code, lcl, i):
         """Get the slot name for an indexed access.
 
         Args:
@@ -73,7 +87,7 @@ class HeapInformationProvider(object):
         """
         iobj = self.storeGraph.extractor.getObject(i)
         fieldName = self.storeGraph.canonical.fieldName("Array", iobj)
-        for ref in lcl.annotation.references[0]:
+        for ref in self.facts.merged_references(code, lcl):
             return ref.field(fieldName, ref.region.group.regionHint)
 
 
@@ -202,6 +216,7 @@ class RegionBasedShapeAnalysis(object):
 
         self.cpacanonical = cpacanonical
         self.info = info
+        self.facts = info.facts
 
         self.pending = set()
         self.visited = set()
@@ -332,7 +347,9 @@ class RegionBasedShapeAnalysis(object):
             expr = self.canonical.localExpr(slot)
             refs = self.canonical.refs(slot)
 
-            for obj in op.annotation.allocates[0]:
+            for obj in self.facts.merged_operation_effect(
+                Capabilities.LIFETIME_OP_ALLOCATIONS, code, op
+            ):
                 print("\t\t", obj)
 
                 type_ = obj
@@ -405,25 +422,20 @@ def evaluate(compiler):
         RegionBasedShapeAnalysis: Analysis results (or None)
     """
     with compiler.console.scope("shape analysis"):
-        # Access interface and liveCode through program if available
-        if hasattr(compiler, "program") and compiler.program:
-            interface = compiler.program.interface
-            liveCode = compiler.program.liveCode
-            storeGraph = compiler.program.storeGraph
-        else:
-            # Fallback to direct attributes (for backward compatibility)
-            interface = compiler.interface
-            liveCode = compiler.liveCode
-            storeGraph = compiler.storeGraph
+        program = compiler.program
+        interface = program.interface
+        liveCode = program.liveCode
+        storeGraph = program.storeGraph
+        facts = AnalysisFacts(program.ir)
 
         regions = regionanalysis.evaluate(
-            compiler.extractor, interface.entryPoint, liveCode
+            compiler.extractor, interface.entryPoint, liveCode, facts
         )
 
         rbsa = RegionBasedShapeAnalysis(
             compiler.extractor,
             storeGraph.canonical,
-            HeapInformationProvider(storeGraph, regions),
+            HeapInformationProvider(storeGraph, regions, facts),
         )
 
         rbsa.buildStructures(interface.entryCode())

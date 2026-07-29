@@ -21,6 +21,11 @@ from pyflow.language.python.default_markers import MISSING_DEFAULT
 import pyflow.optimization.simplify as simplify
 
 from pyflow.analysis.astcollector import getOps
+from pyflow.ir.core import (
+    AnalysisFacts,
+    RebuildProvenanceSeed,
+    rebuild_program_ir,
+)
 
 
 def _supports_inline_default_value(default_expr):
@@ -35,7 +40,8 @@ class CodeInliningAnalysis(TypeDispatcher):
     factors like control flow, variable arguments, and complexity.
     """
 
-    def __init__(self):
+    def __init__(self, facts):
+        self.facts = facts
         self.canInline = {}
         self.invokeCount = {}
         self.numOps = {}
@@ -62,12 +68,9 @@ class CodeInliningAnalysis(TypeDispatcher):
     def visitOp(self, node):
         self.ops += 1
 
-        invokes = node.annotation.invokes
+        invokes = self.facts.merged_call_targets(self.code, node)
         if invokes:
-            # Eliminate duplicate code targets
-            targets = set()
-            for code, context in invokes[0]:
-                targets.add(code)
+            targets = {code for code, _context in invokes}
 
             # Increment the count of each target
             for code in targets:
@@ -133,6 +136,7 @@ class CodeInliningAnalysis(TypeDispatcher):
         self.level -= 1
 
     def process(self, node):
+        self.code = node
         self.level = 0
         self.ops = 0
 
@@ -165,8 +169,10 @@ class OpInliningTransform(TypeDispatcher):
         analysis: CodeInliningAnalysis instance with feasibility information
     """
 
-    def __init__(self, analysis):
+    def __init__(self, analysis, catalog, provenance_seeds):
         self.analysis = analysis
+        self.catalog = catalog
+        self.provenance_seeds = provenance_seeds
 
     def translateLocal(self, node):
         if not node in self.localMap:
@@ -178,25 +184,25 @@ class OpInliningTransform(TypeDispatcher):
         return lcl
 
     def transferAnalysisData(self, original, replacement):
-        if not isinstance(original, (ast.Expression, ast.Statement)):
+        if not isinstance(original, ast.PythonASTNode):
             return
-        if not isinstance(replacement, (ast.Expression, ast.Statement)):
+        if not isinstance(replacement, ast.PythonASTNode):
             return
         assert original is not replacement, original
-
-        replacement.annotation = original.annotation.contextSubset(self.contextRemap)
-
-        if hasattr(replacement.annotation, "origin"):
-            replacement.rewriteAnnotation(
-                origin=self.originalNode.annotation.origin
-                + replacement.annotation.origin
+        call_id = self.catalog.node_id(self.originalNode, self.dst)
+        source_id = self.catalog.node_id(original, self.source_code)
+        self.provenance_seeds.append(
+            RebuildProvenanceSeed(
+                replacement,
+                self.dst,
+                self.catalog.source_of(source_id),
+                (call_id, source_id),
+                "inline",
             )
-
-        assert replacement.annotation.compatable(self.dst.annotation)
+        )
 
     def transferLocal(self, original, replacement):
         assert original is not replacement, original
-        replacement.annotation = original.annotation.contextSubset(self.contextRemap)
 
     @dispatch(ast.leafTypes)
     def visitLeaf(self, node):
@@ -225,21 +231,23 @@ class OpInliningTransform(TypeDispatcher):
         if self.returnargs is not None:
             # Inlined into assignment
             assert len(self.returnargs) == len(node.exprs)
-            return [
+            assignments = [
                 ast.Assign(self(src), [dst])
                 for src, dst in zip(node.exprs, self.returnargs)
             ]
+            for assignment in assignments:
+                self.transferAnalysisData(node, assignment)
+            return assignments
         else:
             # Inlined into discard
             return []
 
-    def process(self, dst, originalNode, code, map, selfarg, args, returnargs):
+    def process(self, dst, originalNode, code, selfarg, args, returnargs):
         self.localMap = {}
 
         self.dst = dst
         self.originalNode = originalNode
-        self.contextRemap = map
-
+        self.source_code = code
         self.returnargs = returnargs
         outp = []
 
@@ -248,11 +256,15 @@ class OpInliningTransform(TypeDispatcher):
 
         # Do argument transfer
         if isinstance(p.selfparam, ast.Local):
-            outp.append(ast.Assign(selfarg, [self(p.selfparam)]))
+            assignment = ast.Assign(selfarg, [self(p.selfparam)])
+            self.transferAnalysisData(p.selfparam, assignment)
+            outp.append(assignment)
 
         for arg, param in zip(args, positional_params):
             if isinstance(param, ast.Local):
-                outp.append(ast.Assign(arg, [self(param)]))
+                assignment = ast.Assign(arg, [self(param)])
+                self.transferAnalysisData(param, assignment)
+                outp.append(assignment)
 
         if len(args) < len(positional_params) and p.defaults:
             default_offset = len(positional_params) - len(p.defaults)
@@ -264,7 +276,9 @@ class OpInliningTransform(TypeDispatcher):
                 if pyobj is MISSING_DEFAULT:
                     continue
                 if isinstance(param, ast.Local):
-                    outp.append(ast.Assign(default_expr, [self(param)]))
+                    assignment = ast.Assign(default_expr, [self(param)])
+                    self.transferAnalysisData(param, assignment)
+                    outp.append(assignment)
 
         assert not isinstance(p.vparam, ast.Local), p.vparam
         # assert len(args) == len(p.params), "TODO: default arguments."
@@ -293,7 +307,11 @@ class CodeInliningTransform(TypeDispatcher):
         self.compiler = compiler
         self.prgm = prgm
         self.intrinsics = intrinsics
-        self.opinline = OpInliningTransform(analysis)
+        self.facts = AnalysisFacts(prgm.ir)
+        self.provenance_seeds = []
+        self.opinline = OpInliningTransform(
+            analysis, prgm.ir, self.provenance_seeds
+        )
         self.processed = set()
         self.trace = set()
 
@@ -377,17 +395,14 @@ class CodeInliningTransform(TypeDispatcher):
             return None
 
         # Do we have invocation information?
-        invokes = node.annotation.invokes
-        if invokes is None:
-            return None
-
+        caller_contexts = self.facts.contexts(self.code)
         allCode = None
-        map = []
-        for invs in invokes[1]:
+        for caller_context in caller_contexts:
+            invs = self.facts.call_targets(self.code, node, caller_context)
             if len(invs) == 0:
-                map.append(-1)
+                continue
             elif len(invs) == 1:
-                code, context = invs[0]
+                code, _context = next(iter(invs))
 
                 # Must only invoke one code
                 if allCode is None:
@@ -398,14 +413,12 @@ class CodeInliningTransform(TypeDispatcher):
                 elif allCode != code:
                     return None
 
-                map.append(code.annotation.contexts.index(context))
             else:
                 # Don't merge contexts, as precision will be lost?
                 if self.preserveContexts:
                     return None
 
-                multi = []
-                for code, context in invs:
+                for code, _context in invs:
                     if allCode is None:
                         # It must be possible to inline the code
                         if not self.analysis.canInline[code]:
@@ -413,7 +426,6 @@ class CodeInliningTransform(TypeDispatcher):
                         allCode = code
                     elif allCode != code:
                         return None
-                    multi.append(code.annotation.contexts.index(context))
 
                 map.append(multi)
 
@@ -432,8 +444,6 @@ class CodeInliningTransform(TypeDispatcher):
         if not self.exhaustive and tooManyInvokes and tooManyOps:
             return None
 
-        assert len(map) == len(self.code.annotation.contexts)
-
         positional_params = list(allCode.codeparameters.posonlyparams) + list(
             allCode.codeparameters.params
         )
@@ -447,8 +457,6 @@ class CodeInliningTransform(TypeDispatcher):
 
         # Prevent the inlining of potential intrinsics.
         if self.intrinsics(None, node) is not None:
-            # 			print("INTRINSIC", node)
-            # 			print(node.code.annotation.origin)
             return None
 
         # Bug #12 fix: the original code modified numOps *before* calling
@@ -457,7 +465,7 @@ class CodeInliningTransform(TypeDispatcher):
         # be based on wrong sizes.  We now perform the actual inlining first
         # and only update the counts if it succeeds.
         result = self.opinline.process(
-            self.code, node, allCode, map, selfarg, args, returnargs
+            self.code, node, allCode, selfarg, args, returnargs
         )
 
         # Inlining succeeded — update op counts.
@@ -471,11 +479,11 @@ class CodeInliningTransform(TypeDispatcher):
         return result
 
     def processInvocations(self, node):
-        invokes = node.annotation.invokes
+        invokes = self.facts.merged_call_targets(self.code, node)
         if invokes:
             old = self.code
             oldM = self.modified
-            for code, context in invokes[0]:
+            for code, _context in invokes:
                 self.process(code)
             self.code = old
             self.modified = oldM
@@ -561,7 +569,8 @@ def evaluate(compiler, prgm):
             "Use with caution and verify output."
         )
 
-        analysis = CodeInliningAnalysis()
+        facts = AnalysisFacts(prgm.ir)
+        analysis = CodeInliningAnalysis(facts)
         for code in prgm.liveCode:
             analysis.process(code)
 
@@ -584,4 +593,9 @@ def evaluate(compiler, prgm):
                     f"Consider disabling inlining for this code."
                 ) from e
 
+        if transform.changed:
+            rebuild_program_ir(
+                prgm,
+                provenance_seeds=transform.provenance_seeds,
+            )
         return transform.changed

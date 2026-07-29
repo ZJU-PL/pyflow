@@ -12,6 +12,7 @@ from pyflow.ir.cfg import transform as cfg_transform
 from pyflow.ir.cdg import construct_cdg
 from pyflow.analysis.ifds import build_supergraph_from_cfgs
 from pyflow.analysis.ifds.frontend.preparation import prepare_program_for_ifds
+from pyflow.ir.core import Capabilities, ContextualKey, NodeId, Precision
 
 from .context import QueryContext
 
@@ -64,28 +65,49 @@ class GraphQueryEngine:
         return self._cdg_cache[code]
 
     def get_callgraph(self) -> CallGraph:
-        """Return a callgraph derived from IPA analysis."""
+        """Return a callgraph derived from revision-aware published facts."""
         if self._callgraph_cache is None:
-            ipa = self.context.require_ipa()
+            catalog = getattr(self.context.program, "ir", None)
+            if catalog is None:
+                raise TemporaryLimitation("IR catalog is not available.")
+            if not (
+                catalog.facts.has(Capabilities.CALL_TARGET_CODES)
+                or catalog.facts.has(Capabilities.CALL_TARGETS)
+            ):
+                raise TemporaryLimitation(
+                    "Call-target facts are not available; run a callgraph, IPA, or CPA pass."
+                )
             callgraph = CallGraph()
             self._callgraph_aliases = {}
-            for context in ipa.contexts.values():
-                src_code = getattr(getattr(context, "signature", None), "code", None)
-                src_name = self.context.code_identifier(src_code)
-                if not src_name:
-                    continue
+            for procedure in catalog.procedures():
+                src_code = catalog.code(procedure.code_id)
+                src_name = str(procedure.code_id)
                 callgraph.add_node(src_name)
                 for alias in self.context.code_aliases(src_code):
                     self._callgraph_aliases.setdefault(alias, set()).add(src_name)
-                for _, dst in context.invokeOut.keys():
-                    dst_code = getattr(getattr(dst, "signature", None), "code", None)
-                    dst_name = self.context.code_identifier(dst_code)
-                    if dst_name:
-                        callgraph.add_edge(src_name, dst_name)
-                        for alias in self.context.code_aliases(dst_code):
-                            self._callgraph_aliases.setdefault(alias, set()).add(
-                                dst_name
-                            )
+
+            edges = set()
+            for key, result in catalog.facts.items(Capabilities.CALL_TARGET_CODES):
+                if result.precision is Precision.UNKNOWN or not isinstance(key, NodeId):
+                    continue
+                edges.update((key.code, target) for target in result.values)
+            for key, result in catalog.facts.items(Capabilities.CALL_TARGETS):
+                if (
+                    result.precision is Precision.UNKNOWN
+                    or not isinstance(key, ContextualKey)
+                    or not isinstance(key.entity, NodeId)
+                ):
+                    continue
+                edges.update((key.entity.code, target.code) for target in result.values)
+
+            for source_id, target_id in sorted(edges):
+                if not catalog.has_procedure(source_id) or not catalog.has_procedure(
+                    target_id
+                ):
+                    continue
+                src_name = str(source_id)
+                dst_name = str(target_id)
+                callgraph.add_edge(src_name, dst_name)
             self._callgraph_cache = callgraph
         return self._callgraph_cache
 
@@ -119,11 +141,6 @@ class GraphQueryEngine:
                 self.context.compiler,
                 self.context.program,
                 get_cfg=self.get_cfg,
-                describe_code=lambda code: (
-                    self.context.code_identifier(code)
-                    or self.context.code_name(code)
-                    or repr(code)
-                ),
             )
             self._ifds_supergraph_cache = build_supergraph_from_cfgs(
                 prepared.cfgs,
@@ -158,8 +175,18 @@ class GraphQueryEngine:
         visited = set()
         queue = deque([cfg.entryTerminal])
 
-        def get_bid(b):
-            return getattr(b, "bid", id(b))
+        catalog = getattr(code, "ir_catalog", None)
+        local_block_ids = {}
+
+        def get_bid(block):
+            if catalog is not None:
+                return str(catalog.block_id(block, code))
+            explicit = getattr(block, "bid", None)
+            if explicit is not None:
+                return explicit
+            if block not in local_block_ids:
+                local_block_ids[block] = f"bb{len(local_block_ids)}"
+            return local_block_ids[block]
 
         while queue:
             block = queue.popleft()

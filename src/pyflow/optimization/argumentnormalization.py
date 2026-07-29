@@ -15,8 +15,8 @@ This enables better optimization by making argument passing explicit.
 
 from pyflow.util.typedispatch import *
 from pyflow.language.python import ast
-from pyflow.language.python import annotations
 from pyflow.analysis.tools import codeOps
+from pyflow.ir.core import AnalysisFacts
 
 
 class _ContainsLocalRef(TypeDispatcher):
@@ -75,9 +75,10 @@ class ArgumentNormalizationAnalysis(TypeDispatcher):
         storeGraph: Store graph for analyzing object relationships
     """
 
-    def __init__(self, storeGraph):
+    def __init__(self, storeGraph, facts):
         TypeDispatcher.__init__(self)
         self.storeGraph = storeGraph
+        self.facts = facts
         self.applicable = True
         self.vparam = None
 
@@ -146,12 +147,10 @@ class ArgumentNormalizationAnalysis(TypeDispatcher):
 
         p = node.codeparameters
         if p.vparam:
-            refs = p.vparam.annotation.references
-            if refs is None:
-                return False, 0
+            refs = self.facts.merged_references(node, p.vparam)
 
             lengths = set()
-            for ref in refs[0]:
+            for ref in refs:
                 length = ref.knownField(self.storeGraph.lengthSlotName)
                 for obj in length:
                     obj = obj.xtype
@@ -254,18 +253,6 @@ class ArgumentNormalizationTransform(TypeDispatcher):
 
     # Generic heap.field -> local transfer
     # TODO refactor into library?
-    def transferReferences(self, src, field, dst):
-        refs = src.annotation.references
-        cout = []
-        for cindex, context in enumerate(self.code.annotation.contexts):
-            values = set()
-            for ref in refs[1][cindex]:
-                values.update(ref.knownField(field))
-            cout.append(annotations.annotationSet(values))
-
-        refs = annotations.makeContextualAnnotation(cout)
-        dst.rewriteAnnotation(references=refs)
-
     def process(self, node, vparamLen):
         self.last_skip_reason = None
         p = node.codeparameters
@@ -291,12 +278,6 @@ class ArgumentNormalizationTransform(TypeDispatcher):
             # Number of arguments unchanged, defaults may be used, do nothing
             defaults = p.defaults
 
-        for i, lcl in enumerate(self.newParams):
-            field = self.storeGraph.canonical.fieldName(
-                "Array", self.storeGraph.extractor.getObject(i)
-            )
-            self.transferReferences(self.vparam, field, lcl)
-
         selfparam = p.selfparam
         parameters = self.extend(p.params, self.newParams)
         parameternames = self.extend(p.paramnames, self.newNames)
@@ -317,19 +298,17 @@ class ArgumentNormalizationTransform(TypeDispatcher):
             type_params=p.type_params,
         )
         node.ast = self(node.ast)
-        self.vparam.rewriteAnnotation(references=None)
         return True
 
 
-def _iter_incoming_call_sites(prgm, target_code):
+def _iter_incoming_call_sites(prgm, facts, target_code):
     for code in prgm.liveCode:
         for op in codeOps(code):
-            op_ann = getattr(op, "annotation", None)
-            invokes = getattr(op_ann, "invokes", None)
-            if not invokes or not invokes[0]:
+            invokes = facts.merged_call_targets(code, op)
+            if not invokes:
                 continue
 
-            targets = {func for func, _context in invokes[0]}
+            targets = {func for func, _context in invokes}
             if target_code in targets:
                 yield code, op, targets
 
@@ -339,7 +318,7 @@ def _expected_positional_arity(code, vparam_len):
     return len(params.posonlyparams) + len(params.params) + vparam_len
 
 
-def _normalization_blocker(prgm, code, vparam_len):
+def _normalization_blocker(prgm, facts, code, vparam_len):
     """Check if argument normalization is safe for this code object.
 
     CRITICAL FIX #3: Enhanced safety checks for Python semantic hazards.
@@ -379,7 +358,7 @@ def _normalization_blocker(prgm, code, vparam_len):
         return "method_descriptor_risk"
 
     # Check all incoming call sites for compatibility
-    for _caller, op, targets in _iter_incoming_call_sites(prgm, code):
+    for _caller, op, targets in _iter_incoming_call_sites(prgm, facts, code):
         if not isinstance(op, (ast.Call, ast.DirectCall, ast.MethodCall)):
             return "unsupported_caller_shape"
         if targets != {code}:
@@ -403,7 +382,8 @@ def evaluate(compiler, prgm):
     Analyzes functions and transforms those where normalization is applicable.
     """
     with compiler.console.scope("argument normalization"):
-        analysis = ArgumentNormalizationAnalysis(prgm.storeGraph)
+        facts = AnalysisFacts(prgm.ir)
+        analysis = ArgumentNormalizationAnalysis(prgm.storeGraph, facts)
         transform = ArgumentNormalizationTransform(prgm.storeGraph)
         changed = False
         safety_blocked = 0
@@ -411,7 +391,7 @@ def evaluate(compiler, prgm):
         for code in prgm.liveCode:
             applicable, vparamLen = analysis.process(code)
             if applicable:
-                blocker = _normalization_blocker(prgm, code, vparamLen)
+                blocker = _normalization_blocker(prgm, facts, code, vparamLen)
                 if blocker is not None:
                     safety_blocked += 1
                     continue

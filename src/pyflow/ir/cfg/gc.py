@@ -93,3 +93,11 @@ def evaluate(compiler, g):
         for prev, exit_name in list(merge.iterprev()):
             if not live(prev):
                 prev.killExit(exit_name)
+
+    # Exit terminals are kept as named CFG anchors even when unreachable.
+    # Detach a predecessor that became unreachable so their reverse links do
+    # not refer to blocks omitted from the live graph/catalog.
+    for terminal in (g.normalTerminal, g.failTerminal, g.errorTerminal):
+        for prev, exit_name in tuple(terminal.iterprev()):
+            if prev is not None and not live(prev):
+                prev.killExit(exit_name)

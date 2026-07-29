@@ -293,7 +293,7 @@ class ConstraintNode(object):
                     constraint.flagsChanged(self.context, self, flagsdiff)
 
     def __repr__(self):
-        return "slot(%r/%d)" % (self.name, id(self))
+        return "slot(%r)" % (self.name,)
 
     def isNode(self):
         return True

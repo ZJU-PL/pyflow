@@ -70,7 +70,9 @@ class _ExpressionAccessMixin:
         locations = self.heap.locations_for_local(procedure, expression)
         if locations:
             return locations
-        definition_local = self._definition_locals.get((id(procedure), expression.name))
+        definition_local = self._definition_locals.get(
+            (self._procedure_identity(procedure), expression.name)
+        )
         if definition_local is not None:
             locations = self.heap.locations_for_local(
                 procedure,

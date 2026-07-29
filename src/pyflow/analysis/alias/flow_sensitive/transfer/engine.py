@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from pyflow.language.python.ir_metadata import actual_argument_expressions, resolve_call_name
 from pyflow.language.python import ast as py_ast
+from pyflow.ir.core.index import ensure_code_indexed
 
 from ..domain.abstraction import HeapAbstraction
 from ..domain.state import HeapState
@@ -65,11 +66,11 @@ class HeapTransferEngine(
             else intrinsics.collection_mutator_names()
         )
         self.max_loop_iterations = max_loop_iterations
-        self._module_owners: dict[int, object] = {}
+        self._module_owners: dict[object, object] = {}
         self._module_locations_by_owner: dict[object, HeapLocation] = {}
         self._class_definitions: dict[tuple[object, str], HeapLocation] = {}
         self._class_locations_by_root: dict[object, HeapLocation] = {}
-        self._class_locations_by_definition: dict[int, HeapLocation] = {}
+        self._class_locations_by_definition: dict[object, HeapLocation] = {}
         self._class_bases_by_root: dict[object, tuple[HeapLocation, ...]] = {}
         self._class_initializers: dict[tuple[object, str], py_ast.Code] = {}
         self._class_initializers_by_root: dict[object, py_ast.Code] = {}
@@ -86,16 +87,17 @@ class HeapTransferEngine(
             dict[str, tuple[py_ast.Code, tuple[HeapLocation, ...]]],
         ] = {}
         self._super_dispatch_by_class_root: dict[object, dict[str, py_ast.Code]] = {}
-        self._initialized_class_calls: set[tuple[int, object]] = set()
-        self.program_point_states: dict[int, tuple[_FlowState, _FlowState]] = {}
-        self.program_point_outcomes: dict[int, dict[str, _FlowState]] = {}
+        self._initialized_class_calls: set[tuple[object, object]] = set()
+        self.program_point_states: dict[object, tuple[_FlowState, _FlowState]] = {}
+        self.program_point_outcomes: dict[object, dict[str, _FlowState]] = {}
+        self.program_point_identities: dict[object, object] = {}
         self.effect_builder = HeapEffectBuilder(
             heap,
             self.locations_for_expression,
             intrinsics=intrinsics,
             module_owner=self._module_owner,
         )
-        self._active_codes: set[int] = set()
+        self._active_codes: set[object] = set()
         self._summary_in_progress: set[object] = set()
         self.procedure_summaries: dict[py_ast.Code, ProcedureHeapSummary] = {}
         self._summary_delete_stack: list[list[HeapLocation]] = []
@@ -108,8 +110,10 @@ class HeapTransferEngine(
         self._direct_call_evaluation_cache: dict[
             tuple[object, ...], tuple[HeapLocation, ...]
         ] = {}
-        self._last_direct_call_summary: dict[int, _CallSummary] = {}
-        self._last_call_operands: dict[int, dict[int, tuple[HeapLocation, ...]]] = {}
+        self._last_direct_call_summary: dict[object, _CallSummary] = {}
+        self._last_call_operands: dict[
+            object, dict[object, tuple[HeapLocation, ...]]
+        ] = {}
         self._applied_calls: set[tuple[object, ...]] = set()
         self._finite_call_results: dict[
             tuple[object, ...], tuple[HeapLocation, ...]
@@ -120,13 +124,15 @@ class HeapTransferEngine(
         self._callback_call_results: dict[
             tuple[object, ...], tuple[HeapLocation, ...]
         ] = {}
-        self._operation_expression_caches: list[dict[int, tuple[HeapLocation, ...]]] = (
+        self._operation_expression_caches: list[
+            dict[object, tuple[HeapLocation, ...]]
+        ] = (
             []
         )
         self._operation_call_raises: list[list[_FlowState]] = []
         self._operation_normal_possible: list[bool] = []
         self._pending_call_results: dict[
-            int,
+            object,
             tuple[
                 tuple[py_ast.Local, ...],
                 tuple[tuple[HeapLocation, ...], ...],
@@ -137,15 +143,15 @@ class HeapTransferEngine(
         self._evaluation_epoch = 0
         self._current_context: tuple[object, ...] = ()
         self._definition_default_locations: dict[
-            tuple[int, int], tuple[HeapLocation, ...]
+            tuple[object, int], tuple[HeapLocation, ...]
         ] = {}
-        self._definition_locals: dict[tuple[int, str], py_ast.Local] = {}
-        self._lexical_parents: dict[int, object] = {}
-        self._global_declarations: dict[int, set[str]] = {}
-        self._nonlocal_declarations: dict[int, set[str]] = {}
-        self._nonlocal_owners: dict[tuple[int, str], object] = {}
-        self._captured_names_by_scope: dict[int, set[str]] = {}
-        self._lexical_cells: dict[tuple[int, str], py_ast.Cell] = {}
+        self._definition_locals: dict[tuple[object, str], py_ast.Local] = {}
+        self._lexical_parents: dict[object, object] = {}
+        self._global_declarations: dict[object, set[str]] = {}
+        self._nonlocal_declarations: dict[object, set[str]] = {}
+        self._nonlocal_owners: dict[tuple[object, str], object] = {}
+        self._captured_names_by_scope: dict[object, set[str]] = {}
+        self._lexical_cells: dict[tuple[object, str], py_ast.Cell] = {}
         self.state = HeapState()
 
     def analyze_program(self, program: object) -> None:
@@ -168,7 +174,9 @@ class HeapTransferEngine(
 
     def analyze_code(self, code: object) -> None:
         """Analyze one ``py_ast.Code`` or code-like object."""
-        code_id = id(code)
+        if isinstance(code, py_ast.Code):
+            ensure_code_indexed(code)
+        code_id = self._procedure_identity(code)
         if code_id in self._active_codes:
             return
         self._active_codes.add(code_id)
@@ -208,7 +216,9 @@ class HeapTransferEngine(
         entry_state = self._capture_flow_state()
         outcome = self._analyze_node(procedure, node)
         if node is not None and not isinstance(node, py_ast.leafTypes):
-            self.program_point_states[id(node)] = (
+            identity = self._program_point_identity(procedure, node)
+            self.program_point_identities[node] = identity
+            self.program_point_states[identity] = (
                 entry_state,
                 self._joined_outcome_state(outcome),
             )
@@ -219,9 +229,34 @@ class HeapTransferEngine(
             if self.effect_builder._yield_expression(node) is not None:
                 yielded_state = outcome.normal or self._joined_outcome_state(outcome)
                 labeled["yield"] = yielded_state
-            self.program_point_outcomes[id(node)] = labeled
+            self.program_point_outcomes[identity] = labeled
         self._position_outcome(outcome)
         return outcome
+
+    @staticmethod
+    def _procedure_identity(procedure: object) -> object:
+        catalog = getattr(procedure, "ir_catalog", None)
+        if catalog is not None:
+            return catalog.procedure(procedure).code_id
+        return procedure
+
+    @staticmethod
+    def _program_point_identity(procedure: object, node: object) -> object:
+        catalog = getattr(procedure, "ir_catalog", None)
+        if catalog is not None and catalog.has_node(node, procedure):
+            return catalog.node_id(node, procedure)
+        return node
+
+    @staticmethod
+    def _reference_identity(procedure: object, reference: object) -> object:
+        catalog = getattr(procedure, "ir_catalog", None)
+        if catalog is not None and catalog.has_symbol(reference, procedure):
+            return catalog.symbol_id(reference, procedure)
+        return reference
+
+    @staticmethod
+    def _context_token(node: object) -> object:
+        return HeapTransferEngine._procedure_identity(node)
 
     def _analyze_node(self, procedure: object, node: object) -> _FlowOutcome:
         if node is None or isinstance(node, py_ast.leafTypes):
@@ -247,11 +282,11 @@ class HeapTransferEngine(
         if isinstance(node, py_ast.TypeSwitch):
             return self._analyze_type_switch(procedure, node)
         if isinstance(node, py_ast.FunctionDef):
-            self._lexical_parents[id(node.code)] = procedure
-            self._module_owners[id(node.code)] = self._module_owner(procedure)
+            self._lexical_parents[node.code] = procedure
+            self._module_owners[node.code] = self._module_owner(procedure)
             return self.apply_operation(procedure, node)
         if isinstance(node, py_ast.ClassDef):
-            self._module_owners[id(node)] = self._module_owner(procedure)
+            self._module_owners[node] = self._module_owner(procedure)
             header = self._evaluate_expressions_outcome(
                 procedure,
                 *self._definition_header_expressions(node),
@@ -610,7 +645,7 @@ class HeapTransferEngine(
                     procedure,
                     formal,
                     (*current, self._external_value_location(procedure)),
-                    include_raw_fallback=True,
+                    include_provider_storage=True,
                 )
 
     def apply_operation(self, procedure: object, operation: object) -> _FlowOutcome:
@@ -622,11 +657,15 @@ class HeapTransferEngine(
         if isinstance(operation, py_ast.GlobalDecl):
             name = getattr(operation.name, "name", None)
             if name:
-                self._global_declarations.setdefault(id(procedure), set()).add(name)
+                self._global_declarations.setdefault(
+                    self._procedure_identity(procedure), set()
+                ).add(name)
         elif isinstance(operation, py_ast.NonlocalDecl):
             name = getattr(operation.name, "name", None)
             if name:
-                self._nonlocal_declarations.setdefault(id(procedure), set()).add(name)
+                self._nonlocal_declarations.setdefault(
+                    self._procedure_identity(procedure), set()
+                ).add(name)
                 self._register_nonlocal_binding(procedure, name)
         self._record_exception_prefix()
         if isinstance(operation, py_ast.Discard):
@@ -723,7 +762,10 @@ class HeapTransferEngine(
                 if isinstance(procedure, py_ast.ClassDef):
                     annotations_root = HeapLocation(
                         self.heap.summary_object(
-                            ("class-annotations", id(procedure)),
+                            (
+                                "class-annotations",
+                                self._procedure_identity(procedure),
+                            ),
                             label=f"{procedure.name}.__annotations__",
                         )
                     )
@@ -985,7 +1027,7 @@ class HeapTransferEngine(
                 procedure,
                 node.index,
                 tuple(element_locations),
-                include_raw_fallback=True,
+                include_provider_storage=True,
             )
 
     def _analyze_try_except_finally(
@@ -1107,7 +1149,7 @@ class HeapTransferEngine(
                     procedure,
                     case.expr,
                     conditional_locs,
-                    include_raw_fallback=True,
+                    include_provider_storage=True,
                 )
             case_outcome = self.analyze_node(procedure, case.body)
             if case_outcome.normal is not None:

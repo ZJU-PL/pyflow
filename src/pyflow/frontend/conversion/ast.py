@@ -58,6 +58,7 @@ class ASTConverter:
         self._scope_stack: List[Dict[str, Any]] = []
         self._future_annotations = False
         self.current_filename: str | None = None
+        self._temp_ordinal = 0
 
     def _with_source_origin(
         self, converted: Optional[PythonASTNode], source: python_ast.AST
@@ -80,7 +81,10 @@ class ASTConverter:
         return converted
 
     def _tmp_local(self, hint: str, node: python_ast.AST) -> pyflow_ast.Local:
-        return pyflow_ast.Local(f"__pyflow_tmp_{hint}_{id(node)}")
+        del node
+        ordinal = self._temp_ordinal
+        self._temp_ordinal += 1
+        return pyflow_ast.Local(f"__pyflow_tmp_{hint}_{ordinal}")
 
     def _warn_approx(self, node: python_ast.AST, detail: str) -> None:
         line = getattr(node, "lineno", "?")
@@ -848,19 +852,15 @@ class ASTConverter:
             finally:
                 self._pop_scope()
             suite = pyflow_ast.Suite([pyflow_ast.Return([body_expr])])
-            code = pyflow_ast.Code(f"<lambda_{id(node)}>", codeparams, suite)
+            line = getattr(node, "lineno", 0)
+            column = getattr(node, "col_offset", 0)
+            code = pyflow_ast.Code(f"<lambda_{line}_{column}>", codeparams, suite)
             code.annotation = CodeAnnotation(
-                contexts=None,
                 descriptive=False,
                 primitive=False,
                 staticFold=False,
                 dynamicFold=False,
-                origin=[f"converted_lambda({id(node)})"],
-                live=None,
-                killed=None,
-                codeReads=None,
-                codeModifies=None,
-                codeAllocates=None,
+                origin=[f"converted_lambda({line}:{column})"],
                 lowered=False,
                 runtime=False,
                 interpreter=False,
@@ -976,17 +976,11 @@ class ASTConverter:
         )
 
         code.annotation = CodeAnnotation(
-            contexts=None,
             descriptive=False,
             primitive=False,
             staticFold=False,
             dynamicFold=False,
             origin=[f"converted_function({node.name})"],
-            live=None,
-            killed=None,
-            codeReads=None,
-            codeModifies=None,
-            codeAllocates=None,
             lowered=False,
             runtime=False,
             interpreter=False,
@@ -2289,17 +2283,11 @@ class ASTConverter:
         )
         comp_code = pyflow_ast.Code(f"<{kind}comp>", comp_params, comp_body)
         comp_code.annotation = CodeAnnotation(
-            contexts=None,
             descriptive=False,
             primitive=False,
             staticFold=False,
             dynamicFold=False,
             origin=[f"converted_{kind}comp"],
-            live=None,
-            killed=None,
-            codeReads=None,
-            codeModifies=None,
-            codeAllocates=None,
             lowered=False,
             runtime=False,
             interpreter=False,
@@ -2394,17 +2382,11 @@ class ASTConverter:
             "<genexpr>", gen_func_codeparams, pyflow_ast.Suite([inner_body])
         )
         code.annotation = CodeAnnotation(
-            contexts=None,
             descriptive=False,
             primitive=False,
             staticFold=False,
             dynamicFold=False,
             origin=["converted_genexpr"],
-            live=None,
-            killed=None,
-            codeReads=None,
-            codeModifies=None,
-            codeAllocates=None,
             lowered=False,
             runtime=False,
             interpreter=False,

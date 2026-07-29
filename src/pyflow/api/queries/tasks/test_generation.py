@@ -71,8 +71,7 @@ class TestGenerationQueries:
         try:
             examples = []
             for summary in self.data_flow.get_ipa_function_summaries(function):
-                if hasattr(summary.summary, "examples"):
-                    examples.extend(summary.summary.examples)
+                examples.extend(summary.examples)
             return examples
         except (TemporaryLimitation, ValueError, TypeError, AttributeError):
             return []
@@ -128,36 +127,10 @@ class TestGenerationQueries:
         return mccabe_complexity(function_node)
 
     def _source_location(self, code) -> tuple[str, int | None] | None:
-        if hasattr(self.context, "_origin_location"):
-            filename, lineno = self.context._origin_location(code)
-            if filename:
-                return str(filename), self._coerce_lineno(lineno)
-
-        annotation = getattr(code, "annotation", None)
-        origin = getattr(annotation, "origin", None)
-        filename = getattr(origin, "filename", None)
+        filename, lineno = self.context._origin_location(code)
         if filename:
-            return str(filename), self._coerce_lineno(getattr(origin, "lineno", None))
-
-        if isinstance(origin, (tuple, list)):
-            for item in origin:
-                parsed = self._parse_source_origin(item)
-                if parsed is not None:
-                    return parsed
-
+            return str(filename), self._coerce_lineno(lineno)
         return None
-
-    @staticmethod
-    def _parse_source_origin(origin_item) -> tuple[str, int | None] | None:
-        if not isinstance(origin_item, str):
-            return None
-        if not (origin_item.startswith("source(") and origin_item.endswith(")")):
-            return None
-        payload = origin_item[len("source(") : -1]
-        filename, _sep, lineno = payload.rpartition(":")
-        if not filename:
-            return None
-        return filename, TestGenerationQueries._coerce_lineno(lineno)
 
     @staticmethod
     def _coerce_lineno(lineno) -> int | None:

@@ -26,7 +26,7 @@ def get_server_mode_description(mode: MCPServerMode) -> str:
     descriptions = {
         MCPServerMode.BASIC: "Lightweight mode exposing only CFG/callgraph facts.",
         MCPServerMode.FULL: (
-            "Full mode including callgraph, CFG/SSA, axioms and store graph."
+            "Full mode including callgraph, CFG/SSA, and published analysis facts."
         ),
         MCPServerMode.ADVANCED: (
             "Advanced mode adding alias, points-to, and lifetime facts."
@@ -48,10 +48,6 @@ def resolve_capabilities(mode: MCPServerMode) -> Dict[str, CapabilityInfo]:
             "available": True,
             "note": "Requires IPA analysis.",
         },
-        "store_graph": {
-            "available": True,
-            "note": "Requires IPA/CPA analysis.",
-        },
         "lifetime": {
             "available": True,
             "note": "Requires lifetime analysis.",
@@ -62,11 +58,11 @@ def resolve_capabilities(mode: MCPServerMode) -> Dict[str, CapabilityInfo]:
         },
         "aliases": {
             "available": False,
-            "note": "Use store graph + CPA dataflow.",
+            "note": "Requires published flow-sensitive alias facts.",
         },
         "points_to": {
             "available": False,
-            "note": "Use store graph + CPA dataflow.",
+            "note": "Requires published flow-sensitive alias facts.",
         },
     }
 
@@ -76,7 +72,6 @@ def resolve_capabilities(mode: MCPServerMode) -> Dict[str, CapabilityInfo]:
             for key, value in full.items()
             if key in {"cfg", "callgraph", "callers", "callees", "function_summaries"}
         }
-        basic["store_graph"] = {"available": False, "note": "Disabled in BASIC mode."}
         basic["lifetime"] = {"available": False, "note": "Disabled in BASIC mode."}
         basic["ssa"] = {
             "available": False,
@@ -96,15 +91,15 @@ def resolve_capabilities(mode: MCPServerMode) -> Dict[str, CapabilityInfo]:
         advanced["aliases"] = {
             "available": True,
             "note": (
-                "Requires store graph from IPA/CPA; precision depends on "
-                "graph coverage."
+                "Requires published flow-sensitive alias facts; precision "
+                "depends on heap-analysis coverage."
             ),
         }
         advanced["points_to"] = {
             "available": True,
             "note": (
-                "Requires store graph from IPA/CPA; precision depends on "
-                "graph coverage."
+                "Requires published flow-sensitive alias facts; precision "
+                "depends on heap-analysis coverage."
             ),
         }
         advanced["reaching_defs"] = {

@@ -246,8 +246,9 @@ class TestAllocationSites:
 
         p._unalias_locals(None, x)
         p._unalias_locals(None, y)
-        x_site = p._allocation_sites[(id(None), id(x))]
-        y_site = p._allocation_sites[(id(None), id(y))]
+        heap = p._heap()
+        x_site = p._allocation_sites[heap._local_key(None, x)]
+        y_site = p._allocation_sites[heap._local_key(None, y)]
         assert x_site != y_site
         assert p._locations_for_local(None, x) is not p._locations_for_local(None, y)
 
@@ -262,8 +263,9 @@ class TestAllocationSites:
         p.set_raw_storage(x, xs)
         p.set_raw_storage(y, Location("ys"))
         p._alias_locals(None, y, x)
-        x_site = p._allocation_sites[(id(None), id(x))]
-        y_site = p._allocation_sites[(id(None), id(y))]
+        heap = p._heap()
+        x_site = p._allocation_sites[heap._local_key(None, x)]
+        y_site = p._allocation_sites[heap._local_key(None, y)]
         assert x_site == y_site
 
     def test_reassign_gets_fresh_site(self):
@@ -279,12 +281,13 @@ class TestAllocationSites:
         p.set_raw_storage(y, ys)
 
         p._alias_locals(None, y, x)
-        assert p._allocation_sites[(id(None), id(y))] == p._allocation_sites[
-            (id(None), id(x))
+        heap = p._heap()
+        assert p._allocation_sites[heap._local_key(None, y)] == p._allocation_sites[
+            heap._local_key(None, x)
         ]
         p._unalias_locals(None, y)
-        y_new_site = p._allocation_sites[(id(None), id(y))]
-        x_site = p._allocation_sites[(id(None), id(x))]
+        y_new_site = p._allocation_sites[heap._local_key(None, y)]
+        x_site = p._allocation_sites[heap._local_key(None, x)]
         assert y_new_site != x_site
 
 
@@ -361,6 +364,7 @@ class TestHeapPolicyIntegration:
         call = py_ast.Call(py_ast.Local("User"), [], [], None, None)
         operation = py_ast.Assign(call, [target])
         p = _problem()
+        p.adapter = _NameAdapter("User")
 
         p._materialize_call_result_location(None, operation, call, 0)
 
@@ -373,6 +377,7 @@ class TestHeapPolicyIntegration:
         call = py_ast.Call(py_ast.Local("library_value"), [], [], None, None)
         operation = py_ast.Assign(call, [target])
         p = _problem()
+        p.adapter = _NameAdapter("library_value")
         p._heap().policy = HeapPolicy(
             summary_return_names=frozenset({"library_value"})
         )
@@ -419,3 +424,16 @@ class _EffectAdapter:
     def effect_of(self, node: CFGNode):
         del node
         return self._effect
+
+    def call_name(self, call_expression, procedure=None):
+        del call_expression, procedure
+        return self._effect.call_name
+
+
+class _NameAdapter:
+    def __init__(self, name: str) -> None:
+        self.name = name
+
+    def call_name(self, call_expression, procedure=None):
+        del call_expression, procedure
+        return self.name

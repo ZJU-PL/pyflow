@@ -33,6 +33,7 @@ import os.path
 import subprocess
 
 from pyflow import config
+from pyflow.ir.core import AnalysisFacts, Capabilities
 from pyflow.util.io.filesystem import ensureDirectoryExists
 from pyflow.util.io.report import *
 from pyflow.optimization import cullprogram
@@ -57,7 +58,8 @@ classes = "user", "interp", "runtime", "primitive"
 
 
 class StatCollector(object):
-    def __init__(self):
+    def __init__(self, facts):
+        self.facts = facts
         self.limit = 16
 
         self.counts = collections.defaultdict(
@@ -85,9 +87,7 @@ class StatCollector(object):
         self.taccess = collections.defaultdict(lambda: 0)
 
     def code(self, cls, code):
-        contexts = (
-            len(code.annotation.contexts) if code.annotation.contexts is not None else 0
-        )
+        contexts = len(self.facts.contexts(code))
 
         self.counts[min(contexts, self.limit)][cls] += 1
 
@@ -103,9 +103,7 @@ class StatCollector(object):
             self.contextVparamCount += contexts
 
     def op(self, cls, code, op):
-        contexts = (
-            len(code.annotation.contexts) if code.annotation.contexts is not None else 0
-        )
+        contexts = len(self.facts.contexts(code))
 
         opT = type(op)
         self.opCount[cls][opT.__name__] += 1
@@ -125,19 +123,21 @@ class StatCollector(object):
 
             self.access[xtype] += 1
 
-        for slot in op.annotation.opReads.merged:
+        for slot in self.facts.merged_operation_effect(
+            Capabilities.OP_READS, code, op
+        ):
             handleSlot(slot)
 
-        for slot in op.annotation.opModifies.merged:
+        for slot in self.facts.merged_operation_effect(
+            Capabilities.OP_WRITES, code, op
+        ):
             handleSlot(slot)
 
         for t, f in ts:
             self.taccess[t] += 1
 
     def copies(self, cls, code, count):
-        contexts = (
-            len(code.annotation.contexts) if code.annotation.contexts is not None else 0
-        )
+        contexts = len(self.facts.contexts(code))
         name = "CopyLocal"
 
         self.opCount[cls][name] += count
@@ -349,7 +349,7 @@ def contextStats(compiler, prgm, name, classOK=False):
 
     liveCode = prgm.liveCode
 
-    collect = StatCollector()
+    collect = StatCollector(AnalysisFacts(prgm.ir))
     collect.name = name
     collect.reportdir = reportdir
 
@@ -363,8 +363,8 @@ def contextStats(compiler, prgm, name, classOK=False):
 
         if False:
             print(code)
-            print(cls, len(code.annotation.contexts))
-            print(code.annotation.origin)
+            print(cls, len(collect.facts.contexts(code)))
+            print(prgm.ir.source_of(code, code=code))
 
             print()
 

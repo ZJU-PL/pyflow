@@ -1,6 +1,7 @@
 """Tests for analysis/lifetimeanalysis module - lifetime analysis for object tracking."""
 
 import unittest
+from types import SimpleNamespace
 
 from pyflow.analysis.lifetimeanalysis import (
     invertInvokes,
@@ -342,7 +343,7 @@ class TestReadModifyAnalysis(unittest.TestCase):
         liveCode = set()
         invokeSources = {}
         
-        analysis = ReadModifyAnalysis(liveCode, invokeSources)
+        analysis = ReadModifyAnalysis(liveCode, invokeSources, object())
         
         self.assertEqual(analysis.invokeSources, invokeSources)
         self.assertEqual(len(analysis.contextReads), 0)
@@ -355,7 +356,7 @@ class TestReadModifyAnalysis(unittest.TestCase):
         liveCode = set()
         invokeSources = {}
         
-        analysis = ReadModifyAnalysis(liveCode, invokeSources)
+        analysis = ReadModifyAnalysis(liveCode, invokeSources, object())
         analysis.process({})
         
         # Should not raise any exceptions
@@ -366,30 +367,33 @@ class TestReadModifyAnalysis(unittest.TestCase):
         liveCode = set()
         invokeSources = {}
         
-        analysis = ReadModifyAnalysis(liveCode, invokeSources)
+        facts = SimpleNamespace(contexts=lambda _code: ())
+        analysis = ReadModifyAnalysis(liveCode, invokeSources, facts)
         
         # Should handle empty modifies gracefully
-        analysis.handleModifies(None, None, (False, set()))
+        analysis.handleModifies(object(), None)
 
     def test_handleReads_empty(self):
         """Test handleReads with empty input."""
         liveCode = set()
         invokeSources = {}
         
-        analysis = ReadModifyAnalysis(liveCode, invokeSources)
+        facts = SimpleNamespace(contexts=lambda _code: ())
+        analysis = ReadModifyAnalysis(liveCode, invokeSources, facts)
         
         # Should handle empty reads gracefully
-        analysis.handleReads(None, None, (False, set()))
+        analysis.handleReads(object(), None)
 
     def test_handleAllocates_empty(self):
         """Test handleAllocates with empty input."""
         liveCode = set()
         invokeSources = {}
         
-        analysis = ReadModifyAnalysis(liveCode, invokeSources)
+        facts = SimpleNamespace(contexts=lambda _code: ())
+        analysis = ReadModifyAnalysis(liveCode, invokeSources, facts)
         
         # Should handle empty allocates gracefully
-        analysis.handleAllocates(None, None, (False, set()))
+        analysis.handleAllocates(object(), None)
 
 
 if __name__ == "__main__":

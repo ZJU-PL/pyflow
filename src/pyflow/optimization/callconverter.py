@@ -15,7 +15,7 @@ inter-procedural optimizations.
 """
 
 from pyflow.util.typedispatch import *
-from pyflow.language.python import ast, annotations
+from pyflow.language.python import ast
 from pyflow.util.python import opnames
 
 
@@ -103,6 +103,13 @@ class ConvertCalls(TypeDispatcher):
     @dispatch(ast.Call, ast.DirectCall, ast.MethodCall)
     def visitCall(self, node):
         return node.rewriteChildren(self)
+
+    @defaultdispatch
+    def visitStructuralNode(self, node):
+        """Preserve newer structural AST forms while lowering their children."""
+        if isinstance(node, ast.PythonASTNode):
+            return node.rewriteChildren(self)
+        raise TypeError(f"unsupported call-conversion value: {node!r}")
 
     @dispatch(ast.ConvertToBool)
     def visitConvertToBool(self, node):
@@ -276,18 +283,6 @@ def callConverter(extractor, node):
 
     Only performs conversion if the node hasn't been lowered already.
     """
-    # Ensure the node has a CodeAnnotation with a 'lowered' field
-    if not hasattr(node, "annotation") or not hasattr(node.annotation, "lowered"):
-        # Replace with a compatible default CodeAnnotation preserving origin if possible
-        origin = (
-            getattr(node.annotation, "origin", None)
-            if hasattr(node, "annotation")
-            else None
-        )
-        node.annotation = annotations.emptyCodeAnnotation.rewrite(
-            origin=origin, lowered=False
-        )
-
     if not node.annotation.lowered:
         converter = ConvertCalls(extractor, node)
         node.replaceChildren(converter)

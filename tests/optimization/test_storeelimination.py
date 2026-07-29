@@ -2,6 +2,7 @@ from contextlib import contextmanager
 from types import SimpleNamespace
 
 from pyflow.optimization import storeelimination
+from pyflow.ir.core import Capabilities, IRCatalog
 
 
 class _Console:
@@ -16,14 +17,16 @@ class _Console:
         self.messages.append(str(msg))
 
 
-def test_store_elimination_skips_without_annotations():
+def test_store_elimination_skips_when_lifetime_snapshot_is_known_empty():
     compiler = SimpleNamespace(console=_Console())
-    prgm = SimpleNamespace(liveCode=set(), lifetime_analysis=object())
+    catalog = IRCatalog()
+    catalog.facts.publish(Capabilities.LIFETIME_OP_READS, "test", {})
+    prgm = SimpleNamespace(liveCode=set(), ir=catalog)
 
     changed = storeelimination.evaluate(compiler, prgm)
 
     assert changed is False
-    assert any("missing read/modify annotations" in msg for msg in compiler.console.messages)
+    assert any("missing lifetime facts" in msg for msg in compiler.console.messages)
 
 
 def test_store_elimination_requires_lifetime_even_if_annotations_exist():
@@ -33,7 +36,7 @@ def test_store_elimination_requires_lifetime_even_if_annotations_exist():
     code.isStandardCode = lambda: True
     code.annotation.descriptive = False
 
-    prgm = SimpleNamespace(liveCode=[code], lifetime_analysis=None)
+    prgm = SimpleNamespace(liveCode=[code], ir=IRCatalog())
 
     from unittest.mock import patch
 

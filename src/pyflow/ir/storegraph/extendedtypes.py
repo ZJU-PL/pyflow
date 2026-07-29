@@ -15,6 +15,31 @@ Extended types include:
 
 from pyflow.util import canonical
 
+
+def _semantic_label(value):
+    """Return a readable label without exposing a process address."""
+    if value is None:
+        return "*"
+    code_name = getattr(value, "codeName", None)
+    if callable(code_name):
+        return code_name()
+    signature = getattr(value, "signature", None)
+    if signature is not None:
+        return repr(signature)
+    name = getattr(value, "name", None)
+    if isinstance(name, str):
+        return name
+    if isinstance(value, (str, int, float, bool)):
+        return repr(value)
+    return type(value).__qualname__
+
+
+def _extended_type_label(value):
+    obj = getattr(value, "obj", None)
+    if obj is None:
+        return type(value).__qualname__
+    return f"{type(value).__qualname__}({obj!r})"
+
 # Extended types are names for objects that cannot be merged by the analysis.
 
 
@@ -195,7 +220,7 @@ class PathObjectType(ExtendedObjectType):
         if self.path is None:
             return "<path * %r>" % self.obj
         else:
-            return "<path %d %r>" % (id(self.path), self.obj)
+            return "<path %s %r>" % (_semantic_label(self.path), self.obj)
 
 
 # Methods are typed according to the function and instance they are bound to
@@ -232,7 +257,11 @@ class MethodObjectType(ExtendedObjectType):
         self.setCanonical(func, inst, obj, op)
 
     def __repr__(self):
-        return "<method %s %d %r>" % (id(self.func), id(self.inst), self.obj)
+        return "<method %s %s %r>" % (
+            _extended_type_label(self.func),
+            _extended_type_label(self.inst),
+            self.obj,
+        )
 
 
 # Extended parameter objects need to be kept precise per context
@@ -266,7 +295,7 @@ class ContextObjectType(ExtendedObjectType):
         self.setCanonical(context, obj, op)
 
     def __repr__(self):
-        return "<context %d %r>" % (id(self.context), self.obj)
+        return "<context %s %r>" % (_semantic_label(self.context), self.obj)
 
 
 # Wraps another extended type

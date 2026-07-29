@@ -5,6 +5,7 @@ including operations extraction, side effect detection, and call analysis.
 """
 
 from pyflow.analysis.astcollector import getOps
+from pyflow.ir.core import AnalysisFacts, MissingAnalysisFact
 
 
 def codeOps(code):
@@ -45,7 +46,7 @@ def codeOpsLocals(code):
     return getOps(code)
 
 
-def mightHaveSideEffect(op):
+def mightHaveSideEffect(code, op):
     """Check if an operation might have side effects.
 
     Args:
@@ -54,13 +55,17 @@ def mightHaveSideEffect(op):
     Returns:
         bool: True if the operation might have side effects.
     """
-    modifies = op.annotation.modifies
-    if modifies and not modifies[0]:
-        return False
-    return True
+    catalog = getattr(code, "ir_catalog", None)
+    if catalog is None:
+        return True
+    try:
+        semantics = catalog.semantics_of(op, code=code)
+    except KeyError:
+        return True
+    return bool(semantics.writes)
 
 
-def singleObject(lcl):
+def singleObject(code, lcl):
     """Check if a local variable references a single preexisting object.
 
     Args:
@@ -69,17 +74,18 @@ def singleObject(lcl):
     Returns:
         Object if the local references exactly one preexisting object, None otherwise.
     """
-    references = lcl.annotation.references
-    if references:
-        refs = references[0]
-        if len(refs) == 1:
-            obj = refs[0].xtype.obj
-            if obj.isPreexisting():
-                return obj
+    try:
+        refs = AnalysisFacts.for_code(code).merged_references(code, lcl)
+    except MissingAnalysisFact:
+        return None
+    if len(refs) == 1:
+        obj = next(iter(refs)).xtype.obj
+        if obj.isPreexisting():
+            return obj
     return None
 
 
-def singleCall(op):
+def singleCall(code, op):
     """Check if an operation makes a single function call.
 
     Args:
@@ -88,12 +94,13 @@ def singleCall(op):
     Returns:
         Code object if the operation calls exactly one function, None otherwise.
     """
-    invokes = op.annotation.invokes
-
-    if invokes and invokes[0]:
-        targets = set([code for code, context in invokes[0]])
-        if len(targets) == 1:
-            return targets.pop()
+    try:
+        invokes = AnalysisFacts.for_code(code).merged_call_targets(code, op)
+    except MissingAnalysisFact:
+        return None
+    targets = {target_code for target_code, _context in invokes}
+    if len(targets) == 1:
+        return targets.pop()
 
     return None
 
@@ -102,11 +109,8 @@ emptySet = frozenset()
 
 
 def opInvokesContexts(code, op, opContext):
-    invokes = op.annotation.invokes
-
-    if invokes:
-        cindex = code.annotation.contexts.index(opContext)
-        if invokes[1][cindex]:
-            return frozenset([context for func, context in invokes[1][cindex]])
-
-    return emptySet
+    try:
+        invokes = AnalysisFacts.for_code(code).call_targets(code, op, opContext)
+    except MissingAnalysisFact:
+        return emptySet
+    return frozenset(context for _func, context in invokes)

@@ -19,6 +19,7 @@ In a CDG, edges point from controller to dependent:
 
 from typing import Set, Dict, List, Optional, Any
 from pyflow.ir.cfg import graph as cfg_graph
+from pyflow.ir.core import BlockId, CodeId, ensure_code_indexed, index_cfg
 
 
 class CDGEdge:
@@ -96,7 +97,12 @@ class CDGNode:
         edges_out: Set of outgoing control dependence edges
     """
 
-    def __init__(self, cfg_node: cfg_graph.CFGBlock, node_id: int):
+    def __init__(
+        self,
+        cfg_node: cfg_graph.CFGBlock,
+        node_id: int,
+        block_id: BlockId,
+    ):
         """
         Initialize a CDG node.
 
@@ -106,6 +112,7 @@ class CDGNode:
         """
         self.cfg_node = cfg_node  # Reference to the original CFG node
         self.node_id = node_id  # Unique identifier for this CDG node
+        self.block_id = block_id
         self.dependents: Set[CDGNode] = set()  # Nodes that depend on this node
         self.dependencies: Set[CDGNode] = set()  # Nodes this node depends on
         self.edges_in: Set[CDGEdge] = set()  # Incoming edges
@@ -211,12 +218,10 @@ class CDGNode:
         return f"CDGNode({self.node_id}, {type(self.cfg_node).__name__})"
 
     def __hash__(self):
-        return self.node_id
+        return object.__hash__(self)
 
     def __eq__(self, other):
-        if not isinstance(other, CDGNode):
-            return False
-        return self.node_id == other.node_id
+        return self is other
 
 
 class ControlDependenceGraph:
@@ -257,6 +262,12 @@ class ControlDependenceGraph:
         self.nodes: Dict[cfg_graph.CFGBlock, CDGNode] = {}
         self.node_id_counter = 0
         self.root_node: Optional[CDGNode] = None
+        self.catalog = None
+        self.code_id = CodeId("__cfg__", "anonymous")
+        if getattr(cfg, "code", None) is not None:
+            self.catalog = ensure_code_indexed(cfg.code)
+            index_cfg(self.catalog, cfg)
+            self.code_id = self.catalog.procedure(cfg.code).code_id
 
     def add_node(self, cfg_node: cfg_graph.CFGBlock) -> CDGNode:
         """
@@ -273,7 +284,12 @@ class ControlDependenceGraph:
             The CDG node (newly created or existing)
         """
         if cfg_node not in self.nodes:
-            cdg_node = CDGNode(cfg_node, self.node_id_counter)
+            block_id = (
+                self.catalog.block_id(cfg_node, self.cfg.code)
+                if self.catalog is not None
+                else BlockId(self.code_id, self.node_id_counter)
+            )
+            cdg_node = CDGNode(cfg_node, self.node_id_counter, block_id)
             self.node_id_counter += 1
             self.nodes[cfg_node] = cdg_node
 

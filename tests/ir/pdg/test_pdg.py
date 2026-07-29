@@ -1,15 +1,12 @@
 """
 Tests for Program Dependence Graph (PDG) construction and querying.
 
-These tests cover both DDG-backed PDG construction and the explicit AST
-fallback path used when raw dataflow IR lowering is unavailable.
+These tests cover DDG-backed PDG construction and shared semantic facts used
+when raw dataflow IR lowering is unavailable.
 """
 
 import unittest
-import warnings
-
 from pyflow.application import context
-from pyflow.ir.dataflow.convert import UnsupportedDataflowConstructError
 from pyflow.frontend.extractor import Extractor
 from pyflow.ir.cfg import transform
 from pyflow.ir.pdg import construct_pdg
@@ -127,33 +124,19 @@ class TestPDG(unittest.TestCase):
         self.assertIn(pdg.entry, slc)
         self.assertTrue(any(n.kind == "stmt" and isinstance(n.ast_node, ast.Assign) for n in slc))
 
-    def test_pdg_warns_when_data_edges_fall_back_to_ast(self):
+    def test_pdg_uses_shared_semantics_when_dataflow_lowering_is_unavailable(self):
         cfg = self.build_cfg(try_semantics)
 
-        with warnings.catch_warnings(record=True) as caught:
-            warnings.simplefilter("always")
-            pdg = construct_pdg(
-                cfg,
-                run_ssa=False,
-                include_control=True,
-                include_data=True,
-            )
+        pdg = construct_pdg(
+            cfg,
+            run_ssa=False,
+            include_control=True,
+            include_data=True,
+        )
 
-        self.assertEqual(pdg.data_dependence_mode, "ast-fallback")
+        self.assertEqual(pdg.data_dependence_mode, "semantics")
         self.assertIn("TryExceptFinally", pdg.data_dependence_reason)
-        self.assertTrue(any("falling back to AST-local def/use" in str(w.message) for w in caught))
-
-    def test_pdg_can_require_ddg_backed_data_dependence(self):
-        cfg = self.build_cfg(try_semantics)
-
-        with self.assertRaises(UnsupportedDataflowConstructError):
-            construct_pdg(
-                cfg,
-                run_ssa=False,
-                include_control=True,
-                include_data=True,
-                allow_ast_fallback_on_ddg_failure=False,
-            )
+        self.assertTrue(pdg.all_edges(kind="data"))
 
 
 if __name__ == "__main__":

@@ -183,11 +183,9 @@ def test_changed_transform_clears_program_level_analysis_results():
     ), patch("pyflow.application.passes.simplify.evaluate", return_value=True):
         manager.run_passes(None, program, ["ipa", "cpa", "lifetime", "simplify"])
 
-    assert program.ipa_analysis is None
-    assert program.cpa_analysis is None
-    assert program.lifetime_analysis is None
-    assert program.analysis_results["ipa_analysis"] is None
-    assert program.analysis_results["cpa_analysis"] is None
-    assert program.analysis_results["lifetime_analysis"] is None
+    assert program.get_analysis_result("ipa") is None
+    assert program.get_analysis_result("cpa") is None
+    assert program.get_analysis_result("lifetime") is None
+    assert program.analysis_results == {}
     assert program.semantic_queries is None
     assert program.semantic_queries_mode is None

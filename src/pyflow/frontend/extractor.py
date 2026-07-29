@@ -263,6 +263,11 @@ class Extractor:
         program.cross_module_resolver = self.cross_module_resolver
         program.frontend_telemetry = self.function_extractor.ast_converter.get_telemetry()
 
+        from pyflow.ir.core import build_program_semantics, index_program
+
+        index_program(program, module=module_name, filename=filename)
+        build_program_semantics(program)
+
         if self.verbose:
             print(
                 f"DEBUG: Extraction complete, liveCode has {len(program.liveCode)} functions"
@@ -724,3 +729,11 @@ def extract_program(compiler: CompilerContext, program: Program) -> None:
 
         # Set entry points from the interface
         program.entryPoints = program.interface.entryPoint
+
+    # ``extract_from_*`` may build an intermediate Program and then merge its
+    # code objects into the caller-owned Program.  Identity/source metadata
+    # must be indexed on the object that clients actually receive.
+    from pyflow.ir.core import build_program_semantics, index_program
+
+    index_program(program)
+    build_program_semantics(program)

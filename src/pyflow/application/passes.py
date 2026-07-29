@@ -459,10 +459,8 @@ def register_standard_passes(pass_manager):
         # Legacy sequencing requires argument normalization before inlining.
         pass_manager.passes["inlining"].info.dependencies.add("argument_normalization")
 
-    # CRITICAL FIX #1: Store/load elimination require lifetime analysis
-    # These passes depend on code.annotation.codeReads and op.annotation.reads/modifies
-    # which are populated by lifetime analysis. Without this dependency, they may use
-    # stale annotations from a previous lifetime run, causing miscompilation.
+    # Store/load elimination consume revision-tagged lifetime facts.  Keep the
+    # dependency explicit so transformations cannot observe stale snapshots.
     if "store_elimination" in pass_manager.passes:
         pass_manager.passes["store_elimination"].info.dependencies.add("lifetime")
         pass_manager.passes["store_elimination"].info.requirements.add("lifetime")

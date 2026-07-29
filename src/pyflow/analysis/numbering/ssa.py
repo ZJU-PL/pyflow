@@ -47,13 +47,14 @@ class ForwardESSA(TypeDispatcher):
         exit: Dictionary mapping names to exit version numbers
     """
 
-    def __init__(self, rm):
+    def __init__(self, rm, killed=()):
         """Initialize ESSA constructor.
 
         Args:
             rm: ReadModifyInfo lookup table from FindReadModify
         """
         self.rm = rm
+        self.killed = frozenset(killed)
         self.uid = 0
 
         self._current = {}
@@ -220,7 +221,7 @@ class ForwardESSA(TypeDispatcher):
     def renameEntryFields(self, node):
         info = self.rm[node]
 
-        killed = self.code.annotation.killed.merged
+        killed = self.killed
 
         for field in info.fieldRead:
             assert not isinstance(field, ast.Local), field
@@ -324,7 +325,7 @@ class ForwardESSA(TypeDispatcher):
             else:
                 # Fields from killed objects could not have been passed from outside.
                 obj = name.object
-                if obj in self.code.annotation.killed.merged:
+                if obj in self.killed:
                     continue
 
             filtered[name] = uid
@@ -361,7 +362,7 @@ class ForwardESSA(TypeDispatcher):
 
                 # Fields from killed objects will not propagate
                 obj = name.object
-                if obj in self.code.annotation.killed.merged:
+                if obj in self.killed:
                     continue
 
             filtered[name] = uid

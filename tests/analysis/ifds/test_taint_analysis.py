@@ -5,7 +5,6 @@ from __future__ import annotations
 import pytest
 
 from pyflow.application import context
-from pyflow.application.errors import TemporaryLimitation
 from pyflow.ir.cfg import transform
 from pyflow.analysis.ifds import (
     HeapObjectKind,
@@ -312,7 +311,7 @@ def test_kind_scoped_sanitizer_preserves_other_taint_kinds():
     ] == [("SQL-SECRET", "secret")]
 
 
-def test_interprocedural_taint_materializes_source_call_result_root():
+def test_interprocedural_taint_materializes_source_as_fresh_root():
     compiler = context.CompilerContext(None)
 
     source_code, _ = make_code("source", [], [], return_name="source_ret")
@@ -323,8 +322,12 @@ def test_interprocedural_taint_materializes_source_call_result_root():
         "main",
         [],
         [
-            ast.Assign(ast.Call(ast.Local("source"), [], [], None, None), [value]),
-            ast.Discard(ast.Call(ast.Local("sink"), [value], [], None, None)),
+            ast.Assign(
+                ast.DirectCall(source_code, None, [], [], None, None), [value]
+            ),
+            ast.Discard(
+                ast.DirectCall(sink_code, None, [value], [], None, None)
+            ),
             ast.Return([]),
         ],
         return_name="main_ret",
@@ -348,7 +351,7 @@ def test_interprocedural_taint_materializes_source_call_result_root():
     assert len(result.findings) == 1
     fact = result.fact_for_local(result.findings[0].sink, value)
     assert fact is not None
-    assert fact.location.root.kind is HeapObjectKind.CALL_RESULT
+    assert fact.location.root.kind is HeapObjectKind.ALLOCATION
     assert result._problem.describe_location(fact.location) == "value"
 
 
@@ -391,11 +394,16 @@ def test_constructor_self_field_write_projects_to_call_result_object():
         "main",
         [],
         [
-            ast.Assign(ast.Call(ast.Local("source"), [], [], None, None), [raw]),
-            ast.Assign(ast.Call(ast.Local("User"), [raw], [], None, None), [user]),
+            ast.Assign(
+                ast.DirectCall(source_code, None, [], [], None, None), [raw]
+            ),
+            ast.Assign(
+                ast.DirectCall(user_code, None, [raw], [], None, None), [user]
+            ),
             ast.Discard(
-                ast.Call(
-                    ast.Local("sink"),
+                ast.DirectCall(
+                    sink_code,
+                    None,
                     [ast.GetAttr(user, payload)],
                     [],
                     None,
@@ -433,7 +441,7 @@ def test_constructor_self_field_write_projects_to_call_result_object():
     assert "user.payload" in tainted_locations
 
 
-def test_interprocedural_taint_rejects_non_annotated_cfgs():
+def test_interprocedural_taint_uses_mandatory_semantics_without_annotations():
     compiler = context.CompilerContext(None)
 
     source_code, _ = make_code("source", [], [], return_name="source_ret")
@@ -457,15 +465,16 @@ def test_interprocedural_taint_rejects_non_annotated_cfgs():
     ]
     adapter = build_supergraph_from_cfgs(cfgs)
 
-    with pytest.raises(TemporaryLimitation, match="annotation-complete programs"):
-        analyze_taint(
-            adapter,
-            _config(
-                source_names=frozenset({"source"}),
-                sink_names=frozenset({"sink"}),
-            ),
-            entry_nodes=[adapter.supergraph.entry_of(cfgs[0])],
-        )
+    result = analyze_taint(
+        adapter,
+        _config(
+            source_names=frozenset({"source"}),
+            sink_names=frozenset({"sink"}),
+        ),
+        entry_nodes=[adapter.supergraph.entry_of(cfgs[0])],
+    )
+
+    assert len(result.findings) == 1
 
 
 def test_interprocedural_taint_requires_explicit_entry_nodes():
@@ -513,10 +522,11 @@ def test_interprocedural_taint_handles_return_calls():
         return_name="choose_ret",
     )
 
-    choose_call = ast.Call(
-        ast.Local("choose"),
+    choose_call = ast.DirectCall(
+        choose_code,
+        None,
         [
-            ast.Call(ast.Local("source"), [], [], None, None),
+            ast.DirectCall(source_code, None, [], [], None, None),
             ast.Existing(ast.program.Object(0)),
         ],
         [],
@@ -538,8 +548,12 @@ def test_interprocedural_taint_handles_return_calls():
         "main",
         [],
         [
-            ast.Assign(ast.Call(ast.Local("wrapper"), [], [], None, None), [tainted]),
-            ast.Discard(ast.Call(ast.Local("sink"), [tainted], [], None, None)),
+            ast.Assign(
+                ast.DirectCall(wrapper_code, None, [], [], None, None), [tainted]
+            ),
+            ast.Discard(
+                ast.DirectCall(sink_code, None, [tainted], [], None, None)
+            ),
             ast.Return([tainted]),
         ],
         return_name="main_ret",
@@ -864,7 +878,7 @@ def test_interprocedural_taint_preserves_return_slot_mapping():
                 ast.Return(
                     [
                         ast.Existing(ast.program.Object(0)),
-                        ast.Call(ast.Local("source"), [], [], None, None),
+                            ast.DirectCall(source_code, None, [], [], None, None),
                     ]
                 )
             ]
@@ -879,9 +893,15 @@ def test_interprocedural_taint_preserves_return_slot_mapping():
         "main",
         [],
         [
-            ast.Assign(ast.Call(ast.Local("pair"), [], [], None, None), [left, right]),
-            ast.Discard(ast.Call(ast.Local("sink"), [left], [], None, None)),
-            ast.Discard(ast.Call(ast.Local("sink"), [right], [], None, None)),
+            ast.Assign(
+                ast.DirectCall(pair_code, None, [], [], None, None), [left, right]
+            ),
+            ast.Discard(
+                ast.DirectCall(sink_code, None, [left], [], None, None)
+            ),
+            ast.Discard(
+                ast.DirectCall(sink_code, None, [right], [], None, None)
+            ),
             ast.Return([right]),
         ],
         return_name="main_ret",

@@ -12,7 +12,6 @@ from pyflow.application.errors import TemporaryLimitation
 
 from ._dataflow_ipa import IpaAnalyzer
 from ._dataflow_reaching_defs import ReachingDefsAnalyzer
-from ._dataflow_store_graph import StoreGraphAnalyzer
 from ._dataflow_taint import TaintAnalyzer
 from ._models import (
     AliasInfo,
@@ -33,7 +32,6 @@ class DataFlowQueries:
         self.context = context
         self.graph_engine = graph_engine
         self._reaching_defs = ReachingDefsAnalyzer()
-        self._store_graph = StoreGraphAnalyzer()
         self._taint = TaintAnalyzer()
         self._ipa = IpaAnalyzer()
 
@@ -47,18 +45,9 @@ class DataFlowQueries:
             raise ValueError(f"Cannot resolve function: {exc}")
 
         if self.graph_engine is None:
-            return self._reaching_defs.from_defuse(code, self._get_var_name)
-
-        try:
-            ssa_cfg = self.graph_engine.get_ssa(code)
-        except (ValueError, TypeError, AttributeError):
-            LOG.debug("Falling back to def-use reaching defs for %r", function, exc_info=True)
-            return self._reaching_defs.from_defuse(code, self._get_var_name)
-
-        reaching_defs = self._reaching_defs.from_ssa(ssa_cfg)
-        if reaching_defs:
-            return reaching_defs
-        return self._reaching_defs.from_defuse(code, self._get_var_name)
+            raise TemporaryLimitation("Graph engine is required for SSA queries.")
+        ssa_cfg = self.graph_engine.get_ssa(code)
+        return self._reaching_defs.from_ssa(ssa_cfg, code.ir_catalog, code)
 
     def get_variable_uses(self, function: Union[str, object], variable: str) -> List[str]:
         """Return use locations for a single variable via def-use traversal."""
@@ -66,7 +55,7 @@ class DataFlowQueries:
             code = self.context.resolve_function(function)
         except ValueError as exc:
             raise ValueError(f"Cannot resolve function: {exc}")
-        return self._reaching_defs.get_variable_uses(code, variable, self._get_var_name)
+        return self._reaching_defs.get_variable_uses(code, variable)
 
     def get_aliases(self, function: Union[str, object]) -> Dict[str, AliasInfo]:
         """Return alias information for all variables in a function."""
@@ -75,14 +64,47 @@ class DataFlowQueries:
         except ValueError as exc:
             raise ValueError(f"Cannot resolve function: {exc}")
 
-        store_graph = self._store_graph.get_store_graph_safe(self.context.program)
-        if store_graph is None:
-            return self._store_graph.aliases_from_defuse(code, self._get_var_name)
-        return self._store_graph.aliases_from_storegraph(
-            code,
-            self.context.code_name(code),
-            store_graph,
-        )
+        from pyflow.ir.core import AnalysisFacts, Capabilities, Precision
+
+        catalog = code.ir_catalog
+        if not catalog.facts.has(Capabilities.ALIAS_REFERENCES):
+            raise TemporaryLimitation("Alias facts are unavailable; run heap analysis.")
+        facts = AnalysisFacts(catalog)
+        procedure = catalog.procedure(code)
+        result = {}
+        for symbol in catalog.symbols:
+            if symbol.id.scope != procedure.root_scope:
+                continue
+            references = catalog.facts.query(
+                Capabilities.ALIAS_REFERENCES, symbol.id
+            )
+            if references.precision is Precision.UNKNOWN:
+                continue
+            locations = tuple(references.values)
+            aliases = {
+                self._location_label(alias)
+                for location in locations
+                for alias in facts.points_to(location)
+            }
+            entries = [
+                (
+                    facts.reference_count(location),
+                    facts.is_escaped(location),
+                )
+                for location in locations
+            ]
+            result[symbol.display_name] = AliasInfo(
+                variable=symbol.display_name,
+                aliases=aliases,
+                is_aliased=len(aliases) > 1,
+                ref_count=max((count for count, _escaped in entries), default=0),
+                is_escaped=any(escaped for _count, escaped in entries),
+                is_singleton=all(count <= 1 for count, _escaped in entries),
+                strong_update_possible=all(
+                    count <= 1 and not escaped for count, escaped in entries
+                ),
+            )
+        return result
 
     def get_points_to(self, function: Union[str, object]) -> Dict[str, PointsToInfo]:
         """Return points-to information for all variables in a function."""
@@ -91,13 +113,19 @@ class DataFlowQueries:
         except ValueError as exc:
             raise ValueError(f"Cannot resolve function: {exc}")
 
-        store_graph = self._store_graph.get_store_graph_safe(self.context.program)
-        if store_graph is None:
-            return {}
-        return self._store_graph.points_to_from_storegraph(
-            self.context.code_name(code),
-            store_graph,
-        )
+        aliases = self.get_aliases(code)
+        return {
+            name: PointsToInfo(
+                variable=name,
+                points_to=set(info.aliases),
+                may_be_null=False,
+                ref_count=info.ref_count,
+                is_escaped=info.is_escaped,
+                is_singleton=info.is_singleton,
+                strong_update_possible=info.strong_update_possible,
+            )
+            for name, info in aliases.items()
+        }
 
     def get_interprocedural_taint(
         self,
@@ -120,32 +148,21 @@ class DataFlowQueries:
         )
 
     def get_lifetime(self):
-        """Return lifetime analysis results if available."""
-        if getattr(self.context.program, "lifetime_analysis", None) is None:
+        """Return the revision-aware fact facade for lifetime queries."""
+        from pyflow.ir.core import AnalysisFacts, Capabilities
+
+        catalog = self.context.program.ir
+        if not catalog.facts.has(Capabilities.LIFETIME_CODE_LIVE):
             raise TemporaryLimitation(
                 "Lifetime analysis not available; run the lifetime pass first."
             )
-        return self.context.program.lifetime_analysis
-
-    def get_store_graph(self):
-        """Return the store graph if available."""
-        if getattr(self.context.program, "storeGraph", None) is None:
-            raise TemporaryLimitation("Store graph not available; run IPA/CPA first.")
-        return self.context.program.storeGraph
-
-    def get_ipa_analysis(self):
-        """Return IPA analysis results when available."""
-        return self.context.require_ipa()
+        return AnalysisFacts(catalog)
 
     def get_ipa_function_summaries(
         self, function: Optional[Union[str, object]] = None
     ) -> List[IpaFunctionSummary]:
         """Return IPA summaries for all contexts (or a single function)."""
-        return self._ipa.get_function_summaries(
-            self.context,
-            self.context.require_ipa(),
-            function,
-        )
+        return self._ipa.get_function_summaries(self.context, function)
 
     def _get_var_name(self, lcl):
         if hasattr(lcl, "constantValue"):
@@ -155,3 +172,9 @@ class DataFlowQueries:
         if hasattr(lcl, "name"):
             return lcl.name
         return None
+
+    @staticmethod
+    def _location_label(location: object) -> str:
+        root = getattr(location, "root", None)
+        label = getattr(root, "label", None)
+        return label or repr(location)

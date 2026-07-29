@@ -192,8 +192,11 @@ class SemanticQueryService:
     def get_lifetime(self):
         return self.data_flow_queries.get_lifetime()
 
-    def get_store_graph(self):
-        return self.data_flow_queries.get_store_graph()
+    def get_analysis_facts(self):
+        """Return a revision-pinned, read-only view of published IR facts."""
+        from pyflow.ir.core import AnalysisFacts
+
+        return AnalysisFacts(self.program.ir)
 
     def get_interprocedural_taint(
         self,
@@ -209,9 +212,6 @@ class SemanticQueryService:
             sink_names=sink_names,
             sanitizer_names=sanitizer_names,
         )
-
-    def get_ipa_analysis(self):
-        return self.data_flow_queries.get_ipa_analysis()
 
     def get_ipa_function_summaries(
         self, function: Optional[Union[str, object]] = None
@@ -279,95 +279,109 @@ class SemanticQueryService:
         return self.test_generation_queries.get_mock_requirements(function)
 
     # Heap / points-to queries
-    def get_heap_graph(self):
-        """Return the :class:`PointsToGraph` if the heap pass has run."""
-        return getattr(self.program, "heap_analysis", None)
+    def _require_alias_facts(self):
+        from pyflow.application.errors import TemporaryLimitation
+        from pyflow.ir.core import AnalysisFacts, Capabilities
 
-    def _require_heap_graph(self):
-        graph = self.get_heap_graph()
-        if graph is None:
-            raise RuntimeError(
-                "Flow-sensitive heap analysis not available; ensure the "
-                "'heap' pass has been run."
+        catalog = self.program.ir
+        if not catalog.facts.has(Capabilities.ALIAS_POINTS_TO):
+            raise TemporaryLimitation(
+                "Alias facts are unavailable; ensure the 'heap' pass has run."
             )
-        return graph
+        return AnalysisFacts(catalog)
+
+    @staticmethod
+    def _location_label(location: object) -> str:
+        root = getattr(location, "root", None)
+        return getattr(root, "label", None) or repr(location)
+
+    @staticmethod
+    def _matching_locations(facts, variable: str) -> tuple[object, ...]:
+        return tuple(facts.locations_by_label().get(variable, ()))
 
     def get_escaped_locations(self) -> List[str]:
         """Return human-readable labels of all escaped heap locations."""
-        graph = self._require_heap_graph()
-        return sorted(entry.label for entry in graph.iter_entries() if entry.is_escaped)
+        facts = self._require_alias_facts()
+        return sorted(
+            self._location_label(location)
+            for location in facts.alias_locations()
+            if facts.is_escaped(location)
+        )
 
     def get_singleton_locations(self) -> List[str]:
         """Return labels of all singleton (strong-update-eligible) locations."""
-        graph = self._require_heap_graph()
+        facts = self._require_alias_facts()
         return sorted(
-            entry.label for entry in graph.iter_entries() if entry.is_singleton
+            self._location_label(location)
+            for location in facts.alias_locations()
+            if facts.reference_count(location) <= 1
         )
 
     def heap_never_escapes(self, variable: str) -> bool:
         """Check whether a named variable's heap location has never escaped."""
-        graph = self._require_heap_graph()
-        for entry in graph.iter_entries():
-            if entry.label == variable:
-                return not entry.is_escaped
-        return True
+        facts = self._require_alias_facts()
+        locations = self._matching_locations(facts, variable)
+        if not locations:
+            raise ValueError(f"Unknown heap location: {variable}")
+        return all(not facts.is_escaped(location) for location in locations)
 
     def heap_must_alias(self, var_a: str, var_b: str) -> bool:
         """Check whether two named variables are must-aliases."""
-        graph = self._require_heap_graph()
-        loc_a = None
-        loc_b = None
-        for entry in graph.iter_entries():
-            if entry.label == var_a:
-                loc_a = entry.location
-            if entry.label == var_b:
-                loc_b = entry.location
-        if loc_a is None or loc_b is None:
+        facts = self._require_alias_facts()
+        left = self._matching_locations(facts, var_a)
+        right = self._matching_locations(facts, var_b)
+        if len(left) != 1 or len(right) != 1:
             return False
-        return graph.must_alias(loc_a, loc_b)
+        return facts.must_alias(left[0], right[0])
 
     def heap_single_reference(self, variable: str) -> bool:
         """Check whether a variable's heap location has ≤ 1 reference."""
-        graph = self._require_heap_graph()
-        for entry in graph.iter_entries():
-            if entry.label == variable:
-                return entry.ref_count <= 1
-        return True
+        facts = self._require_alias_facts()
+        locations = self._matching_locations(facts, variable)
+        if not locations:
+            raise ValueError(f"Unknown heap location: {variable}")
+        return all(facts.reference_count(location) <= 1 for location in locations)
 
     def get_aliases_for_variable(self, variable: str) -> AliasInfo:
         """Return structured alias information for a named variable."""
-        graph = self.get_heap_graph()
+        facts = self._require_alias_facts()
         info = AliasInfo(variable=variable)
-        if graph is None:
-            return info
-        for entry in graph.iter_entries():
-            if entry.label == variable:
-                info.aliases = {
-                    loc.root.label for loc in entry.aliases if loc.root.label
-                }
-                info.is_aliased = len(info.aliases) > 1
-                info.ref_count = entry.ref_count
-                info.is_escaped = entry.is_escaped
-                info.is_singleton = entry.is_singleton
-                info.strong_update_possible = entry.is_strong
-                break
+        locations = self._matching_locations(facts, variable)
+        for location in locations:
+            info.aliases.update(
+                self._location_label(alias) for alias in facts.points_to(location)
+            )
+        info.is_aliased = len(info.aliases) > 1
+        info.ref_count = max(
+            (facts.reference_count(location) for location in locations), default=0
+        )
+        info.is_escaped = any(facts.is_escaped(location) for location in locations)
+        info.is_singleton = bool(locations) and all(
+            facts.reference_count(location) <= 1 for location in locations
+        )
+        info.strong_update_possible = bool(locations) and all(
+            facts.strong_update_possible(location) for location in locations
+        )
         return info
 
     def get_points_to_for_variable(self, variable: str) -> PointsToInfo:
         """Return structured points-to information for a named variable."""
-        graph = self.get_heap_graph()
+        facts = self._require_alias_facts()
         info = PointsToInfo(variable=variable)
-        if graph is None:
-            return info
-        for entry in graph.iter_entries():
-            if entry.label == variable:
-                info.points_to = {
-                    loc.root.label for loc in entry.aliases if loc.root.label
-                }
-                info.ref_count = entry.ref_count
-                info.is_escaped = entry.is_escaped
-                info.is_singleton = entry.is_singleton
-                info.strong_update_possible = entry.is_strong
-                info.may_be_null = entry.is_escaped
-                break
+        locations = self._matching_locations(facts, variable)
+        for location in locations:
+            info.points_to.update(
+                self._location_label(alias) for alias in facts.points_to(location)
+            )
+        info.ref_count = max(
+            (facts.reference_count(location) for location in locations), default=0
+        )
+        info.is_escaped = any(facts.is_escaped(location) for location in locations)
+        info.is_singleton = bool(locations) and all(
+            facts.reference_count(location) <= 1 for location in locations
+        )
+        info.strong_update_possible = bool(locations) and all(
+            facts.strong_update_possible(location) for location in locations
+        )
+        info.may_be_null = not locations or info.is_escaped
         return info

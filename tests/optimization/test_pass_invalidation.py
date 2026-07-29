@@ -37,7 +37,6 @@ def test_store_elimination_requires_lifetime_analysis():
 
     program = Program()
     program.liveCode = set()
-    program.lifetime_analysis = None  # Explicitly None
 
     with pytest.raises(RuntimeError, match="requires lifetime analysis"):
         storeelimination.evaluate(compiler, program)
@@ -62,7 +61,6 @@ def test_load_elimination_requires_lifetime_analysis():
 
     program = Program()
     program.liveCode = set()
-    program.lifetime_analysis = None
 
     with pytest.raises(RuntimeError, match="requires lifetime analysis"):
         loadelimination.evaluate(compiler, program)
@@ -84,9 +82,9 @@ def test_optimization_pass_invalidates_analysis():
     register_standard_passes(manager)
 
     program = Program()
-    program.ipa_analysis = Mock()
-    program.cpa_analysis = Mock()
-    program.lifetime_analysis = Mock()
+    program.set_analysis_result("ipa", Mock())
+    program.set_analysis_result("cpa", Mock())
+    program.set_analysis_result("lifetime", Mock())
 
     compiler = _compiler()
 
@@ -97,9 +95,9 @@ def test_optimization_pass_invalidates_analysis():
         manager.run_passes(compiler, program, ["simplify"])
 
     # Analysis results should be cleared after transformation
-    assert program.ipa_analysis is None
-    assert program.cpa_analysis is None
-    assert program.lifetime_analysis is None
+    assert program.get_analysis_result("ipa") is None
+    assert program.get_analysis_result("cpa") is None
+    assert program.get_analysis_result("lifetime") is None
 
 
 def test_analysis_pass_preserves_results():
@@ -117,7 +115,7 @@ def test_analysis_pass_preserves_results():
         manager.run_passes(compiler, program, ["ipa"])
 
     # IPA result should be stored
-    assert program.ipa_analysis is mock_ipa_result
+    assert program.get_analysis_result("ipa") is mock_ipa_result
 
     # Running IPA again should use cache
     with patch("pyflow.application.passes.ipa.evaluate") as mock_ipa:
@@ -164,7 +162,7 @@ def test_stale_annotation_detection():
         manager.run_passes(compiler, program, ["lifetime"])
 
     # lifetime_analysis should be set
-    assert program.lifetime_analysis is not None
+    assert program.get_analysis_result("lifetime") is not None
 
     # Run transformation that invalidates lifetime
     with patch("pyflow.application.passes.simplify.evaluate", return_value=True), \
@@ -173,7 +171,7 @@ def test_stale_annotation_detection():
         manager.run_passes(compiler, program, ["simplify"])
 
     # lifetime_analysis should be cleared
-    assert program.lifetime_analysis is None
+    assert program.get_analysis_result("lifetime") is None
 
 
 def test_optimization_pass_must_declare_invalidation():

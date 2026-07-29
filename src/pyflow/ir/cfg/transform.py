@@ -18,8 +18,6 @@ and connects them with appropriate control flow edges (normal, fail, error).
 
 from pyflow.util.typedispatch import *
 from pyflow.ir.cfg import simplify
-from pyflow.ir.cfg import dump
-from pyflow.application.errors import TemporaryLimitation
 
 from pyflow.language.python import ast
 from pyflow.ir.cfg import graph as cfg
@@ -84,6 +82,24 @@ class CFGTransformer(TypeDispatcher):
         self.emit(node)
         self.flowReturn()
 
+    @dispatch(ast.Raise)
+    def visitRaise(self, node):
+        """Emit an explicit raise and terminate the normal path.
+
+        Suites already carry their standard ``fail`` successor.  Keeping that
+        edge while ending construction of the current path accurately models
+        an unconditional raise and prevents following statements from becoming
+        reachable.
+        """
+        self.emit(node)
+        self.current = None
+        raise NoNormalFlow
+
+    @dispatch(ast.Assert)
+    def visitAssert(self, node):
+        """Emit an assertion, which may either continue or fail."""
+        self.emit(node)
+
     @dispatch(ast.Continue)
     def visitContinue(self, node):
         """Visit continue statements.
@@ -142,8 +158,6 @@ class CFGTransformer(TypeDispatcher):
         ast.BuildList,
         ast.BuildMap,
         ast.Print,
-        ast.Assert,
-        ast.Raise,
         ast.FunctionDef,
     )
     def visitStatement(self, node):
@@ -382,13 +396,46 @@ class CFGTransformer(TypeDispatcher):
 
     @dispatch(ast.For)
     def visitFor(self, node):
-        """Preserve Python iteration semantics until iterator-aware CFG exists.
+        """Lower a source-level for-loop through an iterator-aware header."""
+        self(node.loopPreamble)
 
-        Treating the iterable itself as a while-condition loses target binding,
-        StopIteration, and async iteration semantics. Keep the source-level
-        construct intact rather than returning a semantically different graph.
-        """
-        self._preserve_structured_statement(node)
+        header = self.createMerge()
+        self.attachCurrent(header)
+        breaks = cfg.Merge(self.region)
+        exhausted = cfg.Merge(self.region)
+
+        self.pushRegion(header)
+        iterator = cfg.ForIter(self.region, node.iterator, node.index)
+        self.attachStandardHandlers(iterator)
+        header.setExit("normal", iterator)
+        iterator.setExit("body", self.makeNewSuite(origin_ast=node))
+
+        self.pushHandler("continue", header)
+        self.pushHandler("break", breaks)
+        try:
+            self(node.bodyPreamble)
+            self(node.body)
+        except NoNormalFlow:
+            pass
+        else:
+            self.attachCurrent(header)
+        self.popHandler("continue")
+        self.popHandler("break")
+        self.popRegion()
+
+        iterator.setExit("exit", exhausted)
+        try:
+            exhausted.setExit("normal", self.makeNewSuite(origin_ast=node))
+            self(node.else_)
+        except NoNormalFlow:
+            pass
+        else:
+            self.attachCurrent(breaks)
+
+        breaks.setExit("normal", self.makeNewSuite())
+        self.optimizeMerge(header)
+        self.optimizeMerge(breaks)
+        self.optimizeMerge(exhausted)
 
     def optimizeMerge(self, m):
         m.simplify()

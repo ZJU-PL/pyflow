@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import argparse
 
 from pyflow.cli import optimize
+from pyflow.application.program import Program
 
 
 class _Console:
@@ -229,11 +230,9 @@ def test_run_suggestions_uses_pipeline_and_refreshes_ipa(monkeypatch, capsys):
     compiler = _Compiler()
     initial_ipa = SimpleNamespace(contexts={"a": object()})
     refreshed_ipa = SimpleNamespace(contexts={"a": object(), "b": object()})
-    program = SimpleNamespace(
-        liveCode=[],
-        ipa_analysis=None,
-        cpa_analysis=SimpleNamespace(unresolved=["call1", "call2"]),
-        lifetime_analysis=None,
+    program = Program()
+    program.set_analysis_result(
+        "cpa", SimpleNamespace(unresolved=["call1", "call2"])
     )
     seen = []
 
@@ -252,7 +251,7 @@ def test_run_suggestions_uses_pipeline_and_refreshes_ipa(monkeypatch, capsys):
         ipa_module,
         "evaluate",
         lambda _compiler, _program: initial_ipa
-        if getattr(_program, "ipa_analysis", None) is None
+        if _program.get_analysis_result("ipa") is None
         else refreshed_ipa,
     )
     monkeypatch.setattr(optimize, "Pipeline", _Pipeline)
@@ -261,14 +260,14 @@ def test_run_suggestions_uses_pipeline_and_refreshes_ipa(monkeypatch, capsys):
 
     output = capsys.readouterr().out
     assert seen == [("ipa", "cpa", "simplify")]
-    assert program.ipa_analysis is refreshed_ipa
+    assert program.get_analysis_result("ipa") is refreshed_ipa
     assert "2 unresolved calls" in output
 
 
 def test_dump_ipa_results_refreshes_missing_analysis(monkeypatch, tmp_path, capsys):
     compiler = _Compiler()
     analysis = SimpleNamespace(contexts={"ctx": object()}, root=object())
-    program = SimpleNamespace(ipa_analysis=None)
+    program = Program()
     dumped = []
 
     class _Dumper:
@@ -289,7 +288,7 @@ def test_dump_ipa_results_refreshes_missing_analysis(monkeypatch, tmp_path, caps
 
     optimize.dump_ipa_results(compiler, program, tmp_path / "sample.py", None)
 
-    assert program.ipa_analysis is analysis
+    assert program.get_analysis_result("ipa") is analysis
     assert dumped[0][0] == "init"
     assert dumped[1][0] == "index"
     assert "IPA analysis results dumped to:" in capsys.readouterr().out

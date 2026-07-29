@@ -8,22 +8,28 @@ from ._models import IpaFunctionSummary
 
 
 class IpaAnalyzer:
-    """Extract summaries from IPA contexts."""
+    """Resolve immutable IPA summary facts."""
 
-    def get_function_summaries(self, context, ipa, function: Optional[Union[str, object]] = None) -> List[IpaFunctionSummary]:
-        target = context.resolve_function_name(function) if function else None
+    def get_function_summaries(self, context, function: Optional[Union[str, object]] = None) -> List[IpaFunctionSummary]:
+        from pyflow.ir.core import AnalysisFacts
+
+        codes = (
+            (context.resolve_function(function),)
+            if function is not None
+            else tuple(context.program.liveCode)
+        )
         summaries: List[IpaFunctionSummary] = []
-        for ipa_context in ipa.contexts.values():
-            name = context.context_name(ipa_context)
-            if not name:
-                continue
-            if target and name != target:
-                continue
-            summaries.append(
-                IpaFunctionSummary(
-                    name=name,
-                    signature=ipa_context.signature,
-                    summary=ipa_context.summary,
+        facts = AnalysisFacts(context.program.ir)
+        for code in sorted(codes, key=lambda item: str(context.program.ir.procedure(item).code_id)):
+            for summary in sorted(facts.ipa_summaries(code), key=lambda item: item.context):
+                summaries.append(
+                    IpaFunctionSummary(
+                        name=context.code_name(code),
+                        context_id=summary.context,
+                        parameter_names=summary.parameter_names,
+                        return_dependencies=summary.return_dependencies,
+                        returns_value=summary.returns_value,
+                        examples=summary.examples,
+                    )
                 )
-            )
         return summaries

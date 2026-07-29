@@ -18,6 +18,7 @@ import collections
 from pyflow.analysis.astcollector import getOps
 
 from pyflow.language.python import ast
+from pyflow.ir.core import Capabilities
 
 
 class Region(object):
@@ -66,7 +67,7 @@ class RegionAnalysis(object):
         liveFields: Dictionary mapping code to set of live fields
     """
 
-    def __init__(self, extractor, entryPoints, liveCode):
+    def __init__(self, extractor, entryPoints, liveCode, facts):
         """Initialize region analysis.
 
         Args:
@@ -77,6 +78,7 @@ class RegionAnalysis(object):
         self.extractor = extractor
         self.entryPoints = entryPoints
         self.liveCode = liveCode
+        self.facts = facts
         self.uf = UnionFind()
 
         self.liveObjs = {}
@@ -109,23 +111,31 @@ class RegionAnalysis(object):
 
             ops, lcls = getOps(code)
             for op in ops:
+                reads = self.facts.merged_operation_effect(
+                    Capabilities.LIFETIME_OP_READS, code, op
+                )
+                writes = self.facts.merged_operation_effect(
+                    Capabilities.LIFETIME_OP_WRITES, code, op
+                )
+                allocations = self.facts.merged_operation_effect(
+                    Capabilities.LIFETIME_OP_ALLOCATIONS, code, op
+                )
+                self.liveFields[code].update(reads)
+                self.liveFields[code].update(writes)
 
-                self.liveFields[code].update(op.annotation.reads[0])
-                self.liveFields[code].update(op.annotation.modifies[0])
-
-                if not op.annotation.invokes[0]:
+                if not self.facts.merged_call_targets(code, op):
                     # If the op does not invoke, it does real work.
-                    self.merge(op.annotation.reads[0])
-                    self.merge(op.annotation.modifies[0])
+                    self.merge(reads)
+                    self.merge(writes)
 
                     # TODO seperate by concrete field type before merge
 
-                for cobj in op.annotation.allocates[0]:
+                for cobj in allocations:
                     if not cobj.leaks:
                         self.liveObjs[code].add(cobj)
 
             for lcl in lcls:
-                for ref in lcl.annotation.references[0]:
+                for ref in self.facts.merged_references(code, lcl):
                     if not ref.leaks:
                         self.liveObjs[code].add(ref)
 
@@ -146,7 +156,7 @@ class RegionAnalysis(object):
                     print("\t", slot)
 
 
-def evaluate(extractor, entryPoints, liveCode):
-    ra = RegionAnalysis(extractor, entryPoints, liveCode)
+def evaluate(extractor, entryPoints, liveCode, facts):
+    ra = RegionAnalysis(extractor, entryPoints, liveCode, facts)
     ra.process()
     return ra

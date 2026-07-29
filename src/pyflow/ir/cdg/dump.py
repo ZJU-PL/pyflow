@@ -276,8 +276,8 @@ class CDGDumper:
             ],
             "edges": [
                 {
-                    "source": e.source.node_id,
-                    "target": e.target.node_id,
+                    "source": str(e.source.block_id),
+                    "target": str(e.target.block_id),
                     "label": e.label,
                 }
                 for e in self.cdg.get_all_edges()
@@ -299,11 +299,13 @@ class CDGDumper:
             Dictionary containing node information
         """
         node_data = {
-            "id": cdg_node.node_id,
+            "id": str(cdg_node.block_id),
             "type": type(cfg_node).__name__,
-            "cfg_node_id": id(cfg_node),
-            "dependents": sorted(dep.node_id for dep in cdg_node.dependents),
-            "dependencies": sorted(dep.node_id for dep in cdg_node.dependencies),
+            "cfg_node_id": str(cdg_node.block_id),
+            "dependents": sorted(str(dep.block_id) for dep in cdg_node.dependents),
+            "dependencies": sorted(
+                str(dep.block_id) for dep in cdg_node.dependencies
+            ),
         }
 
         # Add optional fields if present

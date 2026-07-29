@@ -4,6 +4,7 @@ from .shape_base import *
 import unittest
 import pyflow.analysis as analysis
 import pyflow.application as application
+from pyflow.ir.core import Capabilities
 
 
 class TestSimpleCase(TestCompoundConstraintBase):
@@ -97,7 +98,7 @@ class TestSimpleCase(TestCompoundConstraintBase):
             ]
         )
 
-        dc.rewriteAnnotation(invokes=(((self.code, self.context),), None))
+        self.sys.info.set_call_targets(dc, ((self.code, self.context),))
 
         self.funcInput, self.funcOutput = self.makeConstraints(self.code)
         self.callerInput, self.callerOutput = self.makeConstraints(self.caller)
@@ -230,7 +231,7 @@ class TestCallLoadCase(TestCompoundConstraintBase):
             ]
         )
 
-        dc.rewriteAnnotation(invokes=(((self.code, self.context),), None))
+        self.sys.info.set_call_targets(dc, ((self.code, self.context),))
 
         self.funcInput, self.funcOutput = self.makeConstraints(self.code)
 
@@ -369,7 +370,7 @@ class TestVArgCase(TestCompoundConstraintBase):
         self.clExpr = self.expr(self.cExpr, self.lSlot)
         self.crExpr = self.expr(self.cExpr, self.rSlot)
 
-        dc.rewriteAnnotation(invokes=(((self.code, self.context),), None))
+        self.sys.info.set_call_targets(dc, ((self.code, self.context),))
 
         self.funcInput, self.funcOutput = self.makeConstraints(self.code)
 
@@ -542,7 +543,7 @@ class TestVParamCase(TestCompoundConstraintBase):
         self.dv1Expr = self.expr(self.dExpr, self.v1Slot)
         self.dv2Expr = self.expr(self.dExpr, self.v2Slot)
 
-        dc.rewriteAnnotation(invokes=(((self.code, self.context),), None))
+        self.sys.info.set_call_targets(dc, ((self.code, self.context),))
 
         self.funcInput, self.funcOutput = self.makeConstraints(self.code)
 
@@ -726,7 +727,7 @@ class TestRecursiveCase(TestCompoundConstraintBase):
         # from language.python import simplecodegen
         # simplecodegen.SimpleCodeGen(None).process(self.code)
 
-        dc.rewriteAnnotation(invokes=(((callCode, self.context),), None))
+        self.sys.info.set_call_targets(dc, ((callCode, self.context),))
 
         self.codeInput, self.codeOutput = self.makeConstraints(self.code)
         self.setInOut(self.codeInput, self.codeOutput)
@@ -846,7 +847,9 @@ class TestAllocateCase(TestCompoundConstraintBase):
         bogusinfo.field(self.aField, self.root.regionHint)
         bogusinfo.field(self.bField, self.root.regionHint)
 
-        alloc.rewriteAnnotation(allocates=((bogusinfo,), None))
+        self.sys.info.set_operation_effect(
+            Capabilities.LIFETIME_OP_ALLOCATIONS, alloc, (bogusinfo,)
+        )
 
         self.funcInput, self.funcOutput = self.makeConstraints(self.code)
         self.setInOut(self.funcInput, self.funcOutput)

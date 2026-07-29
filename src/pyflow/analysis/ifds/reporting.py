@@ -4,15 +4,11 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 import hashlib
-import re
 from typing import Any, Mapping, Sequence
 
-from pyflow.language.asttools.origin import Origin, SourceOrigin
+from pyflow.ir.core import SourceOrigin as IRSourceOrigin
 
 from .frontend.cfg_adapter import CFGNode, CFGSupergraphAdapter
-
-_SOURCE_TAG = re.compile(r"^source\((.*):(\d+)\)$")
-
 
 @dataclass(frozen=True, order=True)
 class SourceSpan:
@@ -111,34 +107,6 @@ class AnalysisFinding:
         }
 
 
-def _iter_origins(origin: object) -> tuple[object, ...]:
-    if origin is None:
-        return ()
-    if isinstance(origin, (Origin, SourceOrigin)):
-        return (origin,)
-    if isinstance(origin, (list, tuple)):
-        return tuple(origin)
-    return (origin,)
-
-
-def _span_from_origin(origin: object) -> SourceSpan | None:
-    if isinstance(origin, (Origin, SourceOrigin)):
-        if not origin.filename or not isinstance(origin.lineno, int):
-            return None
-        return SourceSpan(
-            str(origin.filename),
-            max(origin.lineno, 1),
-            max(origin.col or 0, 0),
-            getattr(origin, "end_lineno", None),
-            getattr(origin, "end_col", None),
-        )
-    if isinstance(origin, str):
-        match = _SOURCE_TAG.match(origin)
-        if match:
-            return SourceSpan(match.group(1), int(match.group(2)))
-    return None
-
-
 def source_span_for_node(
     adapter: CFGSupergraphAdapter, node: CFGNode
 ) -> SourceSpan | None:
@@ -148,12 +116,24 @@ def source_span_for_node(
         adapter.operation_of(node),
         getattr(node.procedure, "code", None),
     )
+    catalog = adapter.catalog_by_procedure.get(node.procedure)
+    code = getattr(node.procedure, "code", None)
+    if catalog is None or code is None:
+        return None
     for candidate in candidates:
-        annotation = getattr(candidate, "annotation", None)
-        for origin in _iter_origins(getattr(annotation, "origin", None)):
-            span = _span_from_origin(origin)
-            if span is not None:
-                return span
+        if candidate is None or not catalog.has_node(candidate, code):
+            continue
+        origin = catalog.source_of(candidate, code=code)
+        if isinstance(origin, IRSourceOrigin):
+            span = origin.span
+            if span.path and span.start_line:
+                return SourceSpan(
+                    span.path,
+                    max(span.start_line, 1),
+                    max(span.start_column, 0),
+                    span.end_line,
+                    span.end_column,
+                )
     return None
 
 

@@ -6,14 +6,21 @@ including phi function insertion and variable renaming.
 
 from pyflow.util.typedispatch import *
 from pyflow.language.python import ast
+from pyflow.ir.core import ensure_code_indexed
 
 from . import graph as cfg
 from .dfs import CFGDFS
 from . import dom
+from .revision import CFGTransformTransaction
 
 
 class UnsupportedSSAError(Exception):
     """Raised when CFG SSA is requested for unsupported structured control flow."""
+
+
+def local_key(catalog, code, local):
+    """Return the lexical ``SymbolId`` for one local occurrence."""
+    return catalog.symbol_id(local, code)
 
 
 class CollectModifies(TypeDispatcher):
@@ -27,9 +34,12 @@ class CollectModifies(TypeDispatcher):
         order: List of blocks in traversal order.
     """
 
-    def __init__(self):
+    def __init__(self, catalog, code):
         """Initialize the modifier collector."""
+        self.catalog = catalog
+        self.code = code
         self.mod = {}
+        self.locals = {}
         self.order = []
 
     def modified(self, node):
@@ -48,13 +58,15 @@ class CollectModifies(TypeDispatcher):
             node: AST node representing the modified variable.
             block: CFG block where the modification occurs.
         """
-        if not node in self.mod:
-            self.mod[node] = set()
+        key = local_key(self.catalog, self.code, node)
+        self.locals.setdefault(key, node)
+        if key not in self.mod:
+            self.mod[key] = set()
 
         # .data is the djnode
-        self.mod[node].add(block.data)
+        self.mod[key].add(block.data)
 
-    @dispatch(cfg.Entry, cfg.Exit, cfg.Merge, cfg.Yield, cfg.Switch)
+    @dispatch(cfg.Entry, cfg.Exit, cfg.Merge, cfg.Yield, cfg.Switch, cfg.State)
     def visitLeaf(self, node):
         self.order.append(node)
 
@@ -66,11 +78,25 @@ class CollectModifies(TypeDispatcher):
             if case.expr:
                 self._modified(case.expr, node.getExit(i))
 
+    @dispatch(cfg.ForIter)
+    def visitForIter(self, node):
+        self.order.append(node)
+        body = node.getExit("body")
+        if body is not None:
+            self._modified(node.index, body)
+
     @dispatch(ast.Discard, ast.Return, ast.SetAttr, ast.Store, ast.OutputBlock)
     def visitDiscard(self, node):
         pass
 
-    @dispatch(ast.leafTypes, ast.Local, ast.Existing, ast.GetCellDeref, ast.Code, ast.DoNotCare)
+    @dispatch(
+        ast.leafTypes,
+        ast.Local,
+        ast.Existing,
+        ast.GetCellDeref,
+        ast.Code,
+        ast.DoNotCare,
+    )
     def visitASTLeaf(self, node):
         pass
 
@@ -159,7 +185,7 @@ class SSARename(TypeDispatcher):
         fixup: List of merge blocks that need phi node insertion
     """
 
-    def __init__(self, g, rename, merge):
+    def __init__(self, g, rename, merge, locals_by_key, catalog):
         """Initialize the SSA renamer.
 
         Args:
@@ -170,6 +196,9 @@ class SSARename(TypeDispatcher):
         self.g = g
         self.rename = rename
         self.merge = merge
+        self.locals_by_key = locals_by_key
+        self.catalog = catalog
+        self.code = g.code if g is not None else None
 
         self.frames = {}
         self.currentFrame = None
@@ -178,7 +207,7 @@ class SSARename(TypeDispatcher):
 
         self.fixup = []
 
-    def clone(self, lcl, frame):
+    def clone(self, lcl, frame, definition=None, *, allocate_value=True):
         """Clone a local variable and add it to the frame.
 
         Creates a new SSA version of a local variable and records it
@@ -193,7 +222,20 @@ class SSARename(TypeDispatcher):
         """
         if lcl:
             result = lcl.clone()
-            frame[lcl] = result
+            key = local_key(self.catalog, self.code, lcl)
+            self.catalog.bind_symbol(result, key)
+            frame[key] = result
+            if allocate_value:
+                definition_id = None
+                if definition is not None:
+                    if not self.catalog.has_node(definition, self.code):
+                        self.catalog.register_node(
+                            self.catalog.procedure(self.code).code_id,
+                            definition,
+                        )
+                    definition_id = self.catalog.node_id(definition, self.code)
+                value = self.catalog.values.define(key, definition_id)
+                self.catalog.bind_value(self.code, result, value.id)
             return result
         else:
             return None
@@ -226,8 +268,7 @@ class SSARename(TypeDispatcher):
             if any(value is None and fallback is None for value in values):
                 continue
 
-            target = name.clone()
-            merged[name] = target
+            target = self.clone(self.locals_by_key[name], merged)
 
             for suite, frame in branches:
                 value = frame.get(name, fallback)
@@ -270,13 +311,23 @@ class SSARename(TypeDispatcher):
     def visitCFGLeaf(self, node):
         pass
 
+    @dispatch(cfg.State)
+    def visitCFGState(self, node):
+        prev = node.prev
+        self.frames[node] = dict(self.frames.get(prev, {}))
+
     @dispatch(cfg.Suite)
     def visitCFGSuite(self, node):
-        prev = node.prev
-        if prev is None or prev not in self.frames:
-            self.currentFrame = {}
+        # Branching nodes may seed an edge-specific frame for this suite (for
+        # example a TypeSwitch case binding).  Otherwise inherit normally.
+        if node in self.frames:
+            self.currentFrame = dict(self.frames[node])
         else:
-            self.currentFrame = dict(self.frames[prev])
+            prev = node.prev
+            if prev is None or prev not in self.frames:
+                self.currentFrame = {}
+            else:
+                self.currentFrame = dict(self.frames[prev])
 
         ops = []
         for op in node.ops:
@@ -297,23 +348,52 @@ class SSARename(TypeDispatcher):
 
     @dispatch(cfg.TypeSwitch)
     def visitTypeSwitch(self, node):
-        self.currentFrame = dict(self.frames[node.prev])
+        incoming = dict(self.frames[node.prev])
+        self.currentFrame = incoming
 
         conditional = self(node.original.conditional)
 
         cases = []
         for i, case in enumerate(node.original.cases):
             if case.expr:
-                # TODO slightly unsound, modifies the expressions in the wrong frame.
-                expr = self.clone(case.expr, self.currentFrame)
-
+                case_frame = dict(incoming)
+                expr = self.clone(case.expr, case_frame)
                 cases.append(ast.TypeSwitchCase(case.types, expr, case.body))
+                successor = node.getExit(i)
+                if successor is not None:
+                    self.frames[successor] = case_frame
             else:
                 cases.append(case)
 
         node.original = ast.TypeSwitch(conditional, cases)
 
-        self.frames[node] = self.currentFrame
+        # Case bindings exist only on their corresponding branch.
+        self.frames[node] = incoming
+
+    @dispatch(cfg.ForIter)
+    def visitForIter(self, node):
+        header = node.prev
+        incoming = dict(self.frames[header])
+
+        # The iterable expression is evaluated once in the preheader, before
+        # loop-carried phi values exist. Region membership distinguishes that
+        # edge from backedges generated inside the loop region.
+        preheader_frame = incoming
+        if isinstance(header, cfg.Merge):
+            for predecessor in header.reverse():
+                if predecessor.region is not header and predecessor in self.frames:
+                    preheader_frame = self.frames[predecessor]
+                    break
+        iterator, _ = self.renameWithFrame(node.iterator, preheader_frame)
+        node.iterator = iterator
+
+        body_frame = dict(incoming)
+        node.index = self.clone(node.index, body_frame)
+        body = node.getExit("body")
+        if body is not None:
+            self.frames[body] = body_frame
+        self.currentFrame = incoming
+        self.frames[node] = incoming
 
     @dispatch(cfg.Yield)
     def visitCFGYield(self, node):
@@ -324,13 +404,10 @@ class SSARename(TypeDispatcher):
     def visitCFGMerge(self, node):
         # Copy a previous frame, any previous frame.
         frame = None
-        complete = True
         for prev in node.reverse():
             if prev in self.frames:
                 if frame is None:
                     frame = dict(self.frames[prev])
-            else:
-                complete = False
 
         # Guard: if no predecessor has been processed yet (can happen in
         # certain loop configurations), start with an empty frame rather
@@ -341,7 +418,9 @@ class SSARename(TypeDispatcher):
         # Mask variables that need to be merged.
         if node in self.merge:
             for name in self.merge[node]:
-                frame[name] = name.clone()
+                frame[name] = self.clone(
+                    self.locals_by_key[name], frame, allocate_value=False
+                )
 
             self.fixup.append(node)
 
@@ -349,8 +428,9 @@ class SSARename(TypeDispatcher):
 
     @dispatch(ast.Local)
     def visitLocal(self, node):
-        if node in self.currentFrame:
-            result = self.currentFrame[node]
+        key = local_key(self.catalog, self.code, node)
+        if key in self.currentFrame:
+            result = self.currentFrame[key]
         else:
             # Handle missing local variables by cloning them
             result = self.clone(node, self.currentFrame)
@@ -510,17 +590,23 @@ class SSARename(TypeDispatcher):
             # the frame under the *original* LHS key.  That is correct only
             # when `expr` is a freshly-cloned SSA name.  We keep the same
             # logic but restrict it to Local nodes only.
-            self.currentFrame[node.lcls[0]] = expr
+            self.currentFrame[local_key(self.catalog, self.code, node.lcls[0])] = expr
             return None
 
-        lcls = [self.clone(lcl, self.currentFrame) for lcl in node.lcls]
+        lcls = [
+            self.clone(lcl, self.currentFrame, definition=node)
+            for lcl in node.lcls
+        ]
         return ast.Assign(expr, lcls)
 
     @dispatch(ast.UnpackSequence)
     def visitUnpackSequence(self, node):
         expr = self(node.expr)
 
-        lcls = [self.clone(lcl, self.currentFrame) for lcl in node.targets]
+        lcls = [
+            self.clone(lcl, self.currentFrame, definition=node)
+            for lcl in node.targets
+        ]
         return ast.UnpackSequence(expr, lcls)
 
     # Insert the merges, now that we know all the sources
@@ -564,6 +650,12 @@ class SSARename(TypeDispatcher):
                     self.read.update(arg for arg in arguments if arg is not None)
 
                     phi = ast.Phi(arguments, target)
+                    phi_id = self.catalog.register_node(
+                        self.catalog.procedure(self.code).code_id,
+                        phi,
+                    )
+                    value = self.catalog.values.define(name, phi_id)
+                    self.catalog.bind_value(self.code, target, value.id)
                     merge.phi.append(phi)
 
                     changed = True
@@ -599,8 +691,10 @@ def evaluate(compiler, g):
     """
     if _contains_try_except_finally(g.entryTerminal):
         raise UnsupportedSSAError(
-            "CFG SSA does not support TryExceptFinally; refusing to return a non-SSA graph."
+            "CFG SSA does not support TryExceptFinally; refusing to return "
+            "a non-SSA graph."
         )
+    transaction = CFGTransformTransaction(g, "ssa")
 
     # Analysis: Compute dominance information
     def forward(node):
@@ -612,7 +706,8 @@ def evaluate(compiler, g):
     dom.evaluate([g.entryTerminal], forward, bind)
 
     # Transform: Collect variable modifications
-    cm = CollectModifies()
+    catalog = ensure_code_indexed(g.code)
+    cm = CollectModifies(catalog, g.code)
     dfs = CFGDFS(post=cm)
     dfs.process(g.entryTerminal)
 
@@ -621,11 +716,11 @@ def evaluate(compiler, g):
     merges = {}
 
     # TODO linear versions of idf?
-    for k, v in cm.mod.items():
+    for key, blocks in cm.mod.items():
         # Compute iterated dominance frontier for this variable's modifications
         idf = set()
         pending = set()
-        pending.update(v)
+        pending.update(blocks)
 
         while pending:
             djnode = pending.pop()
@@ -636,21 +731,22 @@ def evaluate(compiler, g):
 
         # Record merge points where phi nodes are needed
         for djnode in idf:
-            if not djnode.node in merges:
+            if djnode.node not in merges:
                 merges[djnode.node] = set()
-            merges[djnode.node].add(k)
+            merges[djnode.node].add(key)
 
         if idf:
-            renames.add(k)
+            renames.add(key)
 
     # Rename variables in reverse post-order (process definitions before uses)
     order = cm.order
     order.reverse()
 
-    ssar = SSARename(g, renames, merges)
+    ssar = SSARename(g, renames, merges, cm.locals, catalog)
     for node in order:
         ssar(node)
     ssar.doFixup()
+    return transaction.commit()
 
 
 def _contains_try_except_finally(entry):

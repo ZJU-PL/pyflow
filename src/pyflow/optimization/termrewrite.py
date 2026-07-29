@@ -17,6 +17,7 @@ simplification.
 from pyflow.language.python import ast
 from pyflow.language.python import program
 from pyflow.language.python import annotations
+from pyflow.ir.core import MissingAnalysisFact
 
 
 def isZero(arg):
@@ -92,7 +93,7 @@ def isSimpleCall(node):
     return not node.kwds and not node.vargs and not node.kargs
 
 
-def isAnalysisInstance(node, type):
+def isAnalysisInstance(node, type, facts=None, code=None):
     """Check if a node represents an instance of a specific type.
 
     Args:
@@ -106,10 +107,15 @@ def isAnalysisInstance(node, type):
     if isinstance(node, ast.Existing) and node.object.isConstant():
         return isinstance(node.object.pyobj, type)
     elif isinstance(node, ast.Local):
-        if not node.annotation.references[0]:
+        if facts is None or code is None:
             return False
-
-        for ref in node.annotation.references[0]:
+        try:
+            references = facts.merged_references(code, node)
+        except MissingAnalysisFact:
+            return False
+        if not references:
+            return False
+        for ref in references:
             obj = ref.xtype.obj
             if not issubclass(obj.pythonType(), type):
                 return False
@@ -155,7 +161,7 @@ class DirectCallRewriter(object):
         rewrites: Dictionary mapping origins to lists of rewrite functions
     """
 
-    def __init__(self, extractor):
+    def __init__(self, extractor, catalog=None):
         """
         Initialize a direct call rewriter.
 
@@ -163,13 +169,28 @@ class DirectCallRewriter(object):
             extractor: Program extractor with stub information
         """
         self.extractor = extractor
+        self.catalog = catalog
         intrinsic_manager = getattr(extractor, "intrinsic_manager", None)
         self.exports = (
             intrinsic_manager.stubs.exports if intrinsic_manager is not None else {}
         )
         self.rewrites = {}
 
-    def _getOrigin(self, func):
+    @staticmethod
+    def _code_key(code):
+        catalog = getattr(code, "ir_catalog", None)
+        if catalog is None or not catalog.has_node(code, code):
+            raise MissingAnalysisFact(
+                f"direct-call target has no indexed metadata: {code!r}"
+            )
+        origin = catalog.source_of(code, code=code)
+        if origin is None:
+            raise MissingAnalysisFact(
+                f"direct-call target has no source identity: {code!r}"
+            )
+        return origin
+
+    def _getCode(self, func):
         """
         Get the origin of a Python function.
 
@@ -184,11 +205,7 @@ class DirectCallRewriter(object):
         """
         if func in self.extractor:
             obj = self.extractor.getObject(func)
-            origin = self.extractor.desc.origin.get(obj)
-            # Convert list to tuple to make it hashable for use as dictionary key
-            if isinstance(origin, list):
-                return tuple(origin)
-            return origin
+            return self.extractor.desc.callLUT.get(obj)
 
     def addRewrite(self, name, func):
         """
@@ -218,8 +235,7 @@ class DirectCallRewriter(object):
             func: Rewrite function
         """
         attr = type.__dict__[name]
-        origin = self._getOrigin(attr)
-        self._bindOrigin(origin, func)
+        self._bindCode(self._getCode(attr), func)
 
     def function(self, obj, func):
         """
@@ -229,8 +245,7 @@ class DirectCallRewriter(object):
             obj: Function object
             func: Rewrite function
         """
-        origin = self._getOrigin(obj)
-        self._bindOrigin(origin, func)
+        self._bindCode(self._getCode(obj), func)
 
     def _bindCode(self, code, func):
         """
@@ -241,10 +256,23 @@ class DirectCallRewriter(object):
             func: Rewrite function
         """
         if code:
-            origin = code.annotation.origin
-            self._bindOrigin(origin, func)
+            if self.catalog is None:
+                raise MissingAnalysisFact(
+                    "direct-call rewrites require an IR catalog"
+                )
+            if not self.catalog.has_procedure(code):
+                from pyflow.ir.core import index_code
 
-    def _bindOrigin(self, origin, func):
+                index_code(
+                    self.catalog,
+                    code,
+                    module="__intrinsics__",
+                    qualname=code.codeName(),
+                )
+            key = self._code_key(code)
+            self._bindKey(key, func)
+
+    def _bindKey(self, key, func):
         """
         Bind a rewrite function to an origin.
 
@@ -255,13 +283,10 @@ class DirectCallRewriter(object):
             origin: Origin tuple identifying the function
             func: Rewrite function to register
         """
-        # Convert list to tuple to make it hashable for use as dictionary key
-        if isinstance(origin, list):
-            origin = tuple(origin)
-        if origin not in self.rewrites:
-            self.rewrites[origin] = [func]
+        if key not in self.rewrites:
+            self.rewrites[key] = [func]
         else:
-            self.rewrites[origin].append(func)
+            self.rewrites[key].append(func)
 
     def __call__(self, strategy, node):
         """
@@ -277,13 +302,10 @@ class DirectCallRewriter(object):
         Returns:
             Rewritten node if a rule applies, None otherwise
         """
-        origin = node.code.annotation.origin
-        # Convert list to tuple to make it hashable for use as dictionary key
-        if isinstance(origin, list):
-            origin = tuple(origin)
-        if origin in self.rewrites:
+        key = self._code_key(node.code)
+        if key in self.rewrites:
             # Try rewrite functions in order
-            for rewrite in self.rewrites[origin]:
+            for rewrite in self.rewrites[key]:
                 result = rewrite(strategy, node)
                 if result is not None:
                     return result

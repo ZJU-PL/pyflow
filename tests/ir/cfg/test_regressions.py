@@ -1,21 +1,27 @@
 import unittest
+from types import SimpleNamespace
 
 from pyflow.application import context
+from pyflow.ir.core import IRCatalog, SourceAnchor, SymbolKind
 from pyflow.application.errors import TemporaryLimitation
 from pyflow.ir.cdg import construct_cdg
 from pyflow.frontend.extractor import Extractor
 from pyflow.ir.cfg import (
+    CFGVerificationError,
     dfs,
     dom,
     gc,
     graph as cfg_graph,
     inline,
     killflow,
+    optimize,
     ssa,
     structuralanalysis,
     transform,
+    verify_cfg,
 )
 from pyflow.language.python import ast as pyflow_ast
+from pyflow.util.graphalgorithim import dominator
 
 
 def try_semantics(x):
@@ -28,6 +34,27 @@ def try_semantics(x):
     finally:
         marker = 3
     return value
+
+
+def _ssa_fixture(*symbol_groups):
+    catalog = IRCatalog()
+    code = object()
+    procedure = catalog.register_code(
+        code,
+        module="test",
+        qualname="ssa_fixture",
+        anchor=SourceAnchor("test.py", 1, 0),
+    )
+    for group in symbol_groups:
+        first = group[0]
+        symbol = catalog.symbols.fresh(
+            procedure.root_scope,
+            first.name or "tmp",
+            SymbolKind.LOCAL,
+        )
+        for local in group:
+            catalog.bind_symbol(local, symbol.id)
+    return catalog, SimpleNamespace(code=code), code
 
 
 class TestCFGRegressions(unittest.TestCase):
@@ -81,6 +108,31 @@ class TestCFGRegressions(unittest.TestCase):
         self.assertIs(node.getExit(0), case_exit)
         self.assertIsNone(node.getExit("fail"))
         self.assertIsNone(node.getExit("error"))
+
+    def test_constant_switch_optimization_detaches_dead_switch_edges(self):
+        predecessor = cfg_graph.Suite(None)
+        switch = cfg_graph.Switch(
+            None,
+            pyflow_ast.Existing(pyflow_ast.program.Object(True)),
+        )
+        true_exit = cfg_graph.Exit(None)
+        false_exit = cfg_graph.Exit(None)
+        fail_exit = cfg_graph.Exit(None)
+        error_exit = cfg_graph.Exit(None)
+
+        predecessor.setExit("normal", switch)
+        switch.setExit("true", true_exit)
+        switch.setExit("false", false_exit)
+        switch.setExit("fail", fail_exit)
+        switch.setExit("error", error_exit)
+
+        optimize.CFGOptPost(self.compiler).visitSwitch(switch)
+
+        replacement = predecessor.getExit("normal")
+        self.assertIs(replacement, true_exit)
+        self.assertEqual(switch.next, {})
+        for terminal in (true_exit, false_exit, fail_exit, error_exit):
+            self.assertNotIn(switch, terminal.reverse())
 
     def test_structuralanalysis_leaves_unreducible_typeswitch_alone(self):
         code = cfg_graph.Code()
@@ -141,10 +193,14 @@ class TestCFGRegressions(unittest.TestCase):
         target = pyflow_ast.Local("x_2")
         arg = pyflow_ast.Local("x_1")
 
-        renamer = ssa.SSARename(None, set(), {merge: {original}})
+        catalog, graph, code = _ssa_fixture((original, target, arg))
+        key = ssa.local_key(catalog, code, original)
+        renamer = ssa.SSARename(
+            graph, set(), {merge: {key}}, {key: original}, catalog
+        )
         renamer.frames = {
-            merge: {original: target},
-            prev_true: {original: arg},
+            merge: {key: target},
+            prev_true: {key: arg},
             prev_false: {},
         }
         renamer.read = {target}
@@ -154,6 +210,122 @@ class TestCFGRegressions(unittest.TestCase):
 
         self.assertEqual(len(merge.phi), 1)
         self.assertEqual(merge.phi[0].arguments, [arg, None])
+
+    def test_merge_redirect_entries_preserves_labelled_edge_invariants(self):
+        switch = cfg_graph.Switch(None, pyflow_ast.Local("condition"))
+        merge = cfg_graph.Merge(None)
+        replacement = cfg_graph.Merge(None)
+        switch.setExit("true", merge)
+        switch.setExit("false", merge)
+
+        merge.redirectEntries(replacement)
+
+        self.assertIs(switch.getExit("true"), replacement)
+        self.assertIs(switch.getExit("false"), replacement)
+        self.assertEqual(merge.iterprev(), [])
+        self.assertEqual(
+            set(replacement.iterprev()),
+            {(switch, "true"), (switch, "false")},
+        )
+
+    def test_cfg_verifier_rejects_missing_predecessor_backlink(self):
+        code = cfg_graph.Code()
+        code.code = pyflow_ast.Code(
+            "broken",
+            pyflow_ast.CodeParameters(None, [], [], [], [], [], None, None, [], None),
+            pyflow_ast.Suite([]),
+        )
+        suite = cfg_graph.Suite(None)
+        code.entryTerminal.next["entry"] = suite
+
+        with self.assertRaisesRegex(CFGVerificationError, "backlink"):
+            verify_cfg(code)
+
+    def test_cfg_verifier_rejects_phi_without_defined_input(self):
+        code = cfg_graph.Code()
+        code.code = pyflow_ast.Code(
+            "broken_phi",
+            pyflow_ast.CodeParameters(None, [], [], [], [], [], None, None, [], None),
+            pyflow_ast.Suite([]),
+        )
+        left = cfg_graph.Suite(None)
+        right = cfg_graph.Suite(None)
+        merge = cfg_graph.Merge(None)
+        code.entryTerminal.setExit("entry", left)
+        left.setExit("normal", merge)
+        right.setExit("normal", merge)
+        merge.phi = [
+            pyflow_ast.Phi(
+                [None, None],
+                pyflow_ast.Local("target"),
+            )
+        ]
+
+        with self.assertRaisesRegex(CFGVerificationError, "no defined"):
+            verify_cfg(code)
+
+    def test_raise_terminates_normal_flow_and_keeps_failure_flow(self):
+        dead = pyflow_ast.Local("dead")
+        code = pyflow_ast.Code(
+            "raises",
+            pyflow_ast.CodeParameters(None, [], [], [], [], [], None, None, [], None),
+            pyflow_ast.Suite(
+                [
+                    pyflow_ast.Raise(
+                        pyflow_ast.Existing(pyflow_ast.program.Object(ValueError)),
+                        None,
+                        None,
+                    ),
+                    pyflow_ast.Assign(
+                        pyflow_ast.Existing(pyflow_ast.program.Object(1)), [dead]
+                    ),
+                ]
+            ),
+        )
+
+        graph = transform.evaluate(self.compiler, code)
+        suite = graph.entryTerminal.getExit("entry")
+
+        self.assertEqual([type(op) for op in suite.ops], [pyflow_ast.Raise])
+        self.assertIsNone(suite.getExit("normal"))
+        self.assertIsNotNone(suite.getExit("fail"))
+
+    def test_typeswitch_bindings_use_branch_specific_ssa_frames(self):
+        before = cfg_graph.Suite(None)
+        left_suite = cfg_graph.Suite(None)
+        right_suite = cfg_graph.Suite(None)
+        left = pyflow_ast.Local("left")
+        right = pyflow_ast.Local("right")
+        condition = pyflow_ast.Local("condition")
+        original = pyflow_ast.TypeSwitch(
+            condition,
+            [
+                pyflow_ast.TypeSwitchCase([], left, pyflow_ast.Suite([])),
+                pyflow_ast.TypeSwitchCase([], right, pyflow_ast.Suite([])),
+            ],
+        )
+        switch = cfg_graph.TypeSwitch(None, original)
+        before.setExit("normal", switch)
+        switch.setExit(0, left_suite)
+        switch.setExit(1, right_suite)
+        catalog, graph, code = _ssa_fixture((condition,), (left,), (right,))
+        left_key = ssa.local_key(catalog, code, left)
+        right_key = ssa.local_key(catalog, code, right)
+        renamer = ssa.SSARename(
+            graph,
+            set(),
+            {},
+            {left_key: left, right_key: right},
+            catalog,
+        )
+        renamer.frames[before] = {}
+
+        renamer.visitTypeSwitch(switch)
+
+        self.assertIn(left_key, renamer.frames[left_suite])
+        self.assertNotIn(right_key, renamer.frames[left_suite])
+        self.assertIn(right_key, renamer.frames[right_suite])
+        self.assertNotIn(left_key, renamer.frames[right_suite])
 
     def test_cfg_cloner_handles_returning_callee(self):
         source = """
@@ -167,10 +339,78 @@ def callee(x):
         callee_code = self.compiler.extractor.convertFunction(ns["callee"], ssa=False)
         callee_cfg = transform.evaluate(self.compiler, callee_code)
 
-        cloned = inline.CFGCloner([]).process(callee_cfg)
+        cloned = inline.CFGCloner().process(callee_cfg)
 
         self.assertEqual(len(cloned.code.codeparameters.params), 1)
         self.assertEqual(len(cloned.code.codeparameters.returnparams), 1)
+
+    def test_cfg_inline_binds_arguments_and_materializes_return_values(self):
+        callee_object = pyflow_ast.program.Object(object())
+        parameter = pyflow_ast.Local("parameter")
+        return_parameter = pyflow_ast.Local("return_parameter")
+        callee = pyflow_ast.Code(
+            "callee",
+            pyflow_ast.CodeParameters(
+                None,
+                [],
+                [],
+                [parameter],
+                ["parameter"],
+                [],
+                None,
+                None,
+                [return_parameter],
+                None,
+            ),
+            pyflow_ast.Suite([pyflow_ast.Return([parameter])]),
+        )
+        callee_cfg = transform.CFGTransformer().process(callee)
+        result = pyflow_ast.Local("result")
+        call = pyflow_ast.Call(
+            pyflow_ast.Existing(callee_object),
+            [pyflow_ast.Existing(pyflow_ast.program.Object(7))],
+            [],
+            None,
+            None,
+        )
+        caller = pyflow_ast.Code(
+            "caller",
+            pyflow_ast.CodeParameters(None, [], [], [], [], [], None, None, [], None),
+            pyflow_ast.Suite([pyflow_ast.Assign(call, [result])]),
+        )
+        caller_cfg = transform.CFGTransformer().process(caller)
+
+        remap = inline.evaluate(
+            self.compiler, caller_cfg, {callee_object: callee_cfg}
+        )
+
+        self.assertEqual(len(remap.call_sites), 1)
+        self.assertEqual(next(iter(remap.call_sites.values())), ())
+        self.assertEqual(remap.allocation_sites, {})
+
+        pending = [caller_cfg.entryTerminal]
+        operations = []
+        seen = set()
+        while pending:
+            block = pending.pop()
+            if block in seen:
+                continue
+            seen.add(block)
+            operations.extend(getattr(block, "ops", ()))
+            pending.extend(block.forward())
+        self.assertFalse(
+            any(
+                isinstance(op, (pyflow_ast.Return,))
+                or isinstance(getattr(op, "expr", None), pyflow_ast.Call)
+                for op in operations
+            )
+        )
+        self.assertTrue(
+            any(
+                isinstance(op, pyflow_ast.Assign) and result in op.lcls
+                for op in operations
+            )
+        )
 
     def test_transform_handles_global_and_nonlocal_declarations(self):
         source = """
@@ -266,6 +506,44 @@ def iterate(items):
         self.assertIsInstance(graph.code.ast.blocks[0], pyflow_ast.For)
         self.assertEqual(graph.code.ast.blocks[0].index.name, "item")
 
+    def test_for_loop_has_iterator_header_and_loop_carried_ssa_phi(self):
+        source = """
+def iterate(items):
+    value = None
+    for item in items:
+        value = item
+    return value
+"""
+        ns = {}
+        exec(source, ns)
+        self.compiler.extractor.source_code = source
+        code = self.compiler.extractor.convertFunction(ns["iterate"], ssa=False)
+        graph = transform.evaluate(self.compiler, code)
+
+        pending = [graph.entryTerminal]
+        nodes = []
+        seen = set()
+        while pending:
+            node = pending.pop()
+            if node in seen:
+                continue
+            seen.add(node)
+            nodes.append(node)
+            pending.extend(node.forward())
+        self.assertTrue(any(isinstance(node, cfg_graph.ForIter) for node in nodes))
+
+        ssa.evaluate(self.compiler, graph)
+        phis = [phi for node in nodes if isinstance(node, cfg_graph.Merge) for phi in node.phi]
+        value_phis = [phi for phi in phis if phi.target.name == "value"]
+        self.assertEqual(len(value_phis), 1)
+        returns = [
+            op
+            for node in nodes
+            for op in getattr(node, "ops", ())
+            if isinstance(op, pyflow_ast.Return)
+        ]
+        self.assertIs(returns[0].exprs[0], value_phis[0].target)
+
     def test_gc_removes_matching_phi_argument_with_dead_predecessor(self):
         code = cfg_graph.Code()
         live = cfg_graph.Suite(None)
@@ -323,6 +601,21 @@ def iterate(items):
         self.assertEqual(len(bound), 1501)
         self.assertEqual(len(roots), 1)
         self.assertIs(roots[0].node, entry)
+
+    def test_immediate_dominators_are_correct_for_irreducible_graph(self):
+        edges = {
+            0: (1, 2),
+            1: (2, 3),
+            2: (1, 2, 3),
+            3: (2, 3),
+        }
+
+        idoms = dominator.findIDoms([0], edges.__getitem__)
+
+        self.assertIsNone(idoms[0])
+        self.assertEqual(idoms[1], 0)
+        self.assertEqual(idoms[2], 0)
+        self.assertEqual(idoms[3], 0)
 
 
 if __name__ == "__main__":

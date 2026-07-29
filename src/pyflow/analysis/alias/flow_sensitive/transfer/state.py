@@ -36,7 +36,7 @@ class _FlowState:
 
     heap_state: HeapState
     environment: HeapEnvironment
-    definition_defaults: dict[tuple[int, int], tuple[HeapLocation, ...]]
+    definition_defaults: dict[tuple[object, int], tuple[HeapLocation, ...]]
 
 
 @dataclass(frozen=True)

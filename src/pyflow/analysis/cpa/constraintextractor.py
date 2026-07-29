@@ -19,9 +19,8 @@ Key design:
 """
 
 from pyflow.util.typedispatch import *
-from pyflow.language.asttools.origin import originString
-
 from pyflow.language.python import ast
+from pyflow.ir.core import format_source
 
 # from pyflow.language.python import program
 # from pyflow.language.python import annotations
@@ -157,9 +156,8 @@ class ExtractDataflow(TypeDispatcher):
     def directCall(self, node, code, selfarg, args, vargs, kargs, targets):
         if self.doOnce(node):
             if not code.isCode():
-                trace = "\n".join(
-                    [originString(part) for part in node.annotation.origin]
-                )
+                catalog = self.code.ir_catalog
+                trace = format_source(catalog.source_of(node, code=self.code))
                 assert False, ("Incorrect code parameter %r\n" % code) + trace
             op = self.contextOp(node)
             kwds = []  # HACK

@@ -11,6 +11,17 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from pyflow.ir.core.storage import (
+    AttributeStorage,
+    CellStorage,
+    GlobalStorage,
+    LocalStorage,
+    StorageLocation,
+    SubscriptStorage,
+    SummaryStorage,
+    UnknownStorage,
+)
+
 if TYPE_CHECKING:
     from .points_to import PointsToGraph
 
@@ -82,7 +93,7 @@ class HeapAbstraction:
         )
         self.allocation_sites = allocation_sites if allocation_sites is not None else {}
         self.site_storage = site_storage if site_storage is not None else {}
-        self._raw_locations: dict[int, HeapLocation] = {}
+        self._raw_locations: dict[object, HeapLocation] = {}
         self._objects: dict[tuple[object, ...], HeapObject] = {}
         self._object_labels: dict[HeapObject, str] = {}
         self._local_names: dict[tuple[int, int], str] = {}
@@ -90,6 +101,8 @@ class HeapAbstraction:
         self._equiv_parent: dict[int, int] = {}
         self._equiv_members: dict[int, set[int]] = {}
         self._site_ref_counts: dict[int, int] = {}
+        self._opaque_sites: list[object] = []
+        self._opaque_raw_objects: list[object] = []
         self.next_site = next_site
 
     def locations_for_local(
@@ -98,10 +111,15 @@ class HeapAbstraction:
         local: object,
     ) -> tuple[HeapLocation, ...]:
         """Return canonical locations currently bound to a local."""
-        return tuple(
+        locations = tuple(
             self.location_for_raw(raw)
             for raw in self._raw_storage_for_local(procedure, local)
         )
+        name = getattr(local, "name", None)
+        if isinstance(name, str):
+            for location in locations:
+                self._object_labels.setdefault(location.root, name)
+        return locations
 
     def location_for_raw(self, raw: object) -> HeapLocation:
         """Canonicalize raw annotation/storage identity into a heap location."""
@@ -110,8 +128,19 @@ class HeapAbstraction:
         if isinstance(raw, HeapObject):
             return HeapLocation(raw)
 
+        if isinstance(raw, AttributeStorage):
+            return self.dynamic_attribute_location(raw.base, str(raw.field))
+        if isinstance(raw, SubscriptStorage):
+            return self.dynamic_subscript_location(
+                raw.base, self._storage_subscript(raw.key)
+            )
+        if isinstance(raw, SummaryStorage):
+            return self._append_selector(
+                self.location_for_raw(raw.base), HeapSelector.summary()
+            )
+
         raw_identity = self._canonical_raw(raw)
-        key = id(raw_identity)
+        key = self._raw_location_key(raw_identity)
         location = self._raw_locations.get(key)
         if location is None:
             location = HeapLocation(self._object_for_raw(raw_identity))
@@ -221,7 +250,7 @@ class HeapAbstraction:
         site_storage: dict[int, tuple[object, ...]] = {}
         site_ref_counts: dict[int, int] = {}
 
-        for key in sorted(keys):
+        for key in sorted(keys, key=self._binding_sort_key):
             incoming = tuple(
                 self._environment_storage(environment, key)
                 for environment in environments
@@ -483,8 +512,10 @@ class HeapAbstraction:
         if isinstance(target_name, str):
             for raw in source_storage:
                 location = self.location_for_raw(raw)
-                if location.root not in self._object_labels:
-                    self._object_labels[location.root] = target_name
+                # Prefer the most recently introduced source-level binding for
+                # diagnostics.  Identity remains the shared SymbolId-backed
+                # root; this label is presentation metadata only.
+                self._object_labels[location.root] = target_name
         source_site = self.allocation_sites.get(source_key)
         target_site = self.allocation_sites.get(target_key)
         if source_site is not None:
@@ -523,7 +554,7 @@ class HeapAbstraction:
             self._decr_site_ref(old_site)
         self.storage_overrides[key] = ()
         if isinstance(name, str):
-            proc_id = id(procedure)
+            proc_id = self._procedure_key(procedure)
             for other_key in list(self.storage_overrides):
                 if (
                     other_key != key
@@ -545,7 +576,7 @@ class HeapAbstraction:
         """Update all storage_overrides entries for the same variable name to
         point to the current *storage*, keeping the local alias class consistent
         across distinct ``Local`` node identities that share a variable name."""
-        proc_id = id(procedure)
+        proc_id = self._procedure_key(procedure)
         for (p_id, l_id), old_storage in list(self.storage_overrides.items()):
             if p_id != proc_id or (p_id, l_id) == except_key:
                 continue
@@ -565,7 +596,7 @@ class HeapAbstraction:
         local: object,
         obj: HeapObject,
         *,
-        include_raw_fallback: bool = False,
+        include_provider_storage: bool = False,
     ) -> None:
         """Bind a local directly to an abstract object root."""
         if not self._is_named_local(local):
@@ -578,7 +609,7 @@ class HeapAbstraction:
         if old_site is not None:
             self._decr_site_ref(old_site)
         storage = (obj,)
-        if include_raw_fallback:
+        if include_provider_storage:
             storage = (*storage, *self._raw_storage_provider(procedure, local))
         self.storage_overrides[key] = storage
         if isinstance(name, str) and obj not in self._object_labels:
@@ -593,7 +624,7 @@ class HeapAbstraction:
         local: object,
         locations: tuple[object, ...],
         *,
-        include_raw_fallback: bool = False,
+        include_provider_storage: bool = False,
     ) -> None:
         """Bind a local to existing abstract locations."""
         if not self._is_named_local(local):
@@ -601,7 +632,7 @@ class HeapAbstraction:
         storage = tuple(
             dict.fromkeys(self.location_for_raw(location) for location in locations)
         )
-        if include_raw_fallback:
+        if include_provider_storage:
             storage = (*storage, *self._raw_storage_provider(procedure, local))
         if not storage:
             return
@@ -626,7 +657,7 @@ class HeapAbstraction:
         index: int,
         actual_locations: tuple[object, ...],
         *,
-        include_raw_fallback: bool = True,
+        include_provider_storage: bool = True,
     ) -> None:
         """Bind a callee formal to actual heap roots or to a parameter root."""
         if actual_locations:
@@ -634,7 +665,7 @@ class HeapAbstraction:
                 procedure,
                 formal,
                 actual_locations,
-                include_raw_fallback=include_raw_fallback,
+                include_provider_storage=include_provider_storage,
             )
             return
         label = getattr(formal, "name", None)
@@ -642,7 +673,7 @@ class HeapAbstraction:
             procedure,
             formal,
             self.parameter_object(procedure, index, label=label),
-            include_raw_fallback=include_raw_fallback,
+            include_provider_storage=include_provider_storage,
         )
 
     def bind_allocation_targets(
@@ -654,7 +685,7 @@ class HeapAbstraction:
         label: str | None = None,
         type_hint: str | None = None,
         context: tuple[object, ...] = (),
-        include_raw_fallback: bool = False,
+        include_provider_storage: bool = False,
     ) -> None:
         """Bind assignment targets to a fixed allocation-site object."""
         obj = self.allocation_object(
@@ -669,7 +700,7 @@ class HeapAbstraction:
                 procedure,
                 target,
                 obj,
-                include_raw_fallback=include_raw_fallback,
+                include_provider_storage=include_provider_storage,
             )
 
     def bind_fresh_return_targets(
@@ -695,7 +726,6 @@ class HeapAbstraction:
                 procedure,
                 target,
                 obj,
-                include_raw_fallback=True,
             )
             name = getattr(target, "name", None)
             if isinstance(name, str):
@@ -726,7 +756,6 @@ class HeapAbstraction:
                 procedure,
                 target,
                 obj,
-                include_raw_fallback=True,
             )
 
     def bind_summary_targets(
@@ -745,7 +774,6 @@ class HeapAbstraction:
                 procedure,
                 target,
                 obj,
-                include_raw_fallback=True,
             )
 
     def update_assignment_aliases(
@@ -772,7 +800,7 @@ class HeapAbstraction:
         name = (
             label or getattr(local, "name", None) or self._describe_raw_storage(local)
         )
-        key = ("local", id(procedure), name)
+        key = ("local", self._procedure_key(procedure), self._local_key(procedure, local))
         return self._object(
             HeapObjectKind.LOCAL,
             key,
@@ -791,7 +819,7 @@ class HeapAbstraction:
         label: str | None = None,
         type_hint: str | None = None,
     ) -> HeapObject:
-        key = ("parameter", id(procedure), index)
+        key = ("parameter", self._procedure_key(procedure), index)
         return self._object(
             HeapObjectKind.PARAMETER,
             key,
@@ -811,7 +839,7 @@ class HeapAbstraction:
         label: str | None = None,
         type_hint: str | None = None,
     ) -> HeapObject:
-        key = ("return", id(procedure), index)
+        key = ("return", self._procedure_key(procedure), index)
         return self._object(
             HeapObjectKind.RETURN,
             key,
@@ -961,7 +989,7 @@ class HeapAbstraction:
         key = (
             (
                 "cell-object",
-                id(name),
+                self._raw_location_key(name),
                 cell_name,
             )
             if has_identity
@@ -1087,9 +1115,10 @@ class HeapAbstraction:
         self,
         *,
         state: object | None = None,
-        program_point_states: dict[int, tuple[object, object]] | None = None,
-        program_point_outcomes: dict[int, dict[str, object]] | None = None,
-        precision_degradations: dict[int, frozenset[str]] | None = None,
+        program_point_states: dict[object, tuple[object, object]] | None = None,
+        program_point_outcomes: dict[object, dict[str, object]] | None = None,
+        precision_degradations: dict[object, frozenset[str]] | None = None,
+        operation_identities: dict[object, object] | None = None,
     ) -> "PointsToGraph":
         """Export heap state as a reusable :class:`PointsToGraph`.
 
@@ -1102,7 +1131,9 @@ class HeapAbstraction:
         from .points_to import HeapValueSnapshot, PointsToEntry, PointsToGraph
 
         entries: dict[HeapLocation, PointsToEntry] = {}
-        for obj_key, obj in self._objects.items():
+        # Alias/reference-count queries may lazily intern summary objects.
+        # Iterate over the entry snapshot so that does not invalidate export.
+        for obj_key, obj in tuple(self._objects.items()):
             location = HeapLocation(obj)
             if location in entries:
                 continue
@@ -1125,25 +1156,25 @@ class HeapAbstraction:
             )
         values = getattr(state, "values", {}) if state is not None else {}
         contaminants = getattr(state, "contaminants", {}) if state is not None else {}
-        point_values: dict[int, tuple[dict, dict]] = {}
-        point_contaminants: dict[int, tuple[dict, dict]] = {}
-        point_absent: dict[int, tuple[frozenset, frozenset]] = {}
-        point_scalar_present: dict[int, tuple[frozenset, frozenset]] = {}
-        point_complete_roots: dict[int, tuple[frozenset, frozenset]] = {}
-        point_locals: dict[int, tuple[dict, dict]] = {}
-        point_outcomes: dict[int, dict[str, HeapValueSnapshot]] = {}
+        point_values: dict[object, tuple[dict, dict]] = {}
+        point_contaminants: dict[object, tuple[dict, dict]] = {}
+        point_absent: dict[object, tuple[frozenset, frozenset]] = {}
+        point_scalar_present: dict[object, tuple[frozenset, frozenset]] = {}
+        point_complete_roots: dict[object, tuple[frozenset, frozenset]] = {}
+        point_locals: dict[object, tuple[dict, dict]] = {}
+        point_outcomes: dict[object, dict[str, HeapValueSnapshot]] = {}
 
         def heap_state(flow):
             return getattr(flow, "heap_state", flow)
 
-        def local_values(flow) -> dict[tuple[int, str], frozenset[HeapLocation]]:
+        def local_values(flow) -> dict[tuple[object, str], frozenset[HeapLocation]]:
             environment = getattr(flow, "environment", None)
             if environment is None:
                 return {}
             keys = set(environment.storage_overrides) | set(
                 environment.allocation_sites
             )
-            result: dict[tuple[int, str], set[HeapLocation]] = {}
+            result: dict[tuple[object, str], set[HeapLocation]] = {}
             for key in keys:
                 name = environment.local_names.get(key)
                 if not name:
@@ -1154,15 +1185,15 @@ class HeapAbstraction:
                 )
             return {key: frozenset(locations) for key, locations in result.items()}
 
-        def payloads(mapping) -> dict[int, frozenset[HeapLocation]]:
+        def payloads(mapping) -> dict[object, frozenset[HeapLocation]]:
             return {
-                id(procedure): frozenset(locations)
+                self._procedure_key(procedure): frozenset(locations)
                 for procedure, locations in mapping.items()
             }
 
-        def return_payloads(mapping) -> dict[int, tuple[frozenset[HeapLocation], ...]]:
+        def return_payloads(mapping) -> dict[object, tuple[frozenset[HeapLocation], ...]]:
             return {
-                id(procedure): tuple(frozenset(slot) for slot in slots)
+                self._procedure_key(procedure): tuple(frozenset(slot) for slot in slots)
                 for procedure, slots in mapping.items()
             }
 
@@ -1260,6 +1291,7 @@ class HeapAbstraction:
             program_point_outcomes=point_outcomes,
             program_point_locals=point_locals,
             precision_degradations=dict(precision_degradations or {}),
+            operation_identities=dict(operation_identities or {}),
         )
 
     def to_dict(self) -> dict:
@@ -1290,8 +1322,29 @@ class HeapAbstraction:
         }
 
     @staticmethod
-    def _local_key(procedure: object, local: object) -> tuple[int, int]:
-        return id(procedure), id(local)
+    def _procedure_key(procedure: object) -> object:
+        catalog = getattr(procedure, "ir_catalog", None)
+        if catalog is not None:
+            return catalog.procedure(procedure).code_id
+        return procedure
+
+    @staticmethod
+    def _binding_sort_key(key: tuple[object, object]) -> tuple[object, ...]:
+        def component(value: object) -> tuple[str, str, str]:
+            name = getattr(value, "name", None)
+            if name is None:
+                code_name = getattr(value, "codeName", None)
+                name = code_name() if callable(code_name) else str(value)
+            return type(value).__module__, type(value).__qualname__, str(name)
+
+        return component(key[0]), component(key[1])
+
+    @staticmethod
+    def _local_key(procedure: object, local: object) -> tuple[object, object]:
+        catalog = getattr(procedure, "ir_catalog", None)
+        if catalog is not None and catalog.has_symbol(local, procedure):
+            return catalog.procedure(procedure).code_id, catalog.symbol_id(local, procedure)
+        return procedure, local
 
     @staticmethod
     def _is_named_local(value: object) -> bool:
@@ -1351,7 +1404,7 @@ class HeapAbstraction:
                 label = str(name) if name is not None else str(slot_name)
                 return self._object(
                     HeapObjectKind.LOCAL,
-                    ("slot-local", id(slot_name), label),
+                    ("slot-local", self._raw_location_key(slot_name), label),
                     label,
                     freshness=HeapObjectFreshness.FRESH,
                     cardinality=HeapObjectCardinality.ONE,
@@ -1363,7 +1416,11 @@ class HeapAbstraction:
                 label = self._object_label(obj) or str(slot_name)
                 return self._object(
                     HeapObjectKind.GLOBAL,
-                    ("slot-existing", id(obj), id(slot_name)),
+                    (
+                        "slot-existing",
+                        self._raw_location_key(obj),
+                        self._raw_location_key(slot_name),
+                    ),
                     label,
                     freshness=HeapObjectFreshness.FRESH,
                     cardinality=HeapObjectCardinality.ONE,
@@ -1371,14 +1428,40 @@ class HeapAbstraction:
                     escape=HeapEscapeState.EXTERNAL,
                 )
         label = self._describe_raw_storage(raw)
+        kind = HeapObjectKind.STORAGE
+        freshness = HeapObjectFreshness.FRESH
+        cardinality = HeapObjectCardinality.ONE
+        escape = HeapEscapeState.LOCAL
+        if isinstance(raw, LocalStorage):
+            kind = HeapObjectKind.LOCAL
+            label = str(raw.symbol)
+            # A symbolic local may contain an arbitrary runtime object.  Only
+            # allocation/call-result bindings establish singleton cardinality.
+            freshness = HeapObjectFreshness.UNKNOWN
+            cardinality = HeapObjectCardinality.UNKNOWN
+        elif isinstance(raw, CellStorage):
+            label = str(raw.symbol)
+        elif isinstance(raw, GlobalStorage):
+            kind = HeapObjectKind.GLOBAL
+            label = f"{raw.module}.{raw.name}" if raw.module else raw.name
+            escape = HeapEscapeState.EXTERNAL
+        elif isinstance(raw, UnknownStorage):
+            kind = HeapObjectKind.UNKNOWN
+            label = raw.kind
+            escape = HeapEscapeState.UNKNOWN
+        raw_key = (
+            ("storage", raw)
+            if isinstance(raw, StorageLocation)
+            else ("raw", self._raw_location_key(raw))
+        )
         return self._object(
-            HeapObjectKind.STORAGE,
-            ("raw", id(raw)),
+            kind,
+            raw_key,
             label,
-            freshness=HeapObjectFreshness.FRESH,
-            cardinality=HeapObjectCardinality.ONE,
+            freshness=freshness,
+            cardinality=cardinality,
             identity=HeapObjectIdentity.SYMBOLIC,
-            escape=HeapEscapeState.LOCAL,
+            escape=escape,
         )
 
     def _site_key(
@@ -1398,34 +1481,55 @@ class HeapAbstraction:
             # token prevents a multi-object site from being misclassified as
             # a singleton and used for unsound strong updates.
             return (
-                (kind, self._site_identity(site), tuple(context))
+                (kind, self._site_identity(site, procedure), tuple(context))
                 if context
-                else (kind, self._site_identity(site))
+                else (kind, self._site_identity(site, procedure))
             )
         if self.policy.allocation_sensitivity is AllocationSensitivity.PROCEDURE:
-            return kind, self._site_identity(procedure), self._site_identity(site)
+            return (
+                kind,
+                self._site_identity(procedure),
+                self._site_identity(site, procedure),
+            )
         return (
             kind,
             self._site_identity(procedure),
-            self._site_identity(site),
+            self._site_identity(site, procedure),
             self._context_key(context),
         )
 
-    @staticmethod
-    def _site_identity(node: object) -> object:
-        origin = getattr(getattr(node, "annotation", None), "origin", ()) or ()
-        meaningful_origin = tuple(item for item in origin if item is not None)
-        if meaningful_origin:
-            return (
-                type(node).__name__,
-                tuple(repr(item) for item in meaningful_origin),
-                getattr(node, "name", None),
+    def _site_identity(
+        self, node: object, procedure: object | None = None
+    ) -> object:
+        if isinstance(node, tuple):
+            return tuple(
+                self._site_identity(item, procedure) for item in node
             )
+        if isinstance(node, (str, bytes, int, float, bool, type(None))):
+            return node
+        catalog = getattr(node, "ir_catalog", None)
+        if catalog is not None and catalog.has_procedure(node):
+            return catalog.procedure(node).code_id
+        catalog = getattr(procedure, "ir_catalog", None)
+        if catalog is not None and catalog.has_node(node, procedure):
+            return catalog.node_id(node, procedure)
         line = getattr(node, "line", None)
         column = getattr(node, "column", None)
-        if line is not None or column is not None:
-            return type(node).__name__, line, column
-        return id(node)
+        name = getattr(node, "name", None)
+        if name is not None or line is not None or column is not None:
+            return (
+                type(node).__module__,
+                type(node).__qualname__,
+                name,
+                line,
+                column,
+            )
+        for ordinal, candidate in enumerate(self._opaque_sites):
+            if candidate is node:
+                return ("opaque-site", ordinal, type(node).__qualname__)
+        ordinal = len(self._opaque_sites)
+        self._opaque_sites.append(node)
+        return ("opaque-site", ordinal, type(node).__qualname__)
 
     def _context_key(self, context: tuple[object, ...]) -> tuple[object, ...]:
         depth = self.policy.context_sensitivity_depth
@@ -1433,15 +1537,15 @@ class HeapAbstraction:
             return ()
         return tuple(context[-depth:])
 
-    @staticmethod
-    def _site_label(prefix: str, site: object) -> str:
+    def _site_label(self, prefix: str, site: object) -> str:
         line = getattr(site, "line", None)
         column = getattr(site, "column", None)
         if line is not None and column is not None:
             return f"{prefix}@{line}:{column}"
         if line is not None:
             return f"{prefix}@{line}"
-        return f"{prefix}@{type(site).__name__}:{id(site):x}"
+        identity = self._site_identity(site)
+        return f"{prefix}@{identity}"
 
     @staticmethod
     def _object_label(obj: object) -> str | None:
@@ -1461,6 +1565,42 @@ class HeapAbstraction:
         if callable(get_forward):
             return get_forward()
         return raw
+
+    def _raw_location_key(self, raw: object) -> object:
+        """Use value identity for typed storage and object identity otherwise."""
+        if isinstance(raw, StorageLocation):
+            return ("storage", raw)
+        missing = object()
+        pyobj = getattr(raw, "pyobj", missing)
+        if pyobj is not missing and isinstance(
+            pyobj, (str, bytes, int, float, bool, type(None))
+        ):
+            return ("literal", type(pyobj).__name__, pyobj)
+        slot_name = getattr(raw, "slotName", None)
+        if slot_name is not None:
+            return (
+                "slot",
+                type(slot_name).__module__,
+                type(slot_name).__qualname__,
+                str(slot_name),
+            )
+        label = getattr(raw, "label", None)
+        if isinstance(label, str):
+            return ("labeled", type(raw).__module__, type(raw).__qualname__, label)
+        for ordinal, candidate in enumerate(self._opaque_raw_objects):
+            if candidate is raw:
+                return ("opaque-storage", ordinal, type(raw).__qualname__)
+        ordinal = len(self._opaque_raw_objects)
+        self._opaque_raw_objects.append(raw)
+        return ("opaque-storage", ordinal, type(raw).__qualname__)
+
+    @staticmethod
+    def _storage_subscript(key: object) -> str:
+        if key == "*":
+            return "[*]"
+        if isinstance(key, str) and key.startswith("[") and key.endswith("]"):
+            return key
+        return f"[{key!r}]"
 
     @staticmethod
     def _describe_raw_storage(raw: object) -> str:
@@ -1554,10 +1694,9 @@ class HeapAbstraction:
         site = self.allocation_sites.get(key)
         if site is not None:
             return self.site_storage[site]
-        # Fallback: name-based lookup for the same variable. The IR may
-        # produce distinct Local nodes (different id()) for the same name
-        # (e.g. CodeParameters vs Assign.expr vs Call args). Try to find
-        # canonical storage before creating a new empty site.
+        # Unindexed standalone IR may contain distinct Local objects for the
+        # same source binding. Coalesce those occurrences by scope/name before
+        # creating a new site; indexed IR reaches this through SymbolId keys.
         canon = self._canonical_storage_for_name(procedure, local)
         if canon is not None:
             return canon
@@ -1589,7 +1728,7 @@ class HeapAbstraction:
         name = getattr(local, "name", None)
         if not name:
             return None
-        proc_id = id(procedure)
+        proc_id = self._procedure_key(procedure)
         # Prefer explicit key->name metadata. This distinguishes separate
         # locals that alias a value from distinct IR nodes for the same local.
         for key, storage in reversed(list(self.storage_overrides.items())):

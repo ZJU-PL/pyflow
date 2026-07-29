@@ -7,6 +7,7 @@ programs by analyzing call graphs and function usage patterns.
 from pyflow.util.typedispatch import *
 from pyflow.language.python import ast
 from pyflow.analysis.astcollector import getOps
+from pyflow.ir.core import AnalysisFacts
 
 
 class Finder(object):
@@ -19,7 +20,7 @@ class Finder(object):
         processed: Set of already processed nodes.
     """
 
-    def __init__(self):
+    def __init__(self, catalog):
         """Initialize the finder."""
         self.processed = set()
 
@@ -62,9 +63,10 @@ class CallGraphFinder(Finder):
         invokesContext: Dictionary mapping call sites to contexts.
     """
 
-    def __init__(self):
+    def __init__(self, catalog):
         """Initialize the call graph finder."""
-        Finder.__init__(self)
+        Finder.__init__(self, catalog)
+        self.facts = AnalysisFacts(catalog)
         self.liveFunc = set()
         self.liveFuncContext = {}
         self.invokes = {}
@@ -93,25 +95,19 @@ class CallGraphFinder(Finder):
         if node not in self.invokesContext:
             self.invokesContext[node] = set()
 
-        cindex = code.annotation.contexts.index(context)
-
         children = []
 
         ops, _lcls = getOps(code)
         for op in ops:
-            assert hasattr(op.annotation, "invokes"), op
-            invokes = op.annotation.invokes
-            if invokes is not None:
-                cinvokes = invokes[1][cindex]
-                for dstf, dstc in cinvokes:
-                    child = (dstf, dstc)
-                    self.invokes[code].add(dstf)
-                    self.invokesContext[node].add(child)
-                    children.append(child)
+            for dstf, dstc in self.facts.call_targets(code, op, context):
+                child = (dstf, dstc)
+                self.invokes[code].add(dstf)
+                self.invokesContext[node].add(child)
+                children.append(child)
         return children
 
 
-def makeCGF(interface):
+def makeCGF(prgm):
     """Build a CallGraphFinder from the program interface.
 
     Bug fix: the original code silently swallowed *all* exceptions (both
@@ -119,22 +115,20 @@ def makeCGF(interface):
     This meant that bugs in annotation processing or context lookup were
     silently ignored, producing an incomplete call graph with no diagnostic.
 
-    The fix logs unexpected exceptions at WARNING level so they are visible
-    without crashing the analysis.  The ``AssertionError`` case (context not
-    in code.annotation.contexts) is a legitimate "not yet analysed" condition
-    and is still skipped, but now with a debug-level log message.
+    Missing published entry contexts and unexpected failures are reported
+    explicitly instead of being recovered from legacy annotations.
     """
     import logging
     _LOG = logging.getLogger(__name__)
 
-    cgf = CallGraphFinder()
-    entry_code_contexts = interface.entryCodeContexts()
+    cgf = CallGraphFinder(prgm.ir)
+    entry_code_contexts = prgm.interface.entryCodeContexts()
     unexpected = []
     for code, context in entry_code_contexts:
         try:
-            if context not in code.annotation.contexts:
+            if context not in cgf.facts.contexts(code):
                 raise ValueError(
-                    "Entry-point context missing from code annotation contexts: "
+                    "Entry-point context missing from published analysis contexts: "
                     f"{code!r} / {context!r}"
                 )
             cgf.process((code, context))
@@ -158,7 +152,7 @@ def makeCGF(interface):
 
 
 def findLiveCode(prgm):
-    cgf = makeCGF(prgm.interface)
+    cgf = makeCGF(prgm)
 
     entry = set()
     for code in prgm.interface.entryCode():
@@ -174,14 +168,16 @@ def findLiveCode(prgm):
 
 
 def findLiveContexts(prgm):
-    cgf = makeCGF(prgm.interface)
+    cgf = makeCGF(prgm)
     prgm.liveCode = cgf.liveFunc
     return cgf.liveFuncContext
 
 
 class LiveHeapFinder(TypeDispatcher):
-    def __init__(self):
+    def __init__(self, catalog):
         TypeDispatcher.__init__(self)
+        self.facts = AnalysisFacts(catalog)
+        self.code = None
         self.live = set()
 
     def addReferences(self, refs):
@@ -193,24 +189,26 @@ class LiveHeapFinder(TypeDispatcher):
 
     @dispatch(ast.Existing)
     def visitExisting(self, node):
-        self.addReferences(node.annotation.references.merged)
+        self.addReferences(self.facts.merged_references(self.code, node))
 
     @dispatch(ast.Local)
     def visitReference(self, node):
-        self.addReferences(node.annotation.references.merged)
+        self.addReferences(self.facts.merged_references(self.code, node))
 
     @defaultdispatch
     def visitDefault(self, node):
         node.visitChildren(self)
 
     def process(self, code):
+        self.code = code
         code.visitChildrenForced(self)
+        self.code = None
 
 
 # HACK this may not be 100% sound, as it only considers references
 # directly embedded in the code.
 def findLiveHeap(prgm):
-    finder = LiveHeapFinder()
+    finder = LiveHeapFinder(prgm.ir)
     for code in prgm.liveCode:
         finder.process(code)
 

@@ -19,6 +19,7 @@ from pyflow.language.python import ast
 from pyflow.ir.cfg import graph as cfg
 from pyflow.ir.cfg.dfs import CFGDFS
 from pyflow.util.graphalgorithim.merge import serializeMerges
+from .revision import CFGTransformTransaction
 
 
 class Expander(TypeDispatcher):
@@ -29,6 +30,9 @@ class Expander(TypeDispatcher):
     to the merge point. The assignments are inserted into new suite
     blocks placed between predecessors and the merge point.
     """
+
+    def __init__(self):
+        self.generated_from = {}
 
     @defaultdispatch
     def default(self, node):
@@ -65,9 +69,8 @@ class Expander(TypeDispatcher):
         Args:
             node: Merge block containing phi nodes
 
-        Note:
-            HACK: Can't handle pushing assignments up into exceptions?
-            Currently only handles normal, true, false, and entry exits.
+        Phi copies are inserted on the exact incoming edge, including typed
+        cases, iterator branches, and exceptional flow.
         """
         if node.phi:
             for i, (prev, prevName) in enumerate(node.iterprev()):
@@ -80,14 +83,13 @@ class Expander(TypeDispatcher):
                 if not transfer:
                     continue
 
-                # HACK can't handle pushing assignments up into exceptions?
-                assert prevName in ("normal", "true", "false", "entry"), prevName
-
                 # Serialize transfers (handle cases where temps are needed)
                 transfer, temps = serializeMerges(transfer, self.createTemp)
 
                 # Create assignment statements
                 stmts = [ast.Assign(src, [dst]) for src, dst in transfer]
+                for stmt in stmts:
+                    self.generated_from[stmt] = tuple(node.phi)
 
                 # Insert suite block with assignments
                 suite = cfg.Suite(prev.region)
@@ -109,5 +111,7 @@ def evaluate(compiler, g):
         compiler: Compiler context (unused, kept for interface consistency)
         g: CFG Code object to expand phi nodes in
     """
+    transaction = CFGTransformTransaction(g, "expand-phi")
     ex = Expander()
     CFGDFS(post=ex).process(g.entryTerminal)
+    return transaction.commit(ex.generated_from)

@@ -217,8 +217,16 @@ class ASTDataflowTaintDetector(Detector):
         if policy is None:
             raise RuntimeError("taint policy must be configured before analysis")
         refinement = None
-        heap_graph = getattr(session, "heap_graph", None)
-        if heap_graph is not None:
+        analysis_facts = getattr(session, "analysis_facts", None)
+        if analysis_facts is not None:
+            from pyflow.ir.core import Capabilities
+
+            has_alias_facts = analysis_facts.catalog.facts.has(
+                Capabilities.ALIAS_POINTS_TO
+            )
+        else:
+            has_alias_facts = False
+        if has_alias_facts:
             from ..semantics import (
                 AdaptiveRefinementProvider,
                 HeapGraphRefinementProvider,
@@ -228,7 +236,7 @@ class ASTDataflowTaintDetector(Detector):
             refinement = AdaptiveRefinementProvider(
                 (
                     HeapGraphRefinementProvider(
-                        heap_graph, heap_location_adapter(heap_graph)
+                        analysis_facts, heap_location_adapter(analysis_facts)
                     ),
                 )
             )
@@ -838,53 +846,17 @@ class ASTDataflowTaintDetector(Detector):
         return_param_deps: Dict[str, Set[str]] = {}
         returns_value: Dict[str, bool] = {}
         try:
-            ipa = session.queries.get_ipa_analysis()
+            summaries = session.queries.get_ipa_function_summaries()
         except Exception:
             return return_param_deps, returns_value
 
-        context_helper = getattr(session.queries, "context", None)
-        if context_helper is None:
-            return return_param_deps, returns_value
-
-        for context in ipa.contexts.values():
-            name = context_helper.context_name(context)
-            if not name:
-                continue
-            params = self._extract_ipa_param_names(context.params)
-            if params:
-                deps = self._extract_ipa_return_deps(context.returns, params)
-                if deps:
-                    return_param_deps.setdefault(name, set()).update(deps)
-            returns_value[name] = returns_value.get(name, False) or bool(
-                context.returns
+        for summary in summaries:
+            if summary.return_dependencies:
+                return_param_deps.setdefault(summary.name, set()).update(
+                    summary.return_dependencies
+                )
+            returns_value[summary.name] = (
+                returns_value.get(summary.name, False) or summary.returns_value
             )
 
         return return_param_deps, returns_value
-
-    @staticmethod
-    def _extract_ipa_param_names(params: Any) -> Set[str]:
-        """Extract parameter names from IPA context."""
-        names: Set[str] = set()
-        for param in params:
-            raw = getattr(param, "name", None)
-            name = getattr(raw, "name", None)
-            if isinstance(name, str):
-                names.add(name)
-            elif isinstance(raw, str):
-                names.add(raw)
-        return names
-
-    @staticmethod
-    def _extract_ipa_return_deps(returns: Any, params: Set[str]) -> Set[str]:
-        """Extract which parameters affect return values."""
-        deps: Set[str] = set()
-        for ret in returns:
-            critical = getattr(ret, "critical", None)
-            values = getattr(critical, "values", ())
-            for value in values:
-                name = getattr(value, "name", None)
-                if isinstance(name, str) and name in params:
-                    deps.add(name)
-                elif isinstance(value, str) and value in params:
-                    deps.add(value)
-        return deps
