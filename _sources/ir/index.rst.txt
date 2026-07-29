@@ -16,6 +16,7 @@ Package Layout
 * :doc:`pdg` — Program Dependence Graphs
 * :doc:`cpg` — Code Property Graphs and CPG-backed taint infrastructure
 * :doc:`storegraph` — Shared heap and points-to representation
+* :doc:`revision` — IR revision summary (completed)
 
 The corresponding source and test trees mirror this organization under
 ``src/pyflow/ir`` and ``tests/ir``.
@@ -31,3 +32,4 @@ The corresponding source and test trees mirror this organization under
    pdg
    cpg
    storegraph
+   revision

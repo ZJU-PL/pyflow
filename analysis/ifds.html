@@ -93,7 +93,7 @@
 <li class="toctree-l4"><a class="reference internal" href="#findings-and-sarif">Findings and SARIF</a></li>
 <li class="toctree-l4"><a class="reference internal" href="#language-semantics">Language Semantics</a></li>
 <li class="toctree-l4"><a class="reference internal" href="#rule-pack-quality-and-performance">Rule-Pack Quality and Performance</a></li>
-<li class="toctree-l4"><a class="reference internal" href="#annotation-synthesis">Annotation Synthesis</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#ir-semantics-and-facts">IR semantics and facts</a></li>
 <li class="toctree-l4"><a class="reference internal" href="#see-also">See Also</a></li>
 </ul>
 </li>
@@ -276,13 +276,13 @@ elapsed time, completion status, termination reason, and solver statistics.
 The IFDS test suite also includes a small concrete reference solver and
 randomized differential tests for regression detection.</p>
 </section>
-<section id="annotation-synthesis">
-<h2>Annotation Synthesis<a class="headerlink" href="#annotation-synthesis" title="Link to this heading"></a></h2>
-<p>The IFDS frontend includes an annotation synthesis engine
-(<code class="docutils literal notranslate"><span class="pre">frontend/annotations.py</span></code>) that generates syntactic annotations to prepare
-code for IFDS analysis. A fallback mechanism
-(<code class="docutils literal notranslate"><span class="pre">frontend/annotation_fallback.py</span></code>) handles cases where synthesis cannot be
-applied.</p>
+<section id="ir-semantics-and-facts">
+<h2>IR semantics and facts<a class="headerlink" href="#ir-semantics-and-facts" title="Link to this heading"></a></h2>
+<p>The IFDS frontend consumes context-independent operation semantics and
+revisioned analysis facts from the program IR catalog.  Calls, storage effects,
+and source identities are therefore shared with CFG, DDG, IPA, and CPA rather
+than reconstructed from AST annotations.  Missing required facts remain
+explicitly unavailable; IFDS does not synthesize a private fallback view.</p>
 </section>
 <section id="see-also">
 <h2>See Also<a class="headerlink" href="#see-also" title="Link to this heading"></a></h2>

@@ -6,7 +6,7 @@
   <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Data Flow Intermediate Representation &mdash; pyflow 0.1.0 documentation</title>
+  <title>IR Revision &mdash; pyflow 0.1.0 documentation</title>
       <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
       <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=9edc463e" />
 
@@ -19,8 +19,8 @@
     <script src="../_static/js/theme.js"></script>
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="Data Dependence Graph (DDG)" href="ddg.html" />
-    <link rel="prev" title="Control Dependence Graph (CDG)" href="cdg.html" /> 
+    <link rel="next" title="Analysis Modules" href="../analysis/index.html" />
+    <link rel="prev" title="Store Graph Intermediate Representation" href="storegraph.html" /> 
 </head>
 
 <body class="wy-body-for-nav"> 
@@ -70,21 +70,16 @@
 <li class="toctree-l1 current"><a class="reference internal" href="index.html#package-layout">Package Layout</a><ul class="current">
 <li class="toctree-l2"><a class="reference internal" href="cfg.html">Control Flow Graph (CFG)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="cdg.html">Control Dependence Graph (CDG)</a></li>
-<li class="toctree-l2 current"><a class="current reference internal" href="#">Data Flow Intermediate Representation</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="#key-features">Key Features</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#core-components">Core Components</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="#graph-model">Graph Model</a></li>
-</ul>
-</li>
-<li class="toctree-l3"><a class="reference internal" href="#usage">Usage</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#see-also">See Also</a></li>
-</ul>
-</li>
+<li class="toctree-l2"><a class="reference internal" href="dataflow.html">Data Flow Intermediate Representation</a></li>
 <li class="toctree-l2"><a class="reference internal" href="ddg.html">Data Dependence Graph (DDG)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="pdg.html">Program Dependence Graph (PDG)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="cpg.html">Code Property Graph (CPG)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="storegraph.html">Store Graph Intermediate Representation</a></li>
-<li class="toctree-l2"><a class="reference internal" href="revision.html">IR Revision</a></li>
+<li class="toctree-l2 current"><a class="current reference internal" href="#">IR Revision</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#key-changes">Key changes</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#status">Status</a></li>
+</ul>
+</li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../analysis/index.html">Analysis Modules</a></li>
@@ -119,9 +114,9 @@
   <ul class="wy-breadcrumbs">
       <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
           <li class="breadcrumb-item"><a href="index.html">Intermediate Representations</a></li>
-      <li class="breadcrumb-item active">Data Flow Intermediate Representation</li>
+      <li class="breadcrumb-item active">IR Revision</li>
       <li class="wy-breadcrumbs-aside">
-            <a href="../_sources/ir/dataflow.rst.txt" rel="nofollow"> View page source</a>
+            <a href="../_sources/ir/revision.rst.txt" rel="nofollow"> View page source</a>
       </li>
   </ul>
   <hr/>
@@ -129,56 +124,43 @@
           <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
            <div itemprop="articleBody">
              
-  <section id="data-flow-intermediate-representation">
-<h1>Data Flow Intermediate Representation<a class="headerlink" href="#data-flow-intermediate-representation" title="Link to this heading"></a></h1>
-<p>PyFlow’s data flow IR provides a lowered, instruction-level representation of
-Python programs for data flow analysis.  It decomposes Python AST nodes into
-a linear sequence of operations and storage slots, making it the foundation
-for both intra- and inter-procedural data flow analyses.</p>
-<section id="key-features">
-<h2>Key Features<a class="headerlink" href="#key-features" title="Link to this heading"></a></h2>
+  <section id="ir-revision">
+<h1>IR Revision<a class="headerlink" href="#ir-revision" title="Link to this heading"></a></h1>
+<p>The IR revision replaced process-local object identity, analysis annotations,
+and client-specific recovery logic with deterministic typed identities,
+program-owned provenance, mandatory structural semantics, revisioned
+context-sensitive facts, and explicit invalidation after IR changes.</p>
+<section id="key-changes">
+<h2>Key changes<a class="headerlink" href="#key-changes" title="Link to this heading"></a></h2>
 <ul class="simple">
-<li><p><strong>Linearized Operations</strong>: Python expressions are broken into primitive ops
-(load, store, call, binary, unary, etc.)</p></li>
-<li><p><strong>SSA Integration</strong>: Converts data flow IR into Static Single Assignment
-form for precise use-def chains</p></li>
-<li><p><strong>Dependency Tracking</strong>: Tracks data dependencies between operations for
-program slicing and optimization</p></li>
-<li><p><strong>Type Annotations</strong>: Associates type information with operations and slots</p></li>
+<li><p><strong>Typed deterministic identities</strong> — <code class="docutils literal notranslate"><span class="pre">SymbolId</span></code>, <code class="docutils literal notranslate"><span class="pre">ValueId</span></code>, <code class="docutils literal notranslate"><span class="pre">NodeId</span></code>,
+<code class="docutils literal notranslate"><span class="pre">BlockId</span></code>, <code class="docutils literal notranslate"><span class="pre">EdgeId</span></code>, <code class="docutils literal notranslate"><span class="pre">CallSiteId</span></code>, <code class="docutils literal notranslate"><span class="pre">AllocationSiteId</span></code>, <code class="docutils literal notranslate"><span class="pre">ContextId</span></code>,
+and <code class="docutils literal notranslate"><span class="pre">InlineInstanceId</span></code> replace address-derived and name-based references.</p></li>
+<li><p><strong>Program-owned source and provenance</strong> — <code class="docutils literal notranslate"><span class="pre">SourceMap</span></code> in <code class="docutils literal notranslate"><span class="pre">IRCatalog</span></code>
+replaces ad hoc <code class="docutils literal notranslate"><span class="pre">annotation.origin</span></code> inspection. Typed <code class="docutils literal notranslate"><span class="pre">SourceSpan</span></code> and
+<code class="docutils literal notranslate"><span class="pre">TransformationFrame</span></code> records track source and transform history.</p></li>
+<li><p><strong>Structural semantics</strong> — <code class="docutils literal notranslate"><span class="pre">IRSemantics</span></code> provides one
+<code class="docutils literal notranslate"><span class="pre">OperationSemantics</span></code> record per normalized operation, separate from
+analysis facts.</p></li>
+<li><p><strong>Revisioned fact store</strong> — typed <code class="docutils literal notranslate"><span class="pre">Capability</span></code> descriptors and
+<code class="docutils literal notranslate"><span class="pre">FactSnapshot</span></code> records replace stringly typed annotation fields. Each
+snapshot is tagged with the analyzed IR revision.</p></li>
+<li><p><strong>No hidden recovery</strong> — missing semantics is a verifier error; missing
+facts produce explicit <code class="docutils literal notranslate"><span class="pre">unavailable</span></code> results; clients never reconstruct
+designated facts privately.</p></li>
+<li><p><strong>Corrected CFG/CDG/DDG</strong> — edge mutation centralized and verified;
+total multi-exit/nontermination-aware CDG; DDG distinguishes value def-use
+from location-specific memory dependence.</p></li>
+<li><p><strong>Consumer migration</strong> — IFDS, IPA, CPA, alias, lifetime, shape, and all
+downstream consumers use catalog queries with explicit precision policies.</p></li>
 </ul>
 </section>
-<section id="core-components">
-<h2>Core Components<a class="headerlink" href="#core-components" title="Link to this heading"></a></h2>
-<section id="graph-model">
-<h3>Graph Model<a class="headerlink" href="#graph-model" title="Link to this heading"></a></h3>
-<p>The data flow graph represents a function as a sequence of operations connected
-by data dependencies.  Each operation produces a result stored in a slot, and
-slots are consumed by subsequent operations.</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyflow.ir.dataflow.convert</span><span class="w"> </span><span class="kn">import</span> <span class="n">CodeToDataflow</span>
-
-<span class="n">converter</span> <span class="o">=</span> <span class="n">CodeToDataflow</span><span class="p">()</span>
-<span class="n">dataflow_graph</span> <span class="o">=</span> <span class="n">converter</span><span class="o">.</span><span class="n">convert</span><span class="p">(</span><span class="n">cfg_block</span><span class="p">)</span>
-</pre></div>
-</div>
-</section>
-</section>
-<section id="usage">
-<h2>Usage<a class="headerlink" href="#usage" title="Link to this heading"></a></h2>
-<p>Data flow IR is used internally by many subsystems:</p>
-<ul class="simple">
-<li><p><strong>IFDS/IDE solver</strong>: builds supergraphs from dataflow IR</p></li>
-<li><p><strong>DDG construction</strong>: derives data dependence edges from def-use chains</p></li>
-<li><p><strong>Optimization passes</strong>: load/store elimination, dead code elimination</p></li>
-<li><p><strong>Analysis clients</strong>: taint, nullness, typestate tracking</p></li>
-</ul>
-</section>
-<section id="see-also">
-<h2>See Also<a class="headerlink" href="#see-also" title="Link to this heading"></a></h2>
-<ul class="simple">
-<li><p><a class="reference internal" href="../analysis/fsdf.html"><span class="doc">Flow-Sensitive Data Flow (FSDF)</span></a> — Flow-Sensitive Data Flow analysis over data flow IR</p></li>
-<li><p><a class="reference internal" href="../analysis/ifds.html"><span class="doc">IFDS/IDE Data Flow Engine</span></a> — IFDS/IDE interprocedural engine consuming data flow IR</p></li>
-<li><p><a class="reference internal" href="ddg.html"><span class="doc">Data Dependence Graph (DDG)</span></a> — Data Dependence Graph built on dataflow IR</p></li>
-</ul>
+<section id="status">
+<h2>Status<a class="headerlink" href="#status" title="Link to this heading"></a></h2>
+<p>The core migration is complete. Remaining work is repository-wide hardening:
+reducing pre-existing lint/type-check debt, benchmarking catalog/fact-store
+memory and latency on large programs, and migrating unrelated traversal-local
+identity indexes if they become serialized or cross-pass state.</p>
 </section>
 </section>
 
@@ -186,8 +168,8 @@ slots are consumed by subsequent operations.</p>
            </div>
           </div>
           <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
-        <a href="cdg.html" class="btn btn-neutral float-left" title="Control Dependence Graph (CDG)" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
-        <a href="ddg.html" class="btn btn-neutral float-right" title="Data Dependence Graph (DDG)" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+        <a href="storegraph.html" class="btn btn-neutral float-left" title="Store Graph Intermediate Representation" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="../analysis/index.html" class="btn btn-neutral float-right" title="Analysis Modules" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
     </div>
 
   <hr/>
