@@ -82,7 +82,7 @@ pyflow security input.py
 pyflow security input.py --engine ast-dataflow
 
 # Run IFDS-backed interprocedural security analysis
-pyflow security input.py --engine ifds --function main --sources input --sinks eval
+pyflow security input.py --engine ifds --sources input --sinks eval
 
 # Run CPG-based context-sensitive security analysis
 pyflow security input.py --engine cpg --framework flask

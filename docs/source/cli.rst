@@ -120,14 +120,15 @@ Run security analysis on Python code using one of the available engines.
   pyflow security package/ --recursive
   pyflow security src/ -v --exclude tests/
   pyflow security input.py --engine ast-dataflow
-  pyflow security input.py --engine ifds --function main --sources input --sinks eval
+  pyflow security input.py --engine ifds --sources input --sinks eval
+  pyflow security project/ --engine ifds --entry app.py --sources input --sinks eval
   pyflow security input.py --engine cpg --framework flask
 
 Options:
 - ``--engine``: Analysis engine (``ast-scanner``, ``ast-dataflow``, ``ifds``, or ``cpg``)
 - ``--config``: JSON config file for IFDS analysis parameters (e.g., solver budgets, trace mode)
 - ``--sources`` / ``--sinks`` / ``--sanitizers``: Function names for taint-style dataflow checks
-- ``--function``: Entry function for the IFDS engine
+- ``--entry``: Entry file relative to the project root for the IFDS engine; auto-detected when omitted
 - ``--analysis``: IFDS client (``taint``, ``nullness``, or ``typestate``)
 - ``--registry-path``: Load custom rule-pack JSON file(s) or directories (both IFDS and CPG engines)
 - ``--typestate-protocol``: Typestate protocols for ``--analysis typestate`` (repeatable; supports ``resource``, ``python-builtins``, ``file``, ``socket``, ``lock``, ``transaction``)

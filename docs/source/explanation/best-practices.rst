@@ -318,7 +318,7 @@ Choose Appropriate Analysis Depth
    pyflow optimize input.py
 
    # Security analysis — use IFDS engine
-   pyflow security input.py --engine ifds --function main
+   pyflow security input.py --engine ifds
 
 Use Caching
 ----------------------------------------

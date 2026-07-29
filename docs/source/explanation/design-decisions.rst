@@ -303,4 +303,4 @@ needs.
    pyflow callgraph input.py --algorithm simple
 
    # Comprehensive analysis
-   pyflow security input.py --engine ifds --function main
+   pyflow security input.py --engine ifds

@@ -198,7 +198,7 @@ AST Dataflow Checker Infrastructure
 
 **ast_dataflow/runner.py**: AST dataflow checker orchestration
 - Runs the full PyFlow analysis pipeline
-- Coordinates supporting analysis passes (IPA/CPA/lifetime)
+- Runs its standalone AST dataflow engine without IPA/CPA/lifetime preparation
 - Feeds analysis results to detectors
 
 **ast_dataflow/detectors/**: AST dataflow detectors
