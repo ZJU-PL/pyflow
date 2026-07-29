@@ -392,6 +392,13 @@ while x > 0:
         result = self.converter._convert_expression(tree.body)
         self.assertIsInstance(result, pyflow_ast.DirectCall)
 
+    def test_nested_comprehension_wraps_each_loop_body_in_suite(self):
+        tree = python_ast.parse("[(x, y) for x in xs for y in ys]", mode="eval")
+
+        result = self.converter._convert_expression(tree.body)
+
+        self.assertIsInstance(result, pyflow_ast.DirectCall)
+
     def test_comprehension_destructuring_happens_before_guard(self):
         """Destructuring targets in comprehensions must be available to guard expressions."""
         tree = python_ast.parse("[(a, b) for (a, b) in items if a]", mode="eval")
@@ -455,6 +462,15 @@ except ZeroDivisionError:
         
         result = self.converter._convert_node(node)
         self.assertIsInstance(result, pyflow_ast.TryExceptFinally)
+
+    def test_bare_except_lowers_to_default_handler(self):
+        tree = python_ast.parse("try:\n    run()\nexcept:\n    recover()\n")
+
+        result = self.converter._convert_node(tree.body[0])
+
+        self.assertIsInstance(result, pyflow_ast.TryExceptFinally)
+        self.assertEqual(result.handlers, [])
+        self.assertIsInstance(result.defaultHandler, pyflow_ast.Suite)
 
     def test_convert_try_except_finally(self):
         """Test converting try-except-finally block."""

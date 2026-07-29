@@ -56,6 +56,33 @@ class IntrinsicManager:
                 return make_params([pyflow_ast.Local("x")])
 
             if op_name in (
+                "interpreter_enter",
+                "interpreter_aenter",
+                "interpreter_aiter",
+                "interpreter_join_str",
+            ):
+                return make_params([pyflow_ast.Local("value")])
+
+            if op_name in ("interpreter_exit", "interpreter_aexit"):
+                return make_params(
+                    [
+                        pyflow_ast.Local("manager"),
+                        pyflow_ast.Local("exception_type"),
+                        pyflow_ast.Local("exception"),
+                        pyflow_ast.Local("traceback"),
+                    ]
+                )
+
+            if op_name == "interpreter_format":
+                return make_params(
+                    [
+                        pyflow_ast.Local("value"),
+                        pyflow_ast.Local("conversion"),
+                        pyflow_ast.Local("format_spec"),
+                    ]
+                )
+
+            if op_name in (
                 "interpreter__neg__",
                 "interpreter__pos__",
                 "interpreter__invert__",
@@ -148,6 +175,19 @@ class IntrinsicManager:
                 pass
             return False
 
+        def _safe_format(value, conversion, format_spec):
+            try:
+                if conversion == ord("s"):
+                    value = str(value)
+                elif conversion == ord("r"):
+                    value = repr(value)
+                elif conversion == ord("a"):
+                    value = ascii(value)
+                spec = "" if format_spec is None else str(format_spec)
+                return format(value, spec)
+            except Exception:
+                return str(value)
+
         def _safe_build_map(pairs, mappings):
             out = {}
             try:
@@ -211,7 +251,7 @@ class IntrinsicManager:
             "interpreter_aexit": _safe_aexit,
             "interpreter_aiter": _safe_aiter,
             # String formatting
-            "interpreter_format": format,
+            "interpreter_format": _safe_format,
             "interpreter_join_str": lambda parts: "".join(str(p) for p in parts),
             "interpreter_build_map": _safe_build_map,
             # Container helpers

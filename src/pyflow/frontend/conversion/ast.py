@@ -1278,12 +1278,14 @@ class ASTConverter:
 
         # Convert except handlers
         handlers = []
+        default_handler = None
         for handler in node.handlers:
             if handler.type:
                 # Convert exception type
                 exc_type = self._convert_expression(handler.type)
             else:
-                exc_type = None
+                default_handler = self.convert_python_ast_to_pyflow(handler.body)
+                continue
 
             if handler.name:
                 # Convert exception variable name
@@ -1313,7 +1315,7 @@ class ASTConverter:
         return pyflow_ast.TryExceptFinally(
             body=try_body,
             handlers=handlers,
-            defaultHandler=None,
+            defaultHandler=default_handler,
             else_=else_body,
             finally_=finally_body,
         )
@@ -2258,7 +2260,7 @@ class ASTConverter:
                 index=index,
                 loopPreamble=pyflow_ast.Suite([]),
                 bodyPreamble=body_preamble,
-                body=inner_body,
+                body=self._ensure_suite(inner_body),
                 else_=pyflow_ast.Suite([]),
             )
 
@@ -2374,7 +2376,7 @@ class ASTConverter:
                 index=index,
                 loopPreamble=pyflow_ast.Suite([]),
                 bodyPreamble=body_preamble,
-                body=inner_body,
+                body=self._ensure_suite(inner_body),
                 else_=pyflow_ast.Suite([]),
             )
 

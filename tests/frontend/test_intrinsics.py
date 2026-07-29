@@ -148,6 +148,29 @@ class TestIntrinsicManager(unittest.TestCase):
             params = code.codeparameters
             self.assertIsNotNone(params)
 
+    def test_structured_intrinsics_have_matching_parameter_counts(self):
+        exports = self.intrinsic_manager.stubs.exports
+        expected = {
+            "interpreter_enter": 1,
+            "interpreter_exit": 4,
+            "interpreter_aenter": 1,
+            "interpreter_aexit": 4,
+            "interpreter_aiter": 1,
+            "interpreter_format": 3,
+            "interpreter_join_str": 1,
+        }
+
+        for name, count in expected.items():
+            self.assertEqual(len(exports[name].codeparameters.params), count)
+
+    def test_interpreter_format_dynamic_fold_models_f_strings(self):
+        formatter = self.intrinsic_manager.stubs.exports[
+            "interpreter_format"
+        ].annotation.dynamicFold
+
+        self.assertEqual(formatter(12.345, -1, ".2f"), "12.35")
+        self.assertEqual(formatter("x", ord("r"), None), "'x'")
+
     def test_stub_code_body(self):
         """Test that stub codes have body."""
         exports = self.intrinsic_manager.stubs.exports
