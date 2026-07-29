@@ -18,8 +18,11 @@ Analysis Commands
 
 Generate and analyze call graphs from Python code.  Accepts a single Python
 file or a project directory.  When given a directory, the entry point is
-auto-detected from ``pyproject.toml``, ``setup.py``, ``__main__.py``, or
-well-known filenames (``main.py``, ``app.py``, ``cli.py``, etc.).
+auto-detected conservatively from ``pyproject.toml``, ``setup.py``, package
+``__main__.py`` files, or well-known root filenames.  Only the strongest
+available evidence tier is considered.  Its entry is selected only when it is
+unambiguous; otherwise the candidates are reported and can be resolved with
+``--entry``.
 
 ::
 

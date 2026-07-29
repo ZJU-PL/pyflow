@@ -36,3 +36,30 @@ def test_callgraph_rejects_constraint_only_flags_for_simple_algorithm(
 
     assert exit_code == 1
     assert "only supported with --algorithm constraint" in capsys.readouterr().err
+
+
+def test_callgraph_reports_ambiguous_detected_entries(tmp_path, capsys):
+    package = tmp_path / "src" / "demo"
+    package.mkdir(parents=True)
+    for name in ("client", "server"):
+        (package / f"{name}.py").write_text("def main(): pass\n", encoding="utf-8")
+    (tmp_path / "pyproject.toml").write_text(
+        """[project]
+name = "demo"
+
+[project.scripts]
+client = "demo.client:main"
+server = "demo.server:main"
+""",
+        encoding="utf-8",
+    )
+    args = SimpleNamespace(entry=None, verbose=False, dry_run=True)
+
+    exit_code = callgraph_cli.run_callgraph(tmp_path, args)
+
+    error = capsys.readouterr().err
+    assert exit_code == 1
+    assert "Multiple entry points detected" in error
+    assert "src/demo/client.py [project.scripts] (command: client)" in error
+    assert "src/demo/server.py [project.scripts] (command: server)" in error
+    assert "Use --entry to select one" in error

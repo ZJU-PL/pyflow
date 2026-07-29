@@ -12,7 +12,11 @@ from pyflow.analysis.callgraph.constraint_based import (
     extract_value_flow_graph_constraint,
 )
 from pyflow.analysis.callgraph.pycg_based import analyze_file_pycg
-from pyflow.frontend.entry_discovery import detect_entry_file, resolve_entry_file
+from pyflow.frontend.entry_discovery import (
+    detect_entry_file,
+    discover_entry_files,
+    resolve_entry_file,
+)
 
 
 def _validate_algorithm_options(args) -> bool:
@@ -126,11 +130,33 @@ def _run_callgraph_on_dir(repo_path: Path, args) -> int:
     else:
         detected = detect_entry_file(repo_path)
         if not detected:
-            print(
-                f"Error: No entry point detected in '{repo_path}'.\n"
-                "Use --entry to specify one relative to the project root.",
-                file=sys.stderr,
-            )
+            candidates = discover_entry_files(repo_path)
+            if candidates:
+                print(
+                    f"Error: Multiple entry points detected in '{repo_path}':",
+                    file=sys.stderr,
+                )
+                for candidate in candidates:
+                    command = (
+                        f" (command: {candidate.command})"
+                        if candidate.command is not None
+                        else ""
+                    )
+                    print(
+                        f"  {candidate.path} [{candidate.source}]{command}",
+                        file=sys.stderr,
+                    )
+                print(
+                    "Use --entry to select one relative to the project root.",
+                    file=sys.stderr,
+                )
+            else:
+                print(
+                    f"Error: No entry point detected in '{repo_path}'.\n"
+                    "This may be a library project; use --entry to specify an "
+                    "analysis root.",
+                    file=sys.stderr,
+                )
             return 1
         entry_rel = str(detected)
         source_desc = "auto-detected"
