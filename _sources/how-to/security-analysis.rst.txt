@@ -44,7 +44,7 @@ Run with a specific analysis engine:
 
    pyflow security input.py --engine ast-scanner
    pyflow security input.py --engine ast-dataflow
-   pyflow security input.py --engine ifds --function main --sources input --sinks eval
+   pyflow security input.py --engine ifds --sources input --sinks eval
    pyflow security input.py --engine cpg --framework flask
 
 AST dataflow completion status

@@ -64,23 +64,26 @@ CLI Usage
 
 IFDS analyses are accessible through ``pyflow security``:
 
+The IFDS frontend builds CFGs directly and publishes constraint-callgraph
+targets. It does not run the IPA or CPA pipelines as a preparation step.
+
 .. code-block:: bash
 
    # Taint analysis
-   pyflow security input.py --engine ifds --function main --sources input --sinks eval
+   pyflow security input.py --engine ifds --sources input --sinks eval
 
    # Typestate analysis
-   pyflow security input.py --engine ifds --function main --analysis typestate
+   pyflow security input.py --engine ifds --analysis typestate
 
    # Nullness analysis
-   pyflow security input.py --engine ifds --function main --analysis nullness
+   pyflow security input.py --engine ifds --analysis nullness
 
    # With specific typestate protocols
-   pyflow security input.py --engine ifds --function main --analysis typestate \
+   pyflow security input.py --engine ifds --analysis typestate \
        --typestate-protocol file --typestate-protocol socket
 
    # CI-friendly bounded analysis with SARIF output
-   pyflow security input.py --engine ifds --function main \
+   pyflow security input.py --engine ifds \
        --sources input --sinks eval --ifds-mode strict \
        --ifds-max-seconds 60 --ifds-max-memory-bytes 1073741824 \
        --format sarif --output pyflow.sarif

@@ -205,21 +205,23 @@ analysis runs</p></li>
 <section id="cli-usage">
 <h2>CLI Usage<a class="headerlink" href="#cli-usage" title="Link to this heading"></a></h2>
 <p>IFDS analyses are accessible through <code class="docutils literal notranslate"><span class="pre">pyflow</span> <span class="pre">security</span></code>:</p>
+<p>The IFDS frontend builds CFGs directly and publishes constraint-callgraph
+targets. It does not run the IPA or CPA pipelines as a preparation step.</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Taint analysis</span>
-pyflow<span class="w"> </span>security<span class="w"> </span>input.py<span class="w"> </span>--engine<span class="w"> </span>ifds<span class="w"> </span>--function<span class="w"> </span>main<span class="w"> </span>--sources<span class="w"> </span>input<span class="w"> </span>--sinks<span class="w"> </span><span class="nb">eval</span>
+pyflow<span class="w"> </span>security<span class="w"> </span>input.py<span class="w"> </span>--engine<span class="w"> </span>ifds<span class="w"> </span>--sources<span class="w"> </span>input<span class="w"> </span>--sinks<span class="w"> </span><span class="nb">eval</span>
 
 <span class="c1"># Typestate analysis</span>
-pyflow<span class="w"> </span>security<span class="w"> </span>input.py<span class="w"> </span>--engine<span class="w"> </span>ifds<span class="w"> </span>--function<span class="w"> </span>main<span class="w"> </span>--analysis<span class="w"> </span>typestate
+pyflow<span class="w"> </span>security<span class="w"> </span>input.py<span class="w"> </span>--engine<span class="w"> </span>ifds<span class="w"> </span>--analysis<span class="w"> </span>typestate
 
 <span class="c1"># Nullness analysis</span>
-pyflow<span class="w"> </span>security<span class="w"> </span>input.py<span class="w"> </span>--engine<span class="w"> </span>ifds<span class="w"> </span>--function<span class="w"> </span>main<span class="w"> </span>--analysis<span class="w"> </span>nullness
+pyflow<span class="w"> </span>security<span class="w"> </span>input.py<span class="w"> </span>--engine<span class="w"> </span>ifds<span class="w"> </span>--analysis<span class="w"> </span>nullness
 
 <span class="c1"># With specific typestate protocols</span>
-pyflow<span class="w"> </span>security<span class="w"> </span>input.py<span class="w"> </span>--engine<span class="w"> </span>ifds<span class="w"> </span>--function<span class="w"> </span>main<span class="w"> </span>--analysis<span class="w"> </span>typestate<span class="w"> </span><span class="se">\</span>
+pyflow<span class="w"> </span>security<span class="w"> </span>input.py<span class="w"> </span>--engine<span class="w"> </span>ifds<span class="w"> </span>--analysis<span class="w"> </span>typestate<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--typestate-protocol<span class="w"> </span>file<span class="w"> </span>--typestate-protocol<span class="w"> </span>socket
 
 <span class="c1"># CI-friendly bounded analysis with SARIF output</span>
-pyflow<span class="w"> </span>security<span class="w"> </span>input.py<span class="w"> </span>--engine<span class="w"> </span>ifds<span class="w"> </span>--function<span class="w"> </span>main<span class="w"> </span><span class="se">\</span>
+pyflow<span class="w"> </span>security<span class="w"> </span>input.py<span class="w"> </span>--engine<span class="w"> </span>ifds<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--sources<span class="w"> </span>input<span class="w"> </span>--sinks<span class="w"> </span><span class="nb">eval</span><span class="w"> </span>--ifds-mode<span class="w"> </span>strict<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--ifds-max-seconds<span class="w"> </span><span class="m">60</span><span class="w"> </span>--ifds-max-memory-bytes<span class="w"> </span><span class="m">1073741824</span><span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--format<span class="w"> </span>sarif<span class="w"> </span>--output<span class="w"> </span>pyflow.sarif
