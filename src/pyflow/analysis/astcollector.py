@@ -141,6 +141,7 @@ class GetOps(TypeDispatcher):
         ast.Import,
         ast.Yield,
         ast.NamedExpr,
+        ast.ConditionalExpr,
     )
     def visitOp(self, node):
         node.visitChildren(self)
@@ -153,13 +154,11 @@ class GetOps(TypeDispatcher):
             return
         raise TypeError(f"unsupported AST collector value: {node!r}")
 
-    @dispatch(list)
-    def visitList(self, node):
-        # Handle raw Python lists that might appear in the AST
+    @dispatch(list, tuple)
+    def visitSequence(self, node):
+        """Traverse structural sequences such as lists and keyword pairs."""
         for item in node:
-            if hasattr(item, "visitChildren"):
-                self(item)
-            # For non-AST items, just skip them
+            self(item)
 
     def process(self, node):
         # This is a shared node, so force traversal

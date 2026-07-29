@@ -40,6 +40,8 @@ CFG_KINDS = frozenset(
     }
 )
 
+_NODE_AST = object()
+
 
 class EngineView(Protocol):
     _cpg: CodePropertyGraph
@@ -595,9 +597,9 @@ class FormalCPGTaintAnalysis:
         self,
         node: PDGNode,
         state: CPGAbstractState,
-        ast_override: Any | None = None,
+        ast_override: Any = _NODE_AST,
     ) -> tuple[CPGAbstractState, tuple[tuple[str, frozenset[TaintFact]], ...]]:
-        ast_node = node.ast_node if ast_override is None else ast_override
+        ast_node = node.ast_node if ast_override is _NODE_AST else ast_override
         if ast_node is None:
             return state, ()
         function = self.cpg.node_func_name(node)

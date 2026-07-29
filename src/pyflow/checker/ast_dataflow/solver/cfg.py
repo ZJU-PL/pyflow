@@ -123,6 +123,14 @@ class MonotoneCFGDataflowSolver(Generic[Node]):
         edge_states: dict[CFGEdge[Node], TaintState] = {
             edge: bottom for edge in graph.edges
         }
+        outgoing_lists: dict[Node, list[CFGEdge[Node]]] = {
+            node: [] for node in graph.nodes
+        }
+        for edge in graph.edges:
+            outgoing_lists[edge.source].append(edge)
+        outgoing_by_node = {
+            node: tuple(edges) for node, edges in outgoing_lists.items()
+        }
         returned: FlowOutcome | None = None
         raised: FlowOutcome | None = None
         yielded: FlowOutcome | None = None
@@ -136,14 +144,15 @@ class MonotoneCFGDataflowSolver(Generic[Node]):
             queued.discard(node)
             steps += 1
             state = in_states[node]
-            result = transfer(node, state, graph.outgoing(node))
+            outgoing_edges = outgoing_by_node[node]
+            result = transfer(node, state, outgoing_edges)
             returned = self._join_outcome(returned, result.returned)
             raised = self._join_outcome(raised, result.raised)
             yielded = self._join_outcome(yielded, result.yielded)
             events.update(result.events)
 
             supplied = {edge for edge, _state in result.outgoing}
-            declared = set(graph.outgoing(node))
+            declared = set(outgoing_edges)
             if not supplied <= declared:
                 raise ValueError("transfer emitted a state for a non-successor edge")
 

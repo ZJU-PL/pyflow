@@ -260,8 +260,10 @@ class InterproceduralDataflow(object):
 
     def fold(self, targetcontext):
         def notConst(obj):
-            return obj is analysis.cpasignature.Any or (
-                obj is not None and not obj.obj.isConstant()
+            return (
+                obj is None
+                or obj is analysis.cpasignature.Any
+                or not obj.obj.isConstant()
             )
 
         sig = targetcontext.signature

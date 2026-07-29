@@ -234,9 +234,12 @@ class AnalysisSession:
     def _semantic_pass_names() -> List[str]:
         """Return the analysis-only pass set needed by semantic detectors.
 
-        The security checker consumes IPA, CPA, lifetime, and heap facts but
-        should not run optimization cleanup passes. Those passes can mutate the
-        program and invalidate analysis state after it has been computed, which
-        is useful for optimization but not for read-only bug finding.
+        The security checker consumes IPA, CPA, and lifetime facts. Heap facts
+        are an optional precision refinement in the formal taint engine, but the
+        standalone flow-sensitive heap pass can dominate runtime on ordinary
+        projects, so it is not part of the default security pipeline.
+
+        Optimization cleanup passes are also excluded because they can mutate
+        the program and invalidate analysis state after it has been computed.
         """
-        return ["ipa", "cpa", "lifetime", "heap"]
+        return ["ipa", "cpa", "lifetime"]

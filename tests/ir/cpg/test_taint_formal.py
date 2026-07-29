@@ -449,3 +449,15 @@ def test_structured_try_finally_strong_overwrite_kills_taint() -> None:
     result = engine.analyze()
 
     assert result.findings == ()
+
+
+def test_absent_with_finally_does_not_reenter_the_enclosing_try() -> None:
+    result = _engine(
+        "def main():\n"
+        "    for item in items:\n"
+        "        with context:\n"
+        "            eval(input())\n"
+    ).analyze()
+
+    assert len(result.findings) == 1
+    assert result.findings[0].sink_label == "eval"

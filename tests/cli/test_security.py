@@ -245,6 +245,40 @@ def eval_from_input():
     assert "Traceback" not in out
 
 
+def test_security_cli_ast_dataflow_handles_conditional_expression(tmp_path, capsys):
+    sample = tmp_path / "conditional_expression.py"
+    sample.write_text(
+        """
+def choose(training, configured_dropout):
+    dropout = configured_dropout if training else 0
+    consume(dropout_p=dropout)
+
+
+def consume(**kwargs):
+    return kwargs
+""",
+        encoding="utf-8",
+    )
+
+    args = SimpleNamespace(
+        recursive=False,
+        verbose=False,
+        debug=False,
+        exclude="",
+        engine="ast-dataflow",
+        format="text",
+        output=None,
+        targets=[str(sample)],
+    )
+
+    exit_code = security_cli.run_security(args)
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert "Traceback" not in captured.out
+    assert "Traceback" not in captured.err
+
+
 def test_ast_dataflow_json_and_sarif_preserve_trace_and_diagnostics():
     finding = ASTDataflowTaintFinding(
         function="run",

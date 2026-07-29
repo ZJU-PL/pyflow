@@ -567,6 +567,20 @@ class ConstraintExtractor(TypeDispatcher):
             self.context.assign(local, target)
         return None
 
+    @dispatch(ast.ConditionalExpr)
+    def visitConditionalExpr(self, node, targets=None):
+        """Merge the values produced by both arms of a conditional expression."""
+        self(node.test)
+
+        result = None
+        if targets is None:
+            result = self._freshLocal("conditional")
+            targets = [result]
+
+        self(node.body, targets)
+        self(node.orelse, targets)
+        return result
+
     @dispatch(ast.ShortCircutAnd, ast.ShortCircutOr)
     def visitShortCircutBool(self, node, targets=None):
         for term in node.terms:

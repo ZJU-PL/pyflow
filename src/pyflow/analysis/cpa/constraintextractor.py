@@ -69,6 +69,7 @@ class ExtractDataflow(TypeDispatcher):
         self.code = self.context.signature.code
 
         self.processed = set()
+        self._tmpuid = 0
 
     @property
     def exports(self):
@@ -121,6 +122,11 @@ class ExtractDataflow(TypeDispatcher):
             return group.root(name)
         else:
             return None
+
+    def _freshLocalSlot(self, prefix):
+        slot = self.localSlot(ast.Local("%s_%d" % (prefix, self._tmpuid)))
+        self._tmpuid += 1
+        return slot
 
     def existingSlot(self, obj):
         """Get the store graph slot for an existing object.
@@ -565,6 +571,20 @@ class ExtractDataflow(TypeDispatcher):
             self.assign(local, targets[0])
             return targets
         return local
+
+    @dispatch(ast.ConditionalExpr)
+    def visitConditionalExpr(self, node, targets=None):
+        """Merge the possible types from both arms of a conditional expression."""
+        self(node.test)
+
+        result = None
+        if targets is None:
+            result = self._freshLocalSlot("conditional")
+            targets = [result]
+
+        self(node.body, targets)
+        self(node.orelse, targets)
+        return result
 
     @dispatch(ast.AnnAssign)
     def visitAnnAssign(self, node):
