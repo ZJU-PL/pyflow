@@ -147,6 +147,9 @@ Options:
 - ``--framework``: Framework rule packs for the CPG engine
 - ``--format``: Output format: ``text``, ``json``, ``sarif``, ``csv``, ``custom``, ``html``, ``screen``, ``xml``, or ``yaml``.
 - ``--output``: Output file path
+- ``--exit-code-policy``: ``findings`` preserves scanner-style exit codes;
+  ``report`` returns zero after a report is successfully emitted and records
+  findings and analysis completeness in that report
 - ``-r, --recursive``: Scan directories recursively
 - ``-v, --verbose``: Verbose output
 - ``-d, --debug``: Debug output
@@ -154,8 +157,11 @@ Options:
 
 The default ``ast-scanner`` engine is a fast pattern-based checker. The command
 can also dispatch to AST-dataflow, IFDS, and CPG-backed security engines. The
-AST-dataflow and CPG JSON/SARIF output includes an explicit ``complete`` or
-``partial`` status plus diagnostics when limitations affect completeness.
+All security JSON reports include an explicit status. AST-dataflow, IFDS, and
+CPG also include diagnostics when limitations affect completeness. Automated
+drivers should use ``--exit-code-policy report`` and read ``status``,
+``findings``/``results``, and ``diagnostics`` from the report instead of
+interpreting findings or ``partial`` as process failures.
 
 Supply Chain Command
 --------------------

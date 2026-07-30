@@ -42,7 +42,7 @@ This formatter outputs the issues in JSON format.
       },
       "results": [
         {
-          "code": "4     ystr = yaml.dump({'a' : 1, 'b' : 2, 'c' : 3})\n5                         y = yaml.load(ystr)\n6     yaml.dump(y)\n",
+          "code": "5     y = yaml.load(ystr)\n",
           "filename": "examples/yaml_load.py",
           "issue_confidence": "HIGH",
           "issue_severity": "MEDIUM",
@@ -50,7 +50,7 @@ This formatter outputs the issues in JSON format.
             "id": 20,
             "link": "https://cwe.mitre.org/data/definitions/20.html"
           },
-          "issue_text": "Use of unsafe yaml load. Allows instantiation of arbitrary objects. Consider yaml.safe_load().\n",
+          "issue_text": "Use yaml.safe_load() instead.\n",
           "line_number": 5,
           "line_range": [5],
           "more_info": "https://bandit.readthedocs.io/en/latest/",
@@ -101,12 +101,14 @@ def report(manager, fileobj, sev_level, conf_level, lines=-1):
     :param lines: Number of lines to report, -1 for all
     """
 
-    machine_output = {"results": [], "errors": []}
+    machine_output = {"status": "complete", "results": [], "errors": []}
     for fname, reason in manager.get_skipped():
         machine_output["errors"].append({"filename": fname, "reason": reason})
     machine_output["errors"] = sorted(
         machine_output["errors"], key=lambda x: (x["filename"], x["reason"])
     )
+    if machine_output["errors"]:
+        machine_output["status"] = "partial"
 
     results = manager.get_issue_list(sev_level=sev_level, conf_level=conf_level)
 

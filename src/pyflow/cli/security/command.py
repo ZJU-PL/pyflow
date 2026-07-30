@@ -621,41 +621,44 @@ def run_security(args) -> int:
         result = _run_ast_scanner(targets, args, exclude=exclude, recursive=recursive)
         _output_results(engine, result, args)
         issues = result.get_issue_list(b_constants.LOW, b_constants.LOW)
-        return 1 if issues else 0
+        return _security_exit_code(args, status="complete", has_findings=bool(issues))
 
     elif engine == "ast-dataflow":
         result = _run_ast_dataflow(targets, args, exclude=exclude, recursive=recursive)
         _output_results(engine, result, args)
         issues = result.get_issue_list(b_constants.LOW, b_constants.LOW)
         status = getattr(getattr(result, "analysis_result", None), "status", "complete")
-        if status == "partial":
-            return 3
-        if status == "failed":
-            return 4
-        return 1 if issues else 0
+        return _security_exit_code(args, status=status, has_findings=bool(issues))
 
     elif engine == "ifds":
         result = _run_ifds(targets, args)
         _output_results(engine, result, args)
         status = result.get("status", "complete")
-        if status == "invalid":
-            return 2
-        if status in {"partial", "cancelled"}:
-            return 3
-        if status == "failed":
-            return 4
-        return 1 if result.get("findings") else 0
+        return _security_exit_code(
+            args, status=status, has_findings=bool(result.get("findings"))
+        )
 
     elif engine == "cpg":
         result = _run_cpg(targets, args)
         _output_results(engine, result, args)
         status = result.get("status", "complete")
-        if status in {"partial", "cancelled"}:
-            return 3
-        if status == "failed":
-            return 4
-        return 1 if result.get("findings") else 0
+        return _security_exit_code(
+            args, status=status, has_findings=bool(result.get("findings"))
+        )
 
     else:
         print(f"Unknown engine: {engine}", file=sys.stderr)
         return 1
+
+
+def _security_exit_code(args, *, status: str, has_findings: bool) -> int:
+    """Keep process health separate from analysis contents when requested."""
+    if getattr(args, "exit_code_policy", "findings") == "report":
+        return 0
+    if status == "invalid":
+        return 2
+    if status in {"partial", "cancelled"}:
+        return 3
+    if status == "failed":
+        return 4
+    return 1 if has_findings else 0

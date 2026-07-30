@@ -198,6 +198,17 @@ def add_security_parser(subparsers):
         help="Output file (default: stdout)",
     )
     p.add_argument(
+        "--exit-code-policy",
+        choices=["findings", "report"],
+        default="findings",
+        help=(
+            "Exit-code contract: 'findings' preserves scanner-style nonzero "
+            "codes for findings/partial analyses; 'report' returns zero after "
+            "successfully writing a machine-readable analysis report and "
+            "leaves findings/completeness in the report payload"
+        ),
+    )
+    p.add_argument(
         "--custom-template",
         default=None,
         help="Template string for --format custom "

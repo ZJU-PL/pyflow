@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -16,6 +17,7 @@ from pyflow.checker.formatters import json as json_formatter
 from pyflow.checker.formatters import text as text_formatter
 from pyflow.checker.pattern.core import constants as b_constants
 from pyflow.cli.security.reporting import _ast_dataflow_payload, _result_to_sarif
+from pyflow.cli.security.command import _security_exit_code
 
 
 def _totals() -> dict[str, int]:
@@ -59,6 +61,19 @@ def test_formatters_keep_caller_owned_stream_open(formatter):
 
     buffer.write("still-open")
     assert "still-open" in buffer.getvalue()
+
+
+def test_json_formatter_reports_partial_when_files_are_skipped():
+    class PartialManager(_FormatterManager):
+        def get_skipped(self):
+            return [("broken.py", "syntax error")]
+
+    buffer = io.StringIO()
+    json_formatter.report(PartialManager(), buffer, b_constants.LOW, b_constants.LOW)
+
+    payload = json.loads(buffer.getvalue())
+    assert payload["status"] == "partial"
+    assert payload["errors"] == [{"filename": "broken.py", "reason": "syntax error"}]
 
 
 def test_security_cli_threads_pattern_excludes_into_discover_files(
@@ -402,3 +417,10 @@ def route_handler():
     findings = security_cli._run_cpg([str(sample)], args)["findings"]
 
     assert any(finding["sink_label"] == "os.system" for finding in findings)
+
+
+def test_security_report_exit_policy_separates_process_and_analysis_status():
+    args = SimpleNamespace(exit_code_policy="report")
+
+    assert _security_exit_code(args, status="partial", has_findings=True) == 0
+    assert _security_exit_code(args, status="failed", has_findings=False) == 0
