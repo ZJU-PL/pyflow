@@ -267,14 +267,24 @@ unambiguous; otherwise the candidates are reported and can be resolved with
 - <code class="docutils literal notranslate"><span class="pre">--framework</span></code>: Framework rule packs for the CPG engine
 - <code class="docutils literal notranslate"><span class="pre">--format</span></code>: Output format: <code class="docutils literal notranslate"><span class="pre">text</span></code>, <code class="docutils literal notranslate"><span class="pre">json</span></code>, <code class="docutils literal notranslate"><span class="pre">sarif</span></code>, <code class="docutils literal notranslate"><span class="pre">csv</span></code>, <code class="docutils literal notranslate"><span class="pre">custom</span></code>, <code class="docutils literal notranslate"><span class="pre">html</span></code>, <code class="docutils literal notranslate"><span class="pre">screen</span></code>, <code class="docutils literal notranslate"><span class="pre">xml</span></code>, or <code class="docutils literal notranslate"><span class="pre">yaml</span></code>.
 - <code class="docutils literal notranslate"><span class="pre">--output</span></code>: Output file path
-- <code class="docutils literal notranslate"><span class="pre">-r,</span> <span class="pre">--recursive</span></code>: Scan directories recursively
-- <code class="docutils literal notranslate"><span class="pre">-v,</span> <span class="pre">--verbose</span></code>: Verbose output
-- <code class="docutils literal notranslate"><span class="pre">-d,</span> <span class="pre">--debug</span></code>: Debug output
-- <code class="docutils literal notranslate"><span class="pre">--exclude</span></code>: Comma-separated list of paths to exclude</p>
+- <code class="docutils literal notranslate"><span class="pre">--exit-code-policy</span></code>: <code class="docutils literal notranslate"><span class="pre">findings</span></code> preserves scanner-style exit codes;</p>
+<blockquote>
+<div><p><code class="docutils literal notranslate"><span class="pre">report</span></code> returns zero after a report is successfully emitted and records
+findings and analysis completeness in that report</p>
+</div></blockquote>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">-r,</span> <span class="pre">--recursive</span></code>: Scan directories recursively</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">-v,</span> <span class="pre">--verbose</span></code>: Verbose output</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">-d,</span> <span class="pre">--debug</span></code>: Debug output</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--exclude</span></code>: Comma-separated list of paths to exclude</p></li>
+</ul>
 <p>The default <code class="docutils literal notranslate"><span class="pre">ast-scanner</span></code> engine is a fast pattern-based checker. The command
 can also dispatch to AST-dataflow, IFDS, and CPG-backed security engines. The
-AST-dataflow and CPG JSON/SARIF output includes an explicit <code class="docutils literal notranslate"><span class="pre">complete</span></code> or
-<code class="docutils literal notranslate"><span class="pre">partial</span></code> status plus diagnostics when limitations affect completeness.</p>
+All security JSON reports include an explicit status. AST-dataflow, IFDS, and
+CPG also include diagnostics when limitations affect completeness. Automated
+drivers should use <code class="docutils literal notranslate"><span class="pre">--exit-code-policy</span> <span class="pre">report</span></code> and read <code class="docutils literal notranslate"><span class="pre">status</span></code>,
+<code class="docutils literal notranslate"><span class="pre">findings</span></code>/<code class="docutils literal notranslate"><span class="pre">results</span></code>, and <code class="docutils literal notranslate"><span class="pre">diagnostics</span></code> from the report instead of
+interpreting findings or <code class="docutils literal notranslate"><span class="pre">partial</span></code> as process failures.</p>
 </section>
 </section>
 <section id="supply-chain-command">

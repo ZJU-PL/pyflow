@@ -56,6 +56,25 @@ precision reasons, and a bounded source-to-sink ``trace`` for each finding.
 behavior. ``partial`` means findings remain useful, but one or more dynamic
 operations or user contracts crossed the documented soundness boundary.
 
+Machine-readable execution contract
+-----------------------------------
+
+For scripts and benchmark runners, keep process execution separate from the
+analysis result:
+
+.. code-block:: bash
+
+   pyflow security project/ --recursive --engine cpg \
+       --format json --output report.json \
+       --exit-code-policy report
+
+With the ``report`` policy, exit code zero means PyFlow successfully emitted
+the requested report. The report's ``status`` field communicates
+``complete``, ``partial``, ``cancelled``, ``invalid``, or ``failed``; findings
+and diagnostics remain available even when the analysis is partial. The
+default ``findings`` policy retains the traditional scanner exit codes for
+interactive and CI usage.
+
 Available Security Checks
 ==========================
 

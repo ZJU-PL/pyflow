@@ -64,6 +64,7 @@
 <li class="toctree-l4"><a class="reference internal" href="#full-security-analysis">Full security analysis</a></li>
 <li class="toctree-l4"><a class="reference internal" href="#specific-security-engines">Specific security engines</a></li>
 <li class="toctree-l4"><a class="reference internal" href="#ast-dataflow-completion-status">AST dataflow completion status</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#machine-readable-execution-contract">Machine-readable execution contract</a></li>
 </ul>
 </li>
 <li class="toctree-l3"><a class="reference internal" href="#available-security-checks">Available Security Checks</a><ul>
@@ -209,6 +210,22 @@ precision reasons, and a bounded source-to-sink <code class="docutils literal no
 <code class="docutils literal notranslate"><span class="pre">complete</span></code> means the fixed points converged without assumed or unsupported
 behavior. <code class="docutils literal notranslate"><span class="pre">partial</span></code> means findings remain useful, but one or more dynamic
 operations or user contracts crossed the documented soundness boundary.</p>
+</section>
+<section id="machine-readable-execution-contract">
+<h3>Machine-readable execution contract<a class="headerlink" href="#machine-readable-execution-contract" title="Link to this heading"></a></h3>
+<p>For scripts and benchmark runners, keep process execution separate from the
+analysis result:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pyflow<span class="w"> </span>security<span class="w"> </span>project/<span class="w"> </span>--recursive<span class="w"> </span>--engine<span class="w"> </span>cpg<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--format<span class="w"> </span>json<span class="w"> </span>--output<span class="w"> </span>report.json<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--exit-code-policy<span class="w"> </span>report
+</pre></div>
+</div>
+<p>With the <code class="docutils literal notranslate"><span class="pre">report</span></code> policy, exit code zero means PyFlow successfully emitted
+the requested report. The report’s <code class="docutils literal notranslate"><span class="pre">status</span></code> field communicates
+<code class="docutils literal notranslate"><span class="pre">complete</span></code>, <code class="docutils literal notranslate"><span class="pre">partial</span></code>, <code class="docutils literal notranslate"><span class="pre">cancelled</span></code>, <code class="docutils literal notranslate"><span class="pre">invalid</span></code>, or <code class="docutils literal notranslate"><span class="pre">failed</span></code>; findings
+and diagnostics remain available even when the analysis is partial. The
+default <code class="docutils literal notranslate"><span class="pre">findings</span></code> policy retains the traditional scanner exit codes for
+interactive and CI usage.</p>
 </section>
 </section>
 <section id="available-security-checks">
