@@ -1,4 +1,4 @@
-# Repo-Level Regression Corpus
+# Call-Graph Repository Corpus
 
 This directory contains a local, reproducible corpus used to detect analyzer regressions.
 

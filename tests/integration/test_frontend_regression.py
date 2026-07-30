@@ -9,27 +9,36 @@ from pathlib import Path
 
 import pytest
 
-
 ROOT = Path(__file__).resolve().parents[2]
 FRONTEND_REGRESSION_SCRIPT = ROOT / "evaluation" / "frontend_regression.py"
-CORPUS_ROOT = ROOT / "evaluation" / "repo_level"
+CORPUS_ROOT = ROOT / "evaluation" / "callgraph_repositories"
 
 FRONTEND_REGRESSION_SCRIPT_MISSING = not FRONTEND_REGRESSION_SCRIPT.exists()
 
 
 @pytest.mark.integration
 class TestRepoLevelCorpus:
-    """Validate end-to-end repo-level corpus collection and execution."""
+    """Validate end-to-end call-graph repository corpus execution."""
 
     def test_manifest_has_all_projects(self) -> None:
-        manifest = json.loads((CORPUS_ROOT / "manifest.json").read_text(encoding="utf-8"))
+        manifest = json.loads(
+            (CORPUS_ROOT / "manifest.json").read_text(encoding="utf-8")
+        )
         assert manifest["version"] == 1
-        
-        expected_projects = {"cli_tool", "data_pipeline", "ml_utils", "repo_sample", "web_framework"}
+
+        expected_projects = {
+            "cli_tool",
+            "data_pipeline",
+            "ml_utils",
+            "repo_sample",
+            "web_framework",
+        }
         actual_projects = {p["name"] for p in manifest["projects"]}
         assert actual_projects == expected_projects
 
-    @pytest.mark.skipif(FRONTEND_REGRESSION_SCRIPT_MISSING, reason="frontend_regression.py not found")
+    @pytest.mark.skipif(
+        FRONTEND_REGRESSION_SCRIPT_MISSING, reason="frontend_regression.py not found"
+    )
     def test_run_frontend_regression_on_all_projects(self, tmp_path: Path) -> None:
         report_path = tmp_path / "report.json"
         subprocess.run(
@@ -48,8 +57,14 @@ class TestRepoLevelCorpus:
 
         report = json.loads(report_path.read_text(encoding="utf-8"))
         assert "projects" in report
-        
-        expected_projects = {"cli_tool", "data_pipeline", "ml_utils", "repo_sample", "web_framework"}
+
+        expected_projects = {
+            "cli_tool",
+            "data_pipeline",
+            "ml_utils",
+            "repo_sample",
+            "web_framework",
+        }
         actual_projects = {p["project"] for p in report["projects"]}
         assert actual_projects == expected_projects
 
@@ -61,9 +76,11 @@ class TestRepoLevelCorpus:
             telemetry = project.get("frontend_telemetry", {})
             assert isinstance(telemetry, dict)
 
-    @pytest.mark.skipif(FRONTEND_REGRESSION_SCRIPT_MISSING, reason="frontend_regression.py not found")
+    @pytest.mark.skipif(
+        FRONTEND_REGRESSION_SCRIPT_MISSING, reason="frontend_regression.py not found"
+    )
     def test_build_corpus_from_single_project(self, tmp_path: Path) -> None:
-        out = tmp_path / "repo_level"
+        out = tmp_path / "callgraph_repositories"
         project_path = CORPUS_ROOT / "corpus" / "repo_sample"
         cmd = [
             sys.executable,
