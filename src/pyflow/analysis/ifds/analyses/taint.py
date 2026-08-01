@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from typing import FrozenSet, Mapping, Sequence
 
 from pyflow.analysis.entrypoints import EntryPointOptions
-from pyflow.analysis.taint import TaintRule
+from pyflow.analysis.taint import TaintRule, sink_behavior_is_active
 from pyflow.ir.cfg import graph as cfg_graph
 from pyflow.language.python import ast as py_ast
 
@@ -772,6 +772,10 @@ class InterproceduralTaintProblem(
                 call_effect.call_expression, sink_name or "", model
             ):
                 continue
+            if call_effect is not None and not self._sink_behavior_is_active(
+                call_effect.call_expression, model
+            ):
+                continue
             if not result.is_reached(node, ZERO_TAINT):
                 continue
             source_kinds = sorted(
@@ -837,6 +841,14 @@ class InterproceduralTaintProblem(
                     return True
             return True
         return False
+
+    def _sink_behavior_is_active(self, call, model) -> bool:
+        """Evaluate the context-dependent behavior declared by the sink model."""
+        constants = tuple(
+            self._constant_string(argument)
+            for argument in getattr(call, "args", ()) or ()
+        )
+        return sink_behavior_is_active(model.sink_behavior, constants)
 
     @staticmethod
     def _sink_positions_for_call(

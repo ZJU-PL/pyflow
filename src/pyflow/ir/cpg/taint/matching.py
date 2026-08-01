@@ -8,6 +8,9 @@ from pyflow.language.python import ast as py_ast
 from .model import TaintFinding
 
 
+_BARE_ONLY_BUILTIN_SINKS = frozenset({"compile", "eval", "exec"})
+
+
 class _TaintMatchingMixin:
     """Internal mixin composed by CPGTaintEngine."""
 
@@ -377,7 +380,11 @@ class _TaintMatchingMixin:
         for sink in self._sinks:
             if name == sink:
                 return sink
-            if "." not in sink and name.rsplit(".", 1)[-1] == sink:
+            if (
+                "." not in sink
+                and name.rsplit(".", 1)[-1] == sink
+                and (sink not in _BARE_ONLY_BUILTIN_SINKS or "." not in name)
+            ):
                 return sink
         suffix_matches = [
             sink

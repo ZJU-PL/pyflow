@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import json
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import lru_cache
 from pathlib import Path
 from typing import FrozenSet, Iterable, Sequence
@@ -33,7 +33,11 @@ from pyflow.analysis.entrypoints import (
     EntryPointDefaults,
     EntryPointMode,
 )
-from pyflow.analysis.taint import TaintPolicy, TaintRule
+from pyflow.analysis.taint import (
+    SUPPORTED_SINK_BEHAVIORS,
+    TaintPolicy,
+    TaintRule,
+)
 
 _log = logging.getLogger(__name__)
 
@@ -57,11 +61,22 @@ _ROOT_KEYS = frozenset(
 )
 _MODEL_KEYS_BY_TYPE = {
     "taint": frozenset(
-        {"call", "sources", "sinks", "sanitizers", "severity", "cwe", "suggestion"}
+        {
+            "call",
+            "aliases",
+            "sources",
+            "sinks",
+            "sanitizers",
+            "severity",
+            "cwe",
+            "suggestion",
+            "sink_behavior",
+        }
     ),
     "typestate": frozenset(
         {
             "call",
+            "aliases",
             "typestate_action",
             "typestate_protocol",
             "resource_arg_positions",
@@ -70,7 +85,7 @@ _MODEL_KEYS_BY_TYPE = {
             "module_prefixes",
         }
     ),
-    "nullness": frozenset({"call", "nullness_nullable_return"}),
+    "nullness": frozenset({"call", "aliases", "nullness_nullable_return"}),
 }
 _RULE_KEYS = frozenset(
     {"id", "title", "sources", "sinks", "severity", "cwe", "suggestion"}
@@ -163,6 +178,10 @@ class RulePack:
             model = _call_model_from_entry(entry)
             if model is not None:
                 models.append(model)
+                models.extend(
+                    replace(model, name=alias)
+                    for alias in _parse_string_set(entry.get("aliases"))
+                )
         return tuple(models)
 
     def taint_rules(self) -> tuple[TaintRule, ...]:
@@ -281,6 +300,7 @@ def _call_model_from_entry(entry: dict) -> CallModel | None:
         cwe=_optional_str(entry.get("cwe")),
         severity=_optional_str(entry.get("severity")),
         suggestion=_optional_str(entry.get("suggestion")),
+        sink_behavior=_optional_str(entry.get("sink_behavior")),
         nullness_nullable_return=entry.get("nullness_nullable_return", False),
         typestate_actions=_parse_typestate(entry),
         typestate_action_protocols=_parse_typestate_action_protocols(entry),
@@ -434,6 +454,16 @@ def validate_rule_pack_data(
         call = model.get("call")
         if not isinstance(call, str) or not call.strip():
             error(f"{location}.call", "must be a non-empty string")
+        aliases = model.get("aliases")
+        if aliases is not None and (
+            not isinstance(aliases, list)
+            or not aliases
+            or any(
+                not isinstance(alias, str) or not alias.strip()
+                for alias in aliases
+            )
+        ):
+            error(f"{location}.aliases", "must contain non-empty strings")
         legacy_keys = {
             "taint_source",
             "taint_sink",
@@ -532,6 +562,21 @@ def validate_rule_pack_data(
 def _validate_taint_model(entry: dict, location: str, error) -> None:
     if not any(entry.get(key) for key in ("sources", "sinks", "sanitizers")):
         error(location, "must define at least one source, sink, or sanitizer")
+    sink_behavior = entry.get("sink_behavior")
+    if sink_behavior is not None:
+        if (
+            not isinstance(sink_behavior, str)
+            or sink_behavior not in SUPPORTED_SINK_BEHAVIORS
+        ):
+            error(
+                f"{location}.sink_behavior",
+                f"must be one of {sorted(SUPPORTED_SINK_BEHAVIORS)!r}",
+            )
+        if not entry.get("sinks"):
+            error(
+                f"{location}.sink_behavior",
+                "requires at least one sink endpoint",
+            )
     for key in ("sources", "sinks"):
         endpoints = entry.get(key, [])
         if not isinstance(endpoints, list):
@@ -783,7 +828,7 @@ class Registry:
     # ── model access ─────────────────────────────────────────────────
 
     def active_models(self, *, type: str | None = None) -> CallModelRegistry:
-        """Return a ``CallModelRegistry`` merging active packs, optionally filtered by *type*."""
+        """Return models from active packs, optionally filtered by analysis type."""
         models: list[CallModel] = []
         for pack in self._active_packs:
             if type is not None and self._pack_type(pack) != type:

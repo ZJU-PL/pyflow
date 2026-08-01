@@ -49,6 +49,48 @@ def f():
     assert result.status == "complete"
 
 
+def test_literal_jinja_template_requires_explicit_autoescape_bypass():
+    policy = TaintPolicy(
+        source_kinds_by_call={"input": frozenset({"user_input"})},
+        sink_kinds_by_call={"render_template_string": frozenset({"xss"})},
+        sink_positions_by_call={
+            "render_template_string": frozenset({0, 1})
+        },
+        sink_cwe_by_call={"render_template_string": "CWE-79"},
+        sink_behavior_by_call={
+            "render_template_string": "jinja-autoescape"
+        },
+        rules=(
+            TaintRule(
+                "TEST-XSS",
+                "Untrusted data reaches an HTML template",
+                frozenset({"user_input"}),
+                frozenset({"xss"}),
+                cwe="CWE-79",
+            ),
+        ),
+    )
+
+    def analyze(template: str):
+        function = ast.parse(
+            "def f():\n"
+            "    value = input()\n"
+            f"    render_template_string({template!r}, value)\n"
+        ).body[0]
+        return analyze_ast_function(
+            function,
+            procedure="f",
+            filename="sample.py",
+            policy=policy,
+        )
+
+    escaped = analyze("<p>{{ value }}</p><!-- no |safe filter -->")
+    bypassed = analyze("<p>{{ value | safe }}</p>")
+
+    assert _sink_events(escaped) == []
+    assert len(_sink_events(bypassed)) == 1
+
+
 def test_formal_semantics_models_response_body_attribute_as_xss_sink():
     result = _analyze(
         """

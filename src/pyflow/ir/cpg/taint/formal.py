@@ -13,7 +13,7 @@ from collections import deque
 from dataclasses import dataclass, replace
 from typing import Any, Iterable, Mapping, Protocol, Sequence, cast
 
-from pyflow.analysis.taint import TaintRule
+from pyflow.analysis.taint import TaintRule, sink_behavior_is_active
 from pyflow.analysis.entrypoints import ProcedureDescriptor, select_entry_points
 from pyflow.checker.ast_dataflow.domain import (
     AccessSelector,
@@ -62,6 +62,7 @@ _TAINT_PRESERVING_PURE_CALLS = frozenset(
         "lower",
         "lstrip",
         "normpath",
+        "isoformat",
         "realpath",
         "relpath",
         "replace",
@@ -69,6 +70,7 @@ _TAINT_PRESERVING_PURE_CALLS = frozenset(
         "split",
         "splitlines",
         "splitext",
+        "strftime",
         "str",
         "strip",
         "swapcase",
@@ -94,7 +96,10 @@ _TAINT_DROPPING_PURE_CALLS = frozenset(
         "issubclass",
         "len",
         "lexists",
+        "now",
         "startswith",
+        "today",
+        "utcnow",
     }
 )
 _SHELL_OPTION_SUBPROCESS_CALLS = frozenset(
@@ -111,6 +116,7 @@ class EngineView(Protocol):
     _sink_kinds: Mapping[str, frozenset[str]]
     _sink_positions: Mapping[str, frozenset[int]]
     _sink_severity: Mapping[str, str]
+    _sink_behaviors: Mapping[str, str]
     _sanitizers: Mapping[str, frozenset[str]]
     _rules: Sequence[TaintRule]
     _max_call_depth: int
@@ -1391,6 +1397,8 @@ class FormalCPGTaintAnalysis:
         sink_name = self.engine._match_sink_name(model_name)
         if sink_name and not self._shell_sink_is_active(call, sink_name):
             sink_name = ""
+        if sink_name and not self._sink_behavior_is_active(call, sink_name):
+            sink_name = ""
 
         if source_name is not None:
             taint = current.taint.write(call_location, (), strong=True)
@@ -1528,7 +1536,9 @@ class FormalCPGTaintAnalysis:
 
         summary = self._summary_for_call(node, name)
         if summary is not None:
-            facts = self._instantiate_summary(summary, arguments, node, call)
+            facts = self._instantiate_summary(
+                summary, arguments, node, call, state=current
+            )
             taint = current.taint.write(
                 call_location,
                 facts,
@@ -1608,10 +1618,10 @@ class FormalCPGTaintAnalysis:
         name: str,
     ) -> FormalTaintState:
         """Over-approximate side effects omitted by relational summaries."""
-        source_kinds = {
-            kind for kinds in self.engine._source_kinds.values() for kind in kinds
-        } or {"unknown"}
         locations = {argument.location for argument in arguments if argument.location}
+        propagated_facts = {
+            fact for argument in arguments for fact in argument.facts
+        }
         receiver = self._call_receiver(call)
         receiver_location = (
             self._location_of(receiver, self.cpg.node_func_name(node))
@@ -1620,22 +1630,21 @@ class FormalCPGTaintAnalysis:
         )
         if receiver_location is not None:
             locations.add(receiver_location)
+            propagated_facts.update(taint.facts_at(receiver_location))
         locations.update(
             self._local(self._module_function, global_name)
             for global_name in self._module_globals
         )
         for location in locations:
-            for kind in source_kinds:
-                taint = taint.introduce(
-                    location,
-                    {kind},
-                    TaintOrigin(
-                        kind,
-                        self._filename(node),
-                        self.cpg.node_lineno(node),
-                        symbol=f"cpg:{node.node_id}:{name}:summary-side-effect",
-                    ),
-                )
+            taint = taint.write(
+                location,
+                propagated_facts,
+                strong=False,
+                operation=ProvenanceOperation.HAVOC,
+                filename=self._filename(node),
+                line=self.cpg.node_lineno(node),
+                detail=f"summary-side-effect:{name}",
+            )
         return taint
 
     def _conservative_unresolved_read(
@@ -1781,6 +1790,11 @@ class FormalCPGTaintAnalysis:
         caller = self.cpg.node_func_name(call_site)
         parameters, keyword_parameters = self._callee_parameters(callee)
         current, values = self._evaluate_positional_arguments(call, current, call_site)
+        receiver = self._call_receiver(call)
+        if parameters and parameters[0] in {"self", "cls"} and receiver is not None:
+            receiver_value = self._evaluate(receiver, current, call_site)
+            current = receiver_value.state
+            values = [receiver_value, *values]
         keyword_values: dict[str, CPGValue] = {}
         for name, argument in call.kwds or ():
             value = self._evaluate(argument, current, call_site)
@@ -1902,7 +1916,9 @@ class FormalCPGTaintAnalysis:
             if summary is None:
                 continue
             evaluated_state, arguments = self._evaluate_arguments(call, state, node)
-            facts = self._instantiate_summary(summary, arguments, node, call)
+            facts = self._instantiate_summary(
+                summary, arguments, node, call, state=evaluated_state
+            )
             resumed = self._apply_call_result(node, evaluated_state, facts)
             resumed = resumed.with_taint(
                 self._havoc_possible_call_side_effects(
@@ -2272,9 +2288,22 @@ class FormalCPGTaintAnalysis:
         arguments: Sequence[CPGValue],
         node: PDGNode,
         call: py_ast.Call,
+        *,
+        state: CPGAbstractState,
     ) -> frozenset[TaintFact]:
+        receiver_value = None
+        receiver = self._call_receiver(call)
+        if (
+            summary.parameters
+            and summary.parameters[0] in {"self", "cls"}
+            and receiver is not None
+        ):
+            receiver_value = self._evaluate(receiver, state, node)
         bound_arguments = self._bind_summary_arguments(
-            summary.parameters, arguments, call
+            summary.parameters,
+            arguments,
+            call,
+            receiver_value=receiver_value,
         )
         result: set[TaintFact] = set()
         for index in summary.return_parameters:
@@ -2350,14 +2379,25 @@ class FormalCPGTaintAnalysis:
         parameters: Sequence[str],
         arguments: Sequence[Any],
         call: py_ast.Call,
+        *,
+        receiver_value: Any | None = None,
     ) -> list[Any | None]:
         """Bind positional/keyword actuals to relational summary parameters."""
 
         bound: list[Any | None] = [None] * len(parameters)
+        has_implicit_receiver = (
+            bool(parameters)
+            and parameters[0] in {"self", "cls"}
+            and isinstance(call.expr, (py_ast.GetAttr, py_ast.MethodCall))
+        )
+        positional_offset = 1 if has_implicit_receiver else 0
+        if has_implicit_receiver and receiver_value is not None:
+            bound[0] = receiver_value
         positional_count = len(call.args or ())
         for index, value in enumerate(arguments[:positional_count]):
-            if index < len(bound):
-                bound[index] = value
+            parameter_index = index + positional_offset
+            if parameter_index < len(bound):
+                bound[parameter_index] = value
         keyword_values = arguments[positional_count:]
         for (public_name, _expression), value in zip(call.kwds or (), keyword_values):
             try:
@@ -2378,7 +2418,11 @@ class FormalCPGTaintAnalysis:
         sink_name = self.engine._match_sink_name(
             self._qualify_import_alias(raw_name)
         )
-        if not sink_name or not self._shell_sink_is_active(call, sink_name):
+        if (
+            not sink_name
+            or not self._shell_sink_is_active(call, sink_name)
+            or not self._sink_behavior_is_active(call, sink_name)
+        ):
             return ()
         positions = self._sink_positions_for_call(sink_name)
         facts: set[TaintFact] = set()
@@ -2656,6 +2700,15 @@ class FormalCPGTaintAnalysis:
             constant = self._constant_value(value)
             return constant is not False
         return False
+
+    def _sink_behavior_is_active(self, call: py_ast.Call, sink_name: str) -> bool:
+        """Evaluate the context-dependent behavior declared by the sink model."""
+        constants = tuple(
+            self._constant_value(argument) for argument in call.args or ()
+        )
+        return sink_behavior_is_active(
+            self.engine._sink_behaviors.get(sink_name), constants
+        )
 
     def _sink_positions_for_call(self, sink_name: str) -> frozenset[int]:
         """Normalize model ports to explicit arguments in source-level calls."""

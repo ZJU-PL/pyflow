@@ -5,7 +5,7 @@ from __future__ import annotations
 import ast
 import textwrap
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
+from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 from pyflow.analysis.taint import TaintPolicy, TaintRule
 
@@ -546,6 +546,10 @@ class ASTDataflowTaintDetector(Detector):
             sink_suggestion_by_call={
                 **left.sink_suggestion_by_call,
                 **right.sink_suggestion_by_call,
+            },
+            sink_behavior_by_call={
+                **left.sink_behavior_by_call,
+                **right.sink_behavior_by_call,
             },
             sanitizer_kinds_by_call=merge_maps(
                 left.sanitizer_kinds_by_call,

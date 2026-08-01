@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import ast
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Mapping
 
-from pyflow.analysis.taint import TaintPolicy
+from pyflow.analysis.taint import TaintPolicy, sink_behavior_is_active
 
 from ..domain import (
     AccessSelector,
@@ -77,6 +77,7 @@ class ExpressionContext:
     contracts: SanitizerContractRegistry
     shape_contracts: CallShapeContractRegistry
     known_functions: frozenset[str] = frozenset()
+    import_aliases: Mapping[str, str] = field(default_factory=dict)
 
 
 class PythonExpressionSemantics:
@@ -251,10 +252,11 @@ class PythonExpressionSemantics:
 
         source_kinds = self.context.policy.source_kinds_for(name)
         sink_kinds = self.context.policy.sink_kinds_for(name)
-        inactive_shell_sink = bool(sink_kinds) and not self._shell_sink_is_active(
-            call, name
+        inactive_sink = bool(sink_kinds) and (
+            not self._shell_sink_is_active(call, name)
+            or not self._sink_behavior_is_active(call, name)
         )
-        if inactive_shell_sink:
+        if inactive_sink:
             sink_kinds = frozenset()
         if source_kinds:
             for kind in source_kinds:
@@ -399,7 +401,7 @@ class PythonExpressionSemantics:
                             operation=name,
                         )
                     )
-        elif sink_kinds or inactive_shell_sink:
+        elif sink_kinds or inactive_sink:
             # A configured sink is a modeled boundary.  A separate model may
             # describe a tainted return; absent that model the return is safe.
             current = current.write(call_location, (), strong=True)
@@ -535,6 +537,16 @@ class PythonExpressionSemantics:
         if shell is None:
             return False
         return not (isinstance(shell, ast.Constant) and shell.value is False)
+
+    def _sink_behavior_is_active(self, call: ast.Call, name: str) -> bool:
+        """Evaluate the context-dependent behavior declared by the sink model."""
+        constants = tuple(
+            argument.value if isinstance(argument, ast.Constant) else None
+            for argument in call.args
+        )
+        return sink_behavior_is_active(
+            self.context.policy.sink_behavior_for(name), constants
+        )
 
     def _sink_positions_for_call(
         self, name: str, argument_count: int
@@ -874,10 +886,9 @@ class PythonExpressionSemantics:
             return expression.value
         return None
 
-    @staticmethod
-    def _call_name(function: ast.AST) -> str:
+    def _call_name(self, function: ast.AST) -> str:
         if isinstance(function, ast.Name):
-            return function.id
+            return self.context.import_aliases.get(function.id, function.id)
         if isinstance(function, ast.Attribute):
             parts = [function.attr]
             current = function.value
@@ -886,5 +897,10 @@ class PythonExpressionSemantics:
                 current = current.value
             if isinstance(current, ast.Name):
                 parts.append(current.id)
-            return ".".join(reversed(parts))
+            name = ".".join(reversed(parts))
+            head, separator, tail = name.partition(".")
+            qualified = self.context.import_aliases.get(head)
+            if qualified:
+                return f"{qualified}.{tail}" if separator else qualified
+            return name
         return ""

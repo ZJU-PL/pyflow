@@ -5,6 +5,7 @@ from __future__ import annotations
 import ast
 import textwrap
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Mapping
 
 from pyflow.analysis.entrypoints import (
@@ -75,6 +76,7 @@ class ASTInterproceduralAnalyzer:
         ),
     ) -> ASTInterproceduralResult:
         functions: dict[str, ast.FunctionDef | ast.AsyncFunctionDef] = {}
+        import_aliases: dict[str, Mapping[str, str]] = {}
         diagnostics: set[AnalysisUncertainty] = set()
         for name, source in sources_by_name.items():
             try:
@@ -95,6 +97,16 @@ class ASTInterproceduralAnalyzer:
             function = find_function(tree, name)
             if function is not None:
                 functions[name] = function
+                alias_tree = tree
+                filename = (filenames or {}).get(name)
+                if filename:
+                    try:
+                        alias_tree = ast.parse(
+                            Path(filename).read_text(encoding="utf-8")
+                        )
+                    except (OSError, SyntaxError, UnicodeError):
+                        pass
+                import_aliases[name] = self._import_aliases(alias_tree)
 
         summaries = {
             name: ProcedureTaintSummary(
@@ -125,6 +137,7 @@ class ASTInterproceduralAnalyzer:
                     refinement=self.refinement,
                     solver_options=self.solver_options,
                     known_functions=functions,
+                    import_aliases=import_aliases.get(name, {}),
                 )
                 next_analyses[name] = analysis
                 diagnostics.update(analysis.diagnostics)
@@ -168,6 +181,22 @@ class ASTInterproceduralAnalyzer:
             entries=entries,
             entry_point_options=entry_point_options,
         )
+
+    @staticmethod
+    def _import_aliases(tree: ast.AST) -> dict[str, str]:
+        aliases: dict[str, str] = {}
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for imported in node.names:
+                    local = imported.asname or imported.name.split(".", 1)[0]
+                    aliases[local] = imported.name
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                for imported in node.names:
+                    if imported.name == "*":
+                        continue
+                    local = imported.asname or imported.name
+                    aliases[local] = f"{node.module}.{imported.name}"
+        return aliases
 
     def _summarize(
         self,

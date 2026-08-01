@@ -34,6 +34,7 @@
       "call": "render_template_string",
       "cwe": "CWE-79",
       "severity": "high",
+      "sink_behavior": "jinja-autoescape",
       "sinks": [
         {
           "kind": "xss",
@@ -196,6 +197,7 @@
     },
     {
       "call": "flask.render_template_string",
+      "sink_behavior": "jinja-autoescape",
       "sinks": [
         {
           "kind": "xss",
@@ -320,6 +322,8 @@
     },
     {
       "call": "flask.send_file",
+      "cwe": "CWE-22",
+      "severity": "high",
       "sinks": [
         {
           "kind": "file",
@@ -562,6 +566,7 @@
     },
     {
       "call": "flask.helpers.send_file",
+      "aliases": ["send_file"],
       "cwe": "CWE-22",
       "severity": "high",
       "sinks": [
@@ -593,22 +598,10 @@
       ]
     },
     {
-      "call": "flask.templating.render_template",
-      "cwe": "CWE-79",
-      "severity": "high",
-      "sinks": [
-        {
-          "kind": "xss",
-          "port": {
-            "parameter": 0
-          }
-        }
-      ]
-    },
-    {
       "call": "flask.templating.render_template_string",
       "cwe": "CWE-94",
       "severity": "high",
+      "sink_behavior": "jinja-autoescape",
       "sinks": [
         {
           "kind": "ssti",

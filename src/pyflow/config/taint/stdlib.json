@@ -638,13 +638,11 @@
     },
     {
       "call": "werkzeug.utils.secure_filename",
+      "aliases": ["secure_filename"],
       "suggestion": "Use a framework-provided filename canonicalizer before joining untrusted names to server paths.",
       "sanitizers": [
         {
-          "kinds": [
-            "file",
-            "user_input"
-          ],
+          "kinds": "all",
           "port": "return"
         }
       ]

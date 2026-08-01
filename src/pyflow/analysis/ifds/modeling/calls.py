@@ -27,6 +27,7 @@ class CallModel:
     cwe: str | None = None
     severity: str | None = None
     suggestion: str | None = None
+    sink_behavior: str | None = None
     nullness_nullable_return: bool = False
     typestate_actions: FrozenSet[str] = frozenset()
     typestate_action_protocols: FrozenSet[tuple[str, str]] = frozenset()
@@ -49,6 +50,7 @@ class CallModel:
             self.cwe,
             self.severity,
             self.suggestion,
+            self.sink_behavior,
             self.nullness_nullable_return,
             self.typestate_actions,
             self.typestate_action_protocols,
@@ -66,6 +68,7 @@ class CallModel:
             self.source_kinds != other.source_kinds
             or self.sink_kinds != other.sink_kinds
             or self.sanitizer_kinds != other.sanitizer_kinds
+            or self.sink_behavior != other.sink_behavior
             or self.sink_all_arguments != other.sink_all_arguments
             or self.nullness_nullable_return != other.nullness_nullable_return
             or self.typestate_actions != other.typestate_actions
@@ -102,6 +105,7 @@ class CallModel:
             cwe=self.cwe or other.cwe,
             severity=self.severity or other.severity,
             suggestion=self.suggestion or other.suggestion,
+            sink_behavior=self.sink_behavior or other.sink_behavior,
             nullness_nullable_return=(
                 self.nullness_nullable_return or other.nullness_nullable_return
             ),
@@ -198,7 +202,14 @@ class CallModelRegistry:
             for model_name, model in self._models.items()
             if call_name_suffix_matches(model_name, name)
         ]
-        if not candidates and "." in name:
+        modeled_roots = {
+            model_name.split(".", 1)[0]
+            for model_name in self._models
+            if "." in model_name
+            and model_name.split(".", 1)[0] not in {"self", "cls"}
+        }
+        receiver = name.split(".", 1)[0]
+        if not candidates and "." in name and receiver not in modeled_roots:
             leaf = name.rsplit(".", 1)[-1]
             candidates = [
                 model

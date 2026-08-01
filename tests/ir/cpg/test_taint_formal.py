@@ -224,6 +224,22 @@ def test_exact_source_model_precedes_qualified_leaf_aliases() -> None:
     assert result.findings[0].cwe == "CWE-94"
 
 
+def test_bare_builtin_sink_does_not_match_attribute_method_with_same_leaf() -> None:
+    safe = CPGTaintEngine(
+        build_cpg("import re\ndef main():\n    re.compile(input())\n")
+    )
+    safe.add_source("input")
+    safe.add_sink("compile", cwe="CWE-95")
+    unsafe = CPGTaintEngine(
+        build_cpg("def main():\n    compile(input(), '<value>', 'exec')\n")
+    )
+    unsafe.add_source("input")
+    unsafe.add_sink("compile", cwe="CWE-95")
+
+    assert safe.analyze().findings == ()
+    assert len(unsafe.analyze().findings) == 1
+
+
 def test_cpg_abstract_state_is_an_immutable_join_semilattice() -> None:
     location = TaintLocation("x")
     tainted = FormalTaintState().introduce(
@@ -462,6 +478,80 @@ def test_unknown_call_still_taints_its_return_conservatively() -> None:
     )
 
 
+def test_local_summary_side_effects_propagate_without_inventing_taint() -> None:
+    clean = _engine(
+        "state = {}\n"
+        "def is_safe(value):\n"
+        "    return bool(value)\n"
+        "def main():\n"
+        "    candidate = None\n"
+        "    if is_safe(candidate):\n"
+        "        pass\n"
+        "    eval(state)\n"
+    ).analyze()
+    tainted = _engine(
+        "state = {}\n"
+        "def copy(value):\n"
+        "    return value\n"
+        "def main():\n"
+        "    candidate = input()\n"
+        "    if copy(candidate):\n"
+        "        pass\n"
+        "    eval(candidate)\n"
+    ).analyze()
+
+    assert clean.findings == ()
+    assert len(tainted.findings) == 1
+
+
+def test_method_summary_binds_receiver_before_explicit_arguments() -> None:
+    result = _engine(
+        "class Wrapper:\n"
+        "    def pass_through(self, value):\n"
+        "        return value\n"
+        "def main():\n"
+        "    wrapper = Wrapper()\n"
+        "    eval(wrapper.pass_through(input()))\n"
+    ).analyze()
+
+    assert len(result.findings) == 1
+
+
+def test_literal_jinja_template_requires_explicit_autoescape_bypass() -> None:
+    escaped = CPGTaintEngine(
+        build_cpg(
+            "def main():\n"
+            "    render_template_string("
+            "'<p>{{ value }}</p><!-- no |safe filter -->', input())\n"
+        )
+    )
+    escaped.add_source("input")
+    escaped.add_sink(
+        "render_template_string",
+        cwe="CWE-79",
+        kind="xss",
+        positions=frozenset({0, 1}),
+        behavior="jinja-autoescape",
+    )
+    bypassed = CPGTaintEngine(
+        build_cpg(
+            "def main():\n"
+            "    render_template_string('<p>{{ value | safe }}</p>', input())\n"
+        )
+    )
+    bypassed.add_source("input")
+    bypassed.add_sink(
+        "render_template_string",
+        cwe="CWE-79",
+        kind="xss",
+        positions=frozenset({0, 1}),
+        behavior="jinja-autoescape",
+    )
+
+    assert escaped.analyze().findings == ()
+    assert len(bypassed.analyze().findings) == 1
+
+
 def test_local_class_constructor_preserves_arguments_without_inventing_taint() -> None:
     clean = _engine(
         "class Item:\n"
@@ -519,6 +609,17 @@ def test_pure_path_operations_preserve_only_existing_taint() -> None:
         and diagnostic.operation in path_operations
         for diagnostic in clean.diagnostics
     )
+
+
+def test_datetime_formatting_does_not_invent_user_taint() -> None:
+    result = _engine(
+        "from datetime import datetime\n"
+        "def main():\n"
+        "    value = datetime.now().isoformat()\n"
+        "    eval(value)\n"
+    ).analyze()
+
+    assert result.findings == ()
 
 
 def test_interpreter_string_helpers_propagate_only_existing_taint() -> None:

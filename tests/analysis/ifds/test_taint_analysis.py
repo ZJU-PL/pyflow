@@ -115,6 +115,76 @@ def test_interprocedural_taint_analysis_reports_only_unsanitized_sink_flow():
     assert [local.name for local in finding.tainted_arguments] == ["b"]
 
 
+def test_literal_jinja_template_requires_explicit_autoescape_bypass_for_xss_sink():
+    compiler = context.CompilerContext(None)
+    source_code, _ = make_code("source", [], [], return_name="source_ret")
+    template_param = ast.Local("template")
+    value_param = ast.Local("value")
+    render_code, _ = make_code(
+        "render_template_string",
+        [template_param, value_param],
+        [],
+        return_name="render_ret",
+    )
+
+    def analyze(template: str):
+        value = ast.Local("value")
+        main_code, _ = make_code(
+            "main",
+            [],
+            [
+                call_stmt(source_code, [], [value]),
+                call_stmt(
+                    render_code,
+                    [ast.Existing(ast.program.Object(template)), value],
+                ),
+                ast.Return([]),
+            ],
+            return_name="main_ret",
+        )
+        cfgs = [
+            build_cfg(compiler, code)
+            for code in (main_code, source_code, render_code)
+        ]
+        adapter = build_supergraph_from_cfgs(cfgs)
+        configuration = TaintConfiguration(
+            call_models=CallModelRegistry(
+                (
+                    CallModel(
+                        "source", source_kinds=frozenset({"test.source"})
+                    ),
+                    CallModel(
+                        "render_template_string",
+                        sink_kinds=frozenset({"xss"}),
+                        sink_all_arguments=True,
+                        cwe="CWE-79",
+                        sink_behavior="jinja-autoescape",
+                    ),
+                )
+            ),
+            rules=(
+                TaintRule(
+                    "TEST-XSS",
+                    "Untrusted data reaches an HTML template",
+                    frozenset({"test.source"}),
+                    frozenset({"xss"}),
+                    cwe="CWE-79",
+                ),
+            ),
+        )
+        return analyze_taint(
+            adapter,
+            configuration,
+            entry_nodes=[adapter.supergraph.entry_of(cfgs[0])],
+        )
+
+    escaped = analyze("<p>{{ value }}</p><!-- no |safe filter -->")
+    bypassed = analyze("<p>{{ value | safe }}</p>")
+
+    assert escaped.findings == ()
+    assert len(bypassed.findings) == 1
+
+
 def test_file_scan_entry_parameters_are_external_taint_sources():
     compiler = context.CompilerContext(None)
     sink_value = ast.Local("sink_value")
@@ -687,6 +757,144 @@ def test_taint_conservatively_models_unresolved_call_side_effects_when_enabled()
 
     assert len(result.findings) == 1
     assert [local.name for local in result.findings[0].tainted_arguments] == ["target"]
+
+
+def test_unresolved_sanitizer_return_stays_clean_through_preserving_call():
+    compiler = context.CompilerContext(None)
+    source_code, _ = make_code("source", [], [], return_name="source_ret")
+    sink_value = ast.Local("sink_value")
+    sink_code, _ = make_code("sink", [sink_value], [], return_name="sink_ret")
+    tainted = ast.Local("tainted")
+    sanitized = ast.Local("sanitized")
+    path = ast.Local("path")
+    main_code, _ = make_code(
+        "main",
+        [],
+        [
+            call_stmt(source_code, [], [tainted]),
+            ast.Assign(
+                ast.Call(ast.Local("sanitize"), [tainted], [], None, None),
+                [sanitized],
+            ),
+            ast.Assign(
+                ast.Call(ast.Local("join"), [sanitized], [], None, None),
+                [path],
+            ),
+            call_stmt(sink_code, [path]),
+        ],
+        return_name="main_ret",
+    )
+    cfgs = [
+        build_cfg(compiler, code)
+        for code in (main_code, source_code, sink_code)
+    ]
+    adapter = build_supergraph_from_cfgs(cfgs)
+
+    result = analyze_taint(
+        adapter,
+        _config(
+            source_names=frozenset({"source"}),
+            sink_names=frozenset({"sink"}),
+            sanitizer_names=frozenset({"sanitize"}),
+            conservative_unresolved_call_side_effects=True,
+        ),
+        entry_nodes=[adapter.supergraph.entry_of(cfgs[0])],
+    )
+
+    assert result.findings == ()
+
+
+def test_sanitizer_result_strongly_rebinds_a_previously_tainted_local():
+    compiler = context.CompilerContext(None)
+    source_code, _ = make_code("source", [], [], return_name="source_ret")
+    sink_value = ast.Local("sink_value")
+    sink_code, _ = make_code("sink", [sink_value], [], return_name="sink_ret")
+    tainted = ast.Local("tainted")
+    sanitized = ast.Local("sanitized")
+    main_code, _ = make_code(
+        "main",
+        [],
+        [
+            call_stmt(source_code, [], [tainted]),
+            ast.Assign(tainted, [sanitized]),
+            ast.Assign(
+                ast.Call(ast.Local("sanitize"), [tainted], [], None, None),
+                [sanitized],
+            ),
+            call_stmt(sink_code, [sanitized]),
+        ],
+        return_name="main_ret",
+    )
+    cfgs = [
+        build_cfg(compiler, code)
+        for code in (main_code, source_code, sink_code)
+    ]
+    adapter = build_supergraph_from_cfgs(cfgs)
+
+    result = analyze_taint(
+        adapter,
+        _config(
+            source_names=frozenset({"source"}),
+            sink_names=frozenset({"sink"}),
+            sanitizer_names=frozenset({"sanitize"}),
+        ),
+        entry_nodes=[adapter.supergraph.entry_of(cfgs[0])],
+    )
+
+    assert result.findings == ()
+
+
+def test_nested_unresolved_call_does_not_reapply_outer_assignment_early():
+    compiler = context.CompilerContext(None)
+    source_code, _ = make_code("source", [], [], return_name="source_ret")
+    sink_value = ast.Local("sink_value")
+    sink_code, _ = make_code("sink", [sink_value], [], return_name="sink_ret")
+    tainted = ast.Local("tainted")
+    sanitized = ast.Local("sanitized")
+    path = ast.Local("path")
+    main_code, _ = make_code(
+        "main",
+        [],
+        [
+            call_stmt(source_code, [], [tainted]),
+            ast.Assign(
+                ast.Call(ast.Local("sanitize"), [tainted], [], None, None),
+                [sanitized],
+            ),
+            ast.Assign(
+                ast.Call(
+                    ast.Local("join"),
+                    [
+                        ast.Call(ast.Local("lookup"), [], [], None, None),
+                        sanitized,
+                    ],
+                    [],
+                    None,
+                    None,
+                ),
+                [path],
+            ),
+            call_stmt(sink_code, [path]),
+        ],
+        return_name="main_ret",
+    )
+    cfgs = [
+        build_cfg(compiler, code)
+        for code in (main_code, source_code, sink_code)
+    ]
+    adapter = build_supergraph_from_cfgs(cfgs)
+
+    result = analyze_taint(
+        adapter,
+        _config(
+            source_names=frozenset({"source"}),
+            sink_names=frozenset({"sink"}),
+            sanitizer_names=frozenset({"sanitize"}),
+        ),
+        entry_nodes=[adapter.supergraph.entry_of(cfgs[0])],
+    )
+
+    assert result.findings == ()
 
 
 def test_interprocedural_taint_flows_through_if_branch_merge():
@@ -1276,7 +1484,7 @@ def test_interprocedural_taint_tracks_collection_mutator_to_subscript_read():
     assert [local.name for local in result.findings[0].tainted_arguments] == ["out"]
 
 
-def test_interprocedural_taint_tracks_function_style_collection_mutator_to_subscript_read():
+def test_function_style_collection_mutator_reaches_subscript_read():
     compiler = context.CompilerContext(None)
 
     source_code, _ = make_code("source", [], [], return_name="source_ret")

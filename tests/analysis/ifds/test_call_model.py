@@ -163,6 +163,37 @@ def test_registry_does_not_merge_ambiguous_equivalent_leaf_models():
     assert registry.model_for_name("open") is None
 
 
+def test_registry_does_not_reinterpret_known_namespace_attribute_by_leaf():
+    registry = CallModelRegistry(
+        [
+            CallModel(name="os.getenv", source_kinds=frozenset({"env"})),
+            CallModel(
+                name="framework.Request.path",
+                source_kinds=frozenset({"user_input"}),
+            ),
+        ]
+    )
+
+    assert registry.model_for_name("os.path") is None
+
+
+def test_registry_keeps_leaf_fallback_for_instance_receivers():
+    registry = CallModelRegistry(
+        [
+            CallModel(name="self.write", sink_kinds=frozenset({"xss"})),
+            CallModel(
+                name="framework.Request.get_argument",
+                source_kinds=frozenset({"user_input"}),
+            ),
+        ]
+    )
+
+    model = registry.model_for_name("self.get_argument")
+
+    assert model is not None
+    assert model.source_kinds == frozenset({"user_input"})
+
+
 def test_registry_resolves_ambiguous_suffix_when_models_are_semantically_equal():
     registry = CallModelRegistry(
         [

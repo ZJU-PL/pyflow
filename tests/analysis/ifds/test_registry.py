@@ -110,6 +110,19 @@ class TestRegistryLoading:
         assert model.sink_all_arguments is True
         assert model.cwe == "CWE-79"
 
+        autoescaped = r.active_models().model_for_name("render_template")
+        assert autoescaped is None or not autoescaped.sink_kinds
+
+    def test_compatible_qualified_sink_aliases_resolve_short_import_name(self):
+        registry = Registry()
+        registry.activate("flask")
+
+        model = registry.active_models().model_for_name("send_file")
+
+        assert model is not None
+        assert model.sink_kinds == frozenset({"file"})
+        assert model.cwe == "CWE-22"
+
     def test_stdlib_exposes_framework_filename_canonicalizer(self):
         registry = Registry()
         registry.activate("stdlib", type="taint")
@@ -119,7 +132,7 @@ class TestRegistryLoading:
         )
 
         assert model is not None
-        assert model.sanitizer_kinds == frozenset({"file", "user_input"})
+        assert model.sanitizer_kinds == frozenset({"*"})
 
     def test_tornado_models_attribute_user_source(self):
         registry = Registry()
@@ -237,6 +250,70 @@ class TestStrictV2Validation:
         )
         assert any("not valid in schema v2" in issue.message for issue in issues)
 
+    def test_call_model_aliases_are_validated(self):
+        issues = validate_rule_pack_data(
+            {
+                "schema_version": 2,
+                "framework": "invalid-aliases",
+                "version": "2.0",
+                "type": "taint",
+                "models": [
+                    {
+                        "call": "qualified.source",
+                        "aliases": ["", 42],
+                        "sources": [
+                            {"kind": "user_input", "port": "return"}
+                        ],
+                    }
+                ],
+                "rules": [],
+            }
+        )
+
+        assert any("non-empty strings" in issue.message for issue in issues)
+
+    def test_sink_behavior_is_validated_and_requires_a_sink(self):
+        base = {
+            "schema_version": 2,
+            "framework": "invalid-sink-behavior",
+            "version": "2.0",
+            "type": "taint",
+            "rules": [],
+        }
+        unsupported = validate_rule_pack_data(
+            {
+                **base,
+                "models": [
+                    {
+                        "call": "render",
+                        "sink_behavior": "unknown-behavior",
+                        "sinks": [
+                            {"kind": "xss", "port": {"parameter": 0}}
+                        ],
+                    }
+                ],
+            }
+        )
+        missing_sink = validate_rule_pack_data(
+            {
+                **base,
+                "models": [
+                    {
+                        "call": "source",
+                        "sink_behavior": "jinja-autoescape",
+                        "sources": [
+                            {"kind": "user_input", "port": "return"}
+                        ],
+                    }
+                ],
+            }
+        )
+
+        assert any("must be one of" in issue.message for issue in unsupported)
+        assert any(
+            "requires at least one sink" in issue.message for issue in missing_sink
+        )
+
     def test_sink_kind_requires_flow_rule(self):
         issues = validate_rule_pack_data(
             {
@@ -352,6 +429,10 @@ class TestTaintConfiguration:
         mapping = tc.call_models.as_mapping()
         assert mapping["flask.request.args"].source_kinds == frozenset({"user_input"})
         assert "xss" in mapping["flask.render_template_string"].sink_kinds
+        assert (
+            mapping["flask.render_template_string"].sink_behavior
+            == "jinja-autoescape"
+        )
         assert mapping["flask.escape"].sanitizer_kinds == frozenset({"*"})
         assert tc.rules
 

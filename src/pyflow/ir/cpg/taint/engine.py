@@ -66,6 +66,7 @@ class CPGTaintEngine(
         self._sink_kinds: Dict[str, FrozenSet[str]] = {}
         self._sink_positions: Dict[str, FrozenSet[int]] = {}
         self._sink_severity: Dict[str, str] = {}
+        self._sink_behaviors: Dict[str, str] = {}
         self._sanitizers: Dict[str, FrozenSet[str]] = {}
         self._rules: List[TaintRule] = []
         self._max_call_depth: int = max_call_depth
@@ -118,12 +119,15 @@ class CPGTaintEngine(
         *,
         kind: str = "dangerous",
         positions: FrozenSet[int] = frozenset({0}),
+        behavior: str | None = None,
     ) -> None:
         self._sinks[name] = cwe or name
         self._sink_kinds[name] = self._sink_kinds.get(name, frozenset()) | {kind}
         self._sink_positions[name] = (
             self._sink_positions.get(name, frozenset()) | positions
         )
+        if behavior is not None:
+            self._sink_behaviors[name] = behavior
         if not any(kind in rule.sink_kinds for rule in self._rules):
             self._rules.append(
                 TaintRule(
@@ -164,6 +168,8 @@ class CPGTaintEngine(
             ) | policy.sink_positions_by_call.get(name, frozenset({0}))
             if name in policy.sink_severity_by_call:
                 self._sink_severity[name] = policy.sink_severity_by_call[name]
+            if name in policy.sink_behavior_by_call:
+                self._sink_behaviors[name] = policy.sink_behavior_by_call[name]
         for name, kinds in policy.sanitizer_kinds_by_call.items():
             self._sanitizers[name] = self._sanitizers.get(name, frozenset()) | kinds
         known_rule_ids = {rule.rule_id for rule in self._rules}
