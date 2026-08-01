@@ -8,6 +8,7 @@ for specific functions in Python code.
 import sys
 import os
 import fnmatch
+import json
 from pathlib import Path
 
 from pyflow.application.context import CompilerContext
@@ -24,6 +25,8 @@ from pyflow.ir.cfg.dump import generate_clang_style_cfg
 from pyflow.ir.cdg import construct_cdg, dump_cdg
 from pyflow.ir.ddg import construction, dump as ddg_dump
 from pyflow.ir.dataflow import convert
+from pyflow.ir.gir import build_function_gir
+from pyflow.ir.gir.dump import dump_gir_content
 from pyflow.analysis.programculler import findLiveCode
 import pyflow.util.pydot as pydot
 
@@ -88,6 +91,11 @@ def add_ir_parser(subparsers):
         "--dump-ddg",
         metavar="FUNCTION",
         help="Dump Data Dependence Graph for the specified function name",
+    )
+    parser.add_argument(
+        "--dump-gir",
+        metavar="FUNCTION",
+        help="Dump Lian-compatible GIR for the specified function name",
     )
     parser.add_argument(
         "--dump-format",
@@ -246,6 +254,43 @@ def dump_ssa(
     return dump_ir(
         compiler, liveCode, function_name, output_dir, "SSA", format, program
     )
+
+
+def dump_gir(
+    compiler,
+    liveCode,
+    function_name: str,
+    output_dir: str,
+    format: str = "text",
+    program=None,
+):
+    """Dump the Lian-compatible GIR for a specific function."""
+    func = find_function_in_live_code(liveCode, function_name, program)
+    if not func:
+        print(
+            f"Error: Function '{function_name}' not found in live code",
+            file=sys.stderr,
+        )
+        return False
+
+    def _dump_impl():
+        os.makedirs(output_dir, exist_ok=True)
+        output_file = os.path.join(
+            output_dir, f"{function_name}_gir.{format}"
+        )
+        rows = build_function_gir(func, function_name)
+        if format == "json":
+            with open(output_file, "w") as output:
+                json.dump(rows, output, indent=2)
+            print(f"GIR dumped to: {output_file}")
+        elif format == "text":
+            content = dump_gir_content(rows)
+            write_ir_file(output_file, function_name, "GIR", content)
+        else:
+            raise ValueError("GIR dumps support only text and json formats")
+        return True
+
+    return _dump_with_error_handling("GIR", _dump_impl)
 
 
 def _dump_graph_ir(
@@ -413,7 +458,13 @@ def run_ir_dump(input_path: Path, args):
             )
 
         # Skip analysis pipeline for AST/CFG/CDG/DDG dumping since it clears AST blocks
-        if not (args.dump_ast or args.dump_cfg or args.dump_cdg or args.dump_ddg):
+        if not (
+            args.dump_ast
+            or args.dump_cfg
+            or args.dump_cdg
+            or args.dump_ddg
+            or args.dump_gir
+        ):
             with console.scope("analysis"):
                 evaluate(compiler, program, str(input_path))
 
@@ -427,6 +478,7 @@ def run_ir_dump(input_path: Path, args):
             "dump_ssa": dump_ssa,
             "dump_cdg": dump_cdg_func,
             "dump_ddg": dump_ddg,
+            "dump_gir": dump_gir,
         }
 
         for dump_arg, dump_func in dump_functions.items():

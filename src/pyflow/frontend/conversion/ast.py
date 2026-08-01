@@ -26,6 +26,7 @@ from pyflow.language.python.ir_metadata import (
     register_call_argument_metadata,
     register_class_cell,
     register_code_definition_metadata,
+    register_gir_source_node,
 )
 
 from .scope import (
@@ -72,7 +73,31 @@ class ASTConverter:
     def _with_source_origin(
         self, converted: Optional[PythonASTNode], source: python_ast.AST
     ) -> Optional[PythonASTNode]:
-        if converted is None or not hasattr(converted, "rewriteAnnotation"):
+        if converted is None:
+            return converted
+        register_gir_source_node(converted, source)
+        if isinstance(converted, pyflow_ast.Suite) and isinstance(
+            source,
+            (
+                python_ast.Import,
+                python_ast.ImportFrom,
+                python_ast.With,
+                python_ast.AsyncWith,
+                python_ast.Match,
+                python_ast.Pass,
+                python_ast.Delete,
+                python_ast.Global,
+                python_ast.Nonlocal,
+            ),
+        ) or (
+            isinstance(converted, pyflow_ast.Suite)
+            and hasattr(python_ast, "TypeAlias")
+            and isinstance(source, python_ast.TypeAlias)
+        ):
+            converted._origin_tag = converted._origin_tag or (
+                f"SourceSyntax:{type(source).__name__}"
+            )
+        if not hasattr(converted, "rewriteAnnotation"):
             return converted
         annotation = getattr(converted, "annotation", None)
         if annotation is None or not hasattr(annotation, "origin"):
@@ -1009,6 +1034,7 @@ class ASTConverter:
             self._pop_scope()
 
         code = pyflow_ast.Code(node.name, codeparams, body)
+        register_gir_source_node(code, node)
         register_code_definition_metadata(
             code,
             annotations=tuple(definition_annotations),

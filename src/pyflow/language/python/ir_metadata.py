@@ -18,6 +18,7 @@ _CALL_POSITIONAL_ITEMS: dict[
 _CODE_DEFINITION_ANNOTATIONS: dict[int, tuple[object, tuple[object, ...]]] = {}
 _CODE_CLOSURE_CELLS: dict[int, tuple[object, tuple[object, ...]]] = {}
 _CLASS_CELLS: dict[int, tuple[object, object | None]] = {}
+_GIR_SOURCE_NODES: dict[int, tuple[object, object]] = {}
 
 
 def register_call_argument_metadata(
@@ -97,6 +98,16 @@ def register_class_cell(class_node: object, cell: object | None) -> None:
 def class_cell(class_node: object) -> object | None:
     entry = _CLASS_CELLS.get(id(class_node))
     return entry[1] if entry is not None and entry[0] is class_node else None
+
+
+def register_gir_source_node(ir_node: object, source_node: object) -> None:
+    """Retain the source-syntax node needed for faithful GIR reconstruction."""
+    _GIR_SOURCE_NODES[id(ir_node)] = (ir_node, source_node)
+
+
+def gir_source_node(ir_node: object) -> object | None:
+    entry = _GIR_SOURCE_NODES.get(id(ir_node))
+    return entry[1] if entry is not None and entry[0] is ir_node else None
 
 
 def assigned_locals(operation: py_ast.PythonASTNode | None) -> tuple[py_ast.Local, ...]:
