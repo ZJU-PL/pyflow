@@ -539,6 +539,24 @@ def test_run_taint_analysis_entry_file_does_not_seed_unrelated_modules(tmp_path)
     assert result.findings == ()
 
 
+def test_run_taint_analysis_entry_file_seeds_file_local_handlers(tmp_path):
+    entry = tmp_path / "handler.py"
+    entry.write_text(
+        "def route_handler():\n"
+        "    value = source()\n"
+        "    sink(value)\n",
+        encoding="utf-8",
+    )
+
+    _session, result, _ = run_taint_analysis(
+        [entry],
+        entry_file=entry,
+        **_taint_setup(["source"], ["sink"]),
+    )
+
+    assert len(result.findings) == 1
+
+
 def test_run_taint_analysis_entry_file_follows_cross_module_calls(tmp_path):
     entry = tmp_path / "entry.py"
     helper = tmp_path / "helper.py"

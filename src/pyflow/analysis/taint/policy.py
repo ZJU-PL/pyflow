@@ -121,6 +121,48 @@ class TaintPolicy:
     def sink_names(self) -> FrozenSet[str]:
         return frozenset(self.sink_kinds_by_call)
 
+    @staticmethod
+    def _resolve_name(mapping: Mapping[str, object], name: str | None) -> str | None:
+        if not name:
+            return None
+        if name in mapping:
+            return name
+        suffix = f".{name}"
+        candidates = [candidate for candidate in mapping if candidate.endswith(suffix)]
+        return candidates[0] if len(candidates) == 1 else None
+
+    def source_kinds_for(self, name: str | None) -> FrozenSet[str]:
+        key = self._resolve_name(self.source_kinds_by_call, name)
+        return self.source_kinds_by_call.get(key, frozenset()) if key else frozenset()
+
+    def sink_kinds_for(self, name: str | None) -> FrozenSet[str]:
+        key = self._resolve_name(self.sink_kinds_by_call, name)
+        return self.sink_kinds_by_call.get(key, frozenset()) if key else frozenset()
+
+    def sink_positions_for(self, name: str | None) -> FrozenSet[int]:
+        key = self._resolve_name(self.sink_positions_by_call, name)
+        return self.sink_positions_by_call.get(key, frozenset()) if key else frozenset()
+
+    def sink_cwe_for(self, name: str | None) -> str | None:
+        key = self._resolve_name(self.sink_cwe_by_call, name)
+        return self.sink_cwe_by_call.get(key) if key else None
+
+    def sink_severity_for(self, name: str | None) -> str | None:
+        key = self._resolve_name(self.sink_severity_by_call, name)
+        return self.sink_severity_by_call.get(key) if key else None
+
+    def sink_suggestion_for(self, name: str | None) -> str | None:
+        key = self._resolve_name(self.sink_suggestion_by_call, name)
+        return self.sink_suggestion_by_call.get(key) if key else None
+
+    def sanitizer_kinds_for(self, name: str | None) -> FrozenSet[str]:
+        key = self._resolve_name(self.sanitizer_kinds_by_call, name)
+        return (
+            self.sanitizer_kinds_by_call.get(key, frozenset())
+            if key
+            else frozenset()
+        )
+
     def matching_rules(
         self,
         source_kinds: Iterable[str],

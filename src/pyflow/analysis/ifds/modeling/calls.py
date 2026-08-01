@@ -129,7 +129,24 @@ class CallModelRegistry:
     def model_for_name(self, name: str | None) -> CallModel | None:
         if name is None:
             return None
-        return self._models.get(name)
+        exact = self._models.get(name)
+        if exact is not None:
+            return exact
+
+        # Source code commonly refers to an imported framework object through
+        # a shorter spelling (``request.args.get`` instead of
+        # ``flask.request.args.get``).  Resolve such aliases only when the
+        # suffix identifies one model unambiguously; ambiguous leaf names such
+        # as ``loads`` remain unresolved rather than producing a false match.
+        suffix = f".{name}"
+        candidates = [
+            model
+            for model_name, model in self._models.items()
+            if model_name.endswith(suffix)
+        ]
+        if len(candidates) == 1:
+            return candidates[0]
+        return None
 
     def as_mapping(self) -> Mapping[str, CallModel]:
         return dict(self._models)

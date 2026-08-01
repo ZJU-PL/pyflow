@@ -83,13 +83,23 @@ def _entry_nodes_from_program(
     queries = session.program.get_queries(session.compiler)
     if entry_file is not None:
         target_source = os.path.realpath(entry_file)
-        for code in getattr(session.program, "liveCode", ()):
-            if not _is_synthetic_module_code(code):
+        entries = []
+        seen = set()
+        # A file target is a scan root, not just an executable module body.
+        # Framework handlers and helper functions are often intentionally
+        # reached only by the runtime framework, so seed every procedure that
+        # originates in the requested file while still excluding unrelated
+        # modules loaded for dependency resolution.
+        for procedure in session.adapter.supergraph.ordered_procedures():
+            code = getattr(procedure, "code", None)
+            if code is None or _source_filename_from_code(code) != target_source:
                 continue
-            if _source_filename_from_code(code) != target_source:
-                continue
-            cfg = queries.graph_engine.get_cfg(code)
-            return (session.adapter.supergraph.entry_of(cfg),)
+            node = session.adapter.supergraph.entry_of(procedure)
+            if node not in seen:
+                seen.add(node)
+                entries.append(node)
+        if entries:
+            return tuple(entries)
         raise ValueError(f"Unable to find module entry CFG for '{entry_file}'.")
 
     if function_name is not None:

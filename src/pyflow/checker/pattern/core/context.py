@@ -145,6 +145,17 @@ class Context:
         return self._context.get("str")
 
     @property
+    def string(self):
+        """Backward-compatible alias for the current string literal value.
+
+        A few checker implementations historically used ``context.string``
+        while the public context API exposed ``string_val``.  Keeping both
+        names backed by the same raw field avoids turning an otherwise benign
+        checker mismatch into an internal analysis error.
+        """
+        return self.string_val
+
+    @property
     def bytes_val(self):
         """Get the value of a standalone bytes object"""
         return self._context.get("bytes")

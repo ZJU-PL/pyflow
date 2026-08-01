@@ -436,6 +436,25 @@ def test_structured_try_joins_handler_effects() -> None:
     }
 
 
+def test_structured_try_handles_bare_except_suite() -> None:
+    engine = _engine(
+        "def target():\n"
+        "    value = 'safe'\n"
+        "    try:\n"
+        "        value = 'still safe'\n"
+        "    except:\n"
+        "        value = input()\n"
+        "    eval(value)\n"
+    )
+
+    result = engine.analyze()
+
+    assert len(result.findings) == 1
+    assert "cpg-exception-overapproximation" in {
+        item.code for item in result.diagnostics
+    }
+
+
 def test_structured_try_finally_strong_overwrite_kills_taint() -> None:
     engine = _engine(
         "def target():\n"

@@ -131,6 +131,27 @@ def test_registry_model_for_name_missing():
     assert registry.model_for_name("absent") is None
 
 
+def test_registry_resolves_unambiguous_import_alias_suffix():
+    model = CallModel(
+        name="flask.request.args.get",
+        source_kinds=frozenset({"user_input"}),
+    )
+    registry = CallModelRegistry([model])
+
+    assert registry.model_for_name("request.args.get") == model
+
+
+def test_registry_does_not_guess_ambiguous_leaf_aliases():
+    registry = CallModelRegistry(
+        [
+            CallModel(name="pickle.loads", source_kinds=frozenset({"pickle"})),
+            CallModel(name="json.loads", source_kinds=frozenset({"json"})),
+        ]
+    )
+
+    assert registry.model_for_name("loads") is None
+
+
 def test_registry_as_mapping():
     registry = CallModelRegistry(
         [

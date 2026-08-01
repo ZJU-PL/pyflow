@@ -1,0 +1,49 @@
+# PySASTBench synthetic microbenchmark
+
+This directory contains the 240-file synthetic subset of PySASTBench used for
+the PyFlow security-engine comparison: six CWE families, with paired
+`*_vul.py` and `*_fix.py` files, plus `SyntheticDataset.csv` describing the
+expected CWE and vulnerable function for each pair.
+
+## Source and provenance
+
+The benchmark is copied from the `SyntheticDataset` directory and metadata in
+the PySASTBench repository:
+
+<https://github.com/Victor725/PySASTBench>
+
+That project is the benchmark accompanying “An Empirical Study on Static
+Application Security Testing (SAST) Tools for Python” by Liu Zhuohang, Zhi
+Wang, Haotong Liu, and Wanpeng Li (ICSE 2026 work). The repository is also
+listed in [`evaluation/Tools.md`](../Tools.md) under “Benchmarks for Python
+Code Analysis / Security Bug Finding”. The copy here is kept as evaluation
+input; the benchmark’s synthetic code is not production-quality application
+code and should not be treated as a standalone security oracle.
+
+## Running the harness
+
+From the repository root:
+
+```bash
+./.venv/bin/python evaluation/pysastbench/bench_security.py
+```
+
+Useful options:
+
+```bash
+./.venv/bin/python evaluation/pysastbench/bench_security.py \
+  --output /tmp/pyflow-pysastbench-results \
+  --workers 8 --timeout 45
+```
+
+The harness runs `ast-scanner`, `ast-dataflow`, `cpg`, and `ifds` through the
+`pyflow security` CLI. It writes `summary.json`, per-file `records.json`, and
+the raw JSONL stream to the selected output directory. A positive is counted
+only when the engine reports the expected CWE at the benchmark’s target
+function; a fixed pair is a negative. By default the evaluator treats CWE-77
+and CWE-78, and CWE-94 and CWE-95, as equivalent semantic labels. Add
+`--strict-cwe` to require exact labels.
+
+The harness uses subprocess isolation and a per-file timeout because an
+analysis failure or timeout should be recorded as an evaluation result rather
+than aborting the remaining engines.

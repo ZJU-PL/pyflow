@@ -75,9 +75,25 @@ class PythonExpressionSemantics:
                     base_result.facts,
                     events=base_result.events,
                 )
+            current = base_result.state
+            if isinstance(expression, ast.Attribute):
+                name = self._call_name(expression)
+                source_kinds = self.context.policy.source_kinds_for(name)
+                for kind in source_kinds:
+                    current = current.introduce(
+                        location,
+                        {kind},
+                        TaintOrigin(
+                            kind,
+                            self.context.filename,
+                            getattr(expression, "lineno", None),
+                            getattr(expression, "col_offset", None),
+                            name,
+                        ),
+                    )
             return ExpressionResult(
-                base_result.state,
-                base_result.state.facts_at(location),
+                current,
+                current.facts_at(location),
                 location,
                 base_result.events,
             )
@@ -193,8 +209,8 @@ class PythonExpressionSemantics:
         )
         summary_name, ambiguous_summary = self._resolve_summary_name(name)
 
-        source_kinds = self.context.policy.source_kinds_by_call.get(name, frozenset())
-        sink_kinds = self.context.policy.sink_kinds_by_call.get(name, frozenset())
+        source_kinds = self.context.policy.source_kinds_for(name)
+        sink_kinds = self.context.policy.sink_kinds_for(name)
         if source_kinds:
             for kind in source_kinds:
                 current = current.introduce(
@@ -212,9 +228,7 @@ class PythonExpressionSemantics:
         all_argument_facts = frozenset(
             fact for result in (*positional, *keywords) for fact in result.facts
         )
-        sanitizer_kinds = self.context.policy.sanitizer_kinds_by_call.get(
-            name, frozenset()
-        )
+        sanitizer_kinds = self.context.policy.sanitizer_kinds_for(name)
         contracts = self.context.contracts.for_call(name)
         shape_contracts = self.context.shape_contracts.for_call(name)
         if contracts:
@@ -410,8 +424,8 @@ class PythonExpressionSemantics:
                     )
 
         if sink_kinds:
-            positions = self.context.policy.sink_positions_by_call.get(
-                name, frozenset(range(len(positional)))
+            positions = self.context.policy.sink_positions_for(name) or frozenset(
+                range(len(positional))
             )
             for index, positional_result in enumerate(positional):
                 if index in positions and positional_result.facts:

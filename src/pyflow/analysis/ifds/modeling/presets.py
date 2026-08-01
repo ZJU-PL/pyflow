@@ -405,6 +405,17 @@ MARKUP_SANITIZERS = CallModelRegistry([
 ])
 
 HTTP_REQUEST_SOURCES = CallModelRegistry([
+    # Attribute reads such as ``request.json`` and ``request.files`` are
+    # sources in their own right; method calls below cover the common
+    # ``request.args.get(...)`` spelling.
+    _source("flask.request.args"),
+    _source("flask.request.form"),
+    _source("flask.request.json"),
+    _source("flask.request.data"),
+    _source("flask.request.headers"),
+    _source("flask.request.cookies"),
+    _source("flask.request.files"),
+    _source("flask.request.values"),
     _source("flask.request.args.get"),
     _source("flask.request.args.getlist"),
     _source("flask.request.form.get"),

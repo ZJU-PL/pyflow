@@ -160,8 +160,8 @@ class ASTDataflowTaintDetector(Detector):
             summary_updates += updates
             for name, summary in summaries.items():
                 for sink in summary.tainted_sinks:
-                    sink_kinds = self.policy.sink_kinds_by_call.get(
-                        sink, frozenset({"dangerous"})
+                    sink_kinds = self.policy.sink_kinds_for(sink) or frozenset(
+                        {"dangerous"}
                     )
                     rules = tuple(
                         rule
@@ -182,11 +182,10 @@ class ASTDataflowTaintDetector(Detector):
                                 source_kinds=frozenset({source_kind}),
                                 rule_id=rule.rule_id,
                                 rule_title=rule.title,
-                                severity=self.policy.sink_severity_by_call.get(
-                                    sink, rule.severity
-                                ),
-                                cwe=self.policy.sink_cwe_by_call.get(sink) or rule.cwe,
-                                suggestion=self.policy.sink_suggestion_by_call.get(sink)
+                                severity=self.policy.sink_severity_for(sink)
+                                or rule.severity,
+                                cwe=self.policy.sink_cwe_for(sink) or rule.cwe,
+                                suggestion=self.policy.sink_suggestion_for(sink)
                                 or rule.suggestion,
                             )
                             findings[(name, sink, line, rule.rule_id, source_kind)] = (
@@ -265,8 +264,8 @@ class ASTDataflowTaintDetector(Detector):
                 source_kinds = frozenset(fact.kind for fact in actual_facts)
                 if not source_kinds:
                     continue
-                sink_kinds = policy.sink_kinds_by_call.get(
-                    event.sink_name, frozenset({"dangerous"})
+                sink_kinds = policy.sink_kinds_for(event.sink_name) or frozenset(
+                    {"dangerous"}
                 )
                 for rule in policy.matching_rules(source_kinds, sink_kinds):
                     matched_source_kinds = frozenset(source_kinds & rule.source_kinds)
@@ -283,12 +282,11 @@ class ASTDataflowTaintDetector(Detector):
                         source_kinds=matched_source_kinds,
                         rule_id=rule.rule_id,
                         rule_title=rule.title,
-                        severity=policy.sink_severity_by_call.get(
-                            event.sink_name, rule.severity
-                        ),
-                        cwe=(policy.sink_cwe_by_call.get(event.sink_name) or rule.cwe),
+                        severity=policy.sink_severity_for(event.sink_name)
+                        or rule.severity,
+                        cwe=(policy.sink_cwe_for(event.sink_name) or rule.cwe),
                         suggestion=(
-                            policy.sink_suggestion_by_call.get(event.sink_name)
+                            policy.sink_suggestion_for(event.sink_name)
                             or rule.suggestion
                         ),
                         precision_reasons=tuple(
@@ -540,7 +538,7 @@ class ASTDataflowTaintDetector(Detector):
         policy = self.policy
         if policy is None:
             return None
-        sink_kinds = policy.sink_kinds_by_call.get(sink, frozenset())
+        sink_kinds = policy.sink_kinds_for(sink)
         if not sink_kinds and sink in self._manual_sinks:
             sink_kinds = frozenset({"dangerous"})
         source_kinds = frozenset(

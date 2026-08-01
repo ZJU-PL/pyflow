@@ -50,6 +50,11 @@
 - https://github.com/billquan/PyVul
 - ICSE 26 (An Empirical Study on Static Application Security Testing (SAST) Tools for Python). https://github.com/Victor725/PySASTBench
 
+  PyFlow keeps a runnable copy of the PySASTBench synthetic microbenchmark in
+  [`evaluation/pysastbench`](pysastbench/), together with the source metadata
+  and the four-engine harness. See its [README](pysastbench/README.md) for
+  provenance, metric semantics, and the command to reproduce the evaluation.
+
 ### Type Checking and Inference
 
 - TypyBench (https://arxiv.org/pdf/2507.22086)  https://github.com/typybench/typybench

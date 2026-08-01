@@ -934,10 +934,7 @@ class FormalCPGTaintAnalysis:
         # An exception can arise after any prefix of the body.  Joining the
         # entry and completed-body states safely over-approximates that prefix.
         handler_entry = state.join(body_state)
-        handlers = list(statement.handlers or ())
-        if statement.defaultHandler is not None:
-            handlers.append(statement.defaultHandler)
-        for handler in handlers:
+        for handler in statement.handlers or ():
             handler_state, preamble_events = self._transfer_node(
                 node, handler_entry, handler.preamble
             )
@@ -966,6 +963,16 @@ class FormalCPGTaintAnalysis:
             )
             events.update(handler_events)
             branches.append(handler_state)
+
+        # The frontend represents a bare ``except:`` as a Suite rather than
+        # an ExceptionHandler.  It has no preamble, exception type, or bound
+        # exception value, so it must be transferred directly as a branch.
+        if statement.defaultHandler is not None:
+            default_state, default_events = self._transfer_node(
+                node, handler_entry, statement.defaultHandler
+            )
+            events.update(default_events)
+            branches.append(default_state)
 
         joined = branches[0]
         for branch in branches[1:]:

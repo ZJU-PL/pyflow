@@ -1548,6 +1548,24 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
     def _call_name_from_expression(self, expr: object) -> str | None:
         if isinstance(expr, (py_ast.DirectCall, py_ast.Call, py_ast.MethodCall)):
             return self.adapter.call_name(expr)
+        if isinstance(expr, (py_ast.GetAttr, py_ast.Load)):
+            base = self._symbolic_expression_name(expr.expr)
+            component = self._path_component(expr.name)
+            if base and component != "*":
+                return f"{base}.{component}"
+        return None
+
+    def _symbolic_expression_name(self, expr: object) -> str | None:
+        """Return a qualified spelling for a static attribute expression."""
+        if isinstance(expr, py_ast.Local) and expr.name:
+            return expr.name
+        if isinstance(expr, py_ast.GetGlobal):
+            return self._global_name(expr.name)
+        if isinstance(expr, (py_ast.GetAttr, py_ast.Load)):
+            base = self._symbolic_expression_name(expr.expr)
+            component = self._path_component(expr.name)
+            if base and component != "*":
+                return f"{base}.{component}"
         return None
 
     def _is_allocation_expression(self, expr: object) -> bool:
