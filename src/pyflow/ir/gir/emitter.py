@@ -1229,7 +1229,7 @@ class GirEmitter:
                 },
             )
             return True
-        if isinstance(node, (python_ast.Try, python_ast.TryStar)):
+        if isinstance(node, (python_ast.Try, getattr(python_ast, "TryStar", python_ast.Try))):
             try_body: List[Dict[str, Any]] = []
             self._emit_python_body(node.body, try_body)
             catches: List[Dict[str, Any]] = []
