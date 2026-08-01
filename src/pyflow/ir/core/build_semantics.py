@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 from collections.abc import Hashable, Iterable
-from typing import TypeVar
+from typing import TypeVar, cast
 
 from pyflow.language.python import ast
 
 from .catalog import IRCatalog
-from .ids import AllocationSiteId, CallSiteId
+from .ids import AllocationSiteId, CallSiteId, SymbolId, ValueId
 from .semantics import CallSite, ControlEffects, OperationSemantics
 from .storage import (
     AttributeStorage,
@@ -280,13 +280,15 @@ def build_semantics(
         # Transformations may replace a parent container in place while creating
         # fresh child objects.  Close the catalog over the current child relation
         # before building records so semantics never contain dangling NodeIds.
-        pending = list(catalog.nodes())
+        pending = list(catalog.iter_nodes())
         cursor = 0
         while cursor < len(pending):
             parent_id, parent = pending[cursor]
             cursor += 1
             for child in children(parent):
-                if not isinstance(child, ast.PythonASTNode) or isinstance(child, ast.Code):
+                if not isinstance(child, ast.PythonASTNode) or isinstance(
+                    child, ast.Code
+                ):
                     continue
                 if catalog.has_node(child, parent_id.code):
                     continue
@@ -346,36 +348,70 @@ def build_semantics(
         local_occurrences_by_identity[identity] = result
         return result
 
+    # A Local/Cell occurrence's binding is immutable for the duration of this
+    # pass, but container semantics encounter the same occurrence once for
+    # every ancestor.  Cache the combined symbol/value lookup by identity so
+    # those ancestors do not repeatedly traverse the catalog's nested ID keys.
+    reference_bindings: dict[
+        tuple[int, int], tuple[SymbolId, SymbolId | ValueId] | None
+    ] = {}
+    missing_binding = object()
+
+    def reference_binding(
+        reference, code_id
+    ) -> tuple[SymbolId, SymbolId | ValueId] | None:
+        key = (id(code_id), id(reference))
+        cached = reference_bindings.get(key, missing_binding)
+        if cached is not missing_binding:
+            return cast(tuple[SymbolId, SymbolId | ValueId] | None, cached)
+        if not catalog.has_symbol(reference, code_id):
+            reference_bindings[key] = None
+            return None
+        symbol = catalog.symbol_id(reference, code_id)
+        value = (
+            catalog.value_id(reference, code_id)
+            if catalog.has_value(reference, code_id)
+            else symbol
+        )
+        result = (symbol, value)
+        reference_bindings[key] = result
+        return result
+
     catalog.semantics.clear()
-    for node_id, node in catalog.nodes():
+    for node_id, node in catalog.iter_nodes():
         definition_references = _definition_references(node)
-        definition_symbols = tuple(
-            catalog.symbol_id(reference, node_id.code)
-            for reference in definition_references
-            if catalog.has_symbol(reference, node_id.code)
-        )
-        definitions = tuple(
-            catalog.value_id(reference, node_id.code)
-            if catalog.has_value(reference, node_id.code)
-            else catalog.symbol_id(reference, node_id.code)
-            for reference in definition_references
-            if catalog.has_symbol(reference, node_id.code)
-        )
-        skipped = frozenset(definition_references)
-        use_locals = tuple(
-            local
-            for local in local_occurrences(node)
-            if local not in skipped and catalog.has_symbol(local, node_id.code)
-        )
-        use_symbols = _dedupe(
-            catalog.symbol_id(local, node_id.code) for local in use_locals
-        )
-        uses = _dedupe(
-            catalog.value_id(local, node_id.code)
-            if catalog.has_value(local, node_id.code)
-            else catalog.symbol_id(local, node_id.code)
-            for local in use_locals
-        )
+        definition_symbols: list[SymbolId] = []
+        definitions: list[SymbolId | ValueId] = []
+        for reference in definition_references:
+            binding = reference_binding(reference, node_id.code)
+            if binding is None:
+                continue
+            symbol_id, value_id = binding
+            definition_symbols.append(symbol_id)
+            definitions.append(value_id)
+
+        skipped = {id(reference) for reference in definition_references}
+        use_symbols_list: list[SymbolId] = []
+        uses_list: list[SymbolId | ValueId] = []
+        seen_symbols: set[int] = set()
+        seen_values: set[int] = set()
+        for local in local_occurrences(node):
+            if id(local) in skipped:
+                continue
+            binding = reference_binding(local, node_id.code)
+            if binding is None:
+                continue
+            symbol_id, value_id = binding
+            symbol_marker = id(symbol_id)
+            if symbol_marker not in seen_symbols:
+                seen_symbols.add(symbol_marker)
+                use_symbols_list.append(symbol_id)
+            value_marker = id(value_id)
+            if value_marker not in seen_values:
+                seen_values.add(value_marker)
+                uses_list.append(value_id)
+        use_symbols = tuple(use_symbols_list)
+        uses = tuple(uses_list)
         reads: list[StorageLocation] = [
             LocalStorage(symbol) for symbol in use_symbols
         ]
@@ -405,7 +441,7 @@ def build_semantics(
         catalog.semantics.set_operation(
             node_id,
             OperationSemantics(
-                definitions=_dedupe(definitions),
+                definitions=_dedupe(tuple(definitions)),
                 uses=uses,
                 reads=_dedupe(reads),
                 writes=_dedupe(writes),
@@ -422,6 +458,7 @@ def build_semantics(
                 diagnostics=diagnostics,
             ),
         )
+    catalog.semantics.mark_ready()
 
 
 def build_program_semantics(program, *, register_missing_nodes: bool = True) -> None:

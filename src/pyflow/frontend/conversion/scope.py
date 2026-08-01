@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 from collections.abc import Sequence
+from typing import Callable
 
 
 def collect_direct_scope_directives(
@@ -89,6 +90,13 @@ def collect_scope_names(
 def direct_child_captures(
     body_nodes: Sequence[ast.AST],
     parent_bound: set[str],
+    *,
+    scope_names: Callable[
+        [Sequence[ast.AST]], tuple[set[str], set[str]]
+    ] = collect_scope_names,
+    scope_directives: Callable[
+        [Sequence[ast.AST]], tuple[set[str], set[str]]
+    ] = collect_direct_scope_directives,
 ) -> set[str]:
     """Find parent bindings captured by direct child functions."""
 
@@ -96,10 +104,8 @@ def direct_child_captures(
 
     class ChildVisitor(ast.NodeVisitor):
         def _visit_function(self, node) -> None:
-            child_bound, child_loaded = collect_scope_names(list(node.body))
-            child_globals, child_nonlocals = collect_direct_scope_directives(
-                list(node.body)
-            )
+            child_bound, child_loaded = scope_names(node.body)
+            child_globals, child_nonlocals = scope_directives(node.body)
             child_bound.update(
                 argument.arg
                 for argument in (

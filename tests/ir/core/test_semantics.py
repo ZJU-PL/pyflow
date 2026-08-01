@@ -49,3 +49,26 @@ def test_call_sites_are_explicit_and_conservatively_incomplete():
     site = program.ir.semantics.call_site(facts.calls[0])
     assert site.operation == program.ir.node_id(call)
     assert len(site.positional_arguments) == 1
+
+
+def test_frontend_semantics_are_built_lazily_on_first_access():
+    program = _program("def main(value):\n    return value\n")
+    assert program.ir.semantics.ready is False
+
+    code = next(code for code in program.liveCode if code.codeName() == "main")
+    return_node = next(
+        node for node in _walk(code.ast) if isinstance(node, ast.Return)
+    )
+    semantics = program.ir.semantics.operation(program.ir.node_id(return_node))
+
+    assert semantics.control.returns is True
+    assert program.ir.semantics.ready is True
+
+
+def test_frontend_can_still_build_semantics_eagerly():
+    compiler = context.CompilerContext(None)
+    program = Extractor(
+        compiler, verbose=False, defer_semantics=False
+    ).extract_from_source("def main():\n    return None\n", "facts.py")
+
+    assert program.ir.semantics.ready is True

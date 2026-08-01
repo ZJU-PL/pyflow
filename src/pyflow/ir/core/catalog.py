@@ -63,7 +63,7 @@ class IRCatalog:
         self.symbols = SymbolTable()
         self.values = ValueTable()
         self.source_map = SourceMap()
-        self.semantics = IRSemantics()
+        self.semantics = IRSemantics(self._build_semantics)
         self.facts = FactStore(revision)
 
         self._procedures: dict[CodeId, ProcedureIR] = {}
@@ -72,9 +72,13 @@ class IRCatalog:
         self._code_keys: dict[tuple[str, str, SourceAnchor], int] = {}
         self._nodes: dict[NodeId, object] = {}
         self._node_ids: dict[tuple[CodeId, _IdentityKey], NodeId] = {}
-        self._node_occurrences: dict[_IdentityKey, list[NodeId]] = {}
+        self._node_occurrences: dict[
+            _IdentityKey, NodeId | list[NodeId]
+        ] = {}
         self._reference_symbols: dict[tuple[ScopeId, _IdentityKey], SymbolId] = {}
-        self._reference_occurrences: dict[_IdentityKey, list[SymbolId]] = {}
+        self._reference_occurrences: dict[
+            _IdentityKey, SymbolId | list[SymbolId]
+        ] = {}
         self._reference_values: dict[tuple[CodeId, _IdentityKey], object] = {}
         self._contexts: dict[ContextId, object] = {}
         self._context_ids: dict[tuple[CodeId, _IdentityKey], ContextId] = {}
@@ -84,6 +88,11 @@ class IRCatalog:
         self._block_ids: dict[tuple[CodeId, _IdentityKey], BlockId] = {}
         self._edges: dict[EdgeId, tuple[BlockId, BlockId]] = {}
         self._next_block: dict[CodeId, int] = {}
+
+    def _build_semantics(self) -> None:
+        from .build_semantics import build_semantics
+
+        build_semantics(self)
 
     def commit_revision(
         self,
@@ -156,19 +165,49 @@ class IRCatalog:
         node: object,
         *,
         origin: object | None = None,
+        invalidate_semantics: bool = True,
     ) -> NodeId:
         node_key = _identity(node)
         key = (code, node_key)
         existing = self._node_ids.get(key)
         if existing is not None:
             return existing
+        return self.register_new_node(
+            code,
+            node,
+            origin=origin,
+            node_key=node_key,
+            invalidate_semantics=invalidate_semantics,
+        )
+
+    def register_new_node(
+        self,
+        code: CodeId,
+        node: object,
+        *,
+        origin: object | None = None,
+        node_key: _IdentityKey | None = None,
+        invalidate_semantics: bool = True,
+    ) -> NodeId:
+        """Register a node known to be new to its procedure."""
+        if node_key is None:
+            node_key = _identity(node)
+        key = (code, node_key)
         ordinal = self._next_node.get(code, 0)
         self._next_node[code] = ordinal + 1
         node_id = NodeId(code, ordinal)
         self._nodes[node_id] = node
         self._node_ids[key] = node_id
-        self._node_occurrences.setdefault(node_key, []).append(node_id)
+        occurrences = self._node_occurrences.get(node_key)
+        if occurrences is None:
+            self._node_occurrences[node_key] = node_id
+        elif isinstance(occurrences, list):
+            occurrences.append(node_id)
+        else:
+            self._node_occurrences[node_key] = [occurrences, node_id]
         self.source_map.set_origin(node_id, origin)
+        if invalidate_semantics:
+            self.semantics.invalidate()
         return node_id
 
     def node_id(self, node: object, code: object | CodeId | None = None) -> NodeId:
@@ -176,11 +215,11 @@ class IRCatalog:
             code_id = code if isinstance(code, CodeId) else self.procedure(code).code_id
             return self._node_ids[(code_id, _identity(node))]
         occurrences = self._node_occurrences[_identity(node)]
-        if len(occurrences) != 1:
+        if isinstance(occurrences, list):
             raise KeyError(
                 "IR node occurs in multiple procedures; pass code= to node_id()"
             )
-        return occurrences[0]
+        return occurrences
 
     def has_node(self, node: object, code: object | CodeId | None = None) -> bool:
         if code is None:
@@ -232,17 +271,28 @@ class IRCatalog:
         del self._node_ids[original_key]
         self._node_ids[replacement_key] = node_id
         self._nodes[node_id] = replacement
+        self.semantics.invalidate()
 
         occurrences = self._node_occurrences.get(original_identity)
         if occurrences is not None:
-            occurrences.remove(node_id)
-            if not occurrences:
+            if isinstance(occurrences, list):
+                occurrences.remove(node_id)
+                if len(occurrences) == 1:
+                    self._node_occurrences[original_identity] = occurrences[0]
+            else:
+                assert occurrences == node_id
                 del self._node_occurrences[original_identity]
-        replacement_occurrences = self._node_occurrences.setdefault(
-            replacement_identity, []
-        )
-        if node_id not in replacement_occurrences:
-            replacement_occurrences.append(node_id)
+        replacement_occurrences = self._node_occurrences.get(replacement_identity)
+        if replacement_occurrences is None:
+            self._node_occurrences[replacement_identity] = node_id
+        elif isinstance(replacement_occurrences, list):
+            if node_id not in replacement_occurrences:
+                replacement_occurrences.append(node_id)
+        elif replacement_occurrences != node_id:
+            self._node_occurrences[replacement_identity] = [
+                replacement_occurrences,
+                node_id,
+            ]
 
         self.source_map.append_provenance(
             node_id,
@@ -346,7 +396,13 @@ class IRCatalog:
         )
         return self.semantics.operation(node_id)
 
-    def bind_symbol(self, reference: object, symbol_id: SymbolId) -> None:
+    def bind_symbol(
+        self,
+        reference: object,
+        symbol_id: SymbolId,
+        *,
+        invalidate_semantics: bool = True,
+    ) -> None:
         scope = symbol_id.scope
         reference_key = _identity(reference)
         key = (scope, reference_key)
@@ -354,9 +410,16 @@ class IRCatalog:
         if existing is not None and existing != symbol_id:
             raise ValueError("an IR reference cannot refer to multiple symbols")
         self._reference_symbols[key] = symbol_id
-        occurrences = self._reference_occurrences.setdefault(reference_key, [])
-        if symbol_id not in occurrences:
-            occurrences.append(symbol_id)
+        occurrences = self._reference_occurrences.get(reference_key)
+        if occurrences is None:
+            self._reference_occurrences[reference_key] = symbol_id
+        elif isinstance(occurrences, list):
+            if symbol_id not in occurrences:
+                occurrences.append(symbol_id)
+        elif occurrences != symbol_id:
+            self._reference_occurrences[reference_key] = [occurrences, symbol_id]
+        if invalidate_semantics:
+            self.semantics.invalidate()
 
     def has_symbol(self, reference: object, code: object | CodeId | None = None) -> bool:
         if code is None:
@@ -374,11 +437,11 @@ class IRCatalog:
                 (self.procedure(code).root_scope, _identity(reference))
             ]
         occurrences = self._reference_occurrences[_identity(reference)]
-        if len(occurrences) != 1:
+        if isinstance(occurrences, list):
             raise KeyError(
                 "IR reference occurs in multiple procedures; pass code= to symbol_id()"
             )
-        return occurrences[0]
+        return occurrences
 
     def symbol_for(self, reference: object, code: object | CodeId | None = None):
         return self.symbols[self.symbol_id(reference, code)]
@@ -388,6 +451,7 @@ class IRCatalog:
         if value_id.symbol != self.symbol_id(reference, code_id):
             raise ValueError("SSA value must belong to the reference's symbol")
         self._reference_values[(code_id, _identity(reference))] = value_id
+        self.semantics.invalidate()
 
     def value_id(self, reference: object, code: object | CodeId):
         code_id = code if isinstance(code, CodeId) else self.procedure(code).code_id
@@ -440,6 +504,15 @@ class IRCatalog:
 
     def nodes(self) -> tuple[tuple[NodeId, object], ...]:
         return tuple((key, self._nodes[key]) for key in sorted(self._nodes))
+
+    def iter_nodes(self):
+        """Iterate nodes in deterministic catalog insertion order.
+
+        Internal whole-catalog passes do not need the allocation and sort
+        performed by :meth:`nodes`; indexing itself already inserts nodes in
+        deterministic source traversal order.
+        """
+        return self._nodes.items()
 
     def contexts(self) -> tuple[tuple[ContextId, object], ...]:
         return tuple((key, self._contexts[key]) for key in sorted(self._contexts))

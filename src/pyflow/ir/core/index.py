@@ -56,7 +56,13 @@ def _origins(node: object) -> tuple[object, ...]:
 
 
 def _source_origin(node: object, inherited: object | None = None):
-    origins = _origins(node)
+    origins = getattr(getattr(node, "annotation", None), "origin", ()) or ()
+    if not isinstance(origins, (tuple, list)):
+        origins = (origins,)
+    if len(origins) == 1:
+        origin = origins[0]
+        if isinstance(origin, (LegacySourceOrigin, SourceOrigin)):
+            return origin
     for origin in origins:
         if isinstance(origin, (LegacySourceOrigin, SourceOrigin)):
             return origin
@@ -141,6 +147,7 @@ def index_code(
         return
     seen_codes.add(code_marker)
 
+    new_procedure = not catalog.has_procedure(code)
     procedure = catalog.register_code(
         code,
         module=module,
@@ -150,8 +157,11 @@ def index_code(
     )
     code.ir_catalog = catalog
     scope = procedure.root_scope
+    catalog.semantics.invalidate()
 
     parameter_ids: dict[str, SymbolId] = {}
+    bound_references: set[int] = set()
+    declared_symbols: set[SymbolId] = set()
     parameters = code.codeparameters
     declared_parameters = [
         parameters.selfparam,
@@ -170,8 +180,11 @@ def index_code(
             declaration_origin=_source_origin(local),
         )
         parameter_ids[local.name] = symbol.id
-        catalog.bind_symbol(local, symbol.id)
+        catalog.bind_symbol(local, symbol.id, invalidate_semantics=False)
+        bound_references.add(id(local))
         catalog.source_map.set_declaration(symbol.id, symbol.declaration_origin)
+        if symbol.declaration_origin is not None:
+            declared_symbols.add(symbol.id)
 
     return_ids: dict[str, SymbolId] = {}
     for local in parameters.returnparams:
@@ -179,10 +192,15 @@ def index_code(
             continue
         symbol = catalog.symbols.intern(scope, local.name, SymbolKind.RETURN)
         return_ids[local.name] = symbol.id
-        catalog.bind_symbol(local, symbol.id)
+        catalog.bind_symbol(local, symbol.id, invalidate_semantics=False)
+        bound_references.add(id(local))
 
     def bind_local(local: ast.Local, origin: object | None) -> None:
-        if catalog.has_symbol(local, code):
+        reference_marker = id(local)
+        if reference_marker in bound_references:
+            return
+        if not new_procedure and catalog.has_symbol(local, code):
+            bound_references.add(reference_marker)
             return
         name = local.name
         if name is None:
@@ -204,24 +222,32 @@ def index_code(
                 _symbol_kind(name),
                 declaration_origin=origin,
             )
-        catalog.bind_symbol(local, symbol.id)
-        if catalog.source_map.declaration(symbol.id) is None:
+        catalog.bind_symbol(local, symbol.id, invalidate_semantics=False)
+        bound_references.add(reference_marker)
+        if new_procedure:
+            missing_declaration = symbol.id not in declared_symbols
+        else:
+            missing_declaration = catalog.source_map.declaration(symbol.id) is None
+        if missing_declaration:
             catalog.source_map.set_declaration(symbol.id, origin)
+            if origin is not None:
+                declared_symbols.add(symbol.id)
 
     seen_nodes: set[int] = set()
-
-    def visit(node: object, inherited_origin: object | None = None) -> None:
+    pending: list[tuple[object, object | None]] = [(code, None)]
+    while pending:
+        node, inherited_origin = pending.pop()
         if node is None or isinstance(node, ast.leafTypes):
-            return
+            continue
         if isinstance(node, (list, tuple)):
-            for item in node:
-                visit(item, inherited_origin)
-            return
+            for item in reversed(node):
+                pending.append((item, inherited_origin))
+            continue
         if not isinstance(node, ast.PythonASTNode):
-            return
+            continue
         node_marker = id(node)
         if node_marker in seen_nodes:
-            return
+            continue
         seen_nodes.add(node_marker)
 
         origin = _source_origin(node, inherited_origin)
@@ -240,11 +266,24 @@ def index_code(
                 filename=filename,
                 seen_codes=seen_codes,
             )
-            return
-        catalog.register_node(procedure.code_id, node, origin=origin)
+            continue
+        if new_procedure:
+            catalog.register_new_node(
+                procedure.code_id,
+                node,
+                origin=origin,
+                invalidate_semantics=False,
+            )
+        else:
+            catalog.register_node(
+                procedure.code_id,
+                node,
+                origin=origin,
+                invalidate_semantics=False,
+            )
         if isinstance(node, ast.Local):
             bind_local(node, origin)
-            return
+            continue
         if isinstance(node, ast.Cell):
             symbol = catalog.symbols.intern(
                 scope,
@@ -252,14 +291,12 @@ def index_code(
                 SymbolKind.CELL,
                 declaration_origin=origin,
             )
-            catalog.bind_symbol(node, symbol.id)
+            catalog.bind_symbol(node, symbol.id, invalidate_semantics=False)
             if catalog.source_map.declaration(symbol.id) is None:
                 catalog.source_map.set_declaration(symbol.id, origin)
-            return
-        for child in _flatten(_iter_children(node)):
-            visit(child, origin)
-
-    visit(code)
+            continue
+        for child in reversed(node.children()):
+            pending.append((child, origin))
 
 
 def index_program(

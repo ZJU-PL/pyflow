@@ -59,6 +59,15 @@ class ASTConverter:
         self._future_annotations = False
         self.current_filename: str | None = None
         self._temp_ordinal = 0
+        self._direct_scope_cache: Dict[
+            tuple[int, ...], tuple[frozenset[str], frozenset[str]]
+        ] = {}
+        self._scope_names_cache: Dict[
+            tuple[int, ...], tuple[frozenset[str], frozenset[str]]
+        ] = {}
+        self._descendant_scope_cache: Dict[
+            tuple[int, ...], tuple[frozenset[str], frozenset[str]]
+        ] = {}
 
     def _with_source_origin(
         self, converted: Optional[PythonASTNode], source: python_ast.AST
@@ -138,6 +147,12 @@ class ASTConverter:
         self.approximation_warnings = []
         for key in self._telemetry:
             self._telemetry[key] = 0
+        self.clear_scope_caches()
+
+    def clear_scope_caches(self) -> None:
+        self._direct_scope_cache.clear()
+        self._scope_names_cache.clear()
+        self._descendant_scope_cache.clear()
 
     def get_telemetry(self) -> Dict[str, Any]:
         out: Dict[str, Any] = dict(self._telemetry)
@@ -188,14 +203,26 @@ class ASTConverter:
     def _collect_direct_scope_directives(
         self, body_nodes: List[python_ast.AST]
     ) -> Tuple[Set[str], Set[str]]:
-        return collect_direct_scope_directives(body_nodes)
+        key = tuple(map(id, body_nodes))
+        cached = self._direct_scope_cache.get(key)
+        if cached is None:
+            global_names, nonlocal_names = collect_direct_scope_directives(body_nodes)
+            cached = (frozenset(global_names), frozenset(nonlocal_names))
+            self._direct_scope_cache[key] = cached
+        return set(cached[0]), set(cached[1])
 
     def _collect_scope_names(
         self,
         body_nodes: List[python_ast.AST],
     ) -> Tuple[Set[str], Set[str]]:
         """Collect names bound and loaded directly in one lexical scope."""
-        return collect_scope_names(body_nodes)
+        key = tuple(map(id, body_nodes))
+        cached = self._scope_names_cache.get(key)
+        if cached is None:
+            bound, loaded = collect_scope_names(body_nodes)
+            cached = (frozenset(bound), frozenset(loaded))
+            self._scope_names_cache[key] = cached
+        return set(cached[0]), set(cached[1])
 
     def _enclosing_cell_names(
         self,
@@ -221,12 +248,25 @@ class ASTConverter:
         body_nodes: List[python_ast.AST],
         parent_bound: Set[str],
     ) -> Set[str]:
-        return direct_child_captures(body_nodes, parent_bound)
+        return direct_child_captures(
+            body_nodes,
+            parent_bound,
+            scope_names=self._collect_scope_names,
+            scope_directives=self._collect_direct_scope_directives,
+        )
 
     def _collect_descendant_scope_directives(
         self, body_nodes: List[python_ast.AST]
     ) -> Tuple[Set[str], Set[str]]:
-        return collect_descendant_scope_directives(body_nodes)
+        key = tuple(map(id, body_nodes))
+        cached = self._descendant_scope_cache.get(key)
+        if cached is None:
+            global_names, nonlocal_names = collect_descendant_scope_directives(
+                body_nodes
+            )
+            cached = (frozenset(global_names), frozenset(nonlocal_names))
+            self._descendant_scope_cache[key] = cached
+        return set(cached[0]), set(cached[1])
 
     def _name_constant(self, name: str) -> pyflow_ast.Existing:
         return pyflow_ast.Existing(Object(name))

@@ -77,7 +77,7 @@ class Extractor:
         verbose: bool = True,
         source_code: str = None,
         analysis_root: Optional[str] = None,
-        defer_semantics: bool = False,
+        defer_semantics: bool = True,
     ):
         """Initialize the program extractor.
 
@@ -86,6 +86,8 @@ class Extractor:
             verbose: Whether to output verbose information during extraction.
             source_code: Source code to process. Can be a single string or
                         dict mapping filenames to source code.
+            defer_semantics: Build IR semantics lazily on first access. Disable
+                        only when eager semantics construction is required.
         """
         self.compiler = compiler
         self.verbose = verbose
@@ -149,6 +151,8 @@ class Extractor:
                 print(f"Syntax error in {filename}: {e}")
             self.errors += 1
             return Program()
+        finally:
+            self.function_extractor.ast_converter.clear_scope_caches()
 
     def extract_from_file(self, filename: str) -> Program:
         """Extract program information from a Python file.

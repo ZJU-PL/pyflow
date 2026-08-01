@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from hashlib import sha256
+from typing import ClassVar
 
 
 @dataclass(frozen=True, order=True)
@@ -24,6 +25,17 @@ class SourceAnchor:
     filename: str = ""
     line: int = 0
     column: int = 0
+    _cached_hash: ClassVar[int | None] = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "_cached_hash", None)
+
+    def __hash__(self) -> int:
+        cached = self._cached_hash
+        if cached is None:
+            cached = hash((self.filename, self.line, self.column))
+            object.__setattr__(self, "_cached_hash", cached)
+        return cached
 
     def __str__(self) -> str:
         if not self.filename:
@@ -37,6 +49,23 @@ class CodeId:
     qualname: str
     anchor: SourceAnchor = SourceAnchor()
     ordinal: int = 0
+    _cached_hash: ClassVar[int | None] = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "_cached_hash", None)
+
+    def __hash__(self) -> int:
+        # CodeId is the common prefix of nearly every catalog identifier.
+        # Catalog construction and semantics building therefore hash the same
+        # immutable value millions of times.  Dataclasses recompute the nested
+        # tuple hash on every lookup, including the SourceAnchor hash; retain
+        # it after the first computation without making it part of equality,
+        # ordering, or the dataclass representation.
+        cached = self._cached_hash
+        if cached is None:
+            cached = hash((self.module, self.qualname, self.anchor, self.ordinal))
+            object.__setattr__(self, "_cached_hash", cached)
+        return cached
 
     def __str__(self) -> str:
         suffix = f"~{self.ordinal}" if self.ordinal else ""
@@ -47,6 +76,17 @@ class CodeId:
 class ScopeId:
     code: CodeId
     ordinal: int = 0
+    _cached_hash: ClassVar[int | None] = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "_cached_hash", None)
+
+    def __hash__(self) -> int:
+        cached = self._cached_hash
+        if cached is None:
+            cached = hash((self.code, self.ordinal))
+            object.__setattr__(self, "_cached_hash", cached)
+        return cached
 
     def __str__(self) -> str:
         return f"{self.code}/scope{self.ordinal}"
@@ -56,6 +96,17 @@ class ScopeId:
 class SymbolId:
     scope: ScopeId
     ordinal: int
+    _cached_hash: ClassVar[int | None] = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "_cached_hash", None)
+
+    def __hash__(self) -> int:
+        cached = self._cached_hash
+        if cached is None:
+            cached = hash((self.scope, self.ordinal))
+            object.__setattr__(self, "_cached_hash", cached)
+        return cached
 
     def __str__(self) -> str:
         return f"{self.scope}/s{self.ordinal}"
@@ -65,6 +116,17 @@ class SymbolId:
 class NodeId:
     code: CodeId
     ordinal: int
+    _cached_hash: ClassVar[int | None] = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "_cached_hash", None)
+
+    def __hash__(self) -> int:
+        cached = self._cached_hash
+        if cached is None:
+            cached = hash((self.code, self.ordinal))
+            object.__setattr__(self, "_cached_hash", cached)
+        return cached
 
     def __str__(self) -> str:
         return f"{self.code}/n{self.ordinal}"
