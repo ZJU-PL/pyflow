@@ -1,0 +1,37 @@
+{
+  "schema_version": 2,
+  "framework": "pyramid",
+  "version": "1.0",
+  "description": "Pyramid request-source and response taint models",
+  "entrypoints": {"taint_parameters": true},
+  "detection": {
+    "imports": ["pyramid", "import pyramid", "from pyramid"],
+    "patterns": ["Configurator(", "view_config", "Response("]
+  },
+  "models": [
+    {
+      "call": "pyramid.request.Request.params.get",
+      "sources": [{"kind": "user_input", "port": "return"}]
+    },
+    {
+      "call": "pyramid.request.Request.POST.get",
+      "sources": [{"kind": "user_input", "port": "return"}]
+    },
+    {
+      "call": "Response",
+      "cwe": "CWE-79",
+      "severity": "high",
+      "sinks": [{"kind": "xss", "port": {"parameter": 0}}]
+    }
+  ],
+  "rules": [
+    {
+      "id": "PYFLOW-PYRAMID-XSS",
+      "title": "Untrusted data reaches an HTML response",
+      "sources": ["user_input", "network", "file", "env", "database", "secrets", "cache", "userdata", "untrusted", "exception"],
+      "sinks": ["xss"],
+      "severity": "high"
+    }
+  ],
+  "type": "taint"
+}

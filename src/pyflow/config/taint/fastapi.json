@@ -3,6 +3,7 @@
   "framework": "fastapi",
   "version": "1.0",
   "description": "Fastapi taint models (extracted from root rule pack)",
+  "entrypoints": {"taint_parameters": true},
   "detection": {
     "imports": [
       "fastapi",
@@ -21,6 +22,17 @@
     ]
   },
   "models": [
+    {
+      "call": "TemplateResponse",
+      "cwe": "CWE-79",
+      "severity": "high",
+      "sinks": [
+        {
+          "kind": "xss",
+          "port": "all"
+        }
+      ]
+    },
     {
       "call": "fastapi.Request.query_params.get",
       "sources": [

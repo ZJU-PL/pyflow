@@ -29,6 +29,10 @@ from ..calls import (
     CallModelRegistry,
 )
 from ..typestate import typestate_action_for_protocol
+from pyflow.analysis.entrypoints import (
+    EntryPointDefaults,
+    EntryPointMode,
+)
 from pyflow.analysis.taint import TaintPolicy, TaintRule
 
 _log = logging.getLogger(__name__)
@@ -46,6 +50,7 @@ _ROOT_KEYS = frozenset(
         "type",
         "description",
         "detection",
+        "entrypoints",
         "models",
         "rules",
     }
@@ -73,6 +78,7 @@ _RULE_KEYS = frozenset(
 _ENDPOINT_KEYS = frozenset({"kind", "port"})
 _SANITIZER_KEYS = frozenset({"kinds", "port"})
 _DETECTION_KEYS = frozenset({"imports", "patterns"})
+_ENTRYPOINT_KEYS = frozenset({"mode", "include_synthetic_modules", "taint_parameters"})
 _REQUIRED_ROOT_KEYS = frozenset(
     {"schema_version", "framework", "version", "type", "models", "rules"}
 )
@@ -119,6 +125,7 @@ class RulePack:
         self.type: str = data.get("type", "taint")
         self.description: str = data.get("description", "")
         self.detection: dict = data.get("detection", {})
+        self.entrypoints: dict = data.get("entrypoints", {})
         self._models_data: list[dict] = data.get("models", [])
         self._rules_data: list[dict] = data.get("rules", [])
 
@@ -129,6 +136,15 @@ class RulePack:
     @property
     def detection_patterns(self) -> tuple[str, ...]:
         return tuple(self.detection.get("patterns", ()))
+
+    @property
+    def entry_point_defaults(self) -> EntryPointDefaults:
+        raw_mode = self.entrypoints.get("mode")
+        return EntryPointDefaults(
+            mode=EntryPointMode(raw_mode) if raw_mode is not None else None,
+            include_synthetic_modules=self.entrypoints.get("include_synthetic_modules"),
+            taint_parameters=self.entrypoints.get("taint_parameters"),
+        )
 
     def matches(self, source_lines: Iterable[str]) -> bool:
         """Return True when *source_lines* indicate this framework is used."""
@@ -230,6 +246,12 @@ def _sink_positions(entries: object) -> FrozenSet[int]:
     return frozenset(positions or {0})
 
 
+def _sink_all_arguments(entries: object) -> bool:
+    return isinstance(entries, list) and any(
+        isinstance(entry, dict) and entry.get("port") == "all" for entry in entries
+    )
+
+
 def _sanitizer_kinds(entries: object) -> FrozenSet[str]:
     if not isinstance(entries, list):
         return frozenset()
@@ -255,6 +277,7 @@ def _call_model_from_entry(entry: dict) -> CallModel | None:
         sink_kinds=_taint_kinds(entry.get("sinks")),
         sanitizer_kinds=_sanitizer_kinds(entry.get("sanitizers")),
         sink_arg_positions=_sink_positions(entry.get("sinks")),
+        sink_all_arguments=_sink_all_arguments(entry.get("sinks")),
         cwe=_optional_str(entry.get("cwe")),
         severity=_optional_str(entry.get("severity")),
         suggestion=_optional_str(entry.get("suggestion")),
@@ -378,6 +401,23 @@ def validate_rule_pack_data(
                     or any(not isinstance(item, str) for item in value)
                 ):
                     error(f"detection.{key}", "must be an array of strings")
+
+    entrypoints = data.get("entrypoints")
+    if entrypoints is not None:
+        if raw_type != "taint":
+            error("entrypoints", "is only valid in taint packs")
+        if not isinstance(entrypoints, dict):
+            error("entrypoints", "must be an object")
+        else:
+            for key in sorted(set(entrypoints) - _ENTRYPOINT_KEYS):
+                error(f"entrypoints.{key}", "unknown schema-v2 entrypoint field")
+            mode = entrypoints.get("mode")
+            if mode is not None and mode not in {item.value for item in EntryPointMode}:
+                error("entrypoints.mode", "must be a supported entrypoint mode")
+            for key in ("include_synthetic_modules", "taint_parameters"):
+                value = entrypoints.get(key)
+                if value is not None and not isinstance(value, bool):
+                    error(f"entrypoints.{key}", "must be a boolean")
 
     models = data.get("models", [])
     if not isinstance(models, list):
@@ -510,10 +550,10 @@ def _validate_taint_model(entry: dict, location: str, error) -> None:
             port = endpoint.get("port")
             if key == "sources" and port != "return":
                 error(f"{endpoint_location}.port", "source port must be 'return'")
-            if key == "sinks" and not _valid_parameter_port(port):
+            if key == "sinks" and port != "all" and not _valid_parameter_port(port):
                 error(
                     f"{endpoint_location}.port",
-                    "sink port must contain a non-negative parameter index",
+                    "sink port must be 'all' or contain a non-negative parameter index",
                 )
 
     sanitizers = entry.get("sanitizers", [])
@@ -778,9 +818,14 @@ class Registry:
 
     def as_taint_policy(self) -> TaintPolicy:
         """Project active strict-v2 taint packs into an engine-neutral policy."""
+        defaults = EntryPointDefaults()
+        for pack in self._active_packs:
+            if self._pack_type(pack) == "taint":
+                defaults = defaults.overlay(pack.entry_point_defaults)
         return TaintPolicy.from_call_models(
             self.active_models(type="taint"),
             self.active_taint_rules(),
+            entry_point_defaults=defaults,
         )
 
     def as_nullness_config(

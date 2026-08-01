@@ -124,6 +124,9 @@ class PythonExpressionSemantics:
             return self._evaluate_many(expression.values, state)
         if isinstance(expression, ast.FormattedValue):
             return self.evaluate(expression.value, state)
+        if isinstance(expression, ast.Starred):
+            # Expansion changes container shape, not the taint of the value.
+            return self.evaluate(expression.value, state)
         if isinstance(expression, (ast.List, ast.Tuple, ast.Set)):
             return self._evaluate_container_literal(expression, state)
         if isinstance(expression, ast.Dict):
@@ -382,7 +385,7 @@ class PythonExpressionSemantics:
                 uncertainty = AnalysisUncertainty(
                     code="unknown-call-effect",
                     message=f"Unknown call effects for {name or '<dynamic>'}",
-                    level=PrecisionLevel.UNSUPPORTED,
+                    level=PrecisionLevel.CONSERVATIVE,
                     function=self.context.procedure,
                     filename=self.context.filename,
                     line=getattr(call, "lineno", None),
@@ -415,7 +418,11 @@ class PythonExpressionSemantics:
                         AnalysisUncertainty(
                             code="ambiguous-call-target",
                             message=f"Multiple local summaries match call {name!r}",
-                            level=PrecisionLevel.UNSUPPORTED,
+                            # The unknown-call branch above already havocs the
+                            # return and reachable actual arguments with every
+                            # configured source kind. Ambiguity loses
+                            # precision, but does not under-approximate taint.
+                            level=PrecisionLevel.CONSERVATIVE,
                             function=self.context.procedure,
                             filename=self.context.filename,
                             line=getattr(call, "lineno", None),

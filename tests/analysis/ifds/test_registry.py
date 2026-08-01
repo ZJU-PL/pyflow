@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from pyflow.analysis.entrypoints import EntryPointMode, EntryPointOptions
 from pyflow.analysis.ifds.modeling.registry import (
     Registry,
     load_registry,
@@ -85,6 +86,49 @@ class TestRegistryLoading:
         assert model.sink_kinds == frozenset({"rce"})
         assert model.sink_arg_positions == frozenset({0})
 
+    def test_sql_cursor_reads_are_database_sources(self):
+        r = Registry()
+        r.activate("sql")
+        models = r.active_models()
+
+        fetchone = models.model_for_name("cursor.fetchone")
+        fetchall = models.model_for_name("c.fetchall")
+
+        assert fetchone is not None
+        assert fetchone.source_kinds == frozenset({"database"})
+        assert fetchall is not None
+        assert fetchall.source_kinds == frozenset({"database"})
+
+    def test_template_rendering_models_all_context_arguments_as_sinks(self):
+        r = Registry()
+        r.activate("flask")
+
+        model = r.active_models().model_for_name("render_template_string")
+
+        assert model is not None
+        assert model.sink_kinds == frozenset({"xss"})
+        assert model.sink_all_arguments is True
+        assert model.cwe == "CWE-79"
+
+    @pytest.mark.parametrize(
+        ("framework", "source", "sink"),
+        [
+            ("bottle", "bottle.request.forms.get", "template"),
+            ("pyramid", "pyramid.request.Request.params.get", "Response"),
+            ("sanic", "sanic.request.Request.args.get", "html"),
+        ],
+    )
+    def test_web_framework_packs_expose_input_and_html_models(
+        self, framework, source, sink
+    ):
+        r = Registry()
+        r.activate(framework)
+        models = r.active_models().as_mapping()
+
+        assert models[source].source_kinds == frozenset({"user_input"})
+        assert models[sink].sink_kinds == frozenset({"xss"})
+        assert models[sink].cwe == "CWE-79"
+
     def test_active_rule_metadata(self):
         r = Registry()
         r.activate("fastapi")
@@ -92,8 +136,51 @@ class TestRegistryLoading:
         assert rules["PYFLOW-FASTAPI-SSRF"].sink_kinds == frozenset({"ssrf"})
         assert "user_input" in rules["PYFLOW-FASTAPI-SSRF"].source_kinds
 
+    def test_web_pack_exposes_shared_entrypoint_defaults(self):
+        registry = Registry()
+        registry.activate("flask", type="taint")
+
+        defaults = registry.as_taint_policy().entry_point_defaults
+        resolved = defaults.resolve(
+            EntryPointOptions(mode=EntryPointMode.ALL_PROCEDURES)
+        )
+
+        assert resolved.mode is EntryPointMode.ALL_PROCEDURES
+        assert resolved.taint_parameters is True
+
 
 class TestStrictV2Validation:
+    def test_entrypoint_defaults_are_validated(self):
+        valid = validate_rule_pack_data(
+            {
+                "schema_version": 2,
+                "framework": "demo",
+                "version": "2.0",
+                "type": "taint",
+                "entrypoints": {
+                    "mode": "declared-plus-roots",
+                    "taint_parameters": True,
+                },
+                "models": [],
+                "rules": [],
+            }
+        )
+        invalid = validate_rule_pack_data(
+            {
+                "schema_version": 2,
+                "framework": "demo",
+                "version": "2.0",
+                "type": "taint",
+                "entrypoints": {"mode": "guess", "taint_parameters": "yes"},
+                "models": [],
+                "rules": [],
+            }
+        )
+
+        assert valid == ()
+        assert any("supported entrypoint mode" in issue.message for issue in invalid)
+        assert any("must be a boolean" in issue.message for issue in invalid)
+
     def test_unsupported_schema_version_is_rejected(self):
         issues = validate_rule_pack_data(
             {

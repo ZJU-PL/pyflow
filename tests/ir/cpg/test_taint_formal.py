@@ -6,6 +6,7 @@ import importlib
 
 import pytest
 
+from pyflow.analysis.entrypoints import EntryPointMode, EntryPointOptions
 from pyflow.checker.ast_dataflow.domain import (
     TaintLocation,
     TaintOrigin,
@@ -15,7 +16,7 @@ from pyflow.checker.ast_dataflow.semantics import UpdateDecision
 from pyflow.ir.cpg import CodePropertyGraph, build_cpg
 from pyflow.ir.cpg.graph import CPGEdgeKind
 from pyflow.ir.cpg.taint import CPGTaintEngine
-from pyflow.ir.cpg.taint.formal import CPGAbstractState
+from pyflow.ir.cpg.taint.formal import CPGAbstractState, FormalCPGTaintAnalysis
 from pyflow.language.python import ast as py_ast
 
 
@@ -24,6 +25,45 @@ def _engine(source: str, **kwargs) -> CPGTaintEngine:
     engine.add_source("input")
     engine.add_sink("eval", cwe="CWE-95")
     return engine
+
+
+def test_cpg_uses_shared_entrypoint_selection_modes() -> None:
+    engine = CPGTaintEngine(
+        build_cpg(
+            "def left():\n    return right()\n"
+            "def right():\n    return left()\n"
+            "def root():\n    return 1\n"
+        ),
+        entry_point_options=EntryPointOptions(
+            mode=EntryPointMode.INFERRED_ROOTS,
+            include_synthetic_modules=False,
+        ),
+    )
+
+    entries = FormalCPGTaintAnalysis(engine)._root_entries()
+
+    assert tuple(engine._cpg.node_func_name(node) for node in entries) == ("root",)
+
+
+def test_cpg_entry_parameter_taint_is_an_independent_option() -> None:
+    source = "def handler(value):\n    eval(value)\n"
+    clean = _engine(
+        source,
+        entry_point_options=EntryPointOptions(
+            mode=EntryPointMode.ALL_PROCEDURES,
+            taint_parameters=False,
+        ),
+    ).analyze()
+    tainted = _engine(
+        source,
+        entry_point_options=EntryPointOptions(
+            mode=EntryPointMode.ALL_PROCEDURES,
+            taint_parameters=True,
+        ),
+    ).analyze()
+
+    assert clean.findings == ()
+    assert len(tainted.findings) == 1
 
 
 def test_cpg_abstract_state_is_an_immutable_join_semilattice() -> None:
@@ -234,7 +274,7 @@ def test_data_edges_are_consulted_but_cannot_bypass_a_kill() -> None:
     assert result.statistics["data_dependencies_consulted"] > 0
 
 
-def test_unknown_call_havocs_argument_and_marks_result_partial() -> None:
+def test_unknown_call_havocs_argument_conservatively_without_partial_status() -> None:
     result = _engine(
         "def main():\n"
         "    value = None\n"
@@ -243,8 +283,43 @@ def test_unknown_call_havocs_argument_and_marks_result_partial() -> None:
     ).analyze()
 
     assert len(result.findings) == 1
-    assert result.status == "partial"
-    assert "cpg-unknown-call-effect" in {item.code for item in result.diagnostics}
+    assert result.status == "complete"
+    diagnostic = next(
+        item for item in result.diagnostics if item.code == "cpg-unknown-call-effect"
+    )
+    assert diagnostic.affects_completeness is False
+    assert diagnostic.level == "conservative"
+
+
+def test_pure_string_method_preserves_existing_taint_without_inventing_it() -> None:
+    tainted = _engine(
+        "def main():\n" "    value = input().lower()\n" "    eval(value)\n"
+    ).analyze()
+    clean = _engine(
+        "def main():\n" "    value = 'safe'.lower()\n" "    eval(value)\n"
+    ).analyze()
+
+    assert len(tainted.findings) == 1
+    assert clean.findings == ()
+    assert "cpg-unknown-call-effect" not in {
+        diagnostic.code for diagnostic in clean.diagnostics
+    }
+
+
+def test_interpreter_string_helpers_propagate_only_existing_taint() -> None:
+    tainted = _engine(
+        "def main():\n" "    value = input()\n" "    eval(f'prefix: {value}')\n"
+    ).analyze()
+    clean = _engine("def main():\n" "    eval(f'prefix: {42}')\n").analyze()
+
+    assert len(tainted.findings) == 1
+    assert clean.findings == ()
+    assert not any(
+        diagnostic.code == "cpg-unknown-call-effect"
+        and diagnostic.operation
+        and diagnostic.operation.startswith("interpreter_")
+        for diagnostic in clean.diagnostics
+    )
 
 
 def test_nested_sink_calls_are_events_not_lost_inside_outer_expressions() -> None:
@@ -468,6 +543,33 @@ def test_structured_try_finally_strong_overwrite_kills_taint() -> None:
     result = engine.analyze()
 
     assert result.findings == ()
+
+
+def test_structured_switch_joins_tainted_branch_without_partial_status() -> None:
+    result = _engine(
+        "def target(flag):\n"
+        "    value = 'safe'\n"
+        "    if flag:\n"
+        "        value = input()\n"
+        "    eval(value)\n"
+    ).analyze()
+
+    assert len(result.findings) == 1
+    assert result.status == "complete"
+
+
+def test_structured_while_reaches_fixed_point_without_partial_status() -> None:
+    result = _engine(
+        "def target(flag):\n"
+        "    value = 'safe'\n"
+        "    while flag:\n"
+        "        value = input()\n"
+        "        flag = False\n"
+        "    eval(value)\n"
+    ).analyze()
+
+    assert len(result.findings) == 1
+    assert result.status == "complete"
 
 
 def test_absent_with_finally_does_not_reenter_the_enclosing_try() -> None:

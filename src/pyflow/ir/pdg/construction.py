@@ -22,7 +22,6 @@ from pyflow.ir.ddg import construct_ddg
 from pyflow.ir.core import SymbolKind, ValueId, ensure_code_indexed, index_cfg
 from pyflow.ir.dataflow import convert
 from pyflow.ir.dataflow import graph as df_graph
-from pyflow.ir.dataflow.convert import UnsupportedDataflowConstructError
 from pyflow.language.python import ast as py_ast
 
 from .graph import ProgramDependenceGraph, PDGNode
@@ -65,6 +64,11 @@ def _flatten_children(child: Any, into: List[Any]) -> None:
 
 def _iter_ast_children(node: Any) -> List[Any]:
     children: List[Any] = []
+    if isinstance(node, (list, tuple)):
+        _flatten_children(node, children)
+        return children
+    if not hasattr(node, "children"):
+        return children
     for child in node.children():
         _flatten_children(child, children)
     return children
@@ -76,6 +80,10 @@ def _build_ast_parent_map(root: Any) -> Dict[Any, Any]:
 
     def walk(node: Any) -> None:
         if node is None:
+            return
+        if isinstance(node, (list, tuple)):
+            for child in _iter_ast_children(node):
+                walk(child)
             return
         if isinstance(node, py_ast.Code):
             if node in visited_code:
@@ -377,7 +385,9 @@ class PDGConstructor:
                         else symbol_id
                     )
                     symbol = catalog.symbols.get(identity)
-                    label = symbol.display_name if symbol is not None else str(symbol_id)
+                    label = (
+                        symbol.display_name if symbol is not None else str(symbol_id)
+                    )
                     def_node.add_edge_to(use_node, "data", label)
 
     def _add_data_edges(
@@ -385,11 +395,13 @@ class PDGConstructor:
     ) -> None:
         try:
             self._add_data_edges_from_ddg(pdg, parent_map)
-        except UnsupportedDataflowConstructError as exc:
+        except Exception as exc:
             # Shared IRSemantics is the authoritative representation for
-            # constructs the optional dataflow lowering does not model.
+            # constructs the optional legacy dataflow/DDG lowering does not
+            # model. A lowering failure must not discard the CFG, control
+            # dependence, or semantic def/use edges already available here.
             pdg.data_dependence_mode = "semantics"
-            pdg.data_dependence_reason = str(exc)
+            pdg.data_dependence_reason = f"{type(exc).__name__}: {exc}"
         else:
             pdg.data_dependence_mode = "hybrid"
             pdg.data_dependence_reason = ""

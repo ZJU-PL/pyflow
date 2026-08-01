@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 from typing import Any, Dict, FrozenSet, List, Optional, Tuple
+from pyflow.analysis.taint.policy import call_name_suffix_matches
 from pyflow.ir.pdg.graph import PDGNode
 from pyflow.language.python import ast as py_ast
 from .model import TaintFinding
@@ -357,8 +358,16 @@ class _TaintMatchingMixin:
                 return True
         # Source-loaded ASTs may preserve an imported alias (``request``)
         # rather than its registry-qualified module (``flask.request``).
-        suffix_matches = [src for src in self._sources if src.endswith("." + name)]
-        return len(suffix_matches) == 1
+        suffix_matches = [
+            src for src in self._sources if call_name_suffix_matches(src, name)
+        ]
+        if len(suffix_matches) == 1:
+            return True
+        return (
+            bool(suffix_matches)
+            and "." in name
+            and self._equivalent_source_models(suffix_matches)
+        )
 
     def _match_sink_name(self, name: str) -> str:
         if not name:
@@ -368,7 +377,47 @@ class _TaintMatchingMixin:
                 return sink
             if "." not in sink and name.rsplit(".", 1)[-1] == sink:
                 return sink
-        suffix_matches = [sink for sink in self._sinks if sink.endswith("." + name)]
+        suffix_matches = [
+            sink for sink in self._sinks if call_name_suffix_matches(sink, name)
+        ]
         if len(suffix_matches) == 1:
             return suffix_matches[0]
+        if (
+            suffix_matches
+            and "." in name
+            and self._equivalent_sink_models(suffix_matches)
+        ):
+            return next(
+                (
+                    sink
+                    for sink in suffix_matches
+                    if self._sinks.get(sink, "")
+                    not in self._sink_kinds.get(sink, frozenset())
+                ),
+                suffix_matches[0],
+            )
         return ""
+
+    def _equivalent_source_models(self, names: List[str]) -> bool:
+        first = self._source_kinds.get(names[0], frozenset())
+        return all(
+            self._source_kinds.get(name, frozenset()) == first for name in names[1:]
+        )
+
+    def _equivalent_sink_models(self, names: List[str]) -> bool:
+        kinds = self._sink_kinds.get(names[0], frozenset())
+        if any(self._sink_kinds.get(name, frozenset()) != kinds for name in names[1:]):
+            return False
+        explicit_cwes = {
+            descriptor
+            for name in names
+            for descriptor in (self._sinks.get(name, ""),)
+            if descriptor and descriptor not in kinds
+        }
+        severities = {
+            severity
+            for name in names
+            for severity in (self._sink_severity.get(name, ""),)
+            if severity
+        }
+        return len(explicit_cwes) <= 1 and len(severities) <= 1

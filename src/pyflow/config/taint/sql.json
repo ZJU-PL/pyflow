@@ -24,6 +24,24 @@
   },
   "models": [
     {
+      "call": "fetchone",
+      "sources": [
+        {
+          "kind": "database",
+          "port": "return"
+        }
+      ]
+    },
+    {
+      "call": "fetchall",
+      "sources": [
+        {
+          "kind": "database",
+          "port": "return"
+        }
+      ]
+    },
+    {
       "call": "sqlite3.Cursor.execute",
       "sinks": [
         {

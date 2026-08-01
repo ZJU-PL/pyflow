@@ -18,6 +18,7 @@ from ..domain import (
 )
 from ..frontend import ASTCFGBuilder, ASTCFGNode, ASTNodeKind
 from ..modeling import CallShapeContractRegistry, SanitizerContractRegistry
+from .events import TaintSinkEvent
 from ..solver import (
     CFGEdge,
     CFGSolverResult,
@@ -294,13 +295,23 @@ class PythonStatementTransfer:
         if isinstance(statement, ast.Assign):
             value = self.expressions.evaluate(statement.value, current)
             current = value.state
-            events = value.events
+            event_set = set(value.events)
             for target in statement.targets:
                 current = self._assign(target, value, current, node)
+                response_event = self._response_attribute_event(target, value, node)
+                if response_event is not None:
+                    event_set.add(response_event)
+            events = frozenset(event_set)
         elif isinstance(statement, ast.AnnAssign):
             value = self.expressions.evaluate(statement.value, current)
             current = self._assign(statement.target, value, value.state, node)
-            events = value.events
+            event_set = set(value.events)
+            response_event = self._response_attribute_event(
+                statement.target, value, node
+            )
+            if response_event is not None:
+                event_set.add(response_event)
+            events = frozenset(event_set)
         elif isinstance(statement, ast.AugAssign):
             previous = self.expressions.evaluate(statement.target, current)
             value = self.expressions.evaluate(statement.value, previous.state)
@@ -401,6 +412,32 @@ class PythonStatementTransfer:
                 edge_state = current
             outgoing.append((edge, edge_state))
         return TransferResult(tuple(outgoing), events=events)
+
+    def _response_attribute_event(
+        self, target: ast.AST, value: ExpressionResult, node: ASTCFGNode
+    ) -> TaintSinkEvent | None:
+        """Model direct writes to common framework response body fields."""
+        if not isinstance(target, ast.Attribute) or target.attr not in {"text", "body"}:
+            return None
+        receiver = target.value
+        while isinstance(receiver, ast.Attribute):
+            receiver = receiver.value
+        if not isinstance(receiver, ast.Name) or receiver.id not in {
+            "resp",
+            "response",
+        }:
+            return None
+        if not value.facts:
+            return None
+        return TaintSinkEvent(
+            node.procedure,
+            self.expressions.context.filename,
+            f"{receiver.id}.{target.attr}",
+            frozenset({"xss"}),
+            None,
+            node.line,
+            value.facts,
+        )
 
     def _assign(
         self,

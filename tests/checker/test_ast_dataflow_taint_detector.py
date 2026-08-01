@@ -3,8 +3,10 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from pyflow.checker.ast_dataflow.detectors.taint import ASTDataflowTaintDetector
+from pyflow.checker.ast_dataflow.core.context import AnalysisSession
 from pyflow.analysis.ifds.modeling.calls import CallModel, CallModelRegistry
 from pyflow.analysis.taint import TaintPolicy, TaintRule
+from pyflow.application.program import Program
 
 
 class _DummyQueries:
@@ -20,13 +22,54 @@ def _make_session(sources_by_name, func_to_file=None):
     )
 
 
+def test_source_collection_normalizes_indented_method_with_multiline_string():
+    source = '''
+class App:
+    def index(self):
+        return """first
+column-zero
+        last"""
+'''
+
+    sources, filenames, _imports = AnalysisSession._collect_sources_and_imports(
+        Program(), {"sample.py": source}
+    )
+
+    assert "App.index" in sources
+    assert "index" not in sources
+    compile(sources["App.index"], "sample.py", "exec")
+    assert filenames["App.index"] == "sample.py"
+
+
+def test_source_collection_preserves_nested_qualified_function_names():
+    source = """
+class Handler:
+    def post(self, payload):
+        def execute(value):
+            eval(value)
+        execute(payload)
+"""
+
+    sources, filenames, _imports = AnalysisSession._collect_sources_and_imports(
+        Program(), {"sample.py": source}
+    )
+
+    assert set(sources) == {"Handler.post", "Handler.post.execute"}
+    assert filenames == {
+        "Handler.post": "sample.py",
+        "Handler.post.execute": "sample.py",
+    }
+
+
 def test_ast_dataflow_taint_detector_reports_direct_eval_flow():
     session = _make_session(
-        {"vuln": """
+        {
+            "vuln": """
 def vuln():
     data = input()
     eval(data)
-"""},
+"""
+        },
         {"vuln": "sample.py"},
     )
 
@@ -39,6 +82,50 @@ def vuln():
     assert issue.cwe.id == 95
     assert issue.test_id == "PYFLOW-STDLIB-RCE"
     assert "eval" in issue.text
+
+
+def test_formal_detector_treats_external_entry_parameter_as_untrusted():
+    session = _make_session(
+        {"handler": "def handler(payload):\n    eval(payload)\n"},
+        {"handler": "sample.py"},
+    )
+
+    result = ASTDataflowTaintDetector().analyze(session)
+
+    assert len(result.findings) == 1
+    assert result.findings[0].function == "handler"
+
+
+def test_formal_detector_does_not_report_sanitized_entry_parameter():
+    session = _make_session(
+        {
+            "handler": (
+                "def handler(payload):\n"
+                "    cleaned = sanitize(payload)\n"
+                "    eval(cleaned)\n"
+            )
+        },
+        {"handler": "sample.py"},
+    )
+
+    result = ASTDataflowTaintDetector(sanitizers={"sanitize"}).analyze(session)
+
+    assert result.findings == ()
+
+
+def test_formal_detector_infers_syntactic_root_when_declared_entry_is_incomplete():
+    session = _make_session(
+        {
+            "declared": "def declared():\n    return 1\n",
+            "handler": "def handler(payload):\n    eval(payload)\n",
+        },
+        {"declared": "sample.py", "handler": "sample.py"},
+    )
+    session.program = SimpleNamespace(entryPoints=())
+
+    result = ASTDataflowTaintDetector().analyze(session)
+
+    assert any(finding.function == "handler" for finding in result.findings)
 
 
 def test_ast_dataflow_taint_detector_returns_typed_result_with_sink_line():

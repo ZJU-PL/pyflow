@@ -1,3 +1,4 @@
+from pyflow.analysis.entrypoints import EntryPointMode, EntryPointOptions
 from pyflow.analysis.taint import TaintPolicy, TaintRule
 from pyflow.checker.ast_dataflow.semantics import TaintSinkEvent
 from pyflow.checker.ast_dataflow.solver.interprocedural import (
@@ -19,6 +20,35 @@ POLICY = TaintPolicy(
         ),
     ),
 )
+
+
+def test_shared_entrypoint_options_control_ast_roots_and_boundary_taint():
+    result = ASTInterproceduralAnalyzer(POLICY).analyze(
+        {
+            "root": "def root(value):\n    helper(value)\n",
+            "helper": "def helper(value):\n    eval(value)\n",
+            "exported": "def exported(value):\n    return value\n",
+        },
+        entry_functions=("exported",),
+        entry_point_options=EntryPointOptions(
+            mode=EntryPointMode.DECLARED_PLUS_ROOTS,
+            taint_parameters=True,
+        ),
+    )
+
+    assert result.entries == frozenset({"root", "exported"})
+    assert result.reachable == frozenset({"root", "helper", "exported"})
+    assert result.entry_point_options.taint_parameters
+
+
+def test_explicit_ast_entrypoint_mode_does_not_use_legacy_fallbacks():
+    result = ASTInterproceduralAnalyzer(POLICY).analyze(
+        {"root": "def root():\n    return 1\n"},
+        entry_point_options=EntryPointOptions(mode=EntryPointMode.DECLARED_ONLY),
+    )
+
+    assert result.entries == frozenset()
+    assert result.reachable == frozenset()
 
 
 def test_interprocedural_relational_summaries_connect_source_and_sink():
@@ -169,6 +199,7 @@ def test_explicit_entry_functions_define_reachability_closure():
             "unreachable": "def unreachable():\n    eval(input())\n",
         },
         entry_functions=("main",),
+        entry_point_options=EntryPointOptions(mode=EntryPointMode.DECLARED_ONLY),
     )
 
     assert result.reachable == frozenset({"main", "helper"})
@@ -185,6 +216,7 @@ def test_recursive_summary_converges_to_parameter_return_dependency():
             )
         },
         entry_functions=("recurse",),
+        entry_point_options=EntryPointOptions(mode=EntryPointMode.DECLARED_ONLY),
     )
     values = result.summaries["recurse"].propagate(
         {

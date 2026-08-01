@@ -55,6 +55,28 @@ def broken(
 """
 
 
+def test_optional_ddg_failure_keeps_full_pdg_without_structural_fallback():
+    source = '''
+class Service:
+    """A class whose docstring and attribute writes exercise legacy lowering."""
+
+    def __init__(self, value):
+        self.value = value
+
+    def read(self):
+        return self.value
+'''
+
+    cpg = build_cpg(source)
+
+    assert not any(
+        diagnostic.get("code") == "cpg-pdg-structural-fallback"
+        for diagnostic in cpg.construction_diagnostics
+    )
+    assert "Service.__init__" in cpg.functions
+    assert "Service.read" in cpg.functions
+
+
 # ── Gap 4: ordered edges via dict ────────────────────────────────────────
 
 
@@ -167,6 +189,49 @@ class TestGap5TypedPolicy:
         sanitized = state.sanitize("clean_input", frozenset({"user_input"}))
         assert sanitized.tags == frozenset({"network"})
         assert sanitized.sanitized_by == frozenset({"clean_input"})
+
+    def test_equivalent_qualified_sink_models_match_short_receiver_call(self):
+        from pyflow.analysis.ifds.modeling.calls import CallModel, CallModelRegistry
+        from pyflow.analysis.taint import TaintPolicy, TaintRule
+
+        source = """
+def source():
+    return "query"
+
+def search(cursor):
+    query = source()
+    cursor.execute(query)
+"""
+        models = CallModelRegistry(
+            [
+                CallModel("source", source_kinds=frozenset({"user_input"})),
+                CallModel(
+                    "sqlite3.Cursor.execute",
+                    sink_kinds=frozenset({"sql"}),
+                    cwe="CWE-89",
+                ),
+                CallModel(
+                    "psycopg2.cursor.execute",
+                    sink_kinds=frozenset({"sql"}),
+                    cwe="CWE-89",
+                ),
+            ]
+        )
+        rule = TaintRule(
+            "TEST-SQL",
+            "Untrusted SQL",
+            frozenset({"user_input"}),
+            frozenset({"sql"}),
+            cwe="CWE-89",
+        )
+        engine = CPGTaintEngine(
+            build_cpg(source), policy=TaintPolicy.from_call_models(models, [rule])
+        )
+
+        result = engine.analyze()
+
+        assert len(result.findings) == 1
+        assert result.findings[0].cwe == "CWE-89"
 
     def test_rules_reject_nonmatching_source_kinds(self):
         from pyflow.analysis.ifds.modeling.calls import CallModel, CallModelRegistry

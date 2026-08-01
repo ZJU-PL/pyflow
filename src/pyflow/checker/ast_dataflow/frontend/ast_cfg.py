@@ -294,10 +294,11 @@ class ASTCFGBuilder:
 def find_function(
     tree: ast.AST, name: str
 ) -> ast.FunctionDef | ast.AsyncFunctionDef | None:
+    leaf_name = name.rsplit(".", 1)[-1]
     for node in ast.walk(tree):
         if (
             isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-            and node.name == name
+            and node.name == leaf_name
         ):
             return node
     return None

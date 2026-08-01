@@ -1,0 +1,37 @@
+{
+  "schema_version": 2,
+  "framework": "bottle",
+  "version": "1.0",
+  "description": "Bottle request-source and template-response taint models",
+  "entrypoints": {"taint_parameters": true},
+  "detection": {
+    "imports": ["bottle", "import bottle", "from bottle"],
+    "patterns": ["Bottle(", "template(", "request.forms"]
+  },
+  "models": [
+    {
+      "call": "bottle.request.forms.get",
+      "sources": [{"kind": "user_input", "port": "return"}]
+    },
+    {
+      "call": "bottle.request.query.get",
+      "sources": [{"kind": "user_input", "port": "return"}]
+    },
+    {
+      "call": "template",
+      "cwe": "CWE-79",
+      "severity": "high",
+      "sinks": [{"kind": "xss", "port": "all"}]
+    }
+  ],
+  "rules": [
+    {
+      "id": "PYFLOW-BOTTLE-XSS",
+      "title": "Untrusted data reaches a template response",
+      "sources": ["user_input", "network", "file", "env", "database", "secrets", "cache", "userdata", "untrusted", "exception"],
+      "sinks": ["xss"],
+      "severity": "high"
+    }
+  ],
+  "type": "taint"
+}

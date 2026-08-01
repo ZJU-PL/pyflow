@@ -239,6 +239,8 @@ class ASTDataflowTaintDetector(Detector):
                     ),
                 )
             )
+        from pyflow.analysis.entrypoints import EntryPointMode, EntryPointOptions
+
         interprocedural = ASTInterproceduralAnalyzer(
             policy,
             refinement=refinement,
@@ -247,6 +249,12 @@ class ASTDataflowTaintDetector(Detector):
             session.sources_by_name,
             getattr(session, "func_to_file", {}),
             self._entry_functions(session),
+            entry_point_options=policy.entry_point_defaults.resolve(
+                EntryPointOptions(
+                    mode=EntryPointMode.DECLARED_PLUS_ROOTS,
+                    taint_parameters=True,
+                )
+            ),
         )
         findings: dict[tuple, ASTDataflowTaintFinding] = {}
         for name, analysis in interprocedural.analyses.items():
@@ -256,16 +264,28 @@ class ASTDataflowTaintDetector(Detector):
             for event in analysis.events:
                 if not isinstance(event, TaintSinkEvent):
                     continue
+                # Parameter facts are symbolic while summaries are built. At
+                # externally reachable roots, however, those parameters are
+                # the program boundary (HTTP/CLI/RPC inputs) and therefore
+                # represent real untrusted sources. Keep filtering symbolic
+                # parameters for non-entry helpers so they only report when a
+                # concrete caller instantiates their summary.
                 actual_facts = frozenset(
                     fact
                     for fact in event.facts
-                    if not (fact.origin.symbol or "").startswith("parameter:")
+                    if (
+                        interprocedural.entry_point_options.taint_parameters
+                        and name in interprocedural.entries
+                    )
+                    or not (fact.origin.symbol or "").startswith("parameter:")
                 )
                 source_kinds = frozenset(fact.kind for fact in actual_facts)
                 if not source_kinds:
                     continue
-                sink_kinds = policy.sink_kinds_for(event.sink_name) or frozenset(
-                    {"dangerous"}
+                sink_kinds = (
+                    policy.sink_kinds_for(event.sink_name)
+                    or event.sink_kinds
+                    or frozenset({"dangerous"})
                 )
                 for rule in policy.matching_rules(source_kinds, sink_kinds):
                     matched_source_kinds = frozenset(source_kinds & rule.source_kinds)
@@ -532,6 +552,9 @@ class ASTDataflowTaintDetector(Detector):
                 right.sanitizer_kinds_by_call,
             ),
             rules=left.rules + right.rules,
+            entry_point_defaults=left.entry_point_defaults.overlay(
+                right.entry_point_defaults
+            ),
         )
 
     def _rule_for_sink(self, sink: str) -> TaintRule | None:

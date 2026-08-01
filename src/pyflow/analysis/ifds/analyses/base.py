@@ -1631,9 +1631,10 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
         return repr(location)
 
     def describe_expression(self, expr: object) -> str:
-        call_name = self._call_name_from_expression(expr)
-        if call_name is not None:
-            return f"{call_name}()"
+        if self._is_call_expression(expr):
+            call_name = self._call_name_from_expression(expr)
+            if call_name is not None:
+                return f"{call_name}()"
         if isinstance(expr, py_ast.GetAttr):
             base = self.describe_expression(expr.expr)
             return f"{base}.{self._path_component(expr.name)}"

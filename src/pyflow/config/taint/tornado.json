@@ -3,6 +3,7 @@
   "framework": "tornado",
   "version": "1.0",
   "description": "Tornado taint models (extracted from root rule pack)",
+  "entrypoints": {"taint_parameters": true},
   "detection": {
     "imports": [
       "tornado",
@@ -11,6 +12,19 @@
     ]
   },
   "models": [
+    {
+      "call": "self.write",
+      "cwe": "CWE-79",
+      "severity": "high",
+      "sinks": [
+        {
+          "kind": "xss",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
+    },
     {
       "call": "tornado.httputil.HTTPServerRequest.cookies",
       "sources": [

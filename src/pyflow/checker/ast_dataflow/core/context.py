@@ -200,22 +200,62 @@ class AnalysisSession:
                                 alias.asname or alias.name
                             ] = imported
 
-            # Collect functions
-            func_nodes = [
-                node
-                for node in ast.walk(tree)
-                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-            ]
-            if func_nodes:
-                for node in func_nodes:
+            # Preserve lexical qualification. Security reports and call-graph
+            # targets distinguish ``Class.method`` and nested functions, while
+            # the old flat ``node.name`` map both lost that identity and
+            # silently overwrote same-named methods from different classes.
+            qualified_functions: list[
+                tuple[str, ast.FunctionDef | ast.AsyncFunctionDef]
+            ] = []
+
+            class FunctionCollector(ast.NodeVisitor):
+                def __init__(self) -> None:
+                    self.scope: list[str] = []
+
+                def visit_ClassDef(self, node: ast.ClassDef) -> None:
+                    self.scope.append(node.name)
+                    self.generic_visit(node)
+                    self.scope.pop()
+
+                def _visit_function(
+                    self, node: ast.FunctionDef | ast.AsyncFunctionDef
+                ) -> None:
+                    qualified_functions.append(
+                        (".".join((*self.scope, node.name)), node)
+                    )
+                    self.scope.append(node.name)
+                    self.generic_visit(node)
+                    self.scope.pop()
+
+                visit_FunctionDef = _visit_function
+                visit_AsyncFunctionDef = _visit_function
+
+            FunctionCollector().visit(tree)
+            top_level_names = {
+                name for name, _node in qualified_functions if "." not in name
+            }
+            method_leaf_names = {
+                name.rsplit(".", 1)[-1]
+                for name, _node in qualified_functions
+                if "." in name
+            }
+            for leaf_name in method_leaf_names - top_level_names:
+                if func_to_file.get(leaf_name) == filename:
+                    name_to_source.pop(leaf_name, None)
+                    func_to_file.pop(leaf_name, None)
+
+            if qualified_functions:
+                for qualified_name, node in qualified_functions:
                     if getattr(node, "lineno", None) and getattr(
                         node, "end_lineno", None
                     ):
-                        lines = src.splitlines()
-                        func_src = "\n".join(lines[node.lineno - 1 : node.end_lineno])
+                        # Re-render the parsed node. Plain dedenting is not
+                        # safe for methods whose multiline strings contain
+                        # legitimate column-zero content.
+                        func_src = ast.unparse(node)
                     else:
                         func_src = ast.get_source_segment(src, node) or src
-                    name_to_source[node.name] = func_src
-                    func_to_file[node.name] = filename
+                    name_to_source[qualified_name] = func_src
+                    func_to_file[qualified_name] = filename
 
         return name_to_source, func_to_file, file_imports

@@ -3,9 +3,11 @@
   "framework": "flask",
   "version": "1.0",
   "description": "Flask taint models (extracted from root rule pack)",
+  "entrypoints": {"taint_parameters": true},
   "detection": {
     "imports": [
       "flask",
+      "quart",
       "Flask(",
       "@app.route",
       "@blueprint.route",
@@ -19,6 +21,17 @@
     ]
   },
   "models": [
+    {
+      "call": "render_template_string",
+      "cwe": "CWE-79",
+      "severity": "high",
+      "sinks": [
+        {
+          "kind": "xss",
+          "port": "all"
+        }
+      ]
+    },
     {
       "call": "flask.request.args",
       "sources": [

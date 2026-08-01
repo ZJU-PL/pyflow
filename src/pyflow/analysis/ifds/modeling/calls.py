@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import FrozenSet, Iterable, Mapping
+
+from pyflow.analysis.taint.policy import call_name_suffix_matches
 
 
 STATE_OPEN = "open"
@@ -20,6 +22,7 @@ class CallModel:
     sink_kinds: FrozenSet[str] = frozenset()
     sanitizer_kinds: FrozenSet[str] = frozenset()
     sink_arg_positions: FrozenSet[int] = frozenset({0})
+    sink_all_arguments: bool = False
     rule_id: str | None = None
     cwe: str | None = None
     severity: str | None = None
@@ -34,6 +37,57 @@ class CallModel:
     module_prefixes: FrozenSet[str] = frozenset()
     return_kind: str | None = None
 
+    def semantic_key(self) -> tuple[object, ...]:
+        """Return model semantics independent of its qualified call spelling."""
+        return (
+            self.source_kinds,
+            self.sink_kinds,
+            self.sanitizer_kinds,
+            self.sink_arg_positions,
+            self.sink_all_arguments,
+            self.rule_id,
+            self.cwe,
+            self.severity,
+            self.suggestion,
+            self.nullness_nullable_return,
+            self.typestate_actions,
+            self.typestate_action_protocols,
+            self.resource_arg_positions,
+            self.track_method_receiver,
+            self.receiver_types,
+            self.callee_qualnames,
+            self.module_prefixes,
+            self.return_kind,
+        )
+
+    def alias_compatible_with(self, other: "CallModel") -> bool:
+        """Whether two qualified spellings can safely share short-name lookup."""
+        if (
+            self.source_kinds != other.source_kinds
+            or self.sink_kinds != other.sink_kinds
+            or self.sanitizer_kinds != other.sanitizer_kinds
+            or self.sink_all_arguments != other.sink_all_arguments
+            or self.nullness_nullable_return != other.nullness_nullable_return
+            or self.typestate_actions != other.typestate_actions
+            or self.typestate_action_protocols != other.typestate_action_protocols
+            or self.resource_arg_positions != other.resource_arg_positions
+            or self.track_method_receiver != other.track_method_receiver
+            or self.receiver_types != other.receiver_types
+            or self.callee_qualnames != other.callee_qualnames
+            or self.module_prefixes != other.module_prefixes
+            or self.return_kind != other.return_kind
+        ):
+            return False
+        for left, right in (
+            (self.rule_id, other.rule_id),
+            (self.cwe, other.cwe),
+            (self.severity, other.severity),
+            (self.suggestion, other.suggestion),
+        ):
+            if left is not None and right is not None and left != right:
+                return False
+        return True
+
     def merged(self, other: "CallModel") -> "CallModel":
         if self.name != other.name:
             raise ValueError("Cannot merge call models with different names")
@@ -43,6 +97,7 @@ class CallModel:
             sink_kinds=self.sink_kinds | other.sink_kinds,
             sanitizer_kinds=self.sanitizer_kinds | other.sanitizer_kinds,
             sink_arg_positions=self.sink_arg_positions | other.sink_arg_positions,
+            sink_all_arguments=(self.sink_all_arguments or other.sink_all_arguments),
             rule_id=self.rule_id or other.rule_id,
             cwe=self.cwe or other.cwe,
             severity=self.severity or other.severity,
@@ -138,14 +193,27 @@ class CallModelRegistry:
         # ``flask.request.args.get``).  Resolve such aliases only when the
         # suffix identifies one model unambiguously; ambiguous leaf names such
         # as ``loads`` remain unresolved rather than producing a false match.
-        suffix = f".{name}"
         candidates = [
             model
             for model_name, model in self._models.items()
-            if model_name.endswith(suffix)
+            if call_name_suffix_matches(model_name, name)
         ]
+        if not candidates and "." in name:
+            leaf = name.rsplit(".", 1)[-1]
+            candidates = [
+                model
+                for model_name, model in self._models.items()
+                if model_name.rsplit(".", 1)[-1] == leaf
+            ]
         if len(candidates) == 1:
             return candidates[0]
+        if candidates and "." in name:
+            first = candidates[0]
+            if all(first.alias_compatible_with(model) for model in candidates[1:]):
+                merged = replace(first, name=name)
+                for model in candidates[1:]:
+                    merged = merged.merged(replace(model, name=name))
+                return merged
         return None
 
     def as_mapping(self) -> Mapping[str, CallModel]:

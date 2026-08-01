@@ -102,9 +102,7 @@ def _literal_name(node) -> object:
     return "*"
 
 
-def _storage_for_expr(
-    catalog: IRCatalog, code_id, node
-) -> tuple[StorageLocation, ...]:
+def _storage_for_expr(catalog: IRCatalog, code_id, node) -> tuple[StorageLocation, ...]:
     if isinstance(node, ast.Local) and catalog.has_symbol(node, code_id):
         return (LocalStorage(catalog.symbol_id(node, code_id)),)
     if isinstance(node, (ast.Cell, ast.GetCell, ast.GetCellDeref)):
@@ -143,9 +141,7 @@ def _explicit_storage(catalog: IRCatalog, code_id, node):
             writes.append(AttributeStorage(base, _literal_name(node.name)))
     elif isinstance(node, (ast.SetSubscript, ast.DeleteSubscript)):
         for base in _storage_for_expr(catalog, code_id, node.expr):
-            writes.append(
-                SubscriptStorage(base, _literal_name(node.subscript))
-            )
+            writes.append(SubscriptStorage(base, _literal_name(node.subscript)))
     return reads, writes
 
 
@@ -205,19 +201,37 @@ def _call_arguments(call) -> tuple[object, ...]:
     return tuple(result)
 
 
+def _static_name_component(expr) -> str | None:
+    if isinstance(expr, ast.Local):
+        return str(expr.name) if expr.name is not None else None
+    if isinstance(expr, ast.Existing):
+        name = getattr(expr.object, "pythonName", lambda: None)()
+        if isinstance(name, str):
+            return name
+        pyobj = getattr(expr.object, "pyobj", None)
+        return pyobj if isinstance(pyobj, str) else None
+    if isinstance(expr, str):
+        return expr
+    return None
+
+
+def _symbolic_expression_name(expr) -> str | None:
+    direct = _static_name_component(expr)
+    if direct is not None:
+        return direct
+    if isinstance(expr, (ast.GetAttr, ast.Load)):
+        base = _symbolic_expression_name(expr.expr)
+        component = _static_name_component(expr.name)
+        if base is not None and component is not None:
+            return f"{base}.{component}"
+    return None
+
+
 def _symbolic_call_name(call) -> str | None:
     if isinstance(call, ast.DirectCall) and call.code is not None:
         return str(call.code.codeName())
     if isinstance(call, ast.Call):
-        expr = call.expr
-        if isinstance(expr, ast.Local):
-            return str(expr.name) if expr.name is not None else None
-        if isinstance(expr, ast.Existing):
-            name = getattr(expr.object, "pythonName", lambda: None)()
-            if isinstance(name, str):
-                return name
-            pyobj = getattr(expr.object, "pyobj", None)
-            return pyobj if isinstance(pyobj, str) else None
+        return _symbolic_expression_name(call.expr)
     if isinstance(call, ast.MethodCall):
         name = call.name
         if isinstance(name, ast.Local):
@@ -262,9 +276,7 @@ def _register_call(catalog: IRCatalog, node, node_id):
     return (call_id,)
 
 
-def build_semantics(
-    catalog: IRCatalog, *, register_missing_nodes: bool = True
-) -> None:
+def build_semantics(catalog: IRCatalog, *, register_missing_nodes: bool = True) -> None:
     """Populate structural semantics for every indexed Python IR node."""
     children_by_identity: dict[int, tuple[object, ...]] = {}
 
@@ -307,9 +319,11 @@ def build_semantics(
                         kind = (
                             SymbolKind.CELL
                             if isinstance(child, ast.Cell)
-                            else SymbolKind.TEMPORARY
-                            if child.name is None
-                            else SymbolKind.LOCAL
+                            else (
+                                SymbolKind.TEMPORARY
+                                if child.name is None
+                                else SymbolKind.LOCAL
+                            )
                         )
                         symbol = catalog.symbols.intern(
                             procedure.root_scope,
@@ -326,11 +340,7 @@ def build_semantics(
         if node is None or isinstance(node, ast.leafTypes):
             return ()
         if isinstance(node, (tuple, list)):
-            return tuple(
-                local
-                for child in node
-                for local in local_occurrences(child)
-            )
+            return tuple(local for child in node for local in local_occurrences(child))
         identity = id(node)
         cached = local_occurrences_by_identity.get(identity)
         if cached is not None:
@@ -341,9 +351,7 @@ def build_semantics(
             result = ()
         else:
             result = tuple(
-                local
-                for child in children(node)
-                for local in local_occurrences(child)
+                local for child in children(node) for local in local_occurrences(child)
             )
         local_occurrences_by_identity[identity] = result
         return result
@@ -412,15 +420,11 @@ def build_semantics(
                 uses_list.append(value_id)
         use_symbols = tuple(use_symbols_list)
         uses = tuple(uses_list)
-        reads: list[StorageLocation] = [
-            LocalStorage(symbol) for symbol in use_symbols
-        ]
+        reads: list[StorageLocation] = [LocalStorage(symbol) for symbol in use_symbols]
         writes: list[StorageLocation] = [
             LocalStorage(symbol) for symbol in definition_symbols
         ]
-        explicit_reads, explicit_writes = _explicit_storage(
-            catalog, node_id.code, node
-        )
+        explicit_reads, explicit_writes = _explicit_storage(catalog, node_id.code, node)
         reads.extend(explicit_reads)
         writes.extend(explicit_writes)
         allocations = (
@@ -431,9 +435,7 @@ def build_semantics(
         calls = _register_call(catalog, node, node_id)
         complete = not isinstance(node, _CALL_TYPES)
         diagnostics = (
-            ("call heap effects require points-to refinement",)
-            if not complete
-            else ()
+            ("call heap effects require points-to refinement",) if not complete else ()
         )
         if not complete:
             reads.append(UnknownStorage("call-read"))

@@ -3,6 +3,7 @@
   "framework": "falcon",
   "version": "1.0",
   "description": "Falcon taint models (extracted from root rule pack)",
+  "entrypoints": {"taint_parameters": true},
   "detection": {
     "imports": [
       "falcon",
@@ -234,6 +235,19 @@
           "port": "return"
         }
       ],
+      "sinks": [
+        {
+          "kind": "xss",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
+    },
+    {
+      "call": "falcon.response.Response.text",
+      "cwe": "CWE-79",
+      "severity": "high",
       "sinks": [
         {
           "kind": "xss",

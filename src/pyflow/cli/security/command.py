@@ -17,6 +17,7 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Sequence
 
+from pyflow.analysis.entrypoints import EntryPointDefaults
 from pyflow.checker.pattern.core.manager import SecurityManager
 from pyflow.checker.pattern.core.config import SecurityConfig
 from pyflow.checker.pattern.core import constants as b_constants
@@ -267,7 +268,9 @@ def _run_ifds(targets: List[str], args) -> Dict[str, Any]:
         return _apply_session_diagnostics(result, _session)
 
     try:
-        call_models, taint_rules = _build_taint_configuration(args, source_files=files)
+        call_models, taint_rules, entry_point_defaults = _build_taint_configuration(
+            args, source_files=files
+        )
     except (OSError, ValueError) as error:
         print(f"Invalid taint policy configuration: {error}", file=sys.stderr)
         return {
@@ -299,6 +302,7 @@ def _run_ifds(targets: List[str], args) -> Dict[str, Any]:
             entry_file=entry_file,
             call_models=call_models,
             rules=taint_rules,
+            entry_point_defaults=entry_point_defaults,
             collection_mutator_names=getattr(args, "collection_mutators", None),
             collection_accessor_names=getattr(args, "collection_accessors", None),
             conservative_unresolved_call_side_effects=getattr(
@@ -517,7 +521,7 @@ def _entry_label(entry_file: Path, targets: Sequence[str | Path]) -> str:
 def _build_taint_configuration(
     args,
     source_files: Sequence[Path] = (),
-) -> tuple[CallModelRegistry, tuple[TaintRule, ...]]:
+) -> tuple[CallModelRegistry, tuple[TaintRule, ...], EntryPointDefaults]:
     """Build typed CLI models and policies from names and v2 rule packs."""
     from pyflow.analysis.ifds.modeling.calls import CallModel, CallModelRegistry
     from pyflow.analysis.taint import TaintRule
@@ -555,7 +559,7 @@ def _build_taint_configuration(
 
     # No framework or custom paths → user handles models manually.
     if given_frameworks is None and not auto_detect and not custom_paths and models:
-        return CallModelRegistry(models), tuple(rules)
+        return CallModelRegistry(models), tuple(rules), EntryPointDefaults()
 
     try:
         from pyflow.analysis.ifds.modeling.registry import load_registry
@@ -576,12 +580,13 @@ def _build_taint_configuration(
         if custom_paths:
             registry.load_custom(*custom_paths)
         config = registry.as_config()
+        entry_point_defaults = registry.as_taint_policy().entry_point_defaults
         models.extend(config.call_models.as_mapping().values())
         rules.extend(config.rules)
     except ImportError:
-        pass
+        entry_point_defaults = EntryPointDefaults()
 
-    return CallModelRegistry(models), tuple(rules)
+    return CallModelRegistry(models), tuple(rules), entry_point_defaults
 
 
 def _parse_typestate_protocols(args) -> list[str]:

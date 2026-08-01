@@ -7,6 +7,12 @@ import textwrap
 from dataclasses import dataclass
 from typing import Mapping
 
+from pyflow.analysis.entrypoints import (
+    EntryPointMode,
+    EntryPointOptions,
+    ProcedureDescriptor,
+    select_entry_points,
+)
 from pyflow.analysis.taint import TaintPolicy
 
 from ..domain import AnalysisUncertainty, PrecisionLevel, TaintFact
@@ -34,6 +40,8 @@ class ASTInterproceduralResult:
     status: str
     rounds: int
     reachable: frozenset[str]
+    entries: frozenset[str]
+    entry_point_options: EntryPointOptions
 
 
 class ASTInterproceduralAnalyzer:
@@ -61,6 +69,10 @@ class ASTInterproceduralAnalyzer:
         sources_by_name: Mapping[str, str],
         filenames: Mapping[str, str] | None = None,
         entry_functions: tuple[str, ...] = (),
+        *,
+        entry_point_options: EntryPointOptions = EntryPointOptions(
+            mode=EntryPointMode.INFERRED_ROOTS
+        ),
     ) -> ASTInterproceduralResult:
         functions: dict[str, ast.FunctionDef | ast.AsyncFunctionDef] = {}
         diagnostics: set[AnalysisUncertainty] = set()
@@ -135,7 +147,12 @@ class ASTInterproceduralAnalyzer:
                 )
             )
         ordered_diagnostics = tuple(sorted(diagnostics, key=repr))
-        reachable = self._reachable_functions(functions, entry_functions)
+        entries, reachable = self._entry_and_reachable_functions(
+            functions,
+            entry_functions,
+            filenames=filenames or {},
+            entry_point_options=entry_point_options,
+        )
         status = (
             "partial"
             if any(item.affects_completeness for item in ordered_diagnostics)
@@ -148,6 +165,8 @@ class ASTInterproceduralAnalyzer:
             status=status,
             rounds=rounds,
             reachable=reachable,
+            entries=entries,
+            entry_point_options=entry_point_options,
         )
 
     def _summarize(
@@ -332,15 +351,17 @@ class ASTInterproceduralAnalyzer:
         )
 
     @staticmethod
-    def _reachable_functions(
+    def _entry_and_reachable_functions(
         functions: Mapping[str, ast.FunctionDef | ast.AsyncFunctionDef],
         entries: tuple[str, ...],
-    ) -> frozenset[str]:
+        *,
+        filenames: Mapping[str, str],
+        entry_point_options: EntryPointOptions,
+    ) -> tuple[frozenset[str], frozenset[str]]:
         by_short: dict[str, list[str]] = {}
         for name in functions:
             by_short.setdefault(name.rsplit(".", 1)[-1], []).append(name)
         calls: dict[str, set[str]] = {name: set() for name in functions}
-        callers: dict[str, set[str]] = {name: set() for name in functions}
         for caller, function in functions.items():
             for node in ast.walk(function):
                 if not isinstance(node, ast.Call):
@@ -356,18 +377,27 @@ class ASTInterproceduralAnalyzer:
                     continue
                 callee = candidates[0]
                 calls[caller].add(callee)
-                callers[callee].add(caller)
 
-        roots = {
+        declared = {
             candidate
             for entry in entries
             for candidate in functions
             if candidate == entry or candidate.rsplit(".", 1)[-1] == entry
         }
-        if not roots:
-            roots = {name for name, incoming in callers.items() if not incoming}
-        if not roots:
-            roots = set(functions)
+        descriptors = (
+            ProcedureDescriptor(
+                identity=name,
+                qualified_name=name,
+                filename=filenames.get(name),
+                callees=frozenset(calls[name]),
+                declared=name in declared,
+            )
+            for name in functions
+        )
+        roots = {
+            selected.identity
+            for selected in select_entry_points(descriptors, entry_point_options)
+        }
         reachable = set(roots)
         pending = list(roots)
         while pending:
@@ -376,4 +406,4 @@ class ASTInterproceduralAnalyzer:
                 if callee not in reachable:
                     reachable.add(callee)
                     pending.append(callee)
-        return frozenset(reachable)
+        return frozenset(roots), frozenset(reachable)

@@ -198,8 +198,7 @@ def test_load_analysis_session_runs_one_entry_rooted_constraint_solve(
 
     assert calls == [str(entry.resolve())]
     assert [
-        callee.code.codeName()
-        for callee in session.adapter.callees_of(call_node)
+        callee.code.codeName() for callee in session.adapter.callees_of(call_node)
     ] == ["target"]
 
 
@@ -306,6 +305,73 @@ def test_run_taint_analysis_forwards_dynamic_model_configuration(monkeypatch):
     assert configuration.collection_mutator_names == frozenset({"append_safe"})
     assert configuration.collection_accessor_names == frozenset({"fetch"})
     assert configuration.conservative_unresolved_call_side_effects is True
+    assert configuration.entry_point_options.taint_parameters is False
+
+
+def test_run_taint_analysis_enables_entry_parameter_sources_for_file_scans(
+    monkeypatch,
+):
+    captured = {}
+    monkeypatch.setattr(
+        ifds_api,
+        "load_analysis_session",
+        lambda *_args, **_kwargs: SimpleNamespace(adapter=object()),
+    )
+    monkeypatch.setattr(
+        ifds_api,
+        "_entry_nodes_from_program",
+        lambda *_args, **_kwargs: ("entry",),
+    )
+
+    def fake_analyze_taint(adapter, configuration, *, entry_nodes):
+        captured["configuration"] = configuration
+        return object()
+
+    monkeypatch.setattr(ifds_api, "analyze_taint", fake_analyze_taint)
+
+    run_taint_analysis(
+        ["sample.py"],
+        entry_file="sample.py",
+        **_taint_setup(["source"], ["sink"]),
+    )
+
+    assert captured["configuration"].entry_point_options.taint_parameters is True
+
+
+def test_run_taint_analysis_forwards_shared_entrypoint_options(monkeypatch):
+    from pyflow.analysis.entrypoints import EntryPointMode, EntryPointOptions
+
+    captured = {}
+    options = EntryPointOptions(
+        mode=EntryPointMode.INFERRED_ROOTS,
+        taint_parameters=True,
+    )
+    monkeypatch.setattr(
+        ifds_api,
+        "load_analysis_session",
+        lambda *_args, **_kwargs: SimpleNamespace(adapter=object()),
+    )
+
+    def fake_entries(*_args, **kwargs):
+        captured["entry_point_options"] = kwargs["entry_point_options"]
+        return ("entry",)
+
+    monkeypatch.setattr(ifds_api, "_entry_nodes_from_program", fake_entries)
+
+    def fake_analyze_taint(adapter, configuration, *, entry_nodes):
+        captured["configuration"] = configuration
+        return object()
+
+    monkeypatch.setattr(ifds_api, "analyze_taint", fake_analyze_taint)
+
+    run_taint_analysis(
+        ["sample.py"],
+        entry_point_options=options,
+        **_taint_setup(["source"], ["sink"]),
+    )
+
+    assert captured["entry_point_options"] is options
+    assert captured["configuration"].entry_point_options.taint_parameters is True
 
 
 def test_run_nullness_analysis_forwards_dynamic_model_configuration(monkeypatch):
@@ -542,9 +608,7 @@ def test_run_taint_analysis_entry_file_does_not_seed_unrelated_modules(tmp_path)
 def test_run_taint_analysis_entry_file_seeds_file_local_handlers(tmp_path):
     entry = tmp_path / "handler.py"
     entry.write_text(
-        "def route_handler():\n"
-        "    value = source()\n"
-        "    sink(value)\n",
+        "def route_handler():\n" "    value = source()\n" "    sink(value)\n",
         encoding="utf-8",
     )
 

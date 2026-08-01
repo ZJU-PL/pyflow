@@ -152,6 +152,76 @@ def test_registry_does_not_guess_ambiguous_leaf_aliases():
     assert registry.model_for_name("loads") is None
 
 
+def test_registry_does_not_merge_ambiguous_equivalent_leaf_models():
+    registry = CallModelRegistry(
+        [
+            CallModel(name="module_a.open", sink_kinds=frozenset({"file"})),
+            CallModel(name="module_b.open", sink_kinds=frozenset({"file"})),
+        ]
+    )
+
+    assert registry.model_for_name("open") is None
+
+
+def test_registry_resolves_ambiguous_suffix_when_models_are_semantically_equal():
+    registry = CallModelRegistry(
+        [
+            CallModel(
+                name="driver_a.cursor.execute",
+                sink_kinds=frozenset({"sql"}),
+                cwe="CWE-89",
+            ),
+            CallModel(
+                name="driver_b.cursor.execute",
+                sink_kinds=frozenset({"sql"}),
+                sink_arg_positions=frozenset({1}),
+                cwe="CWE-89",
+            ),
+        ]
+    )
+
+    model = registry.model_for_name("cursor.execute")
+
+    assert model is not None
+    assert model.sink_kinds == frozenset({"sql"})
+    assert model.sink_arg_positions == frozenset({0, 1})
+    assert model.cwe == "CWE-89"
+
+
+def test_registry_resolves_local_receiver_when_method_models_are_compatible():
+    registry = CallModelRegistry(
+        [
+            CallModel(
+                name="driver_a.Cursor.execute",
+                sink_kinds=frozenset({"sql"}),
+                cwe="CWE-89",
+            ),
+            CallModel(
+                name="driver_b.Connection.execute",
+                sink_kinds=frozenset({"sql"}),
+                cwe="CWE-89",
+            ),
+        ]
+    )
+
+    model = registry.model_for_name("c.execute")
+
+    assert model is not None
+    assert model.sink_kinds == frozenset({"sql"})
+    assert model.cwe == "CWE-89"
+
+
+def test_registry_rejects_local_receiver_for_incompatible_method_models():
+    registry = CallModelRegistry(
+        [
+            CallModel(name="db.Cursor.run", sink_kinds=frozenset({"sql"})),
+            CallModel(name="shell.Process.run", sink_kinds=frozenset({"command"})),
+        ]
+    )
+
+    assert registry.model_for_name("obj.run") is None
+
+
 def test_registry_as_mapping():
     registry = CallModelRegistry(
         [

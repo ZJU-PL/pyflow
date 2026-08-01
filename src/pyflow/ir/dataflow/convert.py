@@ -37,6 +37,10 @@ def _iter_slot_reads(node):
     """Yield local/global/existing reads needed by generic expression lowering."""
     if node is None:
         return
+    if isinstance(node, (list, tuple)):
+        for item in node:
+            yield from _iter_slot_reads(item)
+        return
     if isinstance(node, ast.Code):
         return
     if isinstance(node, ast.Local):
@@ -50,7 +54,10 @@ def _iter_slot_reads(node):
         return
     if isinstance(node, ast.leafTypes):
         return
-    for child in node.children():
+    children = getattr(node, "children", None)
+    if children is None:
+        return
+    for child in children():
         if child is None:
             continue
         if isinstance(child, (list, tuple)):
@@ -347,9 +354,7 @@ class CodeToDataflow(TypeDispatcher):
         self.dataflow = graph.DataflowGraph(hyperblock)
         self.dataflow.code = code
         catalog = getattr(code, "ir_catalog", None)
-        if catalog is not None and catalog.facts.has(
-            Capabilities.LIFETIME_CODE_KILLED
-        ):
+        if catalog is not None and catalog.facts.has(Capabilities.LIFETIME_CODE_KILLED):
             self.dataflow.killed = AnalysisFacts(catalog).merged_code_effect(
                 Capabilities.LIFETIME_CODE_KILLED,
                 code,

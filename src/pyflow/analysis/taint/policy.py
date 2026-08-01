@@ -6,8 +6,15 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import FrozenSet, Iterable, Mapping
 
+from pyflow.analysis.entrypoints import EntryPointDefaults
+
 
 _SEVERITIES = {"info", "low", "medium", "high", "critical"}
+
+
+def call_name_suffix_matches(qualified: str, alias: str) -> bool:
+    """Match an ordinary shortened spelling against a qualified call name."""
+    return qualified == alias or qualified.endswith(f".{alias}")
 
 
 @dataclass(frozen=True)
@@ -50,6 +57,7 @@ class TaintPolicy:
     sink_suggestion_by_call: Mapping[str, str] = field(default_factory=dict)
     sanitizer_kinds_by_call: Mapping[str, FrozenSet[str]] = field(default_factory=dict)
     rules: tuple[TaintRule, ...] = ()
+    entry_point_defaults: EntryPointDefaults = EntryPointDefaults()
 
     def __post_init__(self) -> None:
         for attribute in (
@@ -72,6 +80,7 @@ class TaintPolicy:
         cls,
         call_models: object,
         rules: Iterable[TaintRule],
+        entry_point_defaults: EntryPointDefaults | None = None,
     ) -> "TaintPolicy":
         mapping = call_models.as_mapping()
         return cls(
@@ -111,6 +120,7 @@ class TaintPolicy:
                 if model.sanitizer_kinds
             },
             rules=tuple(rules),
+            entry_point_defaults=entry_point_defaults or EntryPointDefaults(),
         )
 
     @property
@@ -127,25 +137,75 @@ class TaintPolicy:
             return None
         if name in mapping:
             return name
-        suffix = f".{name}"
-        candidates = [candidate for candidate in mapping if candidate.endswith(suffix)]
-        return candidates[0] if len(candidates) == 1 else None
+        candidates = [
+            candidate
+            for candidate in mapping
+            if call_name_suffix_matches(candidate, name)
+        ]
+        if len(candidates) == 1:
+            return candidates[0]
+        if candidates:
+            first = mapping[candidates[0]]
+            if all(mapping[candidate] == first for candidate in candidates[1:]):
+                return candidates[0]
+        return None
+
+    @staticmethod
+    def _matching_names(
+        mapping: Mapping[str, object], name: str | None
+    ) -> tuple[str, ...]:
+        if not name:
+            return ()
+        if name in mapping:
+            return (name,)
+        matches = tuple(
+            candidate
+            for candidate in mapping
+            if call_name_suffix_matches(candidate, name)
+        )
+        if matches:
+            return matches
+        leaf = name.rsplit(".", 1)[-1]
+        return tuple(
+            candidate for candidate in mapping if candidate.rsplit(".", 1)[-1] == leaf
+        )
 
     def source_kinds_for(self, name: str | None) -> FrozenSet[str]:
-        key = self._resolve_name(self.source_kinds_by_call, name)
-        return self.source_kinds_by_call.get(key, frozenset()) if key else frozenset()
+        keys = self._matching_names(self.source_kinds_by_call, name)
+        return frozenset(
+            kind for key in keys for kind in self.source_kinds_by_call[key]
+        )
 
     def sink_kinds_for(self, name: str | None) -> FrozenSet[str]:
-        key = self._resolve_name(self.sink_kinds_by_call, name)
-        return self.sink_kinds_by_call.get(key, frozenset()) if key else frozenset()
+        keys = self._matching_names(self.sink_kinds_by_call, name)
+        return frozenset(kind for key in keys for kind in self.sink_kinds_by_call[key])
 
     def sink_positions_for(self, name: str | None) -> FrozenSet[int]:
-        key = self._resolve_name(self.sink_positions_by_call, name)
-        return self.sink_positions_by_call.get(key, frozenset()) if key else frozenset()
+        keys = self._matching_names(self.sink_positions_by_call, name)
+        return frozenset(
+            position for key in keys for position in self.sink_positions_by_call[key]
+        )
 
     def sink_cwe_for(self, name: str | None) -> str | None:
+        # An exact sink model without CWE metadata intentionally leaves the
+        # classification unspecified (for example ``json.loads``). Do not
+        # borrow metadata from an unrelated API that merely shares its leaf
+        # name. For an unresolved receiver such as ``c.execute``, however,
+        # consistent metadata across all leaf candidates is conservative.
+        if name in self.sink_kinds_by_call and name not in self.sink_cwe_by_call:
+            return None
         key = self._resolve_name(self.sink_cwe_by_call, name)
-        return self.sink_cwe_by_call.get(key) if key else None
+        if key:
+            return self.sink_cwe_by_call[key]
+        if not name:
+            return None
+        leaf = name.rsplit(".", 1)[-1]
+        values = {
+            value
+            for candidate, value in self.sink_cwe_by_call.items()
+            if candidate.rsplit(".", 1)[-1] == leaf
+        }
+        return next(iter(values)) if len(values) == 1 else None
 
     def sink_severity_for(self, name: str | None) -> str | None:
         key = self._resolve_name(self.sink_severity_by_call, name)
@@ -158,9 +218,7 @@ class TaintPolicy:
     def sanitizer_kinds_for(self, name: str | None) -> FrozenSet[str]:
         key = self._resolve_name(self.sanitizer_kinds_by_call, name)
         return (
-            self.sanitizer_kinds_by_call.get(key, frozenset())
-            if key
-            else frozenset()
+            self.sanitizer_kinds_by_call.get(key, frozenset()) if key else frozenset()
         )
 
     def matching_rules(

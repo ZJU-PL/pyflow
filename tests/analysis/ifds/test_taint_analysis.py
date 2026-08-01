@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from pyflow.application import context
+from pyflow.analysis.entrypoints import EntryPointOptions
 from pyflow.ir.cfg import transform
 from pyflow.analysis.ifds import (
     HeapObjectKind,
@@ -112,6 +113,72 @@ def test_interprocedural_taint_analysis_reports_only_unsanitized_sink_flow():
     finding = result.findings[0]
     assert finding.sink_name == "sink"
     assert [local.name for local in finding.tainted_arguments] == ["b"]
+
+
+def test_file_scan_entry_parameters_are_external_taint_sources():
+    compiler = context.CompilerContext(None)
+    sink_value = ast.Local("sink_value")
+    sink_code, _ = make_code("sink", [sink_value], [], return_name="sink_ret")
+    value = ast.Local("value")
+    entry_code, _ = make_code(
+        "handler",
+        [value],
+        [call_stmt(sink_code, [value])],
+        return_name="handler_ret",
+    )
+    cfg = build_cfg(compiler, entry_code)
+    sink_cfg = build_cfg(compiler, sink_code)
+    adapter = build_supergraph_from_cfgs([cfg, sink_cfg])
+
+    result = analyze_taint(
+        adapter,
+        _config(
+            sink_names=frozenset({"sink"}),
+            entry_point_options=EntryPointOptions(taint_parameters=True),
+        ),
+        entry_nodes=[adapter.supergraph.entry_of(cfg)],
+    )
+
+    assert len(result.findings) == 1
+    assert result.findings[0].sink_name == "sink"
+    assert [local.name for local in result.findings[0].tainted_arguments] == ["value"]
+
+
+def test_attribute_assignment_can_be_a_modeled_sink():
+    compiler = context.CompilerContext(None)
+    response = ast.Local("response")
+    value = ast.Local("value")
+    text_name = ast.Existing(ast.program.Object("text"))
+    entry_code, _ = make_code(
+        "handler",
+        [response, value],
+        [ast.SetAttr(value, response, text_name)],
+        return_name="handler_ret",
+    )
+    cfg = build_cfg(compiler, entry_code)
+    adapter = build_supergraph_from_cfgs([cfg])
+    config = TaintConfiguration(
+        call_models=CallModelRegistry(
+            [
+                CallModel(
+                    "framework.Response.text",
+                    sink_kinds=frozenset({"test.sink"}),
+                )
+            ]
+        ),
+        rules=_config().rules,
+        entry_point_options=EntryPointOptions(taint_parameters=True),
+    )
+
+    result = analyze_taint(
+        adapter,
+        config,
+        entry_nodes=[adapter.supergraph.entry_of(cfg)],
+    )
+
+    assert len(result.findings) == 1
+    assert result.findings[0].sink_name == "response.text"
+    assert [local.name for local in result.findings[0].tainted_arguments] == ["value"]
 
 
 def test_typed_rules_only_report_matching_source_sink_kinds():
@@ -322,12 +389,8 @@ def test_interprocedural_taint_materializes_source_as_fresh_root():
         "main",
         [],
         [
-            ast.Assign(
-                ast.DirectCall(source_code, None, [], [], None, None), [value]
-            ),
-            ast.Discard(
-                ast.DirectCall(sink_code, None, [value], [], None, None)
-            ),
+            ast.Assign(ast.DirectCall(source_code, None, [], [], None, None), [value]),
+            ast.Discard(ast.DirectCall(sink_code, None, [value], [], None, None)),
             ast.Return([]),
         ],
         return_name="main_ret",
@@ -394,12 +457,8 @@ def test_constructor_self_field_write_projects_to_call_result_object():
         "main",
         [],
         [
-            ast.Assign(
-                ast.DirectCall(source_code, None, [], [], None, None), [raw]
-            ),
-            ast.Assign(
-                ast.DirectCall(user_code, None, [raw], [], None, None), [user]
-            ),
+            ast.Assign(ast.DirectCall(source_code, None, [], [], None, None), [raw]),
+            ast.Assign(ast.DirectCall(user_code, None, [raw], [], None, None), [user]),
             ast.Discard(
                 ast.DirectCall(
                     sink_code,
@@ -551,9 +610,7 @@ def test_interprocedural_taint_handles_return_calls():
             ast.Assign(
                 ast.DirectCall(wrapper_code, None, [], [], None, None), [tainted]
             ),
-            ast.Discard(
-                ast.DirectCall(sink_code, None, [tainted], [], None, None)
-            ),
+            ast.Discard(ast.DirectCall(sink_code, None, [tainted], [], None, None)),
             ast.Return([tainted]),
         ],
         return_name="main_ret",
@@ -878,7 +935,7 @@ def test_interprocedural_taint_preserves_return_slot_mapping():
                 ast.Return(
                     [
                         ast.Existing(ast.program.Object(0)),
-                            ast.DirectCall(source_code, None, [], [], None, None),
+                        ast.DirectCall(source_code, None, [], [], None, None),
                     ]
                 )
             ]
@@ -896,12 +953,8 @@ def test_interprocedural_taint_preserves_return_slot_mapping():
             ast.Assign(
                 ast.DirectCall(pair_code, None, [], [], None, None), [left, right]
             ),
-            ast.Discard(
-                ast.DirectCall(sink_code, None, [left], [], None, None)
-            ),
-            ast.Discard(
-                ast.DirectCall(sink_code, None, [right], [], None, None)
-            ),
+            ast.Discard(ast.DirectCall(sink_code, None, [left], [], None, None)),
+            ast.Discard(ast.DirectCall(sink_code, None, [right], [], None, None)),
             ast.Return([right]),
         ],
         return_name="main_ret",

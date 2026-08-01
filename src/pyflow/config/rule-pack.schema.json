@@ -10,6 +10,7 @@
     "version": {"type": "string", "minLength": 1},
     "type": {"enum": ["taint", "typestate", "nullness"]},
     "description": {"type": "string"},
+    "entrypoints": {"$ref": "#/$defs/entrypoints"},
     "detection": {
       "type": "object",
       "properties": {
@@ -37,9 +38,27 @@
   ],
   "additionalProperties": false,
   "$defs": {
+    "entrypoints": {
+      "type": "object",
+      "properties": {
+        "mode": {
+          "enum": [
+            "declared-only",
+            "inferred-roots",
+            "declared-plus-roots",
+            "file-public",
+            "all-procedures"
+          ]
+        },
+        "include_synthetic_modules": {"type": "boolean"},
+        "taint_parameters": {"type": "boolean"}
+      },
+      "additionalProperties": false
+    },
     "taintPort": {
       "oneOf": [
         {"const": "return"},
+        {"const": "all"},
         {
           "type": "object",
           "required": ["parameter"],

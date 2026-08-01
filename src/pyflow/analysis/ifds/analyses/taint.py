@@ -5,11 +5,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import FrozenSet, Mapping, Sequence
 
+from pyflow.analysis.entrypoints import EntryPointOptions
+from pyflow.analysis.taint import TaintRule
 from pyflow.ir.cfg import graph as cfg_graph
 from pyflow.language.python import ast as py_ast
 
 from ..modeling.calls import CallModelRegistry
-from pyflow.analysis.taint import TaintRule
 from .base import AnnotatedFactProblemBase, build_entry_seeds
 from ..frontend.cfg_adapter import CFGNode, CFGSupergraphAdapter, assigned_locals
 from ...alias.flow_sensitive.model import HeapLocation, HeapObjectKind
@@ -17,6 +18,7 @@ from ..core.problem import IFDSProblem
 from ..core.solver import IFDSSolver, SolverOptions
 from ..core.transfers import (
     actual_argument_expressions,
+    formal_parameters,
 )
 
 ZERO_TAINT = "ZERO_TAINT"
@@ -41,6 +43,7 @@ class TaintConfiguration:
     )
     collection_accessor_names: FrozenSet[str] = frozenset({"get"})
     conservative_unresolved_call_side_effects: bool = False
+    entry_point_options: EntryPointOptions = EntryPointOptions()
 
 
 @dataclass(frozen=True)
@@ -186,7 +189,26 @@ class InterproceduralTaintProblem(
         return self._locations_for_local(procedure, local)
 
     def initial_seeds(self) -> Mapping[CFGNode, frozenset[object]]:
-        return build_entry_seeds(self.entry_nodes, ZERO_TAINT)
+        seeds = {
+            node: set(facts)
+            for node, facts in build_entry_seeds(self.entry_nodes, ZERO_TAINT).items()
+        }
+        if not self.configuration.entry_point_options.taint_parameters:
+            return {node: frozenset(facts) for node, facts in seeds.items()}
+
+        source_kinds = frozenset(
+            kind for rule in self.configuration.rules for kind in rule.source_kinds
+        )
+        for node in self.entry_nodes:
+            parameters = formal_parameters(node.procedure.code.codeparameters)
+            for parameter in parameters:
+                if parameter.name in {"self", "cls"}:
+                    continue
+                for location in self._locations_for_local(node.procedure, parameter):
+                    seeds[node].update(
+                        TaintFact(location, kind) for kind in source_kinds
+                    )
+        return {node: frozenset(facts) for node, facts in seeds.items()}
 
     def normal_flow(self, node: CFGNode, successor: CFGNode, fact: object):
         if node.kind == "call" and self.adapter.is_exceptional_successor(
@@ -721,9 +743,24 @@ class InterproceduralTaintProblem(
         findings: list[TaintFinding] = []
         for node in self.adapter.supergraph.ordered_nodes():
             call_effect = self._call_effect(node)
-            if call_effect is None:
-                continue
-            model = self._call_model_for_node(node)
+            sink_name: str | None = None
+            sink_expressions: tuple[object, ...] = ()
+            model = None
+            if call_effect is not None:
+                sink_name = call_effect.call_name or "<sink>"
+                sink_expressions = actual_argument_expressions(
+                    call_effect.call_expression
+                )
+                model = self._call_model_for_node(node)
+            else:
+                operation = self.adapter.operation_of(node)
+                if isinstance(operation, py_ast.SetAttr):
+                    base = self._symbolic_expression_name(operation.expr)
+                    component = self._path_component(operation.name)
+                    if base and component != "*":
+                        sink_name = f"{base}.{component}"
+                        sink_expressions = (operation.value,)
+                        model = self.call_models.model_for_name(sink_name)
             if model is None or not model.sink_kinds:
                 continue
             if not result.is_reached(node, ZERO_TAINT):
@@ -734,15 +771,23 @@ class InterproceduralTaintProblem(
                     for fact in result.facts_at(node)
                     if isinstance(fact, (TaintFact, ExpressionTaintFact))
                 }
-                | self._source_kinds_in_expression(call_effect.call_expression)
+                | frozenset(
+                    kind
+                    for expression in sink_expressions
+                    for kind in self._source_kinds_in_expression(expression)
+                )
             )
             for source_kind in source_kinds:
-                tainted_args, tainted_labels = self._tainted_arguments_for_call(
+                tainted_args, tainted_labels = self._tainted_values_for_expressions(
                     node,
-                    call_effect.call_expression,
+                    sink_expressions,
                     result,
                     source_kind=source_kind,
-                    positions=model.sink_arg_positions,
+                    positions=(
+                        frozenset(range(len(sink_expressions)))
+                        if model.sink_all_arguments
+                        else model.sink_arg_positions
+                    ),
                 )
                 if not (tainted_args or tainted_labels):
                     continue
@@ -753,7 +798,7 @@ class InterproceduralTaintProblem(
                         findings.append(
                             TaintFinding(
                                 sink=node,
-                                sink_name=call_effect.call_name or "<sink>",
+                                sink_name=sink_name or "<sink>",
                                 rule=rule,
                                 source_kind=source_kind,
                                 sink_kind=sink_kind,
@@ -775,12 +820,29 @@ class InterproceduralTaintProblem(
         source_kind: str,
         positions: FrozenSet[int],
     ):
+        return self._tainted_values_for_expressions(
+            node,
+            actual_argument_expressions(call),
+            result,
+            source_kind=source_kind,
+            positions=positions,
+        )
+
+    def _tainted_values_for_expressions(
+        self,
+        node: CFGNode,
+        expressions: Sequence[object],
+        result,
+        *,
+        source_kind: str,
+        positions: FrozenSet[int],
+    ):
         tainted_locals: list[py_ast.Local] = []
         tainted_labels: list[str] = []
         seen_local_names: set[str] = set()
         seen_labels: set[str] = set()
 
-        for index, actual in enumerate(actual_argument_expressions(call)):
+        for index, actual in enumerate(expressions):
             if index not in positions:
                 continue
             locals_in_expr = sorted(

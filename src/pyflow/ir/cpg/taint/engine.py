@@ -13,6 +13,7 @@ from pyflow.checker.ast_dataflow.semantics import (
     heap_location_adapter,
 )
 from pyflow.analysis.taint import TaintPolicy, TaintRule
+from pyflow.analysis.entrypoints import EntryPointMode, EntryPointOptions
 from pyflow.ir.pdg.graph import PDGNode
 from pyflow.ir.cpg.graph import CodePropertyGraph, CPGEdgeKind
 from .model import (
@@ -48,6 +49,7 @@ class CPGTaintEngine(
         max_seconds: float | None = None,
         heap_graph: object | None = None,
         refinement: RefinementProvider | None = None,
+        entry_point_options: EntryPointOptions | None = None,
     ) -> None:
         if max_call_depth < 0:
             raise ValueError("max_call_depth must be non-negative")
@@ -71,6 +73,10 @@ class CPGTaintEngine(
         self._max_states = max_states
         self._max_seconds = max_seconds
         self._budget_diagnostic: CPGTaintDiagnostic | None = None
+        self._entry_point_options_explicit = entry_point_options is not None
+        self._entry_point_options = entry_point_options or EntryPointOptions(
+            mode=EntryPointMode.ALL_PROCEDURES
+        )
         if refinement is not None:
             self._refinement = refinement
         elif heap_graph is not None:
@@ -144,6 +150,10 @@ class CPGTaintEngine(
 
     def apply_policy(self, policy: TaintPolicy) -> None:
         """Merge one strict-v2 typed policy into this engine."""
+        if not self._entry_point_options_explicit:
+            self._entry_point_options = policy.entry_point_defaults.resolve(
+                self._entry_point_options
+            )
         for name, kinds in policy.source_kinds_by_call.items():
             self._sources.add(name)
             self._source_kinds[name] = self._source_kinds.get(name, frozenset()) | kinds

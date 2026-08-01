@@ -3,6 +3,7 @@
   "framework": "django",
   "version": "1.0",
   "description": "Django taint models (extracted from root rule pack)",
+  "entrypoints": {"taint_parameters": true},
   "detection": {
     "imports": [
       "django",
@@ -20,6 +21,42 @@
     ]
   },
   "models": [
+    {
+      "call": "request.GET.get",
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
+    },
+    {
+      "call": "request.POST.get",
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
+    },
+    {
+      "call": "request.body",
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
+    },
+    {
+      "call": "request.headers.get",
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
+    },
     {
       "call": "django.http.HttpRequest.GET.get",
       "sources": [
@@ -157,6 +194,8 @@
     },
     {
       "call": "django.http.HttpResponse",
+      "cwe": "CWE-79",
+      "severity": "high",
       "sinks": [
         {
           "kind": "xss",
@@ -203,6 +242,15 @@
     },
     {
       "call": "django.utils.html.escape",
+      "sanitizers": [
+        {
+          "kinds": "all",
+          "port": "return"
+        }
+      ]
+    },
+    {
+      "call": "escape",
       "sanitizers": [
         {
           "kinds": "all",

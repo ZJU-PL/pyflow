@@ -12,6 +12,13 @@ from typing import Iterable, Sequence
 from pyflow.application.context import CompilerContext
 from pyflow.application.program import Program
 from pyflow.analysis.callgraph.publication import publish_constraint_callgraph_facts
+from pyflow.analysis.entrypoints import (
+    EntryPointDefaults,
+    EntryPointMode,
+    EntryPointOptions,
+    ProcedureDescriptor,
+    select_entry_points,
+)
 from pyflow.frontend.extractor import Extractor, extract_program
 from pyflow.frontend.interface_builder import (
     InterfaceBuildOptions,
@@ -76,35 +83,30 @@ def _entry_nodes_from_program(
     *,
     function_name: str | None = None,
     entry_file: str | Path | None = None,
+    entry_point_options: EntryPointOptions | None = None,
 ):
     if function_name is not None and entry_file is not None:
         raise ValueError("Specify either a function name or an entry file, not both.")
 
     queries = session.program.get_queries(session.compiler)
+    declared_codes: set[object] = set()
     if entry_file is not None:
-        target_source = os.path.realpath(entry_file)
-        entries = []
-        seen = set()
-        # A file target is a scan root, not just an executable module body.
-        # Framework handlers and helper functions are often intentionally
-        # reached only by the runtime framework, so seed every procedure that
-        # originates in the requested file while still excluding unrelated
-        # modules loaded for dependency resolution.
-        for procedure in session.adapter.supergraph.ordered_procedures():
-            code = getattr(procedure, "code", None)
-            if code is None or _source_filename_from_code(code) != target_source:
-                continue
-            node = session.adapter.supergraph.entry_of(procedure)
-            if node not in seen:
-                seen.add(node)
-                entries.append(node)
-        if entries:
-            return tuple(entries)
-        raise ValueError(f"Unable to find module entry CFG for '{entry_file}'.")
+        options = entry_point_options or EntryPointOptions(
+            mode=EntryPointMode.FILE_PUBLIC,
+            files=(str(entry_file),),
+            taint_parameters=True,
+        )
+        if options.mode is EntryPointMode.FILE_PUBLIC and not options.files:
+            options = EntryPointOptions(
+                mode=options.mode,
+                files=(str(entry_file),),
+                include_synthetic_modules=options.include_synthetic_modules,
+                taint_parameters=options.taint_parameters,
+            )
 
-    if function_name is not None:
+    elif function_name is not None:
         target_code = queries.context.resolve_function(function_name)
-        candidate_codes = [target_code]
+        declared_codes.add(target_code)
         target_source = _source_filename_from_code(target_code)
         if target_source is not None:
             for code in getattr(session.program, "liveCode", ()):
@@ -113,39 +115,44 @@ def _entry_nodes_from_program(
                 if not _is_synthetic_module_code(code):
                     continue
                 if _source_filename_from_code(code) == target_source:
-                    candidate_codes.append(code)
+                    declared_codes.add(code)
+        options = entry_point_options or EntryPointOptions(
+            mode=EntryPointMode.DECLARED_ONLY
+        )
+    else:
+        declared_codes.update(
+            code
+            for entry_point in getattr(session.program, "entryPoints", ())
+            if (code := getattr(entry_point, "code", None)) is not None
+        )
+        options = entry_point_options or EntryPointOptions(
+            mode=EntryPointMode.DECLARED_ONLY
+        )
 
-        entry_nodes = []
-        seen = set()
-        for code in candidate_codes:
-            try:
-                cfg = queries.graph_engine.get_cfg(code)
-            except Exception:
-                continue
-            node = session.adapter.supergraph.entry_of(cfg)
-            if node not in seen:
-                seen.add(node)
-                entry_nodes.append(node)
-        if entry_nodes:
-            return tuple(entry_nodes)
-
-    entry_nodes = []
-    seen = set()
-    for entry_point in getattr(session.program, "entryPoints", ()):
-        code = getattr(entry_point, "code", None)
-        if code is None:
-            continue
-        try:
-            cfg = queries.graph_engine.get_cfg(code)
-        except Exception:
-            continue
-        node = session.adapter.supergraph.entry_of(cfg)
-        if node not in seen:
-            seen.add(node)
-            entry_nodes.append(node)
-
-    if entry_nodes:
-        return tuple(entry_nodes)
+    supergraph = session.adapter.supergraph
+    descriptors = []
+    for procedure in supergraph.ordered_procedures():
+        code = getattr(procedure, "code", None)
+        callees = {
+            callee
+            for node in supergraph.ordered_nodes_of(procedure)
+            for callee in supergraph.ordered_callees_of_call_at(node)
+        }
+        descriptors.append(
+            ProcedureDescriptor(
+                identity=procedure,
+                qualified_name=_code_display_name(code),
+                filename=_source_filename_from_code(code) if code is not None else None,
+                callees=frozenset(callees),
+                declared=code in declared_codes,
+                synthetic_module=(
+                    _is_synthetic_module_code(code) if code is not None else False
+                ),
+            )
+        )
+    selected = select_entry_points(descriptors, options)
+    if selected:
+        return tuple(supergraph.entry_of(item.identity) for item in selected)
 
     raise ValueError("Unable to derive IFDS entry nodes from program entry points.")
 
@@ -393,6 +400,8 @@ def run_taint_analysis(
     collection_mutator_names: Iterable[str] | None = None,
     collection_accessor_names: Iterable[str] | None = None,
     conservative_unresolved_call_side_effects: bool = False,
+    entry_point_options: EntryPointOptions | None = None,
+    entry_point_defaults: EntryPointDefaults | None = None,
     verbose: bool = False,
     dependency_strategy: str = "auto",
     search_paths: Sequence[str] | None = None,
@@ -416,6 +425,20 @@ def run_taint_analysis(
         root_function=function,
         entry_file=entry_file,
     )
+    resolved_entry_options = entry_point_options
+    if resolved_entry_options is None and entry_point_defaults is not None:
+        if entry_file is not None:
+            fallback = EntryPointOptions(
+                mode=EntryPointMode.FILE_PUBLIC,
+                files=(str(entry_file),),
+                taint_parameters=True,
+            )
+        elif function is not None:
+            fallback = EntryPointOptions(mode=EntryPointMode.DECLARED_ONLY)
+        else:
+            fallback = EntryPointOptions(mode=EntryPointMode.DECLARED_ONLY)
+        resolved_entry_options = entry_point_defaults.resolve(fallback)
+
     result = analyze_taint(
         session.adapter,
         TaintConfiguration(
@@ -436,9 +459,24 @@ def run_taint_analysis(
             conservative_unresolved_call_side_effects=(
                 conservative_unresolved_call_side_effects
             ),
+            entry_point_options=(
+                resolved_entry_options
+                or EntryPointOptions(
+                    mode=(
+                        EntryPointMode.FILE_PUBLIC
+                        if entry_file is not None
+                        else EntryPointMode.DECLARED_ONLY
+                    ),
+                    files=((str(entry_file),) if entry_file is not None else ()),
+                    taint_parameters=entry_file is not None,
+                )
+            ),
         ),
         entry_nodes=_entry_nodes_from_program(
-            session, function_name=function, entry_file=entry_file
+            session,
+            function_name=function,
+            entry_file=entry_file,
+            entry_point_options=resolved_entry_options,
         ),
         **({"solver_options": solver_options} if solver_options is not None else {}),
     )
