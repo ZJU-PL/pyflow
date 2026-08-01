@@ -1,2 +1,0 @@
-from .cross_module_017_T_a import function_a
-from .cross_module_017_T_b import function_b
