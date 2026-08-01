@@ -206,8 +206,14 @@ class InterfaceDeclaration:
             selfarg = nullWrapper
             if not args:
                 try:
-                    num_params = len(code.codeparameters.posonlyparams) + len(
-                        code.codeparameters.params
+                    # `params` mixes regular and keyword-only params (the latter
+                    # are prefixed with _KWONLY_PARAM_PREFIX); only positional
+                    # slots should be filled, otherwise a keyword-only argument
+                    # that is also provided via kwds would collide below.
+                    num_params = len(code.codeparameters.posonlyparams) + sum(
+                        1
+                        for name in code.codeparameters.paramnames
+                        if not name.startswith(_KWONLY_PARAM_PREFIX)
                     )
                 except Exception:
                     num_params = 0
@@ -234,17 +240,13 @@ class InterfaceDeclaration:
         meth = getattr(cls.typeobj, name)
         func = getattr(meth, "__func__", getattr(meth, "im_func", meth))
         fobj, code = extractor.getObjectCall(func)
-        class_info = getattr(cls.typeobj, "__pyflow_class_info__", None)
-        qualified_class = None
-        if isinstance(class_info, dict):
-            qualified_class = class_info.get("qualname")
-        if not qualified_class:
-            qualname = getattr(cls.typeobj, "__qualname__", cls.typeobj.__name__)
-            module = getattr(cls.typeobj, "__module__", "")
-            if module and not qualname.startswith(f"{module}."):
-                qualified_class = f"{module}.{qualname}"
-            else:
-                qualified_class = qualname
+        qualname = getattr(func, "__qualname__", name).replace(".<locals>", "")
+        module = getattr(func, "__module__", "")
+        qualified_class = qualname.rsplit(".", 1)[0] if "." in qualname else ""
+        if module and not qualified_class.startswith(f"{module}."):
+            qualified_class = (
+                f"{module}.{qualified_class}" if qualified_class else module
+            )
         if code is not None and hasattr(code, "setCodeName"):
             code.setCodeName(f"{qualified_class}.{name}")
         selfarg = ExistingWrapper(func)

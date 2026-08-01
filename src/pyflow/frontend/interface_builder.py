@@ -201,13 +201,25 @@ def build_interface_from_paths(
 
     overrides = {str(path): source for path, source in (source_overrides or {}).items()}
 
+    # Register every source file up front so the project context's source map
+    # is built once over the complete file set.  Registering incrementally
+    # inside the extraction loop invalidated the source-map cache on every new
+    # file, turning interface building into an O(n^2) rebuild over the project.
     for file_path in paths:
         try:
             source = overrides.get(str(file_path))
             if source is None:
                 source = Path(file_path).read_text(encoding="utf-8")
             source_files[str(file_path)] = source
-            resolver.source_files[str(file_path)] = source
+        except Exception:
+            pass
+    resolver.source_files.update(source_files)
+    resolver.project_context.source_files.update(source_files)
+    resolver.preload_sources(source_files)
+
+    for file_path in paths:
+        try:
+            source = source_files[str(file_path)]
             functions = resolver.extract_functions(source, str(file_path))
             classes = resolver.get_module_classes(str(file_path))
             _add_function_entries(interface, functions, file_path, options)

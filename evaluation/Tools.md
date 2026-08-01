@@ -48,6 +48,7 @@
 - https://github.com/dessertlab/PyResBugs PyResBugs: A Dataset of Residual Python Bugs for Natural Language-Driven Fault Injection
 - An Empirical Study on Static Application Security Testing (SAST) Tools for Python. Liu Zhuohang, Zhi Wang, Haotong Liu, Wanpeng Li. ICSE 26.
 - https://github.com/billquan/PyVul
+- ICSE 26 (An Empirical Study on Static Application Security Testing (SAST) Tools for Python). https://github.com/Victor725/PySASTBench
 
 ### Type Checking and Inference
 

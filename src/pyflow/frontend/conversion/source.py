@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import ast
 from dataclasses import dataclass
-from typing import Dict, Iterable, List, Optional
+from typing import Dict, Iterable, List, Optional, Tuple
 
 
 @dataclass(frozen=True)
@@ -25,6 +25,28 @@ class FunctionSpan:
     name: str
     lineno: int
     end_lineno: int
+
+
+# Each entry point lookup re-parses and re-walks a full file AST unless the
+# spans are cached; a source map of N files x M callables is the frontend's
+# dominant cost.  Keyed by ``id(source)``: the cache holds a strong reference
+# to the source string, so the id can never alias a recycled object.  The cap
+# keeps long-running processes (LSP) from accumulating stale entries.
+_SPAN_CACHE: "Dict[int, Tuple[str, List[FunctionSpan]]]" = {}
+_MAX_SPAN_CACHE_ENTRIES = 8192
+
+
+def _cached_spans(source: str) -> List[FunctionSpan]:
+    key = id(source)
+    cached = _SPAN_CACHE.get(key)
+    if cached is not None:
+        return cached[1]
+    tree = ast.parse(source)
+    spans = list(_iter_function_spans(tree))
+    if len(_SPAN_CACHE) >= _MAX_SPAN_CACHE_ENTRIES:
+        _SPAN_CACHE.clear()
+    _SPAN_CACHE[key] = (source, spans)
+    return spans
 
 
 def _normalize_qualname(qualname: Optional[str]) -> Optional[str]:
@@ -87,11 +109,9 @@ def find_function_source_segment(
     lineno: Optional[int] = None,
 ) -> Optional[str]:
     try:
-        tree = ast.parse(source)
+        spans = _cached_spans(source)
     except SyntaxError:
         return None
-
-    spans = list(_iter_function_spans(tree))
     if not spans:
         return None
 

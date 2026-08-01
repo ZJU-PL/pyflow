@@ -20,6 +20,7 @@ from pyflow.application.program import Program
 from pyflow.application.context import CompilerContext
 from pyflow.language.python.program import Object
 from pyflow.language.python.program import ImaginaryObject, AbstractObject
+from pyflow.language.python import ast as pyflow_ast
 from pyflow.language.modules.imports import (
     base_name_from_expr as _base_name_from_expr,
     build_module_source_map,
@@ -104,6 +105,8 @@ class Extractor:
         self._source_files = {}  # Track source files for better error reporting
         self._module_imports: Dict[str, Dict[str, str]] = {}  # module -> {name -> qualified}
         self._current_file_path: Optional[str] = None  # Current file being processed
+        self._batch_extraction = False  # Batch mode defers per-file IR indexing
+        self._code_by_source: Dict[tuple[str, str, int], pyflow_ast.Code] = {}
 
         # Initialize desc attribute (program description)
         from pyflow.language.python.program import ProgramDescription
@@ -177,26 +180,34 @@ class Extractor:
         self._source_files = source_files
         self.function_extractor.ast_converter.reset_telemetry()
 
-        for filename, source in source_files.items():
-            if self.verbose:
-                print(f"Processing file: {filename}")
-
-            try:
-                file_program = self.extract_from_source(
-                    source, filename, reset_telemetry=False
-                )
-                # Add extracted functions to combined program
-                if hasattr(file_program, "liveCode") and file_program.liveCode:
-                    if (
-                        not hasattr(combined_program, "liveCode")
-                        or combined_program.liveCode is None
-                    ):
-                        combined_program.liveCode = set()
-                    combined_program.liveCode.update(file_program.liveCode)
-            except Exception as e:
+        # Per-file IR indexing and semantics are throwaway here: the per-file
+        # programs are merged and re-indexed as a whole by the caller, so
+        # deferring them avoids re-walking every procedure once per file.
+        previous_batch = self._batch_extraction
+        self._batch_extraction = True
+        try:
+            for filename, source in source_files.items():
                 if self.verbose:
-                    print(f"Error processing {filename}: {e}")
-                self.errors += 1
+                    print(f"Processing file: {filename}")
+
+                try:
+                    file_program = self.extract_from_source(
+                        source, filename, reset_telemetry=False
+                    )
+                    # Add extracted functions to combined program
+                    if hasattr(file_program, "liveCode") and file_program.liveCode:
+                        if (
+                            not hasattr(combined_program, "liveCode")
+                            or combined_program.liveCode is None
+                        ):
+                            combined_program.liveCode = set()
+                        combined_program.liveCode.update(file_program.liveCode)
+                except Exception as e:
+                    if self.verbose:
+                        print(f"Error processing {filename}: {e}")
+                    self.errors += 1
+        finally:
+            self._batch_extraction = previous_batch
 
         combined_program.frontend_telemetry = (
             self.function_extractor.ast_converter.get_telemetry()
@@ -216,12 +227,14 @@ class Extractor:
         self._current_file_path = filename  # Store for relative import resolution
 
         self._extract_imports(tree, module_name)
-        self.function_extractor.extract_module_body(
+        _module_code, definitions = self.function_extractor.extract_module_body(
             getattr(tree, "body", []) or [],
             program,
             module_name=module_name,
             filename=filename,
         )
+        for code, qualname, lineno in definitions:
+            self._register_extracted_code(code, filename, qualname, lineno)
 
         class_definitions = []
         for node in getattr(tree, "body", []) or []:
@@ -231,23 +244,6 @@ class Extractor:
         # Register classes in hierarchy first (needed for base class resolution)
         for node in class_definitions:
             self._register_class_in_hierarchy(node, module_name)
-
-        # Extract functions and classes
-        for node in getattr(tree, "body", []) or []:
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                if self.verbose:
-                    print(f"DEBUG: Found function definition: {node.name}")
-                self.function_extractor.extract_function(node, program, filename)
-            elif isinstance(node, ast.ClassDef):
-                if self.verbose:
-                    print(f"DEBUG: Found class definition: {node.name}")
-                self.function_extractor.extract_class(
-                    node,
-                    program,
-                    filename,
-                    module_name=module_name,
-                    qualname=node.name,
-                )
 
         # Register module with cross-module resolver
         if self.cross_module_resolver:
@@ -267,8 +263,9 @@ class Extractor:
 
         from pyflow.ir.core import index_program
 
-        index_program(program, module=module_name, filename=filename)
-        if not self.defer_semantics:
+        if not self._batch_extraction:
+            index_program(program, module=module_name, filename=filename)
+        if not self.defer_semantics and not self._batch_extraction:
             from pyflow.ir.core import build_program_semantics
 
             build_program_semantics(program)
@@ -489,8 +486,47 @@ class Extractor:
 
     def getObjectCall(self, func: Any) -> tuple:
         """Get object call information for a function."""
+        code = self._find_extracted_code(func)
+        if code is not None:
+            return func, code
         # Provide source_code mapping so downstream conversion can resolve bodies
         return self.object_manager.get_object_call(func, self.source_code)
+
+    @staticmethod
+    def _normalize_source_filename(filename: str) -> str:
+        if not filename or filename.startswith("<"):
+            return filename
+        return os.path.realpath(filename)
+
+    def _register_extracted_code(
+        self,
+        code: pyflow_ast.Code,
+        filename: str,
+        qualname: str,
+        lineno: Optional[int],
+    ) -> None:
+        if not isinstance(lineno, int):
+            return
+        key = (
+            self._normalize_source_filename(filename),
+            qualname.replace(".<locals>", ""),
+            lineno,
+        )
+        self._code_by_source[key] = code
+
+    def _find_extracted_code(self, func: Any) -> Optional[pyflow_ast.Code]:
+        code_object = getattr(func, "__code__", None)
+        filename = getattr(code_object, "co_filename", None)
+        lineno = getattr(code_object, "co_firstlineno", None)
+        qualname = getattr(func, "__qualname__", None)
+        if not filename or not isinstance(lineno, int) or not qualname:
+            return None
+        key = (
+            self._normalize_source_filename(filename),
+            qualname.replace(".<locals>", ""),
+            lineno,
+        )
+        return self._code_by_source.get(key)
 
     def makeImaginary(
         self, name: str, t: AbstractObject, preexisting: bool
@@ -744,4 +780,6 @@ def extract_program(compiler: CompilerContext, program: Program) -> None:
     if not compiler.extractor.defer_semantics:
         from pyflow.ir.core import build_program_semantics
 
-        build_program_semantics(program)
+        # index_program just registered every reachable node, so the closure
+        # pass over the catalog's child relation is redundant here.
+        build_program_semantics(program, register_missing_nodes=False)

@@ -153,6 +153,7 @@ class DependencyResolver:
 
         # Cache for resolved modules to avoid repeated work
         self._module_cache: Dict[str, Dict[str, Any]] = {}
+        self._module_proxy_building: Set[str] = set()
         self._class_proxy_registry: Dict[str, type] = {}
         # Track missing dependencies for better error reporting
         self._missing_dependencies: Dict[str, List[str]] = (
@@ -361,16 +362,77 @@ class DependencyResolver:
         classes: Dict[str, Dict[str, Any]],
         imports: Dict[str, str],
     ) -> None:
-        class_proxies = self._build_class_proxies(
-            file_path, module_name, classes, imports
-        )
         self._module_cache[file_path] = {
             "functions": functions,
             "classes": classes,
-            "class_proxies": class_proxies,
+            "class_proxies": {},
             "imports": imports,
             "module_name": module_name,
+            "class_proxies_ready": False,
         }
+        self._ensure_module_class_proxies(file_path)
+
+    def _cache_module_metadata(
+        self,
+        file_path: str,
+        module_name: str,
+        functions: Dict[str, Any],
+        classes: Dict[str, Dict[str, Any]],
+        imports: Dict[str, str],
+        source: Optional[str] = None,
+    ) -> None:
+        """Cache parsed module metadata before resolving cross-module bases."""
+        self._module_cache[file_path] = {
+            "functions": functions,
+            "classes": classes,
+            "class_proxies": {},
+            "imports": imports,
+            "module_name": module_name,
+            "class_proxies_ready": False,
+            "source": source,
+        }
+
+    def _ensure_module_class_proxies(self, file_path: str) -> Dict[str, type]:
+        cache = self._module_cache.get(file_path)
+        if not cache:
+            return {}
+        if cache.get("class_proxies_ready", False):
+            return cache.get("class_proxies", {})
+        if file_path in self._module_proxy_building:
+            return cache.get("class_proxies", {})
+
+        self._module_proxy_building.add(file_path)
+        try:
+            proxies = self._build_class_proxies(
+                file_path,
+                cache["module_name"],
+                cache["classes"],
+                cache["imports"],
+                built=cache.get("class_proxies"),
+            )
+            cache["class_proxies"] = proxies
+            cache["class_proxies_ready"] = True
+            return proxies
+        finally:
+            self._module_proxy_building.discard(file_path)
+
+    def preload_sources(self, source_files: Dict[str, str]) -> None:
+        """Parse a source set once, then resolve class proxies in a second pass."""
+        for file_path, source in source_files.items():
+            file_path = str(file_path)
+            self.source_files[file_path] = source
+            self.project_context.source_files[file_path] = source
+
+        self._refresh_analysis_root()
+        for file_path, source in source_files.items():
+            file_path = str(file_path)
+            cache = self._module_cache.get(file_path)
+            if cache is not None and cache.get("source") == source:
+                continue
+            self._index_ast_module(source, file_path, resolve_proxies=False)
+
+        for file_path in source_files:
+            self._ensure_module_class_proxies(str(file_path))
 
     def _extract_with_runtime(self, source: str, file_path: str) -> Dict[str, Any]:
         """Extract functions using runtime execution only."""
@@ -499,6 +561,20 @@ class DependencyResolver:
 
     def _extract_ast_functions(self, source: str, file_path: str) -> Dict[str, Any]:
         """Extract functions and classes using AST parsing with enhanced information."""
+        cache = self._module_cache.get(file_path)
+        if cache is not None and cache.get("source") == source:
+            self._ensure_module_class_proxies(file_path)
+            return dict(cache.get("functions", {}))
+        if cache is not None:
+            for cls_info in cache.get("classes", {}).values():
+                qualified_name = cls_info.get("qualname")
+                if qualified_name:
+                    self._class_proxy_registry.pop(qualified_name, None)
+        return self._index_ast_module(source, file_path, resolve_proxies=True)
+
+    def _index_ast_module(
+        self, source: str, file_path: str, *, resolve_proxies: bool
+    ) -> Dict[str, Any]:
         try:
             tree = python_ast.parse(source)
             module_name = self._get_module_name_from_path(file_path)
@@ -506,11 +582,18 @@ class DependencyResolver:
             imports = self._extract_import_map(tree, module_name)
             classes = self._extract_top_level_classes(tree, module_name, file_path)
             functions = self._extract_top_level_functions(tree, module_name, file_path)
-            self._cache_module_extraction(
-                file_path, module_name, functions, classes, imports
+            self._cache_module_metadata(
+                file_path, module_name, functions, classes, imports, source
             )
+            if resolve_proxies:
+                self._ensure_module_class_proxies(file_path)
             return functions
         except Exception as e:
+            try:
+                module_name = self._get_module_name_from_path(file_path)
+            except Exception:
+                module_name = Path(file_path).stem
+            self._cache_module_metadata(file_path, module_name, {}, {}, {}, source)
             self._telemetry["ast_extract_failures"] += 1
             self._record_diagnostic(
                 "ast_extract", file_path, f"{type(e).__name__}: {e}"
@@ -818,8 +901,10 @@ class DependencyResolver:
         module_name: str,
         classes: Dict[str, Dict[str, Any]],
         imports: Dict[str, str],
+        *,
+        built: Optional[Dict[str, type]] = None,
     ) -> Dict[str, type]:
-        built: Dict[str, type] = {}
+        built = built if built is not None else {}
         building: set[str] = set()
 
         def build(class_name: str) -> type:
@@ -908,8 +993,8 @@ class DependencyResolver:
 
         if not cache:
             return None
-
-        return cache.get("class_proxies", {}).get(class_name)
+        proxies = self._ensure_module_class_proxies(source_file)
+        return proxies.get(class_name)
 
     def get_module_classes(self, file_path: str) -> Dict[str, type]:
         cache = self._module_cache.get(file_path)
@@ -918,7 +1003,7 @@ class DependencyResolver:
             cache = self._module_cache.get(file_path)
         if not cache:
             return {}
-        return dict(cache.get("class_proxies", {}))
+        return dict(self._ensure_module_class_proxies(file_path))
 
     def get_public_class_methods(self, cls: type) -> Dict[str, Any]:
         methods: Dict[str, Any] = {}

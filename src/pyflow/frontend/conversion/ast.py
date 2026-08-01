@@ -975,17 +975,31 @@ class ASTConverter:
             closure_cells=closure_cells,
         )
 
+        origin_tags: list[Any] = [f"converted_function({node.name})"]
+        if isinstance(node, python_ast.AsyncFunctionDef):
+            origin_tags.append("converted_async_function")
+        if self._function_contains_yield(node):
+            origin_tags.append("converted_generator")
+        origin_tags.append(
+            SourceOrigin(
+                None,
+                self.current_filename,
+                getattr(node, "lineno", None),
+                getattr(node, "col_offset", None),
+                getattr(node, "end_lineno", None),
+                getattr(node, "end_col_offset", None),
+            )
+        )
         code.annotation = CodeAnnotation(
             descriptive=False,
             primitive=False,
             staticFold=False,
             dynamicFold=False,
-            origin=[f"converted_function({node.name})"],
+            origin=origin_tags,
             lowered=False,
             runtime=False,
             interpreter=False,
         )
-
         type_params = None
         if type_params_node:
             type_params = self._convert_type_params(type_params_node)
@@ -999,6 +1013,32 @@ class ASTConverter:
             ],
             type_params,
         )
+
+    @staticmethod
+    def _function_contains_yield(node: python_ast.AST) -> bool:
+        class YieldVisitor(python_ast.NodeVisitor):
+            found = False
+
+            def visit_Yield(self, child):
+                self.found = True
+
+            def visit_YieldFrom(self, child):
+                self.found = True
+
+            def visit_FunctionDef(self, child):
+                if child is node:
+                    self.generic_visit(child)
+
+            def visit_AsyncFunctionDef(self, child):
+                if child is node:
+                    self.generic_visit(child)
+
+            def visit_Lambda(self, child):
+                return None
+
+        visitor = YieldVisitor()
+        visitor.visit(node)
+        return visitor.found
 
     def _convert_class_def(self, node: python_ast.ClassDef) -> Optional[PythonASTNode]:
         """Convert Python AST ClassDef to pyflow AST.

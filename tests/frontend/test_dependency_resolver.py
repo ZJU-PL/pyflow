@@ -4,6 +4,7 @@ import ast
 import sys
 import unittest
 import inspect
+from unittest.mock import patch
 
 from pyflow.frontend.resolution.dependencies import DependencyResolver, DependencyStrategy
 
@@ -521,6 +522,35 @@ def func2(x, y):
         child = resolver.get_module_classes("example.py")["Child"]
         methods = resolver.get_public_method_specs(child)
         self.assertIn("m", methods)
+
+    def test_preload_sources_parses_each_module_once_before_proxy_resolution(self):
+        """Cross-module base resolution should not recursively reparse sources."""
+        sources = {
+            "pkg/base.py": "class Base:\n    def m(self):\n        return 1\n",
+            "pkg/child.py": (
+                "from pkg.base import Base\n"
+                "class Child(Base):\n"
+                "    pass\n"
+            ),
+        }
+        resolver = DependencyResolver(
+            strategy="ast_only",
+            verbose=False,
+            source_files=sources,
+        )
+
+        with patch(
+            "pyflow.frontend.resolution.dependencies.python_ast.parse",
+            wraps=ast.parse,
+        ) as parse:
+            resolver.preload_sources(sources)
+            for filename, source in sources.items():
+                resolver.extract_functions(source, filename)
+                resolver.get_module_classes(filename)
+
+        self.assertEqual(parse.call_count, len(sources))
+        child = resolver.get_module_classes("pkg/child.py")["Child"]
+        self.assertIn("m", resolver.get_public_method_specs(child))
 
     def test_class_proxies_preserve_inherited_methods_for_generic_bases(self):
         """Subscripted bases should resolve to the underlying class in proxy MRO."""

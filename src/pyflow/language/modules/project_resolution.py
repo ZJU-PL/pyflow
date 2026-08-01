@@ -240,6 +240,11 @@ class ProjectContext:
         self.added_sys_path = [str(p) for p in added_sys_path]
         self.smart_sys_path = smart_sys_path
         self.source_files: Dict[str, str] = dict(source_files or {})
+        self._source_map_cache: Optional[Dict[str, str]] = None
+        self._source_map_cache_keys: Optional[frozenset[str]] = None
+        self._find_module_cache: Dict[tuple[object, ...], Optional[ModuleResolution]] = {}
+        self._find_module_cache_order: List[tuple[object, ...]] = []
+        self._max_find_module_cache = 4096
 
     def with_source_files(self, source_files: Mapping[str, str]) -> "ProjectContext":
         self.source_files.update(source_files)
@@ -364,6 +369,17 @@ class ProjectContext:
         return prefix or imported_module
 
     def _source_map(self) -> Dict[str, str]:
+        # The map depends only on the set of source file paths and the (stable)
+        # search roots, so it is rebuilt only when new files are registered
+        # instead of on every module lookup.  Cross-module base-class resolution
+        # calls this once per unresolved base, which previously rebuilt the map
+        # over the whole project each time.
+        current_keys = frozenset(self.source_files.keys())
+        if (
+            self._source_map_cache is not None
+            and self._source_map_cache_keys == current_keys
+        ):
+            return self._source_map_cache
         mapping: Dict[str, str] = {}
         roots = [str(self.path)] + self.get_base_sys_path() + self.added_sys_path
         for filename in self.source_files:
@@ -378,6 +394,8 @@ class ProjectContext:
                 )
                 if candidate:
                     mapping[candidate] = filename
+        self._source_map_cache = mapping
+        self._source_map_cache_keys = current_keys
         return mapping
 
     def find_module(
@@ -403,10 +421,18 @@ class ProjectContext:
                 is_in_memory=True,
             )
 
+        # Filesystem probing stats many candidate paths; cache results per
+        # lookup key.  The in-memory source map is always consulted first, so a
+        # module that appears in it later bypasses any stale filesystem answer.
+        cache_key = (module_name, str(script_path), source, tuple(extra_sys_path))
+        if cache_key in self._find_module_cache:
+            return self._find_module_cache[cache_key]
+
         parts = module_name.split(".")
         search_path = self.get_sys_path(script_path=script_path, source=source)
         search_path = _remove_duplicates_from_path(list(extra_sys_path) + search_path)
 
+        result: Optional[ModuleResolution] = None
         namespace_paths: List[str] = []
         for root in search_path:
             if not root:
@@ -414,29 +440,42 @@ class ProjectContext:
             base = os.path.join(root, *parts)
             py_file = f"{base}.py"
             if os.path.isfile(py_file):
-                return ModuleResolution(module_name, os.path.abspath(py_file))
+                result = ModuleResolution(module_name, os.path.abspath(py_file))
+                break
 
             init_file = os.path.join(base, "__init__.py")
             if os.path.isfile(init_file):
-                return ModuleResolution(
+                result = ModuleResolution(
                     module_name,
                     os.path.abspath(init_file),
                     is_package=True,
                     namespace_paths=(os.path.abspath(base),),
                 )
+                break
 
             if os.path.isdir(base):
                 namespace_paths.append(os.path.abspath(base))
+        else:
+            if namespace_paths:
+                result = ModuleResolution(
+                    module_name,
+                    None,
+                    is_package=True,
+                    is_namespace=True,
+                    namespace_paths=tuple(_remove_duplicates_from_path(namespace_paths)),
+                )
 
-        if namespace_paths:
-            return ModuleResolution(
-                module_name,
-                None,
-                is_package=True,
-                is_namespace=True,
-                namespace_paths=tuple(_remove_duplicates_from_path(namespace_paths)),
-            )
-        return None
+        self._find_module_cache[cache_key] = result
+        self._find_module_cache_order.append(cache_key)
+        if len(self._find_module_cache_order) > self._max_find_module_cache:
+            for stale_key in self._find_module_cache_order[
+                : -self._max_find_module_cache
+            ]:
+                self._find_module_cache.pop(stale_key, None)
+            self._find_module_cache_order = self._find_module_cache_order[
+                -self._max_find_module_cache :
+            ]
+        return result
 
     def iter_imported_modules(
         self,

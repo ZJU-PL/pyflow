@@ -804,6 +804,74 @@ class TestExtractProgram(unittest.TestCase):
         cfg = self.program.get_queries(self.compiler).get_cfg("main")
         self.assertEqual(cfg.code.codeName(), "main")
 
+    def test_interface_entrypoints_reuse_extracted_function_and_method_codes(self):
+        """Interface translation should reuse extracted source definitions."""
+        class Args:
+            dependency_strategy = "auto"
+            verbose = False
+            include_main_entry_points = True
+            search_paths = None
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            from pathlib import Path
+
+            sample = Path(tmpdir) / "sample.py"
+            sample.write_text(
+                "def f(x):\n"
+                "    return x\n\n"
+                "class Service:\n"
+                "    def run(self):\n"
+                "        return 1\n",
+                encoding="utf-8",
+            )
+            interface, sources = _build_interface([sample], Args())
+            self.program.interface = interface
+            self.compiler.extractor = Extractor(
+                self.compiler, verbose=False, source_code=sources
+            )
+            extract_program(self.compiler, self.program)
+
+        live_by_name = {code.codeName(): code for code in self.program.liveCode}
+        entries_by_name = {
+            ep.code.codeName(): ep.code for ep in self.program.entryPoints
+        }
+        self.assertIs(entries_by_name["f"], live_by_name["f"])
+        self.assertIs(
+            entries_by_name["sample.Service.run"],
+            live_by_name["sample.Service.run"],
+        )
+
+    def test_module_definition_codes_are_shared_with_live_code(self):
+        """Module FunctionDef nodes and liveCode should reference one Code object."""
+        from pyflow.language.python import ast as pyflow_ast
+
+        extractor = Extractor(
+            self.compiler,
+            verbose=False,
+            source_code={"pkg/mod.py": "def f():\n    return 1\n"},
+        )
+        self.compiler.extractor = extractor
+        extract_program(self.compiler, self.program)
+
+        module = next(
+            code
+            for code in self.program.liveCode
+            if code.codeName() == "pkg.mod.<module>"
+        )
+        definition = next(
+            block
+            for block in module.ast.blocks
+            if isinstance(block, pyflow_ast.FunctionDef)
+        )
+        live_function = next(
+            code for code in self.program.liveCode if code.codeName() == "f"
+        )
+        self.assertIs(definition.code, live_function)
+        self.assertEqual(
+            sum(1 for _procedure in self.program.ir.procedures()),
+            2,
+        )
+
 
 class TestFrontendPipelineCompatibility(unittest.TestCase):
     def _build_program(self, source: str) -> tuple[CompilerContext, Program]:

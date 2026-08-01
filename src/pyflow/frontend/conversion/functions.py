@@ -388,10 +388,13 @@ class FunctionExtractor:
         *,
         module_name: str,
         filename: Optional[str] = None,
-    ) -> None:
+    ) -> tuple[
+        Optional[pyflow_ast.Code],
+        list[tuple[pyflow_ast.Code, str, Optional[int]]],
+    ]:
         body_nodes = list(body_nodes)
         if not body_nodes:
-            return
+            return None, []
         code = self.create_synthetic_code(
             f"{module_name}.<module>",
             body_nodes,
@@ -400,6 +403,32 @@ class FunctionExtractor:
             origin_tag="synthetic_module",
         )
         self._add_code_to_program(program, code)
+        definitions: list[tuple[pyflow_ast.Code, str, Optional[int]]] = []
+
+        def source_line(node: PythonASTNode) -> Optional[int]:
+            annotation = getattr(node, "annotation", None)
+            origins = getattr(annotation, "origin", ()) or ()
+            for origin in origins:
+                lineno = getattr(origin, "lineno", None)
+                if isinstance(lineno, int):
+                    return lineno
+            return None
+
+        def collect(
+            suite: pyflow_ast.Suite,
+            class_path: tuple[str, ...] = (),
+        ) -> None:
+            for block in getattr(suite, "blocks", ()) or ():
+                if isinstance(block, pyflow_ast.FunctionDef):
+                    qualname = ".".join((*class_path, block.name))
+                    block.code.setCodeName(qualname)
+                    self._add_code_to_program(program, block.code)
+                    definitions.append((block.code, qualname, source_line(block)))
+                elif isinstance(block, pyflow_ast.ClassDef):
+                    collect(block.body, (*class_path, block.name))
+
+        collect(code.ast)
+        return code, definitions
 
     def _convert_function_args(
         self, args_node: python_ast.arguments, func: Any
