@@ -89,6 +89,15 @@
       ]
     },
     {
+      "call": "self.current_user",
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
+    },
+    {
       "call": "tornado.web.RequestHandler.add_header",
       "severity": "medium",
       "sinks": [

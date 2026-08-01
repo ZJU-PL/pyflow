@@ -353,3 +353,67 @@ def get(request):
     )
 
     assert len(_sink_events(result)) == 1
+
+
+def test_pure_path_operations_do_not_reintroduce_taint_after_sanitization():
+    policy = TaintPolicy(
+        source_kinds_by_call={"input": frozenset({"user_input"})},
+        sink_kinds_by_call={"open": frozenset({"file"})},
+        sink_positions_by_call={"open": frozenset({0})},
+        sanitizer_kinds_by_call={
+            "secure_filename": frozenset({"user_input"})
+        },
+        rules=(
+            TaintRule(
+                "TEST-PATH",
+                "Untrusted path",
+                frozenset({"user_input"}),
+                frozenset({"file"}),
+            ),
+        ),
+    )
+    function = ast.parse(
+        """
+def handler():
+    filename = secure_filename(input())
+    path = os.path.join("/srv/files", filename)
+    if os.path.exists(path) and os.path.isfile(path):
+        open(path)
+"""
+    ).body[0]
+
+    result = analyze_ast_function(
+        function, procedure="handler", filename="sample.py", policy=policy
+    )
+
+    assert _sink_events(result) == []
+
+
+def test_pure_path_operations_preserve_unsanitized_taint():
+    policy = TaintPolicy(
+        source_kinds_by_call={"input": frozenset({"user_input"})},
+        sink_kinds_by_call={"open": frozenset({"file"})},
+        sink_positions_by_call={"open": frozenset({0})},
+        rules=(
+            TaintRule(
+                "TEST-PATH",
+                "Untrusted path",
+                frozenset({"user_input"}),
+                frozenset({"file"}),
+            ),
+        ),
+    )
+    function = ast.parse(
+        """
+def handler():
+    path = os.path.join("/srv/files", input())
+    if os.path.exists(path):
+        open(path)
+"""
+    ).body[0]
+
+    result = analyze_ast_function(
+        function, procedure="handler", filename="sample.py", policy=policy
+    )
+
+    assert len(_sink_events(result)) == 1

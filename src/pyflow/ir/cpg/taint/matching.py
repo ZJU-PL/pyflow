@@ -359,7 +359,9 @@ class _TaintMatchingMixin:
         # Source-loaded ASTs may preserve an imported alias (``request``)
         # rather than its registry-qualified module (``flask.request``).
         suffix_matches = [
-            src for src in self._sources if call_name_suffix_matches(src, name)
+            src
+            for src in self._sources
+            if call_name_suffix_matches(src.lower(), name.lower())
         ]
         if len(suffix_matches) == 1:
             return True
@@ -378,7 +380,9 @@ class _TaintMatchingMixin:
             if "." not in sink and name.rsplit(".", 1)[-1] == sink:
                 return sink
         suffix_matches = [
-            sink for sink in self._sinks if call_name_suffix_matches(sink, name)
+            sink
+            for sink in self._sinks
+            if call_name_suffix_matches(sink.lower(), name.lower())
         ]
         if len(suffix_matches) == 1:
             return suffix_matches[0]

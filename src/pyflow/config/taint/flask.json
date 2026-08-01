@@ -22,6 +22,15 @@
   },
   "models": [
     {
+      "call": "flask.Flask",
+      "sanitizers": [
+        {
+          "kinds": "all",
+          "port": "return"
+        }
+      ]
+    },
+    {
       "call": "render_template_string",
       "cwe": "CWE-79",
       "severity": "high",

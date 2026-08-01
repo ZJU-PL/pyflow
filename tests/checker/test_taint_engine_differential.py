@@ -81,3 +81,120 @@ def test_taint_engines_agree_on_direct_and_sanitized_flows(
     assert bool(ast_dataflow.findings) is expected
     assert bool(cpg.findings) is expected
     assert bool(ifds.findings) is expected
+
+
+@pytest.mark.parametrize(
+    ("command", "expected"),
+    [
+        ("subprocess.run(['tool', value])", False),
+        ("subprocess.run(f'tool {value}', shell=True)", True),
+    ],
+)
+def test_taint_engines_distinguish_argv_execution_from_shell_execution(
+    tmp_path, command, expected
+):
+    models = CallModelRegistry(
+        [
+            CallModel("source", source_kinds=frozenset({"user_input"})),
+            CallModel(
+                "subprocess.run",
+                sink_kinds=frozenset({"rce"}),
+                cwe="CWE-78",
+            ),
+        ]
+    )
+    rules = (
+        TaintRule(
+            "TEST-SHELL",
+            "Untrusted data reaches a command shell",
+            frozenset({"user_input"}),
+            frozenset({"rce"}),
+            cwe="CWE-78",
+        ),
+    )
+    policy = TaintPolicy.from_call_models(models, rules)
+    source = (
+        "import subprocess\n"
+        "def source():\n"
+        "    return 1\n"
+        "def main():\n"
+        "    value = source()\n"
+        f"    {command}\n"
+    )
+    target = tmp_path / "shell_boundary.py"
+    target.write_text(source, encoding="utf-8")
+    session = SimpleNamespace(
+        sources_by_name={"main": source},
+        func_to_file={"main": str(target)},
+        queries=_NoQueries(),
+    )
+
+    ast_dataflow = ASTDataflowTaintDetector(policy=policy).analyze(session)
+    cpg = CPGTaintEngine(build_cpg(source), policy=policy).analyze()
+    _session, ifds, _adapter = run_taint_analysis(
+        [target], function="main", call_models=models, rules=rules
+    )
+
+    assert bool(ast_dataflow.findings) is expected
+    assert bool(cpg.findings) is expected
+    assert bool(ifds.findings) is expected
+
+
+@pytest.mark.parametrize(
+    ("statement", "expected"),
+    [
+        (
+            "cursor.execute('SELECT * FROM users WHERE name = ?', (value,))",
+            False,
+        ),
+        ("cursor.execute(f'SELECT * FROM users WHERE name = {value}')", True),
+    ],
+)
+def test_taint_engines_only_treat_sql_statement_as_execute_sink(
+    tmp_path, statement, expected
+):
+    models = CallModelRegistry(
+        [
+            CallModel("source", source_kinds=frozenset({"user_input"})),
+            CallModel(
+                "cursor.execute",
+                sink_kinds=frozenset({"sql"}),
+                sink_arg_positions=frozenset({0, 1}),
+                cwe="CWE-89",
+            ),
+        ]
+    )
+    rules = (
+        TaintRule(
+            "TEST-SQL",
+            "Untrusted data reaches a SQL statement",
+            frozenset({"user_input"}),
+            frozenset({"sql"}),
+            cwe="CWE-89",
+        ),
+    )
+    policy = TaintPolicy.from_call_models(models, rules)
+    source = (
+        "def source():\n"
+        "    return 'name'\n"
+        "def main(cursor):\n"
+        "    value = source()\n"
+        f"    {statement}\n"
+    )
+    target = tmp_path / "sql_boundary.py"
+    target.write_text(source, encoding="utf-8")
+    session = SimpleNamespace(
+        sources_by_name={"main": source},
+        func_to_file={"main": str(target)},
+        queries=_NoQueries(),
+    )
+
+    ast_dataflow = ASTDataflowTaintDetector(policy=policy).analyze(session)
+    cpg = CPGTaintEngine(build_cpg(source), policy=policy).analyze()
+    _session, ifds, _adapter = run_taint_analysis(
+        [target], function="main", call_models=models, rules=rules
+    )
+
+    assert bool(ast_dataflow.findings) is expected
+    assert bool(cpg.findings) is expected
+    assert bool(ifds.findings) is expected

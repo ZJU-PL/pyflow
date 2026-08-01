@@ -6,6 +6,8 @@ import importlib
 
 import pytest
 
+from pyflow.analysis.ifds.modeling.calls import CallModel, CallModelRegistry
+from pyflow.analysis.taint import TaintPolicy, TaintRule
 from pyflow.analysis.entrypoints import EntryPointMode, EntryPointOptions
 from pyflow.checker.ast_dataflow.domain import (
     TaintLocation,
@@ -64,6 +66,162 @@ def test_cpg_entry_parameter_taint_is_an_independent_option() -> None:
 
     assert clean.findings == ()
     assert len(tainted.findings) == 1
+
+
+def test_framework_attribute_source_flows_to_attribute_sink() -> None:
+    models = CallModelRegistry(
+        (
+            CallModel(
+                "framework.Request.body",
+                source_kinds=frozenset({"user_input"}),
+            ),
+            CallModel(
+                "framework.Response.text",
+                sink_kinds=frozenset({"xss"}),
+                cwe="CWE-79",
+            ),
+        )
+    )
+    policy = TaintPolicy.from_call_models(
+        models,
+        (
+            TaintRule(
+                "TEST-XSS",
+                "Untrusted body reaches an HTML response",
+                frozenset({"user_input"}),
+                frozenset({"xss"}),
+                cwe="CWE-79",
+            ),
+        ),
+    )
+    result = CPGTaintEngine(
+        build_cpg(
+            "def handler(request, response):\n"
+            "    value = request.body\n"
+            "    response.text = value\n"
+        ),
+        policy=policy,
+    ).analyze()
+
+    assert len(result.findings) == 1
+    assert result.findings[0].cwe == "CWE-79"
+    assert result.findings[0].sink_label.endswith("Response.text")
+
+
+def test_imported_sanitizer_leaf_resolves_to_qualified_model() -> None:
+    models = CallModelRegistry(
+        (
+            CallModel("source", source_kinds=frozenset({"user_input"})),
+            CallModel(
+                "werkzeug.utils.secure_filename",
+                sanitizer_kinds=frozenset({"user_input"}),
+            ),
+            CallModel(
+                "open",
+                sink_kinds=frozenset({"file"}),
+                cwe="CWE-22",
+            ),
+        )
+    )
+    policy = TaintPolicy.from_call_models(
+        models,
+        (
+            TaintRule(
+                "TEST-PATH",
+                "Untrusted input reaches a file path",
+                frozenset({"user_input"}),
+                frozenset({"file"}),
+                cwe="CWE-22",
+            ),
+        ),
+    )
+    result = CPGTaintEngine(
+        build_cpg(
+            "from werkzeug.utils import secure_filename\n"
+            "def source():\n"
+            "    return 'name'\n"
+            "def handler():\n"
+            "    filename = secure_filename(source())\n"
+            "    open(filename)\n"
+        ),
+        policy=policy,
+    ).analyze()
+
+    assert result.findings == ()
+
+
+def test_module_import_alias_resolves_to_qualified_sanitizer_model() -> None:
+    models = CallModelRegistry(
+        (
+            CallModel("source", source_kinds=frozenset({"user_input"})),
+            CallModel(
+                "html.escape",
+                sanitizer_kinds=frozenset({"user_input"}),
+            ),
+            CallModel(
+                "eval",
+                sink_kinds=frozenset({"code_execution"}),
+                cwe="CWE-94",
+            ),
+        )
+    )
+    policy = TaintPolicy.from_call_models(
+        models,
+        (
+            TaintRule(
+                "TEST-ALIAS",
+                "Untrusted input reaches evaluation",
+                frozenset({"user_input"}),
+                frozenset({"code_execution"}),
+                cwe="CWE-94",
+            ),
+        ),
+    )
+    result = CPGTaintEngine(
+        build_cpg(
+            "import html as html_escape\n"
+            "def source():\n"
+            "    return 'value'\n"
+            "def handler():\n"
+            "    eval(html_escape.escape(source()))\n"
+        ),
+        policy=policy,
+    ).analyze()
+
+    assert result.findings == ()
+
+
+def test_exact_source_model_precedes_qualified_leaf_aliases() -> None:
+    models = CallModelRegistry(
+        (
+            CallModel("load", source_kinds=frozenset({"user_input"})),
+            CallModel("package.load", source_kinds=frozenset({"network"})),
+            CallModel(
+                "exec",
+                sink_kinds=frozenset({"code_execution"}),
+                cwe="CWE-94",
+            ),
+        )
+    )
+    policy = TaintPolicy.from_call_models(
+        models,
+        (
+            TaintRule(
+                "TEST-CODE",
+                "Untrusted input reaches dynamic execution",
+                frozenset({"user_input"}),
+                frozenset({"code_execution"}),
+                cwe="CWE-94",
+            ),
+        ),
+    )
+    result = CPGTaintEngine(
+        build_cpg("def handler():\n    value = load()\n    exec(value)\n"),
+        policy=policy,
+    ).analyze()
+
+    assert len(result.findings) == 1
+    assert result.findings[0].cwe == "CWE-94"
 
 
 def test_cpg_abstract_state_is_an_immutable_join_semilattice() -> None:
@@ -274,7 +432,7 @@ def test_data_edges_are_consulted_but_cannot_bypass_a_kill() -> None:
     assert result.statistics["data_dependencies_consulted"] > 0
 
 
-def test_unknown_call_havocs_argument_conservatively_without_partial_status() -> None:
+def test_unknown_call_does_not_invent_taint_on_clean_arguments() -> None:
     result = _engine(
         "def main():\n"
         "    value = None\n"
@@ -282,13 +440,44 @@ def test_unknown_call_havocs_argument_conservatively_without_partial_status() ->
         "    eval(value.field)\n"
     ).analyze()
 
-    assert len(result.findings) == 1
+    assert result.findings == ()
     assert result.status == "complete"
     diagnostic = next(
         item for item in result.diagnostics if item.code == "cpg-unknown-call-effect"
     )
     assert diagnostic.affects_completeness is False
     assert diagnostic.level == "conservative"
+
+
+def test_unknown_call_still_taints_its_return_conservatively() -> None:
+    result = _engine(
+        "def main():\n"
+        "    value = external_value()\n"
+        "    eval(value)\n"
+    ).analyze()
+
+    assert len(result.findings) == 1
+    assert any(
+        item.code == "cpg-unknown-call-effect" for item in result.diagnostics
+    )
+
+
+def test_local_class_constructor_preserves_arguments_without_inventing_taint() -> None:
+    clean = _engine(
+        "class Item:\n"
+        "    pass\n"
+        "def main():\n"
+        "    eval(Item())\n"
+    ).analyze()
+    tainted = _engine(
+        "class Item:\n"
+        "    pass\n"
+        "def main():\n"
+        "    eval(Item(input()))\n"
+    ).analyze()
+
+    assert clean.findings == ()
+    assert len(tainted.findings) == 1
 
 
 def test_pure_string_method_preserves_existing_taint_without_inventing_it() -> None:
@@ -304,6 +493,32 @@ def test_pure_string_method_preserves_existing_taint_without_inventing_it() -> N
     assert "cpg-unknown-call-effect" not in {
         diagnostic.code for diagnostic in clean.diagnostics
     }
+
+
+def test_pure_path_operations_preserve_only_existing_taint() -> None:
+    tainted = _engine(
+        "import os\n"
+        "def main():\n"
+        "    path = os.path.abspath(os.path.join('/srv', input()))\n"
+        "    if os.path.exists(path) and os.path.isfile(path):\n"
+        "        eval(path)\n"
+    ).analyze()
+    clean = _engine(
+        "import os\n"
+        "def main():\n"
+        "    path = os.path.abspath(os.path.join('/srv', 'safe'))\n"
+        "    if os.path.exists(path) and os.path.isfile(path):\n"
+        "        eval(path)\n"
+    ).analyze()
+
+    assert len(tainted.findings) == 1
+    assert clean.findings == ()
+    path_operations = {"os.path.abspath", "os.path.exists", "os.path.isfile"}
+    assert not any(
+        diagnostic.code == "cpg-unknown-call-effect"
+        and diagnostic.operation in path_operations
+        for diagnostic in clean.diagnostics
+    )
 
 
 def test_interpreter_string_helpers_propagate_only_existing_taint() -> None:

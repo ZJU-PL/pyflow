@@ -22,6 +22,43 @@ from ..modeling import CallShapeContractRegistry, SanitizerContractRegistry
 from ..solver import ProcedureTaintSummary, SummaryPort, SummaryPortKind
 from .events import TaintSinkEvent
 
+_SHELL_OPTION_SUBPROCESS_CALLS = frozenset(
+    {"call", "check_call", "check_output", "popen", "run"}
+)
+_SQL_QUERY_ARGUMENT_CALLS = frozenset({"execute", "executemany", "executescript"})
+_TAINT_PRESERVING_PURE_CALLS = frozenset(
+    {
+        "os.path.abspath",
+        "os.path.basename",
+        "os.path.commonpath",
+        "os.path.commonprefix",
+        "os.path.dirname",
+        "os.path.expanduser",
+        "os.path.expandvars",
+        "os.path.join",
+        "os.path.normpath",
+        "os.path.realpath",
+        "os.path.relpath",
+        "os.path.splitext",
+        "re.sub",
+    }
+)
+_TAINT_DROPPING_PURE_CALLS = frozenset(
+    {
+        "all",
+        "any",
+        "hasattr",
+        "issubclass",
+        "len",
+        "os.path.exists",
+        "os.path.isdir",
+        "os.path.isfile",
+        "os.path.islink",
+        "os.path.ismount",
+        "os.path.lexists",
+    }
+)
+
 
 @dataclass(frozen=True)
 class ExpressionResult:
@@ -214,6 +251,11 @@ class PythonExpressionSemantics:
 
         source_kinds = self.context.policy.source_kinds_for(name)
         sink_kinds = self.context.policy.sink_kinds_for(name)
+        inactive_shell_sink = bool(sink_kinds) and not self._shell_sink_is_active(
+            call, name
+        )
+        if inactive_shell_sink:
+            sink_kinds = frozenset()
         if source_kinds:
             for kind in source_kinds:
                 current = current.introduce(
@@ -357,7 +399,7 @@ class PythonExpressionSemantics:
                             operation=name,
                         )
                     )
-        elif sink_kinds:
+        elif sink_kinds or inactive_shell_sink:
             # A configured sink is a modeled boundary.  A separate model may
             # describe a tainted return; absent that model the return is safe.
             current = current.write(call_location, (), strong=True)
@@ -371,6 +413,18 @@ class PythonExpressionSemantics:
                 line=getattr(call, "lineno", None),
                 detail=name,
             )
+        elif name.lower() in _TAINT_PRESERVING_PURE_CALLS:
+            current = current.write(
+                call_location,
+                all_argument_facts,
+                strong=True,
+                operation=ProvenanceOperation.CALL,
+                filename=self.context.filename,
+                line=getattr(call, "lineno", None),
+                detail=name,
+            )
+        elif name.lower() in _TAINT_DROPPING_PURE_CALLS:
+            current = current.write(call_location, (), strong=True)
         else:
             current = current.write(
                 call_location,
@@ -431,9 +485,7 @@ class PythonExpressionSemantics:
                     )
 
         if sink_kinds:
-            positions = self.context.policy.sink_positions_for(name) or frozenset(
-                range(len(positional))
-            )
+            positions = self._sink_positions_for_call(name, len(positional))
             for index, positional_result in enumerate(positional):
                 if index in positions and positional_result.facts:
                     events.add(
@@ -466,6 +518,35 @@ class PythonExpressionSemantics:
             current.facts_at(call_location),
             call_location,
             frozenset(events),
+        )
+
+    def _shell_sink_is_active(self, call: ast.Call, name: str) -> bool:
+        """Distinguish shell execution from argv-based subprocess calls."""
+        if self.context.policy.sink_cwe_for(name) != "CWE-78":
+            return True
+        if not name.lower().startswith("subprocess."):
+            return True
+        leaf = name.rsplit(".", 1)[-1].lower()
+        if leaf not in _SHELL_OPTION_SUBPROCESS_CALLS:
+            return True
+        shell = next(
+            (item.value for item in call.keywords if item.arg == "shell"), None
+        )
+        if shell is None:
+            return False
+        return not (isinstance(shell, ast.Constant) and shell.value is False)
+
+    def _sink_positions_for_call(
+        self, name: str, argument_count: int
+    ) -> frozenset[int]:
+        """Normalize source-level argument positions for known API families."""
+        if (
+            self.context.policy.sink_cwe_for(name) == "CWE-89"
+            and name.rsplit(".", 1)[-1].lower() in _SQL_QUERY_ARGUMENT_CALLS
+        ):
+            return frozenset({0})
+        return self.context.policy.sink_positions_for(name) or frozenset(
+            range(argument_count)
         )
 
     def _evaluate_container_literal(

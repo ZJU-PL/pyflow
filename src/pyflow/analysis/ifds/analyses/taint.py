@@ -31,6 +31,11 @@ CATEGORY_FILE = "file"
 CATEGORY_NETWORK = "network"
 CATEGORY_DATABASE = "database"
 
+_SHELL_OPTION_SUBPROCESS_CALLS = frozenset(
+    {"call", "check_call", "check_output", "popen", "run"}
+)
+_SQL_QUERY_ARGUMENT_CALLS = frozenset({"execute", "executemany", "executescript"})
+
 
 @dataclass(frozen=True)
 class TaintConfiguration:
@@ -763,6 +768,10 @@ class InterproceduralTaintProblem(
                         model = self.call_models.model_for_name(sink_name)
             if model is None or not model.sink_kinds:
                 continue
+            if call_effect is not None and not self._shell_sink_is_active(
+                call_effect.call_expression, sink_name or "", model
+            ):
+                continue
             if not result.is_reached(node, ZERO_TAINT):
                 continue
             source_kinds = sorted(
@@ -783,10 +792,8 @@ class InterproceduralTaintProblem(
                     sink_expressions,
                     result,
                     source_kind=source_kind,
-                    positions=(
-                        frozenset(range(len(sink_expressions)))
-                        if model.sink_all_arguments
-                        else model.sink_arg_positions
+                    positions=self._sink_positions_for_call(
+                        sink_name or "", model, len(sink_expressions)
                     ),
                 )
                 if not (tainted_args or tainted_labels):
@@ -810,6 +817,41 @@ class InterproceduralTaintProblem(
                             )
                         )
         return tuple(findings)
+
+    def _shell_sink_is_active(self, call, sink_name: str, model) -> bool:
+        """Return whether a CWE-78 subprocess call actually enables a shell."""
+        if model.cwe != "CWE-78":
+            return True
+        configured = (model.name or sink_name).lower()
+        if not configured.startswith("subprocess."):
+            return True
+        if configured.rsplit(".", 1)[-1] not in _SHELL_OPTION_SUBPROCESS_CALLS:
+            return True
+        for keyword, value in getattr(call, "kwds", ()) or ():
+            if keyword != "shell":
+                continue
+            if isinstance(value, py_ast.Existing):
+                try:
+                    return value.constantValue() is not False
+                except Exception:
+                    return True
+            return True
+        return False
+
+    @staticmethod
+    def _sink_positions_for_call(
+        sink_name: str, model, argument_count: int
+    ) -> frozenset[int]:
+        """Normalize model ports to explicit arguments in source-level calls."""
+        if (
+            model.cwe == "CWE-89"
+            and sink_name.rsplit(".", 1)[-1].lower()
+            in _SQL_QUERY_ARGUMENT_CALLS
+        ):
+            return frozenset({0})
+        if model.sink_all_arguments:
+            return frozenset(range(argument_count))
+        return model.sink_arg_positions
 
     def _tainted_arguments_for_call(
         self,

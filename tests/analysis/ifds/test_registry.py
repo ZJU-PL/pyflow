@@ -110,6 +110,36 @@ class TestRegistryLoading:
         assert model.sink_all_arguments is True
         assert model.cwe == "CWE-79"
 
+    def test_stdlib_exposes_framework_filename_canonicalizer(self):
+        registry = Registry()
+        registry.activate("stdlib", type="taint")
+
+        model = registry.active_models(type="taint").model_for_name(
+            "secure_filename"
+        )
+
+        assert model is not None
+        assert model.sanitizer_kinds == frozenset({"file", "user_input"})
+
+    def test_tornado_models_attribute_user_source(self):
+        registry = Registry()
+        registry.activate("tornado", type="taint")
+        models = registry.active_models(type="taint")
+
+        current_user = models.model_for_name("self.current_user")
+
+        assert current_user is not None
+        assert current_user.source_kinds == frozenset({"user_input"})
+
+    def test_flask_application_constructor_returns_clean_framework_state(self):
+        registry = Registry()
+        registry.activate("flask", type="taint")
+
+        model = registry.active_models(type="taint").model_for_name("Flask")
+
+        assert model is not None
+        assert model.sanitizer_kinds == frozenset({"*"})
+
     @pytest.mark.parametrize(
         ("framework", "source", "sink"),
         [
