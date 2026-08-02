@@ -295,6 +295,122 @@ def _summary(records: list[dict[str, Any]], engines: tuple[str, ...]) -> dict[st
     return output
 
 
+def _metrics(
+    stats: dict[str, Any],
+) -> tuple[int, int, int, int, int, float, float, float, float]:
+    """Return confusion-matrix counts and derived metrics for display."""
+    tp = int(stats.get("tp", 0))
+    fp = int(stats.get("fp", 0))
+    tn = int(stats.get("tn", 0))
+    fn = int(stats.get("fn", 0))
+    n = tp + fp + tn + fn
+    precision = tp / (tp + fp) if tp + fp else 0.0
+    recall = tp / (tp + fn) if tp + fn else 0.0
+    f1 = 2 * precision * recall / (precision + recall) if precision + recall else 0.0
+    accuracy = (tp + tn) / n if n else 0.0
+    return n, tp, fp, tn, fn, precision, recall, f1, accuracy
+
+
+def _table(headers: list[str], rows: list[list[str]]) -> str:
+    widths = [len(header) for header in headers]
+    for row in rows:
+        for index, value in enumerate(row):
+            widths[index] = max(widths[index], len(value))
+
+    def render(row: list[str]) -> str:
+        return " | ".join(value.ljust(widths[index]) for index, value in enumerate(row))
+
+    divider = "-+-".join("-" * width for width in widths)
+    return "\n".join([render(headers), divider, *(render(row) for row in rows)])
+
+
+def _print_summary(summary: dict[str, Any], engines: tuple[str, ...]) -> None:
+    overall_headers = [
+        "Engine",
+        "Done",
+        "Tried",
+        "TP",
+        "FP",
+        "TN",
+        "FN",
+        "Precision",
+        "Recall",
+        "F1",
+        "Accuracy",
+        "Mean(s)",
+        "Total(s)",
+        "Errors",
+    ]
+    overall_rows: list[list[str]] = []
+    for engine in engines:
+        stats = summary[engine]
+        _, tp, fp, tn, fn, precision, recall, f1, accuracy = _metrics(stats)
+        overall_rows.append(
+            [
+                engine,
+                str(stats.get("n", 0)),
+                str(stats.get("attempted", 0)),
+                str(tp),
+                str(fp),
+                str(tn),
+                str(fn),
+                f"{precision:.3f}",
+                f"{recall:.3f}",
+                f"{f1:.3f}",
+                f"{accuracy:.3f}",
+                f"{float(stats.get('mean_s', 0.0)):.2f}",
+                f"{float(stats.get('total_s', 0.0)):.2f}",
+                str(stats.get("timeouts_or_parse_errors", 0)),
+            ]
+        )
+
+    cwe_headers = [
+        "CWE",
+        "Engine",
+        "N",
+        "TP",
+        "FP",
+        "TN",
+        "FN",
+        "Precision",
+        "Recall",
+        "F1",
+        "Accuracy",
+    ]
+    cwe_rows: list[list[str]] = []
+    cwes = sorted(
+        {cwe for engine in engines for cwe in summary[engine].get("by_cwe", {})},
+        key=int,
+    )
+    for cwe in cwes:
+        for engine in engines:
+            stats = summary[engine].get("by_cwe", {}).get(cwe)
+            if stats is None:
+                continue
+            n, tp, fp, tn, fn, precision, recall, f1, accuracy = _metrics(stats)
+            cwe_rows.append(
+                [
+                    f"CWE-{cwe}",
+                    engine,
+                    str(n),
+                    str(tp),
+                    str(fp),
+                    str(tn),
+                    str(fn),
+                    f"{precision:.3f}",
+                    f"{recall:.3f}",
+                    f"{f1:.3f}",
+                    f"{accuracy:.3f}",
+                ]
+            )
+
+    print("\nPySASTBench microbenchmark summary", flush=True)
+    print("\nOverall", flush=True)
+    print(_table(overall_headers, overall_rows), flush=True)
+    print("\nBy CWE", flush=True)
+    print(_table(cwe_headers, cwe_rows), flush=True)
+
+
 def main() -> int:
     args = _parse_args()
     repo_root = args.repo_root.expanduser().resolve()
@@ -355,7 +471,7 @@ def main() -> int:
 
     (args.output / "records.json").write_text(json.dumps(records, indent=2) + "\n", encoding="utf-8")
     (args.output / "summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
-    print(json.dumps(summary, indent=2), flush=True)
+    _print_summary(summary, engines)
     return 0
 
 
