@@ -38,18 +38,18 @@ If you use pyflow in your research or work, please cite the following:
 ## Evaluation results
 
 Security analysis engines evaluated on the PySASTBench microbenchmark
-(960 jobs, 240 per engine, timeout 45 s):
+(ICSE 26):
 
 ```bash
 python3 evaluation/pysastbench/bench_micro.py --timeout 45 --workers 16
 ```
 
-| Engine       | Precision | Recall | F1    |
-|--------------|-----------|--------|-------|
-| ast-scanner  | 0.623     | 0.400  | 0.487 |
-| ast-dataflow | 0.849     | 0.842  | 0.845 |
-| cpg          | 0.792     | 0.792  | 0.792 |
-| ifds         | 0.852     | 0.767  | 0.807 |
+| Engine       | Precision | Recall | F1    | Accuracy | Mean(s) |
+|--------------|-----------|--------|-------|----------|---------|
+| ast-scanner  | 0.623     | 0.400  | 0.487 | 0.579    | 0.49    |
+| ast-dataflow | 0.849     | 0.842  | 0.845 | 0.846    | 0.58    |
+| cpg          | 0.792     | 0.792  | 0.792 | 0.792    | 1.56    |
+| ifds         | 0.852     | 0.767  | 0.807 | 0.817    | 3.57    |
 
 ## Installation and Usage
 
