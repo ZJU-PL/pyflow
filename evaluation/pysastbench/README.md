@@ -25,13 +25,13 @@ code and should not be treated as a standalone security oracle.
 From the repository root:
 
 ```bash
-./.venv/bin/python evaluation/pysastbench/bench_security.py
+./.venv/bin/python evaluation/pysastbench/bench_micro.py
 ```
 
 Useful options:
 
 ```bash
-./.venv/bin/python evaluation/pysastbench/bench_security.py \
+./.venv/bin/python evaluation/pysastbench/bench_micro.py \
   --output /tmp/pyflow-pysastbench-results \
   --workers 8 --timeout 45
 ```
@@ -47,3 +47,32 @@ and CWE-78, and CWE-94 and CWE-95, as equivalent semantic labels. Add
 The harness uses subprocess isolation and a per-file timeout because an
 analysis failure or timeout should be recorded as an evaluation result rather
 than aborting the remaining engines.
+
+## Running the real-world projects
+
+RealworldDataset is distributed as project archives. Extract it once before
+running repeated engine comparisons:
+
+```bash
+./.venv/bin/python evaluation/pysastbench/extract_realworld.py \
+  /path/to/PySASTBench-main
+```
+
+Then analyze the extracted `<CVE>/<project>-vul` and `<CVE>/<project>-fix`
+directories:
+
+```bash
+./.venv/bin/python evaluation/pysastbench/bench_realworld.py \
+  /path/to/PySASTBench-main \
+  --workers 4 --timeout 60
+```
+
+The real-world runner does not extract archives itself. Each project is
+analyzed as a unit, and the timeout is applied independently to each engine.
+Both scripts derive the dataset, extracted-project, and metadata paths from
+the supplied PySASTBench root. Use `--results` only when a non-default result
+directory is needed.
+
+After the run, the summary includes TP/FP/FN/TN, precision, recall, and F1.
+Real-world detections require a finding with a listed CWE at the metadata
+target function; timeouts and failed analyses count as no detection.

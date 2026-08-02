@@ -26,7 +26,6 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
 
-
 ENGINES = ("ast-scanner", "ast-dataflow", "cpg", "ifds")
 CWE_ALIASES = {"77": frozenset({"77", "78"}), "94": frozenset({"94", "95"})}
 
@@ -128,7 +127,7 @@ def _run_one(engine: str, path: Path, repo_root: Path, pyflow: Path, timeout: fl
         command.append("--framework")
     command += ["--format", "json", "--exit-code-policy", "report"]
     try:
-        process = subprocess.run(
+        completed = subprocess.run(
             command,
             cwd=repo_root,
             capture_output=True,
@@ -136,17 +135,19 @@ def _run_one(engine: str, path: Path, repo_root: Path, pyflow: Path, timeout: fl
             timeout=timeout,
             check=False,
         )
-        payload, parse_error = _parse_json(process.stdout)
+        payload, parse_error = _parse_json(completed.stdout)
         return {
             "engine": engine,
             "path": str(path),
-            "rc": process.returncode,
+            "rc": completed.returncode,
             "elapsed_s": time.perf_counter() - started,
             "payload": payload,
             "parse_error": parse_error,
-            "stderr": process.stderr[-12000:],
+            "stderr": completed.stderr[-12000:],
+            "interrupted": False,
         }
     except subprocess.TimeoutExpired as error:
+        stderr = error.stderr or ""
         return {
             "engine": engine,
             "path": str(path),
@@ -154,7 +155,19 @@ def _run_one(engine: str, path: Path, repo_root: Path, pyflow: Path, timeout: fl
             "elapsed_s": time.perf_counter() - started,
             "payload": None,
             "parse_error": "timeout",
-            "stderr": f"TIMEOUT after {timeout}s\n{error.stderr or ''}"[-12000:],
+            "stderr": f"TIMEOUT after {timeout}s\n{stderr}"[-12000:],
+            "interrupted": False,
+        }
+    except OSError as error:
+        return {
+            "engine": engine,
+            "path": str(path),
+            "rc": 127,
+            "elapsed_s": time.perf_counter() - started,
+            "payload": None,
+            "parse_error": f"{type(error).__name__}: {error}",
+            "stderr": str(error),
+            "interrupted": False,
         }
 
 
@@ -233,13 +246,15 @@ def _record(engine: str, path: Path, row: dict[str, str], result: dict[str, Any]
         "finding_count": len(_findings(engine, payload)),
         "parse_error": result["parse_error"],
         "stderr": result["stderr"],
+        "interrupted": result.get("interrupted", False),
     }
 
 
 def _summary(records: list[dict[str, Any]], engines: tuple[str, ...]) -> dict[str, Any]:
     output: dict[str, Any] = {}
     for engine in engines:
-        subset = [record for record in records if record["engine"] == engine]
+        attempted = [record for record in records if record["engine"] == engine]
+        subset = [record for record in attempted if not record.get("interrupted", False)]
         tp = sum(record["is_vul"] and record["detected"] for record in subset)
         fp = sum((not record["is_vul"]) and record["detected"] for record in subset)
         fn = sum(record["is_vul"] and (not record["detected"]) for record in subset)
@@ -247,6 +262,7 @@ def _summary(records: list[dict[str, Any]], engines: tuple[str, ...]) -> dict[st
         precision = tp / (tp + fp) if tp + fp else 0.0
         recall = tp / (tp + fn) if tp + fn else 0.0
         f1 = 2 * precision * recall / (precision + recall) if precision + recall else 0.0
+        accuracy = (tp + tn) / len(subset) if subset else 0.0
         by_cwe: dict[str, dict[str, int]] = {}
         for record in subset:
             stats = by_cwe.setdefault(record["cwe"], {"tp": 0, "fp": 0, "fn": 0, "tn": 0})
@@ -256,6 +272,8 @@ def _summary(records: list[dict[str, Any]], engines: tuple[str, ...]) -> dict[st
             stats[key] += 1
         output[engine] = {
             "n": len(subset),
+            "attempted": len(attempted),
+            "interrupted": sum(record.get("interrupted", False) for record in attempted),
             "tp": tp,
             "fp": fp,
             "tn": tn,
@@ -263,6 +281,7 @@ def _summary(records: list[dict[str, Any]], engines: tuple[str, ...]) -> dict[st
             "precision": precision,
             "recall": recall,
             "f1": f1,
+            "accuracy": accuracy,
             "timeouts_or_parse_errors": sum(record["parse_error"] is not None for record in subset),
             "nonzero_rc": sum(record["rc"] != 0 for record in subset),
             "status_counts": {
@@ -298,25 +317,42 @@ def main() -> int:
     records: list[dict[str, Any]] = []
     raw_path = args.output / "raw_results.jsonl"
     print(f"jobs={len(jobs)} workers={args.workers} timeout={args.timeout}s", flush=True)
-    with ThreadPoolExecutor(max_workers=max(1, args.workers)) as pool:
-        futures = {
-            pool.submit(_run_one, engine, path, repo_root, pyflow, args.timeout): (engine, path)
-            for engine, path in jobs
-        }
-        with raw_path.open("w", encoding="utf-8") as raw:
+    with raw_path.open("w", encoding="utf-8") as raw:
+        with ThreadPoolExecutor(max_workers=max(1, args.workers)) as pool:
+            futures = {
+                pool.submit(_run_one, engine, path, repo_root, pyflow, args.timeout): (engine, path)
+                for engine, path in jobs
+            }
             for index, future in enumerate(as_completed(futures), 1):
                 engine, path = futures[future]
-                result = future.result()
+                try:
+                    result = future.result()
+                except Exception as error:
+                    result = {
+                        "engine": engine,
+                        "path": str(path),
+                        "rc": 125,
+                        "elapsed_s": 0.0,
+                        "payload": None,
+                        "parse_error": f"{type(error).__name__}: {error}",
+                        "stderr": str(error),
+                        "interrupted": False,
+                    }
                 case = path.stem.rsplit("_", 1)[0]
                 if case not in rows:
                     raise SystemExit(f"Missing metadata row for {case}")
                 record = _record(engine, path, rows[case], result, args.strict_cwe)
                 records.append(record)
                 raw.write(json.dumps({"record": record, "payload": result["payload"]}, ensure_ascii=False) + "\n")
+                raw.flush()
                 if index % 40 == 0 or index == len(jobs):
                     print(f"completed={index}/{len(jobs)}", flush=True)
 
     summary = _summary(records, engines)
+    summary["interrupted"] = False
+    summary["attempted_jobs"] = len(jobs)
+    summary["completed_jobs"] = len(records)
+
     (args.output / "records.json").write_text(json.dumps(records, indent=2) + "\n", encoding="utf-8")
     (args.output / "summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(summary, indent=2), flush=True)
