@@ -1,6 +1,6 @@
 """PyFlow - Static Analysis Framework for Python."""
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 __author__ = "rainoftime"
 __email__ = "rainoftime@gmail.com"
 
