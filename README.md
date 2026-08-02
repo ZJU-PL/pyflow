@@ -29,11 +29,27 @@ If you use pyflow in your research or work, please cite the following:
   and type-analysis infrastructure
 - **Optimization pipeline**: modular passes such as simplify, method-call
   optimization, cloning, argument normalization, and load/store elimination
-- **Security checking**: pattern-based and AST-dataflow security analysis
+- **Security checking**: ast pattern, ast-dataflow, cpg, and ifds security analysis
 - **Supply-chain analysis**: local SBOM generation, distribution integrity
   auditing, and dependency metadata extraction
 - **CLI tooling**: commands for optimization, call graph generation, IR dumps,
   security, supply-chain, and alias analysis
+
+## Evaluation results
+
+Security analysis engines evaluated on the PySASTBench microbenchmark
+(960 jobs, 240 per engine, timeout 45 s):
+
+```bash
+python3 evaluation/pysastbench/bench_micro.py --timeout 45 --workers 16
+```
+
+| Engine       | Precision | Recall | F1    |
+|--------------|-----------|--------|-------|
+| ast-scanner  | 0.623     | 0.400  | 0.487 |
+| ast-dataflow | 0.849     | 0.842  | 0.845 |
+| cpg          | 0.792     | 0.792  | 0.792 |
+| ifds         | 0.852     | 0.767  | 0.807 |
 
 ## Installation and Usage
 
@@ -63,9 +79,6 @@ pip install -e ".[dev,callgraph]"
 
 
 ```bash
-# Basic optimization pipeline
-pyflow optimize input.py
-
 # Dump IR for a specific function
 pyflow ir input.py --dump-ast function_name
 
@@ -84,7 +97,7 @@ pyflow security input.py --engine ast-dataflow
 # Run IFDS-backed interprocedural security analysis
 pyflow security input.py --engine ifds --sources input --sinks eval
 
-# Run CPG-based context-sensitive security analysis
+# Run CPG-based security analysis
 pyflow security input.py --engine cpg --framework flask
 
 # Run alias analysis (flow-sensitive heap or k-CFA pointer)
@@ -101,30 +114,6 @@ pyflow query . --get-callers package.module.function --pretty
 
 # Generate a CycloneDX SBOM from local package metadata
 pyflow supply-chain sbom package/
-
-# Audit archives and distribution metadata for issues
-pyflow supply-chain audit . --recursive
-
-# Match exact dependency versions against a local OSV database snapshot
-pyflow supply-chain audit . --recursive --osv-database osv-data/
-
-# Use a CI failure threshold while retaining lower-severity findings
-pyflow supply-chain audit . --recursive --fail-on high --format json
-
-# Enforce fresh, checksum-pinned OSV data and apply VEX
-pyflow supply-chain audit . -r --osv-database osv-data/ \
-  --osv-max-age-days 2 --require-osv-checksum --vex product.vex.json
-
-# Bind OSV data to a digest supplied by trusted CI configuration
-pyflow supply-chain audit . -r --osv-database osv.json \
-  --osv-trusted-digest "osv.json=<sha256>"
-
-# Generate reproducible output and validate against a pinned official schema
-pyflow supply-chain sbom . -r --deterministic --schema bom-1.7.schema.json \
-  --require-schema-validation
-
-# Emit SARIF and use expiring policy exceptions or a reviewed baseline
-pyflow supply-chain audit . -r --format sarif --policy supply-chain-policy.json
 ```
 
 The scanner is offline by design. Production CI is responsible for refreshing
@@ -154,30 +143,3 @@ pytest tests/frontend
 pytest tests/api
 pytest tests/checker
 ```
-
-## Development
-
-The repository is organized around a few major subsystems:
-
-- `src/pyflow/ir`: shared intermediate representations and graph infrastructure, including CFG, CDG, data flow IR, DDG, PDG, CPG, and store graph packages.
-- `src/pyflow/analysis`: analysis engines such as call graph, IFDS, alias (flow-sensitive heap + k-CFA pointer), IPA, CPA, shape, lifetime, and type analysis.
-- `src/pyflow/application`: orchestration code including compiler context, pipeline execution, and the pass manager.
-- `src/pyflow/api`: query-facing interfaces and entrypoint construction.
-- `src/pyflow/checker`: pattern-based, AST-dataflow, and supply-chain analysis modules plus output formatters.
-- `src/pyflow/cli`: command-line entrypoints for optimization, call graph, IR, alias, security, and supply-chain analysis.
-- `src/pyflow/frontend`: source-driven extraction, dependency resolution, object loading, and stub handling.
-- `src/pyflow/language`: Python IR/AST support, module-handling utilities, and AST tooling (cyclomatic complexity, decorator/visitor utilities).
-- `src/pyflow/optimization`: optimization and simplification passes.
-- `src/pyflow/stats`: statistics collection and reporting for analysis results.
-- `src/pyflow/stubs`: builtin/runtime modeling used during analysis.
-- `src/pyflow/util`: foundational utility library (OrderedSet, canonical objects, TVL, type dispatch, graph algorithms).
-- `tests`: focused coverage mirroring the major source areas, including
-  `tests/ir` and `tests/analysis`, plus frontend, checker, integration, and API regressions.
-
-## Project maturity and expectations
-
-PyFlow is best viewed today as an ambitious, actively developed framework for
-research, experimentation, and advanced static-analysis prototyping. The codebase
-has broad subsystem coverage and a large test suite, but documentation and some
-subsystems are still catching up with the implementation. If you are evaluating
-the project, expect strong technical depth with some rough edges.

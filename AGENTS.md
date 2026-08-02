@@ -6,14 +6,13 @@ high-signal changes in this codebase.
 
 ## Repository Summary
 
-PyFlow is a research-oriented static analysis framework for Python. The repository includes:
+PyFlow is a static analysis framework for Python. The repository includes:
 
 - analysis infrastructure such as CFG, call graph, IFDS, IPA, CPA, shape, and
   lifetime analysis
 - optimization passes and pipeline orchestration
 - a public API for entrypoint declarations and semantic queries
-- CLI commands for optimization, call graph generation, IR dumping, security,
-  alias, and supply-chain
+- CLI commands for optimization, call graph generation, IR dumping, security, etc.
 - a large test suite with both focused unit tests and slower integration tests
 
 ## Environment
@@ -27,8 +26,10 @@ PyFlow is a research-oriented static analysis framework for Python. The reposito
 
 ## Primary Repo Layout
 
+- `src/pyflow/ir`
+  intermediate representations
 - `src/pyflow/analysis`
-  Core analysis engines and graph/dataflow infrastructure.
+  Core analysis infrastructure and engines 
 - `src/pyflow/application`
   Program context, pass manager, pipeline wiring, and high-level orchestration.
 - `src/pyflow/api`
@@ -41,8 +42,6 @@ PyFlow is a research-oriented static analysis framework for Python. The reposito
   Source extraction, dependency resolution, and object loading.
 - `src/pyflow/language`
   Python IR/AST support and module utilities.
-- `src/pyflow/optimization`
-  Optimization passes and dataflow rewrites.
 - `tests`
   Subsystem-focused tests plus integration and API regression coverage.
 
@@ -66,7 +65,6 @@ Equivalent direct commands commonly used in CI:
 - `pytest -m integration tests/integration`
 - `pytest --cov=pyflow --cov-report=xml --cov-report=term`
 - `flake8 src/ tests/`
-- `mypy src/`
 
 ## Testing Guidance
 
@@ -92,11 +90,6 @@ Examples:
 
 Run broader coverage when the change crosses subsystem boundaries.
 
-Integration tests are excluded by default in `pytest` config. Run them
-explicitly when needed:
-
-- `pytest -m integration tests/integration`
-
 
 ## CLI Notes
 
@@ -106,17 +99,11 @@ CLI entrypoints live under `src/pyflow/cli`. If you change CLI flags or output:
 - keep help text and default behavior consistent across subcommands
 - avoid breaking machine-consumable output silently
 
-
-## Documentation and Build Notes
-
-- `README.md` is the primary top-level user document.
-- Docs live in `docs/`.
-
 ## Change Checklist
 
 Before finishing a change, do the relevant subset of the following:
 
 - run focused tests for the edited subsystem
 - run broader tests if the change spans multiple layers
-- update regression tests for bug fixes
+- update regression tests for bug fixes (if needed)
 - update docs for user-visible changes

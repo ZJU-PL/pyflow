@@ -231,6 +231,12 @@ def _record(engine: str, path: Path, row: dict[str, str], result: dict[str, Any]
     is_vulnerable = path.stem.endswith("_vul")
     detected, matched = _is_relevant(engine, path, row, result["payload"], strict)
     payload = result["payload"]
+    if isinstance(payload, dict):
+        status = payload.get("status")
+    elif result["parse_error"] == "timeout":
+        status = "timeout"
+    else:
+        status = "failed"
     return {
         "engine": engine,
         "case": case,
@@ -242,7 +248,7 @@ def _record(engine: str, path: Path, row: dict[str, str], result: dict[str, Any]
         "match_count": len(matched),
         "rc": result["rc"],
         "elapsed_s": result["elapsed_s"],
-        "status": payload.get("status") if isinstance(payload, dict) else None,
+        "status": status,
         "finding_count": len(_findings(engine, payload)),
         "parse_error": result["parse_error"],
         "stderr": result["stderr"],
@@ -286,7 +292,9 @@ def _summary(records: list[dict[str, Any]], engines: tuple[str, ...]) -> dict[st
             "nonzero_rc": sum(record["rc"] != 0 for record in subset),
             "status_counts": {
                 str(status): sum(record["status"] == status for record in subset)
-                for status in sorted({record["status"] for record in subset})
+                for status in sorted(
+                    {record["status"] for record in subset}, key=lambda value: str(value)
+                )
             },
             "mean_s": sum(record["elapsed_s"] for record in subset) / len(subset),
             "total_s": sum(record["elapsed_s"] for record in subset),
