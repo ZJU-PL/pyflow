@@ -752,6 +752,10 @@ def _ifds_result_to_dict(entry: str, taint_result) -> Dict[str, Any]:
         "entry": entry,
         "analysis": "taint",
         "findings": findings,
+        "diagnostics": [
+            diagnostic
+            for diagnostic in getattr(taint_result, "diagnostics", ())
+        ],
         "statistics": statistics,
         "status": status,
         "termination_reason": termination_reason,

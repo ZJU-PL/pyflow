@@ -416,7 +416,37 @@ class CFGSupergraphAdapter:
         sites = catalog.semantics.calls_for(
             catalog.node_id(call_expression, owner.code)
         )
-        return sites[0].symbolic_name if len(sites) == 1 else None
+        if len(sites) != 1:
+            return None
+        symbolic_name = sites[0].symbolic_name
+        if symbolic_name is not None:
+            return symbolic_name
+        return self._syntactic_call_leaf(call_expression)
+
+    @staticmethod
+    def _syntactic_call_leaf(call_expression: object) -> str | None:
+        """Recover a stable method leaf when receiver qualification is unknown.
+
+        Structural call indexing deliberately leaves names such as
+        ``factory(...).method(...)`` unresolved because the receiver has no
+        static qualified name.  IFDS call models can still safely use the
+        explicit attribute leaf; the model registry accepts it only when that
+        leaf identifies compatible active models.
+        """
+        name = None
+        if isinstance(call_expression, py_ast.Call) and isinstance(
+            call_expression.expr, py_ast.GetAttr
+        ):
+            name = call_expression.expr.name
+        elif isinstance(call_expression, py_ast.MethodCall):
+            name = call_expression.name
+        if isinstance(name, py_ast.Local):
+            return name.name
+        if isinstance(name, py_ast.Existing):
+            pyobj = getattr(name.object, "pyobj", None)
+            if isinstance(pyobj, str):
+                return pyobj
+        return None
 
     def operation_of(self, node: CFGNode):
         return self._operation_by_node.get(node)

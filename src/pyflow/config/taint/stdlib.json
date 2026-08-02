@@ -253,6 +253,34 @@
       ]
     },
     {
+      "call": "subprocess.getoutput",
+      "cwe": "CWE-78",
+      "severity": "high",
+      "suggestion": "Avoid shell command strings and validate user-controlled command components.",
+      "sinks": [
+        {
+          "kind": "rce",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
+    },
+    {
+      "call": "subprocess.getstatusoutput",
+      "cwe": "CWE-78",
+      "severity": "high",
+      "suggestion": "Avoid shell command strings and validate user-controlled command components.",
+      "sinks": [
+        {
+          "kind": "rce",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
+    },
+    {
       "call": "print",
       "sinks": [
         {
@@ -621,6 +649,12 @@
           "kinds": "all",
           "port": "return"
         }
+      ],
+      "propagations": [
+        {
+          "from": "all",
+          "to": "return"
+        }
       ]
     },
     {
@@ -633,6 +667,12 @@
             "user_input"
           ],
           "port": "return"
+        }
+      ],
+      "propagations": [
+        {
+          "from": "all",
+          "to": "return"
         }
       ]
     },
@@ -2746,12 +2786,110 @@
     {
       "call": "str.format",
       "severity": "medium",
+      "propagations": [
+        {
+          "from": "receiver",
+          "to": "return"
+        },
+        {
+          "from": "all",
+          "to": "return"
+        }
+      ],
       "sinks": [
         {
           "kind": "formatstring",
           "port": {
             "parameter": 0
           }
+        }
+      ]
+    },
+    {
+      "call": "os.path.join",
+      "propagations": [
+        {
+          "from": "all",
+          "to": "return"
+        }
+      ]
+    },
+    {
+      "call": "os.path.abspath",
+      "aliases": [
+        "os.path.commonpath",
+        "os.path.commonprefix",
+        "os.path.dirname",
+        "os.path.expanduser",
+        "os.path.expandvars",
+        "os.path.relpath",
+        "os.path.splitext",
+        "re.sub"
+      ],
+      "propagations": [
+        {
+          "from": "all",
+          "to": "return"
+        }
+      ]
+    },
+    {
+      "call": "interpreter_enter",
+      "propagations": [
+        {
+          "from": {"parameter": 0},
+          "to": "return"
+        }
+      ]
+    },
+    {
+      "call": "map",
+      "aliases": ["filter", "zip", "enumerate", "reversed", "iter"],
+      "propagations": [
+        {
+          "from": "all",
+          "to": "yield"
+        }
+      ]
+    },
+    {
+      "call": "list",
+      "aliases": ["tuple", "set", "frozenset", "dict"],
+      "propagations": [
+        {
+          "from": "all",
+          "to": {"kind": "return", "path": ["[*]"]}
+        },
+        {
+          "from": "all",
+          "to": "return"
+        }
+      ]
+    },
+    {
+      "call": "interpreter_aenter",
+      "propagations": [
+        {
+          "from": {"parameter": 0},
+          "to": "return"
+        }
+      ]
+    },
+    {
+      "call": "__enter__",
+      "propagations": [
+        {
+          "from": "receiver",
+          "to": "return"
+        }
+      ]
+    },
+    {
+      "call": "__aenter__",
+      "propagations": [
+        {
+          "from": "receiver",
+          "to": "return"
         }
       ]
     },
@@ -2777,6 +2915,57 @@
           "kind": "file",
           "port": {
             "parameter": 0
+          }
+        }
+      ]
+    },
+    {
+      "call": "tarfile.TarFile.getnames",
+      "cwe": "CWE-22",
+      "severity": "high",
+      "sources": [
+        {
+          "kind": "file",
+          "port": "return"
+        }
+      ]
+    },
+    {
+      "call": "tarfile.TarFile.extract",
+      "cwe": "CWE-22",
+      "severity": "high",
+      "suggestion": "Validate archive member names and extraction destinations before writing files.",
+      "sinks": [
+        {
+          "kind": "file",
+          "port": {
+            "parameter": 0
+          }
+        },
+        {
+          "kind": "file",
+          "port": {
+            "parameter": 1
+          }
+        }
+      ]
+    },
+    {
+      "call": "tarfile.TarFile.extractall",
+      "cwe": "CWE-22",
+      "severity": "high",
+      "suggestion": "Validate archive member names and extraction destinations before writing files.",
+      "sinks": [
+        {
+          "kind": "file",
+          "port": {
+            "parameter": 0
+          }
+        },
+        {
+          "kind": "file",
+          "port": {
+            "parameter": 1
           }
         }
       ]
@@ -3136,7 +3325,70 @@
       ]
     },
     {
+      "call": "zipfile.ZipFile.namelist",
+      "cwe": "CWE-22",
+      "severity": "high",
+      "sources": [
+        {
+          "kind": "file",
+          "port": "return"
+        }
+      ]
+    },
+    {
+      "call": "zipfile.ZipFile.extract",
+      "cwe": "CWE-22",
+      "severity": "high",
+      "suggestion": "Validate archive member names and extraction destinations before writing files.",
+      "sinks": [
+        {
+          "kind": "file",
+          "port": {
+            "parameter": 0
+          }
+        },
+        {
+          "kind": "file",
+          "port": {
+            "parameter": 1
+          }
+        }
+      ]
+    },
+    {
+      "call": "zipfile.ZipFile.extractall",
+      "cwe": "CWE-22",
+      "severity": "high",
+      "suggestion": "Validate archive member names and extraction destinations before writing files.",
+      "sinks": [
+        {
+          "kind": "file",
+          "port": {
+            "parameter": 0
+          }
+        },
+        {
+          "kind": "file",
+          "port": {
+            "parameter": 1
+          }
+        }
+      ]
+    },
+    {
       "call": "len",
+      "aliases": [
+        "all",
+        "any",
+        "hasattr",
+        "issubclass",
+        "os.path.exists",
+        "os.path.isdir",
+        "os.path.isfile",
+        "os.path.islink",
+        "os.path.ismount",
+        "os.path.lexists"
+      ],
       "sanitizers": [
         {
           "kinds": "all",

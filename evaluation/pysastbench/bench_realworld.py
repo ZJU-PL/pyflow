@@ -113,7 +113,16 @@ def _parse_args() -> argparse.Namespace:
         default=Path("/tmp/pyflow-pysastbench-realworld-results"),
         help="Result directory (default: /tmp/pyflow-pysastbench-realworld-results).",
     )
-    parser.add_argument("--engines", default=",".join(ENGINES))
+    parser.add_argument(
+        "--engines",
+        action="append",
+        default=None,
+        metavar="ENGINE[,ENGINE...]",
+        help=(
+            "Engine(s) to run; repeat the option or separate engines with commas "
+            f"(choices: {', '.join(ENGINES)}; default: all)."
+        ),
+    )
     parser.add_argument(
         "--workers",
         type=int,
@@ -126,6 +135,21 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--pyflow", type=Path, default=None)
     return parser.parse_args()
+
+
+def _selected_engines(values: list[str] | None) -> tuple[str, ...]:
+    """Normalize repeated and comma-separated engine selections."""
+    if not values:
+        return ENGINES
+    engines = tuple(
+        engine.strip()
+        for value in values
+        for engine in value.split(",")
+        if engine.strip()
+    )
+    if not engines:
+        raise SystemExit("At least one engine must be selected")
+    return engines
 
 
 def _cve_id(value: str) -> str | None:
@@ -490,7 +514,9 @@ def _summary(records: list[dict[str, Any]], engines: tuple[str, ...]) -> dict[st
             "nonzero_rc": sum(record["rc"] != 0 for record in subset),
             "status_counts": {
                 str(status): sum(record["status"] == status for record in subset)
-                for status in sorted({record["status"] for record in subset})
+                for status in sorted(
+                    {record["status"] for record in subset}, key=lambda value: str(value)
+                )
             },
             "projects_with_findings": sum(record["finding_count"] > 0 for record in subset),
             "total_findings": sum(record["finding_count"] for record in subset),
@@ -564,7 +590,7 @@ def main() -> int:
     dataset = root / "RealworldDataset-extracted"
     metadata_path = root / "RealworldDataset.csv"
     pyflow = (args.pyflow or repo_root / ".venv" / "bin" / "pyflow").expanduser().resolve()
-    engines = tuple(value.strip() for value in args.engines.split(",") if value.strip())
+    engines = _selected_engines(args.engines)
     unknown = sorted(set(engines) - set(ENGINES))
     if unknown:
         raise SystemExit(f"Unknown engine(s): {', '.join(unknown)}")

@@ -27,6 +27,9 @@ from ..calls import (
     STATE_USE,
     CallModel,
     CallModelRegistry,
+    TaintModelPort,
+    TaintPropagation,
+    TaintSanitizerContract,
 )
 from ..typestate import typestate_action_for_protocol
 from pyflow.analysis.entrypoints import (
@@ -67,6 +70,7 @@ _MODEL_KEYS_BY_TYPE = {
             "sources",
             "sinks",
             "sanitizers",
+            "propagations",
             "severity",
             "cwe",
             "suggestion",
@@ -91,7 +95,22 @@ _RULE_KEYS = frozenset(
     {"id", "title", "sources", "sinks", "severity", "cwe", "suggestion"}
 )
 _ENDPOINT_KEYS = frozenset({"kind", "port"})
-_SANITIZER_KEYS = frozenset({"kinds", "port"})
+_SANITIZER_KEYS = frozenset(
+    {
+        "kinds",
+        "port",
+        "from",
+        "to",
+        "maps",
+        "preserves_unmentioned",
+        "guard",
+        "mutates_input",
+        "assumptions",
+    }
+)
+_PROPAGATION_KEYS = frozenset(
+    {"from", "to", "kinds", "maps", "removes", "guard"}
+)
 _DETECTION_KEYS = frozenset({"imports", "patterns"})
 _ENTRYPOINT_KEYS = frozenset({"mode", "include_synthetic_modules", "taint_parameters"})
 _REQUIRED_ROOT_KEYS = frozenset(
@@ -286,6 +305,125 @@ def _sanitizer_kinds(entries: object) -> FrozenSet[str]:
     return frozenset(kinds)
 
 
+def _taint_model_port(raw: object) -> TaintModelPort | None:
+    if isinstance(raw, str) and raw in {
+        "all",
+        "receiver",
+        "return",
+        "yield",
+        "raise",
+        "sink",
+    }:
+        return TaintModelPort(raw)
+    if isinstance(raw, dict):
+        path = raw.get("path", ())
+        if not isinstance(path, (list, tuple)) or not all(
+            isinstance(component, str) and component for component in path
+        ):
+            return None
+        if "parameter" in raw and set(raw) <= {"parameter", "path"}:
+            parameter = raw["parameter"]
+            if (
+                isinstance(parameter, int)
+                and not isinstance(parameter, bool)
+                and parameter >= 0
+            ):
+                return TaintModelPort("parameter", parameter, tuple(path))
+            return None
+        kind = raw.get("kind")
+        if set(raw) <= {"kind", "path"} and kind in {
+            "receiver",
+            "return",
+            "yield",
+            "raise",
+        }:
+            return TaintModelPort(kind, path=tuple(path))
+    return None
+
+
+def _kind_mapping(raw: object) -> tuple[tuple[str, str], ...]:
+    if not isinstance(raw, dict):
+        return ()
+    return tuple(
+        sorted(
+            (str(source), str(target))
+            for source, target in raw.items()
+            if str(source) and str(target)
+        )
+    )
+
+
+def _propagation_kinds(raw: object) -> FrozenSet[str]:
+    return _parse_string_set(raw) or frozenset({"*"})
+
+
+def _sanitizer_contracts(entries: object) -> FrozenSet[TaintSanitizerContract]:
+    if not isinstance(entries, list):
+        return frozenset()
+    contracts: set[TaintSanitizerContract] = set()
+    advanced_keys = {
+        "from",
+        "to",
+        "maps",
+        "preserves_unmentioned",
+        "guard",
+        "mutates_input",
+        "assumptions",
+    }
+    for entry in entries:
+        if not isinstance(entry, dict) or not advanced_keys.intersection(entry):
+            continue
+        input_port = _taint_model_port(entry.get("from", "all"))
+        output_port = _taint_model_port(
+            entry.get("to", entry.get("port", "return"))
+        )
+        if input_port is None or output_port is None:
+            continue
+        raw_kinds = entry.get("kinds", ())
+        removes = (
+            frozenset({"*"})
+            if raw_kinds == "all"
+            else _parse_string_set(raw_kinds)
+        )
+        contracts.add(
+            TaintSanitizerContract(
+                input=input_port,
+                output=output_port,
+                removes=removes,
+                mapped_kinds=_kind_mapping(entry.get("maps")),
+                preserves_unmentioned=entry.get("preserves_unmentioned", True),
+                guard=_optional_str(entry.get("guard")),
+                mutates_input=entry.get("mutates_input", False),
+                assumptions=_parse_string_set(entry.get("assumptions")),
+            )
+        )
+    return frozenset(contracts)
+
+
+def _taint_propagations(entries: object) -> FrozenSet[TaintPropagation]:
+    if not isinstance(entries, list):
+        return frozenset()
+    propagations: set[TaintPropagation] = set()
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        source = _taint_model_port(entry.get("from"))
+        target = _taint_model_port(entry.get("to"))
+        if source is None or target is None:
+            continue
+        propagations.add(
+            TaintPropagation(
+                source,
+                target,
+                kinds=_propagation_kinds(entry.get("kinds")),
+                mapped_kinds=_kind_mapping(entry.get("maps")),
+                removed_kinds=_parse_string_set(entry.get("removes")),
+                guard=_optional_str(entry.get("guard")),
+            )
+        )
+    return frozenset(propagations)
+
+
 def _call_model_from_entry(entry: dict) -> CallModel | None:
     name = str(entry.get("call", "")).strip()
     if not name:
@@ -295,6 +433,8 @@ def _call_model_from_entry(entry: dict) -> CallModel | None:
         source_kinds=_taint_kinds(entry.get("sources")),
         sink_kinds=_taint_kinds(entry.get("sinks")),
         sanitizer_kinds=_sanitizer_kinds(entry.get("sanitizers")),
+        sanitizer_contracts=_sanitizer_contracts(entry.get("sanitizers")),
+        taint_propagations=_taint_propagations(entry.get("propagations")),
         sink_arg_positions=_sink_positions(entry.get("sinks")),
         sink_all_arguments=_sink_all_arguments(entry.get("sinks")),
         cwe=_optional_str(entry.get("cwe")),
@@ -560,8 +700,14 @@ def validate_rule_pack_data(
 
 
 def _validate_taint_model(entry: dict, location: str, error) -> None:
-    if not any(entry.get(key) for key in ("sources", "sinks", "sanitizers")):
-        error(location, "must define at least one source, sink, or sanitizer")
+    if not any(
+        entry.get(key)
+        for key in ("sources", "sinks", "sanitizers", "propagations")
+    ):
+        error(
+            location,
+            "must define at least one source, sink, sanitizer, or propagation",
+        )
     sink_behavior = entry.get("sink_behavior")
     if sink_behavior is not None:
         if (
@@ -622,11 +768,113 @@ def _validate_taint_model(entry: dict, location: str, error) -> None:
                 f"{sanitizer_location}.kinds",
                 "must be 'all' or a non-empty array of kind names",
             )
-        if sanitizer.get("port") != "return":
+        output_port = _taint_model_port(
+            sanitizer.get("to", sanitizer.get("port"))
+        )
+        if output_port is None or output_port.kind not in {
+            "return",
+            "receiver",
+            "parameter",
+            "yield",
+            "raise",
+        }:
             error(
-                f"{sanitizer_location}.port",
-                "only return sanitizers are currently supported",
+                f"{sanitizer_location}.to",
+                "must identify a return, receiver, parameter, yield, or raise port",
             )
+        input_port = _taint_model_port(sanitizer.get("from", "all"))
+        if input_port is None or input_port.kind not in {
+            "parameter",
+            "all",
+            "receiver",
+        }:
+            error(
+                f"{sanitizer_location}.from",
+                "must identify an all, receiver, or parameter input port",
+            )
+        maps = sanitizer.get("maps", {})
+        if not isinstance(maps, dict) or any(
+            not isinstance(source, str)
+            or not source
+            or not isinstance(target, str)
+            or not target
+            for source, target in maps.items()
+        ):
+            error(f"{sanitizer_location}.maps", "must map kind names to kind names")
+        for flag in ("preserves_unmentioned", "mutates_input"):
+            if flag in sanitizer and not isinstance(sanitizer[flag], bool):
+                error(f"{sanitizer_location}.{flag}", "must be a boolean")
+        assumptions = sanitizer.get("assumptions", [])
+        if not isinstance(assumptions, list) or any(
+            not isinstance(assumption, str) or not assumption
+            for assumption in assumptions
+        ):
+            error(
+                f"{sanitizer_location}.assumptions",
+                "must contain non-empty strings",
+            )
+        guard = sanitizer.get("guard")
+        if guard is not None and (not isinstance(guard, str) or not guard):
+            error(f"{sanitizer_location}.guard", "must be a non-empty string")
+
+    propagations = entry.get("propagations", [])
+    if not isinstance(propagations, list):
+        error(f"{location}.propagations", "must be an array")
+        return
+    for index, propagation in enumerate(propagations):
+        propagation_location = f"{location}.propagations[{index}]"
+        if not isinstance(propagation, dict):
+            error(propagation_location, "must be an object")
+            continue
+        for field in sorted(set(propagation) - _PROPAGATION_KEYS):
+            error(f"{propagation_location}.{field}", "unknown propagation field")
+        if not {"from", "to"} <= set(propagation):
+            error(propagation_location, "must define 'from' and 'to'")
+            continue
+        source = _taint_model_port(propagation.get("from"))
+        target = _taint_model_port(propagation.get("to"))
+        if source is None or source.kind not in {"parameter", "all", "receiver"}:
+            error(
+                f"{propagation_location}.from",
+                "must be 'all', 'receiver', or contain a non-negative parameter index",
+            )
+        if target is None or target.kind not in {
+            "return",
+            "receiver",
+            "parameter",
+            "yield",
+            "raise",
+            "sink",
+        }:
+            error(
+                f"{propagation_location}.to",
+                "must be 'return' or identify a receiver, parameter, yield, "
+                "raise, or sink port",
+            )
+        for field in ("kinds", "removes"):
+            value = propagation.get(field, [])
+            if not isinstance(value, list) or any(
+                not isinstance(kind, str) or not kind for kind in value
+            ):
+                error(
+                    f"{propagation_location}.{field}",
+                    "must contain non-empty kind names",
+                )
+        maps = propagation.get("maps", {})
+        if not isinstance(maps, dict) or any(
+            not isinstance(source, str)
+            or not source
+            or not isinstance(target_kind, str)
+            or not target_kind
+            for source, target_kind in maps.items()
+        ):
+            error(
+                f"{propagation_location}.maps",
+                "must map kind names to kind names",
+            )
+        guard = propagation.get("guard")
+        if guard is not None and (not isinstance(guard, str) or not guard):
+            error(f"{propagation_location}.guard", "must be a non-empty string")
 
 
 def _valid_parameter_port(port: object) -> bool:

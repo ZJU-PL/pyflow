@@ -142,6 +142,8 @@ Options:
 - ``--ifds-max-facts-per-node`` / ``--ifds-max-contexts-per-procedure``: Precision/cardinality budgets
 - ``--ifds-context-depth``: Maximum call-string depth
 - ``--ifds-trace-mode``: Retain no traces, finding traces, or all traces
+- ``--ifds-unknown-call-policy``: Handle unresolved calls with ``drop``,
+  ``preserve`` (the CLI default), or ``havoc`` semantics
 - ``--cpg-max-seconds`` / ``--cpg-max-states``: CPG time and state budgets; exhaustion is reported as ``partial``
 - ``--cpg-context-depth``: Maximum CPG call-string depth (default: 3)
 - ``--framework``: Framework rule packs for the CPG engine
@@ -154,6 +156,26 @@ Options:
 - ``-v, --verbose``: Verbose output
 - ``-d, --debug``: Debug output
 - ``--exclude``: Comma-separated list of paths to exclude
+
+IFDS taint rule packs may model library calls that preserve or transform taint
+without declaring them as sources or sinks. Propagation ports support
+parameters, receivers, returns, yields, raises, sinks, and access paths::
+
+  {
+    "call": "framework.Value.wrap",
+    "propagations": [
+      {"from": {"parameter": 0, "path": ["payload"]},
+       "to": {"parameter": 1, "path": ["copy"]}},
+      {"from": "receiver", "to": "return",
+       "maps": {"html": "html_safe"}}
+    ]
+  }
+
+Sanitizers may additionally declare kind mappings, removals, guards, input
+mutation, and explicit assumptions. These richer propagation and sanitizer
+contracts are consumed by IFDS. The engine-neutral source/sink projection used
+by AST-dataflow and CPG remains backward compatible and ignores unsupported
+contract details.
 
 The default ``ast-scanner`` engine is a fast pattern-based checker. The command
 can also dispatch to AST-dataflow, IFDS, and CPG-backed security engines. The

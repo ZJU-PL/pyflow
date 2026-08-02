@@ -59,6 +59,7 @@
       "oneOf": [
         {"const": "return"},
         {"const": "all"},
+        {"const": "receiver"},
         {
           "type": "object",
           "required": ["parameter"],
@@ -78,7 +79,11 @@
     },
     "sanitizer": {
       "type": "object",
-      "required": ["kinds", "port"],
+      "required": ["kinds"],
+      "anyOf": [
+        {"required": ["port"]},
+        {"required": ["to"]}
+      ],
       "properties": {
         "kinds": {
           "oneOf": [
@@ -86,7 +91,20 @@
             {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}}
           ]
         },
-        "port": {"$ref": "#/$defs/taintPort"}
+        "port": {"$ref": "#/$defs/taintPort"},
+        "from": {"$ref": "#/$defs/taintPropagationPort"},
+        "to": {"$ref": "#/$defs/taintPropagationPort"},
+        "maps": {
+          "type": "object",
+          "additionalProperties": {"type": "string", "minLength": 1}
+        },
+        "preserves_unmentioned": {"type": "boolean"},
+        "guard": {"type": "string", "minLength": 1},
+        "mutates_input": {"type": "boolean"},
+        "assumptions": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1}
+        }
       },
       "additionalProperties": false
     },
@@ -96,16 +114,78 @@
       "anyOf": [
         {"required": ["sources"]},
         {"required": ["sinks"]},
-        {"required": ["sanitizers"]}
+        {"required": ["sanitizers"]},
+        {"required": ["propagations"]}
       ],
       "properties": {
         "call": {"type": "string", "minLength": 1},
+        "aliases": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"type": "string", "minLength": 1}
+        },
         "sources": {"type": "array", "items": {"$ref": "#/$defs/taintEndpoint"}},
         "sinks": {"type": "array", "items": {"$ref": "#/$defs/taintEndpoint"}},
         "sanitizers": {"type": "array", "items": {"$ref": "#/$defs/sanitizer"}},
+        "propagations": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/taintPropagation"}
+        },
         "severity": {"enum": ["info", "low", "medium", "high", "critical"]},
         "cwe": {"type": "string", "pattern": "^CWE-[0-9]+$"},
-        "suggestion": {"type": "string"}
+        "suggestion": {"type": "string"},
+        "sink_behavior": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": false
+    },
+    "taintPropagationPort": {
+      "oneOf": [
+        {"enum": ["all", "receiver", "return", "yield", "raise", "sink"]},
+        {
+          "type": "object",
+          "required": ["parameter"],
+          "properties": {
+            "parameter": {"type": "integer", "minimum": 0},
+            "path": {"$ref": "#/$defs/taintPath"}
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["kind", "path"],
+          "properties": {
+            "kind": {"enum": ["receiver", "return", "yield", "raise"]},
+            "path": {"$ref": "#/$defs/taintPath"}
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "taintPath": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1}
+    },
+    "taintPropagation": {
+      "type": "object",
+      "required": ["from", "to"],
+      "properties": {
+        "from": {"$ref": "#/$defs/taintPropagationPort"},
+        "to": {"$ref": "#/$defs/taintPropagationPort"},
+        "kinds": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "maps": {
+          "type": "object",
+          "additionalProperties": {"type": "string", "minLength": 1}
+        },
+        "removes": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1}
+        },
+        "guard": {"type": "string", "minLength": 1}
       },
       "additionalProperties": false
     },
@@ -114,6 +194,11 @@
       "required": ["call", "typestate_action", "typestate_protocol"],
       "properties": {
         "call": {"type": "string", "minLength": 1},
+        "aliases": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"type": "string", "minLength": 1}
+        },
         "typestate_action": {"type": "string", "minLength": 1},
         "typestate_protocol": {"type": "string", "minLength": 1},
         "resource_arg_positions": {"type": "array", "items": {"type": "integer", "minimum": 0}},
@@ -128,6 +213,11 @@
       "required": ["call", "nullness_nullable_return"],
       "properties": {
         "call": {"type": "string", "minLength": 1},
+        "aliases": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"type": "string", "minLength": 1}
+        },
         "nullness_nullable_return": {"const": true}
       },
       "additionalProperties": false

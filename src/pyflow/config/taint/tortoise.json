@@ -1,0 +1,79 @@
+{
+  "schema_version": 2,
+  "framework": "tortoise",
+  "version": "1.0",
+  "description": "Tortoise ORM and PyPika SQL criterion taint models",
+  "entrypoints": {
+    "taint_parameters": true
+  },
+  "detection": {
+    "imports": [
+      "from tortoise",
+      "import tortoise",
+      "from pypika",
+      "import pypika"
+    ],
+    "patterns": [
+      "tortoise.filters",
+      "tortoise.backends",
+      "pypika.terms"
+    ]
+  },
+  "models": [
+    {
+      "call": "pypika.terms.Term.like",
+      "cwe": "CWE-89",
+      "severity": "high",
+      "sinks": [
+        {
+          "kind": "sql",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
+    },
+    {
+      "call": "tortoise.filters.Like",
+      "cwe": "CWE-89",
+      "severity": "high",
+      "sinks": [
+        {
+          "kind": "sql",
+          "port": {
+            "parameter": 1
+          }
+        }
+      ]
+    },
+    {
+      "call": "tortoise.filters.escape_like",
+      "aliases": [
+        "tortoise.backends.mysql.executor.escape_like",
+        "escape_like"
+      ],
+      "sanitizers": [
+        {
+          "kinds": "all",
+          "port": "return"
+        }
+      ]
+    }
+  ],
+  "rules": [
+    {
+      "id": "PYFLOW-TORTOISE-SQL",
+      "title": "Untrusted data reaches a Tortoise ORM SQL criterion",
+      "sources": [
+        "user_input"
+      ],
+      "sinks": [
+        "sql"
+      ],
+      "cwe": "CWE-89",
+      "severity": "high",
+      "suggestion": "Escape LIKE wildcard characters before constructing a SQL pattern."
+    }
+  ],
+  "type": "taint"
+}

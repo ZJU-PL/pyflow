@@ -1017,7 +1017,21 @@ class FormalCPGTaintAnalysis:
         if isinstance(ast_node, py_ast.Expression):
             value = self._evaluate(ast_node, state, node)
             events.extend(self._sink_events(ast_node, value, node))
-            return value.state, tuple(events)
+            current = value.state
+            loop_index = self.cpg.node_meta(node).get("for_loop_index")
+            if isinstance(loop_index, str) and loop_index:
+                destination = self._local(function, loop_index)
+                current = current.clear_binding(destination).write(
+                    destination,
+                    value.facts,
+                    strong=True,
+                    source_base=value.location,
+                    operation=ProvenanceOperation.ASSIGN,
+                    filename=self._filename(node),
+                    line=self.cpg.node_lineno(node),
+                    detail="for-index",
+                )
+            return current, tuple(events)
 
         return (
             self._unsupported(
@@ -2630,7 +2644,22 @@ class FormalCPGTaintAnalysis:
             if source.lower().endswith(f".{name.lower()}")
             or self._name_matches(name, source)
         }
-        return next(iter(matches)) if len(matches) == 1 else None
+        if len(matches) == 1:
+            return next(iter(matches))
+        if matches and self.engine._equivalent_source_models(list(matches)):
+            return next(iter(matches))
+
+        leaf = name.rsplit(".", 1)[-1].lower()
+        leaf_matches = [
+            source
+            for source in self.engine._sources
+            if source.rsplit(".", 1)[-1].lower() == leaf
+        ]
+        if len(leaf_matches) == 1:
+            return leaf_matches[0]
+        if leaf_matches and self.engine._equivalent_source_models(leaf_matches):
+            return leaf_matches[0]
+        return None
 
     def _collect_import_aliases(self) -> dict[str, str]:
         """Recover module and from-import aliases from the lowered CPG AST."""

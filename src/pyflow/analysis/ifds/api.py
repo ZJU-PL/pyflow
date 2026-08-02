@@ -37,7 +37,12 @@ from .analyses.nullness import (
 )
 from .modeling.registry import load_registry
 from .modeling.calls import CallModelRegistry
-from .analyses.taint import TaintAnalysisResult, TaintConfiguration, analyze_taint
+from .analyses.taint import (
+    TaintAnalysisResult,
+    TaintConfiguration,
+    UnknownCallPolicy,
+    analyze_taint,
+)
 from .analyses.typestate import (
     TypestateAnalysisResult,
     TypestateConfiguration,
@@ -399,6 +404,7 @@ def run_taint_analysis(
     rules=(),
     collection_mutator_names: Iterable[str] | None = None,
     collection_accessor_names: Iterable[str] | None = None,
+    unknown_call_policy: UnknownCallPolicy = "preserve",
     conservative_unresolved_call_side_effects: bool = False,
     entry_point_options: EntryPointOptions | None = None,
     entry_point_defaults: EntryPointDefaults | None = None,
@@ -456,6 +462,7 @@ def run_taint_analysis(
                 if collection_accessor_names is not None
                 else TaintConfiguration().collection_accessor_names
             ),
+            unknown_call_policy=unknown_call_policy,
             conservative_unresolved_call_side_effects=(
                 conservative_unresolved_call_side_effects
             ),

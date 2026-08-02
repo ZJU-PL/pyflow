@@ -8,6 +8,9 @@ from pyflow.analysis.ifds.modeling.calls import (
     STATE_USE,
     CallModel,
     CallModelRegistry,
+    TaintModelPort,
+    TaintPropagation,
+    TaintSanitizerContract,
 )
 
 
@@ -17,6 +20,7 @@ def test_call_model_default_values():
     assert model.source_kinds == frozenset()
     assert model.sink_kinds == frozenset()
     assert model.sanitizer_kinds == frozenset()
+    assert model.taint_propagations == frozenset()
     assert model.nullness_nullable_return is False
     assert model.typestate_actions == frozenset()
     assert model.resource_arg_positions == frozenset({0})
@@ -42,6 +46,54 @@ def test_call_model_merged_taint_source():
     assert merged.name == "f"
     assert merged.source_kinds == frozenset({"user_input"})
     assert merged.sink_kinds == frozenset({"sql"})
+
+
+def test_call_model_merges_taint_propagations():
+    argument_to_return = TaintPropagation(
+        TaintModelPort("parameter", 0), TaintModelPort("return")
+    )
+    receiver_to_return = TaintPropagation(
+        TaintModelPort("receiver"), TaintModelPort("return")
+    )
+    a = CallModel(name="f", taint_propagations=frozenset({argument_to_return}))
+    b = CallModel(name="f", taint_propagations=frozenset({receiver_to_return}))
+
+    merged = a.merged(b)
+
+    assert merged.taint_propagations == frozenset(
+        {argument_to_return, receiver_to_return}
+    )
+
+
+def test_taint_propagation_rejects_invalid_port_directions():
+    with pytest.raises(ValueError, match="propagation sources"):
+        TaintPropagation(TaintModelPort("return"), TaintModelPort("receiver"))
+    with pytest.raises(ValueError, match="propagation targets"):
+        TaintPropagation(TaintModelPort("receiver"), TaintModelPort("all"))
+
+
+def test_taint_propagation_supports_paths_mutation_and_kind_mapping():
+    propagation = TaintPropagation(
+        TaintModelPort("parameter", 0, ("payload",)),
+        TaintModelPort("parameter", 1, ("copy",)),
+        mapped_kinds=(("user_input", "validated_input"),),
+    )
+
+    assert propagation.transform_kind("user_input") == frozenset(
+        {"validated_input"}
+    )
+    assert propagation.target.path == ("copy",)
+
+
+def test_conditional_sanitizer_contract_joins_both_kind_outcomes():
+    contract = TaintSanitizerContract(
+        input=TaintModelPort("parameter", 0),
+        output=TaintModelPort("return"),
+        mapped_kinds=(("html", "html_safe"),),
+        guard="strict_mode",
+    )
+
+    assert contract.transform_kind("html") == frozenset({"html", "html_safe"})
 
 
 def test_call_model_merged_nullness():

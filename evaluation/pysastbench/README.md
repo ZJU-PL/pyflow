@@ -67,6 +67,15 @@ directories:
   --workers 4 --timeout 60
 ```
 
+Run only selected engines with --engines. Repeat the option or provide a
+comma-separated list:
+
+```bash
+./.venv/bin/python evaluation/pysastbench/bench_realworld.py /path/to/PySASTBench-main --engines ast-scanner --engines ifds
+```
+
+Available engines are ast-scanner, ast-dataflow, cpg, and ifds.
+
 The real-world runner does not extract archives itself. Each project is
 analyzed as a unit, and the timeout is applied independently to each engine.
 Both scripts derive the dataset, extracted-project, and metadata paths from

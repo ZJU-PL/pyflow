@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from typing import FrozenSet, Iterable, Mapping
+from typing import FrozenSet, Iterable, Literal, Mapping
 
 from pyflow.analysis.taint.policy import call_name_suffix_matches
 
@@ -11,6 +11,95 @@ from pyflow.analysis.taint.policy import call_name_suffix_matches
 STATE_OPEN = "open"
 STATE_CLOSE = "close"
 STATE_USE = "use"
+
+
+@dataclass(frozen=True, order=True)
+class TaintModelPort:
+    """One input or output port in a modeled taint propagation edge."""
+
+    kind: Literal[
+        "parameter", "all", "receiver", "return", "yield", "raise", "sink"
+    ]
+    parameter: int | None = None
+    path: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        if self.kind == "parameter":
+            if (
+                not isinstance(self.parameter, int)
+                or isinstance(self.parameter, bool)
+                or self.parameter < 0
+            ):
+                raise ValueError("parameter taint ports require a non-negative index")
+        elif self.parameter is not None:
+            raise ValueError(f"{self.kind} taint ports cannot define a parameter index")
+        if any(
+            not isinstance(component, str) or not component
+            for component in self.path
+        ):
+            raise ValueError("taint port paths require non-empty string components")
+        if self.kind in {"all", "sink"} and self.path:
+            raise ValueError(f"{self.kind} taint ports cannot define a path")
+
+
+@dataclass(frozen=True, order=True)
+class TaintPropagation:
+    """A modeled taint flow from a call input port to an output port."""
+
+    source: TaintModelPort
+    target: TaintModelPort
+    kinds: FrozenSet[str] = frozenset({"*"})
+    mapped_kinds: tuple[tuple[str, str], ...] = ()
+    removed_kinds: FrozenSet[str] = frozenset()
+    guard: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.source.kind not in {"parameter", "all", "receiver"}:
+            raise ValueError("propagation sources must be parameter, all, or receiver")
+        if self.target.kind not in {
+            "return",
+            "receiver",
+            "parameter",
+            "yield",
+            "raise",
+            "sink",
+        }:
+            raise ValueError(
+                "propagation targets must be return, receiver, parameter, "
+                "yield, raise, or sink"
+            )
+
+    def transform_kind(self, kind: str) -> FrozenSet[str]:
+        if self.kinds != frozenset({"*"}) and kind not in self.kinds:
+            return frozenset()
+        if "*" in self.removed_kinds or kind in self.removed_kinds:
+            return frozenset({kind}) if self.guard else frozenset()
+        mapped = dict(self.mapped_kinds).get(kind, kind)
+        if self.guard and mapped != kind:
+            return frozenset({kind, mapped})
+        return frozenset({mapped})
+
+
+@dataclass(frozen=True, order=True)
+class TaintSanitizerContract:
+    """Kind-transforming sanitizer or validator contract for one call."""
+
+    input: TaintModelPort
+    output: TaintModelPort
+    removes: FrozenSet[str] = frozenset()
+    mapped_kinds: tuple[tuple[str, str], ...] = ()
+    preserves_unmentioned: bool = True
+    guard: str | None = None
+    mutates_input: bool = False
+    assumptions: FrozenSet[str] = frozenset()
+
+    def transform_kind(self, kind: str) -> FrozenSet[str]:
+        if "*" in self.removes or kind in self.removes:
+            return frozenset({kind}) if self.guard else frozenset()
+        mapped = dict(self.mapped_kinds).get(kind)
+        if mapped is not None:
+            return frozenset({kind, mapped}) if self.guard else frozenset({mapped})
+        return frozenset({kind}) if self.preserves_unmentioned else frozenset()
 
 
 @dataclass(frozen=True)
@@ -21,6 +110,8 @@ class CallModel:
     source_kinds: FrozenSet[str] = frozenset()
     sink_kinds: FrozenSet[str] = frozenset()
     sanitizer_kinds: FrozenSet[str] = frozenset()
+    sanitizer_contracts: FrozenSet[TaintSanitizerContract] = frozenset()
+    taint_propagations: FrozenSet[TaintPropagation] = frozenset()
     sink_arg_positions: FrozenSet[int] = frozenset({0})
     sink_all_arguments: bool = False
     rule_id: str | None = None
@@ -44,6 +135,8 @@ class CallModel:
             self.source_kinds,
             self.sink_kinds,
             self.sanitizer_kinds,
+            self.sanitizer_contracts,
+            self.taint_propagations,
             self.sink_arg_positions,
             self.sink_all_arguments,
             self.rule_id,
@@ -68,6 +161,8 @@ class CallModel:
             self.source_kinds != other.source_kinds
             or self.sink_kinds != other.sink_kinds
             or self.sanitizer_kinds != other.sanitizer_kinds
+            or self.sanitizer_contracts != other.sanitizer_contracts
+            or self.taint_propagations != other.taint_propagations
             or self.sink_behavior != other.sink_behavior
             or self.sink_all_arguments != other.sink_all_arguments
             or self.nullness_nullable_return != other.nullness_nullable_return
@@ -99,6 +194,12 @@ class CallModel:
             source_kinds=self.source_kinds | other.source_kinds,
             sink_kinds=self.sink_kinds | other.sink_kinds,
             sanitizer_kinds=self.sanitizer_kinds | other.sanitizer_kinds,
+            sanitizer_contracts=(
+                self.sanitizer_contracts | other.sanitizer_contracts
+            ),
+            taint_propagations=(
+                self.taint_propagations | other.taint_propagations
+            ),
             sink_arg_positions=self.sink_arg_positions | other.sink_arg_positions,
             sink_all_arguments=(self.sink_all_arguments or other.sink_all_arguments),
             rule_id=self.rule_id or other.rule_id,

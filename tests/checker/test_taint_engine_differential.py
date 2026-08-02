@@ -8,6 +8,7 @@ import pytest
 
 from pyflow.analysis.ifds.api import run_taint_analysis
 from pyflow.analysis.ifds.modeling.calls import CallModel, CallModelRegistry
+from pyflow.analysis.ifds.modeling.registry import load_registry
 from pyflow.analysis.taint import TaintPolicy, TaintRule
 from pyflow.checker.ast_dataflow.detectors.taint import ASTDataflowTaintDetector
 from pyflow.ir.cpg.build import build_cpg
@@ -198,3 +199,35 @@ def test_taint_engines_only_treat_sql_statement_as_execute_sink(
     assert bool(ast_dataflow.findings) is expected
     assert bool(cpg.findings) is expected
     assert bool(ifds.findings) is expected
+
+
+def test_taint_engines_apply_registry_archive_member_source_to_loop_target(tmp_path):
+    registry = load_registry()
+    registry.activate("stdlib", type="taint")
+    models = registry.active_models(type="taint")
+    policy = registry.as_taint_policy()
+    source = (
+        "import os\n"
+        "def main(archive):\n"
+        "    for member in archive.getnames():\n"
+        "        os.remove(member)\n"
+    )
+    target = tmp_path / "archive_loop.py"
+    target.write_text(source, encoding="utf-8")
+    session = SimpleNamespace(
+        sources_by_name={"main": source},
+        func_to_file={"main": str(target)},
+        queries=_NoQueries(),
+    )
+
+    ast_dataflow = ASTDataflowTaintDetector(policy=policy).analyze(session)
+    cpg = CPGTaintEngine(build_cpg(source), policy=policy).analyze()
+    _session, ifds, _adapter = run_taint_analysis(
+        [target],
+        function="main",
+        call_models=models,
+        rules=policy.rules,
+    )
+
+    for result in (ast_dataflow, cpg, ifds):
+        assert any(finding.cwe == "CWE-22" for finding in result.findings)

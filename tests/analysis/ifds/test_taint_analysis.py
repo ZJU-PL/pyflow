@@ -13,7 +13,13 @@ from pyflow.analysis.ifds import (
     analyze_taint,
     build_supergraph_from_cfgs,
 )
-from pyflow.analysis.ifds.modeling.calls import CallModel, CallModelRegistry
+from pyflow.analysis.ifds.modeling.calls import (
+    CallModel,
+    CallModelRegistry,
+    TaintModelPort,
+    TaintPropagation,
+    TaintSanitizerContract,
+)
 from pyflow.analysis.taint import TaintRule
 from pyflow.language.python import ast
 
@@ -2008,3 +2014,240 @@ def test_interprocedural_taint_keeps_outer_call_argument_facts_for_nested_calls(
 
     assert len(result.findings) == 1
     assert [local.name for local in result.findings[0].tainted_arguments] == ["value"]
+
+
+def test_unknown_call_preserve_taints_return_without_havocing_other_arguments():
+    compiler = context.CompilerContext(None)
+    source_code, _ = make_code("source", [], [], return_name="source_ret")
+    sink_value = ast.Local("sink_value")
+    sink_code, _ = make_code("sink", [sink_value], [], return_name="sink_ret")
+    tainted = ast.Local("tainted")
+    untouched = ast.Local("untouched")
+    result_value = ast.Local("result_value")
+    main_code, _ = make_code(
+        "main",
+        [],
+        [
+            call_stmt(source_code, [], [tainted]),
+            ast.Assign(ast.Existing(ast.program.Object(0)), [untouched]),
+            ast.Assign(
+                ast.Call(
+                    ast.Local("unknown_wrapper"),
+                    [tainted, untouched],
+                    [],
+                    None,
+                    None,
+                ),
+                [result_value],
+            ),
+            call_stmt(sink_code, [result_value]),
+            call_stmt(sink_code, [untouched]),
+        ],
+        return_name="main_ret",
+    )
+    cfgs = [
+        build_cfg(compiler, code) for code in (main_code, source_code, sink_code)
+    ]
+    adapter = build_supergraph_from_cfgs(cfgs)
+
+    result = analyze_taint(
+        adapter,
+        _config(
+            source_names=frozenset({"source"}),
+            sink_names=frozenset({"sink"}),
+            unknown_call_policy="preserve",
+        ),
+        entry_nodes=[adapter.supergraph.entry_of(cfgs[0])],
+    )
+
+    assert len(result.findings) == 1
+    assert result.findings[0].tainted_arguments == (result_value,)
+    assert any(item.code == "IFDS-TAINT-UNKNOWN-CALL" for item in result.diagnostics)
+
+
+def test_modeled_parameter_path_mutation_reaches_matching_field():
+    compiler = context.CompilerContext(None)
+    source_code, _ = make_code("source", [], [], return_name="source_ret")
+    sink_value = ast.Local("sink_value")
+    sink_code, _ = make_code("sink", [sink_value], [], return_name="sink_ret")
+    tainted = ast.Local("tainted")
+    target = ast.Local("target")
+    copied = ast.GetAttr(target, ast.Existing(ast.program.Object("copy")))
+    main_code, _ = make_code(
+        "main",
+        [],
+        [
+            call_stmt(source_code, [], [tainted]),
+            ast.Assign(ast.Existing(ast.program.Object(0)), [target]),
+            ast.Discard(
+                ast.Call(
+                    ast.Local("copy_payload"),
+                    [tainted, target],
+                    [],
+                    None,
+                    None,
+                )
+            ),
+            call_stmt(sink_code, [copied]),
+        ],
+        return_name="main_ret",
+    )
+    cfgs = [
+        build_cfg(compiler, code) for code in (main_code, source_code, sink_code)
+    ]
+    adapter = build_supergraph_from_cfgs(cfgs)
+    configuration = _config(
+        source_names=frozenset({"source"}), sink_names=frozenset({"sink"})
+    )
+    models = list(configuration.call_models.as_mapping().values())
+    models.append(
+        CallModel(
+            "copy_payload",
+            taint_propagations=frozenset(
+                {
+                    TaintPropagation(
+                        TaintModelPort("parameter", 0),
+                        TaintModelPort("parameter", 1, ("copy",)),
+                    )
+                }
+            ),
+        )
+    )
+
+    result = analyze_taint(
+        adapter,
+        TaintConfiguration(
+            call_models=CallModelRegistry(models), rules=configuration.rules
+        ),
+        entry_nodes=[adapter.supergraph.entry_of(cfgs[0])],
+    )
+
+    assert len(result.findings) == 1
+
+
+def test_sanitizer_contract_maps_kind_and_records_guard_uncertainty():
+    compiler = context.CompilerContext(None)
+    source_code, _ = make_code("source", [], [], return_name="source_ret")
+    sink_value = ast.Local("sink_value")
+    sink_code, _ = make_code("sink", [sink_value], [], return_name="sink_ret")
+    tainted = ast.Local("tainted")
+    encoded = ast.Local("encoded")
+    main_code, _ = make_code(
+        "main",
+        [],
+        [
+            call_stmt(source_code, [], [tainted]),
+            ast.Assign(
+                ast.Call(ast.Local("encode"), [tainted], [], None, None),
+                [encoded],
+            ),
+            call_stmt(sink_code, [encoded]),
+        ],
+        return_name="main_ret",
+    )
+    cfgs = [
+        build_cfg(compiler, code) for code in (main_code, source_code, sink_code)
+    ]
+    adapter = build_supergraph_from_cfgs(cfgs)
+    models = CallModelRegistry(
+        [
+            CallModel("source", source_kinds=frozenset({"html"})),
+            CallModel("sink", sink_kinds=frozenset({"xss"})),
+            CallModel(
+                "encode",
+                sanitizer_contracts=frozenset(
+                    {
+                        TaintSanitizerContract(
+                            input=TaintModelPort("parameter", 0),
+                            output=TaintModelPort("return"),
+                            mapped_kinds=(("html", "html_safe"),),
+                            guard="strict_mode",
+                        )
+                    }
+                ),
+            ),
+        ]
+    )
+    rules = (
+        TaintRule("HTML", "HTML", frozenset({"html"}), frozenset({"xss"})),
+        TaintRule(
+            "HTML-SAFE", "HTML safe", frozenset({"html_safe"}), frozenset({"xss"})
+        ),
+    )
+
+    result = analyze_taint(
+        adapter,
+        TaintConfiguration(call_models=models, rules=rules),
+        entry_nodes=[adapter.supergraph.entry_of(cfgs[0])],
+    )
+
+    assert {finding.source_kind for finding in result.findings} == {
+        "html",
+        "html_safe",
+    }
+    assert any(
+        item.code == "IFDS-TAINT-CONDITIONAL-SANITIZER"
+        for item in result.diagnostics
+    )
+
+
+def test_context_enter_model_propagates_manager_taint_to_bound_value():
+    compiler = context.CompilerContext(None)
+    source_code, _ = make_code("source", [], [], return_name="source_ret")
+    sink_value = ast.Local("sink_value")
+    sink_code, _ = make_code("sink", [sink_value], [], return_name="sink_ret")
+    manager = ast.Local("manager")
+    bound = ast.Local("bound")
+    main_code, _ = make_code(
+        "main",
+        [],
+        [
+            call_stmt(source_code, [], [manager]),
+            ast.Assign(
+                ast.Call(
+                    ast.Existing(ast.program.Object("interpreter_enter")),
+                    [manager],
+                    [],
+                    None,
+                    None,
+                ),
+                [bound],
+            ),
+            call_stmt(sink_code, [bound]),
+        ],
+        return_name="main_ret",
+    )
+    cfgs = [
+        build_cfg(compiler, code) for code in (main_code, source_code, sink_code)
+    ]
+    adapter = build_supergraph_from_cfgs(cfgs)
+    base = _config(
+        source_names=frozenset({"source"}), sink_names=frozenset({"sink"})
+    )
+    models = list(base.call_models.as_mapping().values())
+    models.append(
+        CallModel(
+            "interpreter_enter",
+            # Shared policies may retain a legacy sanitizer projection for
+            # other engines.  IFDS propagation semantics take precedence.
+            sanitizer_kinds=frozenset({"*"}),
+            taint_propagations=frozenset(
+                {
+                    TaintPropagation(
+                        TaintModelPort("parameter", 0), TaintModelPort("return")
+                    )
+                }
+            ),
+        )
+    )
+
+    result = analyze_taint(
+        adapter,
+        TaintConfiguration(
+            call_models=CallModelRegistry(models), rules=base.rules
+        ),
+        entry_nodes=[adapter.supergraph.entry_of(cfgs[0])],
+    )
+
+    assert len(result.findings) == 1
+    assert [local.name for local in result.findings[0].tainted_arguments] == ["bound"]

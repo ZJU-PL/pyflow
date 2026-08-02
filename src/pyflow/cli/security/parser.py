@@ -141,6 +141,15 @@ def add_security_parser(subparsers):
         default=argparse.SUPPRESS,
     )
     p.add_argument(
+        "--ifds-unknown-call-policy",
+        choices=["drop", "preserve", "havoc"],
+        default=argparse.SUPPRESS,
+        help=(
+            "Semantics for unresolved calls: drop taint, preserve argument "
+            "taint into the return value, or conservatively havoc arguments."
+        ),
+    )
+    p.add_argument(
         "--cpg-max-states",
         type=_positive_int,
         help="Stop CPG propagation after this many abstract states (reports partial)",

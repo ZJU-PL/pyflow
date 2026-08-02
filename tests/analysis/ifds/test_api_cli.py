@@ -17,6 +17,7 @@ from pyflow.analysis.ifds.api import (
 )
 from pyflow.cli.security import run_security
 from pyflow.analysis.ifds.modeling.calls import CallModel, CallModelRegistry
+from pyflow.analysis.ifds.modeling.calls import TaintModelPort, TaintPropagation
 from pyflow.analysis.taint import TaintRule
 from pyflow.ir.core import Capabilities
 
@@ -122,6 +123,240 @@ def main():
     assert len(result.findings) == 1
     assert result.findings[0].sink_name == "sink"
     assert [local.name for local in result.findings[0].tainted_arguments] == ["out"]
+
+
+def test_run_taint_analysis_uses_stdlib_getoutput_model(tmp_path):
+    target = tmp_path / "command.py"
+    target.write_text(
+        "import subprocess\n"
+        "def main():\n"
+        "    command = input()\n"
+        "    subprocess.getoutput(command)\n",
+        encoding="utf-8",
+    )
+    registry = ifds_api.load_registry()
+    registry.activate("stdlib", type="taint")
+
+    _session, result, _ = run_taint_analysis(
+        [target],
+        function="main",
+        call_models=registry.active_models(type="taint"),
+        rules=registry.as_taint_policy().rules,
+    )
+
+    assert any(
+        finding.sink_name == "subprocess.getoutput"
+        and finding.cwe == "CWE-78"
+        for finding in result.findings
+    )
+
+
+def test_run_taint_analysis_uses_archive_member_models(tmp_path):
+    target = tmp_path / "archive.py"
+    target.write_text(
+        "import tarfile\n"
+        "def main(archive):\n"
+        "    names = archive.getnames()\n"
+        "    archive.extract(names[0], '/tmp/output')\n",
+        encoding="utf-8",
+    )
+    registry = ifds_api.load_registry()
+    registry.activate("stdlib", type="taint")
+
+    _session, result, _ = run_taint_analysis(
+        [target],
+        function="main",
+        call_models=registry.active_models(type="taint"),
+        rules=registry.as_taint_policy().rules,
+    )
+
+    assert any(
+        finding.sink_name.endswith("extract")
+        and finding.cwe == "CWE-22"
+        for finding in result.findings
+    )
+
+
+def test_run_taint_analysis_propagates_modeled_source_into_nested_for(tmp_path):
+    target = tmp_path / "archive_nested_loop.py"
+    target.write_text(
+        "import os\n"
+        "def main(archive):\n"
+        "    try:\n"
+        "        for member in archive.getnames():\n"
+        "            try:\n"
+        "                os.remove(member)\n"
+        "            except OSError:\n"
+        "                pass\n"
+        "    except Exception:\n"
+        "        pass\n",
+        encoding="utf-8",
+    )
+    registry = ifds_api.load_registry()
+    registry.activate("stdlib", type="taint")
+
+    _session, result, _ = run_taint_analysis(
+        [target],
+        function="main",
+        call_models=registry.active_models(type="taint"),
+        rules=registry.as_taint_policy().rules,
+    )
+
+    assert any(
+        finding.sink_name == "os.remove" and finding.cwe == "CWE-22"
+        for finding in result.findings
+    )
+
+
+def test_run_taint_analysis_models_tortoise_like_and_escape_like(tmp_path):
+    vulnerable = tmp_path / "vulnerable.py"
+    vulnerable.write_text(
+        "from pypika import functions\n"
+        "def main(field):\n"
+        "    value = input()\n"
+        "    return functions.Cast(field, 'CHAR').like(f'%{value}%')\n",
+        encoding="utf-8",
+    )
+    fixed = tmp_path / "fixed.py"
+    fixed.write_text(
+        "from tortoise.filters import Like\n"
+        "class StrWrapper:\n"
+        "    def __init__(self, value):\n"
+        "        self.value = value\n"
+        "def escape_like(value):\n"
+        "    return value.replace('%', r'\\%').replace('_', r'\\_')\n"
+        "def main(field):\n"
+        "    value = input()\n"
+        "    pattern = StrWrapper(f'%{escape_like(value)}%')\n"
+        "    return Like(field, pattern, escape='')\n",
+        encoding="utf-8",
+    )
+    registry = ifds_api.load_registry()
+    registry.activate("stdlib", "tortoise", type="taint")
+    setup = {
+        "call_models": registry.active_models(type="taint"),
+        "rules": registry.as_taint_policy().rules,
+    }
+
+    _session, vulnerable_result, _ = run_taint_analysis(
+        [vulnerable], function="main", **setup
+    )
+    _session, fixed_result, _ = run_taint_analysis(
+        [fixed], function="main", **setup
+    )
+
+    assert any(
+        finding.sink_name.endswith("like") and finding.cwe == "CWE-89"
+        for finding in vulnerable_result.findings
+    )
+    assert not any(finding.cwe == "CWE-89" for finding in fixed_result.findings)
+
+
+def test_run_taint_analysis_applies_parameter_to_return_propagation(tmp_path):
+    target = tmp_path / "modeled_wrapper.py"
+    target.write_text(
+        "def source():\n"
+        "    return 1\n"
+        "def wrapper(value):\n"
+        "    return 0\n"
+        "def sink(value):\n"
+        "    return value\n"
+        "def main():\n"
+        "    sink(wrapper(source()))\n",
+        encoding="utf-8",
+    )
+    setup = _taint_setup(["source"], ["sink"])
+    setup["call_models"] = setup["call_models"].merged(
+        CallModelRegistry(
+            [
+                CallModel(
+                    "wrapper",
+                    taint_propagations=frozenset(
+                        {
+                            TaintPropagation(
+                                TaintModelPort("parameter", 0),
+                                TaintModelPort("return"),
+                            )
+                        }
+                    ),
+                )
+            ]
+        )
+    )
+
+    _session, result, _ = run_taint_analysis(
+        [target], function="main", **setup
+    )
+
+    assert any(finding.sink_name == "sink" for finding in result.findings)
+
+
+def test_run_taint_analysis_applies_parameter_to_receiver_propagation(tmp_path):
+    target = tmp_path / "modeled_mutator.py"
+    target.write_text(
+        "def source():\n"
+        "    return 1\n"
+        "def sink(value):\n"
+        "    return value\n"
+        "def main():\n"
+        "    box = []\n"
+        "    box.absorb(source())\n"
+        "    sink(box)\n",
+        encoding="utf-8",
+    )
+    setup = _taint_setup(["source"], ["sink"])
+    setup["call_models"] = setup["call_models"].merged(
+        CallModelRegistry(
+            [
+                CallModel(
+                    "library.Box.absorb",
+                    taint_propagations=frozenset(
+                        {
+                            TaintPropagation(
+                                TaintModelPort("parameter", 0),
+                                TaintModelPort("receiver"),
+                            )
+                        }
+                    ),
+                )
+            ]
+        )
+    )
+
+    _session, result, _ = run_taint_analysis(
+        [target], function="main", **setup
+    )
+
+    assert any(finding.sink_name == "sink" for finding in result.findings)
+
+
+def test_run_taint_analysis_applies_stdlib_format_propagations(tmp_path):
+    target = tmp_path / "format_propagation.py"
+    target.write_text(
+        "def source():\n"
+        "    return 'tainted'\n"
+        "def sink(value):\n"
+        "    return value\n"
+        "def main():\n"
+        "    template = source()\n"
+        "    sink(template.format())\n"
+        "    sink('{}'.format(source()))\n",
+        encoding="utf-8",
+    )
+    registry = ifds_api.load_registry()
+    registry.activate("stdlib", type="taint")
+    models = registry.active_models(type="taint").merged(
+        _taint_setup(["source"], ["sink"])["call_models"]
+    )
+
+    _session, result, _ = run_taint_analysis(
+        [target],
+        function="main",
+        call_models=models,
+        rules=_taint_setup(["source"], ["sink"])["rules"],
+    )
+
+    assert sum(finding.sink_name == "sink" for finding in result.findings) == 2
 
 
 def test_load_analysis_session_uses_constraint_callsite_edges_for_higher_order_calls(
@@ -291,6 +526,7 @@ def test_run_taint_analysis_forwards_dynamic_model_configuration(monkeypatch):
         **_taint_setup(["source"], ["sink"], ["clean"]),
         collection_mutator_names=["append_safe"],
         collection_accessor_names=["fetch"],
+        unknown_call_policy="preserve",
         conservative_unresolved_call_side_effects=True,
     )
 
@@ -304,6 +540,7 @@ def test_run_taint_analysis_forwards_dynamic_model_configuration(monkeypatch):
     assert configuration.rules[0].rule_id == "TEST-TAINT"
     assert configuration.collection_mutator_names == frozenset({"append_safe"})
     assert configuration.collection_accessor_names == frozenset({"fetch"})
+    assert configuration.unknown_call_policy == "preserve"
     assert configuration.conservative_unresolved_call_side_effects is True
     assert configuration.entry_point_options.taint_parameters is False
 

@@ -191,6 +191,7 @@ def test_security_cli_forwards_dynamic_model_options(monkeypatch, tmp_path, caps
     args = _make_args("json")
     args.collection_mutators = ["append_safe"]
     args.collection_accessors = ["fetch"]
+    args.ifds_unknown_call_policy = "havoc"
     args.conservative_unresolved_calls = True
 
     args.targets = [target]
@@ -201,6 +202,7 @@ def test_security_cli_forwards_dynamic_model_options(monkeypatch, tmp_path, caps
     assert payload["findings"] == []
     assert captured["collection_mutator_names"] == ["append_safe"]
     assert captured["collection_accessor_names"] == ["fetch"]
+    assert captured["unknown_call_policy"] == "havoc"
     assert captured["conservative_unresolved_call_side_effects"] is True
 
 

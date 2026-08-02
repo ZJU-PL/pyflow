@@ -466,6 +466,11 @@ class _GraphMetadataMixin:
             cfg_node = getattr(node, "cfg_node", None)
             ast_node = getattr(node, "ast_node", None)
             is_structured_for = isinstance(ast_node, py_ast.For)
+            if isinstance(cfg_node, cfg_graph.ForIter):
+                index = getattr(cfg_node, "index", None)
+                index_name = getattr(index, "name", None)
+                if index_name:
+                    self._meta_for(node)["for_loop_index"] = index_name
             if (
                 cfg_node is not None and id(cfg_node) in loop_cfg_blocks
             ) or is_structured_for:

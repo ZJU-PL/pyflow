@@ -86,6 +86,36 @@ class TestRegistryLoading:
         assert model.sink_kinds == frozenset({"rce"})
         assert model.sink_arg_positions == frozenset({0})
 
+    def test_stdlib_command_and_archive_models(self):
+        registry = Registry()
+        registry.activate("stdlib", type="taint")
+        models = registry.active_models(type="taint")
+
+        for name in ("subprocess.getoutput", "subprocess.getstatusoutput"):
+            model = models.model_for_name(name)
+            assert model is not None
+            assert model.sink_kinds == frozenset({"rce"})
+            assert model.sink_arg_positions == frozenset({0})
+            assert model.cwe == "CWE-78"
+
+        for name in ("tarfile.TarFile.getnames", "zipfile.ZipFile.namelist"):
+            model = models.model_for_name(name)
+            assert model is not None
+            assert model.source_kinds == frozenset({"file"})
+            assert model.cwe == "CWE-22"
+
+        for name in (
+            "tarfile.TarFile.extract",
+            "tarfile.TarFile.extractall",
+            "zipfile.ZipFile.extract",
+            "zipfile.ZipFile.extractall",
+        ):
+            model = models.model_for_name(name)
+            assert model is not None
+            assert model.sink_kinds == frozenset({"file"})
+            assert model.sink_arg_positions == frozenset({0, 1})
+            assert model.cwe == "CWE-22"
+
     def test_sql_cursor_reads_are_database_sources(self):
         r = Registry()
         r.activate("sql")
@@ -133,6 +163,60 @@ class TestRegistryLoading:
 
         assert model is not None
         assert model.sanitizer_kinds == frozenset({"*"})
+
+    def test_stdlib_exposes_call_propagation_models(self):
+        registry = Registry()
+        registry.activate("stdlib", type="taint")
+        models = registry.active_models(type="taint")
+
+        format_model = models.model_for_name("value.format")
+        join_model = models.model_for_name("os.path.join")
+
+        assert format_model is not None
+        assert {
+            (edge.source.kind, edge.source.parameter, edge.target.kind)
+            for edge in format_model.taint_propagations
+        } == {
+            ("receiver", None, "return"),
+            ("all", None, "return"),
+        }
+        assert join_model is not None
+        assert {
+            (edge.source.kind, edge.target.kind)
+            for edge in join_model.taint_propagations
+        } == {("all", "return")}
+
+    def test_tortoise_models_like_criteria_and_wildcard_escaping(self):
+        registry = Registry()
+        registry.activate("tortoise", type="taint")
+        models = registry.active_models(type="taint")
+
+        method_sink = models.model_for_name("field.like")
+        constructor_sink = models.model_for_name("Like")
+        sanitizer = models.model_for_name("escape_like")
+
+        assert method_sink is not None
+        assert method_sink.sink_kinds == frozenset({"sql"})
+        assert method_sink.sink_arg_positions == frozenset({0})
+        assert method_sink.cwe == "CWE-89"
+        assert constructor_sink is not None
+        assert constructor_sink.sink_arg_positions == frozenset({1})
+        assert constructor_sink.cwe == "CWE-89"
+        assert sanitizer is not None
+        assert sanitizer.sanitizer_kinds == frozenset({"*"})
+
+        rules = {rule.rule_id: rule for rule in registry.active_taint_rules()}
+        assert rules["PYFLOW-TORTOISE-SQL"].sink_kinds == frozenset({"sql"})
+
+    def test_detects_tortoise_pack_from_pypika_import(self):
+        registry = Registry()
+
+        detected = registry.detect(
+            ["from pypika import functions", "return field.like(value)"],
+            type="taint",
+        )
+
+        assert "tortoise" in detected
 
     def test_tornado_models_attribute_user_source(self):
         registry = Registry()
@@ -193,6 +277,91 @@ class TestRegistryLoading:
 
 
 class TestStrictV2Validation:
+    def test_taint_propagations_are_validated(self):
+        base = {
+            "schema_version": 2,
+            "framework": "propagation",
+            "version": "2.0",
+            "type": "taint",
+            "rules": [],
+        }
+        valid = validate_rule_pack_data(
+            {
+                **base,
+                "models": [
+                    {
+                        "call": "wrapper",
+                        "propagations": [
+                            {"from": {"parameter": 0}, "to": "return"},
+                            {"from": "receiver", "to": "receiver"},
+                        ],
+                    }
+                ],
+            }
+        )
+        invalid = validate_rule_pack_data(
+            {
+                **base,
+                "models": [
+                    {
+                        "call": "broken",
+                        "propagations": [
+                            {"from": "return", "to": "all"},
+                            {"from": {"parameter": -1}, "to": "return"},
+                        ],
+                    }
+                ],
+            }
+        )
+
+        assert valid == ()
+        assert any(
+            "propagation sources" in issue.message or "must be 'all'" in issue.message
+            for issue in invalid
+        )
+        assert any("must be 'return'" in issue.message for issue in invalid)
+
+    def test_path_propagation_and_transforming_sanitizer_are_loaded(self, tmp_path):
+        pack = tmp_path / "advanced.json"
+        pack.write_text(
+            """{
+              "schema_version": 2,
+              "framework": "advanced",
+              "version": "1.0",
+              "type": "taint",
+              "models": [{
+                "call": "framework.copy",
+                "propagations": [{
+                  "from": {"parameter": 0, "path": ["payload"]},
+                  "to": {"parameter": 1, "path": ["copy"]},
+                  "maps": {"user_input": "validated_input"}
+                }],
+                "sanitizers": [{
+                  "kinds": ["unused"],
+                  "from": {"parameter": 0},
+                  "to": "return",
+                  "maps": {"html": "html_safe"},
+                  "guard": "strict_mode",
+                  "assumptions": ["strict mode is enabled by deployment policy"]
+                }]
+              }],
+              "rules": []
+            }"""
+        )
+        registry = Registry()
+
+        registry.load_custom(pack)
+        model = registry.active_models(type="taint").model_for_name(
+            "framework.copy"
+        )
+
+        assert model is not None
+        propagation = next(iter(model.taint_propagations))
+        assert propagation.source.path == ("payload",)
+        assert propagation.target.parameter == 1
+        contract = next(iter(model.sanitizer_contracts))
+        assert contract.transform_kind("html") == frozenset({"html", "html_safe"})
+
     def test_entrypoint_defaults_are_validated(self):
         valid = validate_rule_pack_data(
             {

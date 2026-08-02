@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import FrozenSet, Mapping, Sequence
+from dataclasses import dataclass, field, replace
+from typing import FrozenSet, Literal, Mapping, Sequence
 
 from pyflow.analysis.entrypoints import EntryPointOptions
 from pyflow.analysis.taint import TaintRule, sink_behavior_is_active
@@ -11,6 +11,7 @@ from pyflow.ir.cfg import graph as cfg_graph
 from pyflow.language.python import ast as py_ast
 
 from ..modeling.calls import CallModelRegistry
+from ..diagnostics import IFDSDiagnostic
 from .base import AnnotatedFactProblemBase, build_entry_seeds
 from ..frontend.cfg_adapter import CFGNode, CFGSupergraphAdapter, assigned_locals
 from ...alias.flow_sensitive.model import HeapLocation, HeapObjectKind
@@ -23,6 +24,7 @@ from ..core.transfers import (
 
 ZERO_TAINT = "ZERO_TAINT"
 QUERY_TAINT_KIND = "<location-query>"
+UnknownCallPolicy = Literal["drop", "preserve", "havoc"]
 
 # Well-known taint categories.  Clients may define additional categories.
 CATEGORY_USER_INPUT = "user_input"
@@ -47,8 +49,22 @@ class TaintConfiguration:
         {"append", "add", "extend", "update"}
     )
     collection_accessor_names: FrozenSet[str] = frozenset({"get"})
+    unknown_call_policy: UnknownCallPolicy = "drop"
+    # Backward-compatible alias.  True upgrades the policy to ``havoc``.
     conservative_unresolved_call_side_effects: bool = False
     entry_point_options: EntryPointOptions = EntryPointOptions()
+
+    def __post_init__(self) -> None:
+        if self.unknown_call_policy not in {"drop", "preserve", "havoc"}:
+            raise ValueError(
+                "unknown_call_policy must be 'drop', 'preserve', or 'havoc'"
+            )
+
+    @property
+    def effective_unknown_call_policy(self) -> UnknownCallPolicy:
+        if self.conservative_unresolved_call_side_effects:
+            return "havoc"
+        return self.unknown_call_policy
 
 
 @dataclass(frozen=True)
@@ -101,6 +117,7 @@ class TaintAnalysisResult:
         self._ifds_result = ifds_result
         self.findings = tuple(findings)
         self._problem = problem
+        self.diagnostics = tuple(problem.semantic_diagnostics())
 
     def is_tainted(self, node: CFGNode, local: py_ast.Local) -> bool:
         locations = set(self._problem.local_locations(node.procedure, local))
@@ -169,6 +186,7 @@ class InterproceduralTaintProblem(
         entry_nodes: Sequence[CFGNode] | None = None,
     ) -> None:
         self.configuration = configuration
+        self._semantic_diagnostics: set[IFDSDiagnostic] = set()
         super().__init__(
             adapter,
             call_models=configuration.call_models,
@@ -179,6 +197,34 @@ class InterproceduralTaintProblem(
                 "use program-backed IFDS APIs to derive roots automatically."
             )
         self.entry_nodes = tuple(entry_nodes)
+
+    def semantic_diagnostics(self) -> tuple[IFDSDiagnostic, ...]:
+        return tuple(
+            sorted(
+                self._semantic_diagnostics,
+                key=lambda item: (item.code, item.subject or "", item.message),
+            )
+        )
+
+    def _record_semantic_diagnostic(
+        self,
+        *,
+        code: str,
+        message: str,
+        subject: str | None = None,
+        affects_completeness: bool = False,
+    ) -> None:
+        self._semantic_diagnostics.add(
+            IFDSDiagnostic(
+                severity="warning",
+                phase="solver",
+                message=message,
+                subject=subject,
+                code=code,
+                recoverable=True,
+                affects_completeness=affects_completeness,
+            )
+        )
 
     @property
     def supergraph(self):
@@ -219,15 +265,48 @@ class InterproceduralTaintProblem(
         if node.kind == "call" and self.adapter.is_exceptional_successor(
             node, successor
         ):
-            return self._identity_outputs(fact, ())
+            outputs = set(self._identity_outputs(fact, ()))
+            if fact != ZERO_TAINT:
+                self._add_modeled_propagation_outputs(
+                    node, fact, outputs, target_kinds=frozenset({"raise"})
+                )
+            return tuple(outputs)
         unresolved_call_outputs = self._unresolved_call_outputs(node, fact)
         if unresolved_call_outputs is not None:
             return unresolved_call_outputs
+
+        if node.kind == "call" and not self.supergraph.call_to_return_successors(node):
+            outputs = set(
+                self._identity_outputs(fact, self._killed_locations_for_node(node))
+            )
+            modeled = False
+            if fact == ZERO_TAINT:
+                modeled = self._add_modeled_source_outputs(node, outputs)
+            else:
+                modeled = self._add_modeled_sanitizer_outputs(node, fact, outputs)
+                modeled = (
+                    self._add_modeled_propagation_outputs(node, fact, outputs)
+                    or modeled
+                )
+            if modeled:
+                return tuple(outputs)
 
         effect = self.adapter.effect_of(node)
         operation = getattr(effect, "operation", self.adapter.operation_of(node))
         if operation is None:
             return self._identity_outputs(fact, ())
+
+        if node.kind == "foriter" and isinstance(node.block, cfg_graph.ForIter):
+            outputs = set(self._identity_outputs(fact, ()))
+            for template in self._templates_for_expression(
+                node.procedure, node.block.iterator, fact
+            ):
+                outputs.update(
+                    self._facts_for_locals(
+                        node.procedure, (node.block.index,), template
+                    )
+                )
+            return tuple(outputs)
 
         killed = self._killed_locations_for_node(node)
         dynamic_setattr_locations = self._dynamic_setattr_locations(
@@ -315,14 +394,26 @@ class InterproceduralTaintProblem(
             direct_fact = self._direct_expression_fact(expr, fact)
             if direct_fact is not None:
                 _procedure, _expr, result_index = direct_fact
-                outputs.update(
-                    self._facts_for_assigned_locals(
-                        node.procedure,
-                        targets,
-                        result_index,
-                        fact,
-                    )
-                )
+                access_path = self._access_path_from_fact(fact)
+                if result_index < len(targets):
+                    if access_path:
+                        outputs.update(
+                            self._facts_for_locals_with_path(
+                                node.procedure,
+                                (targets[result_index],),
+                                access_path,
+                                fact,
+                            )
+                        )
+                    else:
+                        outputs.update(
+                            self._facts_for_assigned_locals(
+                                node.procedure,
+                                targets,
+                                result_index,
+                                fact,
+                            )
+                        )
                 return tuple(outputs)
             if expr is not None:
                 path = self._access_path_for_expression(expr)
@@ -430,7 +521,11 @@ class InterproceduralTaintProblem(
             outputs.add(ZERO_TAINT)
 
         model = self._call_model_for_node(call_node)
-        if model is not None and (model.source_kinds or model.sanitizer_kinds):
+        if model is not None and (
+            model.source_kinds
+            or model.sanitizer_kinds
+            or model.sanitizer_contracts
+        ):
             return tuple(outputs)
 
         call_effect = self._call_effect(call_node)
@@ -520,21 +615,11 @@ class InterproceduralTaintProblem(
         outputs = set(self._identity_outputs(fact, killed))
         model = self._call_model_for_node(call_node)
         if fact == ZERO_TAINT and model is not None and call_effect is not None:
-            for kind in model.source_kinds:
-                template = TaintFact(object(), kind)
-                outputs.update(
-                    self._facts_for_nested_call_result(
-                        call_node.procedure,
-                        call_effect.operation,
-                        call_effect.call_expression,
-                        0,
-                        nested=False,
-                        template_fact=template,
-                    )
-                )
+            self._add_modeled_source_outputs(call_node, outputs)
         elif (
             model is not None
             and model.sanitizer_kinds
+            and not model.sanitizer_contracts
             and isinstance(fact, (TaintFact, ExpressionTaintFact))
             and "*" not in model.sanitizer_kinds
             and fact.kind not in model.sanitizer_kinds
@@ -554,21 +639,320 @@ class InterproceduralTaintProblem(
                     template_fact=fact,
                 )
             )
+        if fact != ZERO_TAINT:
+            self._add_modeled_sanitizer_outputs(call_node, fact, outputs)
+            self._add_modeled_propagation_outputs(call_node, fact, outputs)
         return tuple(outputs)
+
+    def _add_modeled_source_outputs(
+        self, call_node: CFGNode, outputs: set[object]
+    ) -> bool:
+        call_effect = self._call_effect(call_node)
+        model = self._call_model_for_node(call_node)
+        if call_effect is None or model is None or not model.source_kinds:
+            return False
+
+        for kind in model.source_kinds:
+            template = TaintFact(object(), kind)
+            outputs.update(
+                self._facts_for_nested_call_result(
+                    call_node.procedure,
+                    call_effect.operation,
+                    call_effect.call_expression,
+                    0,
+                    nested=False,
+                    template_fact=template,
+                )
+            )
+            operation = call_effect.operation
+            if (
+                isinstance(operation, py_ast.For)
+                and call_effect.call_name
+                == self.adapter.call_name(operation.iterator, call_node.procedure)
+                and isinstance(operation.index, py_ast.Local)
+            ):
+                outputs.update(
+                    self._facts_for_locals(
+                        call_node.procedure,
+                        (operation.index,),
+                        template,
+                    )
+                )
+        return True
+
+    def _add_modeled_propagation_outputs(
+        self,
+        call_node: CFGNode,
+        fact: object,
+        outputs: set[object],
+        *,
+        target_kinds: FrozenSet[str] | None = None,
+    ) -> bool:
+        call_effect = self._call_effect(call_node)
+        model = self._call_model_for_node(call_node)
+        if call_effect is None or model is None or not model.taint_propagations:
+            return False
+        if not isinstance(fact, (TaintFact, ExpressionTaintFact)):
+            return True
+
+        receiver = self._call_receiver_expression(call_effect.call_expression)
+        arguments = self._explicit_call_arguments(call_effect.call_expression)
+        for propagation in model.taint_propagations:
+            if target_kinds is not None and propagation.target.kind not in target_kinds:
+                continue
+            source_expressions = self._expressions_for_model_port(
+                propagation.source, receiver, arguments
+            )
+            if not self._model_port_is_tainted(
+                call_node.procedure, propagation.source, source_expressions, fact
+            ):
+                continue
+            for output_kind in propagation.transform_kind(fact.kind):
+                transformed = self._fact_with_kind(fact, output_kind)
+                outputs.update(
+                    self._facts_for_model_target(
+                        call_node,
+                        propagation.target,
+                        receiver,
+                        arguments,
+                        transformed,
+                    )
+                )
+            if propagation.guard:
+                self._record_semantic_diagnostic(
+                    code="IFDS-TAINT-CONDITIONAL-PROPAGATION",
+                    message=(
+                        f"Joined guarded propagation {propagation.guard!r} for "
+                        f"{call_effect.call_name or '<dynamic>'}"
+                    ),
+                    subject=call_effect.call_name,
+                )
+        return True
+
+    def _add_modeled_sanitizer_outputs(
+        self, call_node: CFGNode, fact: object, outputs: set[object]
+    ) -> bool:
+        call_effect = self._call_effect(call_node)
+        model = self._call_model_for_node(call_node)
+        if (
+            call_effect is None
+            or model is None
+            or not model.sanitizer_contracts
+            or not isinstance(fact, (TaintFact, ExpressionTaintFact))
+        ):
+            return False
+        receiver = self._call_receiver_expression(call_effect.call_expression)
+        arguments = self._explicit_call_arguments(call_effect.call_expression)
+        for contract in model.sanitizer_contracts:
+            source_expressions = self._expressions_for_model_port(
+                contract.input, receiver, arguments
+            )
+            if not self._model_port_is_tainted(
+                call_node.procedure, contract.input, source_expressions, fact
+            ):
+                continue
+            for output_kind in contract.transform_kind(fact.kind):
+                transformed = self._fact_with_kind(fact, output_kind)
+                outputs.update(
+                    self._facts_for_model_target(
+                        call_node,
+                        contract.output,
+                        receiver,
+                        arguments,
+                        transformed,
+                    )
+                )
+                if contract.mutates_input:
+                    for expression in source_expressions:
+                        outputs.update(
+                            self._facts_for_expression_node(
+                                call_node.procedure,
+                                expression,
+                                extend_paths=True,
+                                template_fact=transformed,
+                            )
+                        )
+            for assumption in contract.assumptions:
+                self._record_semantic_diagnostic(
+                    code="IFDS-TAINT-MODEL-ASSUMPTION",
+                    message=assumption,
+                    subject=call_effect.call_name,
+                )
+            if contract.guard:
+                self._record_semantic_diagnostic(
+                    code="IFDS-TAINT-CONDITIONAL-SANITIZER",
+                    message=(
+                        f"Joined sanitized and unsanitized outcomes because guard "
+                        f"{contract.guard!r} was not proven"
+                    ),
+                    subject=call_effect.call_name,
+                )
+        return True
+
+    @staticmethod
+    def _expressions_for_model_port(port, receiver, arguments) -> tuple[object, ...]:
+        if port.kind == "receiver":
+            return (receiver,) if receiver is not None else ()
+        if port.kind == "all":
+            return arguments
+        if port.kind == "parameter":
+            position = port.parameter
+            if position is not None and position < len(arguments):
+                return (arguments[position],)
+        return ()
+
+    def _model_port_is_tainted(
+        self, procedure, port, expressions, fact: object
+    ) -> bool:
+        if not port.path:
+            return any(
+                self._expr_is_tainted(procedure, expr, fact)
+                for expr in expressions
+            )
+        for expression in expressions:
+            for candidate in self._facts_for_expression_node(
+                procedure, expression, extend_paths=True, template_fact=fact
+            ):
+                query = self._fact_with_path(candidate, port.path)
+                if self._model_path_matches(fact, query):
+                    return True
+        return False
+
+    @staticmethod
+    def _model_path_matches(stored: object, query: object) -> bool:
+        if isinstance(stored, ExpressionTaintFact) and isinstance(
+            query, ExpressionTaintFact
+        ):
+            if (
+                stored.procedure != query.procedure
+                or stored.expression is not query.expression
+                or stored.result_index != query.result_index
+            ):
+                return False
+        elif getattr(stored, "location", None) != getattr(query, "location", None):
+            return False
+        stored_path = getattr(stored, "access_path", ())
+        query_path = getattr(query, "access_path", ())
+        if len(stored_path) > len(query_path):
+            return False
+        return all(
+            left == right or left in {"*", "[*]"} or right in {"*", "[*]"}
+            for left, right in zip(stored_path, query_path)
+        )
+
+    @staticmethod
+    def _fact_with_kind(fact: object, kind: str) -> object:
+        if isinstance(fact, (TaintFact, ExpressionTaintFact)):
+            return replace(fact, kind=kind)
+        return fact
+
+    @staticmethod
+    def _fact_with_path(fact: object, path: tuple[str, ...]) -> object:
+        if isinstance(fact, (TaintFact, ExpressionTaintFact)):
+            return replace(fact, access_path=(*fact.access_path, *path))
+        return fact
+
+    def _facts_for_model_target(
+        self, call_node, port, receiver, arguments, template_fact
+    ) -> set[object]:
+        call_effect = self._call_effect(call_node)
+        if call_effect is None:
+            return set()
+        target_path = port.path
+        if port.kind == "raise":
+            facts = {
+                self._make_expression_fact(
+                    call_node.procedure,
+                    call_effect.call_expression,
+                    template_fact=template_fact,
+                )
+            }
+        elif port.kind in {"return", "yield"}:
+            facts = self._facts_for_nested_call_result(
+                call_node.procedure,
+                call_effect.operation,
+                call_effect.call_expression,
+                0,
+                nested=False,
+                template_fact=template_fact,
+            )
+        elif port.kind in {"receiver", "parameter"}:
+            facts = {
+                candidate
+                for expression in self._expressions_for_model_port(
+                    port, receiver, arguments
+                )
+                for candidate in self._facts_for_expression_node(
+                    call_node.procedure,
+                    expression,
+                    extend_paths=True,
+                    template_fact=template_fact,
+                )
+            }
+        else:
+            return set()
+        if port.kind == "yield":
+            element_path = ("[*]", *target_path)
+            return set(facts) | {
+                self._fact_with_path(candidate, element_path) for candidate in facts
+            }
+        if not target_path:
+            return set(facts)
+        return {self._fact_with_path(candidate, target_path) for candidate in facts}
+
+    @staticmethod
+    def _call_receiver_expression(call: object) -> object | None:
+        if isinstance(call, py_ast.Call) and isinstance(call.expr, py_ast.GetAttr):
+            return call.expr.expr
+        if isinstance(call, py_ast.MethodCall):
+            return call.expr
+        if isinstance(call, py_ast.DirectCall):
+            return call.selfarg
+        return None
+
+    @staticmethod
+    def _explicit_call_arguments(call: object) -> tuple[object, ...]:
+        arguments = actual_argument_expressions(call)
+        selfarg = getattr(call, "selfarg", None)
+        if selfarg is not None and arguments and arguments[0] is selfarg:
+            return arguments[1:]
+        return arguments
 
     def _unresolved_call_outputs(self, node: CFGNode, fact: object):
         call_effect = self._call_effect(node)
+        policy = self.configuration.effective_unknown_call_policy
+        model = self._call_model_for_node(node)
         if (
             call_effect is None
             or call_effect.callees
-            or not self.configuration.conservative_unresolved_call_side_effects
+            or policy == "drop"
+            or (
+                model is not None
+                and (
+                    model.source_kinds
+                    or model.sink_kinds
+                    or model.sanitizer_kinds
+                    or model.sanitizer_contracts
+                    or model.taint_propagations
+                )
+            )
         ):
             return None
+
+        call_name = call_effect.call_name or "<dynamic>"
+        self._record_semantic_diagnostic(
+            code="IFDS-TAINT-UNKNOWN-CALL",
+            message=(
+                f"Applied {policy!r} taint semantics to unresolved call "
+                f"{call_name}"
+            ),
+            subject=call_name,
+            affects_completeness=False,
+        )
 
         outputs = set(
             self._identity_outputs(fact, self._killed_locations_for_node(node))
         )
-        model = self._call_model_for_node(node)
         if fact == ZERO_TAINT:
             if model is not None:
                 for kind in model.source_kinds:
@@ -586,9 +970,14 @@ class InterproceduralTaintProblem(
 
         if (
             model is not None
+            and not model.sanitizer_contracts
             and isinstance(fact, (TaintFact, ExpressionTaintFact))
             and ("*" in model.sanitizer_kinds or fact.kind in model.sanitizer_kinds)
         ):
+            return tuple(outputs)
+
+        if model is not None and model.sanitizer_contracts:
+            self._add_modeled_sanitizer_outputs(node, fact, outputs)
             return tuple(outputs)
 
         if not any(
@@ -597,12 +986,13 @@ class InterproceduralTaintProblem(
         ):
             return tuple(outputs)
 
-        for actual in call_effect.actual_arguments:
-            outputs.update(
-                self._facts_for_expression_node(
-                    node.procedure, actual, template_fact=fact
+        if policy == "havoc":
+            for actual in call_effect.actual_arguments:
+                outputs.update(
+                    self._facts_for_expression_node(
+                        node.procedure, actual, template_fact=fact
+                    )
                 )
-            )
         outputs.update(
             self._facts_for_nested_call_result(
                 node.procedure,
@@ -714,7 +1104,7 @@ class InterproceduralTaintProblem(
             if isinstance(current, py_ast.Code):
                 return own_kinds
             current.visitChildren(lambda child: child_kinds.update(collect(child)))
-            if model is not None:
+            if model is not None and not model.taint_propagations:
                 if "*" in model.sanitizer_kinds:
                     child_kinds.clear()
                 else:
@@ -740,7 +1130,7 @@ class InterproceduralTaintProblem(
 
     def _expr_sanitizes_kind(self, expr: object, kind: str) -> bool:
         model = self._call_model_for_expression(expr)
-        return model is not None and (
+        return model is not None and not model.taint_propagations and (
             "*" in model.sanitizer_kinds or kind in model.sanitizer_kinds
         )
 
@@ -850,9 +1240,8 @@ class InterproceduralTaintProblem(
         )
         return sink_behavior_is_active(model.sink_behavior, constants)
 
-    @staticmethod
     def _sink_positions_for_call(
-        sink_name: str, model, argument_count: int
+        self, sink_name: str, model, argument_count: int
     ) -> frozenset[int]:
         """Normalize model ports to explicit arguments in source-level calls."""
         if (
@@ -863,7 +1252,18 @@ class InterproceduralTaintProblem(
             return frozenset({0})
         if model.sink_all_arguments:
             return frozenset(range(argument_count))
-        return model.sink_arg_positions
+        positions = set(model.sink_arg_positions)
+        for propagation in model.taint_propagations:
+            if propagation.target.kind != "sink":
+                continue
+            if propagation.source.kind == "all":
+                positions.update(range(argument_count))
+            elif (
+                propagation.source.kind == "parameter"
+                and propagation.source.parameter is not None
+            ):
+                positions.add(propagation.source.parameter)
+        return frozenset(positions)
 
     def _tainted_arguments_for_call(
         self,
@@ -962,7 +1362,9 @@ class InterproceduralTaintProblem(
                 return
             if self._expr_sanitizes_kind(current, source_kind):
                 return
-            if not isinstance(current, py_ast.Local):
+            if not isinstance(
+                current, py_ast.Local
+            ) and not self._expression_has_nested_sanitizer(current, source_kind):
                 template = TaintFact(object(), source_kind)
                 facts = self._facts_for_expression_node(
                     procedure, current, template_fact=template
@@ -993,7 +1395,10 @@ class InterproceduralTaintProblem(
                 current, source_kind
             ):
                 return
-            if predicate(current):
+            if not (
+                source_kind is not None
+                and self._expression_has_nested_sanitizer(current, source_kind)
+            ) and predicate(current):
                 found = True
                 return
             if isinstance(current, (list, tuple)):
@@ -1005,6 +1410,41 @@ class InterproceduralTaintProblem(
             current.visitChildren(visit)
 
         visit(expr)
+        return found
+
+    def _expression_has_nested_sanitizer(
+        self, expr: object, source_kind: str
+    ) -> bool:
+        """Return whether a proper descendant sanitizes ``source_kind``.
+
+        Composite IR nodes expose all locals read below them.  Treating such a
+        node as tainted before visiting its children would therefore bypass a
+        nested sanitizer, for example ``Wrapper(f"{escape_like(value)}")``.
+        """
+        found = False
+
+        def visit(current) -> None:
+            nonlocal found
+            if found or current is None or isinstance(current, py_ast.leafTypes):
+                return
+            if self._expr_sanitizes_kind(current, source_kind):
+                found = True
+                return
+            if isinstance(current, (list, tuple)):
+                for child in current:
+                    visit(child)
+                return
+            if isinstance(current, py_ast.Code):
+                return
+            current.visitChildren(visit)
+
+        if isinstance(expr, (list, tuple)):
+            for child in expr:
+                visit(child)
+        elif not isinstance(expr, py_ast.Code) and not isinstance(
+            expr, py_ast.leafTypes
+        ):
+            expr.visitChildren(visit)
         return found
 
     def _matching_locals_in_expression(

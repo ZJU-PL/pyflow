@@ -62,6 +62,7 @@ _CONFIG_SCALAR_MAP: dict[str, str] = {
     "function": "function",
     "ifds_trace_mode": "ifds_trace_mode",
     "ifds_context_depth": "ifds_context_depth",
+    "unknown_call_policy": "ifds_unknown_call_policy",
 }
 
 _CONFIG_LIST_MAP: dict[str, str] = {
@@ -113,6 +114,7 @@ def _apply_ifds_config(args) -> None:
         "function",
         "ifds_trace_mode",
         "ifds_context_depth",
+        "unknown_call_policy",
         "registry_path",
         "typestate_protocol",
     }
@@ -305,6 +307,9 @@ def _run_ifds(targets: List[str], args) -> Dict[str, Any]:
             entry_point_defaults=entry_point_defaults,
             collection_mutator_names=getattr(args, "collection_mutators", None),
             collection_accessor_names=getattr(args, "collection_accessors", None),
+            unknown_call_policy=getattr(
+                args, "ifds_unknown_call_policy", "preserve"
+            ),
             conservative_unresolved_call_side_effects=getattr(
                 args, "conservative_unresolved_calls", False
             ),
@@ -336,7 +341,10 @@ def _diagnostics_to_dicts(diagnostics) -> list[Any]:
 
 
 def _apply_session_diagnostics(result: Dict[str, Any], session) -> Dict[str, Any]:
-    diagnostics = tuple(getattr(session, "diagnostics", ()))
+    diagnostics = (
+        *tuple(result.get("diagnostics", ())),
+        *tuple(getattr(session, "diagnostics", ())),
+    )
     result["diagnostics"] = _diagnostics_to_dicts(diagnostics)
     if result.get("status") == "complete" and any(
         getattr(diagnostic, "affects_completeness", False) for diagnostic in diagnostics
