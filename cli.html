@@ -262,22 +262,43 @@ unambiguous; otherwise the candidates are reported and can be resolved with
 - <code class="docutils literal notranslate"><span class="pre">--ifds-max-facts-per-node</span></code> / <code class="docutils literal notranslate"><span class="pre">--ifds-max-contexts-per-procedure</span></code>: Precision/cardinality budgets
 - <code class="docutils literal notranslate"><span class="pre">--ifds-context-depth</span></code>: Maximum call-string depth
 - <code class="docutils literal notranslate"><span class="pre">--ifds-trace-mode</span></code>: Retain no traces, finding traces, or all traces
-- <code class="docutils literal notranslate"><span class="pre">--cpg-max-seconds</span></code> / <code class="docutils literal notranslate"><span class="pre">--cpg-max-states</span></code>: CPG time and state budgets; exhaustion is reported as <code class="docutils literal notranslate"><span class="pre">partial</span></code>
-- <code class="docutils literal notranslate"><span class="pre">--cpg-context-depth</span></code>: Maximum CPG call-string depth (default: 3)
-- <code class="docutils literal notranslate"><span class="pre">--framework</span></code>: Framework rule packs for the CPG engine
-- <code class="docutils literal notranslate"><span class="pre">--format</span></code>: Output format: <code class="docutils literal notranslate"><span class="pre">text</span></code>, <code class="docutils literal notranslate"><span class="pre">json</span></code>, <code class="docutils literal notranslate"><span class="pre">sarif</span></code>, <code class="docutils literal notranslate"><span class="pre">csv</span></code>, <code class="docutils literal notranslate"><span class="pre">custom</span></code>, <code class="docutils literal notranslate"><span class="pre">html</span></code>, <code class="docutils literal notranslate"><span class="pre">screen</span></code>, <code class="docutils literal notranslate"><span class="pre">xml</span></code>, or <code class="docutils literal notranslate"><span class="pre">yaml</span></code>.
-- <code class="docutils literal notranslate"><span class="pre">--output</span></code>: Output file path
-- <code class="docutils literal notranslate"><span class="pre">--exit-code-policy</span></code>: <code class="docutils literal notranslate"><span class="pre">findings</span></code> preserves scanner-style exit codes;</p>
+- <code class="docutils literal notranslate"><span class="pre">--ifds-unknown-call-policy</span></code>: Handle unresolved calls with <code class="docutils literal notranslate"><span class="pre">drop</span></code>,</p>
 <blockquote>
-<div><p><code class="docutils literal notranslate"><span class="pre">report</span></code> returns zero after a report is successfully emitted and records
-findings and analysis completeness in that report</p>
+<div><p><code class="docutils literal notranslate"><span class="pre">preserve</span></code> (the CLI default), or <code class="docutils literal notranslate"><span class="pre">havoc</span></code> semantics</p>
 </div></blockquote>
 <ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">--cpg-max-seconds</span></code> / <code class="docutils literal notranslate"><span class="pre">--cpg-max-states</span></code>: CPG time and state budgets; exhaustion is reported as <code class="docutils literal notranslate"><span class="pre">partial</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--cpg-context-depth</span></code>: Maximum CPG call-string depth (default: 3)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--framework</span></code>: Framework rule packs for the CPG engine</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--format</span></code>: Output format: <code class="docutils literal notranslate"><span class="pre">text</span></code>, <code class="docutils literal notranslate"><span class="pre">json</span></code>, <code class="docutils literal notranslate"><span class="pre">sarif</span></code>, <code class="docutils literal notranslate"><span class="pre">csv</span></code>, <code class="docutils literal notranslate"><span class="pre">custom</span></code>, <code class="docutils literal notranslate"><span class="pre">html</span></code>, <code class="docutils literal notranslate"><span class="pre">screen</span></code>, <code class="docutils literal notranslate"><span class="pre">xml</span></code>, or <code class="docutils literal notranslate"><span class="pre">yaml</span></code>.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--output</span></code>: Output file path</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--exit-code-policy</span></code>: <code class="docutils literal notranslate"><span class="pre">findings</span></code> preserves scanner-style exit codes;
+<code class="docutils literal notranslate"><span class="pre">report</span></code> returns zero after a report is successfully emitted and records
+findings and analysis completeness in that report</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">-r,</span> <span class="pre">--recursive</span></code>: Scan directories recursively</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">-v,</span> <span class="pre">--verbose</span></code>: Verbose output</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">-d,</span> <span class="pre">--debug</span></code>: Debug output</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--exclude</span></code>: Comma-separated list of paths to exclude</p></li>
 </ul>
+<p>IFDS taint rule packs may model library calls that preserve or transform taint
+without declaring them as sources or sinks. Propagation ports support
+parameters, receivers, returns, yields, raises, sinks, and access paths:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
+  <span class="s2">&quot;call&quot;</span><span class="p">:</span> <span class="s2">&quot;framework.Value.wrap&quot;</span><span class="p">,</span>
+  <span class="s2">&quot;propagations&quot;</span><span class="p">:</span> <span class="p">[</span>
+    <span class="p">{</span><span class="s2">&quot;from&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;parameter&quot;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span> <span class="s2">&quot;path&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;payload&quot;</span><span class="p">]},</span>
+     <span class="s2">&quot;to&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;parameter&quot;</span><span class="p">:</span> <span class="mi">1</span><span class="p">,</span> <span class="s2">&quot;path&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;copy&quot;</span><span class="p">]}},</span>
+    <span class="p">{</span><span class="s2">&quot;from&quot;</span><span class="p">:</span> <span class="s2">&quot;receiver&quot;</span><span class="p">,</span> <span class="s2">&quot;to&quot;</span><span class="p">:</span> <span class="s2">&quot;return&quot;</span><span class="p">,</span>
+     <span class="s2">&quot;maps&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;html&quot;</span><span class="p">:</span> <span class="s2">&quot;html_safe&quot;</span><span class="p">}}</span>
+  <span class="p">]</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+<p>Sanitizers may additionally declare kind mappings, removals, guards, input
+mutation, and explicit assumptions. These richer propagation and sanitizer
+contracts are consumed by IFDS. The engine-neutral source/sink projection used
+by AST-dataflow and CPG remains backward compatible and ignores unsupported
+contract details.</p>
 <p>The default <code class="docutils literal notranslate"><span class="pre">ast-scanner</span></code> engine is a fast pattern-based checker. The command
 can also dispatch to AST-dataflow, IFDS, and CPG-backed security engines. The
 All security JSON reports include an explicit status. AST-dataflow, IFDS, and
