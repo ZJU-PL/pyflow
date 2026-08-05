@@ -1,9 +1,8 @@
 # Static-analysis benchmark runner
 
-This directory is an independent benchmark scaffold for running PyFlow,
-CodeQL, PySA, Bandit, and future analyzers over repository snapshots. It is not
-part of the `pyflow` package and its manifest has no vulnerable/fixed pairing
-semantics.
+An independent benchmark scaffold for running PyFlow, CodeQL, PySA, Bandit,
+and future analyzers over repository snapshots. It is not part of the
+`pyflow` package and its manifest has no vulnerable/fixed pairing semantics.
 
 Run it from the repository root:
 
@@ -47,14 +46,11 @@ can define their own labels.
 
 The default engines are PyFlow's AST scanner, AST dataflow, IFDS, and CPG
 engines. Repeat `--engine` to select engines; `--engine all` also enables
-CodeQL, PySA, and Bandit.
+CodeQL, PySA, and Bandit. Per-engine settings come from `--config engines.json`.
 
 ```bash
 python -m tools.security_benchmark_runner run manifest.json \
   -o results --jobs 4 --timeout 1800
-
-python -m tools.security_benchmark_runner run manifest.json \
-  -o results --engine codeql --engine bandit --config engines.json
 ```
 
 Completed results resume by default. `--force` replaces them. Every
@@ -105,7 +101,7 @@ pyre analyze --help
 ```
 
 Installing `pyre-check` is necessary but not sufficient for a useful security
-scan. PySA is a configurable taint analyzer and needs a model directory that
+scan: PySA is a configurable taint analyzer and needs a model directory that
 contains at least one `taint.config` plus the relevant `.pysa` source, sink,
 and propagation models. Keep those models versioned with the experiment and
 point the engine configuration at them:
@@ -117,9 +113,7 @@ point the engine configuration at them:
     "pysa": {
       "command": ["/absolute/path/to/.venv/bin/pyre"],
       "taint_models_path": "/absolute/path/to/pysa-models",
-      "configuration": {
-        "workers": 4
-      }
+      "configuration": {"workers": 4}
     }
   }
 }
@@ -152,19 +146,14 @@ def app.source() -> TaintSource[Test]: ...
 def app.sink(value: TaintSink[Test]): ...
 ```
 
-The function signatures in `.pysa` files must match the analyzed program. A
+The function signatures in `.pysa` files must match the analyzed program; a
 model that does not match a callable will not create the expected source or
 sink. For benchmark runs, map PySA's numeric rule code to a CWE in the separate
 evaluation mapping rather than embedding dataset-specific semantics in the
 runner:
 
 ```json
-{
-  "schema_version": 1,
-  "engines": {
-    "pysa": {"rules": {"9001": ["CWE-78"]}}
-  }
-}
+{"schema_version": 1, "engines": {"pysa": {"rules": {"9001": ["CWE-78"]}}}}
 ```
 
 The first PySA run can be relatively slow because it builds the environment,
@@ -210,16 +199,13 @@ unaccepted exit code.
 }
 ```
 
-Available scalar placeholders are `{target}`, `{run_dir}`, `{report}`,
-`{engine}`, and `{sample_id}`. A standalone `{sample_args}` expands the
-sample's complete argv list. Report formats are `json`, `jsonl`, `sarif`, and
-`none`; JSON fields use RFC 6901 JSON pointers. Step `cwd` is restricted to
-`run_dir` or `target`, report paths stay inside the isolated run directory,
-and commands never use a shell.
+Scalar placeholders: `{target}`, `{run_dir}`, `{report}`, `{engine}`,
+`{sample_id}`; a standalone `{sample_args}` expands the sample's complete argv.
+Report formats: `json`, `jsonl`, `sarif`, `none` (JSON fields use RFC 6901
+pointers). Step `cwd` is limited to `run_dir` or `target`, report paths stay
+inside the isolated run directory, and commands never use a shell.
 
 Dataset-specific converters are intentionally not part of this scaffold.
 Datasets should produce the generic versioned manifest described above in
-their own preparation workflow.
-
-Result normalization, CWE mapping, and metrics are also independent. See
-`tools/security_benchmark_evaluation/README.md`.
+their own preparation workflow. Result normalization, CWE mapping, and metrics
+are likewise independent.
