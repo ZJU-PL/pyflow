@@ -300,6 +300,337 @@ class _CallTargetMixin:
                             )
                     if not out:
                         out.add(UNKNOWN_VALUE)
+                elif callee_name in {
+                    "<builtin>.list",
+                    "<builtin>.set",
+                    "<builtin>.tuple",
+                    "<builtin>.dict",
+                    "collections.deque",
+                }:
+                    container_kind = {
+                        "<builtin>.list": "list",
+                        "<builtin>.set": "set",
+                        "<builtin>.tuple": "tuple",
+                        "<builtin>.dict": "dict",
+                        "collections.deque": "deque",
+                    }[callee_name]
+                    container = self._new_container(
+                        container_kind,
+                        caller_scope,
+                        caller_context,
+                        call_node,
+                    )
+                    if arg_values:
+                        members = self._iterable_members(
+                            arg_values[0],
+                            scope=caller_scope,
+                            scope_context=caller_context,
+                            env=env,
+                            callees=callees,
+                            input_changed_scope_contexts=input_changed_scope_contexts,
+                        )
+                        if members:
+                            self._merge_value_set(
+                                self.container_elements[container.name],
+                                set(members),
+                                preserve_callables=True,
+                            )
+                    out.add(container)
+                elif callee_name in {
+                    "<**PyList**>.append",
+                    "<**PyList**>.extend",
+                    "<**PyList**>.insert",
+                    "<**PyList**>.pop",
+                    "<**PyList**>.sort",
+                    "<**PySet**>.add",
+                    "<**PySet**>.update",
+                    "<**PySet**>.pop",
+                    "<**PyDeque**>.append",
+                    "<**PyDeque**>.appendleft",
+                    "<**PyDeque**>.extend",
+                    "<**PyDeque**>.extendleft",
+                    "<**PyDeque**>.pop",
+                    "<**PyDeque**>.popleft",
+                }:
+                    receiver_values: Set[AbstractValue] = set()
+                    if isinstance(call_node.func, ast.Attribute):
+                        receiver_values = self._eval_expr(
+                            caller_scope,
+                            caller_context,
+                            call_node.func.value,
+                            env,
+                            callees,
+                            input_changed_scope_contexts,
+                        )
+                    method_name = callee_name.rsplit(".", 1)[-1]
+                    incoming_values: Set[AbstractValue] = set()
+                    if method_name in {"append", "appendleft", "add"}:
+                        if arg_values:
+                            incoming_values.update(arg_values[0])
+                    elif method_name in {"extend", "extendleft", "update"}:
+                        if arg_values:
+                            incoming_values.update(
+                                self._iterable_members(
+                                    arg_values[0],
+                                    scope=caller_scope,
+                                    scope_context=caller_context,
+                                    env=env,
+                                    callees=callees,
+                                    input_changed_scope_contexts=(
+                                        input_changed_scope_contexts
+                                    ),
+                                )
+                            )
+                    elif method_name == "insert":
+                        if len(arg_values) >= 2:
+                            incoming_values.update(arg_values[1])
+                    elif method_name == "sort":
+                        sort_callbacks = {
+                            value
+                            for value in kwarg_values.get("key", set())
+                            if self._is_callable_value(value)
+                        }
+                        if sort_callbacks:
+                            self._invoke_callback_values(
+                                caller_scope=caller_scope,
+                                caller_context=caller_context,
+                                call_node=call_node,
+                                env=env,
+                                callees=callees,
+                                input_changed_scope_contexts=(
+                                    input_changed_scope_contexts
+                                ),
+                                callback_values=sort_callbacks,
+                            )
+                    for receiver in receiver_values:
+                        if receiver.kind != CONTAINER_KIND:
+                            continue
+                        if incoming_values:
+                            if self._merge_value_set(
+                                self.container_elements[receiver.name],
+                                incoming_values,
+                                preserve_callables=True,
+                            ):
+                                self._note_container_state_changed(
+                                    receiver.name, "*"
+                                )
+                        if method_name in {"pop", "popleft"}:
+                            out.update(
+                                self.container_elements.get(receiver.name, set())
+                            )
+                    if method_name not in {"pop", "popleft"}:
+                        out.add(NONE_VALUE)
+                elif callee_name in {
+                    "functools.cache",
+                    "functools.cached_property",
+                    "functools.lru_cache",
+                    "functools.total_ordering",
+                    "contextlib.contextmanager",
+                    "contextlib.asynccontextmanager",
+                }:
+                    # These decorators preserve the wrapped callable/class for
+                    # call-graph purposes.  A zero-argument form is a
+                    # decorator factory, so keep the qualified target for the
+                    # subsequent synthetic decorator application.
+                    if arg_values and arg_values[0]:
+                        out.update(arg_values[0])
+                    else:
+                        out.add(make_func(callee_name))
+                elif callee_name in {
+                    "atexit.register",
+                    "signal.signal",
+                    "weakref.finalize",
+                    "concurrent.futures.Future.add_done_callback",
+                    "asyncio.Future.add_done_callback",
+                    "asyncio.Task.add_done_callback",
+                    "contextlib.ExitStack.callback",
+                    "contextlib.AsyncExitStack.push_async_callback",
+                    "contextlib.AsyncExitStack.push_callback",
+                }:
+                    registered_callback_values: Set[AbstractValue] = set()
+                    callback_index = 0
+                    if callee_name == "signal.signal":
+                        callback_index = 1
+                    elif callee_name == "weakref.finalize":
+                        callback_index = 1
+                    if len(arg_values) > callback_index:
+                        registered_callback_values.update(arg_values[callback_index])
+                    registered_callback_values = {
+                        value
+                        for value in registered_callback_values
+                        if self._is_callable_value(value)
+                    }
+                    if registered_callback_values:
+                        self._invoke_callback_values(
+                            caller_scope=caller_scope,
+                            caller_context=caller_context,
+                            call_node=call_node,
+                            env=env,
+                            callees=callees,
+                            input_changed_scope_contexts=input_changed_scope_contexts,
+                            callback_values=registered_callback_values,
+                        )
+                    if callee_name == "atexit.register" and registered_callback_values:
+                        out.update(registered_callback_values)
+                    else:
+                        out.add(NONE_VALUE)
+                elif callee_name in {
+                    "threading.Thread",
+                    "threading.Timer",
+                    "multiprocessing.Process",
+                    "concurrent.futures.ThreadPoolExecutor.submit",
+                    "concurrent.futures.ProcessPoolExecutor.submit",
+                    "concurrent.futures.Executor.submit",
+                }:
+                    scheduled_callback_values: Set[AbstractValue] = set()
+                    callback_index = 0
+                    if callee_name in {
+                        "threading.Timer",
+                        "multiprocessing.Process",
+                    }:
+                        callback_index = 1
+                    if callee_name.endswith(".submit"):
+                        callback_index = 0
+                    if "target" in kwarg_values:
+                        scheduled_callback_values.update(kwarg_values["target"])
+                    if len(arg_values) > callback_index:
+                        scheduled_callback_values.update(arg_values[callback_index])
+                    scheduled_callback_values = {
+                        value
+                        for value in scheduled_callback_values
+                        if self._is_callable_value(value)
+                    }
+                    if scheduled_callback_values:
+                        self._invoke_callback_values(
+                            caller_scope=caller_scope,
+                            caller_context=caller_context,
+                            call_node=call_node,
+                            env=env,
+                            callees=callees,
+                            input_changed_scope_contexts=input_changed_scope_contexts,
+                            callback_values=scheduled_callback_values,
+                        )
+                    if callee_name.endswith(".submit"):
+                        out.add(UNKNOWN_VALUE)
+                    else:
+                        out.add(make_instance(callee_name))
+                elif callee_name in {
+                    "asyncio.create_task",
+                    "asyncio.ensure_future",
+                    "asyncio.shield",
+                    "asyncio.gather",
+                    "asyncio.TaskGroup.create_task",
+                }:
+                    # Task/future wrappers preserve coroutine identities so a
+                    # later await can materialize the original async body.
+                    for values in arg_values:
+                        out.update(
+                            value
+                            for value in values
+                            if value.kind == COROUTINE_KIND
+                        )
+                    for values in star_arg_values:
+                        out.update(
+                            value
+                            for value in values
+                            if value.kind == COROUTINE_KIND
+                        )
+                    if not out:
+                        out.add(UNKNOWN_VALUE)
+                elif callee_name in {
+                    "asyncio.get_event_loop",
+                    "asyncio.get_running_loop",
+                    "asyncio.new_event_loop",
+                }:
+                    out.add(make_instance("asyncio.AbstractEventLoop"))
+                elif callee_name in {
+                    "asyncio.AbstractEventLoop.call_soon",
+                    "asyncio.AbstractEventLoop.call_soon_threadsafe",
+                    "asyncio.AbstractEventLoop.call_later",
+                    "asyncio.AbstractEventLoop.call_at",
+                }:
+                    loop_callback_values = {
+                        value
+                        for value in (arg_values[0] if arg_values else set())
+                        if self._is_callable_value(value)
+                    }
+                    if loop_callback_values:
+                        self._invoke_callback_values(
+                            caller_scope=caller_scope,
+                            caller_context=caller_context,
+                            call_node=call_node,
+                            env=env,
+                            callees=callees,
+                            input_changed_scope_contexts=input_changed_scope_contexts,
+                            callback_values=loop_callback_values,
+                        )
+                    out.add(NONE_VALUE)
+                elif callee_name == "asyncio.run":
+                    if arg_values:
+                        out.update(
+                            self._materialize_suspended_values(
+                                arg_values[0],
+                                expected_kind=COROUTINE_KIND,
+                                caller_scope=caller_scope,
+                                caller_context=caller_context,
+                                env=env,
+                                input_changed_scope_contexts=(
+                                    input_changed_scope_contexts
+                                ),
+                            )
+                        )
+                    if not out:
+                        out.add(UNKNOWN_VALUE)
+                elif callee_name in {
+                    "concurrent.futures.Executor.map",
+                    "concurrent.futures.ThreadPoolExecutor.map",
+                    "concurrent.futures.ProcessPoolExecutor.map",
+                }:
+                    map_callback_values = {
+                        value
+                        for value in (arg_values[0] if arg_values else set())
+                        if self._is_callable_value(value)
+                    }
+                    if map_callback_values:
+                        self._invoke_callback_values(
+                            caller_scope=caller_scope,
+                            caller_context=caller_context,
+                            call_node=call_node,
+                            env=env,
+                            callees=callees,
+                            input_changed_scope_contexts=input_changed_scope_contexts,
+                            callback_values=map_callback_values,
+                        )
+                    out.add(UNKNOWN_VALUE)
+                elif callee_name in {
+                    "asyncio.to_thread",
+                    "asyncio.AbstractEventLoop.run_in_executor",
+                }:
+                    async_callback_values: Set[AbstractValue] = set()
+                    callback_index = 0 if callee_name == "asyncio.to_thread" else 1
+                    if len(arg_values) > callback_index:
+                        async_callback_values.update(arg_values[callback_index])
+                    async_callback_values = {
+                        value
+                        for value in async_callback_values
+                        if self._is_callable_value(value)
+                    }
+                    if async_callback_values:
+                        out.update(
+                            self._invoke_callback_values(
+                                caller_scope=caller_scope,
+                                caller_context=caller_context,
+                                call_node=call_node,
+                                env=env,
+                                callees=callees,
+                                input_changed_scope_contexts=(
+                                    input_changed_scope_contexts
+                                ),
+                                callback_values=async_callback_values,
+                            )
+                        )
+                    if not out:
+                        out.add(UNKNOWN_VALUE)
                 elif callee_name == "functools.partial":
                     if arg_values:
                         for callback in arg_values[0]:

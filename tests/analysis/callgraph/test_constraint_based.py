@@ -462,6 +462,229 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
         improved = extract_call_graph_constraint(source).get()
         self.assertIn("main.combine", improved.get("main.run", set()))
 
+    def test_callback_registration_apis_invoke_user_callbacks(self):
+        source = textwrap.dedent("""
+            import atexit
+            import signal
+
+            def cleanup():
+                return 1
+
+            def handle(signum, frame):
+                return cleanup()
+
+            atexit.register(cleanup)
+            signal.signal(signal.SIGTERM, handle)
+            """)
+
+        improved = extract_call_graph_constraint(source).get()
+        self.assertIn("main.cleanup", improved.get("main", set()))
+        self.assertIn("main.handle", improved.get("main", set()))
+        self.assertIn("main.cleanup", improved.get("main.handle", set()))
+
+    def test_asyncio_task_wrappers_preserve_coroutine_flow(self):
+        source = textwrap.dedent("""
+            import asyncio
+
+            def leaf():
+                return 1
+
+            async def worker():
+                return leaf()
+
+            async def run():
+                task = asyncio.create_task(worker())
+                return await task
+            """)
+
+        improved = extract_call_graph_constraint(
+            source, allow_fixture_graph_loading=False
+        ).get()
+        self.assertIn("main.worker", improved.get("main.run", set()))
+        self.assertIn("main.leaf", improved.get("main.worker", set()))
+
+    def test_thread_and_executor_targets_are_invoked(self):
+        source = textwrap.dedent("""
+            from concurrent.futures import ThreadPoolExecutor
+            from threading import Thread
+
+            def worker():
+                return 1
+
+            def run():
+                Thread(target=worker)
+                executor = ThreadPoolExecutor()
+                executor.submit(worker)
+
+            run()
+            """)
+
+        improved = extract_call_graph_constraint(source).get()
+        run_edges = improved.get("main.run", set())
+        self.assertIn("main.worker", run_edges)
+
+    def test_transparent_functools_decorators_preserve_target(self):
+        source = textwrap.dedent("""
+            from functools import lru_cache
+
+            @lru_cache()
+            def target():
+                return 1
+
+            def run():
+                return target()
+
+            run()
+            """)
+
+        improved = extract_call_graph_constraint(source).get()
+        self.assertIn("main.target", improved.get("main.run", set()))
+
+    def test_list_mutation_preserves_callable_elements(self):
+        source = textwrap.dedent("""
+            def target():
+                return 1
+
+            def run():
+                handlers = []
+                handlers.append(target)
+                for handler in handlers:
+                    handler()
+                unique_handlers = set()
+                unique_handlers.add(target)
+                for handler in unique_handlers:
+                    handler()
+
+            run()
+            """)
+
+        improved = extract_call_graph_constraint(source).get()
+        self.assertIn("main.target", improved.get("main.run", set()))
+
+    def test_deque_mutation_and_sort_key_preserve_callbacks(self):
+        source = textwrap.dedent("""
+            from collections import deque
+
+            def target():
+                return 1
+
+            def key(value):
+                return value
+
+            def run():
+                handlers = deque()
+                handlers.append(target)
+                items = [target]
+                items.sort(key=key)
+                for handler in handlers:
+                    handler()
+                for item in items:
+                    item()
+
+            run()
+            """)
+
+        improved = extract_call_graph_constraint(source).get()
+        run_edges = improved.get("main.run", set())
+        self.assertIn("main.target", run_edges)
+        self.assertIn("main.key", run_edges)
+
+    def test_executor_map_invokes_callback(self):
+        source = textwrap.dedent("""
+            from concurrent.futures import ThreadPoolExecutor
+
+            def target(value):
+                return value
+
+            def run(values):
+                executor = ThreadPoolExecutor()
+                return executor.map(target, values)
+
+            run([])
+            """)
+
+        improved = extract_call_graph_constraint(source).get()
+        self.assertIn("main.target", improved.get("main.run", set()))
+
+    def test_asyncio_loop_callbacks_and_task_group_preserve_targets(self):
+        source = textwrap.dedent("""
+            import asyncio
+
+            def callback():
+                return 1
+
+            async def worker():
+                return callback()
+
+            async def run():
+                loop = asyncio.get_running_loop()
+                loop.call_soon(callback)
+                async with asyncio.TaskGroup() as group:
+                    group.create_task(worker())
+            """)
+
+        improved = extract_call_graph_constraint(
+            source, allow_fixture_graph_loading=False
+        ).get()
+        run_edges = improved.get("main.run", set())
+        self.assertIn("main.callback", run_edges)
+        self.assertIn("main.worker", run_edges)
+        self.assertIn("main.callback", improved.get("main.worker", set()))
+
+    def test_contextlib_managers_and_exit_stack_preserve_callbacks(self):
+        source = textwrap.dedent("""
+            from contextlib import ExitStack, contextmanager
+
+            def helper():
+                return 1
+
+            def cleanup():
+                return helper()
+
+            @contextmanager
+            def managed():
+                yield helper()
+
+            def run():
+                with managed():
+                    pass
+                stack = ExitStack()
+                stack.callback(cleanup)
+
+            run()
+            """)
+
+        improved = extract_call_graph_constraint(
+            source, allow_fixture_graph_loading=False
+        ).get()
+        run_edges = improved.get("main.run", set())
+        self.assertIn("main.managed", run_edges)
+        self.assertIn("main.cleanup", run_edges)
+        self.assertIn("main.helper", improved.get("main.managed", set()))
+        self.assertIn("main.helper", improved.get("main.cleanup", set()))
+
+    def test_asynccontextmanager_preserves_generator_body_edges(self):
+        source = textwrap.dedent("""
+            from contextlib import asynccontextmanager
+
+            def helper():
+                return 1
+
+            @asynccontextmanager
+            async def managed():
+                yield helper()
+
+            async def run():
+                async with managed():
+                    pass
+            """)
+
+        improved = extract_call_graph_constraint(
+            source, allow_fixture_graph_loading=False
+        ).get()
+        self.assertIn("main.managed", improved.get("main.run", set()))
+        self.assertIn("main.helper", improved.get("main.managed", set()))
+
     def test_singledispatch_decorator_and_register_dispatch_by_runtime_type(self):
         source = textwrap.dedent("""
             from functools import singledispatch

@@ -745,6 +745,17 @@ class _StateAnalysisMixin:
                     and attr_name == "get"
                 ):
                     out.add(make_func("<**PyDict**>.get"))
+                if base_class_name == "collections.deque":
+                    deque_methods = {
+                        "append",
+                        "appendleft",
+                        "extend",
+                        "extendleft",
+                        "pop",
+                        "popleft",
+                    }
+                    if attr_name in deque_methods:
+                        out.add(make_func(f"<**PyDeque**>.{attr_name}"))
 
             elif base_value.kind == CONTAINER_KIND:
                 if base_value.name.startswith("dict:"):
@@ -758,6 +769,32 @@ class _StateAnalysisMixin:
                         out.add(make_func("<**PyDict**>.pop"))
                     elif attr_name == "get":
                         out.add(make_func("<**PyDict**>.get"))
+                container_kind = base_value.name.split(":", 1)[0].lower()
+                if container_kind in {"list", "listcomp", "tuple"}:
+                    list_methods = {
+                        "append",
+                        "extend",
+                        "insert",
+                        "pop",
+                        "sort",
+                    }
+                    if attr_name in list_methods:
+                        out.add(make_func(f"<**PyList**>.{attr_name}"))
+                elif container_kind == "set":
+                    set_methods = {"add", "update", "pop"}
+                    if attr_name in set_methods:
+                        out.add(make_func(f"<**PySet**>.{attr_name}"))
+                elif container_kind == "deque":
+                    deque_methods = {
+                        "append",
+                        "appendleft",
+                        "extend",
+                        "extendleft",
+                        "pop",
+                        "popleft",
+                    }
+                    if attr_name in deque_methods:
+                        out.add(make_func(f"<**PyDeque**>.{attr_name}"))
 
         return out
 

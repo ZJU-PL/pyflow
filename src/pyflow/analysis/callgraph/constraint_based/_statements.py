@@ -9,6 +9,8 @@ from typing import Dict, List, Sequence, Set, Tuple
 from .model import (
     AbstractValue,
     ContextKey,
+    COROUTINE_KIND,
+    GENERATOR_KIND,
     GLOBAL_CONTEXT,
     ScopeInfo,
     UNKNOWN_VALUE,
@@ -865,18 +867,38 @@ class _StatementAnalysisMixin:
                 input_changed_scope_contexts,
             )
             enter_targets = self._resolve_attribute(manager_values, enter_name)
+            entered_values: Set[AbstractValue] = set()
+            if not enter_targets:
+                for manager_value in manager_values:
+                    if manager_value.kind not in {
+                        COROUTINE_KIND,
+                        GENERATOR_KIND,
+                    }:
+                        continue
+                    entered_values.update(
+                        self._materialize_suspended_values(
+                            {manager_value},
+                            expected_kind=manager_value.kind,
+                            caller_scope=scope,
+                            caller_context=scope_context,
+                            env=env,
+                            input_changed_scope_contexts=input_changed_scope_contexts,
+                        )
+                    )
             enter_call = ast.copy_location(
                 ast.Call(func=item.context_expr, args=[], keywords=[]),
                 item.context_expr,
             )
-            entered_values = self._invoke_targets(
-                caller_scope=scope,
-                caller_context=scope_context,
-                target_values=enter_targets,
-                call_node=enter_call,
-                env=env,
-                callees=callees,
-                input_changed_scope_contexts=input_changed_scope_contexts,
+            entered_values.update(
+                self._invoke_targets(
+                    caller_scope=scope,
+                    caller_context=scope_context,
+                    target_values=enter_targets,
+                    call_node=enter_call,
+                    env=env,
+                    callees=callees,
+                    input_changed_scope_contexts=input_changed_scope_contexts,
+                )
             )
             if item.optional_vars is not None:
                 self._assign_target(
