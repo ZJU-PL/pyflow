@@ -165,6 +165,29 @@ class TestRegistryLoading:
         assert model.cwe == "CWE-502"
         assert model.sink_kinds == frozenset({"execdeserializationsink"})
 
+    def test_archery_database_engine_models(self):
+        registry = Registry()
+        detected = registry.detect(
+            ["from sql.engines import get_engine", "get_engine(instance=instance)"],
+            type="taint",
+        )
+        models = registry.active_models(type="taint")
+
+        assert "archery" in detected
+        query = models.model_for_name("query_engine.query")
+        assert query is not None
+        assert query.cwe == "CWE-89"
+        assert query.sink_arg_positions == frozenset({0, 1})
+
+        metadata = models.model_for_name("query_engine.get_group_tables_by_db")
+        assert metadata is not None
+        assert metadata.cwe == "CWE-89"
+        assert metadata.sink_arg_positions == frozenset({0})
+
+        sanitizer = models.model_for_name("query_engine.escape_string")
+        assert sanitizer is not None
+        assert sanitizer.sanitizer_kinds == frozenset({"*"})
+
     def test_stdlib_value_transforms_preserve_taint(self):
         registry = Registry()
         registry.activate("stdlib", type="taint")

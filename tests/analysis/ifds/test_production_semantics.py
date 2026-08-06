@@ -210,6 +210,36 @@ def generate(values):
     assert {"async_context_enter", "async_context_exit", "async_iter"} <= roles
 
 
+def test_constraint_callgraph_publishes_same_class_method_targets(tmp_path):
+    from pyflow.analysis.ifds.api import load_analysis_session
+
+    target = tmp_path / "methods.py"
+    target.write_text(
+        """
+class Reader:
+    def values(self):
+        yield 1
+
+    def read(self):
+        for value in self.values():
+            return value
+"""
+    )
+    session = load_analysis_session([target], entry_file=target)
+    effects = [
+        effect
+        for node in session.adapter.supergraph.ordered_nodes()
+        if node.procedure.code.codeName() == "Reader.read"
+        for effect in (session.adapter.effect_of(node),)
+        if isinstance(effect, CallEffect) and effect.call_name == "self.values"
+    ]
+
+    assert len(effects) == 1
+    assert {callee.code.codeName() for callee in effects[0].callees} == {
+        "Reader.values"
+    }
+
+
 def test_return_inside_try_runs_finally_before_procedure_exit():
     compiler = context.CompilerContext(None)
     cleanup = ast.Local("cleanup")

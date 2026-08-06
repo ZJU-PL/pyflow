@@ -21,14 +21,21 @@ def _scope_matches(code, scope: str) -> bool:
 
 
 def _target_codes(catalog, name: str):
-    short_name = name.rsplit(".", 1)[-1]
+    candidate_names = {name}
+    if name.startswith("main."):
+        candidate_names.add(name[len("main.") :])
+    short_names = {candidate.rsplit(".", 1)[-1] for candidate in candidate_names}
     matches = []
     for procedure in catalog.procedures():
         code = catalog.code(procedure.code_id)
         if (
-            procedure.code_id.qualname == name
-            or procedure.code_id.qualname.endswith(f".{name}")
-            or code.codeName() == short_name
+            procedure.code_id.qualname in candidate_names
+            or any(
+                procedure.code_id.qualname.endswith(f".{candidate}")
+                for candidate in candidate_names
+            )
+            or code.codeName() in candidate_names
+            or code.codeName() in short_names
         ):
             matches.append(code)
     return tuple(matches)

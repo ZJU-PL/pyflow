@@ -1,0 +1,117 @@
+{
+  "schema_version": 2,
+  "framework": "archery",
+  "version": "1.0",
+  "description": "Archery database-engine taint models",
+  "detection": {
+    "imports": [
+      "from sql.engines import get_engine",
+      "sql.engines"
+    ],
+    "patterns": [
+      "get_engine(",
+      ".escape_string(",
+      ".set_variable("
+    ]
+  },
+  "models": [
+    {
+      "call": "sql.engines.EngineBase.query",
+      "aliases": [
+        "query_engine.query",
+        "engine.query"
+      ],
+      "cwe": "CWE-89",
+      "severity": "high",
+      "suggestion": "Escape database identifiers and SQL fragments before passing them to an Archery query engine.",
+      "sinks": [
+        {
+          "kind": "sql",
+          "port": {
+            "parameter": 0
+          }
+        },
+        {
+          "kind": "sql",
+          "port": {
+            "parameter": 1
+          }
+        }
+      ]
+    },
+    {
+      "call": "sql.engines.EngineBase.get_group_tables_by_db",
+      "aliases": [
+        "query_engine.get_group_tables_by_db",
+        "engine.get_group_tables_by_db"
+      ],
+      "cwe": "CWE-89",
+      "severity": "high",
+      "suggestion": "Escape database names before using Archery metadata-query helpers.",
+      "sinks": [
+        {
+          "kind": "sql",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
+    },
+    {
+      "call": "sql.engines.EngineBase.set_variable",
+      "aliases": [
+        "query_engine.set_variable",
+        "engine.set_variable"
+      ],
+      "cwe": "CWE-89",
+      "severity": "high",
+      "suggestion": "Validate or escape database variable names and values before constructing SET statements.",
+      "sinks": [
+        {
+          "kind": "sql",
+          "port": {
+            "parameter": 0
+          }
+        },
+        {
+          "kind": "sql",
+          "port": {
+            "parameter": 1
+          }
+        }
+      ]
+    },
+    {
+      "call": "sql.engines.EngineBase.escape_string",
+      "aliases": [
+        "query_engine.escape_string",
+        "engine.escape_string"
+      ],
+      "sanitizers": [
+        {
+          "kinds": "all",
+          "port": "return"
+        }
+      ]
+    }
+  ],
+  "rules": [
+    {
+      "id": "PYFLOW-ARCHERY-SQL",
+      "title": "Untrusted data reaches an Archery database engine",
+      "sources": [
+        "user_input",
+        "network",
+        "untrusted",
+        "userdata"
+      ],
+      "sinks": [
+        "sql"
+      ],
+      "cwe": "CWE-89",
+      "severity": "high",
+      "suggestion": "Use the database engine's escaping or parameterization facilities before executing queries."
+    }
+  ],
+  "type": "taint"
+}

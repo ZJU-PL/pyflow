@@ -670,6 +670,34 @@ class InterproceduralTaintProblem(
                     )
             return tuple(outputs)
 
+        if isinstance(operation, (py_ast.Yield, py_ast.YieldFrom, py_ast.AsyncYield)):
+            outputs = set(self._identity_outputs(fact, ()))
+            expr = operation.expr
+            direct_fact = self._direct_expression_fact(expr, fact)
+            if direct_fact is not None:
+                path = self._access_path_from_fact(fact)
+                outputs.update(
+                    self._facts_for_return_location(
+                        node.procedure,
+                        0,
+                        access_path=path,
+                        template_fact=fact,
+                    )
+                )
+                return tuple(outputs)
+            for template in self._templates_for_expression(
+                node.procedure, expr, fact
+            ):
+                outputs.update(
+                    self._facts_for_return_location(
+                        node.procedure,
+                        0,
+                        access_path=self._access_path_for_expression(expr),
+                        template_fact=template,
+                    )
+                )
+            return tuple(outputs)
+
         if isinstance(
             operation,
             (

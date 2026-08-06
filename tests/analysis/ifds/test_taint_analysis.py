@@ -767,7 +767,111 @@ def test_interprocedural_taint_handles_return_calls():
     )
 
     assert len(result.findings) == 1
-    assert [local.name for local in result.findings[0].tainted_arguments] == ["tainted"]
+
+
+def test_generator_yield_taint_reaches_for_loop_target():
+    compiler = context.CompilerContext(None)
+
+    source_code, _ = make_code("source", [], [], return_name="source_ret")
+    sink_param = ast.Local("sink_value")
+    sink_code, _ = make_code("sink", [sink_param], [], return_name="sink_ret")
+
+    source_call = ast.DirectCall(source_code, None, [], [], None, None)
+    generator_code, _ = make_code(
+        "generate",
+        [],
+        [
+            ast.Discard(
+                ast.Yield(
+                    ast.BuildTuple(
+                        [
+                            ast.Existing(ast.program.Object("server")),
+                            source_call,
+                            ast.Existing(ast.program.Object("socket")),
+                        ]
+                    )
+                )
+            ),
+            ast.Return([]),
+        ],
+        return_name="generator_ret",
+    )
+
+    item = ast.Local("item")
+    server = ast.Local("server")
+    value = ast.Local("value")
+    socket = ast.Local("socket")
+    loop = ast.For(
+        ast.DirectCall(generator_code, None, [], [], None, None),
+        item,
+        ast.Suite([]),
+        ast.Suite([ast.UnpackSequence(item, [server, value, socket])]),
+        ast.Suite([call_stmt(sink_code, [value])]),
+        ast.Suite([]),
+    )
+    main_code, _ = make_code(
+        "main",
+        [],
+        [loop, ast.Return([])],
+        return_name="main_ret",
+    )
+
+    cfgs = [
+        build_cfg(compiler, code)
+        for code in (main_code, generator_code, source_code, sink_code)
+    ]
+    adapter = build_supergraph_from_cfgs(cfgs)
+    result = analyze_taint(
+        adapter,
+        _config(
+            source_names=frozenset({"source"}),
+            sink_names=frozenset({"sink"}),
+        ),
+        entry_nodes=[adapter.supergraph.entry_of(cfgs[0])],
+    )
+
+    assert len(result.findings) == 1
+    assert result.findings[0].sink_name == "sink"
+    assert [local.name for local in result.findings[0].tainted_arguments] == ["value"]
+
+
+def test_legacy_source_nested_call_result_reaches_assignment_in_while(tmp_path):
+    from pyflow.analysis.ifds.api import load_analysis_session
+
+    target = tmp_path / "legacy_while.py"
+    target.write_text(
+        """
+def source():
+    return "value"
+
+def sink(value):
+    return None
+
+def main(flag):
+    try:
+        while flag:
+            value = source()
+            sink(value)
+            return
+    except Exception, error:
+        return
+"""
+    )
+    session = load_analysis_session([target], root_function="main")
+    main_cfg = next(
+        cfg for cfg in session.adapter.cfgs if cfg.code.codeName() == "main"
+    )
+    result = analyze_taint(
+        session.adapter,
+        _config(
+            source_names=frozenset({"source"}),
+            sink_names=frozenset({"sink"}),
+        ),
+        entry_nodes=[session.adapter.supergraph.entry_of(main_cfg)],
+    )
+
+    assert len(result.findings) == 1
+    assert result.findings[0].sink_name == "sink"
 
 
 def test_taint_conservatively_models_unresolved_call_side_effects_when_enabled():

@@ -795,6 +795,8 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
             if child_result:
                 return child_result
 
+        if nested:
+            return set()
         return {
             self._make_expression_fact(
                 procedure, call_expression, return_index, template_fact
@@ -1051,6 +1053,28 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
     def _nested_operations(self, operation: object) -> tuple[object, ...]:
         if isinstance(operation, py_ast.Suite):
             return tuple(operation.blocks)
+        if isinstance(operation, py_ast.Condition):
+            return (*tuple(operation.preamble.blocks), operation.conditional)
+        if isinstance(operation, py_ast.Switch):
+            return (
+                operation.condition,
+                *tuple(operation.t.blocks),
+                *tuple(operation.f.blocks),
+            )
+        if isinstance(operation, py_ast.While):
+            return (
+                operation.condition,
+                *tuple(operation.body.blocks),
+                *tuple(operation.else_.blocks),
+            )
+        if isinstance(operation, py_ast.For):
+            return (
+                *tuple(operation.loopPreamble.blocks),
+                operation.iterator,
+                *tuple(operation.bodyPreamble.blocks),
+                *tuple(operation.body.blocks),
+                *tuple(operation.else_.blocks),
+            )
         if isinstance(operation, py_ast.TryExceptFinally):
             nested = list(operation.body.blocks)
             for handler in operation.handlers:
