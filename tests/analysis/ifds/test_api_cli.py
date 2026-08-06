@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import importlib
+import inspect
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -43,6 +44,13 @@ def main():
     sink(c)
     return c
 """
+
+
+def test_run_taint_analysis_defaults_to_drop_unknown_calls():
+    parameter = inspect.signature(run_taint_analysis).parameters[
+        "unknown_call_policy"
+    ]
+    assert parameter.default == "drop"
 
 
 def _taint_setup(sources, sinks, sanitizers=()):
@@ -879,6 +887,41 @@ def test_run_taint_analysis_entry_file_follows_cross_module_calls(tmp_path):
     )
 
     assert len(result.findings) == 1
+
+
+def test_entry_file_public_handler_follows_cross_module_calls(tmp_path):
+    entry = tmp_path / "entry.py"
+    helper = tmp_path / "helper.py"
+    unused = tmp_path / "unused.py"
+    entry.write_text(
+        "from helper import flow\n"
+        "def route_handler():\n"
+        "    flow()\n",
+        encoding="utf-8",
+    )
+    helper.write_text(
+        "def source():\n"
+        "    return 1\n"
+        "def sink(value):\n"
+        "    return value\n"
+        "def flow():\n"
+        "    sink(source())\n",
+        encoding="utf-8",
+    )
+    unused.write_text("def dead():\n    return 0\n", encoding="utf-8")
+
+    session, result, _ = run_taint_analysis(
+        [entry, helper, unused],
+        entry_file=entry,
+        **_taint_setup(["source"], ["sink"]),
+    )
+
+    assert len(result.findings) == 1
+    analyzed_names = {
+        procedure.code.codeName()
+        for procedure in session.adapter.supergraph.procedures()
+    }
+    assert "dead" not in analyzed_names
 
 
 def test_run_taint_analysis_includes_module_top_level_of_requested_file(tmp_path):

@@ -6,7 +6,9 @@
   "detection": {
     "imports": [
       "dill",
-      "import dill"
+      "import dill",
+      "cloudpickle",
+      "import cloudpickle"
     ]
   },
   "models": [
@@ -49,6 +51,34 @@
     {
       "call": "dill._dill.loads",
       "severity": "medium",
+      "sinks": [
+        {
+          "kind": "execdeserializationsink",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
+    },
+    {
+      "call": "cloudpickle.load",
+      "cwe": "CWE-502",
+      "severity": "high",
+      "suggestion": "Do not deserialize cloudpickle data from untrusted or attacker-controlled files.",
+      "sinks": [
+        {
+          "kind": "execdeserializationsink",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
+    },
+    {
+      "call": "cloudpickle.loads",
+      "cwe": "CWE-502",
+      "severity": "high",
+      "suggestion": "Do not deserialize cloudpickle data from untrusted or attacker-controlled bytes.",
       "sinks": [
         {
           "kind": "execdeserializationsink",

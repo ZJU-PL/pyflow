@@ -69,7 +69,7 @@ def generate_ast(path):
         # Keep retry state local to this call. A module-level mutable flag causes
         # cross-call leakage when multiple files are analyzed in the same process.
         for attempt in range(2):
-            with open(path, "r", encoding="utf-8") as f:
+            with open(path, "r", encoding="utf-8", errors="replace") as f:
                 try:
                     tree = ast.parse(f.read())
                     return PytTransformer().visit(tree)

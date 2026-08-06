@@ -690,7 +690,14 @@ class _FixpointSolverMixin:
 
         def _is_seed_scope(scope_name: str) -> bool:
             if self.options.analyze_reachable_only:
-                return scope_name in self.modules
+                # ``main`` is the requested entry module.  Additional modules
+                # are available for import/call resolution, but seeding every
+                # one as an independent root defeats entry-rooted analysis and
+                # makes large repositories converge over unrelated code.
+                return scope_name == "main" or (
+                    self.options.seed_entry_file_scopes
+                    and self.scopes[scope_name].module == "main"
+                )
             if scope_name in self.modules:
                 return True
             class_info = self.classes.get(scope_name)
@@ -744,11 +751,37 @@ class _FixpointSolverMixin:
                 self.solver_stats.max_queue_size, len(in_queue)
             )
 
+        root_context = self._root_context()
         for scope_name in self.scopes:
             if _is_seed_scope(scope_name):
+                scope = self.scopes[scope_name]
+                if (
+                    self.options.seed_entry_file_scopes
+                    and scope.module == "main"
+                    and (scope.method_self_param or scope.method_cls_param)
+                ):
+                    owner_class = self._owner_class_for_scope(scope_name)
+                    if owner_class is not None:
+                        normalized = self._normalize_context_for_scope(
+                            scope_name, root_context
+                        )
+                        inputs = self.scope_inputs.setdefault(
+                            (scope_name, normalized),
+                            {param: set() for param in scope.params},
+                        )
+                        if scope.method_self_param:
+                            self._merge_value_set(
+                                inputs.setdefault(scope.method_self_param, set()),
+                                {make_instance(owner_class)},
+                            )
+                        if scope.method_cls_param:
+                            self._merge_value_set(
+                                inputs.setdefault(scope.method_cls_param, set()),
+                                {make_class(owner_class)},
+                            )
                 _enqueue(
                     scope_name,
-                    self._root_context(),
+                    root_context,
                     reason_weight=4,
                     reason_tag="seed",
                 )

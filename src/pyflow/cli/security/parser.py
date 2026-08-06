@@ -146,7 +146,8 @@ def add_security_parser(subparsers):
         default=argparse.SUPPRESS,
         help=(
             "Semantics for unresolved calls: drop taint, preserve argument "
-            "taint into the return value, or conservatively havoc arguments."
+            "taint into the return value, or conservatively havoc arguments "
+            "(default: drop)."
         ),
     )
     p.add_argument(

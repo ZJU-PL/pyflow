@@ -281,12 +281,19 @@ def _sink_positions(entries: object) -> FrozenSet[int]:
         parameter = port.get("parameter")
         if isinstance(parameter, int) and not isinstance(parameter, bool):
             positions.add(parameter)
-    return frozenset(positions or {0})
+    return frozenset(positions)
 
 
 def _sink_all_arguments(entries: object) -> bool:
     return isinstance(entries, list) and any(
         isinstance(entry, dict) and entry.get("port") == "all" for entry in entries
+    )
+
+
+def _sink_receiver(entries: object) -> bool:
+    return isinstance(entries, list) and any(
+        isinstance(entry, dict) and entry.get("port") == "receiver"
+        for entry in entries
     )
 
 
@@ -437,6 +444,7 @@ def _call_model_from_entry(entry: dict) -> CallModel | None:
         taint_propagations=_taint_propagations(entry.get("propagations")),
         sink_arg_positions=_sink_positions(entry.get("sinks")),
         sink_all_arguments=_sink_all_arguments(entry.get("sinks")),
+        sink_receiver=_sink_receiver(entry.get("sinks")),
         cwe=_optional_str(entry.get("cwe")),
         severity=_optional_str(entry.get("severity")),
         suggestion=_optional_str(entry.get("suggestion")),
@@ -741,10 +749,16 @@ def _validate_taint_model(entry: dict, location: str, error) -> None:
             port = endpoint.get("port")
             if key == "sources" and port != "return":
                 error(f"{endpoint_location}.port", "source port must be 'return'")
-            if key == "sinks" and port != "all" and not _valid_parameter_port(port):
+            if (
+                key == "sinks"
+                and port != "all"
+                and port != "receiver"
+                and not _valid_parameter_port(port)
+            ):
                 error(
                     f"{endpoint_location}.port",
-                    "sink port must be 'all' or contain a non-negative parameter index",
+                    "sink port must be 'all', 'receiver', or contain a "
+                    "non-negative parameter index",
                 )
 
     sanitizers = entry.get("sanitizers", [])

@@ -10,7 +10,12 @@ from pyflow.analysis.taint import TaintRule, sink_behavior_is_active
 from pyflow.ir.cfg import graph as cfg_graph
 from pyflow.language.python import ast as py_ast
 
-from ..modeling.calls import CallModelRegistry
+from ..modeling.calls import (
+    CallModel,
+    CallModelRegistry,
+    TaintModelPort,
+    TaintPropagation,
+)
 from ..diagnostics import IFDSDiagnostic
 from .base import AnnotatedFactProblemBase, build_entry_seeds
 from ..frontend.cfg_adapter import CFGNode, CFGSupergraphAdapter, assigned_locals
@@ -37,6 +42,133 @@ _SHELL_OPTION_SUBPROCESS_CALLS = frozenset(
     {"call", "check_call", "check_output", "popen", "run"}
 )
 _SQL_QUERY_ARGUMENT_CALLS = frozenset({"execute", "executemany", "executescript"})
+_RECEIVER_PRESERVING_METHODS = frozenset({"read", "readline", "readlines"})
+
+
+def _entry_parameter_source_kinds(rules: Sequence[TaintRule]) -> FrozenSet[str]:
+    """Choose the smallest useful kind set for generic boundary parameters.
+
+    A file-public parameter has one unknown external origin, not one distinct
+    origin for every spelling accepted by every rule.  Select representative
+    kinds that collectively keep every rule eligible.  This avoids multiplying
+    the complete IFDS state space when rule packs list broad equivalent source
+    categories.
+    """
+    uncovered = set(range(len(rules)))
+    selected: set[str] = set()
+    candidates = {kind for rule in rules for kind in rule.source_kinds}
+    preference = {
+        CATEGORY_USER_INPUT: 0,
+        "untrusted": 1,
+        "userdata": 2,
+    }
+    while uncovered:
+        best = min(
+            candidates,
+            key=lambda kind: (
+                -sum(kind in rules[index].source_kinds for index in uncovered),
+                preference.get(kind, 3),
+                kind,
+            ),
+        )
+        selected.add(best)
+        uncovered = {
+            index for index in uncovered if best not in rules[index].source_kinds
+        }
+        candidates.remove(best)
+    return frozenset(selected)
+
+
+def _preserving_intrinsic(name: str, *, parameter: int | None = None) -> CallModel:
+    """Model a lowered Python operation whose result is derived from its inputs."""
+    source = (
+        TaintModelPort("all")
+        if parameter is None
+        else TaintModelPort("parameter", parameter=parameter)
+    )
+    return CallModel(
+        name=name,
+        taint_propagations=frozenset(
+            {TaintPropagation(source, TaintModelPort("return"))}
+        ),
+    )
+
+
+def _predicate_intrinsic(name: str) -> CallModel:
+    """Model a lowered Python predicate as returning an untainted boolean."""
+    return CallModel(name=name, sanitizer_kinds=frozenset({"*"}))
+
+
+_PYTHON_SEMANTIC_CALL_MODELS = CallModelRegistry(
+    [
+        *(
+            _preserving_intrinsic(name)
+            for name in (
+                "interpreter__add__",
+                "interpreter__sub__",
+                "interpreter__mul__",
+                "interpreter__div__",
+                "interpreter__truediv__",
+                "interpreter__floordiv__",
+                "interpreter__mod__",
+                "interpreter__pow__",
+                "interpreter__and__",
+                "interpreter__or__",
+                "interpreter__xor__",
+                "interpreter__lshift__",
+                "interpreter__rshift__",
+                "interpreter__neg__",
+                "interpreter__pos__",
+                "interpreter__invert__",
+                "interpreter_booland",
+                "interpreter_boolor",
+                "interpreter_ifexp",
+                "interpreter_format",
+                "interpreter_join_str",
+                "interpreter_build_map",
+                "interpreter_build_set",
+            )
+        ),
+        _preserving_intrinsic("interpreter_getitem", parameter=0),
+        _preserving_intrinsic("interpreter_getattr", parameter=0),
+        _preserving_intrinsic("interpreter_getattribute", parameter=0),
+        _preserving_intrinsic("object__getattribute__", parameter=0),
+        _preserving_intrinsic("interpreter_match_rest", parameter=0),
+        _preserving_intrinsic("interpreter_match_mapping_rest", parameter=0),
+        *(
+            _predicate_intrinsic(name)
+            for name in (
+                "interpreter__eq__",
+                "interpreter__ne__",
+                "interpreter__lt__",
+                "interpreter__le__",
+                "interpreter__gt__",
+                "interpreter__ge__",
+                "interpreter__is__",
+                "interpreter__is_not__",
+                "interpreter__contains__",
+                "convertToBool",
+                "invertedConvertToBool",
+                "interpreter_match_sequence_len",
+                "interpreter_match_sequence_len_min",
+                "interpreter_match_mapping_len",
+                "interpreter_match_class",
+                "interpreter_exception_type",
+                "interpreter_exit",
+                "interpreter_aexit",
+            )
+        ),
+    ]
+)
+
+_PYTHON_MUTATION_INTRINSICS = frozenset(
+    {
+        "interpreter_delitem",
+        "interpreter_list_append",
+        "interpreter_setattr",
+        "interpreter_setitem",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -206,6 +338,56 @@ class InterproceduralTaintProblem(
             )
         )
 
+    def _call_model_for_node(self, node: CFGNode):
+        model = super()._call_model_for_node(node)
+        if model is not None:
+            return model
+        call_name = self._call_name(node)
+        model = _PYTHON_SEMANTIC_CALL_MODELS.model_for_name(call_name)
+        if model is not None:
+            return model
+        if (
+            call_name is not None
+            and call_name.rsplit(".", 1)[-1] in _RECEIVER_PRESERVING_METHODS
+        ):
+            return CallModel(
+                name=call_name,
+                taint_propagations=frozenset(
+                    {
+                        TaintPropagation(
+                            TaintModelPort("receiver"),
+                            TaintModelPort("return"),
+                        )
+                    }
+                ),
+            )
+        return None
+
+    def _call_model_for_expression(self, expr: object):
+        model = super()._call_model_for_expression(expr)
+        if model is not None:
+            return model
+        call_name = self._call_name_from_expression(expr)
+        model = _PYTHON_SEMANTIC_CALL_MODELS.model_for_name(call_name)
+        if model is not None:
+            return model
+        if (
+            call_name is not None
+            and call_name.rsplit(".", 1)[-1] in _RECEIVER_PRESERVING_METHODS
+        ):
+            return CallModel(
+                name=call_name,
+                taint_propagations=frozenset(
+                    {
+                        TaintPropagation(
+                            TaintModelPort("receiver"),
+                            TaintModelPort("return"),
+                        )
+                    }
+                ),
+            )
+        return None
+
     def _record_semantic_diagnostic(
         self,
         *,
@@ -247,13 +429,15 @@ class InterproceduralTaintProblem(
         if not self.configuration.entry_point_options.taint_parameters:
             return {node: frozenset(facts) for node, facts in seeds.items()}
 
-        source_kinds = frozenset(
-            kind for rule in self.configuration.rules for kind in rule.source_kinds
-        )
+        source_kinds = _entry_parameter_source_kinds(self.configuration.rules)
         for node in self.entry_nodes:
             parameters = formal_parameters(node.procedure.code.codeparameters)
             for parameter in parameters:
-                if parameter.name in {"self", "cls"}:
+                # Public instance methods receive externally initialized object
+                # state through ``self``.  Treat the receiver as a boundary
+                # input just like explicit parameters; ``cls`` denotes class
+                # metadata rather than per-request/per-object state.
+                if parameter.name == "cls":
                     continue
                 for location in self._locations_for_local(node.procedure, parameter):
                     seeds[node].update(
@@ -751,6 +935,8 @@ class InterproceduralTaintProblem(
                 call_node.procedure, contract.input, source_expressions, fact
             ):
                 continue
+            if contract.mutates_input:
+                outputs.discard(fact)
             for output_kind in contract.transform_kind(fact.kind):
                 transformed = self._fact_with_kind(fact, output_kind)
                 outputs.update(
@@ -940,6 +1126,16 @@ class InterproceduralTaintProblem(
             return None
 
         call_name = call_effect.call_name or "<dynamic>"
+        leaf_name = call_name.rsplit(".", 1)[-1]
+        if (
+            call_name in _PYTHON_MUTATION_INTRINSICS
+            or leaf_name in self.configuration.collection_mutator_names
+        ):
+            # These calls return no useful value.  Let the normal-flow transfer
+            # apply the existing heap/container mutation semantics instead of
+            # short-circuiting them with unknown-call return propagation.
+            return None
+
         self._record_semantic_diagnostic(
             code="IFDS-TAINT-UNKNOWN-CALL",
             message=(
@@ -1140,6 +1336,7 @@ class InterproceduralTaintProblem(
             call_effect = self._call_effect(node)
             sink_name: str | None = None
             sink_expressions: tuple[object, ...] = ()
+            sink_receiver_position: int | None = None
             model = None
             if call_effect is not None:
                 sink_name = call_effect.call_name or "<sink>"
@@ -1147,6 +1344,22 @@ class InterproceduralTaintProblem(
                     call_effect.call_expression
                 )
                 model = self._call_model_for_node(node)
+                if model is not None and model.sink_receiver:
+                    receiver = self._call_receiver_expression(
+                        call_effect.call_expression
+                    )
+                    if receiver is not None:
+                        sink_receiver_position = next(
+                            (
+                                index
+                                for index, expression in enumerate(sink_expressions)
+                                if expression is receiver
+                            ),
+                            None,
+                        )
+                        if sink_receiver_position is None:
+                            sink_receiver_position = len(sink_expressions)
+                            sink_expressions = (*sink_expressions, receiver)
             else:
                 operation = self.adapter.operation_of(node)
                 if isinstance(operation, py_ast.SetAttr):
@@ -1187,7 +1400,10 @@ class InterproceduralTaintProblem(
                     result,
                     source_kind=source_kind,
                     positions=self._sink_positions_for_call(
-                        sink_name or "", model, len(sink_expressions)
+                        sink_name or "",
+                        model,
+                        len(sink_expressions),
+                        receiver_position=sink_receiver_position,
                     ),
                 )
                 if not (tainted_args or tainted_labels):
@@ -1241,7 +1457,12 @@ class InterproceduralTaintProblem(
         return sink_behavior_is_active(model.sink_behavior, constants)
 
     def _sink_positions_for_call(
-        self, sink_name: str, model, argument_count: int
+        self,
+        sink_name: str,
+        model,
+        argument_count: int,
+        *,
+        receiver_position: int | None = None,
     ) -> frozenset[int]:
         """Normalize model ports to explicit arguments in source-level calls."""
         if (
@@ -1253,6 +1474,8 @@ class InterproceduralTaintProblem(
         if model.sink_all_arguments:
             return frozenset(range(argument_count))
         positions = set(model.sink_arg_positions)
+        if model.sink_receiver and receiver_position is not None:
+            positions.add(receiver_position)
         for propagation in model.taint_propagations:
             if propagation.target.kind != "sink":
                 continue

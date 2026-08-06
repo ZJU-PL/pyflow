@@ -523,28 +523,28 @@
     },
     {
       "call": "json.dumps",
-      "sanitizers": [
+      "propagations": [
         {
-          "kinds": "all",
-          "port": "return"
+          "from": "all",
+          "to": "return"
         }
       ]
     },
     {
       "call": "repr",
-      "sanitizers": [
+      "propagations": [
         {
-          "kinds": "all",
-          "port": "return"
+          "from": "all",
+          "to": "return"
         }
       ]
     },
     {
       "call": "str",
-      "sanitizers": [
+      "propagations": [
         {
-          "kinds": "all",
-          "port": "return"
+          "from": "all",
+          "to": "return"
         }
       ]
     },
@@ -725,37 +725,45 @@
     },
     {
       "call": "str.strip",
-      "sanitizers": [
+      "aliases": [
+        "str.capitalize",
+        "str.casefold",
+        "str.encode",
+        "str.expandtabs",
+        "str.lower",
+        "str.lstrip",
+        "str.rstrip",
+        "str.swapcase",
+        "str.title",
+        "str.upper",
+        "str.zfill"
+      ],
+      "propagations": [
         {
-          "kinds": "all",
-          "port": "return"
-        }
-      ]
-    },
-    {
-      "call": "str.lstrip",
-      "sanitizers": [
+          "from": "receiver",
+          "to": "return"
+        },
         {
-          "kinds": "all",
-          "port": "return"
-        }
-      ]
-    },
-    {
-      "call": "str.rstrip",
-      "sanitizers": [
-        {
-          "kinds": "all",
-          "port": "return"
+          "from": "all",
+          "to": "return"
         }
       ]
     },
     {
       "call": "str.replace",
-      "sanitizers": [
+      "aliases": [
+        "str.removeprefix",
+        "str.removesuffix",
+        "str.translate"
+      ],
+      "propagations": [
         {
-          "kinds": "all",
-          "port": "return"
+          "from": "receiver",
+          "to": "return"
+        },
+        {
+          "from": "all",
+          "to": "return"
         }
       ]
     },
@@ -2799,9 +2807,7 @@
       "sinks": [
         {
           "kind": "formatstring",
-          "port": {
-            "parameter": 0
-          }
+          "port": "receiver"
         }
       ]
     },
@@ -2829,6 +2835,96 @@
       "propagations": [
         {
           "from": "all",
+          "to": "return"
+        }
+      ]
+    },
+    {
+      "call": "str.join",
+      "propagations": [
+        {
+          "from": "receiver",
+          "to": "return"
+        },
+        {
+          "from": "all",
+          "to": "return"
+        }
+      ]
+    },
+    {
+      "call": "str.split",
+      "aliases": [
+        "str.partition",
+        "str.rpartition",
+        "str.rsplit",
+        "str.splitlines"
+      ],
+      "propagations": [
+        {
+          "from": "receiver",
+          "to": "return"
+        },
+        {
+          "from": "receiver",
+          "to": {
+            "kind": "return",
+            "path": [
+              "[*]"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "call": "re.match",
+      "aliases": [
+        "re.fullmatch",
+        "re.search",
+        "re.Pattern.fullmatch",
+        "re.Pattern.match",
+        "re.Pattern.search"
+      ],
+      "propagations": [
+        {
+          "from": "all",
+          "to": "return"
+        }
+      ]
+    },
+    {
+      "call": "re.Match.group",
+      "aliases": [
+        "re.Match.groupdict",
+        "re.Match.groups"
+      ],
+      "propagations": [
+        {
+          "from": "receiver",
+          "to": "return"
+        }
+      ]
+    },
+    {
+      "call": "io.BytesIO",
+      "aliases": [
+        "io.StringIO"
+      ],
+      "propagations": [
+        {
+          "from": "all",
+          "to": "return"
+        }
+      ]
+    },
+    {
+      "call": "io.BytesIO.getvalue",
+      "aliases": [
+        "io.StringIO.getvalue"
+      ],
+      "propagations": [
+        {
+          "from": "receiver",
           "to": "return"
         }
       ]
@@ -2908,8 +3004,25 @@
     },
     {
       "call": "tarfile.TarFile.open",
+      "aliases": [
+        "tarfile.open"
+      ],
       "cwe": "CWE-22",
       "severity": "high",
+      "sources": [
+        {
+          "kind": "file",
+          "port": "return"
+        }
+      ],
+      "propagations": [
+        {
+          "from": {
+            "parameter": 0
+          },
+          "to": "return"
+        }
+      ],
       "sinks": [
         {
           "kind": "file",
@@ -2956,6 +3069,10 @@
       "severity": "high",
       "suggestion": "Validate archive member names and extraction destinations before writing files.",
       "sinks": [
+        {
+          "kind": "file",
+          "port": "receiver"
+        },
         {
           "kind": "file",
           "port": {
@@ -3099,6 +3216,15 @@
           "port": {
             "parameter": 2
           }
+        }
+      ]
+    },
+    {
+      "call": "urllib.request.urlopen",
+      "sources": [
+        {
+          "kind": "network",
+          "port": "return"
         }
       ]
     },
@@ -3363,6 +3489,10 @@
       "sinks": [
         {
           "kind": "file",
+          "port": "receiver"
+        },
+        {
+          "kind": "file",
           "port": {
             "parameter": 0
           }
@@ -3381,13 +3511,15 @@
         "all",
         "any",
         "hasattr",
+        "isinstance",
         "issubclass",
         "os.path.exists",
         "os.path.isdir",
         "os.path.isfile",
         "os.path.islink",
         "os.path.ismount",
-        "os.path.lexists"
+        "os.path.lexists",
+        "range"
       ],
       "sanitizers": [
         {
@@ -3416,6 +3548,15 @@
     },
     {
       "call": "socket.recv",
+      "sources": [
+        {
+          "kind": "network",
+          "port": "return"
+        }
+      ]
+    },
+    {
+      "call": "socket.socket.makefile",
       "sources": [
         {
           "kind": "network",

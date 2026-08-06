@@ -26,6 +26,7 @@ def prepare_program_for_ifds(
     get_cfg: Callable[[object], object],
     run_pipeline: Callable[[], None] | None = None,
     supplemental_live_codes: Sequence[object] = (),
+    analysis_codes: Sequence[object] | None = None,
 ) -> PreparedIFDSArtifacts:
     """Prepare a complete program for IFDS or propagate the original failure."""
 
@@ -37,7 +38,12 @@ def prepare_program_for_ifds(
     if supplemental_live_codes:
         program.liveCode.update(supplemental_live_codes)
 
-    cfgs = [get_cfg(code) for code in getattr(program, "liveCode", ())]
+    codes = (
+        tuple(analysis_codes)
+        if analysis_codes is not None
+        else tuple(getattr(program, "liveCode", ()))
+    )
+    cfgs = [get_cfg(code) for code in codes]
 
     if not cfgs:
         raise TemporaryLimitation("Unable to build any CFGs for IFDS analysis.")

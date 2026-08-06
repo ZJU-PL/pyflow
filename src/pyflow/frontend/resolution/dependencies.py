@@ -1432,7 +1432,7 @@ class DependencyResolver:
     def _load_source(self, file_path: str) -> str:
         if file_path in self.source_files:
             return self.source_files[file_path]
-        with open(file_path, "r", encoding="utf-8") as f:
+        with open(file_path, "r", encoding="utf-8", errors="replace") as f:
             return f.read()
 
     def get_import_graph(self) -> Dict[str, List[str]]:

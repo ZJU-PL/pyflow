@@ -20,6 +20,7 @@ from pyflow.analysis.ifds.modeling.calls import (
     TaintPropagation,
     TaintSanitizerContract,
 )
+from pyflow.analysis.ifds.analyses.taint import _entry_parameter_source_kinds
 from pyflow.analysis.taint import TaintRule
 from pyflow.language.python import ast
 
@@ -218,6 +219,62 @@ def test_file_scan_entry_parameters_are_external_taint_sources():
     assert len(result.findings) == 1
     assert result.findings[0].sink_name == "sink"
     assert [local.name for local in result.findings[0].tainted_arguments] == ["value"]
+
+
+def test_entry_parameter_kinds_cover_rules_without_duplicate_equivalent_facts():
+    rules = (
+        TaintRule(
+            "A",
+            "A",
+            frozenset({"user_input", "file", "network"}),
+            frozenset({"sink-a"}),
+        ),
+        TaintRule(
+            "B",
+            "B",
+            frozenset({"user_input", "database"}),
+            frozenset({"sink-b"}),
+        ),
+    )
+
+    assert _entry_parameter_source_kinds(rules) == frozenset({"user_input"})
+
+
+def test_entry_parameter_kinds_retain_disjoint_rule_coverage():
+    rules = (
+        TaintRule("A", "A", frozenset({"file"}), frozenset({"sink-a"})),
+        TaintRule("B", "B", frozenset({"network"}), frozenset({"sink-b"})),
+    )
+
+    assert _entry_parameter_source_kinds(rules) == frozenset({"file", "network"})
+
+
+def test_file_scan_instance_receiver_is_an_external_boundary_input():
+    compiler = context.CompilerContext(None)
+    receiver = ast.Local("self")
+    sink_value = ast.Local("sink_value")
+    sink_code, _ = make_code("sink", [sink_value], [], return_name="sink_ret")
+    entry_code, _ = make_code(
+        "handler",
+        [receiver],
+        [call_stmt(sink_code, [receiver])],
+        return_name="handler_ret",
+    )
+    cfg = build_cfg(compiler, entry_code)
+    sink_cfg = build_cfg(compiler, sink_code)
+    adapter = build_supergraph_from_cfgs([cfg, sink_cfg])
+
+    result = analyze_taint(
+        adapter,
+        _config(
+            sink_names=frozenset({"sink"}),
+            entry_point_options=EntryPointOptions(taint_parameters=True),
+        ),
+        entry_nodes=[adapter.supergraph.entry_of(cfg)],
+    )
+
+    assert len(result.findings) == 1
+    assert result.findings[0].tainted_arguments == (receiver,)
 
 
 def test_attribute_assignment_can_be_a_modeled_sink():
@@ -2065,6 +2122,214 @@ def test_unknown_call_preserve_taints_return_without_havocing_other_arguments():
     assert any(item.code == "IFDS-TAINT-UNKNOWN-CALL" for item in result.diagnostics)
 
 
+def test_python_value_intrinsic_propagates_without_unknown_call_fallback():
+    compiler = context.CompilerContext(None)
+    source_code, _ = make_code("source", [], [], return_name="source_ret")
+    sink_value = ast.Local("sink_value")
+    sink_code, _ = make_code("sink", [sink_value], [], return_name="sink_ret")
+    tainted = ast.Local("tainted")
+    result_value = ast.Local("result_value")
+    main_code, _ = make_code(
+        "main",
+        [],
+        [
+            call_stmt(source_code, [], [tainted]),
+            ast.Assign(
+                ast.Call(
+                    ast.Existing(ast.program.Object("interpreter__add__")),
+                    [tainted, ast.Existing(ast.program.Object("suffix"))],
+                    [],
+                    None,
+                    None,
+                ),
+                [result_value],
+            ),
+            call_stmt(sink_code, [result_value]),
+        ],
+        return_name="main_ret",
+    )
+    cfgs = [
+        build_cfg(compiler, code) for code in (main_code, source_code, sink_code)
+    ]
+    adapter = build_supergraph_from_cfgs(cfgs)
+
+    result = analyze_taint(
+        adapter,
+        _config(
+            source_names=frozenset({"source"}),
+            sink_names=frozenset({"sink"}),
+            unknown_call_policy="drop",
+        ),
+        entry_nodes=[adapter.supergraph.entry_of(cfgs[0])],
+    )
+
+    assert len(result.findings) == 1
+    assert result.findings[0].tainted_arguments == (result_value,)
+    assert not any(
+        item.code == "IFDS-TAINT-UNKNOWN-CALL" for item in result.diagnostics
+    )
+
+
+def test_python_predicate_intrinsic_drops_taint_under_preserve_policy():
+    compiler = context.CompilerContext(None)
+    source_code, _ = make_code("source", [], [], return_name="source_ret")
+    sink_value = ast.Local("sink_value")
+    sink_code, _ = make_code("sink", [sink_value], [], return_name="sink_ret")
+    tainted = ast.Local("tainted")
+    predicate = ast.Local("predicate")
+    main_code, _ = make_code(
+        "main",
+        [],
+        [
+            call_stmt(source_code, [], [tainted]),
+            ast.Assign(
+                ast.Call(
+                    ast.Existing(ast.program.Object("interpreter__eq__")),
+                    [tainted, ast.Existing(ast.program.Object("expected"))],
+                    [],
+                    None,
+                    None,
+                ),
+                [predicate],
+            ),
+            call_stmt(sink_code, [predicate]),
+        ],
+        return_name="main_ret",
+    )
+    cfgs = [
+        build_cfg(compiler, code) for code in (main_code, source_code, sink_code)
+    ]
+    adapter = build_supergraph_from_cfgs(cfgs)
+
+    result = analyze_taint(
+        adapter,
+        _config(
+            source_names=frozenset({"source"}),
+            sink_names=frozenset({"sink"}),
+            unknown_call_policy="preserve",
+        ),
+        entry_nodes=[adapter.supergraph.entry_of(cfgs[0])],
+    )
+
+    assert result.findings == ()
+    assert not any(
+        item.code == "IFDS-TAINT-UNKNOWN-CALL" for item in result.diagnostics
+    )
+
+
+def test_receiver_sink_checks_receiver_instead_of_method_arguments():
+    compiler = context.CompilerContext(None)
+    source_code, _ = make_code("source", [], [], return_name="source_ret")
+    tainted = ast.Local("tainted")
+    clean = ast.Local("clean")
+    main_code, _ = make_code(
+        "main",
+        [],
+        [
+            call_stmt(source_code, [], [tainted]),
+            ast.Assign(ast.Existing(ast.program.Object("clean")), [clean]),
+            ast.Discard(
+                ast.MethodCall(clean, ast.Local("format"), [tainted], [], None, None)
+            ),
+            ast.Discard(
+                ast.MethodCall(tainted, ast.Local("format"), [clean], [], None, None)
+            ),
+        ],
+        return_name="main_ret",
+    )
+    cfgs = [build_cfg(compiler, code) for code in (main_code, source_code)]
+    adapter = build_supergraph_from_cfgs(cfgs)
+    configuration = TaintConfiguration(
+        call_models=CallModelRegistry(
+            [
+                CallModel("source", source_kinds=frozenset({"test.source"})),
+                CallModel(
+                    "format",
+                    sink_kinds=frozenset({"test.sink"}),
+                    sink_arg_positions=frozenset(),
+                    sink_receiver=True,
+                ),
+            ]
+        ),
+        rules=(
+            TaintRule(
+                "TEST-RECEIVER-SINK",
+                "Tainted receiver reaches sink",
+                frozenset({"test.source"}),
+                frozenset({"test.sink"}),
+            ),
+        ),
+    )
+
+    result = analyze_taint(
+        adapter,
+        configuration,
+        entry_nodes=[adapter.supergraph.entry_of(cfgs[0])],
+    )
+
+    assert len(result.findings) == 1
+    assert result.findings[0].tainted_arguments == (tainted,)
+
+
+def test_unknown_preserve_keeps_lowered_subscript_mutation_semantics():
+    compiler = context.CompilerContext(None)
+    source_code, _ = make_code("source", [], [], return_name="source_ret")
+    sink_value = ast.Local("sink_value")
+    sink_code, _ = make_code("sink", [sink_value], [], return_name="sink_ret")
+    items = ast.Local("items")
+    out = ast.Local("out")
+    key = ast.Existing(ast.program.Object("payload"))
+    main_code, _ = make_code(
+        "main",
+        [items],
+        [
+            ast.Discard(
+                ast.Call(
+                    ast.Existing(ast.program.Object("interpreter_setitem")),
+                    [items, key, ast.DirectCall(source_code, None, [], [], None, None)],
+                    [],
+                    None,
+                    None,
+                )
+            ),
+            ast.Assign(
+                ast.Call(
+                    ast.Existing(ast.program.Object("interpreter_getitem")),
+                    [items, key],
+                    [],
+                    None,
+                    None,
+                ),
+                [out],
+            ),
+            call_stmt(sink_code, [out]),
+        ],
+        return_name="main_ret",
+    )
+    cfgs = [
+        build_cfg(compiler, code) for code in (main_code, source_code, sink_code)
+    ]
+    adapter = build_supergraph_from_cfgs(cfgs)
+
+    result = analyze_taint(
+        adapter,
+        _config(
+            source_names=frozenset({"source"}),
+            sink_names=frozenset({"sink"}),
+            unknown_call_policy="preserve",
+        ),
+        entry_nodes=[adapter.supergraph.entry_of(cfgs[0])],
+    )
+
+    assert len(result.findings) == 1
+    assert result.findings[0].tainted_arguments == (out,)
+    assert not any(
+        item.code == "IFDS-TAINT-UNKNOWN-CALL"
+        and item.subject in {"interpreter_getitem", "interpreter_setitem"}
+        for item in result.diagnostics
+    )
+
+
 def test_modeled_parameter_path_mutation_reaches_matching_field():
     compiler = context.CompilerContext(None)
     source_code, _ = make_code("source", [], [], return_name="source_ret")
@@ -2189,6 +2454,60 @@ def test_sanitizer_contract_maps_kind_and_records_guard_uncertainty():
         item.code == "IFDS-TAINT-CONDITIONAL-SANITIZER"
         for item in result.diagnostics
     )
+
+
+def test_mutating_sanitizer_contract_removes_original_input_kind():
+    compiler = context.CompilerContext(None)
+    source_code, _ = make_code("source", [], [], return_name="source_ret")
+    sink_value = ast.Local("sink_value")
+    sink_code, _ = make_code("sink", [sink_value], [], return_name="sink_ret")
+    tainted = ast.Local("tainted")
+    main_code, _ = make_code(
+        "main",
+        [],
+        [
+            call_stmt(source_code, [], [tainted]),
+            ast.Discard(
+                ast.Call(ast.Local("validate"), [tainted], [], None, None)
+            ),
+            call_stmt(sink_code, [tainted]),
+        ],
+        return_name="main_ret",
+    )
+    cfgs = [
+        build_cfg(compiler, code) for code in (main_code, source_code, sink_code)
+    ]
+    adapter = build_supergraph_from_cfgs(cfgs)
+    models = CallModelRegistry(
+        [
+            CallModel("source", source_kinds=frozenset({"path"})),
+            CallModel("sink", sink_kinds=frozenset({"file"})),
+            CallModel(
+                "validate",
+                sanitizer_contracts=frozenset(
+                    {
+                        TaintSanitizerContract(
+                            input=TaintModelPort("parameter", 0),
+                            output=TaintModelPort("parameter", 0),
+                            removes=frozenset({"path"}),
+                            mutates_input=True,
+                        )
+                    }
+                ),
+            ),
+        ]
+    )
+    rules = (
+        TaintRule("PATH", "Path", frozenset({"path"}), frozenset({"file"})),
+    )
+
+    result = analyze_taint(
+        adapter,
+        TaintConfiguration(call_models=models, rules=rules),
+        entry_nodes=[adapter.supergraph.entry_of(cfgs[0])],
+    )
+
+    assert result.findings == ()
 
 
 def test_context_enter_model_propagates_manager_taint_to_bound_value():

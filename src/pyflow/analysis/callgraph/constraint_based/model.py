@@ -72,6 +72,7 @@ class AnalysisOptions:
     skip_stdlib_modules: bool = True
     skip_external_modules: bool = False
     analyze_reachable_only: bool = False
+    seed_entry_file_scopes: bool = False
 
 
 @dataclass

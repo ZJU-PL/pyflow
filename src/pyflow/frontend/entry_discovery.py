@@ -127,7 +127,7 @@ def _entries_from_setup_py(
         return []
 
     try:
-        tree = ast.parse(setup_py.read_text(encoding="utf-8"))
+        tree = ast.parse(setup_py.read_text(encoding="utf-8", errors="replace"))
     except (OSError, SyntaxError):
         return []
 

@@ -206,6 +206,27 @@ def test_security_cli_forwards_dynamic_model_options(monkeypatch, tmp_path, caps
     assert captured["conservative_unresolved_call_side_effects"] is True
 
 
+def test_security_cli_defaults_to_dropping_unknown_call_results(
+    monkeypatch, tmp_path, capsys
+):
+    target = tmp_path / "sample.py"
+    target.write_text("def main():\n    return 0\n", encoding="utf-8")
+    captured = {}
+
+    def fake_run_taint_analysis(*_args, **kwargs):
+        captured.update(kwargs)
+        session = SimpleNamespace(compiler=object(), diagnostics=())
+        return session, _EmptyResult(), None
+
+    monkeypatch.setattr(ifds_api, "run_taint_analysis", fake_run_taint_analysis)
+    args = _make_args("json")
+    args.targets = [target]
+
+    assert security_cli.run_security(args) == 0
+    assert json.loads(capsys.readouterr().out)["findings"] == []
+    assert captured["unknown_call_policy"] == "drop"
+
+
 def test_security_cli_auto_detects_directory_entry(monkeypatch, tmp_path, capsys):
     project = tmp_path / "project"
     project.mkdir()

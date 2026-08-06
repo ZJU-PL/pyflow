@@ -116,6 +116,77 @@ class TestRegistryLoading:
             assert model.sink_arg_positions == frozenset({0, 1})
             assert model.cwe == "CWE-22"
 
+        tar_open = models.model_for_name("tarfile.open")
+        assert tar_open is not None
+        assert tar_open.taint_propagations
+        assert models.model_for_name("tarfile.TarFile.extractall").sink_receiver
+        assert models.model_for_name("zipfile.ZipFile.extractall").sink_receiver
+
+    def test_django_storage_validation_and_backend_sink_models(self):
+        registry = Registry()
+        registry.activate("django", type="taint")
+        models = registry.active_models(type="taint")
+
+        backend_save = models.model_for_name("self._save")
+        validator = models.model_for_name("validate_file_name")
+
+        assert backend_save is not None
+        assert backend_save.cwe == "CWE-22"
+        assert backend_save.sink_arg_positions == frozenset({0})
+        assert validator is not None
+        assert any(contract.mutates_input for contract in validator.sanitizer_contracts)
+
+    def test_twisted_request_and_error_page_models(self):
+        registry = Registry()
+        detected = registry.detect(
+            ["from twisted.web import resource", "request.getHeader(b'host')"],
+            type="taint",
+        )
+        models = registry.active_models(type="taint")
+
+        assert "twisted" in detected
+        assert models.model_for_name("request.getHeader").source_kinds == frozenset(
+            {"user_input"}
+        )
+        no_resource = models.model_for_name("resource.NoResource")
+        assert no_resource is not None
+        assert no_resource.cwe == "CWE-79"
+        assert no_resource.sink_arg_positions == frozenset({0})
+
+    def test_cloudpickle_deserialization_models(self):
+        registry = Registry()
+        detected = registry.detect(["import cloudpickle"], type="taint")
+        model = registry.active_models(type="taint").model_for_name(
+            "cloudpickle.load"
+        )
+
+        assert "serialization" in detected
+        assert model is not None
+        assert model.cwe == "CWE-502"
+        assert model.sink_kinds == frozenset({"execdeserializationsink"})
+
+    def test_stdlib_value_transforms_preserve_taint(self):
+        registry = Registry()
+        registry.activate("stdlib", type="taint")
+        models = registry.active_models(type="taint")
+
+        for name in (
+            "json.dumps",
+            "repr",
+            "str",
+            "str.lower",
+            "str.replace",
+            "str.rsplit",
+            "re.search",
+            "re.Match.group",
+            "io.BytesIO",
+        ):
+            model = models.model_for_name(name)
+            assert model is not None
+            assert model.taint_propagations
+            assert not model.sanitizer_kinds
+            assert not model.sanitizer_contracts
+
     def test_sql_cursor_reads_are_database_sources(self):
         r = Registry()
         r.activate("sql")
@@ -153,6 +224,34 @@ class TestRegistryLoading:
         assert model.sink_kinds == frozenset({"file"})
         assert model.cwe == "CWE-22"
 
+    def test_framework_boundary_sinks_cover_common_import_spellings(self):
+        registry = Registry()
+        registry.activate("fastapi", "django", type="taint")
+        models = registry.active_models(type="taint")
+
+        file_response = models.model_for_name("FileResponse")
+        assert file_response is not None
+        assert file_response.cwe == "CWE-22"
+
+        mark_safe = models.model_for_name("mark_safe")
+        assert mark_safe is not None
+        assert mark_safe.cwe == "CWE-79"
+
+        injection_registry = Registry()
+        injection_registry.activate("injection", type="taint")
+        from_string = injection_registry.active_models(type="taint").model_for_name(
+            "jinja2_env.from_string"
+        )
+        assert from_string is not None
+        assert from_string.cwe == "CWE-94"
+        assert from_string.sink_arg_positions == frozenset({0})
+
+        dynamic_eval = injection_registry.active_models(type="taint").model_for_name(
+            "eval"
+        )
+        assert dynamic_eval is not None
+        assert dynamic_eval.cwe == "CWE-95"
+
     def test_stdlib_exposes_framework_filename_canonicalizer(self):
         registry = Registry()
         registry.activate("stdlib", type="taint")
@@ -173,6 +272,8 @@ class TestRegistryLoading:
         join_model = models.model_for_name("os.path.join")
 
         assert format_model is not None
+        assert format_model.sink_receiver is True
+        assert format_model.sink_arg_positions == frozenset()
         assert {
             (edge.source.kind, edge.source.parameter, edge.target.kind)
             for edge in format_model.taint_propagations

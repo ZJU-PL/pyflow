@@ -102,6 +102,50 @@ class TestConstraintBasedPrecisionRecall(unittest.TestCase):
         self.assertTrue(site.is_module_scope)
         self.assertIn("configurator.configure", callees)
 
+    def test_reachable_only_does_not_seed_unimported_additional_modules(self):
+        with tempfile.TemporaryDirectory() as directory:
+            entry_path = os.path.join(directory, "entry.py")
+            extra_path = os.path.join(directory, "unused.py")
+            with open(entry_path, "w", encoding="utf-8") as handle:
+                handle.write("pass\n")
+            extra_source = "def unused():\n    return 1\nunused()\n"
+            with open(extra_path, "w", encoding="utf-8") as handle:
+                handle.write(extra_source)
+
+            index = extract_call_site_edge_index_constraint(
+                "pass\n",
+                source_path=entry_path,
+                additional_sources={extra_path: extra_source},
+                analyze_reachable_only=True,
+            )
+
+        self.assertFalse(
+            any(site.source_path == os.path.realpath(extra_path) for site in index)
+        )
+
+    def test_entry_file_method_seeds_have_lexical_receiver_types(self):
+        source = textwrap.dedent("""
+            class Handler:
+                def parse(self, value):
+                    return value
+
+                def run(self, value):
+                    return self.parse(value)
+            """)
+
+        index = extract_call_site_edge_index_constraint(
+            source,
+            analyze_reachable_only=True,
+            seed_entry_file_scopes=True,
+        )
+        edges = {
+            site.caller_scope: callees
+            for site, callees in index.items()
+            if site.caller_scope == "main.Handler.run"
+        }
+
+        self.assertIn("main.Handler.parse", edges["main.Handler.run"])
+
     def test_dynamic_dispatch_tracks_runtime_receiver_types(self):
         source = textwrap.dedent("""
             class Base:

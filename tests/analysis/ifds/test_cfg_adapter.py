@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 from pyflow.application import context
 from pyflow.analysis.ifds import bind_call_arguments, build_supergraph_from_cfgs
 from pyflow.analysis.ifds.frontend.cfg_adapter import (
     CallEffect,
+    CFGSupergraphAdapter,
     ExceptionalEffect,
     GuardEffect,
     StoreEffect,
@@ -14,6 +17,23 @@ from pyflow.language.python import ast
 from pyflow.language.python.default_markers import MISSING_DEFAULT
 
 from tests.analysis.ifds._support import build_cfg, make_code
+
+
+def test_call_name_falls_back_for_unindexed_cloned_expression():
+    adapter = object.__new__(CFGSupergraphAdapter)
+    procedure = type("Procedure", (), {"code": object()})()
+    catalog = SimpleNamespace(has_node=lambda *_args: False)
+    adapter.catalog_by_procedure = {procedure: catalog}
+    call = ast.MethodCall(
+        ast.Local("receiver"),
+        ast.Local("from_string"),
+        [],
+        [],
+        None,
+        None,
+    )
+
+    assert adapter.call_name(call, procedure) == "from_string"
 
 
 def test_cfg_adapter_batches_semantic_rebuilds(monkeypatch):

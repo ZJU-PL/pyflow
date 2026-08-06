@@ -308,7 +308,7 @@ def _run_ifds(targets: List[str], args) -> Dict[str, Any]:
             collection_mutator_names=getattr(args, "collection_mutators", None),
             collection_accessor_names=getattr(args, "collection_accessors", None),
             unknown_call_policy=getattr(
-                args, "ifds_unknown_call_policy", "preserve"
+                args, "ifds_unknown_call_policy", "drop"
             ),
             conservative_unresolved_call_side_effects=getattr(
                 args, "conservative_unresolved_calls", False
@@ -580,7 +580,11 @@ def _build_taint_configuration(
             if source_files:
                 for path in source_files:
                     try:
-                        registry.detect(path.read_text(encoding="utf-8").splitlines())
+                        registry.detect(
+                            path.read_text(
+                                encoding="utf-8", errors="replace"
+                            ).splitlines()
+                        )
                     except OSError:
                         continue
         else:

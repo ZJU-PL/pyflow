@@ -209,7 +209,9 @@ def build_interface_from_paths(
         try:
             source = overrides.get(str(file_path))
             if source is None:
-                source = Path(file_path).read_text(encoding="utf-8")
+                source = Path(file_path).read_text(
+                    encoding="utf-8", errors="replace"
+                )
             source_files[str(file_path)] = source
         except Exception:
             pass

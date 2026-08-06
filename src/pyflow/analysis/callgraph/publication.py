@@ -5,11 +5,12 @@ from __future__ import annotations
 from collections import defaultdict
 import os
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, Mapping
 
 from pyflow.analysis.astcollector import getOps
 from pyflow.ir.core import CallTarget, Capabilities, ContextualKey, FactResult
 from pyflow.language.python import ast
+from pyflow.language.source_compat import normalize_legacy_python_syntax
 
 from .constraint_based import extract_call_site_edge_index_constraint
 
@@ -54,12 +55,60 @@ def _source_line(catalog, code, operation) -> int | None:
     return getattr(span, "start_line", None)
 
 
+def extract_constraint_callgraph_edges(
+    paths: Iterable[str | Path],
+    *,
+    entry_path: str | Path | None = None,
+    analyze_reachable_only: bool = False,
+):
+    """Compute source-level constraint edges without mutating the IR catalog."""
+    source_paths = tuple(Path(path).resolve() for path in paths)
+    if entry_path is None:
+        if not source_paths:
+            return {}
+        analysis_entry = source_paths[0]
+    else:
+        analysis_entry = Path(entry_path).resolve()
+    source = normalize_legacy_python_syntax(
+        analysis_entry.read_text(encoding="utf-8", errors="replace")
+    )
+    additional_sources = {
+        str(path): normalize_legacy_python_syntax(
+            path.read_text(encoding="utf-8", errors="replace")
+        )
+        for path in source_paths
+        if path != analysis_entry
+    }
+    return extract_call_site_edge_index_constraint(
+        source,
+        source_path=str(analysis_entry),
+        context_sensitive=False,
+        fixpoint_max_iterations=2000,
+        allow_fixture_graph_loading=False,
+        skip_external_modules=True,
+        analyze_reachable_only=analyze_reachable_only,
+        seed_entry_file_scopes=analyze_reachable_only,
+        additional_sources=additional_sources,
+    )
+
+
+def target_codes_for_constraint_edges(catalog, edge_index) -> frozenset[object]:
+    """Resolve all target names in an edge index to loaded IR code objects."""
+    return frozenset(
+        target
+        for targets in edge_index.values()
+        for target_name in targets
+        for target in _target_codes(catalog, target_name)
+    )
+
+
 def publish_constraint_callgraph_facts(
     program,
     paths: Iterable[str | Path],
     *,
     entry_path: str | Path | None = None,
     analyze_reachable_only: bool = False,
+    edge_index: Mapping[object, Iterable[str]] | None = None,
 ) -> int:
     """Publish a complete, context-conservative call-target snapshot."""
     catalog = program.ir
@@ -72,22 +121,12 @@ def publish_constraint_callgraph_facts(
         analysis_entry = source_paths[0]
     else:
         analysis_entry = Path(entry_path).resolve()
-    source = analysis_entry.read_text(encoding="utf-8")
-    additional_sources = {
-        str(path): path.read_text(encoding="utf-8")
-        for path in source_paths
-        if path != analysis_entry
-    }
-    for site, targets in extract_call_site_edge_index_constraint(
-        source,
-        source_path=str(analysis_entry),
-        context_sensitive=False,
-        fixpoint_max_iterations=2000,
-        allow_fixture_graph_loading=False,
-        skip_external_modules=True,
+    computed_edges = edge_index or extract_constraint_callgraph_edges(
+        source_paths,
+        entry_path=analysis_entry,
         analyze_reachable_only=analyze_reachable_only,
-        additional_sources=additional_sources,
-    ).items():
+    )
+    for site, targets in computed_edges.items():
         site_source = os.path.realpath(site.source_path or analysis_entry)
         edges[(site_source, site.caller_scope, site.ordinal)].update(targets)
         if site.is_module_scope:
@@ -156,4 +195,8 @@ def publish_constraint_callgraph_facts(
     )
 
 
-__all__ = ["publish_constraint_callgraph_facts"]
+__all__ = [
+    "extract_constraint_callgraph_edges",
+    "publish_constraint_callgraph_facts",
+    "target_codes_for_constraint_edges",
+]

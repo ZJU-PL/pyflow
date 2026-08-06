@@ -108,6 +108,12 @@ class CFGTransformer(TypeDispatcher):
             node: Continue AST node.
         """
         assert self.current is not None
+        if not self.handlers["continue"]:
+            # Some conservatively lowered legacy constructs can retain a
+            # continue after their loop wrapper was simplified away.  Keeping
+            # fallthrough is safer than aborting CFG construction for the
+            # entire analysis target.
+            return
         self.attachCurrent(self.handler("continue"))
         raise NoNormalFlow
 
@@ -119,6 +125,10 @@ class CFGTransformer(TypeDispatcher):
             node: Break AST node.
         """
         assert self.current is not None
+        if not self.handlers["break"]:
+            # See ``visitContinue``: preserve analyzable fallthrough for an
+            # orphaned legacy control-transfer marker.
+            return
         self.attachCurrent(self.handler("break"))
         raise NoNormalFlow
 

@@ -221,6 +221,20 @@
       ]
     },
     {
+      "call": "FileResponse",
+      "cwe": "CWE-22",
+      "severity": "high",
+      "suggestion": "Resolve paths against a trusted base directory and reject traversal outside it.",
+      "sinks": [
+        {
+          "kind": "xss",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
+    },
+    {
       "call": "starlette.datastructures.UploadFile.read",
       "sources": [
         {

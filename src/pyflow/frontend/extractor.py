@@ -21,6 +21,7 @@ from pyflow.application.context import CompilerContext
 from pyflow.language.python.program import Object
 from pyflow.language.python.program import ImaginaryObject, AbstractObject
 from pyflow.language.python import ast as pyflow_ast
+from pyflow.language.source_compat import normalize_legacy_python_syntax
 from pyflow.language.modules.imports import (
     base_name_from_expr as _base_name_from_expr,
     build_module_source_map,
@@ -144,7 +145,13 @@ class Extractor:
             if reset_telemetry:
                 self.function_extractor.ast_converter.reset_telemetry()
             self._current_file_path = filename  # Store for relative import resolution
-            tree = ast.parse(source, filename)
+            try:
+                tree = ast.parse(source, filename)
+            except SyntaxError:
+                normalized = normalize_legacy_python_syntax(source)
+                if normalized == source:
+                    raise
+                tree = ast.parse(normalized, filename)
             return self._extract_from_ast(tree, filename)
         except SyntaxError as e:
             if self.verbose:
@@ -164,7 +171,7 @@ class Extractor:
             Program: Program object containing extracted information.
         """
         try:
-            with open(filename, "r", encoding="utf-8") as f:
+            with open(filename, "r", encoding="utf-8", errors="replace") as f:
                 source = f.read()
             return self.extract_from_source(source, filename)
         except FileNotFoundError:

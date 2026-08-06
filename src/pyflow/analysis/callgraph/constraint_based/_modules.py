@@ -7,6 +7,8 @@ import os
 from collections import deque
 from typing import Dict, Iterable, Mapping, Optional, Set
 
+from pyflow.language.source_compat import normalize_legacy_python_syntax
+
 from .model import (
     AbstractValue,
     CLASS_KIND,
@@ -50,7 +52,7 @@ class _ModuleAnalysisMixin:
         Parsing/IO failures are treated conservatively by skipping the module
         (analysis continues with whatever symbols were available).
         """
-        main_tree = ast.parse(self.source_code)
+        main_tree = ast.parse(normalize_legacy_python_syntax(self.source_code))
         self.modules["main"] = ModuleInfo("main", main_tree, self.entry_path)
 
         if not self.entry_path:
@@ -65,7 +67,7 @@ class _ModuleAnalysisMixin:
             if module_name in self.modules:
                 continue
             try:
-                tree = ast.parse(source)
+                tree = ast.parse(normalize_legacy_python_syntax(source))
             except SyntaxError:
                 continue
             self.modules[module_name] = ModuleInfo(
@@ -117,12 +119,17 @@ class _ModuleAnalysisMixin:
                 ):
                     continue
                 try:
-                    with open(imported_path, "r", encoding="utf-8") as handle:
+                    with open(
+                        imported_path,
+                        "r",
+                        encoding="utf-8",
+                        errors="replace",
+                    ) as handle:
                         src = handle.read()
                 except OSError:
                     continue
                 try:
-                    tree = ast.parse(src)
+                    tree = ast.parse(normalize_legacy_python_syntax(src))
                 except SyntaxError:
                     continue
 

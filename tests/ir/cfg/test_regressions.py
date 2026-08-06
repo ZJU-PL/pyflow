@@ -116,6 +116,43 @@ class TestCFGRegressions(unittest.TestCase):
 
         self.assertTrue(op_flow.errors)
 
+    def test_opflow_ignores_scope_declarations(self):
+        op_flow = killflow.OpFlow()
+
+        op_flow.process(
+            pyflow_ast.Suite(
+                [
+                    pyflow_ast.GlobalDecl(pyflow_ast.Local("global_name")),
+                    pyflow_ast.NonlocalDecl(pyflow_ast.Local("nonlocal_name")),
+                ]
+            )
+        )
+
+        self.assertTrue(op_flow.normal)
+        self.assertFalse(op_flow.errors)
+
+    def test_cfg_tolerates_orphaned_legacy_loop_control(self):
+        code = pyflow_ast.Code(
+            "legacy_control",
+            pyflow_ast.CodeParameters(None, [], [], [], [], [], None, None, [], None),
+            pyflow_ast.Suite(
+                [
+                    pyflow_ast.Break(),
+                    pyflow_ast.Continue(),
+                    pyflow_ast.Discard(
+                        pyflow_ast.Existing(pyflow_ast.program.Object("reachable"))
+                    ),
+                ]
+            ),
+        )
+
+        graph = transform.CFGTransformer().process(code)
+
+        nodes = []
+        dfs.CFGDFS(pre=nodes.append).process(graph.entryTerminal)
+        operations = [op for node in nodes for op in getattr(node, "ops", ())]
+        self.assertTrue(any(isinstance(op, pyflow_ast.Discard) for op in operations))
+
     def test_constant_switch_optimization_detaches_dead_switch_edges(self):
         predecessor = cfg_graph.Suite(None)
         switch = cfg_graph.Switch(

@@ -34,9 +34,36 @@
     },
     {
       "call": "jinja2.Environment.from_string",
+      "cwe": "CWE-94",
+      "severity": "high",
       "sinks": [
         {
           "kind": "dangerous",
+          "port": {
+            "parameter": 0
+          }
+        },
+        {
+          "kind": "ssti",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
+    },
+    {
+      "call": "from_string",
+      "cwe": "CWE-94",
+      "severity": "high",
+      "sinks": [
+        {
+          "kind": "dangerous",
+          "port": {
+            "parameter": 0
+          }
+        },
+        {
+          "kind": "ssti",
           "port": {
             "parameter": 0
           }
@@ -554,6 +581,12 @@
       "severity": "high",
       "sinks": [
         {
+          "kind": "dangerous",
+          "port": {
+            "parameter": 0
+          }
+        },
+        {
           "kind": "ssti",
           "port": {
             "parameter": 0
@@ -563,7 +596,7 @@
     },
     {
       "call": "eval",
-      "cwe": "CWE-78",
+      "cwe": "CWE-95",
       "severity": "high",
       "sinks": [
         {
@@ -576,7 +609,7 @@
     },
     {
       "call": "exec",
-      "cwe": "CWE-78",
+      "cwe": "CWE-95",
       "severity": "high",
       "sinks": [
         {
@@ -761,9 +794,15 @@
       "severity": "high",
       "sinks": [
         {
+          "kind": "dangerous",
+          "port": {
+            "parameter": 0
+          }
+        },
+        {
           "kind": "ssti",
           "port": {
-            "parameter": 1
+            "parameter": 0
           }
         }
       ]

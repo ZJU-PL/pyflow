@@ -109,7 +109,7 @@ def analyze_file_constraint(
 ) -> str:
     """Analyze a Python file and return a text rendering of the call graph."""
     try:
-        with open(filepath, "r", encoding="utf-8") as handle:
+        with open(filepath, "r", encoding="utf-8", errors="replace") as handle:
             source = handle.read()
         graph = extract_call_graph_constraint(
             source_code=source,
@@ -214,6 +214,7 @@ def extract_call_site_edge_index_constraint(
     skip_stdlib_modules: bool = True,
     skip_external_modules: bool = False,
     analyze_reachable_only: bool = False,
+    seed_entry_file_scopes: bool = False,
     additional_sources: Optional[Mapping[str, str]] = None,
 ) -> CallSiteEdgeIndex:
     """Extract direct call-site edges from the constraint analyser."""
@@ -235,6 +236,7 @@ def extract_call_site_edge_index_constraint(
         skip_stdlib_modules=skip_stdlib_modules,
         skip_external_modules=skip_external_modules,
         analyze_reachable_only=analyze_reachable_only,
+        seed_entry_file_scopes=seed_entry_file_scopes,
     )
     builder = ConstraintCallGraphBuilder(
         source_code,

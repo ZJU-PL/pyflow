@@ -114,6 +114,7 @@ class CallModel:
     taint_propagations: FrozenSet[TaintPropagation] = frozenset()
     sink_arg_positions: FrozenSet[int] = frozenset({0})
     sink_all_arguments: bool = False
+    sink_receiver: bool = False
     rule_id: str | None = None
     cwe: str | None = None
     severity: str | None = None
@@ -139,6 +140,7 @@ class CallModel:
             self.taint_propagations,
             self.sink_arg_positions,
             self.sink_all_arguments,
+            self.sink_receiver,
             self.rule_id,
             self.cwe,
             self.severity,
@@ -165,6 +167,7 @@ class CallModel:
             or self.taint_propagations != other.taint_propagations
             or self.sink_behavior != other.sink_behavior
             or self.sink_all_arguments != other.sink_all_arguments
+            or self.sink_receiver != other.sink_receiver
             or self.nullness_nullable_return != other.nullness_nullable_return
             or self.typestate_actions != other.typestate_actions
             or self.typestate_action_protocols != other.typestate_action_protocols
@@ -202,6 +205,7 @@ class CallModel:
             ),
             sink_arg_positions=self.sink_arg_positions | other.sink_arg_positions,
             sink_all_arguments=(self.sink_all_arguments or other.sink_all_arguments),
+            sink_receiver=(self.sink_receiver or other.sink_receiver),
             rule_id=self.rule_id or other.rule_id,
             cwe=self.cwe or other.cwe,
             severity=self.severity or other.severity,

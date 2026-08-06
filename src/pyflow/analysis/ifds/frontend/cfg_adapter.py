@@ -413,6 +413,11 @@ class CFGSupergraphAdapter:
         if len(candidates) != 1:
             return None
         owner, catalog = candidates[0]
+        if not catalog.has_node(call_expression, owner.code):
+            # CFG normalization can clone a nested call expression after the
+            # source catalog was indexed.  Preserve model lookup through the
+            # syntactic leaf instead of failing the entire IFDS solve.
+            return self._syntactic_call_leaf(call_expression)
         sites = catalog.semantics.calls_for(
             catalog.node_id(call_expression, owner.code)
         )

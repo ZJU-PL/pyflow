@@ -11,7 +11,11 @@ from typing import Iterable, Sequence
 
 from pyflow.application.context import CompilerContext
 from pyflow.application.program import Program
-from pyflow.analysis.callgraph.publication import publish_constraint_callgraph_facts
+from pyflow.analysis.callgraph.publication import (
+    extract_constraint_callgraph_edges,
+    publish_constraint_callgraph_facts,
+    target_codes_for_constraint_edges,
+)
 from pyflow.analysis.entrypoints import (
     EntryPointDefaults,
     EntryPointMode,
@@ -283,9 +287,33 @@ def _restrict_program_entry_points_to_file(
 
     program.interface.entryPoint = entry_points
     program.entryPoints = entry_points
-    # The constraint call graph may resolve calls into any loaded project module.
-    # Keep those procedures available as CFGs, but seed only the selected module.
-    return live_codes
+    return source_codes
+
+
+def _restrict_live_codes_to_published_callgraph(
+    program: Program,
+    entry_codes: Sequence[object],
+    target_codes: Iterable[object],
+) -> tuple[object, ...]:
+    """Keep entry-file procedures and procedures reached by constraint edges."""
+    selected = set(entry_codes) | set(target_codes)
+
+    selected_files = {
+        filename
+        for code in selected
+        for filename in (_source_filename_from_code(code),)
+        if filename is not None
+    }
+    selected.update(
+        code
+        for code in getattr(program, "liveCode", ())
+        if _is_synthetic_module_code(code)
+        and _source_filename_from_code(code) in selected_files
+    )
+    ordered = tuple(
+        code for code in getattr(program, "liveCode", ()) if code in selected
+    )
+    return ordered
 
 
 def _resolve_requested_entry_code(program: Program, queries, function_name: str):
@@ -366,6 +394,18 @@ def load_analysis_session(
             preserved_codes = _restrict_program_entry_points_to_file(
                 program, entry_file
             )
+        callgraph_entry = entry_file or target_source or (files[0] if files else None)
+        callgraph_edges = extract_constraint_callgraph_edges(
+            files,
+            entry_path=callgraph_entry,
+            analyze_reachable_only=entry_file is not None,
+        )
+        if entry_file is not None:
+            preserved_codes = _restrict_live_codes_to_published_callgraph(
+                program,
+                preserved_codes,
+                target_codes_for_constraint_edges(program.ir, callgraph_edges),
+            )
         prepared = prepare_program_for_ifds(
             compiler,
             program,
@@ -373,13 +413,14 @@ def load_analysis_session(
                 code, commit_revision=False
             ),
             supplemental_live_codes=preserved_codes,
+            analysis_codes=(preserved_codes if entry_file is not None else None),
         )
-        callgraph_entry = entry_file or target_source or (files[0] if files else None)
         publish_constraint_callgraph_facts(
             program,
             files,
             entry_path=callgraph_entry,
             analyze_reachable_only=entry_file is not None,
+            edge_index=callgraph_edges,
         )
     adapter = build_supergraph_from_cfgs(
         prepared.cfgs,
@@ -404,7 +445,7 @@ def run_taint_analysis(
     rules=(),
     collection_mutator_names: Iterable[str] | None = None,
     collection_accessor_names: Iterable[str] | None = None,
-    unknown_call_policy: UnknownCallPolicy = "preserve",
+    unknown_call_policy: UnknownCallPolicy = "drop",
     conservative_unresolved_call_side_effects: bool = False,
     entry_point_options: EntryPointOptions | None = None,
     entry_point_defaults: EntryPointDefaults | None = None,
@@ -495,7 +536,7 @@ def run_taint_analysis(
 
     shadow_matches: list = []
     for f in python_files:
-        code = Path(f).read_text(encoding="utf-8")
+        code = Path(f).read_text(encoding="utf-8", errors="replace")
         shadow_matches.extend(_run_shadow_scan(code))
     return session, result, shadow_matches
 
@@ -644,7 +685,7 @@ def _registry_models(
         for path in files:
             try:
                 all_detected |= registry.detect(
-                    path.read_text(encoding="utf-8").splitlines()
+                    path.read_text(encoding="utf-8", errors="replace").splitlines()
                 )
             except OSError:
                 continue

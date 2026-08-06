@@ -1,0 +1,64 @@
+{
+  "schema_version": 2,
+  "framework": "twisted",
+  "version": "1.0",
+  "type": "taint",
+  "description": "Twisted Web request and response taint models",
+  "entrypoints": {"taint_parameters": true},
+  "detection": {
+    "imports": [
+      "twisted.web",
+      "from twisted",
+      "import twisted"
+    ],
+    "patterns": [
+      "NoResource(",
+      "getHeader("
+    ]
+  },
+  "models": [
+    {
+      "call": "twisted.web.http.Request.getHeader",
+      "sources": [
+        {
+          "kind": "user_input",
+          "port": "return"
+        }
+      ]
+    },
+    {
+      "call": "twisted.web.resource.NoResource",
+      "cwe": "CWE-79",
+      "severity": "high",
+      "suggestion": "Use Twisted's escaping-aware not-found page helpers for request-derived text.",
+      "sinks": [
+        {
+          "kind": "xss",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
+    }
+  ],
+  "rules": [
+    {
+      "id": "PYFLOW-TWISTED-XSS",
+      "title": "Untrusted data reaches a Twisted HTML response sink",
+      "sources": [
+        "user_input",
+        "network",
+        "file",
+        "env",
+        "database",
+        "untrusted",
+        "userdata"
+      ],
+      "sinks": [
+        "xss"
+      ],
+      "severity": "high",
+      "cwe": "CWE-79"
+    }
+  ]
+}
