@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 from collections import deque
+from time import monotonic
 from typing import Any, Dict, Iterator, List, Optional, Set
 from pyflow.ir.cfg import graph as cfg_graph
 from pyflow.ir.pdg.graph import PDGNode, ProgramDependenceGraph
@@ -269,18 +270,19 @@ class _GraphAssemblyMixin:
         cfg = pdg.cfg
 
         # Build an index: id(cfg_node) → [PDGNode, ...]
+        local_cfg_nodes: Dict[int, List[PDGNode]] = {}
         for node in pdg.nodes:
             if node.cfg_node is not None:
                 cid = id(node.cfg_node)
                 self._cfg_node_to_pdg.setdefault(cid, []).append(node)
+                local_cfg_nodes.setdefault(cid, []).append(node)
 
         # Materialize executable order inside each CFG block. PDG statement
         # nodes share their containing block as ``cfg_node``; without these
         # edges the CPG jumps from the block anchor directly to its successor
         # and graph analyses never execute the statements themselves.
-        for anchors in self._cfg_node_to_pdg.values():
-            local = [node for node in anchors if node in pdg.nodes]
-            for source, target in zip(local, local[1:]):
+        for anchors in local_cfg_nodes.values():
+            for source, target in zip(anchors, anchors[1:]):
                 self._add_edge(source, target, CPGEdgeKind.CFG_NEXT, "statement")
 
         # Walk reachable CFG blocks.
@@ -290,13 +292,13 @@ class _GraphAssemblyMixin:
 
         reachable = self._reachable_cfg_blocks(entry_term)
         for block in reachable:
-            src_anchors = self._cfg_node_to_pdg.get(id(block), [])
+            src_anchors = local_cfg_nodes.get(id(block), [])
             if not src_anchors:
                 continue
             src_pdg = src_anchors[-1]
 
             for exit_name, target_block in block.next.items():
-                tgt_anchors = self._cfg_node_to_pdg.get(id(target_block), [])
+                tgt_anchors = local_cfg_nodes.get(id(target_block), [])
                 if not tgt_anchors:
                     continue
                 tgt_pdg = tgt_anchors[0]
@@ -374,7 +376,7 @@ class _GraphAssemblyMixin:
                     callee_exit, call_site, CPGEdgeKind.RETURN_EDGE, caller_name
                 )
 
-    def _build_inferred_call_edges(self) -> None:
+    def _build_inferred_call_edges(self, *, deadline: float | None = None) -> bool:
         """Add unambiguous intra-CPG call/return edges from call-site syntax.
 
         The optional repository call graph is often unavailable for a
@@ -389,6 +391,8 @@ class _GraphAssemblyMixin:
             by_short.setdefault(name.rsplit(".", 1)[-1], []).append(name)
 
         for caller_name, caller_pdg in self._pdgs.items():
+            if deadline is not None and monotonic() >= deadline:
+                return False
             for call_site in caller_pdg.nodes:
                 ast_node = call_site.ast_node
                 if ast_node is None:
@@ -416,6 +420,7 @@ class _GraphAssemblyMixin:
                             CPGEdgeKind.RETURN_EDGE,
                             caller_name,
                         )
+        return True
 
     def _find_call_site_node(
         self, caller_pdg: ProgramDependenceGraph, callee_name: str

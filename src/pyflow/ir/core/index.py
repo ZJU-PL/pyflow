@@ -411,7 +411,9 @@ def rebuild_program_ir(
     return catalog
 
 
-def ensure_code_indexed(code: ast.Code) -> IRCatalog:
+def ensure_code_indexed(
+    code: ast.Code, *, rebuild_semantics: bool = True
+) -> IRCatalog:
     """Return the mandatory catalog for a standalone code object."""
     catalog = getattr(code, "ir_catalog", None)
     if isinstance(catalog, IRCatalog):
@@ -423,9 +425,10 @@ def ensure_code_indexed(code: ast.Code) -> IRCatalog:
         module="__standalone__",
         qualname=code.codeName(),
     )
-    from .build_semantics import build_semantics
+    if rebuild_semantics:
+        from .build_semantics import build_semantics
 
-    build_semantics(catalog)
+        build_semantics(catalog)
     return catalog
 
 

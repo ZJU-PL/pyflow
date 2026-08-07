@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 from collections import defaultdict
+from time import monotonic
 from typing import Any, Dict, List, MutableMapping, Set, Tuple
 from pyflow.ir.pdg.graph import PDGNode, ProgramDependenceGraph
 from .model import CPGEdge, CPGEdgeKind
@@ -23,6 +24,9 @@ class CodePropertyGraph(_GraphAssemblyMixin, _GraphMetadataMixin, _GraphQueryMix
         "_ast_parent",
         "_cfg_forward_map",
         "_cfg_node_to_pdg",
+        "_nodes_by_id",
+        "_next_node_id",
+        "_data_definitions_by_label",
         "_node_meta",
         "_construction_diagnostics",
     )
@@ -42,6 +46,9 @@ class CodePropertyGraph(_GraphAssemblyMixin, _GraphMetadataMixin, _GraphQueryMix
         self._ast_parent: Dict[int, int] = {}  # id(ast_child) → id(ast_parent)
         self._cfg_forward_map: Dict[Tuple[int, str], List[PDGNode]] = {}
         self._cfg_node_to_pdg: Dict[int, List[PDGNode]] = {}
+        self._nodes_by_id: Dict[int, PDGNode] = {}
+        self._next_node_id: int = 0
+        self._data_definitions_by_label: Dict[str, List[Tuple[str, PDGNode]]] = {}
         self._node_meta: Dict[int, Dict[str, Any]] = {}
         self._construction_diagnostics: List[Dict[str, Any]] = []
 
@@ -100,30 +107,51 @@ class CodePropertyGraph(_GraphAssemblyMixin, _GraphMetadataMixin, _GraphQueryMix
             if pdg.entry is not None
         }
 
-    def build(self) -> None:
+    def build(self, *, deadline: float | None = None) -> bool:
         """(Re-)build all cross-layer indices.
 
         Idempotent — calling again after modifications will recompute
-        every index from scratch.
+        every index from scratch. Return ``False`` when an optional monotonic
+        *deadline* expires before assembly is complete.
         """
+        if deadline is not None and monotonic() >= deadline:
+            self._built = False
+            return False
         self._ensure_unique_node_ids()
         self._cpg_edges_out.clear()
         self._cpg_edges_in.clear()
         self._ast_parent.clear()
         self._cfg_forward_map.clear()
         self._cfg_node_to_pdg.clear()
+        self._nodes_by_id.clear()
         self._node_meta.clear()
+        self._data_definitions_by_label.clear()
+        self._next_node_id = max(
+            (
+                node.node_id
+                for pdg in self._pdgs.values()
+                for node in pdg.nodes
+            ),
+            default=-1,
+        ) + 1
 
         # Collect all PDG nodes and their AST ids.
         pdg_ast_ids: Dict[str, Set[int]] = {}
         for fname, pdg in self._pdgs.items():
+            if deadline is not None and monotonic() >= deadline:
+                self._built = False
+                return False
             ids: Set[int] = set()
             for node in pdg.nodes:
+                self._nodes_by_id[node.node_id] = node
                 if node.ast_node is not None:
                     ids.add(id(node.ast_node))
             pdg_ast_ids[fname] = ids
 
         for fname, pdg in self._pdgs.items():
+            if deadline is not None and monotonic() >= deadline:
+                self._built = False
+                return False
             self._build_node_metadata(fname, pdg)
             self._build_source_statement_nodes(fname, pdg, pdg_ast_ids[fname])
             self._build_pdg_edges(pdg)
@@ -147,9 +175,15 @@ class CodePropertyGraph(_GraphAssemblyMixin, _GraphMetadataMixin, _GraphQueryMix
 
         if self._call_graph is not None:
             self._build_call_edges()
-        self._build_inferred_call_edges()
+        if deadline is not None and monotonic() >= deadline:
+            self._built = False
+            return False
+        if not self._build_inferred_call_edges(deadline=deadline):
+            self._built = False
+            return False
 
         self._built = True
+        return True
 
     def _ensure_unique_node_ids(self) -> None:
         """Promote function-local PDG IDs to graph-global stable IDs.
@@ -190,14 +224,9 @@ class CodePropertyGraph(_GraphAssemblyMixin, _GraphMetadataMixin, _GraphQueryMix
 
     def _promote_new_node_id(self, node: PDGNode, pdg: ProgramDependenceGraph) -> None:
         """Give a newly synthesized PDG node a graph-global ID."""
-        other_ids = {
-            existing.node_id
-            for other_pdg in self._pdgs.values()
-            for existing in other_pdg.nodes
-            if existing is not node
-        }
-        if node.node_id in other_ids:
-            node.node_id = max(other_ids, default=-1) + 1
+        node.node_id = self._next_node_id
+        self._next_node_id += 1
+        self._nodes_by_id[node.node_id] = node
         pdg._id = max(pdg._id, node.node_id + 1)
 
     def _ensure_built(self) -> None:

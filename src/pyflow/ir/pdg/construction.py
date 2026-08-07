@@ -344,7 +344,14 @@ class PDGConstructor:
         if root_code is None:
             return
         catalog = ensure_code_indexed(root_code)
-        index_cfg(catalog, pdg.cfg)
+        # CFG transformation/revision and CDG construction already synchronize
+        # this catalog.  Re-index only when a caller supplied a raw CFG that
+        # has never been registered; rebuilding semantics here for every PDG
+        # used to duplicate one of the most expensive construction passes.
+        try:
+            catalog.block_id(pdg.cfg.entryTerminal, root_code)
+        except KeyError:
+            index_cfg(catalog, pdg.cfg)
         procedure = catalog.procedure(root_code)
 
         var_to_defs: Dict[object, List[PDGNode]] = {}
@@ -414,7 +421,7 @@ def construct_pdg(cfg: cfg_graph.Code, **kwargs) -> ProgramDependenceGraph:
 
     Args:
         cfg: CFG Code object (single function)
-        kwargs: PDGConstructionOptions overrides (include_control/include_data/run_ssa/expand_phi)
+        kwargs: ``PDGConstructionOptions`` overrides.
     """
     options = PDGConstructionOptions(**kwargs)
     return PDGConstructor(options).construct_from_cfg(cfg)

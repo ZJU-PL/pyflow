@@ -76,8 +76,10 @@ class CPGTaintEngine(
         self._budget_diagnostic: CPGTaintDiagnostic | None = None
         self._entry_point_options_explicit = entry_point_options is not None
         self._entry_point_options = entry_point_options or EntryPointOptions(
-            mode=EntryPointMode.ALL_PROCEDURES
+            mode=EntryPointMode.INFERRED_ROOTS
         )
+        self._source_match_cache: Dict[str, bool] = {}
+        self._sink_match_cache: Dict[str, str] = {}
         if refinement is not None:
             self._refinement = refinement
         elif heap_graph is not None:
@@ -101,6 +103,7 @@ class CPGTaintEngine(
         ] = {}
 
     def add_source(self, name: str, kind: str = "untrusted") -> None:
+        self._source_match_cache.clear()
         self._sources.add(name)
         self._source_kinds[name] = self._source_kinds.get(name, frozenset()) | {kind}
         self._rules = [
@@ -121,6 +124,7 @@ class CPGTaintEngine(
         positions: FrozenSet[int] = frozenset({0}),
         behavior: str | None = None,
     ) -> None:
+        self._sink_match_cache.clear()
         self._sinks[name] = cwe or name
         self._sink_kinds[name] = self._sink_kinds.get(name, frozenset()) | {kind}
         self._sink_positions[name] = (
@@ -154,6 +158,8 @@ class CPGTaintEngine(
 
     def apply_policy(self, policy: TaintPolicy) -> None:
         """Merge one strict-v2 typed policy into this engine."""
+        self._source_match_cache.clear()
+        self._sink_match_cache.clear()
         if not self._entry_point_options_explicit:
             self._entry_point_options = policy.entry_point_defaults.resolve(
                 self._entry_point_options

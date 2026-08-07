@@ -79,17 +79,29 @@ class TaintState:
             return other
         if not other.reachable:
             return self
+        if self is other or self == other:
+            return self
+        if self.leq(other):
+            return other
+        if other.leq(self):
+            return self
         limit = min(self.max_provenance_edges, other.max_provenance_edges)
         path_limit = min(self.max_access_path, other.max_access_path)
         provenance, provenance_is_top = self._join_provenance(other, limit)
         uncertainties = self.uncertainties | other.uncertainties
         if provenance_is_top:
             uncertainties = uncertainties | {self._provenance_overflow_uncertainty()}
+        facts = self.facts | other.facts
+        guarantees = self.guarantees & other.guarantees
+        if (
+            self.max_access_path != path_limit
+            or other.max_access_path != path_limit
+        ):
+            facts = self._normalize_facts(facts, path_limit)
+            guarantees = self._normalize_guarantees(guarantees, path_limit)
         return TaintState(
-            facts=self._normalize_facts(self.facts | other.facts, path_limit),
-            guarantees=self._normalize_guarantees(
-                self.guarantees & other.guarantees, path_limit
-            ),
+            facts=frozenset(facts),
+            guarantees=frozenset(guarantees),
             provenance=provenance,
             provenance_is_top=provenance_is_top,
             uncertainties=uncertainties,

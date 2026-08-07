@@ -14,6 +14,7 @@ NOTE: This extractor is intentionally source/AST-based (no bytecode decompilatio
 import ast
 import os
 import re
+from time import monotonic
 from typing import Any, Dict, List, Optional, Set
 
 from pyflow.application.program import Program
@@ -185,8 +186,16 @@ class Extractor:
             self.errors += 1
             return Program()
 
-    def extract_from_multiple_files(self, source_files: dict) -> Program:
-        """Extract program information from multiple Python files."""
+    def extract_from_multiple_files(
+        self, source_files: dict, *, deadline: float | None = None
+    ) -> Program:
+        """Extract program information from multiple Python files.
+
+        When *deadline* is provided, stop between files once the monotonic
+        deadline is reached.  A single file remains atomic, but large directory
+        scans no longer ignore an expired construction budget for the rest of
+        the batch.
+        """
         combined_program = Program()
         self._source_files = source_files
         self.function_extractor.ast_converter.reset_telemetry()
@@ -198,6 +207,8 @@ class Extractor:
         self._batch_extraction = True
         try:
             for filename, source in source_files.items():
+                if deadline is not None and monotonic() >= deadline:
+                    break
                 if self.verbose:
                     print(f"Processing file: {filename}")
 

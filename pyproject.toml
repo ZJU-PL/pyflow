@@ -67,7 +67,7 @@ supply-chain = [
 ]
 
 [project.scripts]
-pyflow = "pyflow.cli.main:main"
+pyflow = "pyflow.cli.main:entrypoint"
 
 [tool.setuptools.packages.find]
 where = ["src"]

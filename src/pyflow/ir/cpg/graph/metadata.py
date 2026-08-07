@@ -3,7 +3,7 @@
 from __future__ import annotations
 from typing import Any, Dict, List, Optional, Set, Tuple
 from pyflow.ir.cfg import graph as cfg_graph
-from pyflow.ir.pdg.graph import ProgramDependenceGraph
+from pyflow.ir.pdg.graph import PDGNode, ProgramDependenceGraph
 from pyflow.language.python import ast as py_ast
 from .model import CPGEdgeKind, _iter_ast_children, _safe_type_name
 
@@ -166,6 +166,15 @@ class _GraphMetadataMixin:
         declarations, linking the declaration node to prior definitions
         of the same variable name in enclosing/module scopes.
         """
+        if not self._data_definitions_by_label:
+            for other_fname, other_pdg in self._pdgs.items():
+                for other_node in other_pdg.nodes:
+                    for edge in other_node.edges_out:
+                        if edge.kind == "data" and edge.label:
+                            self._data_definitions_by_label.setdefault(
+                                edge.label, []
+                            ).append((other_fname, other_node))
+
         for node in pdg.nodes:
             ast_node = node.ast_node
             if ast_node is None:
@@ -187,20 +196,19 @@ class _GraphMetadataMixin:
             meta = self._meta_for(node)
             meta["scope_decl"] = scope_kind
             meta["scope_var"] = var_name
-            for other_fname, other_pdg in self._pdgs.items():
+            for other_fname, other_node in self._data_definitions_by_label.get(
+                var_name, ()
+            ):
                 if other_fname == fname and scope_kind != "global":
                     continue
-                for other_node in other_pdg.nodes:
-                    if other_node is node:
-                        continue
-                    for pe in other_node.edges_out:
-                        if pe.kind == "data" and pe.label == var_name:
-                            self._add_edge(
-                                other_node,
-                                node,
-                                CPGEdgeKind.DATA,
-                                label=f"{scope_kind}:{var_name}",
-                            )
+                if other_node is node:
+                    continue
+                self._add_edge(
+                    other_node,
+                    node,
+                    CPGEdgeKind.DATA,
+                    label=f"{scope_kind}:{var_name}",
+                )
 
     def _build_import_edges(self, fname: str, pdg: ProgramDependenceGraph) -> None:
         """Create DATA edges from import statement nodes to downstream
@@ -211,6 +219,12 @@ class _GraphMetadataMixin:
         ``fromlist`` field).  The imported name is stored in
         ``Import.name``; from-imports have a non-empty ``fromlist``.
         """
+        data_users: Dict[str, Set[PDGNode]] = {}
+        for candidate in pdg.nodes:
+            for edge in candidate.edges_in:
+                if edge.kind == "data" and edge.label:
+                    data_users.setdefault(edge.label, set()).add(candidate)
+
         for node in pdg.nodes:
             ast_node = node.ast_node
             if ast_node is None:
@@ -237,21 +251,15 @@ class _GraphMetadataMixin:
                         if n:
                             imported_names.append(n)
                 meta["import_from_names"] = imported_names
-            for other_node in pdg.nodes:
+            for other_node in data_users.get(local_name, ()):
                 if other_node is node:
                     continue
-                for pe in other_node.edges_in:
-                    if (
-                        pe.kind == "data"
-                        and pe.label == local_name
-                        and pe.source is not node
-                    ):
-                        self._add_edge(
-                            node,
-                            other_node,
-                            CPGEdgeKind.DATA,
-                            label=f"import:{local_name}",
-                        )
+                self._add_edge(
+                    node,
+                    other_node,
+                    CPGEdgeKind.DATA,
+                    label=f"import:{local_name}",
+                )
 
     def _build_collection_metadata(
         self, fname: str, pdg: ProgramDependenceGraph

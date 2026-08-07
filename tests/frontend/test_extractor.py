@@ -129,6 +129,21 @@ class MyClass:
         self.assertIsInstance(program, Program)
         self.assertEqual(self.extractor.errors, 1)
 
+    @patch("pyflow.frontend.extractor.monotonic", side_effect=[1.0, 3.0])
+    def test_extract_from_multiple_files_honors_deadline(self, _monotonic):
+        source_files = {
+            "file1.py": "def func1(): return 1",
+            "file2.py": "def func2(): return 2",
+        }
+
+        program = self.extractor.extract_from_multiple_files(
+            source_files, deadline=2.0
+        )
+
+        names = {code.codeName() for code in program.liveCode}
+        self.assertTrue(any(name.endswith("func1") for name in names))
+        self.assertFalse(any(name.endswith("func2") for name in names))
+
     def test_program_includes_frontend_telemetry(self):
         """Extraction should attach frontend precision telemetry to the Program."""
         source = "def a(**x):\n    return f(**x, **x)\n"

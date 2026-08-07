@@ -7,6 +7,7 @@ operations.
 
 import sys
 import argparse
+import gc
 from pathlib import Path
 
 
@@ -134,6 +135,21 @@ def main():
     else:
         parser.print_help()
         return 1
+
+
+def entrypoint():
+    """Console-script entry point with fast process teardown.
+
+    Large CPG scans can leave a substantial cyclic IR object graph for the
+    interpreter's shutdown collector.  The operating system is about to
+    reclaim the whole process, so freezing tracked objects after command
+    completion avoids redundant traversal without affecting embedded users of
+    :func:`main`.
+    """
+
+    exit_code = main()
+    gc.freeze()
+    return exit_code
 
 
 if __name__ == "__main__":

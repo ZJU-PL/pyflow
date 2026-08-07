@@ -354,10 +354,15 @@ class _TaintMatchingMixin:
     def _matches_source(self, name: str) -> bool:
         if not name:
             return False
+        cached = self._source_match_cache.get(name)
+        if cached is not None:
+            return cached
         for src in self._sources:
             if name == src:
+                self._source_match_cache[name] = True
                 return True
             if "." not in src and name.rsplit(".", 1)[-1] == src:
+                self._source_match_cache[name] = True
                 return True
         # Source-loaded ASTs may preserve an imported alias (``request``)
         # rather than its registry-qualified module (``flask.request``).
@@ -366,25 +371,30 @@ class _TaintMatchingMixin:
             for src in self._sources
             if call_name_suffix_matches(src.lower(), name.lower())
         ]
-        if len(suffix_matches) == 1:
-            return True
-        return (
+        result = len(suffix_matches) == 1 or (
             bool(suffix_matches)
             and "." in name
             and self._equivalent_source_models(suffix_matches)
         )
+        self._source_match_cache[name] = result
+        return result
 
     def _match_sink_name(self, name: str) -> str:
         if not name:
             return ""
+        cached = self._sink_match_cache.get(name)
+        if cached is not None:
+            return cached
         for sink in self._sinks:
             if name == sink:
+                self._sink_match_cache[name] = sink
                 return sink
             if (
                 "." not in sink
                 and name.rsplit(".", 1)[-1] == sink
                 and (sink not in _BARE_ONLY_BUILTIN_SINKS or "." not in name)
             ):
+                self._sink_match_cache[name] = sink
                 return sink
         suffix_matches = [
             sink
@@ -392,13 +402,15 @@ class _TaintMatchingMixin:
             if call_name_suffix_matches(sink.lower(), name.lower())
         ]
         if len(suffix_matches) == 1:
-            return suffix_matches[0]
+            result = suffix_matches[0]
+            self._sink_match_cache[name] = result
+            return result
         if (
             suffix_matches
             and "." in name
             and self._equivalent_sink_models(suffix_matches)
         ):
-            return next(
+            result = next(
                 (
                     sink
                     for sink in suffix_matches
@@ -407,6 +419,9 @@ class _TaintMatchingMixin:
                 ),
                 suffix_matches[0],
             )
+            self._sink_match_cache[name] = result
+            return result
+        self._sink_match_cache[name] = ""
         return ""
 
     def _equivalent_source_models(self, names: List[str]) -> bool:

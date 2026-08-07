@@ -265,8 +265,16 @@ class ControlDependenceGraph:
         self.catalog = None
         self.code_id = CodeId("__cfg__", "anonymous")
         if getattr(cfg, "code", None) is not None:
-            self.catalog = ensure_code_indexed(cfg.code)
-            index_cfg(self.catalog, cfg)
+            # A raw CFG must be synchronized below before it can be used.  Let
+            # index_cfg perform the single authoritative semantics build rather
+            # than building AST-only semantics immediately beforehand.
+            self.catalog = ensure_code_indexed(
+                cfg.code, rebuild_semantics=False
+            )
+            try:
+                self.catalog.block_id(cfg.entryTerminal, cfg.code)
+            except KeyError:
+                index_cfg(self.catalog, cfg)
             self.code_id = self.catalog.procedure(cfg.code).code_id
 
     def add_node(self, cfg_node: cfg_graph.CFGBlock) -> CDGNode:

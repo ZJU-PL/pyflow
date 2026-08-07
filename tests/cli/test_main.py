@@ -6,6 +6,15 @@ from pathlib import Path
 cli_main = importlib.import_module("pyflow.cli.main")
 
 
+def test_console_entrypoint_freezes_heap_after_main(monkeypatch):
+    calls = []
+    monkeypatch.setattr(cli_main, "main", lambda: 7)
+    monkeypatch.setattr(cli_main.gc, "freeze", lambda: calls.append("freeze"))
+
+    assert cli_main.entrypoint() == 7
+    assert calls == ["freeze"]
+
+
 def test_main_lists_opt_passes_without_input(monkeypatch):
     called = []
 

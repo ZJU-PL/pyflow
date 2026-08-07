@@ -436,6 +436,23 @@ def test_recursive_call_graph_sccs_are_analyzed_as_public_entries() -> None:
     assert len(result.findings) == 1
 
 
+def test_default_entry_selection_prunes_components_without_sources() -> None:
+    engine = _engine(
+        "def source():\n"
+        "    return input()\n"
+        "def main():\n"
+        "    eval(source())\n"
+        "def unrelated_one():\n"
+        "    return 1\n"
+        "def unrelated_two():\n"
+        "    return unrelated_one()\n"
+    )
+
+    entries = FormalCPGTaintAnalysis(engine)._root_entries()
+
+    assert tuple(engine._cpg.node_func_name(node) for node in entries) == ("main",)
+
+
 def test_data_edges_are_consulted_but_cannot_bypass_a_kill() -> None:
     result = _engine(
         "def main():\n"
@@ -898,3 +915,31 @@ def test_absent_with_finally_does_not_reenter_the_enclosing_try() -> None:
 
     assert len(result.findings) == 1
     assert result.findings[0].sink_label == "eval"
+
+
+def test_time_budget_covers_formal_initialization_and_reporting() -> None:
+    result = _engine(
+        "def target():\n"
+        "    value = input()\n"
+        "    eval(value)\n",
+        max_seconds=1e-9,
+    ).analyze()
+
+    assert result.status == "partial"
+    assert any(
+        diagnostic.code == "cpg-time-budget"
+        for diagnostic in result.diagnostics
+    )
+
+
+def test_import_alias_cycles_do_not_expand_forever() -> None:
+    engine = _engine(
+        "def target():\n"
+        "    first = second.value\n"
+        "    second = first.value\n"
+        "    eval(input())\n"
+    )
+
+    analysis = FormalCPGTaintAnalysis(engine)
+
+    assert all(len(alias) < 100 for alias in analysis._import_aliases.values())

@@ -15,6 +15,7 @@ import json
 import logging
 import sys
 from pathlib import Path
+from time import monotonic
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Sequence
 
 from pyflow.analysis.entrypoints import EntryPointDefaults
@@ -369,7 +370,11 @@ def _apply_session_diagnostics(result: Dict[str, Any], session) -> Dict[str, Any
 
 def _run_cpg(targets: List[str], args) -> Dict[str, Any]:
     """Run the CPG-based context-sensitive security analysis."""
-    from pyflow.ir.cpg.build import build_cpg, build_cpg_from_directory
+    from pyflow.ir.cpg.build import (
+        SECURITY_CPG_EXCLUDE_DIRS,
+        build_cpg,
+        build_cpg_from_directory,
+    )
     from pyflow.ir.cpg.taint import CPGTaintEngine
     from pyflow.ir.cpg.rules import load_rules, detect_frameworks
 
@@ -380,6 +385,11 @@ def _run_cpg(targets: List[str], args) -> Dict[str, Any]:
     analyzed_targets = 0
 
     for target in targets:
+        target_started = monotonic()
+        target_budget = getattr(args, "cpg_max_seconds", None)
+        construction_deadline = (
+            target_started + target_budget if target_budget is not None else None
+        )
         path = Path(target)
         if not path.exists():
             print(f"Error: '{target}' not found", file=sys.stderr)
@@ -396,11 +406,33 @@ def _run_cpg(targets: List[str], args) -> Dict[str, Any]:
 
         if path.is_dir():
             cpg = build_cpg_from_directory(
-                str(target), recursive=getattr(args, "recursive", False)
+                str(target),
+                recursive=getattr(args, "recursive", False),
+                exclude_dirs=SECURITY_CPG_EXCLUDE_DIRS,
+                deadline=construction_deadline,
             )
         else:
             source = path.read_text(encoding="utf-8", errors="replace")
-            cpg = build_cpg(source, filename=str(target))
+            cpg = build_cpg(
+                source, filename=str(target), deadline=construction_deadline
+            )
+
+        if (
+            construction_deadline is not None
+            and monotonic() >= construction_deadline
+        ):
+            diagnostics.append(
+                {
+                    "code": "cpg-time-budget",
+                    "message": "CPG construction exceeded its time budget",
+                    "function": None,
+                    "affects_completeness": True,
+                    "operation": "construction",
+                }
+            )
+            status = "partial"
+            analyzed_targets += 1
+            continue
 
         if len(cpg.functions) == 0:
             diagnostics.append(
@@ -414,13 +446,54 @@ def _run_cpg(targets: List[str], args) -> Dict[str, Any]:
             status = "partial"
             continue
 
-        cpg.build()
+        remaining_seconds = None
+        if construction_deadline is not None:
+            remaining_seconds = construction_deadline - monotonic()
+            if remaining_seconds <= 0:
+                diagnostics.append(
+                    {
+                        "code": "cpg-time-budget",
+                        "message": "CPG construction exceeded its time budget",
+                        "function": None,
+                        "affects_completeness": True,
+                        "operation": "construction",
+                    }
+                )
+                status = "partial"
+                continue
+        assembly_completed = cpg.build(deadline=construction_deadline)
         analyzed_targets += 1
+        if not assembly_completed:
+            diagnostics.append(
+                {
+                    "code": "cpg-time-budget",
+                    "message": "CPG construction exceeded its time budget",
+                    "function": None,
+                    "affects_completeness": True,
+                    "operation": "construction",
+                }
+            )
+            status = "partial"
+            continue
+        if construction_deadline is not None:
+            remaining_seconds = construction_deadline - monotonic()
+            if remaining_seconds <= 0:
+                diagnostics.append(
+                    {
+                        "code": "cpg-time-budget",
+                        "message": "CPG construction exceeded its time budget",
+                        "function": None,
+                        "affects_completeness": True,
+                        "operation": "construction",
+                    }
+                )
+                status = "partial"
+                continue
         engine = CPGTaintEngine(
             cpg,
             max_call_depth=getattr(args, "cpg_context_depth", 3),
             max_states=getattr(args, "cpg_max_states", None),
-            max_seconds=getattr(args, "cpg_max_seconds", None),
+            max_seconds=remaining_seconds,
         )
 
         for src in getattr(args, "sources", []) or []:

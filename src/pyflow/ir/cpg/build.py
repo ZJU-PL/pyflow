@@ -7,51 +7,73 @@ Supports single-file and directory-level construction with import resolution.
 
 from __future__ import annotations
 
-import re
+import os
 from pathlib import Path
-from typing import Dict, List, Optional
+from time import monotonic
+from typing import Any, Dict, Optional, Sequence
 
 from pyflow.application import context
+from pyflow.analysis.callgraph.callgraph import CallGraph
 from pyflow.frontend.extractor import Extractor
 from pyflow.ir.cfg import transform as cfg_transform
 from pyflow.ir.pdg import construct_pdg
-from pyflow.analysis.callgraph.callgraph import CallGraph
 from pyflow.ir.cpg.graph import CodePropertyGraph
 
-_IMPORT_RE = re.compile(
-    r"^\s*(?:from\s+(\S+)\s+import\s+\S+|import\s+(\S+))",
-    re.MULTILINE,
+DEFAULT_CPG_EXCLUDE_DIRS = (
+    ".git",
+    ".hg",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".tox",
+    ".venv",
+    "__pycache__",
+    "build",
+    "dist",
+    "node_modules",
+    "site-packages",
+    "venv",
+)
+
+SECURITY_CPG_EXCLUDE_DIRS = DEFAULT_CPG_EXCLUDE_DIRS + (
+    "test",
+    "tests",
+    "third_party",
+    "vendor",
 )
 
 
-def _resolve_imports(source: str) -> List[str]:
-    """Extract imported module names from source code using simple regex."""
-    imports: List[str] = []
-    for m in _IMPORT_RE.finditer(source):
-        name = m.group(1) or m.group(2) or ""
-        name = name.split(".")[0]
-        if name and not name.startswith("_"):
-            imports.append(name)
-    return imports
+def _discover_python_files(
+    root: Path,
+    *,
+    recursive: bool,
+    excluded: frozenset[str],
+    deadline: float | None,
+) -> list[Path]:
+    """Discover Python files while pruning excluded directory subtrees."""
 
+    files: list[Path] = []
+    if not recursive:
+        try:
+            entries = sorted(root.iterdir(), key=lambda path: path.name)
+        except OSError:
+            return files
+        for path in entries:
+            if deadline is not None and monotonic() >= deadline:
+                break
+            if path.is_file() and path.suffix == ".py":
+                files.append(path)
+        return files
 
-def _find_module_file(
-    module_name: str, search_dir: Path, all_files: List[Path]
-) -> Optional[Path]:
-    for f in all_files:
-        stem = f.stem
-        if stem == module_name:
-            return f
-        if f.parent != search_dir:
-            rel = str(f.relative_to(search_dir)).replace("/", ".").replace("\\", ".")
-            if rel.endswith(".py"):
-                rel = rel[:-3]
-            if rel == module_name:
-                return f
-    init_file = search_dir / module_name / "__init__.py"
-    if init_file in all_files:
-        return init_file
-    return None
+    for current, dirnames, filenames in os.walk(root):
+        if deadline is not None and monotonic() >= deadline:
+            break
+        dirnames[:] = sorted(name for name in dirnames if name not in excluded)
+        for filename in sorted(filenames):
+            if deadline is not None and monotonic() >= deadline:
+                return files
+            if filename.endswith(".py"):
+                files.append(Path(current, filename))
+    return files
 
 
 def build_cpg_from_directory(
@@ -59,6 +81,8 @@ def build_cpg_from_directory(
     *,
     recursive: bool = True,
     resolve_imports: bool = True,
+    exclude_dirs: Sequence[str] = DEFAULT_CPG_EXCLUDE_DIRS,
+    deadline: float | None = None,
     **kwargs,
 ) -> CodePropertyGraph:
     """Build a unified :class:`CodePropertyGraph` from all Python files
@@ -74,7 +98,9 @@ def build_cpg_from_directory(
     recursive:
         Whether to recurse into subdirectories.
     resolve_imports:
-        Whether to detect import relationships and wire call edges.
+        Compatibility option retained for callers. Cross-file edges are now
+        derived only from resolvable call-site syntax, never from imports
+        alone.
     **kwargs:
         Passed through to :func:`build_cpg` for each file.
 
@@ -84,129 +110,86 @@ def build_cpg_from_directory(
         A unified CPG spanning all discovered files.
     """
     root = Path(directory).resolve()
-    pattern = "**/*.py" if recursive else "*.py"
-    files = sorted(root.glob(pattern))
+    excluded = frozenset(exclude_dirs)
+    files = _discover_python_files(
+        root,
+        recursive=recursive,
+        excluded=excluded,
+        deadline=deadline,
+    )
     if not files:
         return CodePropertyGraph()
 
-    file_cpgs: Dict[str, CodePropertyGraph] = {}
-    construction_diagnostics: List[Dict[str, object]] = []
-    call_graph = CallGraph()
-    module_to_file: Dict[str, str] = {}
-
+    sources: Dict[str, str] = {}
     for f in files:
+        if deadline is not None and monotonic() >= deadline:
+            break
         try:
-            source = f.read_text(encoding="utf-8", errors="replace")
+            sources[str(f)] = f.read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
-        cpg = build_cpg(source, filename=str(f), **kwargs)
-        construction_diagnostics.extend(cpg.construction_diagnostics)
-        if len(cpg.functions) == 0:
-            continue
-        file_cpgs[str(f)] = cpg
-        module_to_file[f.stem] = str(f)
+    if not sources:
+        return CodePropertyGraph()
 
-    if resolve_imports and len(file_cpgs) > 1:
-        for fpath, cpg in file_cpgs.items():
-            try:
-                source = Path(fpath).read_text(encoding="utf-8", errors="replace")
-            except OSError:
-                continue
-            imported = _resolve_imports(source)
-            for mod_name in imported:
-                target_path = module_to_file.get(mod_name)
-                if target_path is None:
-                    found_path = _find_module_file(mod_name, root, files)
-                    if found_path:
-                        target_path = str(found_path)
-                if target_path and target_path in file_cpgs:
-                    for caller_fn in cpg.functions:
-                        for callee_fn in file_cpgs[target_path].functions:
-                            call_graph.add_edge(caller_fn, callee_fn)
+    compiler = context.CompilerContext(None)
+    try:
+        compiler.extractor = Extractor(compiler, verbose=False)
+        program = compiler.extractor.extract_from_multiple_files(
+            sources, deadline=deadline
+        )
+    except Exception as error:
+        cpg = CodePropertyGraph()
+        cpg.add_construction_diagnostic(
+            code="cpg-batch-extraction-failed",
+            message=f"Batch extraction failed: {type(error).__name__}: {error}",
+            function=None,
+            stage="extractor",
+        )
+        return cpg
 
-    unified = CodePropertyGraph()
-    for diagnostic in construction_diagnostics:
-        unified.add_construction_diagnostic(**diagnostic)
-    for cpg in file_cpgs.values():
-        for fname, pdg in cpg.pdgs.items():
-            unified.add_function(fname, pdg)
-    if resolve_imports:
-        unified.add_call_graph(call_graph)
-    return unified
+    # Cross-file calls are resolved from actual call-site syntax after all
+    # PDGs have been registered.  The former import-level CallGraph connected
+    # every function in an importing file to every function in the imported
+    # file, creating a quadratic, semantically spurious supergraph.
+    return _build_cpg_from_program(compiler, program, deadline=deadline, **kwargs)
 
 
-def build_cpg(
-    source: str,
-    filename: str = "<unknown>",
+def _build_cpg_from_program(
+    compiler: Any,
+    prog: Any,
     *,
     run_ssa: bool = False,
     expand_phi: bool = False,
     include_control: bool = True,
     include_data: bool = True,
+    deadline: float | None = None,
 ) -> CodePropertyGraph:
-    """Build a :class:`CodePropertyGraph` from Python source code.
-
-    Handles the full pipeline: decompile → CFG → PDG → CPG.
-
-    Parameters
-    ----------
-    source:
-        Python source code string.
-    filename:
-        Logical filename (used for error messages and function naming).
-    run_ssa:
-        Enable SSA renaming during PDG construction.
-    expand_phi:
-        Expand phi nodes after SSA.
-    include_control:
-        Include control dependence edges.
-    include_data:
-        Include data dependence edges.
-
-    Returns
-    -------
-    CodePropertyGraph
-        A built CPG ready for querying.
-    """
-    compiler = context.CompilerContext(None)
-    try:
-        compiler.extractor = Extractor(compiler)
-    except Exception as error:
-        cpg = CodePropertyGraph()
-        cpg.add_construction_diagnostic(
-            code="cpg-extractor-initialization-failed",
-            message=f"Extractor initialization failed: {type(error).__name__}: {error}",
-            function=None,
-            stage="extractor",
-        )
-        return cpg
-
-    try:
-        prog = compiler.extractor.extract_from_source(source, filename=filename)
-    except Exception as error:
-        cpg = CodePropertyGraph()
-        cpg.add_construction_diagnostic(
-            code="cpg-source-extraction-failed",
-            message=f"Source extraction failed: {type(error).__name__}: {error}",
-            function=None,
-            stage="extractor",
-        )
-        return cpg
-    if prog is None:
-        cpg = CodePropertyGraph()
-        cpg.add_construction_diagnostic(
-            code="cpg-source-extraction-failed",
-            message="Source extraction returned no program",
-            function=None,
-            stage="extractor",
-        )
-        return cpg
+    """Lower one already-extracted program into function PDGs."""
 
     cpg = CodePropertyGraph()
-    for code_obj in prog.liveCode:
-        func_name = getattr(code_obj, "codeName", lambda: filename)() or filename
+
+    for code_obj in sorted(
+        prog.liveCode,
+        key=lambda code: getattr(code, "codeName", lambda: repr(code))(),
+    ):
+        if deadline is not None and monotonic() >= deadline:
+            cpg.add_construction_diagnostic(
+                code="cpg-construction-time-budget",
+                message="CPG construction exceeded its time budget",
+                function=None,
+                stage="pdg",
+                affects_completeness=True,
+            )
+            break
+        func_name = getattr(code_obj, "codeName", lambda: "<unknown>")() or "<unknown>"
         try:
-            cfg = cfg_transform.evaluate(compiler, code_obj)
+            # CPG construction consumes the simplified CFG directly and does
+            # not use transformation remaps.  Skipping revision bookkeeping
+            # avoids repeatedly indexing and rebuilding full IR semantics for
+            # every function in a directory scan.
+            cfg = cfg_transform.evaluate(
+                compiler, code_obj, commit_revision=False
+            )
         except Exception as error:
             cpg.add_construction_diagnostic(
                 code="cpg-cfg-build-failed",
@@ -227,7 +210,6 @@ def build_cpg(
                 include_data=include_data,
             )
         except Exception as primary_error:
-            # Fallback: build without SSA and data edges
             try:
                 pdg = construct_pdg(
                     cfg,
@@ -261,6 +243,85 @@ def build_cpg(
             )
         cpg.add_function(func_name, pdg)
     return cpg
+
+
+def build_cpg(
+    source: str,
+    filename: str = "<unknown>",
+    *,
+    run_ssa: bool = False,
+    expand_phi: bool = False,
+    include_control: bool = True,
+    include_data: bool = True,
+    deadline: float | None = None,
+) -> CodePropertyGraph:
+    """Build a :class:`CodePropertyGraph` from Python source code.
+
+    Handles the full pipeline: decompile → CFG → PDG → CPG.
+
+    Parameters
+    ----------
+    source:
+        Python source code string.
+    filename:
+        Logical filename (used for error messages and function naming).
+    run_ssa:
+        Enable SSA renaming during PDG construction.
+    expand_phi:
+        Expand phi nodes after SSA.
+    include_control:
+        Include control dependence edges.
+    include_data:
+        Include data dependence edges.
+
+    Returns
+    -------
+    CodePropertyGraph
+        A built CPG ready for querying.
+    """
+    compiler = context.CompilerContext(None)
+    try:
+        compiler.extractor = Extractor(compiler, verbose=False)
+    except Exception as error:
+        cpg = CodePropertyGraph()
+        cpg.add_construction_diagnostic(
+            code="cpg-extractor-initialization-failed",
+            message=f"Extractor initialization failed: {type(error).__name__}: {error}",
+            function=None,
+            stage="extractor",
+        )
+        return cpg
+
+    try:
+        prog = compiler.extractor.extract_from_source(source, filename=filename)
+    except Exception as error:
+        cpg = CodePropertyGraph()
+        cpg.add_construction_diagnostic(
+            code="cpg-source-extraction-failed",
+            message=f"Source extraction failed: {type(error).__name__}: {error}",
+            function=None,
+            stage="extractor",
+        )
+        return cpg
+    if prog is None:
+        cpg = CodePropertyGraph()
+        cpg.add_construction_diagnostic(
+            code="cpg-source-extraction-failed",
+            message="Source extraction returned no program",
+            function=None,
+            stage="extractor",
+        )
+        return cpg
+
+    return _build_cpg_from_program(
+        compiler,
+        prog,
+        run_ssa=run_ssa,
+        expand_phi=expand_phi,
+        include_control=include_control,
+        include_data=include_data,
+        deadline=deadline,
+    )
 
 
 def build_cpg_with_callgraph(

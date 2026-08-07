@@ -84,10 +84,7 @@ class _GraphQueryMixin:
     def node_by_id(self, node_id: int) -> Optional[PDGNode]:
         """Return a node by ID, or ``None`` when it is not present."""
         self._ensure_built()
-        for node in self.nodes():
-            if node.node_id == node_id:
-                return node
-        return None
+        return self._nodes_by_id.get(node_id)
 
     def cfg_next(self, node_id: int) -> List[PDGNode]:
         """Ansede-compatible node-id based CFG successor helper."""

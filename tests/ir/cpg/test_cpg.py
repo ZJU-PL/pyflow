@@ -154,6 +154,11 @@ class TestCPGConstruction(unittest.TestCase):
         self.assertGreater(stats.nodes, 0)
         self.assertGreater(stats.edges, 0)
 
+    def test_build_honors_expired_deadline(self):
+        cpg = self.build_cpg(simple_assignment)
+
+        self.assertFalse(cpg.build(deadline=0.0))
+
     def test_build_is_idempotent(self):
         cpg = self.build_cpg(simple_assignment)
         cpg.build()
@@ -1053,6 +1058,54 @@ class TestCPGConstruction(unittest.TestCase):
 
             shutil.rmtree(tmp, ignore_errors=True)
 
+    def test_directory_calls_use_real_sites_not_import_cartesian_product(self):
+        import os
+        import tempfile
+
+        tmp = tempfile.mkdtemp()
+        try:
+            with open(os.path.join(tmp, "a.py"), "w") as f:
+                f.write(
+                    "def foo(x):\n    return x\n"
+                    "def unused():\n    return 0\n"
+                )
+            with open(os.path.join(tmp, "b.py"), "w") as f:
+                f.write(
+                    "from a import foo\n"
+                    "def bar(y):\n    return foo(y)\n"
+                    "def other():\n    return 1\n"
+                )
+            cpg = build_cpg_from_directory(tmp)
+            cpg.build()
+            calls = {
+                (cpg.node_func_name(edge.source), cpg.node_func_name(edge.target))
+                for edge in cpg.all_edges(kinds={CPGEdgeKind.CALL})
+            }
+            self.assertEqual(calls, {("bar", "foo")})
+        finally:
+            import shutil
+
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_directory_build_excludes_non_application_trees(self):
+        import os
+        import tempfile
+
+        tmp = tempfile.mkdtemp()
+        try:
+            os.makedirs(os.path.join(tmp, "tests"))
+            with open(os.path.join(tmp, "app.py"), "w") as f:
+                f.write("def production():\n    return 1\n")
+            with open(os.path.join(tmp, "tests", "test_app.py"), "w") as f:
+                f.write("def test_only():\n    return 1\n")
+            cpg = build_cpg_from_directory(tmp, exclude_dirs=("tests",))
+            self.assertIn("production", cpg.functions)
+            self.assertNotIn("test_only", cpg.functions)
+        finally:
+            import shutil
+
+            shutil.rmtree(tmp, ignore_errors=True)
+
     # ── Finding serialization ──────────────────────────────────────────
 
     def test_finding_to_dict(self):
@@ -1254,6 +1307,7 @@ class TestCPGConstruction(unittest.TestCase):
         self.assertEqual(view.node_id, node.node_id)
         self.assertIn("node_type", view.as_dict())
         self.assertIs(cpg.node_by_id(node.node_id), node)
+        self.assertIs(cpg._nodes_by_id[node.node_id], node)
         self.assertIsInstance(cpg.cfg_next(node.node_id), list)
 
     def test_taint_engine_accepts_nodes_and_node_ids(self):

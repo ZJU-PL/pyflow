@@ -11,10 +11,15 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import dataclass, replace
+from time import monotonic
 from typing import Any, Iterable, Mapping, Protocol, Sequence, cast
 
 from pyflow.analysis.taint import TaintRule, sink_behavior_is_active
-from pyflow.analysis.entrypoints import ProcedureDescriptor, select_entry_points
+from pyflow.analysis.entrypoints import (
+    EntryPointMode,
+    ProcedureDescriptor,
+    select_entry_points,
+)
 from pyflow.checker.ast_dataflow.domain import (
     AccessSelector,
     AnalysisUncertainty,
@@ -126,6 +131,7 @@ class EngineView(Protocol):
     _refinement: RefinementProvider
     _node_taint: dict[int, Any]
     _entry_point_options: Any
+    _entry_point_options_explicit: bool
 
     def _extract_call_name(self, ast_node: Any) -> str | None: ...
 
@@ -180,6 +186,12 @@ class CPGAbstractState:
         if not self.reachable:
             return other
         if not other.reachable:
+            return self
+        if self is other or self == other:
+            return self
+        if self.leq(other):
+            return other
+        if other.leq(self):
             return self
         return CPGAbstractState(
             self.taint.join(other.taint), self.may_aliases | other.may_aliases
@@ -317,6 +329,13 @@ class FormalCPGTaintAnalysis:
     def __init__(self, engine: EngineView) -> None:
         self.engine = engine
         self.cpg = engine._cpg
+        self._deadline = (
+            monotonic() + engine._max_seconds
+            if engine._max_seconds is not None
+            else None
+        )
+        self._budget_reported = False
+        self._diagnostics: set[CPGTaintDiagnostic] = set()
         self.cpg._ensure_built()
         self._module_function = next(
             (name for name in self.cpg._pdgs if name.endswith(".<module>")),
@@ -342,12 +361,16 @@ class FormalCPGTaintAnalysis:
             if isinstance(ast_node, py_ast.ClassDef) and ast_node.name
         )
         self._import_aliases = self._collect_import_aliases()
-        self._diagnostics: set[CPGTaintDiagnostic] = set()
         self._events: list[tuple[PDGNode, str, frozenset[TaintFact]]] = []
         self._states: dict[CPGConfiguration, CPGAbstractState] = {}
         self._predecessors: dict[
             tuple[CPGConfiguration, str], tuple[CPGConfiguration, str]
         ] = {}
+        self._configurations_by_node: dict[int, tuple[CPGConfiguration, ...]] = {}
+        self._sanitizers_by_origin_kind: dict[
+            tuple[TaintOrigin, str], frozenset[str]
+        ] = {}
+        self._configured_source_cache: dict[str, str | None] = {}
         self._summaries = self._build_summaries()
         self._processed_states = 0
         self._data_transitions = 0
@@ -358,9 +381,6 @@ class FormalCPGTaintAnalysis:
         self._loop_threshold_reported: set[CPGConfiguration] = set()
 
     def analyze(self) -> CPGTaintResult:
-        from time import monotonic
-
-        started_at = monotonic()
         worklist: deque[CPGConfiguration] = deque()
         queued: set[CPGConfiguration] = set()
         module_seed = self._module_initializer_state()
@@ -389,18 +409,7 @@ class FormalCPGTaintAnalysis:
                     )
                 )
                 break
-            if (
-                self.engine._max_seconds is not None
-                and monotonic() - started_at >= self.engine._max_seconds
-            ):
-                self._diagnostics.add(
-                    CPGTaintDiagnostic(
-                        "CPG fixed point exceeded its time budget",
-                        "cpg-time-budget",
-                        True,
-                        level=PrecisionLevel.UNSUPPORTED.value,
-                    )
-                )
+            if self._budget_exhausted("fixed-point"):
                 break
 
             config = worklist.popleft()
@@ -469,6 +478,28 @@ class FormalCPGTaintAnalysis:
         self._collect_state_diagnostics()
         self._collect_graph_diagnostics()
         self._publish_node_taint()
+        configurations_by_node: dict[int, list[CPGConfiguration]] = {}
+        for configuration in self._states:
+            configurations_by_node.setdefault(configuration.node_id, []).append(
+                configuration
+            )
+        self._configurations_by_node = {
+            node_id: tuple(configurations)
+            for node_id, configurations in configurations_by_node.items()
+        }
+        sanitizer_index: dict[tuple[TaintOrigin, str], set[str]] = {}
+        for state in self._states.values():
+            for edge in state.taint.provenance:
+                if (
+                    edge.operation is ProvenanceOperation.SANITIZE
+                    and edge.detail
+                ):
+                    sanitizer_index.setdefault(
+                        (edge.target.origin, edge.target.kind), set()
+                    ).add(edge.detail)
+        self._sanitizers_by_origin_kind = {
+            key: frozenset(values) for key, values in sanitizer_index.items()
+        }
         findings = self._build_findings()
         diagnostics = tuple(sorted(self._diagnostics, key=repr))
         status = (
@@ -502,6 +533,22 @@ class FormalCPGTaintAnalysis:
             },
         )
 
+    def _budget_exhausted(self, operation: str) -> bool:
+        if self._deadline is None or monotonic() < self._deadline:
+            return False
+        if not self._budget_reported:
+            self._budget_reported = True
+            self._diagnostics.add(
+                CPGTaintDiagnostic(
+                    f"CPG analysis exceeded its time budget during {operation}",
+                    "cpg-time-budget",
+                    True,
+                    level=PrecisionLevel.UNSUPPORTED.value,
+                    operation=operation,
+                )
+            )
+        return True
+
     # ---------------------------------------------------------------- state
     def _root_entries(self) -> tuple[PDGNode, ...]:
         calls: dict[str, set[str]] = {function: set() for function in self.cpg._pdgs}
@@ -527,10 +574,55 @@ class FormalCPGTaintAnalysis:
                 )
             )
         selected = select_entry_points(descriptors, self.engine._entry_point_options)
+        identities = [item.identity for item in selected]
+        if (
+            self.engine._entry_point_options.mode is EntryPointMode.INFERRED_ROOTS
+            and not self.engine._entry_point_options_explicit
+        ):
+            # Plain incoming-degree roots omit a mutually recursive component
+            # with no external caller. Add one representative for every
+            # component not reachable from the initially selected roots.
+            reachable: set[str] = set()
+
+            def mark(function: str) -> None:
+                pending = [function]
+                while pending:
+                    current = pending.pop()
+                    if current in reachable:
+                        continue
+                    reachable.add(current)
+                    pending.extend(calls.get(current, ()))
+
+            for identity in identities:
+                mark(identity)
+            for function in sorted(calls):
+                if function not in reachable:
+                    identities.append(function)
+                    mark(function)
+            source_functions = {
+                self.cpg.node_func_name(node)
+                for node in self.cpg.nodes()
+                if self._source_calls(node.ast_node)
+            }
+            if source_functions and self._module_function not in source_functions:
+                relevant: list[str] = []
+                for identity in identities:
+                    closure: set[str] = set()
+                    pending = [identity]
+                    while pending:
+                        current = pending.pop()
+                        if current in closure:
+                            continue
+                        closure.add(current)
+                        pending.extend(calls.get(current, ()))
+                    if closure & source_functions:
+                        relevant.append(identity)
+                if relevant:
+                    identities = relevant
         return tuple(
-            self.cpg._pdgs[item.identity].entry
-            for item in selected
-            if self.cpg._pdgs[item.identity].entry is not None
+            self.cpg._pdgs[identity].entry
+            for identity in identities
+            if self.cpg._pdgs[identity].entry is not None
         )
 
     def _seed_entry_parameters(
@@ -568,6 +660,8 @@ class FormalCPGTaintAnalysis:
 
         adjacency: dict[int, tuple[int, ...]] = {}
         for node in self.cpg.nodes():
+            if self._budget_exhausted("loop-index"):
+                break
             function = self.cpg.node_func_name(node)
             adjacency[node.node_id] = tuple(
                 edge.target.node_id
@@ -625,6 +719,8 @@ class FormalCPGTaintAnalysis:
         exits = {node.node_id for node in pdg.exit_nodes}
         exit_state = CPGAbstractState.bottom()
         while pending:
+            if self._budget_exhausted("module-initializer"):
+                break
             node = pending.popleft()
             outgoing, events = self._transfer_node(node, states[node.node_id])
             self._events.extend((node, name, facts) for name, facts in events)
@@ -689,6 +785,8 @@ class FormalCPGTaintAnalysis:
     ) -> dict[str, frozenset[str]]:
         result: dict[str, frozenset[str]] = {}
         for function, pdg in self.cpg._pdgs.items():
+            if self._budget_exhausted("scope-declaration-index"):
+                break
             names = {
                 declaration.name.name
                 for node in pdg.nodes
@@ -705,6 +803,8 @@ class FormalCPGTaintAnalysis:
         parameters, _keywords = self._callee_parameters(function)
         names = set(parameters)
         for node in pdg.nodes:
+            if self._budget_exhausted("local-binding-index"):
+                break
             ast_node = node.ast_node
             if isinstance(ast_node, py_ast.Assign):
                 names.update(
@@ -1982,12 +2082,13 @@ class FormalCPGTaintAnalysis:
 
     # --------------------------------------------------------------- summary
     def _build_summaries(self) -> dict[str, CPGProcedureSummary]:
-        summaries = {
-            function: CPGProcedureSummary(
+        summaries: dict[str, CPGProcedureSummary] = {}
+        for function in self.cpg._pdgs:
+            if self._budget_exhausted("procedure-summary-index"):
+                break
+            summaries[function] = CPGProcedureSummary(
                 function, tuple(self._callee_parameters(function)[0])
             )
-            for function in self.cpg._pdgs
-        }
         # The summary domain is finite: parameter tokens and concrete modeled
         # source occurrences.  Iteration therefore computes a least fixed point
         # even for mutually recursive procedures.
@@ -1997,16 +2098,44 @@ class FormalCPGTaintAnalysis:
             + sum(1 for _node in self.cpg.nodes())
             * max(1, len(self.engine._source_kinds))
         )
-        for _iteration in range(token_bound):
-            changed = False
-            updated: dict[str, CPGProcedureSummary] = {}
-            for function in summaries:
-                summary = self._derive_summary(function, summaries)
-                updated[function] = summary
-                changed = changed or summary != summaries[function]
-            summaries = updated
-            if not changed:
+        callers: dict[str, set[str]] = {function: set() for function in summaries}
+        for edges in self.cpg._cpg_edges_out.values():
+            for edge in edges:
+                if edge.kind is not CPGEdgeKind.CALL:
+                    continue
+                caller = self.cpg.node_func_name(edge.source)
+                callee = self.cpg.node_func_name(edge.target)
+                if caller in callers and callee in callers:
+                    callers[callee].add(caller)
+
+        pending = deque(summaries)
+        queued = set(summaries)
+        derivation_limit = token_bound * max(1, len(summaries))
+        derivations = 0
+        while pending and derivations < derivation_limit:
+            if self._budget_exhausted("procedure-summary"):
                 break
+            function = pending.popleft()
+            queued.discard(function)
+            derivations += 1
+            summary = self._derive_summary(function, summaries)
+            if summary == summaries[function]:
+                continue
+            summaries[function] = summary
+            for caller in callers[function]:
+                if caller not in queued:
+                    queued.add(caller)
+                    pending.append(caller)
+        if pending and not self._budget_exhausted("procedure-summary"):
+            self._diagnostics.add(
+                CPGTaintDiagnostic(
+                    "CPG procedure summaries exceeded their finite update bound",
+                    "cpg-summary-budget",
+                    True,
+                    level=PrecisionLevel.UNSUPPORTED.value,
+                    operation="procedure-summary",
+                )
+            )
         return summaries
 
     def _derive_summary(
@@ -2029,6 +2158,8 @@ class FormalCPGTaintAnalysis:
         returns: set[_SummaryToken] = set()
         sinks: dict[tuple[str, int | None, int], set[_SummaryToken]] = {}
         while pending:
+            if self._budget_exhausted("procedure-summary"):
+                break
             node = pending.popleft()
             incoming = states[node.node_id]
             outgoing, returned, emitted = self._summary_transfer(
@@ -2456,7 +2587,18 @@ class FormalCPGTaintAnalysis:
     def _build_findings(self) -> list[TaintFinding]:
         findings: list[TaintFinding] = []
         seen: set[tuple[Any, ...]] = set()
+        consolidated: dict[tuple[int, str], tuple[PDGNode, set[TaintFact]]] = {}
         for sink_node, sink_name, facts in self._events:
+            _node, merged = consolidated.setdefault(
+                (sink_node.node_id, sink_name), (sink_node, set())
+            )
+            merged.update(facts)
+        for sink_node, sink_name, facts in (
+            (node, sink_name, frozenset(facts))
+            for (_node_id, sink_name), (node, facts) in consolidated.items()
+        ):
+            if self._budget_exhausted("finding-construction"):
+                break
             by_origin: dict[TaintOrigin, set[str]] = {}
             for fact in facts:
                 by_origin.setdefault(fact.origin, set()).add(fact.kind)
@@ -2503,22 +2645,16 @@ class FormalCPGTaintAnalysis:
         self, origin: TaintOrigin, kinds: frozenset[str]
     ) -> frozenset[str]:
         return frozenset(
-            edge.detail
-            for state in self._states.values()
-            for edge in state.taint.provenance
-            if edge.operation is ProvenanceOperation.SANITIZE
-            and edge.detail
-            and edge.target.origin == origin
-            and edge.target.kind in kinds
+            sanitizer
+            for kind in kinds
+            for sanitizer in self._sanitizers_by_origin_kind.get((origin, kind), ())
         )
 
     def _witness_path(
         self, source: PDGNode, sink: PDGNode, origin: TaintOrigin
     ) -> list[PDGNode]:
         symbol = origin.symbol or ""
-        candidates = [
-            config for config in self._states if config.node_id == sink.node_id
-        ]
+        candidates = self._configurations_by_node.get(sink.node_id, ())
         if not candidates:
             return [source, sink] if source is not sink else [sink]
         current = min(candidates, key=lambda item: len(item.call_context))
@@ -2631,12 +2767,15 @@ class FormalCPGTaintAnalysis:
         return None
 
     def _configured_source(self, name: str) -> str | None:
+        if name in self._configured_source_cache:
+            return self._configured_source_cache[name]
         exact = [
             source
             for source in self.engine._sources
             if source.lower() == name.lower()
         ]
         if len(exact) == 1:
+            self._configured_source_cache[name] = exact[0]
             return exact[0]
         matches = {
             source
@@ -2645,9 +2784,13 @@ class FormalCPGTaintAnalysis:
             or self._name_matches(name, source)
         }
         if len(matches) == 1:
-            return next(iter(matches))
+            result = next(iter(matches))
+            self._configured_source_cache[name] = result
+            return result
         if matches and self.engine._equivalent_source_models(list(matches)):
-            return next(iter(matches))
+            result = next(iter(matches))
+            self._configured_source_cache[name] = result
+            return result
 
         leaf = name.rsplit(".", 1)[-1].lower()
         leaf_matches = [
@@ -2656,20 +2799,24 @@ class FormalCPGTaintAnalysis:
             if source.rsplit(".", 1)[-1].lower() == leaf
         ]
         if len(leaf_matches) == 1:
+            self._configured_source_cache[name] = leaf_matches[0]
             return leaf_matches[0]
         if leaf_matches and self.engine._equivalent_source_models(leaf_matches):
+            self._configured_source_cache[name] = leaf_matches[0]
             return leaf_matches[0]
+        self._configured_source_cache[name] = None
         return None
 
     def _collect_import_aliases(self) -> dict[str, str]:
         """Recover module and from-import aliases from the lowered CPG AST."""
         aliases: dict[str, str] = {}
-        assignments: list[py_ast.Assign] = []
+        derived: dict[str, tuple[str, str]] = {}
         for node in self.cpg.nodes():
+            if self._budget_exhausted("import-alias-index"):
+                break
             ast_node = node.ast_node
             if not isinstance(ast_node, py_ast.Assign):
                 continue
-            assignments.append(ast_node)
             destinations = tuple(ast_node.lcls or ())
             if len(destinations) != 1 or not isinstance(
                 destinations[0], py_ast.Local
@@ -2680,29 +2827,37 @@ class FormalCPGTaintAnalysis:
                 imported_name = ast_node.expr.name or ""
                 if local_name and imported_name:
                     aliases[local_name] = imported_name
+                continue
+            expression = ast_node.expr
+            if not isinstance(expression, py_ast.GetAttr):
+                continue
+            base = self.engine._resolve_call_expr(expression.expr) or ""
+            attribute = self.engine._resolve_call_expr(expression.name) or ""
+            local_name = destinations[0].name or ""
+            if base and attribute and local_name:
+                derived[local_name] = (base, attribute)
 
-        changed = True
-        while changed:
-            changed = False
-            for assignment in assignments:
-                destinations = tuple(assignment.lcls or ())
-                if len(destinations) != 1 or not isinstance(
-                    destinations[0], py_ast.Local
-                ):
-                    continue
-                expression = assignment.expr
-                if not isinstance(expression, py_ast.GetAttr):
-                    continue
-                base = self.engine._resolve_call_expr(expression.expr) or ""
-                attribute = self.engine._resolve_call_expr(expression.name) or ""
-                qualified_base = aliases.get(base)
-                local_name = destinations[0].name or ""
-                if not qualified_base or not attribute or not local_name:
-                    continue
-                qualified = f"{qualified_base}.{attribute}"
-                if aliases.get(local_name) != qualified:
-                    aliases[local_name] = qualified
-                    changed = True
+        def resolve(local_name: str, visiting: set[str]) -> str | None:
+            resolved = aliases.get(local_name)
+            if resolved is not None:
+                return resolved
+            if local_name in visiting:
+                return None
+            binding = derived.get(local_name)
+            if binding is None:
+                return None
+            base, attribute = binding
+            visiting.add(local_name)
+            qualified_base = aliases.get(base) or resolve(base, visiting)
+            visiting.remove(local_name)
+            if qualified_base is None:
+                return None
+            resolved = f"{qualified_base}.{attribute}"
+            aliases[local_name] = resolved
+            return resolved
+
+        for local_name in derived:
+            resolve(local_name, set())
         return aliases
 
     def _qualify_import_alias(self, name: str) -> str:
