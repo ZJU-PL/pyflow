@@ -163,6 +163,25 @@ def test_formal_parameters_regular_params():
     assert a in formals
 
 
+def test_formal_parameters_variadic_params():
+    args = ast.Local("args")
+    kwargs = ast.Local("kwargs")
+    params = ast.CodeParameters(
+        selfparam=None,
+        posonlyparams=[],
+        posonlynames=[],
+        params=[],
+        paramnames=[],
+        defaults=[],
+        vparam=args,
+        kparam=kwargs,
+        returnparams=[],
+        type_params=None,
+    )
+
+    assert formal_parameters(params) == (args, kwargs)
+
+
 def test_formal_parameters_skips_non_locals():
     params = ast.CodeParameters(
         selfparam=None,
@@ -381,7 +400,9 @@ def test_actual_parameters_without_params():
 
 
 def test_actual_parameters_non_local_args():
-    call = ast.Call(ast.Local("fn"), [ast.Existing(ast.program.Object(1))], [], None, None)
+    call = ast.Call(
+        ast.Local("fn"), [ast.Existing(ast.program.Object(1))], [], None, None
+    )
     params = actual_parameters(call)
     assert len(params) == 0
 

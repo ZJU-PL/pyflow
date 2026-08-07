@@ -1403,6 +1403,13 @@ class InterproceduralTaintProblem(
                         sink_name = f"{base}.{component}"
                         sink_expressions = (operation.value,)
                         model = self.call_models.model_for_name(sink_name)
+                elif isinstance(operation, py_ast.Return):
+                    procedure_name = node.procedure.code.codeName()
+                    candidate = self.call_models.model_for_name(procedure_name)
+                    if candidate is not None and candidate.sink_return:
+                        sink_name = f"{procedure_name}.<return>"
+                        sink_expressions = tuple(operation.exprs)
+                        model = candidate
             if model is None or not model.sink_kinds:
                 continue
             if call_effect is not None and not self._shell_sink_is_active(
@@ -1505,6 +1512,8 @@ class InterproceduralTaintProblem(
             in _SQL_QUERY_ARGUMENT_CALLS
         ):
             return frozenset({0})
+        if model.sink_return and sink_name.endswith(".<return>"):
+            return frozenset(range(argument_count))
         if model.sink_all_arguments:
             return frozenset(range(argument_count))
         positions = set(model.sink_arg_positions)

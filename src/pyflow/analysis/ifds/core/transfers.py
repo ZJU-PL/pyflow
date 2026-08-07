@@ -15,7 +15,9 @@ KWONLY_NAME_PREFIX = "kwonly:"
 def _is_missing_default(default_expr: object) -> bool:
     if not isinstance(default_expr, py_ast.Existing):
         return False
-    return getattr(getattr(default_expr, "object", None), "pyobj", None) is MISSING_DEFAULT
+    return (
+        getattr(getattr(default_expr, "object", None), "pyobj", None) is MISSING_DEFAULT
+    )
 
 
 def _decode_param_name(name: str | None) -> tuple[str | None, bool]:
@@ -61,13 +63,19 @@ def formal_parameters(params) -> tuple[py_ast.Local, ...]:
     formals: list[py_ast.Local] = []
     if isinstance(params.selfparam, py_ast.Local):
         formals.append(params.selfparam)
-    formals.extend(param for param in params.posonlyparams if isinstance(param, py_ast.Local))
+    formals.extend(
+        param for param in params.posonlyparams if isinstance(param, py_ast.Local)
+    )
     formals.extend(param for param in params.params if isinstance(param, py_ast.Local))
+    if isinstance(params.vparam, py_ast.Local):
+        formals.append(params.vparam)
+    if isinstance(params.kparam, py_ast.Local):
+        formals.append(params.kparam)
     return tuple(formals)
 
 
 def bind_call_arguments(call, params) -> tuple[tuple[object, py_ast.Local], ...]:
-    """Bind call-site expressions to callee formals using Python-style argument rules."""
+    """Bind call-site expressions using Python-style argument rules."""
     bindings: list[tuple[object, py_ast.Local]] = []
 
     positional_formals: list[tuple[str | None, py_ast.Local]] = []
@@ -108,7 +116,9 @@ def bind_call_arguments(call, params) -> tuple[tuple[object, py_ast.Local], ...]
 
     receiver = getattr(call, "selfarg", None)
     if receiver is not None:
-        if not bind_next_positional(receiver) and isinstance(params.vparam, py_ast.Local):
+        if not bind_next_positional(receiver) and isinstance(
+            params.vparam, py_ast.Local
+        ):
             bindings.append((receiver, params.vparam))
 
     for actual in getattr(call, "args", ()):
@@ -159,7 +169,9 @@ def bind_call_arguments(call, params) -> tuple[tuple[object, py_ast.Local], ...]
     ]
     defaults = tuple(getattr(params, "defaults", ()))
     if defaults and defaultable_formals:
-        for formal, default_expr in zip(defaultable_formals[-len(defaults) :], defaults):
+        for formal, default_expr in zip(
+            defaultable_formals[-len(defaults) :], defaults
+        ):
             if _is_missing_default(default_expr):
                 continue
             if formal in bound_formals:

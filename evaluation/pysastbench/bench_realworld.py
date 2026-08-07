@@ -254,13 +254,15 @@ def _function_matches(actual: str, expected: str) -> bool:
     )
 
 
-def _finding_location(engine: str, finding: dict[str, Any]) -> tuple[str, str, int, Any]:
+def _finding_location(
+    engine: str, finding: dict[str, Any]
+) -> tuple[str, str, int, Any]:
     if engine == "ast-scanner":
         return (
             str(finding.get("filename", "")),
             "",
-            int(finding.get("line_number") or 0),
-            finding.get("issue_cwe"),
+            int(finding.get("line_number") or finding.get("line") or 0),
+            finding.get("cwe") or finding.get("issue_cwe"),
         )
     if engine == "ast-dataflow":
         return (
@@ -301,7 +303,8 @@ def _detected(record: dict[str, Any], metadata: dict[str, dict[str, str]]) -> bo
             continue
         path, function, line, cwe = _finding_location(engine, finding)
         normalized_path = path.replace("\\", "/")
-        finding_cwes = _cwe_numbers(cwe)
+        reported_cwes = finding.get("cwes") or cwe
+        finding_cwes = _cwe_numbers(reported_cwes)
         if not finding_cwes & expected_cwes:
             continue
         for target_path, target_function, ranges in targets:
@@ -313,8 +316,7 @@ def _detected(record: dict[str, Any], metadata: dict[str, dict[str, str]]) -> bo
                 continue
             if engine == "ast-scanner":
                 if any(
-                    name == target_function
-                    and start <= line <= end
+                    name == target_function and start <= line <= end
                     for name, start, end in ranges
                 ):
                     return True
@@ -488,19 +490,29 @@ def _summary(records: list[dict[str, Any]], engines: tuple[str, ...]) -> dict[st
     summary: dict[str, Any] = {"projects": len({r["project"] for r in records})}
     for engine in engines:
         attempted = [record for record in records if record["engine"] == engine]
-        subset = [record for record in attempted if not record.get("interrupted", False)]
+        subset = [
+            record for record in attempted if not record.get("interrupted", False)
+        ]
         tp = sum(record["variant"] == "vul" and record["detected"] for record in subset)
         fp = sum(record["variant"] == "fix" and record["detected"] for record in subset)
-        fn = sum(record["variant"] == "vul" and not record["detected"] for record in subset)
-        tn = sum(record["variant"] == "fix" and not record["detected"] for record in subset)
+        fn = sum(
+            record["variant"] == "vul" and not record["detected"] for record in subset
+        )
+        tn = sum(
+            record["variant"] == "fix" and not record["detected"] for record in subset
+        )
         precision = tp / (tp + fp) if tp + fp else 0.0
         recall = tp / (tp + fn) if tp + fn else 0.0
-        f1 = 2 * precision * recall / (precision + recall) if precision + recall else 0.0
+        f1 = (
+            2 * precision * recall / (precision + recall) if precision + recall else 0.0
+        )
         accuracy = (tp + tn) / len(subset) if subset else 0.0
         summary[engine] = {
             "projects": len(subset),
             "attempted": len(attempted),
-            "interrupted": sum(record.get("interrupted", False) for record in attempted),
+            "interrupted": sum(
+                record.get("interrupted", False) for record in attempted
+            ),
             "tp": tp,
             "fp": fp,
             "fn": fn,
@@ -510,25 +522,34 @@ def _summary(records: list[dict[str, Any]], engines: tuple[str, ...]) -> dict[st
             "f1": f1,
             "accuracy": accuracy,
             "timeouts": sum(record["parse_error"] == "timeout" for record in subset),
-            "parse_errors": sum(record["parse_error"] not in (None, "timeout") for record in subset),
+            "parse_errors": sum(
+                record["parse_error"] not in (None, "timeout") for record in subset
+            ),
             "nonzero_rc": sum(record["rc"] != 0 for record in subset),
             "status_counts": {
                 str(status): sum(record["status"] == status for record in subset)
                 for status in sorted(
-                    {record["status"] for record in subset}, key=lambda value: str(value)
+                    {record["status"] for record in subset},
+                    key=lambda value: str(value),
                 )
             },
-            "projects_with_findings": sum(record["finding_count"] > 0 for record in subset),
+            "projects_with_findings": sum(
+                record["finding_count"] > 0 for record in subset
+            ),
             "total_findings": sum(record["finding_count"] for record in subset),
-            "mean_s": sum(record["elapsed_s"] for record in subset) / len(subset)
-            if subset
-            else 0.0,
+            "mean_s": (
+                sum(record["elapsed_s"] for record in subset) / len(subset)
+                if subset
+                else 0.0
+            ),
             "total_s": sum(record["elapsed_s"] for record in subset),
         }
     return summary
 
 
-def _failed_project(project: Path, engines: tuple[str, ...], error: Exception) -> list[dict[str, Any]]:
+def _failed_project(
+    project: Path, engines: tuple[str, ...], error: Exception
+) -> list[dict[str, Any]]:
     message = f"{type(error).__name__}: {error}"
     return [
         _record(
@@ -576,7 +597,9 @@ def _store_future(
     if project_records is None:
         return False
     records.extend(project_records)
-    raw.writelines(json.dumps(record, ensure_ascii=False) + "\n" for record in project_records)
+    raw.writelines(
+        json.dumps(record, ensure_ascii=False) + "\n" for record in project_records
+    )
     raw.flush()
     processed.add(future)
     return True
@@ -589,7 +612,9 @@ def main() -> int:
     root = args.pysastbench_root.expanduser().resolve()
     dataset = root / "RealworldDataset-extracted"
     metadata_path = root / "RealworldDataset.csv"
-    pyflow = (args.pyflow or repo_root / ".venv" / "bin" / "pyflow").expanduser().resolve()
+    pyflow = (
+        (args.pyflow or repo_root / ".venv" / "bin" / "pyflow").expanduser().resolve()
+    )
     engines = _selected_engines(args.engines)
     unknown = sorted(set(engines) - set(ENGINES))
     if unknown:
@@ -635,21 +660,25 @@ def main() -> int:
     with raw_path.open("w", encoding="utf-8") as raw:
         try:
             for future in as_completed(futures):
-                if _store_future(future, futures, processed, records, raw, metadata, engines) and (
-                    len(processed) % 10 == 0 or len(processed) == len(projects)
-                ):
+                if _store_future(
+                    future, futures, processed, records, raw, metadata, engines
+                ) and (len(processed) % 10 == 0 or len(processed) == len(projects)):
                     print(f"completed={len(processed)}/{len(projects)}", flush=True)
             pool.shutdown(wait=True)
         except KeyboardInterrupt:
             interrupted = True
-            print("Interrupted; terminating active engine process groups...", flush=True)
+            print(
+                "Interrupted; terminating active engine process groups...", flush=True
+            )
             terminate_active_processes()
             for future in futures:
                 future.cancel()
             pool.shutdown(wait=True, cancel_futures=True)
             for future in futures:
                 if future.done() and not future.cancelled():
-                    _store_future(future, futures, processed, records, raw, metadata, engines)
+                    _store_future(
+                        future, futures, processed, records, raw, metadata, engines
+                    )
 
     summary = _summary(records, engines)
     summary["interrupted"] = interrupted

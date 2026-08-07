@@ -1072,6 +1072,8 @@ class TestCPGConstruction(unittest.TestCase):
         )
         d = finding.to_dict()
         self.assertEqual(d["cwe"], "CWE-78")
+        self.assertEqual(d["cwes"], ["CWE-78", "CWE-77"])
+        self.assertEqual(d["cwe_ancestors"], ["CWE-77"])
         self.assertIn("confidence", d)
         json.dumps(d)
 

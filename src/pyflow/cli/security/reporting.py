@@ -7,6 +7,7 @@ import sys
 from typing import Any, Dict, List
 
 from pyflow.checker.pattern.core import constants as b_constants
+from pyflow.util.cwe import cwe_ancestors, cwe_identifiers, normalize_cwe
 
 _SARIF_SCHEMA = (
     "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/"
@@ -257,6 +258,10 @@ def _result_to_json(engine: str, result) -> Any:
                     "confidence": iss.confidence,
                     "filename": iss.fname,
                     "line": iss.lineno,
+                    "issue_cwe": iss.cwe.as_dict(),
+                    "cwe": normalize_cwe(iss.cwe.id),
+                    "cwes": list(cwe_identifiers(iss.cwe.id)),
+                    "cwe_ancestors": list(cwe_ancestors(iss.cwe.id)),
                 }
                 for iss in issues
             ],
@@ -301,6 +306,8 @@ def _ast_dataflow_payload(manager) -> Dict[str, Any]:
                 "rule_title": finding.rule_title,
                 "severity": finding.severity,
                 "cwe": finding.cwe,
+                "cwes": list(cwe_identifiers(finding.cwe)),
+                "cwe_ancestors": list(cwe_ancestors(finding.cwe)),
                 "suggestion": finding.suggestion,
                 "confidence": finding.confidence,
                 "precision_reasons": list(finding.precision_reasons),
@@ -753,8 +760,7 @@ def _ifds_result_to_dict(entry: str, taint_result) -> Dict[str, Any]:
         "analysis": "taint",
         "findings": findings,
         "diagnostics": [
-            diagnostic
-            for diagnostic in getattr(taint_result, "diagnostics", ())
+            diagnostic for diagnostic in getattr(taint_result, "diagnostics", ())
         ],
         "statistics": statistics,
         "status": status,

@@ -16,7 +16,12 @@ from pyflow.checker.ast_dataflow.detectors._taint_models import (
 from pyflow.checker.formatters import json as json_formatter
 from pyflow.checker.formatters import text as text_formatter
 from pyflow.checker.pattern.core import constants as b_constants
-from pyflow.cli.security.reporting import _ast_dataflow_payload, _result_to_sarif
+from pyflow.checker.pattern.core.issue import Issue
+from pyflow.cli.security.reporting import (
+    _ast_dataflow_payload,
+    _result_to_json,
+    _result_to_sarif,
+)
 from pyflow.cli.security.command import _security_exit_code
 
 
@@ -30,6 +35,20 @@ def _totals() -> dict[str, int]:
         for rank in b_constants.RANKING:
             totals[f"{criteria}.{rank}"] = 0
     return totals
+
+
+def test_ast_scanner_json_includes_primary_and_ancestor_cwes():
+    issue = Issue("HIGH", cwe=78, confidence="HIGH", text="shell injection")
+    issue.fname = "sample.py"
+    issue.lineno = 7
+    manager = SimpleNamespace(get_issue_list=lambda *_args: [issue])
+
+    finding = _result_to_json("ast-scanner", manager)["results"][0]
+
+    assert finding["cwe"] == "CWE-78"
+    assert finding["cwes"] == ["CWE-78", "CWE-77"]
+    assert finding["cwe_ancestors"] == ["CWE-77"]
+    assert finding["issue_cwe"]["id"] == 78
 
 
 class _FormatterManager:
@@ -304,6 +323,7 @@ def test_ast_dataflow_json_and_sarif_preserve_trace_and_diagnostics():
         rule_id="PYFLOW-CODE",
         rule_title="Code injection",
         severity="high",
+        cwe="CWE-95",
         trace=(
             ASTDataflowTraceStep("source", "run.payload", "sample.py", 3, "input"),
             ASTDataflowTraceStep("sink", "eval", "sample.py", 9, "eval"),
@@ -329,6 +349,8 @@ def test_ast_dataflow_json_and_sarif_preserve_trace_and_diagnostics():
     sarif = _result_to_sarif("ast-dataflow", manager, SimpleNamespace())
 
     assert payload["findings"][0]["trace"][0]["operation"] == "source"
+    assert payload["findings"][0]["cwes"] == ["CWE-95", "CWE-94"]
+    assert payload["findings"][0]["cwe_ancestors"] == ["CWE-94"]
     assert payload["diagnostics"][0]["operation"] == "library.call"
     thread_locations = sarif["runs"][0]["results"][0]["codeFlows"][0]["threadFlows"][0][
         "locations"

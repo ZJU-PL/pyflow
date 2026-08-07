@@ -77,6 +77,7 @@ from .core.solver import PropagationTrace, SolverStatistics
 from .diagnostics import IFDSDiagnostic
 from .queries import is_reached_prefix, verify_call_chain
 from .reporting import AnalysisFinding, FlowStep, SourceSpan
+from pyflow.util.cwe import cwe_ancestors, cwe_identifiers, normalize_cwe
 from .core.supergraph import Supergraph, SupergraphError
 from .core.backward import (
     BackwardIFDSProblem,
@@ -241,6 +242,8 @@ __all__ = [
     "build_supergraph_from_cfgs",
     "collect_locals",
     "composite_cfg_resolver",
+    "cwe_ancestors",
+    "cwe_identifiers",
     "diff_scans",
     "DiffEntry",
     "direct_call_cfg_resolver",
@@ -268,6 +271,7 @@ __all__ = [
     "iter_call_expressions",
     "iter_call_expressions_in_eval_order",
     "iter_suspension_expressions",
+    "normalize_cwe",
     "fact_call_targets_cfg_resolver",
     "resolve_call_name",
     "resource_lifecycle_protocol",

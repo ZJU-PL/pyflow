@@ -22,6 +22,20 @@
   },
   "models": [
     {
+      "call": "extra.update",
+      "cwe": "CWE-89",
+      "severity": "high",
+      "suggestion": "Allowlist SQL EXPLAIN option names before constructing the prefix.",
+      "sinks": [
+        {
+          "kind": "django_explain_sql",
+          "port": {
+            "parameter": 0
+          }
+        }
+      ]
+    },
+    {
       "call": "request.GET.get",
       "sources": [
         {
@@ -947,6 +961,19 @@
     }
   ],
   "rules": [
+    {
+      "id": "PYFLOW-DJANGO-EXPLAIN-SQL",
+      "title": "Untrusted EXPLAIN options reach a SQL prefix boundary",
+      "sources": [
+        "user_input",
+        "untrusted"
+      ],
+      "sinks": [
+        "django_explain_sql"
+      ],
+      "severity": "high",
+      "cwe": "CWE-89"
+    },
     {
       "id": "PYFLOW-DJANGO-CACHE",
       "title": "Untrusted data reaches cache sink",

@@ -7,8 +7,10 @@ import hashlib
 from typing import Any, Mapping, Sequence
 
 from pyflow.ir.core import SourceOrigin as IRSourceOrigin
+from pyflow.util.cwe import cwe_ancestors, cwe_identifiers
 
 from .frontend.cfg_adapter import CFGNode, CFGSupergraphAdapter
+
 
 @dataclass(frozen=True, order=True)
 class SourceSpan:
@@ -87,6 +89,7 @@ class AnalysisFinding:
         return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:24]
 
     def to_dict(self) -> dict[str, Any]:
+        cwes = cwe_identifiers(self.cwe)
         return {
             "rule_id": self.rule_id,
             "kind": self.kind,
@@ -101,6 +104,8 @@ class AnalysisFinding:
             "node_id": self.node_id,
             "code_flow": [step.to_dict() for step in self.code_flow],
             "cwe": self.cwe,
+            "cwes": list(cwes),
+            "cwe_ancestors": list(cwe_ancestors(self.cwe)),
             "suggestion": self.suggestion,
             "fingerprint": self.fingerprint,
             "properties": dict(self.properties),
@@ -230,7 +235,10 @@ def normalized_typestate_findings(result) -> tuple[AnalysisFinding, ...]:
     adapter = result._problem.adapter
     findings = (
         AnalysisFinding(
-            rule_id=f"PYFLOW-TYPESTATE-{finding.protocol.upper()}-{finding.kind.upper()}",
+            rule_id=(
+                f"PYFLOW-TYPESTATE-{finding.protocol.upper()}-"
+                f"{finding.kind.upper()}"
+            ),
             kind=finding.kind,
             severity="warning",
             confidence="high",

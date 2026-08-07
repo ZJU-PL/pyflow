@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from pyflow.analysis.entrypoints import EntryPointMode, EntryPointOptions
@@ -236,6 +238,46 @@ class TestRegistryLoading:
             assert model.taint_propagations
             assert not model.sanitizer_kinds
             assert not model.sanitizer_contracts
+
+    def test_taint_model_accepts_declarative_return_sink(self, tmp_path):
+        pack = tmp_path / "return-sink.json"
+        pack.write_text(
+            json.dumps(
+                {
+                    "schema_version": 2,
+                    "framework": "return-sink",
+                    "version": "1.0",
+                    "type": "taint",
+                    "models": [
+                        {
+                            "call": "render_payload",
+                            "cwe": "CWE-79",
+                            "sinks": [{"kind": "xss", "port": "return"}],
+                        }
+                    ],
+                    "rules": [
+                        {
+                            "id": "RETURN-XSS",
+                            "title": "Unsafe rendered return",
+                            "sources": ["user_input"],
+                            "sinks": ["xss"],
+                            "severity": "high",
+                        }
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        registry = Registry()
+        registry.load_custom(pack)
+        model = registry.active_models(type="taint").model_for_name(
+            "render_payload"
+        )
+
+        assert model is not None
+        assert model.sink_return is True
+        assert model.sink_arg_positions == frozenset()
 
     def test_sql_cursor_reads_are_database_sources(self):
         r = Registry()

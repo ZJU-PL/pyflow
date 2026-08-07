@@ -122,6 +122,67 @@ def test_interprocedural_taint_analysis_reports_only_unsanitized_sink_flow():
     assert [local.name for local in finding.tainted_arguments] == ["b"]
 
 
+def test_declarative_return_sink_reports_in_producer_procedure():
+    compiler = context.CompilerContext(None)
+
+    value = ast.Local("value")
+    producer_code, _ = make_code(
+        "producer", [value], [ast.Return([value])], return_name="producer_ret"
+    )
+    tainted = ast.Local("tainted")
+    result_local = ast.Local("result")
+    main_code, _ = make_code(
+        "main",
+        [],
+        [
+            ast.Assign(
+                ast.Call(ast.Local("input"), [], [], None, None),
+                [tainted],
+            ),
+            call_stmt(producer_code, [tainted], [result_local]),
+            ast.Return([result_local]),
+        ],
+        return_name="main_ret",
+    )
+
+    cfgs = [build_cfg(compiler, code) for code in (main_code, producer_code)]
+    adapter = build_supergraph_from_cfgs(cfgs)
+    config = TaintConfiguration(
+        call_models=CallModelRegistry(
+            [
+                CallModel("input", source_kinds=frozenset({"test.source"})),
+                CallModel(
+                    "producer",
+                    sink_kinds=frozenset({"test.sink"}),
+                    sink_arg_positions=frozenset(),
+                    sink_return=True,
+                    cwe="CWE-79",
+                ),
+            ]
+        ),
+        rules=(
+            TaintRule(
+                "TEST-RETURN-SINK",
+                "Tainted producer return",
+                frozenset({"test.source"}),
+                frozenset({"test.sink"}),
+            ),
+        ),
+    )
+
+    result = analyze_taint(
+        adapter,
+        config,
+        entry_nodes=[adapter.supergraph.entry_of(cfgs[0])],
+    )
+
+    assert len(result.findings) == 1
+    finding = result.findings[0]
+    assert finding.sink.procedure is cfgs[1]
+    assert finding.sink_name == "producer.<return>"
+    assert finding.cwe == "CWE-79"
+
+
 def test_literal_jinja_template_requires_explicit_autoescape_bypass_for_xss_sink():
     compiler = context.CompilerContext(None)
     source_code, _ = make_code("source", [], [], return_name="source_ret")

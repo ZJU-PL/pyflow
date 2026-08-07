@@ -19,6 +19,8 @@ to categorize the type of vulnerability.
 
 import linecache
 
+from pyflow.util.cwe import cwe_ancestors, cwe_identifiers, normalize_cwe
+
 
 class Cwe:
     """
@@ -307,12 +309,16 @@ class Issue:
         Returns:
             Dictionary representation of the issue
         """
+        primary_cwe = normalize_cwe(self.cwe.id)
         out = {
             "filename": self.fname,
             "test_name": self.test,
             "test_id": self.test_id,
             "issue_severity": self.severity,
             "issue_cwe": self.cwe.as_dict(),
+            "cwe": primary_cwe,
+            "cwes": list(cwe_identifiers(primary_cwe)),
+            "cwe_ancestors": list(cwe_ancestors(primary_cwe)),
             "issue_confidence": self.confidence,
             "issue_text": self.text,
             "line_number": self.lineno,

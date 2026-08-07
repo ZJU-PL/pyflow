@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Dict, FrozenSet, List, Tuple
 from pyflow.ir.pdg.graph import PDGNode
+from pyflow.util.cwe import cwe_ancestors, cwe_identifiers
 
 
 @dataclass(frozen=True)
@@ -445,6 +446,8 @@ class TaintFinding:
         return {
             "rule_id": self.effective_rule_id,
             "cwe": self.cwe,
+            "cwes": list(cwe_identifiers(self.cwe)),
+            "cwe_ancestors": list(cwe_ancestors(self.cwe)),
             "severity": self.severity,
             "source_label": self.source_label,
             "sink_label": self.sink_label,
@@ -524,6 +527,8 @@ class TaintFinding:
             ],
             "properties": {
                 "cwe": self.cwe,
+                "cwes": list(cwe_identifiers(self.cwe)),
+                "cwe_ancestors": list(cwe_ancestors(self.cwe)),
                 "source_label": self.source_label,
                 "sink_label": self.sink_label,
                 "sink_line": self.sink_line,

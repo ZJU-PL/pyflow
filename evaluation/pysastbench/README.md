@@ -83,5 +83,11 @@ the supplied PySASTBench root. Use `--results` only when a non-default result
 directory is needed.
 
 After the run, the summary includes TP/FP/FN/TN, precision, recall, and F1.
-Real-world detections require a finding with a listed CWE at the metadata
-target function; timeouts and failed analyses count as no detection.
+The matcher accepts the primary CWE and formally reported CWE ancestors from a
+finding's `cwes` field, matching the semantic treatment used by the synthetic
+runner. Real-world detections still require the benchmark file and target
+function; timeouts and failed analyses count as no detection.
+
+The unified JSON output for `ast-scanner`, `ast-dataflow`, `cpg`, and `ifds`
+uses `cwe` for the most specific identifier, `cwes` for the primary identifier
+plus known ancestors, and `cwe_ancestors` for the ancestor-only view.

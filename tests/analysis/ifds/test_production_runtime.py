@@ -244,6 +244,45 @@ def test_finding_fingerprint_uses_source_identity_over_transient_node_id():
     assert first.fingerprint == second.fingerprint
 
 
+def test_finding_serializes_primary_cwe_and_known_ancestors():
+    finding = AnalysisFinding(
+        rule_id="RULE-1",
+        kind="taint",
+        severity="high",
+        confidence="high",
+        message="command reaches shell",
+        primary_location=SourceSpan("app.py", 12),
+        procedure="main",
+        node_id=10,
+        cwe="CWE-78",
+    )
+
+    data = finding.to_dict()
+
+    assert data["cwe"] == "CWE-78"
+    assert data["cwes"] == ["CWE-78", "CWE-77"]
+    assert data["cwe_ancestors"] == ["CWE-77"]
+
+
+def test_finding_does_not_invent_unrelated_cwe_ancestors():
+    finding = AnalysisFinding(
+        rule_id="RULE-1",
+        kind="taint",
+        severity="high",
+        confidence="high",
+        message="path reaches file operation",
+        primary_location=SourceSpan("app.py", 12),
+        procedure="main",
+        node_id=10,
+        cwe="CWE-22",
+    )
+
+    data = finding.to_dict()
+
+    assert data["cwes"] == ["CWE-22"]
+    assert data["cwe_ancestors"] == []
+
+
 def test_random_intraprocedural_problems_match_reference_solver():
     for seed in range(25):
         rng = random.Random(seed)

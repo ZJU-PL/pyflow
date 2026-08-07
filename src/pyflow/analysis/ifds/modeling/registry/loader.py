@@ -306,6 +306,13 @@ def _sink_receiver(entries: object) -> bool:
     )
 
 
+def _sink_return(entries: object) -> bool:
+    return isinstance(entries, list) and any(
+        isinstance(entry, dict) and entry.get("port") == "return"
+        for entry in entries
+    )
+
+
 def _sanitizer_kinds(entries: object) -> FrozenSet[str]:
     if not isinstance(entries, list):
         return frozenset()
@@ -454,6 +461,7 @@ def _call_model_from_entry(entry: dict) -> CallModel | None:
         sink_arg_positions=_sink_positions(entry.get("sinks")),
         sink_all_arguments=_sink_all_arguments(entry.get("sinks")),
         sink_receiver=_sink_receiver(entry.get("sinks")),
+        sink_return=_sink_return(entry.get("sinks")),
         cwe=_optional_str(entry.get("cwe")),
         severity=_optional_str(entry.get("severity")),
         suggestion=_optional_str(entry.get("suggestion")),
@@ -767,12 +775,13 @@ def _validate_taint_model(entry: dict, location: str, error) -> None:
                 key == "sinks"
                 and port != "all"
                 and port != "receiver"
+                and port != "return"
                 and not _valid_parameter_port(port)
             ):
                 error(
                     f"{endpoint_location}.port",
-                    "sink port must be 'all', 'receiver', or contain a "
-                    "non-negative parameter index",
+                    "sink port must be 'all', 'receiver', 'return', or "
+                    "contain a non-negative parameter index",
                 )
 
     sanitizers = entry.get("sanitizers", [])
