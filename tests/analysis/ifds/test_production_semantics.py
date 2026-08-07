@@ -20,6 +20,24 @@ def _reachable_nodes(adapter, start):
     return reached
 
 
+def test_direct_callgraph_fallback_follows_frontend_resolved_edges():
+    from pyflow.analysis.ifds.api import _direct_callgraph_target_codes
+
+    leaf, _ = make_code("leaf", [], [ast.Return([])])
+    middle, _ = make_code(
+        "middle",
+        [],
+        [ast.Discard(ast.DirectCall(leaf, None, [], [], None, None))],
+    )
+    entry, _ = make_code(
+        "entry",
+        [],
+        [ast.Discard(ast.DirectCall(middle, None, [], [], None, None))],
+    )
+
+    assert _direct_callgraph_target_codes((entry,)) == {entry, middle, leaf}
+
+
 def test_typed_exception_routes_only_to_first_matching_handler():
     compiler = context.CompilerContext(None)
     handled_type = ast.Local("handled_type")

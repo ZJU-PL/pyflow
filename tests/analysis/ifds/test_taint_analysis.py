@@ -249,6 +249,26 @@ def test_entry_parameter_kinds_retain_disjoint_rule_coverage():
     assert _entry_parameter_source_kinds(rules) == frozenset({"file", "network"})
 
 
+def test_entry_parameter_kinds_skip_model_only_source_properties():
+    rules = (
+        TaintRule(
+            "SHAPE",
+            "Shape",
+            frozenset({"template_context_shape"}),
+            frozenset({"template_context_shape"}),
+            entrypoint_source=False,
+        ),
+        TaintRule(
+            "INPUT",
+            "Input",
+            frozenset({"user_input"}),
+            frozenset({"xss"}),
+        ),
+    )
+
+    assert _entry_parameter_source_kinds(rules) == frozenset({"user_input"})
+
+
 def test_file_scan_instance_receiver_is_an_external_boundary_input():
     compiler = context.CompilerContext(None)
     receiver = ast.Local("self")

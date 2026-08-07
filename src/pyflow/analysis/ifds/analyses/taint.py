@@ -54,9 +54,10 @@ def _entry_parameter_source_kinds(rules: Sequence[TaintRule]) -> FrozenSet[str]:
     the complete IFDS state space when rule packs list broad equivalent source
     categories.
     """
-    uncovered = set(range(len(rules)))
+    eligible_rules = tuple(rule for rule in rules if rule.entrypoint_source)
+    uncovered = set(range(len(eligible_rules)))
     selected: set[str] = set()
-    candidates = {kind for rule in rules for kind in rule.source_kinds}
+    candidates = {kind for rule in eligible_rules for kind in rule.source_kinds}
     preference = {
         CATEGORY_USER_INPUT: 0,
         "untrusted": 1,
@@ -66,14 +67,19 @@ def _entry_parameter_source_kinds(rules: Sequence[TaintRule]) -> FrozenSet[str]:
         best = min(
             candidates,
             key=lambda kind: (
-                -sum(kind in rules[index].source_kinds for index in uncovered),
+                -sum(
+                    kind in eligible_rules[index].source_kinds
+                    for index in uncovered
+                ),
                 preference.get(kind, 3),
                 kind,
             ),
         )
         selected.add(best)
         uncovered = {
-            index for index in uncovered if best not in rules[index].source_kinds
+            index
+            for index in uncovered
+            if best not in eligible_rules[index].source_kinds
         }
         candidates.remove(best)
     return frozenset(selected)

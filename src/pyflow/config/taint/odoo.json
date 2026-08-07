@@ -1,0 +1,66 @@
+{
+  "schema_version": 2,
+  "framework": "odoo",
+  "version": "1.0",
+  "description": "Odoo HTTP template-context shape models",
+  "entrypoints": {"taint_parameters": false},
+  "detection": {
+    "imports": [
+      "import odoo",
+      "from odoo",
+      "odoo.http"
+    ],
+    "patterns": [
+      "request.params.copy()",
+      "request.render("
+    ]
+  },
+  "models": [
+    {
+      "call": "odoo.http.request.params.copy",
+      "aliases": [
+        "request.params.copy"
+      ],
+      "sources": [
+        {
+          "kind": "template_context_shape",
+          "port": "return"
+        }
+      ]
+    },
+    {
+      "call": "odoo.http.request.render",
+      "aliases": [
+        "request.render"
+      ],
+      "cwe": "CWE-79",
+      "severity": "high",
+      "suggestion": "Construct template contexts from an allowlist of expected keys instead of copying all request parameters.",
+      "sinks": [
+        {
+          "kind": "template_context_shape",
+          "port": {
+            "parameter": 1
+          }
+        }
+      ]
+    }
+  ],
+  "rules": [
+    {
+      "id": "PYFLOW-ODOO-TEMPLATE-CONTEXT",
+      "title": "Unfiltered Odoo request parameters reach a template context",
+      "sources": [
+        "template_context_shape"
+      ],
+      "entrypoint_source": false,
+      "sinks": [
+        "template_context_shape"
+      ],
+      "cwe": "CWE-79",
+      "severity": "high",
+      "suggestion": "Copy only explicitly allowed request keys into the QWeb rendering context."
+    }
+  ],
+  "type": "taint"
+}

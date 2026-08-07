@@ -28,6 +28,7 @@ class TaintRule:
     severity: str = "medium"
     cwe: str | None = None
     suggestion: str | None = None
+    entrypoint_source: bool = True
 
     def __post_init__(self) -> None:
         if not self.rule_id.strip():

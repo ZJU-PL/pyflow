@@ -94,6 +94,7 @@ class HeapAbstraction:
         self.allocation_sites = allocation_sites if allocation_sites is not None else {}
         self.site_storage = site_storage if site_storage is not None else {}
         self._raw_locations: dict[object, HeapLocation] = {}
+        self._root_site_index: dict[HeapObject, int] | None = None
         self._objects: dict[tuple[object, ...], HeapObject] = {}
         self._object_labels: dict[HeapObject, str] = {}
         self._local_names: dict[tuple[int, int], str] = {}
@@ -210,6 +211,7 @@ class HeapAbstraction:
         self.storage_overrides = dict(environment.storage_overrides)
         self.allocation_sites = dict(environment.allocation_sites)
         self.site_storage = dict(environment.site_storage)
+        self._root_site_index = None
         self._object_labels = dict(environment.object_labels)
         self._local_names = dict(environment.local_names)
         self._escaped_objects = set(environment.escaped_objects)
@@ -352,11 +354,13 @@ class HeapAbstraction:
 
     def _root_allocation_site(self, root: HeapObject) -> int | None:
         """Get the allocation-site id for a HeapObject root, if one exists."""
-        for site, storage in self.site_storage.items():
-            for raw in storage:
-                if self.location_for_raw(raw).root == root:
-                    return site
-        return None
+        if self._root_site_index is None:
+            index: dict[HeapObject, int] = {}
+            for site, storage in self.site_storage.items():
+                for raw in storage:
+                    index.setdefault(self.location_for_raw(raw).root, site)
+            self._root_site_index = index
+        return self._root_site_index.get(root)
 
     # ── alias equivalence-class tracking ────────────────────────────────
 
@@ -1766,4 +1770,10 @@ class HeapAbstraction:
         self.next_site += 1
         self.allocation_sites[key] = site
         self.site_storage[site] = storage
+        if self._root_site_index is not None:
+            for raw in storage:
+                self._root_site_index.setdefault(
+                    self.location_for_raw(raw).root,
+                    site,
+                )
         self._incr_site_ref(site)

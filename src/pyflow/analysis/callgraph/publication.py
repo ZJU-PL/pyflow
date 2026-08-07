@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from dataclasses import dataclass
 import os
 from pathlib import Path
 from typing import Iterable, Mapping
@@ -12,7 +13,16 @@ from pyflow.ir.core import CallTarget, Capabilities, ContextualKey, FactResult
 from pyflow.language.python import ast
 from pyflow.language.source_compat import normalize_legacy_python_syntax
 
-from .constraint_based import extract_call_site_edge_index_constraint
+from .constraint_based import AnalysisOptions, ConstraintCallGraphBuilder
+
+
+@dataclass(frozen=True)
+class ConstraintCallgraphAnalysis:
+    """Partial-or-complete source call graph plus convergence metadata."""
+
+    edges: Mapping[object, frozenset[str]]
+    iterations: int
+    truncated: bool
 
 
 def _scope_matches(code, scope: str) -> bool:
@@ -67,12 +77,29 @@ def extract_constraint_callgraph_edges(
     *,
     entry_path: str | Path | None = None,
     analyze_reachable_only: bool = False,
+    max_iterations: int = 256,
 ):
     """Compute source-level constraint edges without mutating the IR catalog."""
+    return analyze_constraint_callgraph_edges(
+        paths,
+        entry_path=entry_path,
+        analyze_reachable_only=analyze_reachable_only,
+        max_iterations=max_iterations,
+    ).edges
+
+
+def analyze_constraint_callgraph_edges(
+    paths: Iterable[str | Path],
+    *,
+    entry_path: str | Path | None = None,
+    analyze_reachable_only: bool = False,
+    max_iterations: int = 256,
+) -> ConstraintCallgraphAnalysis:
+    """Compute constraint edges and expose whether the bounded pass converged."""
     source_paths = tuple(Path(path).resolve() for path in paths)
     if entry_path is None:
         if not source_paths:
-            return {}
+            return ConstraintCallgraphAnalysis({}, 0, False)
         analysis_entry = source_paths[0]
     else:
         analysis_entry = Path(entry_path).resolve()
@@ -86,16 +113,27 @@ def extract_constraint_callgraph_edges(
         for path in source_paths
         if path != analysis_entry
     }
-    return extract_call_site_edge_index_constraint(
+    builder = ConstraintCallGraphBuilder(
         source,
-        source_path=str(analysis_entry),
-        context_sensitive=False,
-        fixpoint_max_iterations=2000,
-        allow_fixture_graph_loading=False,
-        skip_external_modules=True,
-        analyze_reachable_only=analyze_reachable_only,
-        seed_entry_file_scopes=analyze_reachable_only,
+        entry_path=str(analysis_entry),
+        options=AnalysisOptions(
+            context_sensitive=False,
+            # Publishing an entry-rooted graph is a preparatory precision pass,
+            # not the IFDS fixpoint itself. Bound the scope states so a large
+            # vendored tree cannot consume the whole project timeout first.
+            fixpoint_max_iterations=max(1, int(max_iterations)),
+            allow_fixture_graph_loading=False,
+            skip_external_modules=True,
+            analyze_reachable_only=analyze_reachable_only,
+            seed_entry_file_scopes=analyze_reachable_only,
+        ),
         additional_sources=additional_sources,
+    )
+    builder.build()
+    return ConstraintCallgraphAnalysis(
+        edges=builder.call_site_edge_index(),
+        iterations=builder.fixpoint_iterations,
+        truncated=builder.fixpoint_truncated,
     )
 
 
@@ -128,10 +166,14 @@ def publish_constraint_callgraph_facts(
         analysis_entry = source_paths[0]
     else:
         analysis_entry = Path(entry_path).resolve()
-    computed_edges = edge_index or extract_constraint_callgraph_edges(
-        source_paths,
-        entry_path=analysis_entry,
-        analyze_reachable_only=analyze_reachable_only,
+    computed_edges = (
+        edge_index
+        if edge_index is not None
+        else extract_constraint_callgraph_edges(
+            source_paths,
+            entry_path=analysis_entry,
+            analyze_reachable_only=analyze_reachable_only,
+        )
     )
     for site, targets in computed_edges.items():
         site_source = os.path.realpath(site.source_path or analysis_entry)
@@ -203,6 +245,8 @@ def publish_constraint_callgraph_facts(
 
 
 __all__ = [
+    "ConstraintCallgraphAnalysis",
+    "analyze_constraint_callgraph_edges",
     "extract_constraint_callgraph_edges",
     "publish_constraint_callgraph_facts",
     "target_codes_for_constraint_edges",

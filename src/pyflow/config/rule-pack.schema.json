@@ -232,7 +232,8 @@
         "sinks": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
         "severity": {"enum": ["info", "low", "medium", "high", "critical"]},
         "cwe": {"type": "string", "pattern": "^CWE-[0-9]+$"},
-        "suggestion": {"type": "string"}
+        "suggestion": {"type": "string"},
+        "entrypoint_source": {"type": "boolean", "default": true}
       },
       "additionalProperties": false
     }

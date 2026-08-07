@@ -92,7 +92,16 @@ _MODEL_KEYS_BY_TYPE = {
     "nullness": frozenset({"call", "aliases", "nullness_nullable_return"}),
 }
 _RULE_KEYS = frozenset(
-    {"id", "title", "sources", "sinks", "severity", "cwe", "suggestion"}
+    {
+        "id",
+        "title",
+        "sources",
+        "sinks",
+        "severity",
+        "cwe",
+        "suggestion",
+        "entrypoint_source",
+    }
 )
 _ENDPOINT_KEYS = frozenset({"kind", "port"})
 _SANITIZER_KEYS = frozenset(
@@ -468,6 +477,7 @@ def _taint_rule_from_entry(rule: dict) -> TaintRule:
         severity=str(rule.get("severity", "medium")),
         cwe=_optional_str(rule.get("cwe")),
         suggestion=_optional_str(rule.get("suggestion")),
+        entrypoint_source=rule.get("entrypoint_source", True),
     )
 
 
@@ -677,6 +687,10 @@ def validate_rule_pack_data(
                 or any(not isinstance(item, str) or not item.strip() for item in value)
             ):
                 error(f"{location}.{key}", "must contain non-empty kind names")
+        if "entrypoint_source" in rule and not isinstance(
+            rule["entrypoint_source"], bool
+        ):
+            error(f"{location}.entrypoint_source", "must be a boolean")
         for key in ("calls", "call", "pattern_type", "sink_arg_positions"):
             if key in rule:
                 error(f"{location}.{key}", "is not valid in schema v2")

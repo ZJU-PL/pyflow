@@ -159,6 +159,46 @@ def test_run_taint_analysis_uses_stdlib_getoutput_model(tmp_path):
     )
 
 
+def test_odoo_template_context_shape_distinguishes_allowlist_rebuild(tmp_path):
+    vulnerable = tmp_path / "vulnerable.py"
+    vulnerable.write_text(
+        "def main(request):\n"
+        "    values = request.params.copy()\n"
+        "    request.render('web.login', values)\n",
+        encoding="utf-8",
+    )
+    fixed = tmp_path / "fixed.py"
+    fixed.write_text(
+        "def main(request):\n"
+        "    allowed = {'login', 'redirect'}\n"
+        "    values = {k: v for k, v in request.params.items() if k in allowed}\n"
+        "    request.render('web.login', values)\n",
+        encoding="utf-8",
+    )
+    registry = ifds_api.load_registry()
+    registry.activate("odoo", type="taint")
+    configuration = {
+        "call_models": registry.active_models(type="taint"),
+        "rules": registry.as_taint_policy().rules,
+    }
+
+    _session, vulnerable_result, _ = run_taint_analysis(
+        [vulnerable], function="main", **configuration
+    )
+    _session, fixed_result, _ = run_taint_analysis(
+        [fixed], function="main", **configuration
+    )
+
+    assert any(
+        finding.rule.rule_id == "PYFLOW-ODOO-TEMPLATE-CONTEXT"
+        for finding in vulnerable_result.findings
+    )
+    assert not any(
+        finding.rule.rule_id == "PYFLOW-ODOO-TEMPLATE-CONTEXT"
+        for finding in fixed_result.findings
+    )
+
+
 def test_run_taint_analysis_uses_archive_member_models(tmp_path):
     target = tmp_path / "archive.py"
     target.write_text(
@@ -415,16 +455,16 @@ def test_load_analysis_session_runs_one_entry_rooted_constraint_solve(
     )
 
     calls = []
-    original = callgraph_publication.extract_call_site_edge_index_constraint
+    original = callgraph_publication.ConstraintCallGraphBuilder.build
 
-    def recording_extract(source, **kwargs):
-        calls.append(kwargs.get("source_path"))
-        return original(source, **kwargs)
+    def recording_build(builder):
+        calls.append(builder.entry_path)
+        return original(builder)
 
     monkeypatch.setattr(
-        callgraph_publication,
-        "extract_call_site_edge_index_constraint",
-        recording_extract,
+        callgraph_publication.ConstraintCallGraphBuilder,
+        "build",
+        recording_build,
     )
 
     session = load_analysis_session([entry, helper], entry_file=entry)

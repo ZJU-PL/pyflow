@@ -11,8 +11,9 @@ from typing import Iterable, Sequence
 
 from pyflow.application.context import CompilerContext
 from pyflow.application.program import Program
+from pyflow.analysis.astcollector import getOps
 from pyflow.analysis.callgraph.publication import (
-    extract_constraint_callgraph_edges,
+    analyze_constraint_callgraph_edges,
     publish_constraint_callgraph_facts,
     target_codes_for_constraint_edges,
 )
@@ -28,6 +29,7 @@ from pyflow.frontend.interface_builder import (
     InterfaceBuildOptions,
     build_interface_from_paths,
 )
+from pyflow.language.python import ast as py_ast
 from pyflow.util.application.console import Console
 
 from .frontend.cfg_adapter import (
@@ -316,6 +318,25 @@ def _restrict_live_codes_to_published_callgraph(
     return ordered
 
 
+def _direct_callgraph_target_codes(
+    seed_codes: Iterable[object],
+) -> frozenset[object]:
+    """Follow frontend-resolved DirectCall edges as a precise fallback."""
+    reached = set(seed_codes)
+    pending = list(seed_codes)
+    while pending:
+        code = pending.pop()
+        for operation in getOps(code)[0]:
+            if not isinstance(operation, py_ast.DirectCall):
+                continue
+            target = operation.code
+            if target is None or target in reached:
+                continue
+            reached.add(target)
+            pending.append(target)
+    return frozenset(reached)
+
+
 def _resolve_requested_entry_code(program: Program, queries, function_name: str):
     interface_matches = []
     seen = set()
@@ -346,6 +367,7 @@ def load_analysis_session(
     include_exceptional_edges: bool = True,
     root_function: str | None = None,
     entry_file: str | Path | None = None,
+    callgraph_max_iterations: int = 256,
 ) -> AnalysisSession:
     """Load source files into a PyFlow program and build CFGs for all live code."""
     if root_function is not None and entry_file is not None:
@@ -360,6 +382,7 @@ def load_analysis_session(
     options = _path_options(verbose, dependency_strategy, search_paths)
     stdout = nullcontext() if verbose else redirect_stdout(io.StringIO())
     preserved_codes = ()
+    callgraph_diagnostics: list[IFDSDiagnostic] = []
     target_source: str | None = None
     with stdout:
         program.interface, all_source_code = build_interface_from_paths(files, options)
@@ -395,17 +418,44 @@ def load_analysis_session(
                 program, entry_file
             )
         callgraph_entry = entry_file or target_source or (files[0] if files else None)
-        callgraph_edges = extract_constraint_callgraph_edges(
+        callgraph_analysis = analyze_constraint_callgraph_edges(
             files,
             entry_path=callgraph_entry,
             analyze_reachable_only=entry_file is not None,
+            max_iterations=callgraph_max_iterations,
         )
+        callgraph_edges = callgraph_analysis.edges
         if entry_file is not None:
+            constraint_targets = target_codes_for_constraint_edges(
+                program.ir, callgraph_edges
+            )
+            fallback_targets = _direct_callgraph_target_codes(
+                (*preserved_codes, *constraint_targets)
+            )
+            fallback_additions = fallback_targets.difference(
+                preserved_codes, constraint_targets
+            )
             preserved_codes = _restrict_live_codes_to_published_callgraph(
                 program,
                 preserved_codes,
-                target_codes_for_constraint_edges(program.ir, callgraph_edges),
+                (*constraint_targets, *fallback_targets),
             )
+            if callgraph_analysis.truncated:
+                callgraph_diagnostics.append(
+                    IFDSDiagnostic(
+                        severity="warning",
+                        phase="callgraph",
+                        code="IFDS-CALLGRAPH-PARTIAL",
+                        message=(
+                            "Constraint call graph reached its bounded worklist "
+                            f"after {callgraph_analysis.iterations} states; kept "
+                            "partial constraint edges and supplemented them with "
+                            f"{len(fallback_additions)} frontend-resolved direct-call "
+                            "procedures. Indirect-call reachability may remain incomplete."
+                        ),
+                        affects_completeness=True,
+                    )
+                )
         prepared = prepare_program_for_ifds(
             compiler,
             program,
@@ -432,7 +482,7 @@ def load_analysis_session(
         compiler,
         program,
         adapter,
-        diagnostics=prepared.diagnostics,
+        diagnostics=(*prepared.diagnostics, *callgraph_diagnostics),
     )
 
 
@@ -455,6 +505,7 @@ def run_taint_analysis(
     include_exceptional_edges: bool = True,
     shadow_scan: bool = False,
     solver_options: SolverOptions | None = None,
+    callgraph_max_iterations: int = 256,
 ) -> tuple[AnalysisSession, TaintAnalysisResult, list | None]:
     """Load files and run taint analysis from a function or module entry.
 
@@ -471,6 +522,7 @@ def run_taint_analysis(
         include_exceptional_edges=include_exceptional_edges,
         root_function=function,
         entry_file=entry_file,
+        callgraph_max_iterations=callgraph_max_iterations,
     )
     resolved_entry_options = entry_point_options
     if resolved_entry_options is None and entry_point_defaults is not None:
@@ -556,6 +608,7 @@ def run_nullness_analysis(
     search_paths: Sequence[str] | None = None,
     include_exceptional_edges: bool = True,
     solver_options: SolverOptions | None = None,
+    callgraph_max_iterations: int = 256,
 ) -> tuple[AnalysisSession, NullnessAnalysisResult]:
     """Load files and run nullness analysis from a function or module entry."""
     files = [Path(path) for path in python_files]
@@ -567,6 +620,7 @@ def run_nullness_analysis(
         include_exceptional_edges=include_exceptional_edges,
         root_function=function,
         entry_file=entry_file,
+        callgraph_max_iterations=callgraph_max_iterations,
     )
     result = analyze_nullness(
         session.adapter,
@@ -615,6 +669,7 @@ def run_typestate_analysis(
     search_paths: Sequence[str] | None = None,
     include_exceptional_edges: bool = True,
     solver_options: SolverOptions | None = None,
+    callgraph_max_iterations: int = 256,
 ) -> tuple[AnalysisSession, TypestateAnalysisResult]:
     """Load files and run typestate analysis from a function or module entry."""
     files = [Path(path) for path in python_files]
@@ -626,6 +681,7 @@ def run_typestate_analysis(
         include_exceptional_edges=include_exceptional_edges,
         root_function=function,
         entry_file=entry_file,
+        callgraph_max_iterations=callgraph_max_iterations,
     )
     result = analyze_typestate(
         session.adapter,

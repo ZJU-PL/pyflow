@@ -133,6 +133,15 @@ def add_security_parser(subparsers):
     p.add_argument("--ifds-max-contexts-per-procedure", type=_positive_int)
     p.add_argument("--ifds-max-memory-bytes", type=_positive_int)
     p.add_argument(
+        "--ifds-callgraph-max-iterations",
+        type=_positive_int,
+        default=argparse.SUPPRESS,
+        help=(
+            "Maximum constraint-callgraph worklist states before retaining "
+            "partial edges and using the direct-call fallback (default: 256)."
+        ),
+    )
+    p.add_argument(
         "--ifds-context-depth", type=_non_negative_int, default=argparse.SUPPRESS
     )
     p.add_argument(

@@ -63,6 +63,7 @@ _CONFIG_SCALAR_MAP: dict[str, str] = {
     "ifds_trace_mode": "ifds_trace_mode",
     "ifds_context_depth": "ifds_context_depth",
     "unknown_call_policy": "ifds_unknown_call_policy",
+    "callgraph_max_iterations": "ifds_callgraph_max_iterations",
 }
 
 _CONFIG_LIST_MAP: dict[str, str] = {
@@ -114,6 +115,7 @@ def _apply_ifds_config(args) -> None:
         "function",
         "ifds_trace_mode",
         "ifds_context_depth",
+        "callgraph_max_iterations",
         "unknown_call_policy",
         "registry_path",
         "typestate_protocol",
@@ -231,6 +233,9 @@ def _run_ifds(targets: List[str], args) -> Dict[str, Any]:
                 dependency_strategy=getattr(args, "dependency_strategy", "auto"),
                 verbose=getattr(args, "verbose", False),
                 solver_options=solver_options,
+                callgraph_max_iterations=getattr(
+                    args, "ifds_callgraph_max_iterations", 256
+                ),
             )
         except Exception as e:
             print(f"IFDS analysis failed: {e}", file=sys.stderr)
@@ -255,6 +260,9 @@ def _run_ifds(targets: List[str], args) -> Dict[str, Any]:
                 dependency_strategy=getattr(args, "dependency_strategy", "auto"),
                 verbose=getattr(args, "verbose", False),
                 solver_options=solver_options,
+                callgraph_max_iterations=getattr(
+                    args, "ifds_callgraph_max_iterations", 256
+                ),
             )
         except Exception as e:
             print(f"IFDS analysis failed: {e}", file=sys.stderr)
@@ -316,6 +324,9 @@ def _run_ifds(targets: List[str], args) -> Dict[str, Any]:
             dependency_strategy=getattr(args, "dependency_strategy", "auto"),
             verbose=getattr(args, "verbose", False),
             solver_options=solver_options,
+            callgraph_max_iterations=getattr(
+                args, "ifds_callgraph_max_iterations", 256
+            ),
         )
     except Exception as e:
         print(f"IFDS analysis failed: {e}", file=sys.stderr)

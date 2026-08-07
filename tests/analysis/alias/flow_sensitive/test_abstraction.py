@@ -416,6 +416,29 @@ def test_aliased_locations_excludes_nested():
     assert aliased == frozenset({field})
 
 
+def test_alias_site_lookup_indexes_existing_and_new_roots():
+    x = py_ast.Local("x")
+    y = py_ast.Local("y")
+    z = py_ast.Local("z")
+    raw = {
+        id(x): (RawStorage("x"),),
+        id(y): (RawStorage("y"),),
+        id(z): (RawStorage("z"),),
+    }
+    heap = HeapAbstraction(lambda _procedure, local: raw[id(local)])
+
+    x_loc = heap.locations_for_local(None, x)[0]
+    y_loc = heap.locations_for_local(None, y)[0]
+    assert heap._root_site_index is None
+
+    heap.aliased_locations(x_loc)
+    assert y_loc.root in heap._root_site_index
+
+    z_loc = heap.locations_for_local(None, z)[0]
+    assert z_loc.root in heap._root_site_index
+    assert heap.aliased_locations(z_loc) == frozenset({z_loc})
+
+
 def test_nested_location_strong_by_default_with_ref_count_one():
     heap = HeapAbstraction(lambda _procedure, _local: (), policy=HeapPolicy())
     obj = heap.allocation_object(None, object(), label="obj")

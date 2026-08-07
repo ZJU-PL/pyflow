@@ -161,8 +161,93 @@ class GetOps(TypeDispatcher):
             self(item)
 
     def process(self, node):
-        # This is a shared node, so force traversal
-        node.visitChildrenForced(self)
+        """Collect *node* without relying on the Python call stack.
+
+        Generated Python can contain thousands of nested control-flow nodes
+        (a long ``if``/``elif`` chain is enough).  The historical dispatcher
+        recursively called ``visitChildren`` and failed with
+        :class:`RecursionError` on those otherwise valid programs.  Keep the
+        same traversal and post-order operation ordering, but represent the
+        pending visits explicitly.
+        """
+
+        children = []
+        # The root is commonly a shared Code node.  Preserve the old forced
+        # traversal while continuing to treat nested Code nodes as leaves.
+        node.visitChildrenForced(children.append)
+        pending = [(child, False) for child in reversed(children)]
+
+        operation_types = (
+            ast.Load,
+            ast.Store,
+            ast.Check,
+            ast.Allocate,
+            ast.BinaryOp,
+            ast.Is,
+            ast.UnaryPrefixOp,
+            ast.GetGlobal,
+            ast.SetGlobal,
+            ast.GetSubscript,
+            ast.SetSubscript,
+            ast.Call,
+            ast.DirectCall,
+            ast.MethodCall,
+            ast.UnpackSequence,
+            ast.GetAttr,
+            ast.SetAttr,
+            ast.ConvertToBool,
+            ast.Not,
+            ast.BuildTuple,
+            ast.BuildList,
+            ast.BuildMap,
+            ast.BuildSlice,
+            ast.MakeFunction,
+            ast.Import,
+            ast.Yield,
+            ast.NamedExpr,
+            ast.ConditionalExpr,
+        )
+
+        while pending:
+            current, emit_operation = pending.pop()
+            if emit_operation:
+                self.ops.append(current)
+                continue
+
+            if isinstance(current, (list, tuple)):
+                pending.extend((item, False) for item in reversed(current))
+                continue
+            if isinstance(
+                current,
+                ast.leafTypes
+                + (ast.Break, ast.Continue, ast.Code, ast.DoNotCare),
+            ):
+                continue
+            if isinstance(current, (ast.Local, ast.Existing)):
+                self.locals.add(current)
+                continue
+            if isinstance(current, ast.InputBlock):
+                pending.extend(
+                    (input_.lcl, False) for input_ in reversed(current.inputs)
+                )
+                continue
+            if isinstance(current, ast.OutputBlock):
+                pending.extend(
+                    (output.expr, False) for output in reversed(current.outputs)
+                )
+                continue
+            if isinstance(current, ast.Assign) and isinstance(current.expr, ast.Local):
+                self.copies.append(current)
+
+            child_nodes = []
+            if isinstance(current, ast.PythonASTNode):
+                current.visitChildren(child_nodes.append)
+            else:
+                raise TypeError(f"unsupported AST collector value: {current!r}")
+
+            if isinstance(current, operation_types):
+                pending.append((current, True))
+            pending.extend((child, False) for child in reversed(child_nodes))
         return self.ops, self.locals
 
 

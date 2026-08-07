@@ -188,6 +188,33 @@ class TestRegistryLoading:
         assert sanitizer is not None
         assert sanitizer.sanitizer_kinds == frozenset({"*"})
 
+    def test_odoo_template_context_shape_models(self):
+        registry = Registry()
+        detected = registry.detect(
+            [
+                "from odoo.http import request",
+                "values = request.params.copy()",
+                "request.render('web.login', values)",
+            ],
+            type="taint",
+        )
+        models = registry.active_models(type="taint")
+
+        assert "odoo" in detected
+        assert (
+            registry.as_taint_policy().entry_point_defaults.taint_parameters
+            is False
+        )
+        source = models.model_for_name("request.params.copy")
+        assert source is not None
+        assert source.source_kinds == frozenset({"template_context_shape"})
+
+        sink = models.model_for_name("request.render")
+        assert sink is not None
+        assert sink.cwe == "CWE-79"
+        assert sink.sink_kinds == frozenset({"template_context_shape"})
+        assert sink.sink_arg_positions == frozenset({1})
+
     def test_stdlib_value_transforms_preserve_taint(self):
         registry = Registry()
         registry.activate("stdlib", type="taint")
