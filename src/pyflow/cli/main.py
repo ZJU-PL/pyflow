@@ -28,6 +28,7 @@ from .ir import run_ir_dump, add_ir_parser
 from .security import run_security, add_security_parser
 from . import callgraph
 from .alias import run_alias_analysis, add_alias_parser
+from .concolic import add_concolic_parser, run_concolic
 from .supply_chain import add_supply_chain_parser, run_supply_chain
 from .lsp import add_lsp_parser, add_mcp_parser, add_query_parser, run_lsp, run_mcp, run_query
 
@@ -58,6 +59,9 @@ def main():
     add_ir_parser(subparsers)
 
     add_alias_parser(subparsers)
+
+    # Py-Conbyte-inspired dynamic symbolic execution
+    add_concolic_parser(subparsers)
 
     # Unified security analysis command
     add_security_parser(subparsers)
@@ -100,6 +104,8 @@ def main():
         input_path = None
     elif args.command == "alias":
         input_path = Path(args.input_path)
+    elif args.command == "concolic":
+        input_path = Path(args.input_path)
     else:
         input_path = None
 
@@ -119,6 +125,8 @@ def main():
         return 0
     elif args.command == "alias":
         return run_alias_analysis(args.input_path, args)
+    elif args.command == "concolic":
+        return run_concolic(args)
     elif args.command == "security":
         return run_security(args)
     elif args.command == "supply-chain":

@@ -68,6 +68,23 @@ def test_main_dispatches_callgraph(monkeypatch, tmp_path):
     assert seen["algorithm"] == "simple"
 
 
+def test_main_dispatches_concolic(monkeypatch, tmp_path):
+    sample = tmp_path / "sample.py"
+    sample.write_text("def main(value):\n    return value\n", encoding="utf-8")
+    seen = {}
+
+    def fake_run_concolic(args):
+        seen["command"] = args.command
+        seen["input_path"] = args.input_path
+        return 4
+
+    monkeypatch.setattr(cli_main, "run_concolic", fake_run_concolic)
+    monkeypatch.setattr(cli_main.sys, "argv", ["pyflow", "concolic", str(sample)])
+
+    assert cli_main.main() == 4
+    assert seen == {"command": "concolic", "input_path": str(sample)}
+
+
 def test_main_dispatches_supply_chain(monkeypatch, tmp_path):
     seen = {}
 

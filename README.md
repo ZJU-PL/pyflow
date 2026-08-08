@@ -33,7 +33,7 @@ If you use pyflow in your research or work, please cite the following:
 - **Supply-chain analysis**: local SBOM generation, distribution integrity
   auditing, and dependency metadata extraction
 - **CLI tooling**: commands for optimization, call graph generation, IR dumps,
-  security, supply-chain, and alias analysis
+  security, supply-chain, alias analysis, and concolic test-input generation
 
 ## Evaluation results
 
@@ -44,12 +44,12 @@ Security analysis engines evaluated on the PySASTBench microbenchmark
 python3 evaluation/pysastbench/bench_micro.py --timeout 45 --workers 16
 ```
 
-| Engine       | Precision | Recall | F1    | Accuracy | Mean(s) |
-|--------------|-----------|--------|-------|----------|---------|
-| ast-scanner  | 0.623     | 0.400  | 0.487 | 0.579    | 0.49    |
-| ast-dataflow | 0.849     | 0.842  | 0.845 | 0.846    | 0.58    |
-| cpg          | 0.792     | 0.792  | 0.792 | 0.792    | 1.56    |
-| ifds         | 0.852     | 0.767  | 0.807 | 0.817    | 3.57    |
+| Engine       | Precision | Recall | F1    | Accuracy |
+|--------------|-----------|--------|-------|----------|
+| ast-scanner  | 0.623     | 0.400  | 0.487 | 0.579    |
+| ast-dataflow | 0.849     | 0.842  | 0.845 | 0.846    |
+| cpg          | 0.792     | 0.792  | 0.792 | 0.792    |
+| ifds         | 0.852     | 0.767  | 0.807 | 0.817    |
 
 ## Installation and Usage
 
@@ -103,6 +103,9 @@ pyflow security input.py --engine cpg --framework flask
 # Run alias analysis (flow-sensitive heap or k-CFA pointer)
 pyflow alias input.py --verbose
 
+# Generate branch-covering integer inputs for a pure function named main
+pyflow concolic input.py --inputs '[0]' --json
+
 # Start the LSP server (Content-Length framed JSON-RPC)
 pyflow lsp --root . --mode full
 
@@ -116,16 +119,9 @@ pyflow query . --get-callers package.module.function --pretty
 pyflow supply-chain sbom package/
 ```
 
-The scanner is offline by design. Production CI is responsible for refreshing
-and authenticating OSV snapshots; ``--osv-trusted-digest`` binds data to trusted
-configuration while ``--osv-max-age-days`` enforces freshness. Install the optional
-``supply-chain`` dependency group for JSON Schema and Sigstore tooling.
-
 See [CLI.md](CLI.md) for the command reference,
 [docs/source/lsp.rst](docs/source/lsp.rst) for LSP, MCP, and semantic-query
-integration,
-[docs/type-inference.md](docs/type-inference.md) for the standalone static
-type-inference engine, and `docs/` for broader project
+integration, and `docs/` for broader project
 documentation.
 
 ### Running Tests

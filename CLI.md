@@ -8,6 +8,7 @@ This document matches the current `pyflow` command surface.
 - `callgraph`: Build a call graph from a Python file or project directory
 - `ir`: Dump AST, CFG, SSA, CDG, or DDG forms for specific functions
 - `alias`: Run alias analysis (flow-sensitive heap or k-CFA pointer)
+- `concolic`: Generate branch-covering inputs and check simple postconditions
 - `security`: Unified security analysis (dispatches to any of four engines)
 
 ## Optimize
@@ -112,6 +113,68 @@ Key options:
 - `--recursive`, `-r`: Recursively analyze Python files in a directory
 - `--json`: Output machine-readable JSON instead of human-friendly text
 - `--verbose`, `-v`: Include per-entry details
+
+## Concolic
+
+```bash
+pyflow concolic [OPTIONS] INPUT_PATH
+```
+
+Explores feasible paths in one function by replaying concrete integer inputs
+and using Z3 to flip each observed branch. The default entry function is
+`main`; use `--entry` to select another function. It requires the optional
+`z3-solver` dependency, available through `pip install -e ".[concolic]"`.
+
+```bash
+pyflow concolic target.py --entry parse --inputs '[0, 0]' --json
+```
+
+Key options:
+- `--entry NAME`: Function to explore (default: `main`)
+- `--inputs JSON_ARRAY`: Initial integer arguments; defaults to zero for each
+  positional parameter
+- `--max-iterations N`: Maximum concrete executions (default: 50)
+- `--max-loop-iterations N`: Concrete loop cap per `while` statement
+  (default: 100)
+- `--check-contracts`: Solve supported PEP 316 `post:` clauses for a
+  counterexample
+- `--json`: Emit generated inputs and execution results as JSON
+
+The supported subset includes integer, float, string, and list parameters;
+it also handles byte-string literals and common byte operations. Arithmetic
+(including `//`, `%`, and `int(a / b)`), comparisons, and Boolean
+operators; `if`, `while`, `for`, `break`, `continue`, and conditional
+expressions; local function/method/class calls with defaults, keyword
+arguments, positional-only and keyword-only parameters, and `*args`/`**kwargs`;
+lambda, nested callable values, and function decorators (including
+transparent `functools.cache`/`lru_cache`/`wraps`); list/tuple/dictionary literals,
+unpacking, subscripts, slices, mutation, dictionary union, set algebra and common set methods,
+list sorting with `key`/`reverse`, f-strings, assignment expressions, percent formatting, assertions, and
+`match`/`case` (including dataclass and literal-`__match_args__`
+class patterns); `len`, `int`, `str`, `list`, `dict`, `range`,
+`sum`, `min`, `max`, `abs`, `bool`, `float`, `pow`, `round`, `divmod`, `ord`,
+`chr`, `set`, `tuple`, `iter`, `next`, `enumerate`, `zip`, `sorted`, `any`, and
+`all`; `repr`, `ascii`, `format`, `type`,
+`isinstance`, `getattr`, `hasattr`, and `setattr`; list/set/
+dictionary/generator comprehensions; local, package, and
+relative imports (including local `importlib.import_module()`), and safe computed module constants; eagerly
+materialized `yield`/`yield from` generators with consumable iterator behavior, eager async functions, `async for`, and async
+comprehensions and `async with`; and
+`re.compile(...).match/search(...).group()`; inherited classes and class variables, `super()`,
+static/class methods, properties (including `cached_property`), supported class decorators, and basic dataclasses (including `asdict`,
+`astuple`, and `replace`); context managers;
+and `try`/`except`/`finally`, simple `except*`, and exception chaining for conversion, lookup, and explicit target
+exceptions. Structured summaries currently cover `base64`, `bisect`, `collections.Counter`/`namedtuple`, `copy`,
+`dataclasses`, deterministic `datetime`, `functools.partial`, `hashlib`,
+`heapq`, `itertools`, `json`, `math`, `operator`, `os.path`, lexical
+`pathlib.Path`, basic `enum.Enum`/`IntEnum`/`StrEnum`, `statistics`, `urllib.parse`, and `contextlib.suppress`/`nullcontext` plus supported `contextmanager`/`asynccontextmanager` decorators. Unsupported operations produce a clear error
+rather than silently executing arbitrary target code.
+
+With `--check-contracts`, a single-line PEP 316 clause such as
+`post: __return__ >= 0` is evaluated after every run. Parameters and
+`__return__` are available to the clause; discovered violations are emitted as
+structured counterexamples. Snapshot values such as `__old__` are not yet
+supported.
 
 ## Supply Chain
 
