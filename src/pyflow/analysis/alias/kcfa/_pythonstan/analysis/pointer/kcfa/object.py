@@ -18,7 +18,8 @@ __all__ = ["AllocKind", "AllocSite", "AbstractObject", "FunctionObject", "Consta
            "ClassObject", "ModuleObject", "InstanceObject", "MethodObject", "BuiltinObject", "ListObject",
            "TupleObject", "DictObject", "SetObject", "BuiltinClassObject", "BuiltinInstanceObject",
            "BuiltinMethodObject", "BuiltinFunctionObject", "SuperObject", "GeneratorObject",
-           "CoroutineObject", "ObjectFactory", "truncate_context", "summarize_object", "is_summary_object"]
+           "CoroutineObject", "NativeObject", "NativeModuleObject", "ObjectFactory",
+           "truncate_context", "summarize_object", "is_summary_object"]
 
 
 class AllocKind(Enum):
@@ -44,6 +45,7 @@ class AllocKind(Enum):
     CONSTANT = "constant"
     GENERATOR = "generator"
     COROUTINE = "coroutine"
+    NATIVE = "native"
     UNKNOWN = "unknown"
 
 
@@ -151,7 +153,8 @@ class AbstractObject:
             AllocKind.FUNCTION,
             AllocKind.CLASS,
             AllocKind.BOUND_METHOD,
-            AllocKind.BUILTIN
+            AllocKind.BUILTIN,
+            AllocKind.NATIVE,
         )
     
     def get_type(self) -> 'AbstractObject':
@@ -196,6 +199,32 @@ class ModuleObject(AbstractObject):
     """Abstract imported or entry module."""
 
     ir: 'IRModule'
+
+
+@dataclass(frozen=True)
+class NativeObject(AbstractObject):
+    """Canonical object supplied by an external or native Python module."""
+
+    access_path: str
+
+    def child(self, field: str) -> "NativeObject":
+        path = f"{self.access_path}.{field}" if field else self.access_path
+        return NativeObject(
+            context=self.context,
+            alloc_site=AllocSite(f"<native:{path}>", AllocKind.NATIVE),
+            access_path=path,
+        )
+
+    def __str__(self) -> str:
+        return f"<native {self.access_path}>"
+
+
+@dataclass(frozen=True)
+class NativeModuleObject(NativeObject):
+    """Canonical root object for an import whose source is not lowered."""
+
+    def __str__(self) -> str:
+        return f"<native module {self.access_path}>"
 
 
 @dataclass(frozen=True)

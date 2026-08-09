@@ -54,6 +54,7 @@ class Config:
     log_unknown_details: bool = False
     type: str = "pointer analysis"
     index_sensitive: bool = False
+    native_effects: Optional[List[Dict]] = None
     
     # Debug monitoring options
     enable_debug_monitor: bool = False
@@ -82,6 +83,7 @@ class Config:
             track_unknowns=config_dict.get("track_unknowns", True),
             log_unknown_details=config_dict.get("log_unknown_details", False),
             index_sensitive=config_dict.get("index_sensitive", True),
+            native_effects=config_dict.get("native_effects", None),
             enable_debug_monitor=config_dict.get("enable_debug_monitor", False),
             debug_log_interval=config_dict.get("debug_log_interval", 1000),
             track_object_flow=config_dict.get("track_object_flow", False),
@@ -108,6 +110,7 @@ class Config:
             "track_unknowns": self.track_unknowns,
             "log_unknown_details": self.log_unknown_details,
             "index_sensitive": self.index_sensitive,
+            "native_effects": self.native_effects,
             "enable_debug_monitor": self.enable_debug_monitor,
             "debug_log_interval": self.debug_log_interval,
             "track_object_flow": self.track_object_flow,

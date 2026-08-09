@@ -12,9 +12,27 @@ from pyflow.analysis.ifds.modeling.registry import (
     load_registry,
     validate_rule_pack_data,
 )
+from pyflow.analysis.ifds.modeling.registry.loader import _discover_pack_paths
 
 
 class TestRegistryLoading:
+    def test_discovery_ignores_unrelated_config_json(self, tmp_path):
+        for family in ("taint", "typestate", "nullness"):
+            directory = tmp_path / family
+            directory.mkdir()
+            (directory / f"{family}.json").write_text("{}", encoding="utf-8")
+        unrelated = tmp_path / "capability"
+        unrelated.mkdir()
+        (unrelated / "stdlib.json").write_text("{}", encoding="utf-8")
+
+        discovered = _discover_pack_paths(tmp_path)
+
+        assert {path.parent.name for path in discovered} == {
+            "taint",
+            "typestate",
+            "nullness",
+        }
+
     def test_load_registry_returns_registry(self):
         r = load_registry()
         assert isinstance(r, Registry)

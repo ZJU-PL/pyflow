@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "description": "Security-relevant Python builtins, standard library, and common ecosystem APIs.",
+  "patterns": [
+    {"capability":"file.read","category":"file","operation":"call","access_paths":["builtins.open","io.open","pathlib.Path.*.open","pathlib.Path.*.read_*","os.read","os.fdopen"]},
+    {"capability":"file.write","category":"file","operation":"call","access_paths":["builtins.open","io.open","pathlib.Path.*.open","pathlib.Path.*.write_*","os.write","os.remove","os.unlink","os.rename","os.renames","os.replace","os.mkdir","os.makedirs","os.rmdir","os.removedirs","os.truncate","shutil.copy*","shutil.move","shutil.rmtree","tempfile.*"]},
+    {"capability":"file.metadata","category":"file","operation":"call","access_paths":["os.stat","os.lstat","os.fstat","os.listdir","os.scandir","os.walk","os.chmod","os.chown","glob.glob","glob.iglob","pathlib.Path.*.glob","pathlib.Path.*.rglob","pathlib.Path.*.stat","pathlib.Path.*.iterdir"]},
+    {"capability":"network.socket","category":"network","operation":"call","access_paths":["socket.socket","socket.socket.*","socket.create_connection","socket.create_server","asyncio.open_connection","asyncio.start_server","asyncio.open_unix_connection","asyncio.start_unix_server"]},
+    {"capability":"network.io","category":"network","operation":"call","access_paths":["urllib.request.urlopen","urllib.request.urlretrieve","http.client.*.request","requests.*","requests.Session.*","httpx.*","httpx.Client.*","httpx.AsyncClient.*","aiohttp.*.request","ftplib.*","smtplib.*","imaplib.*","poplib.*","telnetlib.*","websockets.*"]},
+    {"capability":"network.dns","category":"network","operation":"call","access_paths":["socket.getaddrinfo","socket.gethostbyname*","socket.gethostbyaddr","dns.*"]},
+    {"capability":"process.execute","category":"process","operation":"call","access_paths":["subprocess.*","os.system","os.popen","os.exec*","os.spawn*","os.posix_spawn*","multiprocessing.Process","multiprocessing.Pool","concurrent.futures.ProcessPoolExecutor.*"]},
+    {"capability":"process.control","category":"process","operation":"call","access_paths":["os.kill","os.killpg","signal.*","psutil.*","resource.setrlimit","os.setuid","os.setgid","os.seteuid","os.setegid"]},
+    {"capability":"code.execute","category":"code","operation":"call","runtime_guarded":true,"access_paths":["builtins.eval","builtins.exec","builtins.compile","runpy.run_*","code.InteractiveInterpreter.*","codeop.compile_command"]},
+    {"capability":"module.dynamic_import","category":"module","operation":"call","runtime_guarded":true,"access_paths":["builtins.__import__","importlib.import_module","importlib.reload","importlib.util.spec_from_*","pkgutil.resolve_name"]},
+    {"capability":"native.access","category":"native","operation":"call","access_paths":["ctypes.*","cffi.*","mmap.mmap","multiprocessing.shared_memory.*","sys.setdlopenflags"]},
+    {"capability":"deserialization.unsafe","category":"deserialization","operation":"call","access_paths":["pickle.load*","_pickle.load*","marshal.load*","shelve.open","yaml.load","yaml.unsafe_load","dill.load*","cloudpickle.load*","joblib.load","torch.load"]},
+    {"capability":"information.environment","category":"information","operation":"read","access_paths":["os.environ","os.environ.*","sys.argv","sys.argv.*"]},
+    {"capability":"information.environment","category":"information","operation":"call","access_paths":["os.getenv","os.getlogin","getpass.getuser"]},
+    {"capability":"information.system","category":"information","operation":"call","access_paths":["platform.*","socket.gethostname","os.uname","pwd.*","grp.*","uuid.getnode"]},
+    {"capability":"information.credentials","category":"information","operation":"call","access_paths":["keyring.get_password","netrc.netrc","boto3.Session.*","google.auth.*","azure.identity.*"]},
+    {"capability":"randomness.secure","category":"randomness","operation":"call","access_paths":["os.urandom","secrets.*","random.SystemRandom.*"]},
+    {"capability":"time.observe","category":"time","operation":"call","access_paths":["time.time","time.time_ns","time.monotonic*","datetime.datetime.now","datetime.datetime.utcnow"]},
+    {"capability":"application.launch","category":"application","operation":"call","access_paths":["webbrowser.open*","os.startfile"]},
+    {"capability":"module.loader_mutation","category":"module","operation":"write","access_paths":["sys.modules.*","sys.meta_path.*","sys.path_hooks.*","sys.path_importer_cache.*"]},
+    {"capability":"debug.introspection","category":"debug","operation":"call","access_paths":["sys.settrace","sys.setprofile","sys._getframe","inspect.currentframe","gc.get_objects"]}
+  ],
+  "effects": [
+    {"kind":"return_argument","arguments":[0],"access_paths":["copy.copy","copy.deepcopy","weakref.proxy","functools.partial"]},
+    {"kind":"return_argument","arguments":[1],"access_paths":["typing.cast"]},
+    {"kind":"invoke_callback","arguments":[0],"access_paths":["atexit.register","asyncio.call_soon","asyncio.AbstractEventLoop.*.call_soon"]},
+    {"kind":"invoke_callback","arguments":[1],"access_paths":["signal.signal","weakref.finalize","asyncio.call_later","asyncio.AbstractEventLoop.*.call_later"]},
+    {"kind":"spawn_callback","arguments":[0],"access_paths":["concurrent.futures.*.submit","asyncio.to_thread"]},
+    {"kind":"spawn_callback","arguments":[1],"access_paths":["asyncio.AbstractEventLoop.*.run_in_executor"]},
+    {"kind":"spawn_callback","arguments":["target"],"access_paths":["threading.Thread","multiprocessing.Process"]},
+    {"kind":"retain_argument","arguments":[0],"access_paths":["functools.lru_cache","functools.cache","functools.singledispatch"]},
+    {"kind":"serialize_argument","arguments":[0],"access_paths":["pickle.dump","pickle.dumps","dill.dump*","cloudpickle.dump*"]}
+  ]
+}

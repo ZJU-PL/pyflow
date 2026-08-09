@@ -119,15 +119,39 @@ class PointerAnalysisState:
         self._variable_factory: VariableFactory = VariableFactory()
         self._worklist: Worklist = Worklist()
         self._static_constraints: List[Tuple['Scope', 'AbstractContext', 'Constraint']] = []
+        self._constraint_definitions = []
+        self._constraint_definition_set = set()
         self._internal_scope = {}
         self.obj_scope = {}
         self.class_hierarchy = None
+        self._semantic_events = []
         
         # Debug monitoring
         self._debug_monitor = debug_monitor
 
         # Note: scope_manager is set lazily when needed
         self._scope_manager = None
+
+    @property
+    def semantic_events(self):
+        """Return the ordered semantic operations observed during solving."""
+        return tuple(self._semantic_events)
+
+    def record_semantic_event(self, event) -> None:
+        """Record a load/store/call event for downstream semantic analyses."""
+        self._semantic_events.append(event)
+
+    @property
+    def constraint_definitions(self):
+        """Return every source constraint with its defining scope/context."""
+        return tuple(self._constraint_definitions)
+
+    def record_constraint_definition(self, scope, context, constraint) -> None:
+        key = (scope, context, constraint)
+        if key in self._constraint_definition_set:
+            return
+        self._constraint_definition_set.add(key)
+        self._constraint_definitions.append(key)
     
     def set_internal_scope(self, obj, scope):
         self._internal_scope[obj] = scope

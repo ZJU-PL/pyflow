@@ -574,6 +574,14 @@ class ThreeAddressTransformer(NodeTransformer):
         return blk, tmp_l
 
     def visit_Call(self, node):
+        # Save the original location before recursively lowering children.
+        # Some generated temporary names are shared and later receive fallback
+        # locations from ``fix_missing_locations``; explicitly stamping the
+        # call instruction prevents all capability reports collapsing to line 1.
+        origin = {
+            name: getattr(node, name, None)
+            for name in ("lineno", "col_offset", "end_lineno", "end_col_offset")
+        }
         blk, args, keywords = [], [], []
         func_blk, func_elt = self.visit(node.func)
         if not (isinstance(func_elt, ast.Name)):
@@ -593,7 +601,10 @@ class ThreeAddressTransformer(NodeTransformer):
         ins = ast.Assign(
             targets=[tmp_s],
             value=ast.Call(func=func_elt, args=args, keywords=keywords))
-        ast.copy_location(ins, node)
+        for created in (ins, ins.value, tmp_s):
+            for name, value in origin.items():
+                if value is not None:
+                    setattr(created, name, value)
         blk.append(ins)
         return blk, tmp_l
 

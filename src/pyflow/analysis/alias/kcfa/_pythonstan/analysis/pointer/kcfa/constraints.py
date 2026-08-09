@@ -32,6 +32,7 @@ __all__ = [
     "StoreSubscrConstraint",
     "CallConstraint",
     "ReturnConstraint",
+    "RaiseConstraint",
     "SuperResolveConstraint",
     "YieldConstraint",
     "AwaitConstraint",
@@ -73,6 +74,7 @@ class CopyConstraint(Constraint):
     
     source: 'Variable'
     target: 'Variable'
+    site: Optional['IRStatement'] = None
     
     def variables(self) -> Set['Variable']:
         """Get variables involved."""
@@ -99,6 +101,7 @@ class LoadConstraint(Constraint):
     field: Optional['Field']
     target: 'Variable'
     index: Optional['Variable'] = None
+    site: Optional['IRStatement'] = None
     
     def variables(self) -> Set['Variable']:
         """Get variables involved."""
@@ -254,6 +257,7 @@ class LoadSubscrConstraint(Constraint):
     target: 'Variable'    
     base: 'Variable'
     index: 'Variable'
+    site: Optional['IRStatement'] = None
     
     def variables(self) -> Set['Variable']:
         """Get variables involved."""
@@ -281,6 +285,7 @@ class StoreConstraint(Constraint):
     field: Optional['Field']
     source: 'Variable'
     index: Optional['Variable'] = None
+    site: Optional['IRStatement'] = None
     
     def variables(self) -> Set['Variable']:
         """Get variables involved."""
@@ -309,6 +314,7 @@ class StoreSubscrConstraint(Constraint):
     base: 'Variable'
     index: 'Variable'
     source: 'Variable'
+    site: Optional['IRStatement'] = None
     
     def variables(self) -> Set['Variable']:
         """Get variables involved."""
@@ -402,6 +408,7 @@ class ReturnConstraint(Constraint):
     
     callee_return: 'Variable'
     caller_target: 'Variable'
+    site: Optional['IRStatement'] = None
     
     def variables(self) -> Set['Variable']:
         """Get variables involved."""
@@ -409,6 +416,23 @@ class ReturnConstraint(Constraint):
     
     def __str__(self) -> str:
         return f"ReturnConstraint: {self.caller_target} = return({self.callee_return})"
+
+
+@dataclass(frozen=True)
+class RaiseConstraint(Constraint):
+    """A value and optional cause escaping through exception propagation."""
+
+    exception: Optional['Variable']
+    cause: Optional['Variable'] = None
+    site: Optional['IRStatement'] = None
+
+    def variables(self) -> Set['Variable']:
+        return {var for var in (self.exception, self.cause) if var is not None}
+
+    def __str__(self) -> str:
+        if self.cause is not None:
+            return f"RaiseConstraint: raise {self.exception} from {self.cause}"
+        return f"RaiseConstraint: raise {self.exception}"
 
 
 @dataclass(frozen=True)
@@ -428,6 +452,7 @@ class YieldConstraint(Constraint):
     value: Optional['Variable']
     target: Optional['Variable']
     generator_var: 'Variable'
+    site: Optional['IRStatement'] = None
     
     def variables(self) -> Set['Variable']:
         """Get variables involved."""
@@ -461,6 +486,7 @@ class AwaitConstraint(Constraint):
     
     awaitable: 'Variable'
     target: Optional['Variable']
+    site: Optional['IRStatement'] = None
     
     def variables(self) -> Set['Variable']:
         """Get variables involved."""

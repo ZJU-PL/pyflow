@@ -44,6 +44,9 @@ class UnknownKind(Enum):
     MISSING_ARGUMENT = "missing_argument"
     """Missing argument"""
 
+    SOLVER_BUDGET = "solver_budget"
+    """Fixpoint solver stopped before exhausting its worklist"""
+
 
 @dataclass
 class UnknownRecord:
@@ -123,4 +126,3 @@ class UnknownTracker:
             }
             for r in self.records
         ]
-

@@ -119,7 +119,7 @@ y = b.m()
 
         assert result.points_to("y") == set()
 
-    def test_dynamic_import_remains_conservative_static_limitation(self):
+    def test_dynamic_import_produces_conservative_result_object(self):
         source = """
 name = "math"
 m = __import__(name)
@@ -127,4 +127,6 @@ y = m
 """
         result = PointerAnalysis(source, k=1).run()
 
-        assert result.points_to("y") == set()
+        # Dynamic import is a security-sensitive operation. Retaining an
+        # abstract result is safer than silently dropping the return flow.
+        assert result.points_to("y")

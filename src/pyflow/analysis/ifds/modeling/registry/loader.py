@@ -46,6 +46,7 @@ _log = logging.getLogger(__name__)
 
 # JSON rule packs live under src/pyflow/config/ — resolve relative to this file
 _REGISTRY_DIR = Path(__file__).resolve().parent.parent.parent.parent.parent / "config"
+_RULE_PACK_FAMILIES = ("taint", "typestate", "nullness")
 RULE_PACK_SCHEMA_VERSION = 2
 _SEVERITIES = {"info", "low", "medium", "high", "critical"}
 _KNOWN_TYPES = frozenset({"taint", "typestate", "nullness"})
@@ -512,21 +513,22 @@ def _parse_typestate_action_protocols(entry: dict) -> FrozenSet[tuple[str, str]]
 
 
 def _discover_pack_paths(base_dir: Path) -> list[Path]:
-    """Yield all ``.json`` pack files under *base_dir*, including subdirectories.
+    """Return JSON packs from the IFDS-owned rule-family directories only.
 
-    Subdirectories such as ``typestate/`` and ``nullness/`` are scanned
-    one level deep.  Schema files (``*.schema.json``) are excluded.
+    The shared ``pyflow/config`` tree may contain unrelated JSON schemas and
+    models. Treating every child directory as an IFDS pack makes adding any
+    other configuration format a process-wide registry failure.
     """
     paths: list[Path] = []
-    for entry in sorted(base_dir.iterdir()):
-        if entry.name.endswith(".schema.json"):
+    for family in _RULE_PACK_FAMILIES:
+        directory = base_dir / family
+        if not directory.is_dir():
             continue
-        if entry.is_dir():
-            for child in sorted(entry.glob("*.json")):
-                if not child.name.endswith(".schema.json"):
-                    paths.append(child)
-        elif entry.suffix == ".json":
-            paths.append(entry)
+        paths.extend(
+            child
+            for child in sorted(directory.glob("*.json"))
+            if not child.name.endswith(".schema.json")
+        )
     return paths
 
 

@@ -13,7 +13,7 @@ import ast
 import logging
 import tempfile
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Sequence
 
 from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.analysis import (
     AnalysisResult,
@@ -81,6 +81,20 @@ class PointerAnalysisResult:
         ]
 
     @property
+    def semantic_events(self) -> tuple[object, ...]:
+        """Return source-attributed load/store/call events from the solver."""
+        return self._state.semantic_events
+
+    @property
+    def state(self):
+        """Return the solved state for semantic analyses built on k-CFA."""
+        return self._state
+
+    def unknown_details(self) -> list[dict]:
+        """Return fail-visible unresolved-operation diagnostics."""
+        return self._query.get_unknown_details()
+
+    @property
     def raw(self) -> AnalysisResult:
         """Return the migrated backend result for advanced queries."""
         return self._inner
@@ -101,7 +115,14 @@ class PointerAnalysis:
         Context sensitivity depth for k-CFA (default 1).
     """
 
-    def __init__(self, source: str, *, k: int = 1) -> None:
+    def __init__(
+        self,
+        source: str,
+        *,
+        k: int = 1,
+        context_policy: str | None = None,
+        native_effects: Sequence[dict] = (),
+    ) -> None:
         """Configure an analysis over ``source`` with call-string depth ``k``.
 
         The source is parsed when :meth:`run` is called.  ``k=0`` gives a
@@ -110,6 +131,40 @@ class PointerAnalysis:
         """
         self._source = source
         self._k = k
+        self._context_policy = context_policy or f"{k}-cfa"
+        self._native_effects = tuple(dict(effect) for effect in native_effects)
+        self._entry_file: Path | None = None
+        self._project_path: Path | None = None
+        self._library_paths: tuple[Path, ...] = ()
+        self._import_level = -1
+
+    @classmethod
+    def from_project(
+        cls,
+        entry_file: str | Path,
+        *,
+        project_path: str | Path | None = None,
+        library_paths: Sequence[str | Path] = (),
+        k: int = 1,
+        context_policy: str | None = None,
+        native_effects: Sequence[dict] = (),
+        import_level: int = -1,
+    ) -> "PointerAnalysis":
+        """Configure analysis of a real project and its reachable imports."""
+        entry = Path(entry_file).resolve()
+        if not entry.is_file():
+            raise FileNotFoundError(entry)
+        analysis = cls(
+            entry.read_text(encoding="utf-8"),
+            k=k,
+            context_policy=context_policy,
+            native_effects=native_effects,
+        )
+        analysis._entry_file = entry
+        analysis._project_path = Path(project_path).resolve() if project_path else entry.parent
+        analysis._library_paths = tuple(Path(path).resolve() for path in library_paths)
+        analysis._import_level = import_level
+        return analysis
 
     def run(self) -> PointerAnalysisResult:
         """Execute the pointer analysis and return results.
@@ -130,20 +185,25 @@ class PointerAnalysis:
             If ``source`` is not valid Python syntax.
         """
         ast.parse(self._source)
+        if self._entry_file is not None:
+            return self._run_path(self._entry_file, self._project_path or self._entry_file.parent)
         with tempfile.TemporaryDirectory(prefix="pyflow-pointer-") as tmpdir:
             project_path = Path(tmpdir)
             entry_path = project_path / "__main__.py"
             entry_path.write_text(self._source, encoding="utf-8")
 
-            pipeline = Pipeline(
-                config={
+            return self._run_path(entry_path, project_path)
+
+    def _run_path(self, entry_path: Path, project_path: Path) -> PointerAnalysisResult:
+        pipeline = Pipeline(
+            config={
                     "filename": str(entry_path),
                     "project_path": str(project_path),
-                    "library_paths": [],
+                    "library_paths": [str(path) for path in self._library_paths],
                     "mock_libs": True,
                     "prefer_mock_libs": True,
                     "lazy_ir_construction": False,
-                    "import_level": -1,
+                    "import_level": self._import_level,
                     "time_count": False,
                     "analysis": [
                         {
@@ -155,13 +215,14 @@ class PointerAnalysis:
                             "options": {
                                 "type": "pointer analysis",
                                 "k": self._k,
-                                "context_policy": f"{self._k}-cfa",
+                                "context_policy": self._context_policy,
+                                "native_effects": list(self._native_effects),
                             },
                         }
                     ],
                 }
-            )
-            pipeline.run()
-            result = pipeline.analysis_manager.get_results("pointer-analysis")
-            state = result.query()._state
-            return PointerAnalysisResult(result, state)
+        )
+        pipeline.run()
+        result = pipeline.analysis_manager.get_results("pointer-analysis")
+        state = result.query()._state
+        return PointerAnalysisResult(result, state)

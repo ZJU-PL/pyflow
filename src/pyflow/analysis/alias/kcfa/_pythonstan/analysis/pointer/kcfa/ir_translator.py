@@ -6,6 +6,7 @@ This module translates IR events to pointer constraints for analysis.
 from typing import List, TYPE_CHECKING, Optional, Tuple, Dict, Set, Union
 import logging, ast
 from collections import defaultdict
+from dataclasses import replace
 
 from .constraints import *
 from .config import Config
@@ -231,6 +232,8 @@ class IRTranslator:
             ret = self._translate_call(stmt)
         elif isinstance(stmt, IRReturn):
             ret = self._translate_return(stmt)
+        elif isinstance(stmt, IRRaise):
+            ret = self._translate_raise(stmt)
         elif isinstance(stmt, IRLoadSubscr):
             ret = self._translate_load_subscr(stmt)
         elif isinstance(stmt, IRStoreSubscr):
@@ -248,6 +251,18 @@ class IRTranslator:
         
         for c in ret:
             assert isinstance(c, Constraint), f"Constraint is not a constraint: {type(c)}, stmt: {stmt}"
+
+        # Calls and descriptor-aware attribute operations already retain a
+        # CallSite.  The simpler Andersen constraints historically discarded
+        # their originating IR instruction, which made precise security
+        # diagnostics impossible.  Attach it centrally so constraints created
+        # by helpers and protocol lowering receive the same provenance.
+        ret = [
+            replace(c, site=stmt)
+            if hasattr(c, "site") and getattr(c, "site") is None
+            else c
+            for c in ret
+        ]
 
         return ret
     
@@ -307,6 +322,22 @@ class IRTranslator:
                 field=attr("$sent"),
                 target=target_var
             ))
+
+        constraints.append(
+            YieldConstraint(
+                value=(
+                    self._make_variable(stmt.value.id)
+                    if isinstance(stmt.value, ast.Name)
+                    else None
+                ),
+                target=(
+                    self._make_variable(stmt.target.id)
+                    if isinstance(stmt.target, ast.Name)
+                    else None
+                ),
+                generator_var=generator_var,
+            )
+        )
         
         return constraints
     
@@ -663,6 +694,20 @@ class IRTranslator:
         constraints.append(CopyConstraint(source=source_var, target=return_var))
         
         return constraints
+
+    def _translate_raise(self, stmt: IRRaise) -> List['Constraint']:
+        """Retain exception and cause values as explicit boundary constraints."""
+        exception = (
+            self._make_variable(stmt.exc.id)
+            if isinstance(stmt.exc, ast.Name)
+            else None
+        )
+        cause = (
+            self._make_variable(stmt.cause.id)
+            if isinstance(stmt.cause, ast.Name)
+            else None
+        )
+        return [RaiseConstraint(exception=exception, cause=cause)]
     
     def _translate_load_subscr(self, stmt: IRLoadSubscr) -> List['Constraint']:        
         """Translate IRLoadSubscr: target = container[index]"""
@@ -980,7 +1025,10 @@ class IRTranslator:
         # translate the IRs in the imported module
         module_ir = self.scope_manager.get_module_graph().get_succ_module(self._current_scope, stmt)
         if module_ir is None:
-            alloc_site = AllocSite.from_ir_node(stmt, AllocKind.UNKNOWN)
+            # Preserve the import's canonical identity even when source is not
+            # available. Anonymous UNKNOWN objects make external APIs vanish
+            # after aliases and field loads.
+            alloc_site = AllocSite.from_ir_node(stmt, AllocKind.NATIVE)
         else:
             alloc_site = AllocSite.from_ir_node(stmt, AllocKind.MODULE)
 

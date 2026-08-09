@@ -6,6 +6,7 @@ constraint-based propagation.
 
 import ast
 import logging
+from fnmatch import fnmatchcase
 from typing import Set, Dict, Any, TYPE_CHECKING, Optional, List, Tuple
 
 from pyflow.analysis.alias.kcfa._pythonstan.ir.ir_statements import IRFunc, IRModule, IRClass, IRAssign, IRStoreSubscr
@@ -27,6 +28,7 @@ from .solver_interface import ISolverQuery
 from .pointer_flow_graph import PointerFlowGraph, PointerFlowEdge, PointerFlowNode, NormalNode, GuardNode, SelectorNode, PointerFlowKind
 from .debug_monitor import DebugMonitor
 from .processor import Processor
+from .events import PointerEvent, PointerEventKind
 
 __all__ = ["PointerSolver", "SolverQuery"]
 
@@ -90,7 +92,8 @@ class PointerSolver:
         "object", "str", "int", "float", "bool", "bytes",
         "isinstance", "issubclass", "type", "hasattr", "getattr", "setattr",
         "delattr", "vars", "callable",
-        "super", "print", "input", "open"
+        "super", "print", "input", "open", "eval", "exec", "compile",
+        "__import__"
     ]
 
     def initialize_builtins(self, scope: 'Scope', context: 'AbstractContext') -> None:
@@ -114,6 +117,7 @@ class PointerSolver:
         self._modules = set()
     
     def add_constraint(self, scope: 'Scope', context: 'AbstractContext', constraint: 'Constraint') -> None:
+        self.state.record_constraint_definition(scope, context, constraint)
         self.processor.handle_new_constraint(self, scope, constraint)
 
         if isinstance(constraint, CopyConstraint):
@@ -185,6 +189,13 @@ class PointerSolver:
                 logger.warning(f"Reached max iterations {max_iter}")
         
         self._stats["iterations"] = self._iteration
+        if (not self.state._worklist.empty()) or self.state._static_constraints:
+            self._unknown_tracker.record(
+                UnknownKind.SOLVER_BUDGET,
+                "<solver>",
+                f"fixpoint not reached after {self.config.max_iterations} iterations",
+            )
+        self._record_empty_callees()
         logger.info(f"Processed {len(self._modules)} modules: {self._modules}")
         logger.info(f"Call Constraints: {len(self.state.constraints.get_by_type(CallConstraint))}")
         abs_nodes = set([node.stmt.get_qualname() for node in self.state._call_graph.get_nodes()])
@@ -192,6 +203,26 @@ class PointerSolver:
         logger.info(f"    absolute nodes: { len(abs_nodes) } absolute edges: { self.state._call_graph.num_plain_edges() }")
         logger.info(f"Pointer flow graph: {self.state._pointer_flow_graph} node: {len(self.state._pointer_flow_graph.get_nodes())} edge: {len(self.state._pointer_flow_graph.get_edges())}")                
         logger.info(f"Converged after {self._iteration} iterations")
+
+    def _record_empty_callees(self) -> None:
+        """Make unresolved calls fail-visible after the points-to fixpoint."""
+        seen = set()
+        for scope, constraint in self.state.constraints.all():
+            if not isinstance(constraint, CallConstraint):
+                continue
+            callee = self.state.get_variable(scope, scope.context, constraint.callee)
+            if not self.state.get_points_to(callee).is_empty():
+                continue
+            key = (scope, constraint)
+            if key in seen:
+                continue
+            seen.add(key)
+            self._unknown_tracker.record(
+                UnknownKind.CALLEE_EMPTY,
+                str(constraint.call_site),
+                f"call target has an empty points-to set: {constraint.callee}",
+                context=str(scope.context),
+            )
         
     def __iter__(self):
         self._reset()
@@ -294,6 +325,9 @@ class PointerSolver:
         
         elif c.alloc_site.kind == AllocKind.MODULE:
             obj = self._alloc_module(scope, context, c)
+
+        elif c.alloc_site.kind == AllocKind.NATIVE:
+            obj = self._alloc_native_module(context, c)
         
         elif c.alloc_site.kind == AllocKind.CONSTANT and self.config.index_sensitive:
             obj = self._alloc_constant(scope, context, c)
@@ -328,6 +362,25 @@ class PointerSolver:
                 )
             self.state.obj_scope[obj] = scope
             self.handle_new_points_to(target, scope, pts)
+
+    @staticmethod
+    def _native_import_path(stmt) -> str:
+        module = getattr(stmt, "module", None)
+        name = getattr(stmt, "name", "")
+        if module is None:
+            return name
+        return module or name
+
+    def _alloc_native_module(
+        self,
+        context: 'AbstractContext',
+        c: 'AllocConstraint',
+    ) -> 'NativeModuleObject':
+        return NativeModuleObject(
+            context=context,
+            alloc_site=c.alloc_site,
+            access_path=self._native_import_path(c.alloc_site.stmt),
+        )
     
     def handle_new_points_to(self, target: 'Ctx[Any]', scope: 'Scope', pts: 'PointsToSet') -> None:
         if not self.processor.handle_new_points_to(self, target, scope, pts):
@@ -617,6 +670,23 @@ class PointerSolver:
         target_var = self.state.get_variable(scope, context, c.target)
         
         for base_obj in pts:
+            self.state.record_semantic_event(
+                PointerEvent(PointerEventKind.LOAD, scope, context, c, base_obj)
+            )
+
+            if isinstance(base_obj, NativeObject):
+                if c.field is None:
+                    child_name = "*"
+                elif c.field.kind in (FieldKind.ATTRIBUTE, FieldKind.KEY):
+                    child_name = c.field.name or "*"
+                else:
+                    child_name = "*"
+                child = base_obj.child(child_name)
+                self.state._worklist.add(
+                    (scope, NormalNode(target_var), PointsToSet.singleton(child))
+                )
+                continue
+
             # Special handling for module imports: from module import name
             # Instead of using field access, directly copy from module's variable
             if isinstance(base_obj, ModuleObject) and c.field and c.field.kind == FieldKind.ATTRIBUTE:
@@ -676,11 +746,15 @@ class PointerSolver:
         source_var = self.state.get_variable(scope, context, c.source)
 
         for base_obj in pts:
+            self.state.record_semantic_event(
+                PointerEvent(PointerEventKind.STORE, scope, context, c, base_obj)
+            )
             field_access = self.state.get_field(scope, context, base_obj, c.field)
             self.state._add_var_points_flow(source_var, field_access)
     
     def _apply_call(self, scope: 'Scope', variable: 'Ctx', c: 'CallConstraint', pts: 'PointsToSet') -> bool:
         """Apply call constraint: target = callee(args...)."""
+        context = scope.context
         # logger.info(f"Applying call constraint: {c.call_site} -> {pts}")
         
         # Debug monitoring: record call constraint processing
@@ -703,8 +777,14 @@ class PointerSolver:
          
         changed = False
         for callee_obj in pts:
+            self.state.record_semantic_event(
+                PointerEvent(PointerEventKind.CALL, scope, context, c, callee_obj)
+            )
+            self._apply_configured_return_effects(scope, context, c, callee_obj)
             # logger.info(f"Handling function call: {c.call_site} -> {callee_obj.alloc_site.stmt}\n    {type(callee_obj)} {type(callee_obj.alloc_site.stmt)}")
-            if self.processor.handle_call(self, variable, scope, c, callee_obj):
+            if isinstance(callee_obj, NativeObject):
+                changed = self._handle_native_call(scope, context, c, callee_obj)
+            elif self.processor.handle_call(self, variable, scope, c, callee_obj):
                 changed = True                    
             elif callee_obj.kind == AllocKind.FUNCTION:
                 changed = self._handle_function_call(scope, context, c, callee_obj)
@@ -754,6 +834,95 @@ class PointerSolver:
                 '''
         
         return changed
+
+    def _handle_native_call(
+        self,
+        scope: 'Scope',
+        context: 'AbstractContext',
+        call: 'CallConstraint',
+        callee_obj: 'NativeObject',
+    ) -> bool:
+        """Model an unanalyzed native call while preserving its result flow."""
+        if call.target is None:
+            return True
+        target = self.state.get_variable(scope, context, call.target)
+        result_path = f"{callee_obj.access_path}.<return>"
+        result = NativeObject(
+            context=context,
+            alloc_site=AllocSite(f"<native:{result_path}>", AllocKind.NATIVE),
+            access_path=result_path,
+        )
+        self.state._worklist.add(
+            (scope, NormalNode(target), PointsToSet.singleton(result))
+        )
+        return True
+
+    def _apply_configured_return_effects(
+        self,
+        scope: 'Scope',
+        context: 'AbstractContext',
+        call: 'CallConstraint',
+        callee_obj: 'AbstractObject',
+    ) -> None:
+        if call.target is None:
+            return
+        access_path = self._configured_access_path(callee_obj)
+        if access_path is None:
+            return
+        target = self.state.get_variable(scope, context, call.target)
+        for effect in self.config.native_effects or ():
+            if not fnmatchcase(access_path, effect.get("access_path", "")):
+                continue
+            kind = effect.get("kind")
+            if kind == "return_argument":
+                for argument in self._native_effect_variables(call, effect):
+                    source = self.state.get_variable(scope, context, argument)
+                    self.state._add_var_points_flow(source, target)
+            elif kind == "return_receiver":
+                receiver = self._configured_receiver(callee_obj, context)
+                if receiver is not None:
+                    self.state._worklist.add(
+                        (scope, NormalNode(target), PointsToSet.singleton(receiver))
+                    )
+
+    @staticmethod
+    def _configured_access_path(callee_obj: 'AbstractObject') -> str | None:
+        if isinstance(callee_obj, NativeObject):
+            return callee_obj.access_path
+        if isinstance(callee_obj, FunctionObject):
+            module = getattr(callee_obj.container_scope, "module", None)
+            filename = str(getattr(getattr(module, "stmt", None), "filename", ""))
+            if "/stubs/" in filename or "\\stubs\\" in filename:
+                return callee_obj.ir.get_qualname()
+        return None
+
+    @staticmethod
+    def _configured_receiver(callee_obj, context):
+        if isinstance(callee_obj, MethodObject) and callee_obj.instance_obj is not None:
+            return callee_obj.instance_obj
+        if isinstance(callee_obj, NativeObject) and "." in callee_obj.access_path:
+            receiver_path = callee_obj.access_path.rsplit(".", 1)[0]
+            return NativeObject(
+                context=context,
+                alloc_site=AllocSite(f"<native:{receiver_path}>", AllocKind.NATIVE),
+                access_path=receiver_path,
+            )
+        return None
+
+    @staticmethod
+    def _native_effect_variables(call: 'CallConstraint', effect: dict):
+        """Resolve positional, keyword, and wildcard effect selectors."""
+        selected = []
+        keyword_map = dict(call.kwargs)
+        for selector in effect.get("arguments", ()):
+            if selector == "*":
+                selected.extend(call.args)
+                selected.extend(keyword_map.values())
+            elif isinstance(selector, int) and 0 <= selector < len(call.args):
+                selected.append(call.args[selector])
+            elif isinstance(selector, str) and selector in keyword_map:
+                selected.append(keyword_map[selector])
+        return tuple(selected)
  
     def _handle_class_instantiation(self, scope: 'Scope', context: 'AbstractContext', call: 'CallConstraint', class_obj: 'AbstractObject') -> bool:
         """Handle class instantiation: call __new__, then __init__ conditionally."""
